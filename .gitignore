@@ -2,6 +2,7 @@
 *~
 *\#
 .tramp_history
+*.parquet
 
 # vim cache files
 *.swp
@@ -9,6 +10,9 @@
 # auto generated files
 *.logrt
 
+test_main
+/buildlib
+/builddbg
 /build
 /build_*
 /build-*

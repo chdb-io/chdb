@@ -10,6 +10,7 @@
 #include <Core/ExternalTable.h>
 #include <Poco/Util/Application.h>
 #include <Interpreters/Context.h>
+#include <IO/BufferBase.h>
 #include <Client/Suggest.h>
 #include <Client/QueryFuzzer.h>
 #include <boost/program_options.hpp>
@@ -71,6 +72,14 @@ public:
     ~ClientBase() override;
 
     void init(int argc, char ** argv);
+
+    std::shared_ptr<std::vector<char>> getQueryOutputVector() const
+    {
+        //get Buffer and convert to vector
+        // auto buf = query_result_buf->buffer();
+        // std::vector<char> vec(buf.begin(), buf.end());
+        return query_result_memory;
+    }
 
     std::vector<String> getAllRegisteredNames() const override { return cmd_options; }
 
@@ -238,6 +247,11 @@ protected:
     /// Console output.
     WriteBufferFromFileDescriptor std_out{STDOUT_FILENO};
     std::unique_ptr<ShellCommand> pager_cmd;
+
+    /// Output Buffer for query results.
+    // PODArray<char> query_result_memory;
+    std::shared_ptr<std::vector<char>> query_result_memory;
+    std::shared_ptr<WriteBuffer> query_result_buf;
 
     /// The user can specify to redirect query output to a file.
     std::unique_ptr<WriteBuffer> out_file_buf;
