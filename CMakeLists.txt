@@ -310,14 +310,26 @@ if (COMPILER_CLANG)
         set(COMPILER_FLAGS "${COMPILER_FLAGS} ${BRANCHES_WITHIN_32B_BOUNDARIES}")
     endif()
 
-    if (WITH_COVERAGE)
-        set(COMPILER_FLAGS "${COMPILER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
-        # If we want to disable coverage for specific translation units
-        set(WITHOUT_COVERAGE "-fno-profile-instr-generate -fno-coverage-mapping")
-    endif()
+if (COMPILER_GCC)
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines")
 endif ()
 
-set (COMPILER_FLAGS "${COMPILER_FLAGS}")
+# Compiler-specific coverage flags e.g. -fcoverage-mapping for gcc
+option(WITH_COVERAGE "Profile the resulting binary/binaries" OFF)
+
+if (WITH_COVERAGE AND COMPILER_CLANG)
+    set(COMPILER_FLAGS "${COMPILER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+    # If we want to disable coverage for specific translation units
+    set(WITHOUT_COVERAGE "-fno-profile-instr-generate -fno-coverage-mapping")
+endif()
+
+if (WITH_COVERAGE AND COMPILER_GCC)
+    set(COMPILER_FLAGS "${COMPILER_FLAGS} -fprofile-arcs -ftest-coverage")
+    set(COVERAGE_OPTION "-lgcov")
+    set(WITHOUT_COVERAGE "-fno-profile-arcs -fno-test-coverage")
+endif()
+
+set (COMPILER_FLAGS "${COMPILER_FLAGS} -fPIC")
 
 # Our built-in unwinder only supports DWARF version up to 4.
 set (DEBUG_INFO_FLAGS "-g -gdwarf-4")
