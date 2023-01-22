@@ -925,30 +925,88 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 
-int mainEntryClickHouseLocal(int argc, char ** argv)
+extern "C" {
+struct local_result
 {
+    char * buf;
+    size_t len;
+};
+
+local_result * query_stable(int argc, char ** argv);
+void free_result(local_result * result);
+}
+
+std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
+{
+    std::cerr << "argc = " << argc << std::endl;
+    std::cerr << "argv = " << argv << std::endl;
+    //print all args
+    for (int i = 0; i < argc; ++i)
+    {
+        std::cerr << argv[i] << " " << std::endl;
+    }
+
     try
     {
         DB::LocalServer app;
         app.init(argc, argv);
-        return app.run();
+        int ret = app.run();
+        if (ret == 0)
+        {
+            auto buf = app.getQueryOutputVector();
+
+            // std::cerr << std::string(out->begin(), out->end()) << std::endl;
+            return buf;
+        }
+        else
+        {
+            return nullptr;
+        }
     }
     catch (const DB::Exception & e)
     {
-        std::cerr << DB::getExceptionMessage(e, false) << std::endl;
-        auto code = DB::getCurrentExceptionCode();
-        return code ? code : 1;
+        // wrap the error message into a new std::exception
+        throw std::domain_error(DB::getExceptionMessage(e, false));
     }
     catch (const boost::program_options::error & e)
     {
-        std::cerr << "Bad arguments: " << e.what() << std::endl;
-        return DB::ErrorCodes::BAD_ARGUMENTS;
+        throw std::invalid_argument("Bad arguments: " + std::string(e.what()));
     }
     catch (...)
     {
-        std::cerr << DB::getCurrentExceptionMessage(true) << '\n';
-        auto code = DB::getCurrentExceptionCode();
-        return code ? code : 1;
+        throw std::domain_error(DB::getCurrentExceptionMessage(true));
+    }
+}
+
+// todo fix the memory leak
+local_result * query_stable(int argc, char ** argv)
+{
+    std::shared_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    local_result * res = new local_result;
+    res->buf = reinterpret_cast<char *>(malloc(result->size()));
+    memcpy(res->buf, result->data(), result->size());
+    res->len = result->size();
+    return res;
+}
+
+void free_result(local_result * result)
+{
+    free(result->buf);
+    delete result;
+}
+
+
+int mainEntryClickHouseLocal(int argc, char ** argv)
+{
+    auto buf = pyEntryClickHouseLocal(argc, argv);
+    if (buf)
+    {
+        std::cout << std::string(buf->begin(), buf->end()) << std::endl;
+        return 0;
+    }
+    else
+    {
+        return 1;
     }
 }
 
