@@ -1,54 +1,54 @@
 #include "LocalServer.h"
 
-#include <Poco/Util/XMLConfiguration.h>
-#include <Poco/String.h>
-#include <Poco/Logger.h>
-#include <Poco/NullChannel.h>
-#include <Poco/SimpleFileChannel.h>
+#include <filesystem>
+#include <Access/AccessControl.h>
+#include <AggregateFunctions/registerAggregateFunctions.h>
 #include <Databases/DatabaseMemory.h>
-#include <Storages/System/attachSystemTables.h>
-#include <Storages/System/attachInformationSchemaTables.h>
+#include <Dictionaries/registerDictionaries.h>
+#include <Disks/registerDisks.h>
+#include <Formats/FormatFactory.h>
+#include <Formats/registerFormats.h>
+#include <Functions/UserDefined/IUserDefinedSQLObjectsLoader.h>
+#include <Functions/registerFunctions.h>
+#include <IO/IOThreadPool.h>
+#include <IO/ReadBufferFromFile.h>
+#include <IO/ReadBufferFromString.h>
+#include <IO/UseSSL.h>
+#include <IO/WriteBufferFromFileDescriptor.h>
 #include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/JIT/CompiledExpressionCache.h>
 #include <Interpreters/ProcessList.h>
-#include <Interpreters/loadMetadata.h>
-#include <base/getFQDNOrHostName.h>
-#include <Common/scope_guard_safe.h>
 #include <Interpreters/Session.h>
-#include <Access/AccessControl.h>
-#include <Common/Exception.h>
-#include <Common/Macros.h>
-#include <Common/Config/ConfigProcessor.h>
-#include <Common/ThreadStatus.h>
-#include <Common/TLDListsHolder.h>
-#include <Common/quoteString.h>
-#include <Common/randomSeed.h>
+#include <Interpreters/loadMetadata.h>
 #include <Loggers/Loggers.h>
-#include <IO/ReadBufferFromFile.h>
-#include <IO/ReadBufferFromString.h>
-#include <IO/WriteBufferFromFileDescriptor.h>
-#include <IO/UseSSL.h>
-#include <IO/IOThreadPool.h>
-#include <Parsers/IAST.h>
 #include <Parsers/ASTInsertQuery.h>
-#include <Common/ErrorHandlers.h>
-#include <Functions/UserDefined/IUserDefinedSQLObjectsLoader.h>
-#include <Functions/registerFunctions.h>
-#include <AggregateFunctions/registerAggregateFunctions.h>
-#include <TableFunctions/registerTableFunctions.h>
-#include <Storages/registerStorages.h>
+#include <Parsers/IAST.h>
 #include <Storages/NamedCollectionUtils.h>
-#include <Dictionaries/registerDictionaries.h>
-#include <Disks/registerDisks.h>
-#include <Formats/registerFormats.h>
-#include <Formats/FormatFactory.h>
+#include <Storages/System/attachInformationSchemaTables.h>
+#include <Storages/System/attachSystemTables.h>
+#include <Storages/registerStorages.h>
+#include <TableFunctions/registerTableFunctions.h>
+#include <base/argsToConfig.h>
+#include <base/getFQDNOrHostName.h>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/program_options/options_description.hpp>
-#include <base/argsToConfig.h>
-#include <filesystem>
+#include <Poco/Logger.h>
+#include <Poco/NullChannel.h>
+#include <Poco/SimpleFileChannel.h>
+#include <Poco/String.h>
+#include <Poco/Util/XMLConfiguration.h>
+#include <Common/Config/ConfigProcessor.h>
+#include <Common/ErrorHandlers.h>
+#include <Common/Exception.h>
+#include <Common/Macros.h>
+#include <Common/TLDListsHolder.h>
+#include <Common/ThreadStatus.h>
+#include <Common/quoteString.h>
+#include <Common/randomSeed.h>
+#include <Common/scope_guard_safe.h>
 
 #if defined(FUZZING_MODE)
-    #include <Functions/getFuzzerData.h>
+#    include <Functions/getFuzzerData.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -112,8 +112,7 @@ void LocalServer::initialize(Poco::Util::Application & self)
     GlobalThreadPool::initialize(
         config().getUInt("max_thread_pool_size", 10000),
         config().getUInt("max_thread_pool_free_size", 1000),
-        config().getUInt("thread_pool_queue_size", 10000)
-    );
+        config().getUInt("thread_pool_queue_size", 10000));
 
     IOThreadPool::initialize(
         config().getUInt("max_io_thread_pool_size", 100),
@@ -150,7 +149,8 @@ void LocalServer::tryInitPath()
 
         if (path.empty())
         {
-            throw Exception(ErrorCodes::BAD_ARGUMENTS,
+            throw Exception(
+                ErrorCodes::BAD_ARGUMENTS,
                 "Cannot work with empty storage path that is explicitly specified"
                 " by the --path option. Please check the program options and"
                 " correct the --path.");
@@ -168,9 +168,8 @@ void LocalServer::tryInitPath()
         {
             // try to guess a tmp folder name, and check if it's a directory (throw exception otherwise)
             parent_folder = std::filesystem::temp_directory_path();
-
         }
-        catch (const fs::filesystem_error& e)
+        catch (const fs::filesystem_error & e)
         {
             // tmp folder don't exists? misconfiguration? chroot?
             LOG_DEBUG(log, "Can not get temporary folder: {}", e.what());
@@ -188,7 +187,8 @@ void LocalServer::tryInitPath()
         default_path = parent_folder / fmt::format("clickhouse-local-{}-{}-{}", getpid(), time(nullptr), randomSeed());
 
         if (exists(default_path))
-            throw Exception(ErrorCodes::FILE_ALREADY_EXISTS, "Unsuccessful attempt to create working directory: {} exist!", default_path.string());
+            throw Exception(
+                ErrorCodes::FILE_ALREADY_EXISTS, "Unsuccessful attempt to create working directory: {} exist!", default_path.string());
 
         create_directory(default_path);
         temporary_directory_to_delete = default_path;
@@ -261,7 +261,8 @@ static bool checkIfStdinIsRegularFile()
 
 std::string LocalServer::getInitialCreateTableQuery()
 {
-    if (!config().has("table-structure") && !config().has("table-file") && !config().has("table-data-format") && (!checkIfStdinIsRegularFile() || !config().has("query")))
+    if (!config().has("table-structure") && !config().has("table-file") && !config().has("table-data-format")
+        && (!checkIfStdinIsRegularFile() || !config().has("query")))
         return {};
 
     auto table_name = backQuoteIfNeed(config().getString("table-name", "table"));
@@ -283,8 +284,8 @@ std::string LocalServer::getInitialCreateTableQuery()
         format_from_file_name = FormatFactory::instance().getFormatFromFileName(file_name, false);
     }
 
-    auto data_format = backQuoteIfNeed(
-        config().getString("table-data-format", config().getString("format", format_from_file_name.empty() ? "TSV" : format_from_file_name)));
+    auto data_format = backQuoteIfNeed(config().getString(
+        "table-data-format", config().getString("format", format_from_file_name.empty() ? "TSV" : format_from_file_name)));
 
 
     if (table_structure == "auto")
@@ -292,14 +293,13 @@ std::string LocalServer::getInitialCreateTableQuery()
     else
         table_structure = "(" + table_structure + ")";
 
-    return fmt::format("CREATE TABLE {} {} ENGINE = File({}, {});",
-                       table_name, table_structure, data_format, table_file);
+    return fmt::format("CREATE TABLE {} {} ENGINE = File({}, {});", table_name, table_structure, data_format, table_file);
 }
 
 
 static ConfigurationPtr getConfigurationFromXMLString(const char * xml_data)
 {
-    std::stringstream ss{std::string{xml_data}};    // STYLE_CHECK_ALLOW_STD_STRING_STREAM
+    std::stringstream ss{std::string{xml_data}}; // STYLE_CHECK_ALLOW_STD_STRING_STREAM
     Poco::XML::InputSource input_source{ss};
     return {new Poco::Util::XMLConfiguration{&input_source}};
 }
@@ -307,25 +307,24 @@ static ConfigurationPtr getConfigurationFromXMLString(const char * xml_data)
 
 void LocalServer::setupUsers()
 {
-    static const char * minimal_default_user_xml =
-        "<clickhouse>"
-        "    <profiles>"
-        "        <default></default>"
-        "    </profiles>"
-        "    <users>"
-        "        <default>"
-        "            <password></password>"
-        "            <networks>"
-        "                <ip>::/0</ip>"
-        "            </networks>"
-        "            <profile>default</profile>"
-        "            <quota>default</quota>"
-        "        </default>"
-        "    </users>"
-        "    <quotas>"
-        "        <default></default>"
-        "    </quotas>"
-        "</clickhouse>";
+    static const char * minimal_default_user_xml = "<clickhouse>"
+                                                   "    <profiles>"
+                                                   "        <default></default>"
+                                                   "    </profiles>"
+                                                   "    <users>"
+                                                   "        <default>"
+                                                   "            <password></password>"
+                                                   "            <networks>"
+                                                   "                <ip>::/0</ip>"
+                                                   "            </networks>"
+                                                   "            <profile>default</profile>"
+                                                   "            <quota>default</quota>"
+                                                   "        </default>"
+                                                   "    </users>"
+                                                   "    <quotas>"
+                                                   "        <default></default>"
+                                                   "    </quotas>"
+                                                   "</clickhouse>";
 
     ConfigurationPtr users_config;
     auto & access_control = global_context->getAccessControl();
@@ -387,53 +386,58 @@ try
     static bool first_time = true;
     if (first_time)
     {
+        if (queries_files.empty() && !config().has("query"))
+        {
+            std::cerr << "\033[31m"
+                      << "ClickHouse compiled in fuzzing mode."
+                      << "\033[0m" << std::endl;
+            std::cerr << "\033[31m"
+                      << "You have to provide a query with --query or --queries-file option."
+                      << "\033[0m" << std::endl;
+            std::cerr << "\033[31m"
+                      << "The query have to use function getFuzzerData() inside."
+                      << "\033[0m" << std::endl;
+            exit(1);
+        }
 
-    if (queries_files.empty() && !config().has("query"))
-    {
-        std::cerr << "\033[31m" << "ClickHouse compiled in fuzzing mode." << "\033[0m" << std::endl;
-        std::cerr << "\033[31m" << "You have to provide a query with --query or --queries-file option." << "\033[0m" << std::endl;
-        std::cerr << "\033[31m" << "The query have to use function getFuzzerData() inside." << "\033[0m" << std::endl;
-        exit(1);
-    }
-
-    is_interactive = false;
+        is_interactive = false;
 #else
     is_interactive = stdin_is_a_tty
         && (config().hasOption("interactive")
             || (!config().has("query") && !config().has("table-structure") && queries_files.empty() && !config().has("table-file")));
 #endif
-    if (!is_interactive)
-    {
-        /// We will terminate process on error
-        static KillingErrorHandler error_handler;
-        Poco::ErrorHandler::set(&error_handler);
-    }
+        if (!is_interactive)
+        {
+            /// We will terminate process on error
+            static KillingErrorHandler error_handler;
+            Poco::ErrorHandler::set(&error_handler);
+        }
 
-    /// Don't initialize DateLUT
-    registerFunctions();
-    registerAggregateFunctions();
-    registerTableFunctions();
-    registerStorages();
-    registerDictionaries();
-    registerDisks(/* global_skip_access_check= */ true);
-    registerFormats();
+        /// Don't initialize DateLUT
+        registerFunctions();
+        registerAggregateFunctions();
+        registerTableFunctions();
+        registerStorages();
+        registerDictionaries();
+        registerDisks(/* global_skip_access_check= */ true);
+        registerFormats();
 
-    processConfig();
-    initTtyBuffer(toProgressOption(config().getString("progress", "default")));
+        processConfig();
+        initTtyBuffer(toProgressOption(config().getString("progress", "default")));
 
-    applyCmdSettings(global_context);
+        applyCmdSettings(global_context);
 
-    if (is_interactive)
-    {
-        clearTerminal();
-        showClientVersion();
-        std::cerr << std::endl;
-    }
+        if (is_interactive)
+        {
+            clearTerminal();
+            showClientVersion();
+            std::cerr << std::endl;
+        }
 
-    connect();
+        connect();
 
 #ifdef FUZZING_MODE
-    first_time = false;
+        first_time = false;
     }
 #endif
 
@@ -504,11 +508,9 @@ void LocalServer::processConfig()
     print_stack_trace = config().getBool("stacktrace", false);
     load_suggestions = (is_interactive || delayed_interactive) && !config().getBool("disable_suggestion", false);
 
-    auto logging = (config().has("logger.console")
-                    || config().has("logger.level")
-                    || config().has("log-level")
-                    || config().has("send_logs_level")
-                    || config().has("logger.log"));
+    auto logging
+        = (config().has("logger.console") || config().has("logger.level") || config().has("log-level") || config().has("send_logs_level")
+           || config().has("logger.log"));
 
     auto level = config().getString("log-level", "trace");
 
@@ -558,8 +560,8 @@ void LocalServer::processConfig()
     }
     else
     {
-        insert_format_max_block_size = config().getUInt64("insert_format_max_block_size",
-            global_context->getSettingsRef().max_insert_block_size);
+        insert_format_max_block_size
+            = config().getUInt64("insert_format_max_block_size", global_context->getSettingsRef().max_insert_block_size);
     }
 
     /// Sets external authenticators config (LDAP, Kerberos).
@@ -594,7 +596,7 @@ void LocalServer::processConfig()
         global_context->setIndexMarkCache(index_mark_cache_size);
 
     /// A cache for mmapped files.
-    size_t mmap_cache_size = config().getUInt64("mmap_cache_size", 1000);   /// The choice of default is arbitrary.
+    size_t mmap_cache_size = config().getUInt64("mmap_cache_size", 1000); /// The choice of default is arbitrary.
     if (mmap_cache_size)
         global_context->setMMappedFileCache(mmap_cache_size);
 
@@ -637,7 +639,8 @@ void LocalServer::processConfig()
         loadMetadataSystem(global_context);
         attachSystemTablesLocal(global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::SYSTEM_DATABASE));
         attachInformationSchema(global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::INFORMATION_SCHEMA));
-        attachInformationSchema(global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::INFORMATION_SCHEMA_UPPERCASE));
+        attachInformationSchema(
+            global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::INFORMATION_SCHEMA_UPPERCASE));
         startupSystemTables();
 
         if (!config().has("only-system-tables"))
@@ -655,7 +658,8 @@ void LocalServer::processConfig()
     {
         attachSystemTablesLocal(global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::SYSTEM_DATABASE));
         attachInformationSchema(global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::INFORMATION_SCHEMA));
-        attachInformationSchema(global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::INFORMATION_SCHEMA_UPPERCASE));
+        attachInformationSchema(
+            global_context, *createMemoryDatabaseIfNotExists(global_context, DatabaseCatalog::INFORMATION_SCHEMA_UPPERCASE));
     }
 
     server_display_name = config().getString("display_name", getFQDNOrHostName());
@@ -670,45 +674,42 @@ void LocalServer::processConfig()
 }
 
 
-[[ maybe_unused ]] static std::string getHelpHeader()
+[[maybe_unused]] static std::string getHelpHeader()
 {
-    return
-        "usage: clickhouse-local [initial table definition] [--query <query>]\n"
+    return "usage: clickhouse-local [initial table definition] [--query <query>]\n"
 
-        "clickhouse-local allows to execute SQL queries on your data files via single command line call."
-        " To do so, initially you need to define your data source and its format."
-        " After you can execute your SQL queries in usual manner.\n"
+           "clickhouse-local allows to execute SQL queries on your data files via single command line call."
+           " To do so, initially you need to define your data source and its format."
+           " After you can execute your SQL queries in usual manner.\n"
 
-        "There are two ways to define initial table keeping your data."
-        " Either just in first query like this:\n"
-        "    CREATE TABLE <table> (<structure>) ENGINE = File(<input-format>, <file>);\n"
-        "Either through corresponding command line parameters --table --structure --input-format and --file.";
+           "There are two ways to define initial table keeping your data."
+           " Either just in first query like this:\n"
+           "    CREATE TABLE <table> (<structure>) ENGINE = File(<input-format>, <file>);\n"
+           "Either through corresponding command line parameters --table --structure --input-format and --file.";
 }
 
 
-[[ maybe_unused ]] static std::string getHelpFooter()
+[[maybe_unused]] static std::string getHelpFooter()
 {
-    return
-        "Example printing memory used by each Unix user:\n"
-        "ps aux | tail -n +2 | awk '{ printf(\"%s\\t%s\\n\", $1, $4) }' | "
-        "clickhouse-local -S \"user String, mem Float64\" -q"
-            " \"SELECT user, round(sum(mem), 2) as mem_total FROM table GROUP BY user ORDER"
-            " BY mem_total DESC FORMAT PrettyCompact\"";
+    return "Example printing memory used by each Unix user:\n"
+           "ps aux | tail -n +2 | awk '{ printf(\"%s\\t%s\\n\", $1, $4) }' | "
+           "clickhouse-local -S \"user String, mem Float64\" -q"
+           " \"SELECT user, round(sum(mem), 2) as mem_total FROM table GROUP BY user ORDER"
+           " BY mem_total DESC FORMAT PrettyCompact\"";
 }
 
 
 void LocalServer::printHelpMessage([[maybe_unused]] const OptionsDescription & options_description)
 {
 #if defined(FUZZING_MODE)
-    std::cout <<
-        "usage: clickhouse <clickhouse-local arguments> -- <libfuzzer arguments>\n"
-        "Note: It is important not to use only one letter keys with single dash for \n"
-        "for clickhouse-local arguments. It may work incorrectly.\n"
+    std::cout << "usage: clickhouse <clickhouse-local arguments> -- <libfuzzer arguments>\n"
+                 "Note: It is important not to use only one letter keys with single dash for \n"
+                 "for clickhouse-local arguments. It may work incorrectly.\n"
 
-        "ClickHouse is build with coverage guided fuzzer (libfuzzer) inside it.\n"
-        "You have to provide a query which contains getFuzzerData function.\n"
-        "This will take the data from fuzzing engine, pass it to getFuzzerData function and execute a query.\n"
-        "Each time the data will be different, and it will last until some segfault or sanitizer assertion is found. \n";
+                 "ClickHouse is build with coverage guided fuzzer (libfuzzer) inside it.\n"
+                 "You have to provide a query which contains getFuzzerData function.\n"
+                 "This will take the data from fuzzing engine, pass it to getFuzzerData function and execute a query.\n"
+                 "Each time the data will be different, and it will last until some segfault or sanitizer assertion is found. \n";
 #else
     std::cout << getHelpHeader() << "\n";
     std::cout << options_description.main_description.value() << "\n";
@@ -719,25 +720,22 @@ void LocalServer::printHelpMessage([[maybe_unused]] const OptionsDescription & o
 
 void LocalServer::addOptions(OptionsDescription & options_description)
 {
-    options_description.main_description->add_options()
-        ("table,N", po::value<std::string>(), "name of the initial table")
+    options_description.main_description->add_options()("table,N", po::value<std::string>(), "name of the initial table")
 
         /// If structure argument is omitted then initial query is not generated
-        ("structure,S", po::value<std::string>(), "structure of the initial table (list of column and type names)")
-        ("file,f", po::value<std::string>(), "path to file with data of the initial table (stdin if not specified)")
+        ("structure,S", po::value<std::string>(), "structure of the initial table (list of column and type names)")(
+            "file,f", po::value<std::string>(), "path to file with data of the initial table (stdin if not specified)")
 
-        ("input-format", po::value<std::string>(), "input format of the initial table data")
-        ("output-format", po::value<std::string>(), "default output format")
+            ("input-format", po::value<std::string>(), "input format of the initial table data")(
+                "output-format", po::value<std::string>(), "default output format")
 
-        ("logger.console", po::value<bool>()->implicit_value(true), "Log to console")
-        ("logger.log", po::value<std::string>(), "Log file name")
-        ("logger.level", po::value<std::string>(), "Log level")
+                ("logger.console", po::value<bool>()->implicit_value(true), "Log to console")(
+                    "logger.log", po::value<std::string>(), "Log file name")("logger.level", po::value<std::string>(), "Log level")
 
-        ("no-system-tables", "do not attach system tables (better startup time)")
-        ("path", po::value<std::string>(), "Storage path")
-        ("only-system-tables", "attach only system tables from specified path")
-        ("top_level_domains_path", po::value<std::string>(), "Path to lists with custom TLDs")
-        ;
+                    ("no-system-tables",
+                     "do not attach system tables (better startup time)")("path", po::value<std::string>(), "Storage path")(
+                        "only-system-tables", "attach only system tables from specified path")(
+                        "top_level_domains_path", po::value<std::string>(), "Path to lists with custom TLDs");
 }
 
 
@@ -754,7 +752,8 @@ void LocalServer::applyCmdOptions(ContextMutablePtr context)
 }
 
 
-void LocalServer::processOptions(const OptionsDescription &, const CommandLineOptions & options, const std::vector<Arguments> &, const std::vector<Arguments> &)
+void LocalServer::processOptions(
+    const OptionsDescription &, const CommandLineOptions & options, const std::vector<Arguments> &, const std::vector<Arguments> &)
 {
     if (options.count("table"))
         config().setString("table-name", options["table"].as<std::string>());
@@ -796,30 +795,114 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 
-int mainEntryClickHouseLocal(int argc, char ** argv)
+// int mainEntryClickHouseLocal(int argc, char ** argv)
+// {
+//     try
+//     {
+//         DB::LocalServer app;
+//         app.init(argc, argv);
+//         return app.run();
+//     }
+//     catch (const DB::Exception & e)
+//     {
+//         std::cerr << DB::getExceptionMessage(e, false) << std::endl;
+//         auto code = DB::getCurrentExceptionCode();
+//         return code ? code : 1;
+//     }
+//     catch (const boost::program_options::error & e)
+//     {
+//         std::cerr << "Bad arguments: " << e.what() << std::endl;
+//         return DB::ErrorCodes::BAD_ARGUMENTS;
+//     }
+//     catch (...)
+//     {
+//         std::cerr << DB::getCurrentExceptionMessage(true) << '\n';
+//         auto code = DB::getCurrentExceptionCode();
+//         return code ? code : 1;
+//     }
+// }
+extern "C" {
+struct local_result
 {
+    char * buf;
+    size_t len;
+};
+
+local_result * query_stable(int argc, char ** argv);
+void free_result(local_result * result);
+}
+
+std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
+{
+    std::cerr << "argc = " << argc << std::endl;
+    std::cerr << "argv = " << argv << std::endl;
+    //print all args
+    for (int i = 0; i < argc; ++i)
+    {
+        std::cerr << argv[i] << " " << std::endl;
+    }
+
     try
     {
         DB::LocalServer app;
         app.init(argc, argv);
-        return app.run();
+        int ret = app.run();
+        if (ret == 0)
+        {
+            auto buf = app.getQueryOutputVector();
+
+            // std::cerr << std::string(out->begin(), out->end()) << std::endl;
+            return buf;
+        }
+        else
+        {
+            return nullptr;
+        }
     }
     catch (const DB::Exception & e)
     {
-        std::cerr << DB::getExceptionMessage(e, false) << std::endl;
-        auto code = DB::getCurrentExceptionCode();
-        return code ? code : 1;
+        // wrap the error message into a new std::exception
+        throw std::domain_error(DB::getExceptionMessage(e, false));
     }
     catch (const boost::program_options::error & e)
     {
-        std::cerr << "Bad arguments: " << e.what() << std::endl;
-        return DB::ErrorCodes::BAD_ARGUMENTS;
+        throw std::invalid_argument("Bad arguments: " + std::string(e.what()));
     }
     catch (...)
     {
-        std::cerr << DB::getCurrentExceptionMessage(true) << '\n';
-        auto code = DB::getCurrentExceptionCode();
-        return code ? code : 1;
+        throw std::domain_error(DB::getCurrentExceptionMessage(true));
+    }
+}
+
+// todo fix the memory leak
+local_result * query_stable(int argc, char ** argv)
+{
+    std::shared_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    local_result * res = new local_result;
+    res->buf = reinterpret_cast<char *>(malloc(result->size()));
+    memcpy(res->buf, result->data(), result->size());
+    res->len = result->size();
+    return res;
+}
+
+void free_result(local_result * result)
+{
+    free(result->buf);
+    delete result;
+}
+
+
+int mainEntryClickHouseLocal(int argc, char ** argv)
+{
+    auto buf = pyEntryClickHouseLocal(argc, argv);
+    if (buf)
+    {
+        std::cout << std::string(buf->begin(), buf->end()) << std::endl;
+        return 0;
+    }
+    else
+    {
+        return 1;
     }
 }
 

@@ -370,7 +370,7 @@ if (WITH_COVERAGE AND COMPILER_GCC)
     set(WITHOUT_COVERAGE "-fno-profile-arcs -fno-test-coverage")
 endif()
 
-set (COMPILER_FLAGS "${COMPILER_FLAGS}")
+set (COMPILER_FLAGS "${COMPILER_FLAGS} -fPIC")
 
 # Our built-in unwinder only supports DWARF version up to 4.
 set (DEBUG_INFO_FLAGS "-g -gdwarf-4")

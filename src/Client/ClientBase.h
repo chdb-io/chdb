@@ -1,19 +1,20 @@
 #pragma once
 
+#include <Client/QueryFuzzer.h>
+#include <Client/Suggest.h>
+#include <Core/ExternalTable.h>
+#include <IO/BufferBase.h>
+#include <Interpreters/Context.h>
+#include <Storages/SelectQueryInfo.h>
+#include <Storages/StorageFile.h>
+#include <boost/program_options.hpp>
+#include <Poco/Util/Application.h>
 #include "Common/NamePrompter.h"
-#include <Common/ProgressIndication.h>
+#include <Common/DNSResolver.h>
 #include <Common/InterruptListener.h>
+#include <Common/ProgressIndication.h>
 #include <Common/ShellCommand.h>
 #include <Common/Stopwatch.h>
-#include <Common/DNSResolver.h>
-#include <Core/ExternalTable.h>
-#include <Poco/Util/Application.h>
-#include <Interpreters/Context.h>
-#include <Client/Suggest.h>
-#include <Client/QueryFuzzer.h>
-#include <boost/program_options.hpp>
-#include <Storages/StorageFile.h>
-#include <Storages/SelectQueryInfo.h>
 
 
 namespace po = boost::program_options;
@@ -44,7 +45,7 @@ enum ProgressOption
     ERR,
 };
 ProgressOption toProgressOption(std::string progress);
-std::istream& operator>> (std::istream & in, ProgressOption & progress);
+std::istream & operator>>(std::istream & in, ProgressOption & progress);
 
 void interruptSignalHandler(int signum);
 
@@ -53,7 +54,6 @@ class WriteBufferFromFileDescriptor;
 
 class ClientBase : public Poco::Util::Application, public IHints<2, ClientBase>
 {
-
 public:
     using Arguments = std::vector<String>;
 
@@ -61,6 +61,14 @@ public:
     ~ClientBase() override;
 
     void init(int argc, char ** argv);
+
+    std::shared_ptr<std::vector<char>> getQueryOutputVector() const
+    {
+        //get Buffer and convert to vector
+        // auto buf = query_result_buf->buffer();
+        // std::vector<char> vec(buf.begin(), buf.end());
+        return query_result_memory;
+    }
 
     std::vector<String> getAllRegisteredNames() const override { return cmd_options; }
 
@@ -81,8 +89,12 @@ protected:
     void processInsertQuery(const String & query_to_execute, ASTPtr parsed_query);
 
     void processTextAsSingleQuery(const String & full_query);
-    void processParsedSingleQuery(const String & full_query, const String & query_to_execute,
-        ASTPtr parsed_query, std::optional<bool> echo_query_ = {}, bool report_error = false);
+    void processParsedSingleQuery(
+        const String & full_query,
+        const String & query_to_execute,
+        ASTPtr parsed_query,
+        std::optional<bool> echo_query_ = {},
+        bool report_error = false);
 
     static void adjustQueryEnd(const char *& this_query_end, const char * all_queries_end, uint32_t max_parser_depth);
     ASTPtr parseQuery(const char *& pos, const char * end, bool allow_multi_statements) const;
@@ -90,8 +102,12 @@ protected:
 
     bool executeMultiQuery(const String & all_queries_text);
     MultiQueryProcessingStage analyzeMultiQueryText(
-        const char *& this_query_begin, const char *& this_query_end, const char * all_queries_end,
-        String & query_to_execute, ASTPtr & parsed_query, const String & all_queries_text,
+        const char *& this_query_begin,
+        const char *& this_query_end,
+        const char * all_queries_end,
+        String & query_to_execute,
+        ASTPtr & parsed_query,
+        const String & all_queries_text,
         std::unique_ptr<Exception> & current_exception);
 
     static void clearTerminal();
@@ -107,13 +123,15 @@ protected:
         std::optional<ProgramOptionsDescription> hosts_and_ports_description;
     };
 
-    virtual void updateLoggerLevel(const String &) {}
+    virtual void updateLoggerLevel(const String &) { }
     virtual void printHelpMessage(const OptionsDescription & options_description) = 0;
     virtual void addOptions(OptionsDescription & options_description) = 0;
-    virtual void processOptions(const OptionsDescription & options_description,
-                                const CommandLineOptions & options,
-                                const std::vector<Arguments> & external_tables_arguments,
-                                const std::vector<Arguments> & hosts_and_ports_arguments) = 0;
+    virtual void processOptions(
+        const OptionsDescription & options_description,
+        const CommandLineOptions & options,
+        const std::vector<Arguments> & external_tables_arguments,
+        const std::vector<Arguments> & hosts_and_ports_arguments)
+        = 0;
     virtual void processConfig() = 0;
 
     bool processQueryText(const String & text);
@@ -123,7 +141,8 @@ protected:
         char ** argv,
         Arguments & common_arguments,
         std::vector<Arguments> & external_tables_arguments,
-        std::vector<Arguments> & hosts_and_ports_arguments) = 0;
+        std::vector<Arguments> & hosts_and_ports_arguments)
+        = 0;
 
     void setInsertionTable(const ASTInsertQuery & insert_query);
 
@@ -147,8 +166,8 @@ private:
     void onProfileEvents(Block & block);
 
     void sendData(Block & sample, const ColumnsDescription & columns_description, ASTPtr parsed_query);
-    void sendDataFrom(ReadBuffer & buf, Block & sample,
-                      const ColumnsDescription & columns_description, ASTPtr parsed_query, bool have_more_data = false);
+    void sendDataFrom(
+        ReadBuffer & buf, Block & sample, const ColumnsDescription & columns_description, ASTPtr parsed_query, bool have_more_data = false);
     void sendDataFromPipe(Pipe && pipe, ASTPtr parsed_query, bool have_more_data = false);
     void sendDataFromStdin(Block & sample, const ColumnsDescription & columns_description, ASTPtr parsed_query);
     void sendExternalTables(ASTPtr parsed_query);
@@ -181,14 +200,16 @@ protected:
     bool delayed_interactive = false;
 
     bool echo_queries = false; /// Print queries before execution in batch mode.
-    bool ignore_error = false; /// In case of errors, don't print error message, continue to next query. Only applicable for non-interactive mode.
+    bool ignore_error
+        = false; /// In case of errors, don't print error message, continue to next query. Only applicable for non-interactive mode.
     bool print_time_to_stderr = false; /// Output execution time to stderr in batch mode.
 
     std::optional<Suggest> suggest;
     bool load_suggestions = false;
 
     std::vector<String> queries_files; /// If not empty, queries will be read from these files
-    std::vector<String> interleave_queries_files; /// If not empty, run queries from these files before processing every file from 'queries_files'.
+    std::vector<String>
+        interleave_queries_files; /// If not empty, run queries from these files before processing every file from 'queries_files'.
     std::vector<String> cmd_options;
 
     bool stdin_is_a_tty = false; /// stdin is a terminal.
@@ -224,6 +245,11 @@ protected:
     /// Console output.
     WriteBufferFromFileDescriptor std_out{STDOUT_FILENO};
     std::unique_ptr<ShellCommand> pager_cmd;
+
+    /// Output Buffer for query results.
+    // PODArray<char> query_result_memory;
+    std::shared_ptr<std::vector<char>> query_result_memory;
+    std::shared_ptr<WriteBuffer> query_result_buf;
 
     /// The user can specify to redirect query output to a file.
     std::unique_ptr<WriteBuffer> out_file_buf;
