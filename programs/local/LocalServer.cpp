@@ -1,4 +1,5 @@
 #include "LocalServer.h"
+#include "chdb.h"
 
 #include <sys/resource.h>
 #include <Common/logger_useful.h>
@@ -484,14 +485,20 @@ try
         Poco::ErrorHandler::set(&error_handler);
     }
 
-    /// Don't initialize DateLUT
-    registerFunctions();
-    registerAggregateFunctions();
-    registerTableFunctions();
-    registerStorages();
-    registerDictionaries();
-    registerDisks(/* global_skip_access_check= */ true);
-    registerFormats();
+        // run only once
+        static std::atomic<bool> registered{false};
+        if (!registered)
+        {
+            /// Don't initialize DateLUT
+            registerFunctions();
+            registerAggregateFunctions();
+            registerTableFunctions();
+            registerStorages();
+            registerDictionaries();
+            registerDisks(/* global_skip_access_check= */ true);
+            registerFormats();
+            registered = true;
+        }
 
     processConfig();
     adjustSettings();
@@ -733,8 +740,10 @@ void LocalServer::processConfig()
     /// Load global settings from default_profile and system_profile.
     global_context->setDefaultProfiles(config());
 
+    // global once flag
     /// We load temporary database first, because projections need it.
-    DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase();
+    static std::once_flag db_catalog_once;
+    std::call_once(db_catalog_once, [&] { DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase(); });
 
     /** Init dummy default DB
       * NOTE: We force using isolated default database to avoid conflicts with default database from server environment
@@ -925,16 +934,32 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wmissing-declarations"
 
-extern "C" {
-struct local_result
-{
-    char * buf;
-    size_t len;
-};
-
-local_result * query_stable(int argc, char ** argv);
-void free_result(local_result * result);
-}
+// int mainEntryClickHouseLocal(int argc, char ** argv)
+// {
+//     try
+//     {
+//         DB::LocalServer app;
+//         app.init(argc, argv);
+//         return app.run();
+//     }
+//     catch (const DB::Exception & e)
+//     {
+//         std::cerr << DB::getExceptionMessage(e, false) << std::endl;
+//         auto code = DB::getCurrentExceptionCode();
+//         return code ? code : 1;
+//     }
+//     catch (const boost::program_options::error & e)
+//     {
+//         std::cerr << "Bad arguments: " << e.what() << std::endl;
+//         return DB::ErrorCodes::BAD_ARGUMENTS;
+//     }
+//     catch (...)
+//     {
+//         std::cerr << DB::getCurrentExceptionMessage(true) << '\n';
+//         auto code = DB::getCurrentExceptionCode();
+//         return code ? code : 1;
+//     }
+// }
 
 std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
 {
@@ -982,6 +1007,10 @@ std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv
 local_result * query_stable(int argc, char ** argv)
 {
     std::shared_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    if (!result)
+    {
+        return nullptr;
+    }
     local_result * res = new local_result;
     res->buf = reinterpret_cast<char *>(malloc(result->size()));
     memcpy(res->buf, result->data(), result->size());
