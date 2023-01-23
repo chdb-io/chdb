@@ -359,8 +359,9 @@ void GlobalThreadPool::initialize(size_t max_threads, size_t max_free_threads, s
 {
     if (the_instance)
     {
-        throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR,
-            "The global thread pool is initialized twice");
+        // throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR,
+        //     "The global thread pool is initialized twice");
+        return;
     }
 
     the_instance.reset(new GlobalThreadPool(max_threads, max_free_threads, queue_size, false /*shutdown_on_exception*/));

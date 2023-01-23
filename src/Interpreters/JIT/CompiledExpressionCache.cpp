@@ -19,7 +19,8 @@ CompiledExpressionCacheFactory & CompiledExpressionCacheFactory::instance()
 void CompiledExpressionCacheFactory::init(size_t cache_size_in_bytes, size_t cache_size_in_elements)
 {
     if (cache)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "CompiledExpressionCache was already initialized");
+        // throw Exception(ErrorCodes::LOGICAL_ERROR, "CompiledExpressionCache was already initialized");
+        return;
 
     cache = std::make_unique<CompiledExpressionCache>(cache_size_in_bytes, cache_size_in_elements);
 }

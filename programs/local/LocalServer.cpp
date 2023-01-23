@@ -413,14 +413,20 @@ try
             Poco::ErrorHandler::set(&error_handler);
         }
 
-        /// Don't initialize DateLUT
-        registerFunctions();
-        registerAggregateFunctions();
-        registerTableFunctions();
-        registerStorages();
-        registerDictionaries();
-        registerDisks(/* global_skip_access_check= */ true);
-        registerFormats();
+        // run only once
+        static std::atomic<bool> registered{false};
+        if (!registered)
+        {
+            /// Don't initialize DateLUT
+            registerFunctions();
+            registerAggregateFunctions();
+            registerTableFunctions();
+            registerStorages();
+            registerDictionaries();
+            registerDisks(/* global_skip_access_check= */ true);
+            registerFormats();
+            registered = true;
+        }
 
         processConfig();
         initTtyBuffer(toProgressOption(config().getString("progress", "default")));

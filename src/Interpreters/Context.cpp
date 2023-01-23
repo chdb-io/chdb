@@ -316,14 +316,14 @@ struct ContextSharedPart : boost::noncopyable
         , global_overcommit_tracker(&process_list)
         , macros(std::make_unique<Macros>())
     {
-        /// TODO: make it singleton (?)
-        static std::atomic<size_t> num_calls{0};
-        if (++num_calls > 1)
-        {
-            std::cerr << "Attempting to create multiple ContextShared instances. Stack trace:\n" << StackTrace().toString();
-            std::cerr.flush();
-            std::terminate();
-        }
+        // /// TODO: make it singleton (?)
+        // static std::atomic<size_t> num_calls{0};
+        // if (++num_calls > 1)
+        // {
+        //     std::cerr << "Attempting to create multiple ContextShared instances. Stack trace:\n" << StackTrace().toString();
+        //     std::cerr.flush();
+        //     std::terminate();
+        // }
     }
 
 
@@ -594,7 +594,8 @@ ContextMutablePtr Context::createGlobal(ContextSharedPart * shared)
 
 void Context::initGlobal()
 {
-    assert(!global_context_instance);
+    if (global_context_instance)
+        return;
     global_context_instance = shared_from_this();
     DatabaseCatalog::init(shared_from_this());
     EventNotifier::init();
