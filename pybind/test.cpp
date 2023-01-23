@@ -4,8 +4,10 @@
 #include <arrow/buffer.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/api.h>
+#include <arrow/python/pyarrow.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
+#include <pybind11/pytypes.h>
 #include <pybind11/stl.h>
 
 namespace py = pybind11;
@@ -67,29 +69,39 @@ std::string queryToCSV(const std::string & queryStr)
     }
 }
 
-std::shared_ptr<arrow::Table> queryToArrow(const std::string & queryStr)
-{
-    auto result = queryToBuffer(queryStr, "Arrow");
-    if (result)
-    {
-        // Create an Arrow input stream from the Arrow buffer
-        auto input_stream = std::make_shared<arrow::io::BufferReader>(reinterpret_cast<uint8_t *>(result->buf), result->len);
-        auto arrow_reader = arrow::ipc::RecordBatchFileReader::Open(input_stream, result->len).ValueOrDie();
+// std::shared_ptr<arrow::Table> queryToArrow(const std::string & queryStr)
+// {
+//     auto result = queryToBuffer(queryStr, "Arrow");
+//     if (result)
+//     {
+//         // Create an Arrow input stream from the Arrow buffer
+//         auto input_stream = std::make_shared<arrow::io::BufferReader>(reinterpret_cast<uint8_t *>(result->buf), result->len);
+//         auto arrow_reader = arrow::ipc::RecordBatchFileReader::Open(input_stream, result->len).ValueOrDie();
 
-        // Read all the record batches from the Arrow reader
-        auto batch = arrow_reader->ReadRecordBatch(0).ValueOrDie();
-        std::shared_ptr<arrow::Table> arrow_table = arrow::Table::FromRecordBatches({batch}).ValueOrDie();
+//         // Read all the record batches from the Arrow reader
+//         auto batch = arrow_reader->ReadRecordBatch(0).ValueOrDie();
+//         std::shared_ptr<arrow::Table> arrow_table = arrow::Table::FromRecordBatches({batch}).ValueOrDie();
 
-        // Free the memory used by the result
-        free_result(result);
+//         // Free the memory used by the result
+//         free_result(result);
 
-        return arrow_table;
-    }
-    else
-    {
-        return nullptr;
-    }
-}
+//         return arrow_table;
+//     }
+//     else
+//     {
+//         return nullptr;
+//     }
+// }
+
+// py::object queryToArrowObject(const std::string & queryStr)
+// {
+//     std::shared_ptr<arrow::Table> table = queryToArrow(queryStr);
+//     // Wrap the table in a pyarrow.Table object
+//     auto py_table = arrow::py::wrap_table(table);
+
+//     // Use py::reinterpret_borrow to convert PyObject* to py::object
+//     return py::reinterpret_borrow<py::object>(py_table);
+// }
 
 #ifdef PY_TEST_MAIN
 int main()
@@ -102,6 +114,7 @@ int main()
     std::cerr << "out->num_columns() = " << out->num_columns() << std::endl;
     std::cerr << "out->num_rows() = " << out->num_rows() << std::endl;
     std::cerr << "out.ToString() = " << out->ToString() << std::endl;
+    std::cerr << "out->schema()->ToString() = " << out->schema()->ToString() << std::endl;
 
     return 0;
 }
@@ -121,24 +134,49 @@ PYBIND11_MODULE(example, m)
     // m.def("queryToVector", &queryToVector, "Execute SQL query");
     m.def("queryToCSV", &queryToCSV, "Execute SQL query and return CSV");
     m.def(
-        "queryToArrowObject",
-        [](const char * q_str) -> py::object
+        "queryToBytes",
+        [](const std::string & queryStr, const std::string & format) -> py::memoryview
         {
-            std::shared_ptr<arrow::Table> table = queryToArrow(q_str);
-            // 创建一个 Python Capsule 对象
-            py::capsule arrow_table_capsule(
-                table.get(),
-                [](void * ptr)
-                {
-                    // 释放指向 arrow::Table 的 shared_ptr
-                    arrow::Table * table = reinterpret_cast<arrow::Table *>(ptr);
-                    delete table;
-                });
-            // 使用 arrow::Table Capsule 创建一个 pyarrow.lib.Table 对象
-            py::module pyarrow = py::module::import("pyarrow");
-            return pyarrow.attr("lib").attr("Table").attr("_import_from_c")("example", "arrow_table", arrow_table_capsule);
+            auto result = queryToBuffer(queryStr, format);
+            py::memoryview memview = py::memoryview::from_memory(result->buf, result->len);
+            // free_result(result);
+            return memview;
         },
-        py::return_value_policy::take_ownership);
+        "Execute SQL query and return bytes");
+    // m.def("queryToArrow", [](const std::string & queryStr) -> std::string
+    // {
+    //     auto table = queryToArrow(queryStr);
+    //     if (table)
+    //     {
+    //         // // Create a Python Capsule object
+    //         // py::capsule arrow_table_capsule(
+    //         //     table.get(),
+    //         //     [](void * ptr)
+    //         //     {
+    //         //         // Free the shared_ptr to the arrow::Table
+    //         //         arrow::Table * table = reinterpret_cast<arrow::Table *>(ptr);
+    //         //         delete table;
+    //         //     });
+    //         // Create a pyarrow.lib.Table object from the arrow::Table Capsule
+    //         py::module pyarrow = py::module::import("pyarrow");
+    //         auto arrow_table = pyarrow.attr("lib").attr("Table").attr("_import_from_c")("example", "arrow_table");
+    //         // Convert the pyarrow.lib.Table object to a pyarrow.Buffer object
+    //         auto arrow_buffer = arrow_table.attr("to_batches")().attr("serialize")();
+    //         // Convert the pyarrow.Buffer object to a Python bytes object
+    //         auto py_bytes = arrow_buffer.attr("to_pybytes")();
+    //         // Convert the Python bytes object to a std::string
+    //         return py_bytes.cast<std::string>();
+    //     }
+    //     else
+    //     {
+    //         return {};
+    //     }
+    // }
+    // , "Execute SQL query and return Arrow Table");
+    // m.def(
+    //     "queryToArrowObject",
+    //     &queryToArrowObject,
+    //     py::return_value_policy::take_ownership);
 }
 
 #endif // PY_TEST_MAIN
