@@ -25,7 +25,8 @@ void LazyPipeFDs::open()
 {
     for (int & fd : fds_rw)
         if (fd >= 0)
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "Pipe is already opened");
+            // throw Exception(ErrorCodes::LOGICAL_ERROR, "Pipe is already opened");
+            return;
 
 #ifndef OS_DARWIN
     if (0 != pipe2(fds_rw, O_CLOEXEC))
