@@ -1,4 +1,5 @@
 #include "LocalServer.h"
+#include "chdb.h"
 
 #include <filesystem>
 #include <Access/AccessControl.h>
@@ -621,8 +622,10 @@ void LocalServer::processConfig()
     /// Load global settings from default_profile and system_profile.
     global_context->setDefaultProfiles(config());
 
+    // global once flag
     /// We load temporary database first, because projections need it.
-    DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase();
+    static std::once_flag db_catalog_once;
+    std::call_once(db_catalog_once, [&] { DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase(); });
 
     /** Init dummy default DB
       * NOTE: We force using isolated default database to avoid conflicts with default database from server environment
@@ -827,16 +830,6 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 //         return code ? code : 1;
 //     }
 // }
-extern "C" {
-struct local_result
-{
-    char * buf;
-    size_t len;
-};
-
-local_result * query_stable(int argc, char ** argv);
-void free_result(local_result * result);
-}
 
 std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
 {
@@ -884,6 +877,10 @@ std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv
 local_result * query_stable(int argc, char ** argv)
 {
     std::shared_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    if (!result)
+    {
+        return nullptr;
+    }
     local_result * res = new local_result;
     res->buf = reinterpret_cast<char *>(malloc(result->size()));
     memcpy(res->buf, result->data(), result->size());

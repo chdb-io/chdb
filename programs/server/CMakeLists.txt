@@ -5,6 +5,26 @@ set(CLICKHOUSE_SERVER_SOURCES
     Server.cpp
 )
 
+# add_library(clickhouse-server-lib SHARED ${CLICKHOUSE_SERVER_SOURCES})
+
+# target_link_libraries(clickhouse-server-lib
+#     PRIVATE
+#         clickhouse_aggregate_functions
+#         clickhouse_common_config
+#         clickhouse_common_io
+#         clickhouse_common_zookeeper
+#         clickhouse_functions
+#         clickhouse_parsers
+#         clickhouse_storages_system
+#         clickhouse_table_functions
+#         string_utils
+
+#     ${LINK_RESOURCE_LIB}
+
+#     PUBLIC
+#         daemon
+# )
+
 set (LINK_RESOURCE_LIB INTERFACE "-Wl,${WHOLE_ARCHIVE} $<TARGET_FILE:clickhouse_server_configs> -Wl,${NO_WHOLE_ARCHIVE}")
 
 set (CLICKHOUSE_SERVER_LINK

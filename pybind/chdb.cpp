@@ -1,10 +1,12 @@
+#include "chdb.h"
+
 #include <iostream>
 // #include <string_view>
-#include <arrow/api.h>
-#include <arrow/buffer.h>
-#include <arrow/io/memory.h>
-#include <arrow/ipc/api.h>
-#include <arrow/python/pyarrow.h>
+// #include <arrow/api.h>
+// #include <arrow/buffer.h>
+// #include <arrow/io/memory.h>
+// #include <arrow/ipc/api.h>
+// #include <arrow/python/pyarrow.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
@@ -14,20 +16,9 @@ namespace py = pybind11;
 
 bool inside_main = true;
 
-extern "C" {
-struct local_result
-{
-    char * buf;
-    size_t len;
-};
-
-local_result * query_stable(int argc, char ** argv);
-void free_result(local_result * result);
-}
-
 local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV")
 {
-    char * argv_[] = {"clickhouse", "--multiquery"};
+    char* argv_[] = {(char*)"clickhouse", (char*)"--multiquery"};
 
     std::vector<char *> argv(argv_, argv_ + sizeof(argv_) / sizeof(argv_[0]));
     std::unique_ptr<char[]> formatStr(new char[format.size() + 17]);
@@ -119,7 +110,7 @@ int main()
     return 0;
 }
 #else
-PYBIND11_MODULE(example, m)
+PYBIND11_MODULE(chdb, m)
 {
     m.doc() = "My module for query function";
 
@@ -138,6 +129,10 @@ PYBIND11_MODULE(example, m)
         [](const std::string & queryStr, const std::string & format) -> py::memoryview
         {
             auto result = queryToBuffer(queryStr, format);
+            if (!result)
+            {
+                return py::memoryview::from_memory(nullptr, 0, true);
+            }
             py::memoryview memview = py::memoryview::from_memory(result->buf, result->len);
             // free_result(result);
             return memview;
@@ -159,7 +154,7 @@ PYBIND11_MODULE(example, m)
     //         //     });
     //         // Create a pyarrow.lib.Table object from the arrow::Table Capsule
     //         py::module pyarrow = py::module::import("pyarrow");
-    //         auto arrow_table = pyarrow.attr("lib").attr("Table").attr("_import_from_c")("example", "arrow_table");
+    //         auto arrow_table = pyarrow.attr("lib").attr("Table").attr("_import_from_c")("chdb", "arrow_table");
     //         // Convert the pyarrow.lib.Table object to a pyarrow.Buffer object
     //         auto arrow_buffer = arrow_table.attr("to_batches")().attr("serialize")();
     //         // Convert the pyarrow.Buffer object to a Python bytes object
