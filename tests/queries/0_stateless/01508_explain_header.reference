@@ -1,4 +1,0 @@
-Expression ((Projection + Before ORDER BY))
-Header: x UInt8
-  ReadFromStorage (SystemOne)
-  Header: dummy UInt8
