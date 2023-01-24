@@ -10,12 +10,15 @@
 # auto generated files
 *.logrt
 
+*.strings
+/arrow1100
 test_main
 /buildlib
 /builddbg
 /build
 /build_*
 /build-*
+/bench
 /tests/venv
 /obj-x86_64-linux-gnu/
 
