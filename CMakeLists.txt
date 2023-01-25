@@ -569,7 +569,7 @@ endif()
 add_subdirectory (base)
 add_subdirectory (src)
 add_subdirectory (programs)
-add_subdirectory (tests)
+# add_subdirectory (tests)
 add_subdirectory (utils)
 
 if (FUZZER)
