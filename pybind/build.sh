@@ -7,6 +7,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 PROJ_DIR="${DIR}/.." # project root directory
 BUILD_DIR="$PROJ_DIR/buildlib" # build directory
 BIND_DIR="$PROJ_DIR/pybind" # bind directory
+CHDB_DIR="$PROJ_DIR/chdb" # chdb directory
 
 if [ ! -d $BUILD_DIR ]; then
     mkdir $BUILD_DIR
@@ -67,9 +68,20 @@ file ${LIBCHDB}
 # file ${LIBCHDB}
 
 cd ${BIND_DIR}
+/bin/cp -a ${LIBCHDB} ${BIND_DIR}
+CHDB_PY_MODULE="_chdb$(python3-config --extension-suffix)"
+
+# compile the pybind module, MUST use "./libchdb.so" instead of ${LIBCHDB} or "libchdb.so"
 clang++ -O3 -Wall -shared -std=c++17 -fPIC -I../ -I../base -I../src -I../programs/local/ \
     $(python3 -m pybind11 --includes) chdb.cpp \
-    -L${LIBCHDB_DIR} -lchdb -o chdb$(python3-config --extension-suffix)
+    ./libchdb.so -o ${CHDB_PY_MODULE} 
 
-LD_LIBRARY_PATH=${LIBCHDB_DIR} python3 -c \
-    "import chdb; res = chdb.queryToBytes('select 1112222222,555', 'Arrow'); print(str(res.tobytes()))"
+/bin/cp -a ${LIBCHDB} ${CHDB_DIR}
+/bin/cp -a ${CHDB_PY_MODULE} ${CHDB_DIR}
+
+python3 -c \
+    "import _chdb; res = _chdb.queryToBytes('select 1112222222,555', 'Arrow'); print(str(res.tobytes()))"
+
+cd ${PROJ_DIR}
+python3 -c \
+    "import chdb; res = chdb._chdb.queryToBytes('select version()', 'CSV'); print(str(res.tobytes()))"
