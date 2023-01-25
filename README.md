@@ -12,9 +12,9 @@
 
 [![Project generated with PyScaffold](https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold)](https://pyscaffold.org/)
 
-# chdb
+# chDB
 
-> CHDB is an in-process SQL OLAP Engine powered by ClickHouse
+> chDB is an in-process SQL OLAP Engine powered by ClickHouse
 
 A longer description of your project goes here...
 
