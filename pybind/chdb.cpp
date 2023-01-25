@@ -110,7 +110,7 @@ int main()
     return 0;
 }
 #else
-PYBIND11_MODULE(chdb, m)
+PYBIND11_MODULE(_chdb, m)
 {
     m.doc() = "My module for query function";
 
@@ -154,7 +154,7 @@ PYBIND11_MODULE(chdb, m)
     //         //     });
     //         // Create a pyarrow.lib.Table object from the arrow::Table Capsule
     //         py::module pyarrow = py::module::import("pyarrow");
-    //         auto arrow_table = pyarrow.attr("lib").attr("Table").attr("_import_from_c")("chdb", "arrow_table");
+    //         auto arrow_table = pyarrow.attr("lib").attr("Table").attr("_import_from_c")("_chdb", "arrow_table");
     //         // Convert the pyarrow.lib.Table object to a pyarrow.Buffer object
     //         auto arrow_buffer = arrow_table.attr("to_batches")().attr("serialize")();
     //         // Convert the pyarrow.Buffer object to a Python bytes object
