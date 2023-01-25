@@ -833,13 +833,13 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 
 std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
 {
-    std::cerr << "argc = " << argc << std::endl;
-    std::cerr << "argv = " << argv << std::endl;
+    // std::cerr << "argc = " << argc << std::endl;
+    // std::cerr << "argv = " << argv << std::endl;
     //print all args
-    for (int i = 0; i < argc; ++i)
-    {
-        std::cerr << argv[i] << " " << std::endl;
-    }
+    // for (int i = 0; i < argc; ++i)
+    // {
+    //     std::cerr << argv[i] << " " << std::endl;
+    // }
 
     try
     {
