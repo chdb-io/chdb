@@ -1,3 +1,6 @@
 # Contributors
 
 * auxten [auxtenwpc@gmail.com](mailto:auxtenwpc@gmail.com)
+
+To see the list of authors who created the source code of ClickHouse, published and distributed by ClickHouse, Inc. as the owner,
+run "SELECT * FROM system.contributors;" query on any ClickHouse server.
