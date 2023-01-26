@@ -468,8 +468,8 @@ try
     }
 
     // run only once
-    static std::atomic<bool> registered{false};
-    if (!registered)
+    static std::once_flag register_once_flag;
+    std::call_once(register_once_flag, []()
     {
         registerInterpreters();
         /// Don't initialize DateLUT
@@ -481,8 +481,7 @@ try
         registerDictionaries();
         registerDisks(/* global_skip_access_check= */ true);
         registerFormats();
-        registered = true;
-    }
+    });
 
     processConfig();
 
