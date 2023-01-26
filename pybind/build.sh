@@ -23,6 +23,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=1 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_CASSANDRA=0 -DENABLE_ODBC=0 -DENABLE_NLP=0 \
     -DENABLE_KRB5=0 -DENABLE_LDAP=0 \
     -DENABLE_LIBRARIES=0 \
+    -DGLIBC_COMPATIBILITY=0 \
     -DCLICKHOUSE_ONE_SHARED=0 \
     -DENABLE_UTILS=0 -DENABLE_EMBEDDED_COMPILER=1 -DUSE_UNWIND=1 \
     -DENABLE_ICU=0 -DENABLE_JEMALLOC=0 \
@@ -74,6 +75,7 @@ CHDB_PY_MODULE="_chdb$(python3-config --extension-suffix)"
 # compile the pybind module, MUST use "./libchdb.so" instead of ${LIBCHDB} or "libchdb.so"
 clang++ -O3 -Wall -shared -std=c++17 -fPIC -I../ -I../base -I../src -I../programs/local/ \
     $(python3 -m pybind11 --includes) chdb.cpp \
+    -Wl,--exclude-libs,ALL -stdlib=libstdc++ -static-libstdc++ -static-libgcc \
     ./libchdb.so -o ${CHDB_PY_MODULE} 
 
 /bin/cp -a ${LIBCHDB} ${CHDB_DIR}
