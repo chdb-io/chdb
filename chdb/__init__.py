@@ -13,7 +13,7 @@ if sys.version_info[:2] >= (3, 6):
     os.chdir(current_path)
     from . import _chdb  # noqa
     os.chdir(cwd)
-    engine_version = str(_chdb.queryToBytes("SELECT version();", "CSV").tobytes())[3:-4]
+    engine_version = str(_chdb.query("SELECT version();", "CSV").get_memview().tobytes())[3:-4]
 else:
     raise NotImplementedError("Python 3.6 is not supported")
 
