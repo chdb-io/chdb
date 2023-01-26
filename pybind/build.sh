@@ -82,8 +82,11 @@ clang++ -O3 -Wall -shared -std=c++17 -fPIC -I../ -I../base -I../src -I../program
 /bin/cp -a ${CHDB_PY_MODULE} ${CHDB_DIR}
 
 python3 -c \
-    "import _chdb; res = _chdb.queryToBytes('select 1112222222,555', 'Arrow'); print(str(res.tobytes()))"
+    "import _chdb; res = _chdb.query('select 1112222222,555', 'JSON'); print(res.get_memview().tobytes())"
+
+python3 -c \
+    "import _chdb; res = _chdb.query('select 1112222222,555', 'Arrow'); print(res.get_memview().tobytes())"
 
 cd ${PROJ_DIR}
 python3 -c \
-    "import chdb; res = chdb._chdb.queryToBytes('select version()', 'CSV'); print(str(res.tobytes()))"
+    "import chdb; res = chdb._chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
