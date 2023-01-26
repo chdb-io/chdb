@@ -830,7 +830,7 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 //     }
 // }
 
-std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
+std::unique_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
 {
     // std::cerr << "argc = " << argc << std::endl;
     // std::cerr << "argv = " << argv << std::endl;
@@ -872,24 +872,29 @@ std::shared_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv
     }
 }
 
-// todo fix the memory leak
+// todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
-    std::shared_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    std::unique_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
     if (!result)
     {
         return nullptr;
     }
     local_result * res = new local_result;
-    res->buf = reinterpret_cast<char *>(malloc(result->size()));
-    memcpy(res->buf, result->data(), result->size());
     res->len = result->size();
+    res->_vec = result.release();
+    res->buf = reinterpret_cast<std::vector<char> *>(res->_vec)->data();
     return res;
 }
 
 void free_result(local_result * result)
 {
-    free(result->buf);
+    if (!result || !result->_vec)
+    {
+        return;
+    }
+    std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
+    delete vec;
     delete result;
 }
 

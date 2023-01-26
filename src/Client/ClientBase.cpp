@@ -527,7 +527,7 @@ try
         else
         {
             // query_result_memory.resize(DBMS_DEFAULT_BUFFER_SIZE);
-            query_result_memory = std::make_shared<std::vector<char>>();
+            query_result_memory = std::make_unique<std::vector<char>>();
             query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory.get());
 
             out_buf = query_result_buf.get();

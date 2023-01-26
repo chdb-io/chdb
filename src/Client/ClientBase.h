@@ -62,12 +62,12 @@ public:
 
     void init(int argc, char ** argv);
 
-    std::shared_ptr<std::vector<char>> getQueryOutputVector() const
+    std::unique_ptr<std::vector<char>> getQueryOutputVector()
     {
         //get Buffer and convert to vector
         // auto buf = query_result_buf->buffer();
         // std::vector<char> vec(buf.begin(), buf.end());
-        return query_result_memory;
+        return std::move(query_result_memory);
     }
 
     std::vector<String> getAllRegisteredNames() const override { return cmd_options; }
@@ -248,7 +248,7 @@ protected:
 
     /// Output Buffer for query results.
     // PODArray<char> query_result_memory;
-    std::shared_ptr<std::vector<char>> query_result_memory;
+    std::unique_ptr<std::vector<char>> query_result_memory;
     std::shared_ptr<WriteBuffer> query_result_buf;
 
     /// The user can specify to redirect query output to a file.
