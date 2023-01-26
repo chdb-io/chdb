@@ -89,6 +89,8 @@ vgcore*
 
 *.deb
 *.tar.zst
+*.gz
+*.bz2
 *.build
 *.upload
 *.changes
