@@ -1,10 +1,8 @@
 import sys
 import os
-import ctypes
 
-chdb_version = (1, 0, 0)
+chdb_version = (0, 1, 0)
 if sys.version_info[:2] >= (3, 6):
-    from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
     # change the current working directory to the path of the current file
@@ -15,13 +13,11 @@ if sys.version_info[:2] >= (3, 6):
     os.chdir(cwd)
     engine_version = str(_chdb.query("SELECT version();", "CSV").get_memview().tobytes())[3:-4]
 else:
-    raise NotImplementedError("Python 3.6 is not supported")
+    raise NotImplementedError("Python 3.5 or lower version is not supported")
 
 try:
     # Change here if project is renamed and does not equal the package name
     dist_name = __name__
-    __version__ = version(dist_name)
-except PackageNotFoundError:  # pragma: no cover
+    __version__ = ".".join(map(str, chdb_version))
+except:  # pragma: no cover
     __version__ = "unknown"
-finally:
-    del version, PackageNotFoundError
