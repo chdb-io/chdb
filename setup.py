@@ -10,7 +10,12 @@ from setuptools import setup
 
 if __name__ == "__main__":
     try:
-        setup(use_scm_version={"version_scheme": "no-guess-dev"})
+        setup(
+            use_scm_version={"version_scheme": "no-guess-dev"},
+            packages=['chdb'],
+            package_data={'chdb': ['chdb/*.so']},
+            exclude_package_data={'': ['*.pyc', 'src/**']},
+        )
     except:  # noqa
         print(
             "\n\nAn error occurred while building the project, "
