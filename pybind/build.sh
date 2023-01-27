@@ -70,6 +70,8 @@ file ${LIBCHDB}
 
 cd ${BIND_DIR}
 /bin/cp -a ${LIBCHDB} ${BIND_DIR}
+/bin/cp -a ${LIBCHDB} ${CHDB_DIR}
+
 CHDB_PY_MODULE="_chdb$(python3-config --extension-suffix)"
 
 # compile the pybind module, MUST use "./libchdb.so" instead of ${LIBCHDB} or "libchdb.so"
@@ -78,15 +80,16 @@ clang++ -O3 -Wall -shared -std=c++17 -fPIC -I../ -I../base -I../src -I../program
     -Wl,--exclude-libs,ALL -stdlib=libstdc++ -static-libstdc++ -static-libgcc \
     ./libchdb.so -o ${CHDB_PY_MODULE} 
 
-/bin/cp -a ${LIBCHDB} ${CHDB_DIR}
 /bin/cp -a ${CHDB_PY_MODULE} ${CHDB_DIR}
 
+# test the pybind module
 python3 -c \
     "import _chdb; res = _chdb.query('select 1112222222,555', 'JSON'); print(res.get_memview().tobytes())"
 
 python3 -c \
     "import _chdb; res = _chdb.query('select 1112222222,555', 'Arrow'); print(res.get_memview().tobytes())"
 
+# test the python wrapped module
 cd ${PROJ_DIR}
 python3 -c \
     "import chdb; res = chdb._chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
