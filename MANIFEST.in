@@ -1,0 +1,2 @@
+include chdb/*.so
+include chdb/*.py
