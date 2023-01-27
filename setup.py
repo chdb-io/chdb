@@ -1,15 +1,27 @@
-"""
-    Setup file for chdb.
-    Use setup.cfg to configure your project.
-
-    This file was generated with PyScaffold 4.4.
-    PyScaffold helps you to put up the scaffold of your new Python project.
-    Learn more under: https://pyscaffold.org/
-"""
-from setuptools import setup
+import os
+from setuptools import setup, Extension
+from setuptools.command.build_ext import build_ext
+import sys
+import setuptools
 
 if __name__ == "__main__":
     try:
+        libdir = os.path.join(".", "pybind")
+        library_file = os.path.join(libdir, "libchdb.so")
+        source_files = ['chdb.cpp']
+        extra_objects = []
+        if os.path.exists(library_file):
+            # if we have a prebuilt library file, use that.
+            extra_objects.append(library_file)
+        else:
+            # otherwise, run build.sh to build the library file.
+            # if this fails, the setup.py will fail.
+            # os.system("bash pybind/build.sh")
+            ret = os.system("bash pybind/build.sh")
+            if ret != 0:
+                raise RuntimeError("Build failed")
+            extra_objects.append(library_file)
+        
         setup(
             use_scm_version={"version_scheme": "no-guess-dev"},
             packages=['chdb'],
