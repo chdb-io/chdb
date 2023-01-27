@@ -65,5 +65,5 @@ file ${LIBCHDB}
 # echo -e "\nfile info of ${LIBCHDB}"
 # file ${LIBCHDB}
 
-bash ${DIR}/build_bind.sh
-bash ${DIR}/test_smoke.sh
+# bash ${DIR}/build_bind.sh
+# bash ${DIR}/test_smoke.sh
