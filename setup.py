@@ -13,7 +13,7 @@ if __name__ == "__main__":
         setup(
             use_scm_version={"version_scheme": "no-guess-dev"},
             packages=['chdb'],
-            package_data={'chdb': ['chdb/*.so']},
+            package_data={'chdb': ['*.so']},
             exclude_package_data={'': ['*.pyc', 'src/**']},
         )
     except:  # noqa
