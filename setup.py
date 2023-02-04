@@ -1,12 +1,19 @@
 import os
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
-import sys
 import setuptools
 
 # get the path of the current file
 script_dir = os.path.dirname(os.path.abspath(__file__))
 libdir = os.path.join(script_dir, "chdb")
+
+# Determine which compiler to use, prefer clang++ over g++
+if os.system('which clang++ > /dev/null') == 0:
+    print("Using Clang")
+    os.environ['CC'] = 'clang++'
+else:
+    print("Using GCC")
+    os.environ['CC'] = 'g++'
 
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
@@ -46,6 +53,8 @@ class BuildExt(build_ext):
         'msvc': [],
     }
     link_opts = {
+        # we must use relative path here, otherwise the '_chdb' package will not be able to find the './libchdb.so' file
+        # see the 'chdb/__init__.py' file for more details
         'unix': ['-shared', '-Wl,--exclude-libs,ALL', '-static-libstdc++', '-static-libgcc', './libchdb.so'],
         'msvc': [],
     }
@@ -62,8 +71,8 @@ class BuildExt(build_ext):
         if ct == 'unix':
             opts.append('-DVERSION_INFO="%s"' % self.distribution.get_version())
             opts.append(cpp_flag(self.compiler))
-            # if has_flag(self.compiler, '-fvisibility=hidden'):
-            #     opts.append('-fvisibility=hidden')
+            if has_flag(self.compiler, '-fvisibility=hidden'):
+                opts.append('-fvisibility=hidden')
         elif ct == 'msvc':
             opts.append('/DVERSION_INFO=\\"%s\\"' % self.distribution.get_version())
 
@@ -120,7 +129,7 @@ if __name__ == "__main__":
             package_data={'chdb': ['*.so']},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
-            install_requires=['pybind11>=2.0'],
+            install_requires=['pybind11>=2.6'],
             cmdclass={'build_ext': BuildExt},
             test_suite="tests",
             zip_safe=False,
