@@ -6,6 +6,20 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 . ${DIR}/vars.sh
 
+
+
+# check current os type
+if [ "$(uname)" == "Darwin" ]; then
+    GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
+    UNWIND="-DUSE_UNWIND=0"
+elif [ "$(uname)" == "Linux" ]; then
+    GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
+    UNWIND="-DUSE_UNWIND=1"
+else
+    echo "OS not supported"
+    exit 1
+fi
+
 if [ ! -d $BUILD_DIR ]; then
     mkdir $BUILD_DIR
 fi
@@ -20,9 +34,9 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=1 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_CASSANDRA=0 -DENABLE_ODBC=0 -DENABLE_NLP=0 \
     -DENABLE_KRB5=0 -DENABLE_LDAP=0 \
     -DENABLE_LIBRARIES=0 \
-    -DGLIBC_COMPATIBILITY=1 \
+    ${GLIBC_COMPATIBILITY} \
     -DCLICKHOUSE_ONE_SHARED=0 \
-    -DENABLE_UTILS=0 -DENABLE_EMBEDDED_COMPILER=1 -DUSE_UNWIND=1 \
+    -DENABLE_UTILS=0 -DENABLE_EMBEDDED_COMPILER=1 ${UNWIND} \
     -DENABLE_ICU=0 -DENABLE_JEMALLOC=0 \
     -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
@@ -36,7 +50,7 @@ BINARY=${BUILD_DIR}/programs/clickhouse
 echo -e "\nBINARY: ${BINARY}"
 ls -lh ${BINARY}
 echo -e "\nldd ${BINARY}"
-ldd ${BINARY}
+${LDD} ${BINARY}
 
 # del the binary and run ninja -v again to capture the command, then modify it to generate libchdb.so
 /bin/rm -f ${BINARY} 
@@ -45,7 +59,7 @@ ninja -v > build.log
 
 # extract the command to generate libchdb.so
 
-LIBCHDB_CMD=$(grep '/usr/bin/clang\+\+.*-o programs/clickhouse .*' build.log | sed 's/-o programs\/clickhouse/-fPIC -shared -o programs\/libchdb.so/' | sed 's/^[^&]*&& //' |sed 's/&&.*//')
+LIBCHDB_CMD=$(grep 'clang\+\+.*-o programs/clickhouse .*' build.log | sed 's/-o programs\/clickhouse/-fPIC -shared -o programs\/libchdb.so/' | sed 's/^[^&]*&& //' |sed 's/&&.*//')
 ${LIBCHDB_CMD}
 
 LIBCHDB_DIR=${BUILD_DIR}/programs
@@ -53,7 +67,7 @@ LIBCHDB=${LIBCHDB_DIR}/libchdb.so
 echo -e "\nLIBCHDB: ${LIBCHDB}"
 ls -lh ${LIBCHDB}
 echo -e "\nldd ${LIBCHDB}"
-ldd ${LIBCHDB}
+${LDD} ${LIBCHDB}
 echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
