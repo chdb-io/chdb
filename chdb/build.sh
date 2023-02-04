@@ -57,6 +57,8 @@ ldd ${LIBCHDB}
 echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
+/bin/cp -a ${LIBCHDB} ${CHDB_DIR}/libchdb.so
+
 # # strip the binary (no debug info at all)
 # strip ${LIBCHDB}
 # echo -e "\nAfter strip:"
