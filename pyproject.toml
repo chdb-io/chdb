@@ -1,6 +1,6 @@
 [build-system]
 # AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5", "pybind11>=2.0"]
+requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5", "pybind11>=2.6"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]

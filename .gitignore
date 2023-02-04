@@ -91,6 +91,7 @@ vgcore*
 *.tar.zst
 *.gz
 *.bz2
+*.tgz
 *.build
 *.upload
 *.changes
