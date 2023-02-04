@@ -1,4 +1,5 @@
 import os
+import sys
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 import setuptools
@@ -59,8 +60,9 @@ class BuildExt(build_ext):
         'msvc': [],
     }
 
-    # if sys.platform == 'darwin':
-    #     c_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7']
+    if sys.platform == 'darwin':
+        # c_opts['unix'] += ['-stdlib=libc++', '-mmacosx-version-min=10.7']
+        c_opts['unix'] += ['-mmacosx-version-min=10.7']
     # else:
     #     c_opts['unix'].append("-fPIC")
     #     link_opts['unix'].append('-stdlib=libstdc++')
