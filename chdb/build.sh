@@ -59,7 +59,7 @@ ninja -v > build.log
 
 # extract the command to generate libchdb.so
 
-LIBCHDB_CMD=$(grep 'clang\+\+.*-o programs/clickhouse .*' build.log | sed 's/-o programs\/clickhouse/-fPIC -shared -o programs\/libchdb.so/' | sed 's/^[^&]*&& //' |sed 's/&&.*//')
+LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log | sed 's/-o programs\/clickhouse/-fPIC -shared -o programs\/libchdb.so/' | sed 's/^[^&]*&& //' |sed 's/&&.*//')
 ${LIBCHDB_CMD}
 
 LIBCHDB_DIR=${BUILD_DIR}/programs
