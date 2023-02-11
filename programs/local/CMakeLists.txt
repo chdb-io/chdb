@@ -1,4 +1,24 @@
-set (CLICKHOUSE_LOCAL_SOURCES LocalServer.cpp)
+# set (CLICKHOUSE_LOCAL_SOURCES LocalServer.cpp)
+set (CLICKHOUSE_LOCAL_SOURCES LocalServer.cpp LocalChdb.cpp)
+
+# include path from shell cmd "python3 -m pybind11 --includes"
+execute_process(COMMAND python3 -m pybind11 --includes
+    OUTPUT_VARIABLE PYBIND11_INCLUDES
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYBIND11_INCLUDE_DIR ${PYBIND11_INCLUDES})
+include_directories(${PYBIND11_INCLUDE_DIR})
+
+# include Python.h
+execute_process(COMMAND python3-config --includes
+    OUTPUT_VARIABLE PYTHON_INCLUDES
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
+include_directories(${PYTHON_INCLUDE_DIR})
+
+# remove all warning, because pybind11 will generate a lot of warning
+set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS "-w")
 
 # add_library(clickhouse-local-lib SHARED ${CLICKHOUSE_LOCAL_SOURCES})
 
