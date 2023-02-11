@@ -6,7 +6,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 . ${DIR}/vars.sh
 
-
+BUILD_DIR=${PROJ_DIR}/buildlib
 
 # check current os type
 if [ "$(uname)" == "Darwin" ]; then
@@ -52,18 +52,26 @@ ls -lh ${BINARY}
 echo -e "\nldd ${BINARY}"
 ${LDD} ${BINARY}
 
-# del the binary and run ninja -v again to capture the command, then modify it to generate libchdb.so
+# del the binary and run ninja -v again to capture the command, then modify it to generate CHDB_PY_MODULE
 /bin/rm -f ${BINARY} 
 cd ${BUILD_DIR} 
 ninja -v > build.log
 
-# extract the command to generate libchdb.so
+# extract the command to generate CHDB_PY_MODULE
 
-LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log | sed 's/-o programs\/clickhouse/-fPIC -shared -o programs\/libchdb.so/' | sed 's/^[^&]*&& //' |sed 's/&&.*//')
+LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
+    | sed "s/-o programs\/clickhouse/-fPIC -shared -Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD} -o ${CHDB_PY_MODULE}/" \
+    | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
+    | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
+     )
+
+# save the command to a file for debug
+echo ${LIBCHDB_CMD} > libchdb_cmd.sh
+
 ${LIBCHDB_CMD}
 
-LIBCHDB_DIR=${BUILD_DIR}/programs
-LIBCHDB=${LIBCHDB_DIR}/libchdb.so
+LIBCHDB_DIR=${BUILD_DIR}/
+LIBCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 echo -e "\nLIBCHDB: ${LIBCHDB}"
 ls -lh ${LIBCHDB}
 echo -e "\nldd ${LIBCHDB}"
@@ -71,7 +79,7 @@ ${LDD} ${LIBCHDB}
 echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
-/bin/cp -a ${LIBCHDB} ${CHDB_DIR}/libchdb.so
+/bin/cp -a ${LIBCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 # # strip the binary (no debug info at all)
 # strip ${LIBCHDB}
