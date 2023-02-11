@@ -8,7 +8,7 @@
 
 namespace py = pybind11;
 
-// bool inside_main = true;
+// extern bool inside_main = true;
 
 class __attribute__((visibility("default"))) query_result
 {
