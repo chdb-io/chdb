@@ -15,10 +15,12 @@ execute_process(COMMAND python3-config --includes
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
-include_directories(${PYTHON_INCLUDE_DIR})
+set_source_files_properties(LocalChdb.cpp PROPERTIES INCLUDE_DIRECTORIES ${PYTHON_INCLUDE_DIR})
 
 # remove all warning, because pybind11 will generate a lot of warning
-set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS "-w")
+set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
+    "-w -idirafter /usr/include -include x86_64-linux-gnu/python3.9/pyconfig.h"
+)
 
 # add_library(clickhouse-local-lib SHARED ${CLICKHOUSE_LOCAL_SOURCES})
 
