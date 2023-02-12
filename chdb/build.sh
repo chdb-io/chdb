@@ -12,9 +12,11 @@ BUILD_DIR=${PROJ_DIR}/buildlib
 if [ "$(uname)" == "Darwin" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
+    PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
 elif [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
     UNWIND="-DUSE_UNWIND=1"
+    PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
 else
     echo "OS not supported"
     exit 1
@@ -60,9 +62,10 @@ ninja -v > build.log
 # extract the command to generate CHDB_PY_MODULE
 
 LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -shared -Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD} -o ${CHDB_PY_MODULE}/" \
+    | sed "s/-o programs\/clickhouse/-fPIC -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
+    | sed 's/ -Xlinker --no-undefined//g' \
      )
 
 # save the command to a file for debug
