@@ -18,9 +18,15 @@ string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES}
 set_source_files_properties(LocalChdb.cpp PROPERTIES INCLUDE_DIRECTORIES ${PYTHON_INCLUDE_DIR})
 
 # remove all warning, because pybind11 will generate a lot of warning
-set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
-    "-w -idirafter /usr/include -include x86_64-linux-gnu/python3.9/pyconfig.h"
-)
+if (OS_LINUX)
+    set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
+        "-w -idirafter /usr/include -include x86_64-linux-gnu/python3.9/pyconfig.h"
+    )
+elseif (OS_DARWIN)
+    set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
+        "-w"
+    )
+endif()
 
 # add_library(clickhouse-local-lib SHARED ${CLICKHOUSE_LOCAL_SOURCES})
 
