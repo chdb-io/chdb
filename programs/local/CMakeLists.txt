@@ -17,10 +17,18 @@ execute_process(COMMAND python3-config --includes
 string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
 set_source_files_properties(LocalChdb.cpp PROPERTIES INCLUDE_DIRECTORIES ${PYTHON_INCLUDE_DIR})
 
+# get python version, something like python3.x
+execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
+    OUTPUT_VARIABLE PYTHON_VERSION
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
 # remove all warning, because pybind11 will generate a lot of warning
 if (OS_LINUX)
-    set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
-        "-w -idirafter /usr/include -include x86_64-linux-gnu/python3.9/pyconfig.h"
+    # pybind11 will try to find x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h
+    # use -idirafter to make it find the right one and not polute the include path
+    set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
+        "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
     )
 elseif (OS_DARWIN)
     set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
