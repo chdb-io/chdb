@@ -29,8 +29,8 @@ jobs:
           clang++-15 --version
           sudo apt-get install -y cmake ccache ninja-build yasm gawk
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
+        # with:
+        #   submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         env:
@@ -65,18 +65,18 @@ jobs:
           uname -a
           brew update
           brew install ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
-          export PATH=$(brew --prefix llvm)/bin:$PATH"
+          export PATH=$(brew --prefix llvm)/bin:$PATH
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++
           which clang++
           clang++ --version
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
+        # with:
+        #   submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
+          CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
         # with:
         #   package-dir: .
