@@ -20,11 +20,14 @@ jobs:
     steps:
       # install clang++
       - name: Install clang++
-        if: matrix.compiler == 'clang++'
+        if: matrix.os == 'ubuntu-20.04'
         run: |
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 15
+        if: matrix.os == 'macos-11'
+        run: |
+          brew install llvm
       - uses: actions/checkout@v3
         # with:
         #   submodules: recursive
