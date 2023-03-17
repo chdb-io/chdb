@@ -26,10 +26,9 @@ jobs:
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
         sudo bash -x ./llvm.sh 15
-        export PATH="/usr/local/llvm/bin:$PATH"
-        export CXX=/usr/local/llvm/bin/clang++
-        which clang++
-        clang++ --version
+        export CXX=/usr/local/llvm/bin/clang++15
+        which clang++15
+        clang++15 --version
   build_wheels:
     needs: [install_clang_macos, install_clang_ubuntu]
     name: Build wheels on ${{ matrix.os }}
@@ -45,8 +44,8 @@ jobs:
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v3
-        # with:
-        #   submodules: recursive
+        with:
+          submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         # env:
