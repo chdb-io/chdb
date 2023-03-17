@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 import setuptools
@@ -67,9 +68,17 @@ class BuildExt(build_ext):
         else:
             raise RuntimeError("Unsupported platform")
 
-        ret = os.system("bash chdb/build.sh")
-        if ret != 0:
+        #exec chdb/build.sh and print the output if it fails
+        # Run the build script and capture its output
+        completed_process = subprocess.run(['bash', 'chdb/build.sh'], capture_output=True, text=True)
+        # If it failed, print the output
+        print(completed_process.stdout)
+        print(completed_process.stderr)
+
+        # Check the return code to see if the script failed
+        if completed_process.returncode != 0:
             raise RuntimeError("Build failed")
+        
         # add the _chdb.cpython-37m-darwin.so or _chdb.cpython-39-x86_64-linux.so to the chdb package
         self.distribution.package_data['chdb'] = ['*.so']
 
