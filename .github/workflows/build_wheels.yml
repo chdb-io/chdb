@@ -4,7 +4,6 @@ on: [push, pull_request]
 
 jobs:
   build_wheels:
-    needs: [install_clang_macos, install_clang_ubuntu]
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
