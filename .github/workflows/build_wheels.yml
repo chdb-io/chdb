@@ -22,19 +22,17 @@ jobs:
           uname -a
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo bash -x ./llvm.sh 15
-          export CC=clang-15
-          export CXX=clang++-15
+          sudo ./llvm.sh 15
           which clang++-15
           clang++-15 --version
           sudo apt-get install -y cmake ccache ninja-build yasm gawk
       - uses: actions/checkout@v3
-        # with:
-        #   submodules: recursive
+        with:
+          submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         env:
-          CIBW_ENVIRONMENT_LINUX: "CC=clang-15 CXX=clang++-15"
+          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
         # env:
         #   CIBW_SOME_OPTION: value
         #    ...
@@ -66,13 +64,11 @@ jobs:
           brew update
           brew install ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
           export PATH=$(brew --prefix llvm)/bin:$PATH
-          export CC=$(brew --prefix llvm)/bin/clang
-          export CXX=$(brew --prefix llvm)/bin/clang++
           which clang++
           clang++ --version
       - uses: actions/checkout@v3
-        # with:
-        #   submodules: recursive
+        with:
+          submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         env:

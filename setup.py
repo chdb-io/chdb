@@ -49,7 +49,12 @@ class BuildExt(build_ext):
     """A custom build extension for adding compiler-specific options."""
 
     def build_extensions(self):
-        # Determine which compiler to use, prefer clang++ over g++
+        # Determine which compiler to use, if CC and CXX env exist, use them
+        if os.environ.get('CC') is not None and os.environ.get('CXX') is not None:
+            print("Using CC and CXX from env")
+            print("CC: " + os.environ.get('CC'))
+            print("CXX: " + os.environ.get('CXX'))
+            return
         if sys.platform == 'darwin':
             if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
                 os.environ['CC'] = '/usr/local/opt/llvm/bin/clang'
