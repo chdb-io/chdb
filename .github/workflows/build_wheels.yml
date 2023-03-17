@@ -23,8 +23,16 @@ jobs:
         run: |
           pwd
           uname -a
-          [[ "${RUNNER_OS}" = "macos-11" ]] && brew install llvm && /usr/local/opt/llvm/bin/clang++ --version
-          [[ "${RUNNER_OS}" = "ubuntu-20.04" ]] && wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo bash -x ./llvm.sh 15
+          if [[ "${RUNNER_OS}" = "macos-11" ]]; then
+            brew install llvm
+            /usr/local/opt/llvm/bin/clang++ --version
+            export PATH="/usr/local/opt/llvm/bin:$PATH"
+            export CXX=/usr/local/opt/llvm/bin/clang++
+          elif [[ "${RUNNER_OS}" = "ubuntu-20.04" ]]; then
+            wget https://apt.llvm.org/llvm.sh
+            chmod +x llvm.sh
+            sudo bash -x ./llvm.sh 15
+          fi
           which clang++
           clang++ --version
       - uses: actions/checkout@v3
