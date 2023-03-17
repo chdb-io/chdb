@@ -11,7 +11,6 @@ jobs:
         os: [ ubuntu-20.04 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
         python-version: [ "3.7" ]
-        compiler: [ "clang++" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -35,7 +34,7 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         env:
-          CIBW_ENVIRONMENT: "CC=clang-15 CXX=clang++-15"
+          CIBW_ENVIRONMENT_LINUX: "CC=clang-15 CXX=clang++-15"
         # env:
         #   CIBW_SOME_OPTION: value
         #    ...
@@ -55,7 +54,6 @@ jobs:
         os: [ macos-11 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
         python-version: [ "3.7" ]
-        compiler: [ "clang++" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -78,7 +76,8 @@ jobs:
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         env:
-          CIBW_ENVIRONMENT: "CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
+             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
