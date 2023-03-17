@@ -3,12 +3,56 @@ name: Build
 on: [push, pull_request]
 
 jobs:
-  build_wheels:
+  build_wheels_linux:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-20.04, macos-11 ]
+        os: [ ubuntu-20.04 ]
+        # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
+        python-version: [ "3.7" ]
+        compiler: [ "clang++" ]
+    env:
+      RUNNER_OS: ${{ matrix.os }}
+      PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - name: Install clang++ for Ubuntu
+        if: matrix.os == 'ubuntu-20.04'
+        run: |
+          pwd
+          uname -a
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo bash -x ./llvm.sh 15
+          export CC=clang-15
+          export CXX=clang++-15
+          which clang++-15
+          clang++-15 --version
+          sudo apt-get install -y cmake ccache ninja-build yasm gawk
+      - uses: actions/checkout@v3
+        with:
+          submodules: recursive
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.12.1
+        env:
+          CIBW_ENVIRONMENT: "CC=clang-15 CXX=clang++-15"
+        # env:
+        #   CIBW_SOME_OPTION: value
+        #    ...
+        # with:
+        #   package-dir: .
+        #   output-dir: wheelhouse
+        #   config-file: "{package}/pyproject.toml"
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ./wheelhouse/*.whl
+  build_wheels_macos:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ macos-11 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
         python-version: [ "3.7" ]
         compiler: [ "clang++" ]
@@ -23,35 +67,18 @@ jobs:
           uname -a
           brew update
           brew install ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
-          export PATH=$(brew --prefix llvm)/bin:$PATH
+          export PATH=$(brew --prefix llvm)/bin:$PATH"
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++
           which clang++
           clang++ --version
-      - name: Install clang++ for Ubuntu
-        if: matrix.os == 'ubuntu-20.04'
-        run: |
-          pwd
-          uname -a
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo bash -x ./llvm.sh 15
-          export CC=clang-15
-          export CXX=clang++-15
-          which clang++-15
-          clang++-15 --version
-          sudo apt-get install -y cmake ccache ninja-build yasm gawk
-      - name: Check env
-        run: |
-          echo $CXX
       - uses: actions/checkout@v3
         with:
           submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
-        # env:
-        #   CIBW_SOME_OPTION: value
-        #    ...
+        env:
+          CIBW_ENVIRONMENT: "CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
