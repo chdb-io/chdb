@@ -21,8 +21,12 @@ jobs:
       # install clang++
       - name: Install clang++
         run: |
-          [[ "$RUNNER_OS" == "macos-11" ]] && brew install llvm || true
-          [[ "$RUNNER_OS" == "ubuntu-20.04" ]] && wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 15 || true
+          pwd
+          uname -a
+          [[ "${RUNNER_OS}" = "macos-11" ]] && brew install llvm || true
+          [[ "${RUNNER_OS}" = "ubuntu-20.04" ]] && wget https://apt.llvm.org/llvm.sh && chmod +x llvm.sh && sudo ./llvm.sh 15 || true
+          which clang++
+          clang++ --version
       - uses: actions/checkout@v3
         # with:
         #   submodules: recursive
