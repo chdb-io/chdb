@@ -10,10 +10,11 @@ jobs:
       run: |
         pwd
         uname -a
-        brew install llvm
-        /usr/local/opt/llvm/bin/clang++ --version
-        export PATH="/usr/local/opt/llvm/bin:$PATH"
-        export CXX=/usr/local/opt/llvm/bin/clang++
+        brew update
+        brew install ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
+        export PATH=$(brew --prefix llvm)/bin:$PATH
+        export CC=$(brew --prefix llvm)/bin/clang
+        export CXX=$(brew --prefix llvm)/bin/clang++
         which clang++
         clang++ --version
   install_clang_ubuntu:
@@ -26,9 +27,11 @@ jobs:
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
         sudo bash -x ./llvm.sh 15
+        export CC=clang-15
         export CXX=clang++-15
         which clang++-15
         clang++-15 --version
+        sudo apt-get install -y cmake ccache ninja-build yasm gawk
   build_wheels:
     needs: [install_clang_macos, install_clang_ubuntu]
     name: Build wheels on ${{ matrix.os }}
