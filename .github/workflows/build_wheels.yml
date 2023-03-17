@@ -26,9 +26,12 @@ jobs:
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
         sudo bash -x ./llvm.sh 15
-        export CXX=/usr/local/llvm/bin/clang++15
-        which clang++15
-        clang++15 --version
+        sudo alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-15 100
+        sudo alternatives --install /usr/bin/clang clang /usr/bin/clang-15 100
+        sudo alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-15 100
+        export CXX=/usr/bin/clang++
+        which clang++
+        clang++ --version
   build_wheels:
     needs: [install_clang_macos, install_clang_ubuntu]
     name: Build wheels on ${{ matrix.os }}
