@@ -26,9 +26,12 @@ jobs:
         wget https://apt.llvm.org/llvm.sh
         chmod +x llvm.sh
         sudo bash -x ./llvm.sh 15
+        export PATH="/usr/local/llvm/bin:$PATH"
+        export CXX=/usr/local/llvm/bin/clang++
         which clang++
         clang++ --version
   build_wheels:
+    needs: [install_clang_macos, install_clang_ubuntu]
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
