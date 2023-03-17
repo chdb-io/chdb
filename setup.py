@@ -50,21 +50,18 @@ class BuildExt(build_ext):
 
     def build_extensions(self):
         # Determine which compiler to use, prefer clang++ over g++
-        if os.system('which clang++ > /dev/null') == 0:
-            print("Using Clang")
-            # if macOS, prefer brew clang++ compiler over the system one
-            if sys.platform == 'darwin':
-                if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
-                    # distutils likes to use CC as cpp, so set CC to clang++
-                    os.environ['CC'] = '/usr/local/opt/llvm/bin/clang++'
-                    os.environ['CXX'] = '/usr/local/opt/llvm/bin/clang++'
+        if sys.platform == 'darwin':
+            if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
+                # distutils likes to use CC as cpp, so set CC to clang++
+                os.environ['CC'] = '/usr/local/opt/llvm/bin/clang++'
+                os.environ['CXX'] = '/usr/local/opt/llvm/bin/clang++'
             else:
-                os.environ['CC'] = 'clang++'
-                os.environ['CXX'] = 'clang++'
+                raise RuntimeError("Must use brew clang++")
+        elif sys.platform == 'linux':
+            os.environ['CC'] = 'clang++'
+            os.environ['CXX'] = 'clang++'
         else:
-            print("Using GCC")
-            os.environ['CC'] = 'gcc'
-            os.environ['CXX'] = 'g++'
+            raise RuntimeError("Unsupported platform")
 
         ret = os.system("bash chdb/build.sh")
         if ret != 0:
