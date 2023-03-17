@@ -52,13 +52,12 @@ class BuildExt(build_ext):
         # Determine which compiler to use, prefer clang++ over g++
         if sys.platform == 'darwin':
             if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
-                # distutils likes to use CC as cpp, so set CC to clang++
-                os.environ['CC'] = '/usr/local/opt/llvm/bin/clang++'
+                os.environ['CC'] = '/usr/local/opt/llvm/bin/clang'
                 os.environ['CXX'] = '/usr/local/opt/llvm/bin/clang++'
             else:
                 raise RuntimeError("Must use brew clang++")
         elif sys.platform == 'linux':
-            os.environ['CC'] = 'clang++'
+            os.environ['CC'] = 'clang'
             os.environ['CXX'] = 'clang++'
         else:
             raise RuntimeError("Unsupported platform")
