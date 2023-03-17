@@ -18,10 +18,16 @@ jobs:
 
 
     steps:
+      # install clang++
+      - name: Install clang++
+        if: matrix.compiler == 'clang++'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 15
       - uses: actions/checkout@v3
-        with:
-          submodules: recursive
-
+        # with:
+        #   submodules: recursive
       - name: Build wheels
         uses: pypa/cibuildwheel@v2.12.1
         # env:
