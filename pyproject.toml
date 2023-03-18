@@ -10,3 +10,7 @@ version_scheme = "no-guess-dev"
 
 [project]
 requires-python = ">=3.7"
+
+[tool.cibuildwheel]
+# Switch to using build
+build-frontend = "build"
