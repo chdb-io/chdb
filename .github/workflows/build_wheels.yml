@@ -33,6 +33,8 @@ jobs:
         uses: pypa/cibuildwheel@v2.12.1
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
+          CIBW_DEBUG: 1
+          CIBW_BEFORE_BUILD: "pip install -U pip"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
@@ -71,6 +73,8 @@ jobs:
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+          CIBW_DEBUG: 1
+          CIBW_BEFORE_BUILD: "pip install -U pip"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
