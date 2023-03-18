@@ -30,7 +30,7 @@ jobs:
         with:
           submodules: recursive
       - name: Build wheels
-        run: pip install -U pip tox && tox -e build -- --wheel --wheel-dir wheelhouse
+        run: pip install -U pip tox && tox -e build -- --wheel
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
           CIBW_DEBUG: 1
@@ -71,7 +71,7 @@ jobs:
         with:
           submodules: recursive
       - name: Build wheels
-        run: pip install -U pip tox && tox -e build -- --wheel --wheel-dir wheelhouse
+        run: pip install -U pip tox && tox -e build -- --wheel
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
