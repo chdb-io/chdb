@@ -33,9 +33,6 @@ jobs:
         uses: pypa/cibuildwheel@v2.12.1
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
-        # env:
-        #   CIBW_SOME_OPTION: value
-        #    ...
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
