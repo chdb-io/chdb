@@ -10,7 +10,7 @@ jobs:
       matrix:
         os: [ ubuntu-20.04 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
-        python-version: [ "3.7" ]
+        python-version: [ "3.7", "3.8" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -29,8 +29,10 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: Install cibuildwheel
+        run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
-        run: pip install -U pip tox && tox -e build -- --wheel
+        run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
           CIBW_DEBUG: 1
@@ -41,7 +43,9 @@ jobs:
         #   package-dir: .
         #   output-dir: wheelhouse
         #   config-file: "{package}/pyproject.toml"
-
+      - name: Show files
+        run: ls -lh wheelhouse
+        shell: bash
       - uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
@@ -70,8 +74,10 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: Install cibuildwheel
+        run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
-        run: pip install -U pip tox && tox -e build -- --wheel
+        run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
@@ -82,7 +88,9 @@ jobs:
         #   package-dir: .
         #   output-dir: wheelhouse
         #   config-file: "{package}/pyproject.toml"
-
+      - name: Show files
+        run: ls -lh wheelhouse
+        shell: bash
       - uses: actions/upload-artifact@v3
         with:
           path: ./wheelhouse/*.whl
