@@ -10,7 +10,7 @@ jobs:
       matrix:
         os: [ ubuntu-20.04 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
-        python-version: [ "3.7", "3.8" ]
+        python-version: [ "3.7", "3.8 " ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -29,6 +29,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: Run chdb/build.sh
+        run: |
+          bash ./chdb/build.sh
+        env:
+          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
       - name: Install cibuildwheel
         run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
@@ -74,6 +79,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: Run chdb/build.sh
+        run: |
+          bash ./chdb/build.sh
+        env:
+          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
       - name: Install cibuildwheel
         run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
