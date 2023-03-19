@@ -40,6 +40,9 @@ jobs:
           clang++ --version
       - name: Run chdb/build.sh
         run: |
+          python3 -m pip install pybind11
+          export CC=/usr/bin/clang
+          export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
@@ -90,16 +93,19 @@ jobs:
           submodules: recursive
       - name: Run chdb/build.sh
         run: |
+          python3 -m pip install pybind11
+          export CC=$(brew --prefix llvm)/bin/clang
+          export CXX=$(brew --prefix llvm)/bin/clang++ 
           bash ./chdb/build.sh
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
       - name: Install cibuildwheel
         run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox"
