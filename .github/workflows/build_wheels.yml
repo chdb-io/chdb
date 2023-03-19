@@ -29,17 +29,26 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: recursive
+      - name: remove old clang and link clang-15 to clang
+        if: matrix.os == 'ubuntu-20.04'
+        run: |
+          sudo rm /usr/bin/clang
+          sudo ln -s /usr/bin/clang-15 /usr/bin/clang
+          sudo rm /usr/bin/clang++
+          sudo ln -s /usr/bin/clang++-15 /usr/bin/clang++
+          which clang++
+          clang++ --version
       - name: Run chdb/build.sh
         run: |
           bash ./chdb/build.sh
         env:
-          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
+          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
       - name: Install cibuildwheel
         run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
-          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
+          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox"
           CIBW_BUILD_VERBOSITY: 3
@@ -83,7 +92,8 @@ jobs:
         run: |
           bash ./chdb/build.sh
         env:
-          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang-15 CXX=/usr/bin/clang++-15"
+          CIBW_ENVIRONMENT_MACOS: "PATH=/usr/local/opt/llvm/bin/:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin\
+             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
       - name: Install cibuildwheel
         run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
