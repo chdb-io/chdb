@@ -33,6 +33,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ matrix.os }}
+          max-size: 5G
       - name: remove old clang and link clang-15 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
@@ -106,6 +107,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ matrix.os }}
+          max-size: 5G
       - name: Run chdb/build.sh
         run: |
           python3 -m pip install pybind11
