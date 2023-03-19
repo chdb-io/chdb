@@ -71,7 +71,7 @@ class BuildExt(build_ext):
 
         #exec chdb/build.sh and print the output if it fails
         # Run the build script and capture its output
-        completed_process = subprocess.run(["ls", "-lh chdb"], capture_output=True, text=True)
+        completed_process = subprocess.run(["ls", "-lh", "chdb"], capture_output=True, text=True)
         # If it failed, print the output
         print(completed_process.stdout)
         print(completed_process.stderr)
@@ -88,13 +88,13 @@ class BuildExt(build_ext):
 if __name__ == "__main__":
     try:
         # get python extension file name
-        chdb_so = libdir + "/_chdb." + sysconfig.get_config_var('EXT_SUFFIX')
+        chdb_so = libdir + "/_chdb" + sysconfig.get_config_var('EXT_SUFFIX')
         ext_modules = [
             Extension(
                 '_chdb',
-                sources=['programs/local/LocalChdb.cpp'],
+                sources=[],
                 language='c++',
-                libraries=['chdb'],
+                libraries=[],
                 library_dirs=[libdir],
                 extra_objects=[chdb_so],
             ),
@@ -107,7 +107,7 @@ if __name__ == "__main__":
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
             install_requires=['pybind11>=2.6'],
-            # cmdclass={'build_ext': BuildExt},
+            cmdclass={'build_ext': BuildExt},
             test_suite="tests",
             zip_safe=False,
         )
