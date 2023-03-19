@@ -71,7 +71,7 @@ class BuildExt(build_ext):
 
         #exec chdb/build.sh and print the output if it fails
         # Run the build script and capture its output
-        completed_process = subprocess.run(['bash', 'chdb/build.sh'], capture_output=True, text=True)
+        completed_process = subprocess.run(["ls", "-lh chdb"], capture_output=True, text=True)
         # If it failed, print the output
         print(completed_process.stdout)
         print(completed_process.stderr)
@@ -107,15 +107,11 @@ if __name__ == "__main__":
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
             install_requires=['pybind11>=2.6'],
-            cmdclass={'build_ext': BuildExt},
+            # cmdclass={'build_ext': BuildExt},
             test_suite="tests",
             zip_safe=False,
         )
-    except:  # noqa
-        print(
-            "\n\nAn error occurred while building the project, "
-            "please ensure you have the most updated version of setuptools, "
-            "setuptools_scm and wheel with:\n"
-            "   pip install -U setuptools setuptools_scm wheel\n\n"
-        )
+    except Exception as e:
+        print("Build from setup.py failed. Error: ")
+        print(e)
         raise
