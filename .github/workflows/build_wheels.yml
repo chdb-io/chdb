@@ -56,10 +56,10 @@ jobs:
           CIBW_BEFORE_BUILD: "pip install -U pip tox"
           CIBW_BUILD_VERBOSITY: 3
           # CIBW_TEST_COMMAND: "tox -e py{pyver}"
-        # with:
-        #   package-dir: .
-        #   output-dir: wheelhouse
-        #   config-file: "{package}/pyproject.toml"
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+          config-file: "{package}/pyproject.toml"
       - name: Show files
         run: ls -lh wheelhouse
         shell: bash
@@ -94,6 +94,7 @@ jobs:
       - name: Run chdb/build.sh
         run: |
           python3 -m pip install pybind11
+          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++ 
           bash ./chdb/build.sh
@@ -110,10 +111,10 @@ jobs:
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox"
           CIBW_BUILD_VERBOSITY: 3
-        # with:
-        #   package-dir: .
-        #   output-dir: wheelhouse
-        #   config-file: "{package}/pyproject.toml"
+        with:
+          package-dir: .
+          output-dir: wheelhouse
+          config-file: "{package}/pyproject.toml"
       - name: Show files
         run: ls -lh wheelhouse
         shell: bash
