@@ -35,6 +35,8 @@ jobs:
           sudo apt-get install -y git
           git --version
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Restore submodules cache
         uses: actions/cache/restore@v3
         id: cache
@@ -139,6 +141,8 @@ jobs:
           clang++ --version
           ccache -s
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Restore submodules cache
         uses: actions/cache/restore@v3
         id: cache
