@@ -104,7 +104,7 @@ jobs:
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - name: Install clang++ for macOS
-        if: matrix.os == 'macos-11'
+        if: matrix.os == 'macos-11' || matrix.os == 'macos-12'
         run: |
           pwd
           uname -a
@@ -155,6 +155,18 @@ jobs:
         #   package-dir: .
         #   output-dir: wheelhouse
         #   config-file: "{package}/pyproject.toml"
+      - name: Build wheels for macos12 including universal2
+        if: matrix.os == 'macos-12'
+        run: python3 -m cibuildwheel --output-dir wheelhouse
+        env:
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+          CIBW_DEBUG: 1
+          CIBW_BEFORE_BUILD: "pip install -U pip tox"
+          CIBW_BUILD_VERBOSITY: 3
+          CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64 \
+             cp37-macosx_arm64 cp38-macosx_arm64 cp39-macosx_arm64 cp310-macosx_arm64 cp311-macosx_arm64 \
+             cp37-macosx_universal2 cp38-macosx_universal2 cp39-macosx_universal2 cp310-macosx_universal2 cp311-macosx_universal2"
       - name: Show files
         run: ls -lh wheelhouse
         shell: bash
