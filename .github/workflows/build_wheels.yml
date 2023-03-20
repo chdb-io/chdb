@@ -7,10 +7,11 @@ jobs:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ ubuntu-20.04 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
-        python-version: [ "3.7", "3.8 " ]
+        python-version: [ "3.7" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -26,6 +27,7 @@ jobs:
           which clang++-15
           clang++-15 --version
           sudo apt-get install -y cmake ccache ninja-build yasm gawk
+          ccache -s
       - uses: actions/checkout@v3
         with:
           submodules: recursive
@@ -51,6 +53,7 @@ jobs:
           bash ./chdb/build.sh
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
+        continue-on-error: false
       - name: Clean up buildlib for runner disk space
         run: |
           ccache -s
@@ -91,6 +94,7 @@ jobs:
     name: Build wheels on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [ macos-11 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
@@ -109,6 +113,7 @@ jobs:
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
           clang++ --version
+          ccache -s
       - uses: actions/checkout@v3
         with:
           submodules: recursive
@@ -124,6 +129,7 @@ jobs:
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++ 
           bash ./chdb/build.sh
+        continue-on-error: false
       - name: Clean up buildlib for runner disk space
         run: |
           ccache -s
