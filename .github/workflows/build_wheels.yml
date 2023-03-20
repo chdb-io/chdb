@@ -46,10 +46,9 @@ jobs:
           key: |
             submodule-${{ hashFiles('.gitmodules') }}
       - name: Update submodules if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          if [ steps.cache.outputs.cache-hit != 'true' ]; then
-            git submodule update --init --recursive --jobs 4
-          fi
+          git submodule update --init --recursive --jobs 4
       - name: Save submodules cache
         if: steps.cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v3
@@ -153,10 +152,9 @@ jobs:
           key: |
             submodule-${{ hashFiles('.gitmodules') }}
       - name: Update submodules if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          if [ steps.cache.outputs.cache-hit != 'true' ]; then
-            git submodule update --init --recursive --jobs 4
-          fi
+          git submodule update --init --recursive --jobs 4
       # - name: Save submodules cache
       #   uses: actions/cache/save@v3
       #   with:
