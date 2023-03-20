@@ -44,7 +44,7 @@ jobs:
           path: |
             contrib/**
           key: |
-            submodule-${{ hashFiles('**/.gitmodules') }}
+            submodule-${{ hashFiles('.gitmodules') }}
       - name: Update submodules if cache miss
         run: |
           if [ steps.cache.outputs.cache-hit != 'true' ]; then
@@ -56,7 +56,7 @@ jobs:
           path: |
             contrib/**
           key: |
-            submodule-${{ hashFiles('**/.gitmodules') }}
+            submodule-${{ hashFiles('.gitmodules') }}
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
@@ -150,7 +150,7 @@ jobs:
           path: |
             contrib/**
           key: |
-            submodule-${{ hashFiles('**/.gitmodules') }}
+            submodule-${{ hashFiles('.gitmodules') }}
       - name: Update submodules if cache miss
         run: |
           if [ steps.cache.outputs.cache-hit != 'true' ]; then
@@ -162,7 +162,7 @@ jobs:
           path: |
             contrib/**
           key: |
-            submodule-${{ hashFiles('**/.gitmodules') }}
+            submodule-${{ hashFiles('.gitmodules') }}
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
