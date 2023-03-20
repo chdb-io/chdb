@@ -67,6 +67,7 @@ jobs:
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox"
           CIBW_BUILD_VERBOSITY: 3
+          CIBW_ARCHS: "auto64"
           # CIBW_TEST_COMMAND: "tox -e py{pyver}"
         # with:
         #   package-dir: .
@@ -143,6 +144,7 @@ jobs:
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox"
           CIBW_BUILD_VERBOSITY: 3
+          CIBW_ARCHS: "auto64"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
