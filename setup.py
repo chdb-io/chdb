@@ -13,7 +13,18 @@ log.set_verbosity(log.DEBUG)
 script_dir = os.path.dirname(os.path.abspath(__file__))
 libdir = os.path.join(script_dir, "chdb")
 
-
+def get_latest_git_tag():
+    try:
+        output = subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0', '--match', 'v*']).decode().strip()
+        #strip the v from the tag
+        output = output[1:]
+        parts = output.split('.')
+        if len(parts) > 2:
+            n = subprocess.check_output(['git', 'rev-list', '--count', f"v{output}..HEAD"]).decode().strip()
+            return f"{parts[0]}.{parts[1]}.{n}"
+    except subprocess.CalledProcessError:
+        return 'unknown'
+    
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
 def has_flag(compiler, flagname):
@@ -101,8 +112,8 @@ if __name__ == "__main__":
         ]
         
         setup(
-            use_scm_version={"version_scheme": "no-guess-dev"},
             packages=['chdb'],
+            version=get_latest_git_tag(),
             package_data={'chdb': ['*.so']},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
