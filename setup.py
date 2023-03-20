@@ -22,8 +22,11 @@ def get_latest_git_tag():
         if len(parts) > 2:
             n = subprocess.check_output(['git', 'rev-list', '--count', f"v{output}..HEAD"]).decode().strip()
             return f"{parts[0]}.{parts[1]}.{n}"
-    except subprocess.CalledProcessError:
-        return 'unknown'
+    except Exception as e:
+        print("Failed to get git tag. Error: ")
+        print(e)
+        raise
+        
     
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
