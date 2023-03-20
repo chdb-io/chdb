@@ -13,12 +13,14 @@ if [ "$(uname)" == "Darwin" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
     PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
-    # if Darwin ARM64 (M1, M2), disable AVX
-    if [ "$(uname -m)" == "arm64" ]; then
-        AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-    else
-        AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
-    fi
+    # disable AVX on Darwin for github action macos11
+    AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    # # if Darwin ARM64 (M1, M2), disable AVX
+    # if [ "$(uname -m)" == "arm64" ]; then
+    #     AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    # else
+    #     AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
+    # fi
 elif [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
     UNWIND="-DUSE_UNWIND=1"
