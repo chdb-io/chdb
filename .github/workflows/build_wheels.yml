@@ -36,17 +36,25 @@ jobs:
           git --version
       - uses: actions/checkout@v3
       - name: Restore submodules cache
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         id: cache
         with:
           path: |
             contrib/**
           key: |
             submodule-${{ hashFiles('**/.gitmodules') }}
-      - run: |
+      - name: Update submodules if cache miss
+        run: |
           if [ steps.cache.outputs.cache-hit != 'true' ]; then
             git submodule update --init --recursive --jobs 4
           fi
+      - name: Save submodules cache
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            contrib/**
+          key: |
+            submodule-${{ hashFiles('**/.gitmodules') }}
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
@@ -132,17 +140,25 @@ jobs:
           ccache -s
       - uses: actions/checkout@v3
       - name: Restore submodules cache
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v3
         id: cache
         with:
           path: |
             contrib/**
           key: |
             submodule-${{ hashFiles('**/.gitmodules') }}
-      - run: |
+      - name: Update submodules if cache miss
+        run: |
           if [ steps.cache.outputs.cache-hit != 'true' ]; then
             git submodule update --init --recursive --jobs 4
           fi
+      - name: Save submodules cache
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            contrib/**
+          key: |
+            submodule-${{ hashFiles('**/.gitmodules') }}
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
