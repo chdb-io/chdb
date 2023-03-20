@@ -15,12 +15,23 @@ libdir = os.path.join(script_dir, "chdb")
 
 def get_latest_git_tag():
     try:
-        output = subprocess.check_output(['git', 'describe', '--tags', '--abbrev=0', '--match', 'v*']).decode().strip()
+        completed_process = subprocess.run(['git', 'describe', '--tags', '--abbrev=0', '--match', 'v*'], capture_output=True, text=True)
+        if completed_process.returncode != 0:
+            print(completed_process.stdout)
+            print(completed_process.stderr)
+            # get git version
+            raise RuntimeError("Failed to get git tag")
+        output = completed_process.stdout.strip()
         #strip the v from the tag
         output = output[1:]
         parts = output.split('.')
         if len(parts) > 2:
-            n = subprocess.check_output(['git', 'rev-list', '--count', f"v{output}..HEAD"]).decode().strip()
+            completed_process = subprocess.run(['git', 'rev-list', '--count', f"v{output}..HEAD"], capture_output=True, text=True)
+            if completed_process.returncode != 0:
+                print(completed_process.stdout)
+                print(completed_process.stderr)
+                raise RuntimeError("Failed to get git rev-list")
+            n = completed_process.stdout.strip()
             return f"{parts[0]}.{parts[1]}.{n}"
     except Exception as e:
         print("Failed to get git tag. Error: ")
