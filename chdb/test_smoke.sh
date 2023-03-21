@@ -20,3 +20,7 @@ cd ${PROJ_DIR}
 
 python3 -c \
     "import chdb; res = chdb._chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
+
+python3 -c \
+    "import chdb; res = chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
+
