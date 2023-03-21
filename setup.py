@@ -37,8 +37,8 @@ def get_latest_git_tag():
         print("Failed to get git tag. Error: ")
         print(e)
         raise
-        
-    
+
+
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
 def has_flag(compiler, flagname):
@@ -81,7 +81,6 @@ class BuildExt(build_ext):
             print("Using CC and CXX from env")
             print("CC: " + os.environ.get('CC'))
             print("CXX: " + os.environ.get('CXX'))
-            return
         if sys.platform == 'darwin':
             if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
                 os.environ['CC'] = '/usr/local/opt/llvm/bin/clang'
@@ -104,9 +103,10 @@ class BuildExt(build_ext):
         # Check the return code to see if the script failed
         if completed_process.returncode != 0:
             raise RuntimeError("Build failed")
-        
+
         # add the _chdb.cpython-37m-darwin.so or _chdb.cpython-39-x86_64-linux.so to the chdb package
-        self.distribution.package_data['chdb'] = ['*.so']
+        self.distribution.package_data['chdb'] = [ "chdb/_chdb" + sysconfig.get_config_var('EXT_SUFFIX')]
+        # super().build_extensions()
 
 
 # this will be executed by python setup.py bdist_wheel
@@ -117,18 +117,18 @@ if __name__ == "__main__":
         ext_modules = [
             Extension(
                 '_chdb',
-                sources=[],
+                sources=["programs/local/LocalChdb.cpp"],
                 language='c++',
                 libraries=[],
                 library_dirs=[libdir],
                 extra_objects=[chdb_so],
             ),
         ]
-        
+
         setup(
             packages=['chdb'],
             version=get_latest_git_tag(),
-            package_data={'chdb': ['*.so']},
+            package_data={'chdb': [chdb_so]},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
             install_requires=['pybind11>=2.6'],
