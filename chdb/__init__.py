@@ -2,7 +2,7 @@ import sys
 import os
 
 chdb_version = (0, 1, 0)
-if sys.version_info[:2] >= (3, 6):
+if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
     # change the current working directory to the path of the current file
@@ -13,7 +13,7 @@ if sys.version_info[:2] >= (3, 6):
     os.chdir(cwd)
     engine_version = str(_chdb.query("SELECT version();", "CSV").get_memview().tobytes())[3:-4]
 else:
-    raise NotImplementedError("Python 3.5 or lower version is not supported")
+    raise NotImplementedError("Python 3.6 or lower version is not supported")
 
 try:
     # Change here if project is renamed and does not equal the package name
@@ -21,3 +21,8 @@ try:
     __version__ = ".".join(map(str, chdb_version))
 except:  # pragma: no cover
     __version__ = "unknown"
+
+# wrap _chdb functions
+
+def query(sql, output_format="CSV", **kwargs):
+    return _chdb.query(sql, output_format, **kwargs)
