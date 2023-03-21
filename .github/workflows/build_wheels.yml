@@ -108,7 +108,9 @@ jobs:
           auditwheel -v repair -w dist/ --plat manylinux2014_x86_64 dist/*.whl
         continue-on-error: false
       - name: Show files
-        run: ls -lh dist
+        run: |
+          sudo rm -f dist/*-linux_x86_64.whl
+          ls -lh dist
         shell: bash
       - uses: actions/upload-artifact@v3
         with:
