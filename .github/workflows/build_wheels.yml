@@ -85,8 +85,6 @@ jobs:
           ccache -s
           ls -lh chdb
           df -h
-          rm -rf buildlib
-          df -h
       - name: Install cibuildwheel
         run: python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
@@ -179,8 +177,6 @@ jobs:
         run: |
           ccache -s
           ls -lh chdb
-          df -h
-          rm -rf buildlib
           df -h
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
