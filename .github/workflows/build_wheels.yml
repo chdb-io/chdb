@@ -180,7 +180,9 @@ jobs:
         run: |
           sudo rm -f /usr/local/bin/python3
       - name: Install dependencies for building wheels
-        run: python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+        run: |
+          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+          python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
