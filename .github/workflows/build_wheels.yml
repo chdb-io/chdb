@@ -89,7 +89,7 @@ jobs:
           ls -lh chdb
           df -h
       - name: Install dependencies for building wheels
-        run: python3 -m pip install pip tox pybind11 twine
+        run: python3 -m pip install -U pip tox pybind11 twine setuptools wheel
       - name: Build wheels
         run: |
           export CC=/usr/bin/clang
@@ -180,7 +180,7 @@ jobs:
         run: |
           sudo rm -f /usr/local/bin/python3
       - name: Install dependencies for building wheels
-        run: python3 -m pip install pip tox pybind11 twine
+        run: python3 -m pip install -U pip tox pybind11 twine setuptools wheel
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
