@@ -96,15 +96,15 @@ jobs:
           export CXX=/usr/bin/clang++
           make wheel
       - name: Show files
-        run: ls -lh wheelhouse
+        run: ls -lh dist
         shell: bash
       - uses: actions/upload-artifact@v3
         with:
-          path: ./wheelhouse/*.whl
+          path: ./dist/*.whl
       - name: Upload pypi
         run: |
           python3 -m pip install twine
-          python3 -m twine upload wheelhouse/*.whl
+          python3 -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
