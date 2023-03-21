@@ -96,7 +96,7 @@ class BuildExt(build_ext):
 
         #exec chdb/build.sh and print the output if it fails
         # Run the build script and capture its output
-        completed_process = subprocess.run(["ls", "-lh", "chdb"], capture_output=True, text=True)
+        completed_process = subprocess.run(["bash", "chdb/build.sh"], capture_output=True, text=True)
         # If it failed, print the output
         print(completed_process.stdout)
         print(completed_process.stderr)

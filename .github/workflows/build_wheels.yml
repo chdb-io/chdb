@@ -202,7 +202,9 @@ jobs:
         #   config-file: "{package}/pyproject.toml"
       - name: Build wheels for macos12 including universal2
         if: matrix.os == 'macos-12'
-        run: python3 -m cibuildwheel --output-dir wheelhouse
+        run: |
+          sudo rm -f /usr/local/bin/python3
+          python3 -m cibuildwheel --output-dir wheelhouse
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
