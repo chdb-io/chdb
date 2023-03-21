@@ -10,6 +10,7 @@
 # auto generated files
 *.logrt
 
+/chdb-0.*/
 *.strings
 /arrow1100
 test_main
