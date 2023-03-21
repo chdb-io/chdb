@@ -128,6 +128,7 @@ if __name__ == "__main__":
 
         setup(
             packages=['chdb'],
+            platforms=['manylinux2014_x86_64', 'macosx_11_0_x86_64', 'macosx_12_0_x86_64', 'macosx_12_0_arm64'],
             version=get_latest_git_tag(),
             package_data={'chdb': [chdb_so]},
             exclude_package_data={'': ['*.pyc', 'src/**']},
