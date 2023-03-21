@@ -71,16 +71,16 @@ jobs:
           sudo ln -s /usr/bin/clang++-15 /usr/bin/clang++
           which clang++
           clang++ --version
-      - name: Run chdb/build.sh
-        run: |
-          python3 -m pip install pybind11
-          export CC=/usr/bin/clang
-          export CXX=/usr/bin/clang++
-          bash ./chdb/build.sh
-        env:
-          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
-        continue-on-error: false
-      - name: Clean up buildlib for runner disk space
+      # - name: Run chdb/build.sh
+      #   run: |
+      #     python3 -m pip install pybind11
+      #     export CC=/usr/bin/clang
+      #     export CXX=/usr/bin/clang++
+      #     bash ./chdb/build.sh
+      #   env:
+      #     CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
+      #   continue-on-error: false
+      - name: Check ccache statistics
         run: |
           ccache -s
           ls -lh chdb
@@ -92,7 +92,7 @@ jobs:
         env:
           CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
           CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox && bash gen_manifest.sh"
+          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash gen_manifest.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp37-manylinux_x86_64 cp38-manylinux_x86_64 cp39-manylinux_x86_64 cp310-manylinux_x86_64 cp311-manylinux_x86_64"
           # CIBW_TEST_COMMAND: "tox -e py{pyver}"
@@ -165,15 +165,15 @@ jobs:
         with:
           key: ${{ matrix.os }}
           max-size: 5G
-      - name: Run chdb/build.sh
-        run: |
-          python3 -m pip install pybind11
-          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm)/bin/clang
-          export CXX=$(brew --prefix llvm)/bin/clang++ 
-          bash ./chdb/build.sh
-        continue-on-error: false
-      - name: Clean up buildlib for runner disk space
+      # - name: Run chdb/build.sh
+      #   run: |
+      #     python3 -m pip install pybind11
+      #     export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+      #     export CC=$(brew --prefix llvm)/bin/clang
+      #     export CXX=$(brew --prefix llvm)/bin/clang++ 
+      #     bash ./chdb/build.sh
+      #   continue-on-error: false
+      - name: Check ccache statistics
         run: |
           ccache -s
           ls -lh chdb
@@ -189,7 +189,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
           CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox"
+          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash gen_manifest.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
         # with:
