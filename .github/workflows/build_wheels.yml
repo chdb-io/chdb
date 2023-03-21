@@ -10,8 +10,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ ubuntu-20.04 ]
-        # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
-        python-version: [ "3.7" ]
+        python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
+        # python-version: [ "3.7" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -26,7 +26,7 @@ jobs:
           sudo ./llvm.sh 15
           which clang++-15
           clang++-15 --version
-          sudo apt-get install -y cmake ccache ninja-build yasm gawk
+          sudo apt-get install -y make cmake ccache ninja-build yasm gawk
           ccache -s
       - name: Update git
         run: |
@@ -76,31 +76,21 @@ jobs:
           python3 -m pip install pybind11
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
-        # bash ./chdb/build.sh
-        env:
-          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
+          bash ./chdb/build.sh
+          bash ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Check ccache statistics
         run: |
           ccache -s
           ls -lh chdb
           df -h
-      - name: Install cibuildwheel
-        run: python3 -m pip install cibuildwheel==2.12.1
+      - name: Install dependencies for building wheels
+        run: python3 -m pip install pip tox pybind11 twine
       - name: Build wheels
-        run: python3 -m cibuildwheel --output-dir wheelhouse
-        env:
-          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
-          CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash gen_manifest.sh"
-          CIBW_BUILD_VERBOSITY: 3
-          CIBW_BUILD: "cp37-manylinux_x86_64 cp38-manylinux_x86_64 cp39-manylinux_x86_64 cp310-manylinux_x86_64 cp311-manylinux_x86_64"
-          CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
-          # CIBW_TEST_COMMAND: "tox -e py{pyver}"
-        # with:
-        #   package-dir: .
-        #   output-dir: wheelhouse
-        #   config-file: "{package}/pyproject.toml"
+        run: |
+          export CC=/usr/bin/clang
+          export CXX=/usr/bin/clang++
+          make wheel
       - name: Show files
         run: ls -lh wheelhouse
         shell: bash
@@ -172,7 +162,7 @@ jobs:
           export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++ 
-        # bash ./chdb/build.sh
+          bash ./chdb/build.sh
         continue-on-error: false
       - name: Check ccache statistics
         run: |
@@ -182,8 +172,8 @@ jobs:
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
-      - name: Install cibuildwheel
-        run: python3 -m pip install cibuildwheel==2.12.1
+      - name: Install dependencies for building wheels
+        run: python3 -m pip install pip tox pybind11 twine
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
         env:
@@ -213,6 +203,11 @@ jobs:
              cp37-macosx_arm64 cp38-macosx_arm64 cp39-macosx_arm64 cp310-macosx_arm64 cp311-macosx_arm64 \
              cp37-macosx_universal2 cp38-macosx_universal2 cp39-macosx_universal2 cp310-macosx_universal2 cp311-macosx_universal2"
           CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+      - name: Run simple test
+        run: |
+          python3 -m pip install wheelhouse/*.whl
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+        continue-on-error: false
       - name: Show files
         run: ls -lh wheelhouse
         shell: bash
