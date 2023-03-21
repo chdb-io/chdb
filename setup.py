@@ -9,6 +9,23 @@ from distutils import log
 
 log.set_verbosity(log.DEBUG)
 
+def get_python_ext_suffix():
+    internal_ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
+    p = subprocess.run(['python3', '-c', "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))"], capture_output=True, text=True)
+    if p.returncode != 0:
+        print("Failed to get EXT_SUFFIX via python3")
+        return internal_ext_suffix
+    py_ext_suffix = p.stdout.strip()
+    if py_ext_suffix != internal_ext_suffix:
+        print("EXT_SUFFIX mismatch")
+        print("Internal EXT_SUFFIX: " + internal_ext_suffix)
+        print("Python3 EXT_SUFFIX: " + py_ext_suffix)
+        print("Current Python Path: " + sys.executable)
+        print("Current Python Version: " + sys.version)
+        print("Outside Python Path: " + subprocess.check_output(['which', 'python3']).decode('utf-8').strip())
+        print("Outside Python Version: " + subprocess.check_output(['python3', '--version']).decode('utf-8').strip())
+    return py_ext_suffix
+
 # get the path of the current file
 script_dir = os.path.dirname(os.path.abspath(__file__))
 libdir = os.path.join(script_dir, "chdb")
@@ -106,7 +123,7 @@ class BuildExt(build_ext):
             raise RuntimeError("Build failed")
 
         # add the _chdb.cpython-37m-darwin.so or _chdb.cpython-39-x86_64-linux.so to the chdb package
-        self.distribution.package_data['chdb'] = [ "chdb/_chdb" + sysconfig.get_config_var('EXT_SUFFIX')]
+        self.distribution.package_data['chdb'] = [ "chdb/_chdb" + get_python_ext_suffix()]
         # super().build_extensions()
 
 
@@ -114,7 +131,7 @@ class BuildExt(build_ext):
 if __name__ == "__main__":
     try:
         # get python extension file name
-        chdb_so = libdir + "/_chdb" + sysconfig.get_config_var('EXT_SUFFIX')
+        chdb_so = libdir + "/_chdb" + get_python_ext_suffix()
         ext_modules = [
             Extension(
                 '_chdb',
