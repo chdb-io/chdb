@@ -1,2 +1,2 @@
-include chdb/*.so
 include chdb/*.py
+include chdb/_chdb.cpython-39-darwin.so

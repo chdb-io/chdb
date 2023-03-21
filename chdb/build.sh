@@ -103,9 +103,9 @@ ${LDD} ${LIBCHDB}
 echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
-rm -f ${LIBCHDB}/*.so
+rm -f ${CHDB_DIR}/*.so
 mv ${LIBCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
-strip ${CHDB_DIR}/${CHDB_PY_MODULE}
+strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
 
 # # strip the binary (no debug info at all)
 # strip ${LIBCHDB}
