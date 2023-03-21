@@ -19,7 +19,7 @@ jobs:
       - name: Install python
         uses: actions/setup-python@v4
         with:
-          python-version: "${{ matrix.python_version }}"
+          python-version: "${{ matrix.python-version }}"
       - name: Install clang++ for Ubuntu
         if: matrix.os == 'ubuntu-20.04'
         run: |
