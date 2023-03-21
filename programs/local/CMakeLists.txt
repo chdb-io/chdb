@@ -27,8 +27,11 @@ execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version
 if (OS_LINUX)
     # pybind11 will try to find x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h
     # use -idirafter to make it find the right one and not polute the include path
+    # set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
+    #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
+    # )
     set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
-        "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
+        "-w"
     )
 elseif (OS_DARWIN)
     set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
