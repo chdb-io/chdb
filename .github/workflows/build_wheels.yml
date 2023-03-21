@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   build_wheels_linux:
-    name: Build wheels on ${{ matrix.os }}
+    name: Build on ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -16,6 +16,10 @@ jobs:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
+      - name: Install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "${{ matrix.python_version }}"
       - name: Install clang++ for Ubuntu
         if: matrix.os == 'ubuntu-20.04'
         run: |
