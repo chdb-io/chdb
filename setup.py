@@ -132,7 +132,6 @@ if __name__ == "__main__":
             package_data={'chdb': [chdb_so]},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
-            install_requires=['pybind11>=2.6'],
             python_requires='>=3.7',
             cmdclass={'build_ext': BuildExt},
             test_suite="tests",
