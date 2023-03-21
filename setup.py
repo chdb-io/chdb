@@ -88,8 +88,8 @@ class BuildExt(build_ext):
             else:
                 raise RuntimeError("Must use brew clang++")
         elif sys.platform == 'linux':
-            os.environ['CC'] = 'clang-15'
-            os.environ['CXX'] = 'clang++-15'
+            #os.environ['CC'] = 'clang-15'
+            #os.environ['CXX'] = 'clang++-15'
         else:
             raise RuntimeError("Unsupported platform")
 
