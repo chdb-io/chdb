@@ -73,6 +73,7 @@ echo -e "\nBINARY: ${BINARY}"
 ls -lh ${BINARY}
 echo -e "\nldd ${BINARY}"
 ${LDD} ${BINARY}
+rm -f ${BINARY}
 
 # del the binary and run ninja -v again to capture the command, then modify it to generate CHDB_PY_MODULE
 /bin/rm -f ${BINARY} 
@@ -102,6 +103,7 @@ ${LDD} ${LIBCHDB}
 echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
+rm -f ${LIBCHDB}/*.so
 /bin/cp -a ${LIBCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 # # strip the binary (no debug info at all)
