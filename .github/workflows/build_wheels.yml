@@ -105,8 +105,7 @@ jobs:
       - name: Audit wheels
         run: |
           python3 -m pip install auditwheel
-          auditwheel -v repair dist/*.whl -w dist/ --plat manylinux2014_x86_64
-          auditwheel -v show dist/*.whl
+          auditwheel -v repair -w dist/ --plat manylinux2014_x86_64 dist/*.whl
         continue-on-error: false
       - name: Show files
         run: ls -lh dist
