@@ -30,7 +30,7 @@ jobs:
           sudo ./llvm.sh 15
           which clang++-15
           clang++-15 --version
-          sudo apt-get install -y make cmake ccache ninja-build yasm gawk
+          sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
           ccache -s
       - name: Update git
         run: |
@@ -95,10 +95,17 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           make wheel
+      - name: Install patchelf from github
+        run: |
+          wget https://github.com/NixOS/patchelf/releases/download/0.17.2/patchelf-0.17.2-x86_64.tar.gz -O patchelf.tar.gz
+          tar -xvf patchelf.tar.gz
+          sudo cp bin/patchelf /usr/bin/
+          sudo chmod +x /usr/bin/patchelf
+          patchelf --version
       - name: Audit wheels
         run: |
           python3 -m pip install auditwheel
-          auditwheel -v repair dist/*.whl -w dist/
+          auditwheel -v repair dist/*.whl -w dist/ --plat manylinux2014_x86_64
           auditwheel -v show dist/*.whl
         continue-on-error: false
       - name: Show files
