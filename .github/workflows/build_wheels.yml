@@ -95,6 +95,12 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           make wheel
+      - name: Audit wheels
+        run: |
+          python3 -m pip install auditwheel
+          auditwheel -v repair dist/*.whl -w dist/
+          auditwheel -v show dist/*.whl
+        continue-on-error: false
       - name: Show files
         run: ls -lh dist
         shell: bash
