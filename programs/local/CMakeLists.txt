@@ -30,9 +30,15 @@ if (OS_LINUX)
     # set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
     #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
     # )
-    set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
-        "-w"
-    )
+    if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
+        set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
+            "-w -idirafter /usr/include -include crypt.h"
+        )
+    else()
+        set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
+            "-w"
+        )
+    endif()
 elseif (OS_DARWIN)
     set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
         "-w"
