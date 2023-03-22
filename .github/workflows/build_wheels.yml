@@ -66,6 +66,7 @@ jobs:
         with:
           key: ${{ matrix.os }}
           max-size: 5G
+          append-timestamp: false
       - name: remove old clang and link clang-15 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
@@ -174,6 +175,7 @@ jobs:
         with:
           key: ${{ matrix.os }}
           max-size: 5G
+          append-timestamp: false
       - name: Prepare chdb/build.sh
         run: |
           python3 -m pip install pybind11
