@@ -75,13 +75,13 @@ jobs:
           sudo ln -s /usr/bin/clang++-15 /usr/bin/clang++
           which clang++
           clang++ --version
-      - name: Prepare chdb/build.sh
+      - name: Run chdb/build.sh
         run: |
           python3 -m pip install pybind11
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
-          bash ./chdb/test_smoke.sh
+          bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Check ccache statistics
         run: |
@@ -180,7 +180,6 @@ jobs:
           export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++ 
-          bash ./chdb/build.sh
         continue-on-error: false
       - name: Check ccache statistics
         run: |
@@ -203,7 +202,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
           CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash gen_manifest.sh"
+          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
           CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
@@ -219,7 +218,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
           CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox"
+          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64 \
              cp37-macosx_arm64 cp38-macosx_arm64 cp39-macosx_arm64 cp310-macosx_arm64 cp311-macosx_arm64 \
