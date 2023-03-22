@@ -108,12 +108,14 @@ mv ${LIBCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
 
 # # strip the binary (no debug info at all)
-# strip ${LIBCHDB}
+# strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
 # echo -e "\nAfter strip:"
 # echo -e "\nLIBCHDB: ${LIBCHDB}"
-# ls -lh ${LIBCHDB}
+# ls -lh ${CHDB_DIR}
 # echo -e "\nfile info of ${LIBCHDB}"
-# file ${LIBCHDB}
+# file ${CHDB_DIR}/${CHDB_PY_MODULE}
+
+ccache -s || true
 
 # bash ${DIR}/build_bind.sh
 # bash ${DIR}/test_smoke.sh
