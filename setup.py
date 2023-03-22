@@ -30,7 +30,7 @@ def get_python_ext_suffix():
 script_dir = os.path.dirname(os.path.abspath(__file__))
 libdir = os.path.join(script_dir, "chdb")
 
-def get_latest_git_tag():
+def get_latest_git_tag(minor_ver_auto=False):
     try:
         completed_process = subprocess.run(['git', 'describe', '--tags', '--abbrev=0', '--match', 'v*'], capture_output=True, text=True)
         if completed_process.returncode != 0:
@@ -42,14 +42,16 @@ def get_latest_git_tag():
         #strip the v from the tag
         output = output[1:]
         parts = output.split('.')
-        if len(parts) > 2:
-            completed_process = subprocess.run(['git', 'rev-list', '--count', f"v{output}..HEAD"], capture_output=True, text=True)
-            if completed_process.returncode != 0:
-                print(completed_process.stdout)
-                print(completed_process.stderr)
-                raise RuntimeError("Failed to get git rev-list")
-            n = completed_process.stdout.strip()
-            return f"{parts[0]}.{parts[1]}.{n}"
+        if len(parts) == 3:
+            if minor_ver_auto:
+                completed_process = subprocess.run(['git', 'rev-list', '--count', f"v{output}..HEAD"], capture_output=True, text=True)
+                if completed_process.returncode != 0:
+                    print(completed_process.stdout)
+                    print(completed_process.stderr)
+                    raise RuntimeError("Failed to get git rev-list")
+                n = completed_process.stdout.strip()
+                parts[2] = int(parts[2]) + int(n)
+            return f"{parts[0]}.{parts[1]}.{parts[2]}"
     except Exception as e:
         print("Failed to get git tag. Error: ")
         print(e)
