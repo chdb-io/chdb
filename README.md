@@ -1,6 +1,6 @@
 
 <div align="center">
-  <img src="docs/_static/snake-chdb.png" height="70">
+  <img src="docs/_static/snake-chdb.png" height="100">
 </div>
 
 [![Build](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
