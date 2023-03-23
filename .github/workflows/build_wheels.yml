@@ -200,7 +200,7 @@ jobs:
           python3 -m pip install cibuildwheel==2.12.1
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
-        timeout-minutes: 320
+        timeout-minutes: 120
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
@@ -217,7 +217,7 @@ jobs:
         if: matrix.os == 'macos-12'
         run: |
           python3 -m cibuildwheel --output-dir wheelhouse
-        timeout-minutes: 320
+        timeout-minutes: 120
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
@@ -228,6 +228,9 @@ jobs:
              cp37-macosx_arm64 cp38-macosx_arm64 cp39-macosx_arm64 cp310-macosx_arm64 cp311-macosx_arm64 \
              cp37-macosx_universal2 cp38-macosx_universal2 cp39-macosx_universal2 cp310-macosx_universal2 cp311-macosx_universal2"
           CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+      - name: Wait for ccache to finish
+        run: |
+          while ps -ef | grep ccache | grep -v grep; do sleep 10; done
       - name: Run simple test
         run: |
           python3 -m pip install wheelhouse/*.whl
