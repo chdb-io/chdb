@@ -229,6 +229,7 @@ jobs:
              cp37-macosx_universal2 cp38-macosx_universal2 cp39-macosx_universal2 cp310-macosx_universal2 cp311-macosx_universal2"
           CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
       - name: Wait for ccache to finish
+        if: always()
         run: |
           while ps -ef | grep ccache | grep -v grep; do sleep 10; done
       - name: Run simple test
