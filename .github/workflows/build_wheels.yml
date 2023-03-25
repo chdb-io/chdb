@@ -123,6 +123,112 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+  build_wheels_macos_11:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-11 ]
+        # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
+        python-version: [ "3.11" ]
+    env:
+      RUNNER_OS: ${{ matrix.os }}
+      PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - name: Install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "${{ matrix.python-version }}"
+      - name: Remove /usr/local/bin/python3
+        run: |
+          sudo rm -f /usr/local/bin/python3
+      - name: Install clang++ for macOS
+        if: matrix.os == 'macos-11'
+        run: |
+          pwd
+          uname -a
+          brew update
+          brew install git ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
+          export PATH=$(brew --prefix llvm)/bin:$PATH
+          which clang++
+          clang++ --version
+          ccache -s
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Restore submodules cache
+        uses: actions/cache/restore@v3
+        id: cache
+        with:
+          path: |
+            contrib/**
+          key: |
+            submodule-${{ hashFiles('.gitmodules') }}
+      - name: Update submodules if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git submodule update --init --recursive --jobs 4
+      - name: Save submodules cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            contrib/**
+          key: |
+            submodule-${{ hashFiles('.gitmodules') }}
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}
+          max-size: 5G
+          append-timestamp: true
+      - name: Run chdb/build.sh
+        run: |
+          python3 -m pip install pybind11
+          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm)/bin/clang
+          export CXX=$(brew --prefix llvm)/bin/clang++ 
+          bash ./chdb/build.sh
+          bash -x ./chdb/test_smoke.sh
+        continue-on-error: false
+      - name: Check ccache statistics
+        run: |
+          ccache -s
+          ls -lh chdb
+          df -h
+        env:
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+      - name: Install dependencies for building wheels
+        run: |
+          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+      - name: Install dependencies for building wheels
+        run: python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+      - name: Build wheels
+        run: |
+          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm)/bin/clang
+          export CXX=$(brew --prefix llvm)/bin/clang++ 
+          make wheel
+      - name: Run simple test
+        run: |
+          python3 -m pip install wheelhouse/*.whl
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+        continue-on-error: false
+      - name: Show files
+        run: ls -lh wheelhouse
+        shell: bash
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ./wheelhouse/*.whl
+      - name: Upload pypi
+        run: |
+          python3 -m pip install twine
+          python3 -m twine upload wheelhouse/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
 
   build_wheels_macos:
     name: Build wheels on ${{ matrix.os }}
