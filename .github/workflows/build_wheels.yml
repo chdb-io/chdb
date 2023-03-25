@@ -149,7 +149,7 @@ jobs:
           pwd
           uname -a
           brew update
-          brew install git ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
+          brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
           clang++ --version
@@ -249,7 +249,7 @@ jobs:
           pwd
           uname -a
           brew update
-          brew install git ccache cmake ninja libtool gettext llvm gcc binutils grep findutils
+          brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
           clang++ --version
