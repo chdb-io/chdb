@@ -4,7 +4,7 @@ on: [push, pull_request]
 
 jobs:
   build_wheels_linux:
-    name: Build on ${{ matrix.os }} py${{ matrix.python-version }}
+    name: ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -124,7 +124,7 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
   build_wheels_macos_11:
-    name: Build wheels on ${{ matrix.os }}
+    name: ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -150,7 +150,7 @@ jobs:
           uname -a
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-          brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils
+          brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils zstd
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
           clang++ --version
@@ -232,14 +232,14 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
 
   build_wheels_macos:
-    name: Build wheels on ${{ matrix.os }}
+    name:  cbw on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-11, macos-12 ]
+        os: [ macos-11 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
-        python-version: [ "3.7" ]
+        python-version: [ "3.11" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -251,7 +251,7 @@ jobs:
           uname -a
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-          brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils
+          brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils zstd
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
           clang++ --version
@@ -332,13 +332,12 @@ jobs:
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
-          CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64 \
-             cp37-macosx_arm64 cp38-macosx_arm64 cp39-macosx_arm64 cp310-macosx_arm64 cp311-macosx_arm64 \
-             cp37-macosx_universal2 cp38-macosx_universal2 cp39-macosx_universal2 cp310-macosx_universal2 cp311-macosx_universal2"
+          CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
           CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
+          sleep 300
           while ps -ef | grep ccache | grep -v grep; do \
             killall ccache; \
             sleep 10; \
