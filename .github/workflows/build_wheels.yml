@@ -148,7 +148,8 @@ jobs:
         run: |
           pwd
           uname -a
-          brew update
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
@@ -248,7 +249,8 @@ jobs:
         run: |
           pwd
           uname -a
-          brew update
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew install git ccache ninja libtool gettext llvm gcc binutils grep findutils
           export PATH=$(brew --prefix llvm)/bin:$PATH
           which clang++
