@@ -214,7 +214,7 @@ jobs:
           make wheel
       - name: Run simple test
         run: |
-          python3 -m pip install wheelhouse/*.whl
+          python3 -m pip install dist/*.whl
           python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
         continue-on-error: false
       - name: Show files
@@ -222,11 +222,11 @@ jobs:
         shell: bash
       - uses: actions/upload-artifact@v3
         with:
-          path: ./wheelhouse/*.whl
+          path: ./dist/*.whl
       - name: Upload pypi
         run: |
           python3 -m pip install twine
-          python3 -m twine upload wheelhouse/*.whl
+          python3 -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
@@ -238,7 +238,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-11 ]
-        # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
+        # python-version: [ "3.7", "3.8", "3.9", "3.10"]
         python-version: [ "3.11" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
