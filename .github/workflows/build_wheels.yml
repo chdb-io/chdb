@@ -123,13 +123,13 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-  build_wheels_macos_11:
+  build_wheels_macos_12:
     name: ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-11 ]
+        os: [ macos-12 ]
         # python-version: [ "3.7", "3.8", "3.9", "3.10", "3.11"]
         python-version: [ "3.11" ]
     env:
@@ -218,7 +218,7 @@ jobs:
           python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
         continue-on-error: false
       - name: Show files
-        run: ls -lh wheelhouse
+        run: ls -lh dist
         shell: bash
       - uses: actions/upload-artifact@v3
         with:
