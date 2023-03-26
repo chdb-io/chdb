@@ -315,7 +315,7 @@ jobs:
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
-          CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
+          CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
           CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
         # with:
         #   package-dir: .
