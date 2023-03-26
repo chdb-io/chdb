@@ -144,7 +144,6 @@ jobs:
         run: |
           sudo rm -f /usr/local/bin/python3
       - name: Install clang++ for macOS
-        if: matrix.os == 'macos-11'
         run: |
           pwd
           uname -a
