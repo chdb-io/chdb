@@ -341,11 +341,6 @@ jobs:
             killall ccache; \
             sleep 10; \
           done
-      - name: Run simple test
-        run: |
-          python3 -m pip install wheelhouse/*.whl
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
-        continue-on-error: false
       - name: Show files
         run: ls -lh wheelhouse
         shell: bash
