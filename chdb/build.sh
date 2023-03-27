@@ -21,15 +21,17 @@ if [ "$(uname)" == "Darwin" ]; then
         if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
             AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         else
-            # If target macos version is 12, we need to test if support AVX2, 
-            # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
-            # just test it on the github action, hope you don't using Mac Pro Late 2013.
-            # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
-            if [ "$(sysctl -n machdep.cpu.leaf7_features | grep AVX2)" != "" ]; then
-                AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
-            else
-                AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=0"
-            fi
+            # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
+            AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+            # # If target macos version is 12, we need to test if support AVX2, 
+            # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
+            # # just test it on the github action, hope you don't using Mac Pro Late 2013.
+            # # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
+            # if [ "$(sysctl -n machdep.cpu.leaf7_features | grep AVX2)" != "" ]; then
+            #     AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
+            # else
+            #     AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=0"
+            # fi
         fi
     fi
 elif [ "$(uname)" == "Linux" ]; then
