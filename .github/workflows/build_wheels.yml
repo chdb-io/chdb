@@ -184,6 +184,7 @@ jobs:
           max-size: 5G
           append-timestamp: true
       - name: Run chdb/build.sh
+        timeout-minutes: 300
         run: |
           python3 -m pip install pybind11
           export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
@@ -192,6 +193,14 @@ jobs:
           bash ./chdb/build.sh
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
+      - name: Keep killall ccache and wait for ccache to finish
+        if: always()
+        run: |
+          sleep 300
+          while ps -ef | grep ccache | grep -v grep; do \
+            killall ccache; \
+            sleep 10; \
+          done
       - name: Check ccache statistics
         run: |
           ccache -s
