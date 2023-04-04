@@ -329,19 +329,19 @@ jobs:
         #   package-dir: .
         #   output-dir: wheelhouse
         #   config-file: "{package}/pyproject.toml"
-      - name: Build wheels for macos12 including universal2
-        if: matrix.os == 'macos-12'
-        run: |
-          python3 -m cibuildwheel --output-dir wheelhouse
-        timeout-minutes: 300
-        env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
-          CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
-          CIBW_BUILD_VERBOSITY: 3
-          CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
-          CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+      # - name: Build wheels for macos12 including universal2
+      #   if: matrix.os == 'macos-12'
+      #   run: |
+      #     python3 -m cibuildwheel --output-dir wheelhouse
+      #   timeout-minutes: 300
+      #   env:
+      #     CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+      #        CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+      #     CIBW_DEBUG: 1
+      #     CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
+      #     CIBW_BUILD_VERBOSITY: 3
+      #     CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
+      #     CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
@@ -363,3 +363,7 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+
+  # #build for macos12 arm64(Apple Silicon)
+  # build_wheels_macos_arm64:
+  
