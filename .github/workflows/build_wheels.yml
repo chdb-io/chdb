@@ -219,7 +219,6 @@ jobs:
           export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++
-        # try https://github.com/pypa/wheel/issues/406#issuecomment-848095295
           export ARCHFLAGS="-arch x86_64"
           make wheel
       - name: Run simple test
