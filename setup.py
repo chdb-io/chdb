@@ -155,9 +155,6 @@ if __name__ == "__main__":
             cmdclass={'build_ext': BuildExt},
             test_suite="tests",
             zip_safe=False,
-            options={
-                'bdist_wheel': {'universal': False},
-            },
         )
     except Exception as e:
         print("Build from setup.py failed. Error: ")
