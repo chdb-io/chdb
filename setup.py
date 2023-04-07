@@ -104,6 +104,9 @@ class BuildExt(build_ext):
             if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
                 os.environ['CC'] = '/usr/local/opt/llvm/bin/clang'
                 os.environ['CXX'] = '/usr/local/opt/llvm/bin/clang++'
+            elif os.system('which /usr/local/opt/llvm@15/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = '/usr/local/opt/llvm@15/bin/clang'
+                os.environ['CXX'] = '/usr/local/opt/llvm@15/bin/clang++'
             else:
                 raise RuntimeError("Must use brew clang++")
         elif sys.platform == 'linux':

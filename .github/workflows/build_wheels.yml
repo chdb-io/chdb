@@ -150,7 +150,7 @@ jobs:
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew install git ccache ninja libtool gettext llvm@15 gcc binutils grep findutils zstd
-          export PATH=$(brew --prefix llvm)/bin:$PATH
+          export PATH=$(brew --prefix llvm@15)/bin:$PATH
           which clang++
           clang++ --version
           ccache -s
@@ -187,9 +187,9 @@ jobs:
         timeout-minutes: 300
         run: |
           python3 -m pip install pybind11
-          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm)/bin/clang
-          export CXX=$(brew --prefix llvm)/bin/clang++ 
+          export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@15)/bin/clang
+          export CXX=$(brew --prefix llvm@15)/bin/clang++ 
           bash ./chdb/build.sh
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
@@ -207,16 +207,16 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+             CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
       - name: Install dependencies for building wheels
         run: |
           python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
       - name: Build wheels
         run: |
-          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm)/bin/clang
-          export CXX=$(brew --prefix llvm)/bin/clang++
+          export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@15)/bin/clang
+          export CXX=$(brew --prefix llvm@15)/bin/clang++
           make wheel
       - name: Fix wheel platform tag
         run: |
@@ -261,7 +261,7 @@ jobs:
           export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew install git ccache ninja libtool gettext llvm@15 gcc binutils grep findutils zstd
-          export PATH=$(brew --prefix llvm)/bin:$PATH
+          export PATH=$(brew --prefix llvm@15)/bin:$PATH
           which clang++
           clang++ --version
           ccache -s
@@ -296,9 +296,9 @@ jobs:
       - name: Prepare chdb/build.sh
         run: |
           python3 -m pip install pybind11
-          export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm)/bin/clang
-          export CXX=$(brew --prefix llvm)/bin/clang++ 
+          export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@15)/bin/clang
+          export CXX=$(brew --prefix llvm@15)/bin/clang++ 
         continue-on-error: false
       - name: Check ccache statistics
         run: |
@@ -306,8 +306,8 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+             CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
       - name: Remove /usr/local/bin/python3
         run: |
           sudo rm -f /usr/local/bin/python3
@@ -319,8 +319,8 @@ jobs:
         run: python3 -m cibuildwheel --output-dir wheelhouse
         timeout-minutes: 300
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+             CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
@@ -336,8 +336,8 @@ jobs:
       #     python3 -m cibuildwheel --output-dir wheelhouse
       #   timeout-minutes: 300
       #   env:
-      #     CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-      #        CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
+      #     CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
+      #        CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
       #     CIBW_DEBUG: 1
       #     CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
       #     CIBW_BUILD_VERBOSITY: 3
