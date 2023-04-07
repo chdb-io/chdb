@@ -211,16 +211,16 @@ jobs:
              CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++"
       - name: Install dependencies for building wheels
         run: |
-          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
-      - name: Install dependencies for building wheels
-        run: python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+          python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
       - name: Build wheels
         run: |
           export PATH=$(brew --prefix llvm)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm)/bin/clang
           export CXX=$(brew --prefix llvm)/bin/clang++
-          export ARCHFLAGS="-arch x86_64"
           make wheel
+      - name: Fix wheel platform tag
+        run: |
+          python3 -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
       - name: Run simple test
         run: |
           python3 -m pip install dist/*.whl
