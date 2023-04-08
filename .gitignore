@@ -16,6 +16,7 @@
 test_main
 /buildlib
 /builddbg
+/buildx86
 /build
 /build_*
 /build-*
