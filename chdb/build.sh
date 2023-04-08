@@ -15,8 +15,13 @@ if [ "$(uname)" == "Darwin" ]; then
     PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
+        CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
         AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
+        export CXX=/usr/local/opt/llvm/bin/clang++
+        export CC=/usr/local/opt/llvm/bin/clang
     else
+        EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
         # disable AVX on Darwin for macos11
         if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
             AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
@@ -39,6 +44,7 @@ elif [ "$(uname)" == "Linux" ]; then
     UNWIND="-DUSE_UNWIND=1"
     PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
+    EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
 else
     echo "OS not supported"
     exit 1
@@ -60,12 +66,13 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=1 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
     ${GLIBC_COMPATIBILITY} \
     -DCLICKHOUSE_ONE_SHARED=0 \
-    -DENABLE_UTILS=0 -DENABLE_EMBEDDED_COMPILER=1 ${UNWIND} \
+    -DENABLE_UTILS=0 ${EMBEDDED_COMPILER} ${UNWIND} \
     -DENABLE_ICU=0 -DENABLE_JEMALLOC=0 \
     -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
     -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
     ${AVX_SUPPORT} \
+    ${CMAKE_TOOLCHAIN_FILE} \
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     ..
 ninja
