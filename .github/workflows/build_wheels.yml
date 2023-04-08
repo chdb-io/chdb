@@ -189,7 +189,8 @@ jobs:
           python3 -m pip install pybind11
           export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++ 
+          export CXX=$(brew --prefix llvm@15)/bin/clang++
+          bash gen_manifest.sh
           bash ./chdb/build.sh
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
