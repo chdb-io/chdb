@@ -1,4 +1,4 @@
-.PHONY: all clean buildlib wheel pub
+.PHONY: all clean buildlib wheel pub mac-arm64
 
 buildlib:
 	@echo "Building library..."
@@ -20,5 +20,9 @@ clean:
 	tox -e clean
 	@echo "Done."
 
+mac-arm64:
+	@echo "Make macOS arm64 whl"
+	bash packages/build_mac_arm64.sh
+	@echo "Done."
 
 build: clean buildlib wheel
