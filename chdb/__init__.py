@@ -1,5 +1,6 @@
 import sys
 import os
+import pyarrow as pa
 
 chdb_version = (0, 1, 0)
 if sys.version_info[:2] >= (3, 7):
@@ -22,7 +23,19 @@ try:
 except:  # pragma: no cover
     __version__ = "unknown"
 
-# wrap _chdb functions
 
+def _to_arrowTable(res):
+    """convert res to arrow table"""
+    return pa.RecordBatchFileReader(res.get_memview()).read_all()
+
+def to_df(r):
+    """"convert arrow table to Dataframe"""
+    t = _to_arrowTable(r)
+    return t.to_pandas(use_threads=True)
+
+# wrap _chdb functions
 def query(sql, output_format="CSV", **kwargs):
+    if output_format.lower() == "dataframe":
+        r = _chdb.query(sql, "Arrow", **kwargs)
+        return to_df(r)
     return _chdb.query(sql, output_format, **kwargs)
