@@ -24,3 +24,5 @@ python3 -c \
 python3 -c \
     "import chdb; res = chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
 
+# test cli
+python3 -m chdb "select 1112222222,555" Dataframe
