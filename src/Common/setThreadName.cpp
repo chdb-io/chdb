@@ -45,7 +45,7 @@ void setThreadName(const char * name)
 #else
     if (0 != prctl(PR_SET_NAME, name, 0, 0, 0))
 #endif
-        DB::throwFromErrno("Cannot set thread name with prctl(PR_SET_NAME, ...)", DB::ErrorCodes::PTHREAD_ERROR);
+//        DB::throwFromErrno("Cannot set thread name with prctl(PR_SET_NAME, ...)", DB::ErrorCodes::PTHREAD_ERROR);
 
     memcpy(thread_name, name, 1 + strlen(name));
 }
