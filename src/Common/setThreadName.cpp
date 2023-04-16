@@ -43,8 +43,8 @@ void setThreadName(const char * name)
 #else
     if (0 != prctl(PR_SET_NAME, name, 0, 0, 0))
 #endif
-        if (errno != ENOSYS)    /// It's ok if the syscall is unsupported in some environments.
-            DB::throwFromErrno("Cannot set thread name with prctl(PR_SET_NAME, ...)", DB::ErrorCodes::PTHREAD_ERROR);
+        // if (errno != ENOSYS)    /// It's ok if the syscall is unsupported in some environments.
+        //     DB::throwFromErrno("Cannot set thread name with prctl(PR_SET_NAME, ...)", DB::ErrorCodes::PTHREAD_ERROR);
 
     memcpy(thread_name, name, std::min<size_t>(1 + strlen(name), THREAD_NAME_SIZE - 1));
 }
