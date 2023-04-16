@@ -2,6 +2,12 @@
 
 set -e
 
+# check current arch
+if [ "$(uname -m)" != "arm64" ]; then
+    echo "OS not supported, run with arch -arm64 /bin/bash"
+    exit 1
+fi
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 PROJ_DIR=$(dirname ${DIR})
 
@@ -23,6 +29,27 @@ if [ -f /usr/local/opt/llvm@15/bin/clang ]; then
 elif [ -f /usr/local/opt/llvm/bin/clang ]; then
     export CC=/usr/local/opt/llvm/bin/clang
 fi
+
+# Download MacOSX11.0.sdk.tar.xz
+if [ ! -f ${PROJ_DIR}/python_pkg/MacOSX11.0.sdk.tar.xz ]; then
+    wget "https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.0.sdk.tar.xz" -O ${PROJ_DIR}/python_pkg/MacOSX11.0.sdk.tar.xz
+fi
+
+# Extract MacOSX11.0.sdk.tar.xz
+if [ ! -f ${PROJ_DIR}/cmake/toolchain/darwin-x86_64/Entitlements.plist ]; then
+    tar xJf ${PROJ_DIR}/python_pkg/MacOSX11.0.sdk.tar.xz -C cmake/toolchain/darwin-x86_64 --strip-components=1
+fi
+
+# Fix soft link if darwin-aarch64 not linked to darwin-x86_64
+if [ -L ${PROJ_DIR}/cmake/toolchain/darwin-aarch64 ]; then
+    dest=$(readlink ${PROJ_DIR}/cmake/toolchain/darwin-aarch64)
+fi
+
+if [ "${dest}" != "darwin-x86_64" ]; then
+    rm -f ${PROJ_DIR}/cmake/toolchain/darwin-aarch64
+    ln -sf darwin-x86_64 ${PROJ_DIR}/cmake/toolchain/darwin-aarch64
+fi
+
 
 for PY_VER in 3.9.13 3.10.11 3.11.3; do
     if [ ! -f ${PROJ_DIR}/python_pkg/python-${PY_VER}-macos11.pkg ]; then
