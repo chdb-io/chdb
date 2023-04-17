@@ -173,7 +173,6 @@ if __name__ == "__main__":
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
             python_requires='>=3.7',
-            install_requires=['pyarrow', 'pandas'],
             cmdclass={'build_ext': BuildExt},
             test_suite="tests",
             zip_safe=False,
