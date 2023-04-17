@@ -71,6 +71,7 @@ def fix_version_init(version):
         init_content = re.sub(regPattern, f"chdb_version = ({p1}, {p2}, {p3})", init_content)
         f.seek(0)
         f.write(init_content)
+        f.truncate()
     
 
 # As of Python 3.6, CCompiler has a `has_flag` method.
