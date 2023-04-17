@@ -206,7 +206,7 @@ jobs:
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
-          sleep 300
+          sleep 60
           while ps -ef | grep ccache | grep -v grep; do \
             killall ccache; \
             sleep 10; \
@@ -357,7 +357,7 @@ jobs:
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
-          sleep 300
+          sleep 60
           while ps -ef | grep ccache | grep -v grep; do \
             killall ccache; \
             sleep 10; \
