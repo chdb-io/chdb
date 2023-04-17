@@ -22,20 +22,32 @@ try:
 except:  # pragma: no cover
     __version__ = "unknown"
 
-
-def _to_arrowTable(res):
+# return pyarrow table
+def to_arrowTable(res):
     """convert res to arrow table"""
-    import pyarrow as pa #import when needed
+    # try import pyarrow and pandas, if failed, raise ImportError with suggestion
+    try:
+        import pyarrow as pa
+        import pandas
+    except ImportError as e:
+        print(f'ImportError: {e}')
+        print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
+        raise ImportError('Failed to import pyarrow or pandas') from None
+        
     return pa.RecordBatchFileReader(res.get_memview()).read_all()
 
+# return pandas dataframe
 def to_df(r):
     """"convert arrow table to Dataframe"""
-    t = _to_arrowTable(r)
+    t = to_arrowTable(r)
     return t.to_pandas(use_threads=True)
 
 # wrap _chdb functions
 def query(sql, output_format="CSV", **kwargs):
-    if output_format.lower() == "dataframe":
-        r = _chdb.query(sql, "Arrow", **kwargs)
-        return to_df(r)
-    return _chdb.query(sql, output_format, **kwargs)
+    lower_output_format = output_format.lower()
+    if lower_output_format == "dataframe":
+        return to_df(_chdb.query(sql, "Arrow", **kwargs))
+    elif lower_output_format == 'arrowtable':
+        return to_arrowTable(_chdb.query(sql, "Arrow", **kwargs))
+    else:
+        return _chdb.query(sql, output_format, **kwargs)
