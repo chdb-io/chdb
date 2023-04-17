@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import subprocess
 import sysconfig
 from setuptools import setup, Extension
@@ -57,6 +58,20 @@ def get_latest_git_tag(minor_ver_auto=False):
         print(e)
         raise
 
+# replace the version in chdb/__init__.py, which is `chdb_version = (0, 1, 0)` by default
+# regex replace the version string `chdb_version = (0, 1, 0)` with version parts
+def fix_version_init(version):
+    # split version string into parts
+    p1, p2, p3 = version.split('.')
+    init_file = os.path.join(script_dir, "chdb", "__init__.py")
+    with open(init_file, "r+") as f:
+        init_content = f.read()
+        # regex replace the version string `chdb_version = (0, 1, 0)`
+        regPattern = r"chdb_version = \(\d+, \d+, \d+\)"
+        init_content = re.sub(regPattern, f"chdb_version = ({p1}, {p2}, {p3})", init_content)
+        f.seek(0)
+        f.write(init_content)
+    
 
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
@@ -147,10 +162,12 @@ if __name__ == "__main__":
                 extra_objects=[chdb_so],
             ),
         ]
-
+        # fix the version in chdb/__init__.py
+        versionStr = get_latest_git_tag()
+        fix_version_init(versionStr)
         setup(
             packages=['chdb'],
-            version=get_latest_git_tag(),
+            version=versionStr,
             package_data={'chdb': [chdb_so]},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
