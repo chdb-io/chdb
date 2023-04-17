@@ -1,8 +1,7 @@
 import sys
 import os
-import pyarrow as pa
 
-chdb_version = (0, 1, 0)
+chdb_version = (0, 5, 0)
 if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -26,6 +25,7 @@ except:  # pragma: no cover
 
 def _to_arrowTable(res):
     """convert res to arrow table"""
+    import pyarrow as pa #import when needed
     return pa.RecordBatchFileReader(res.get_memview()).read_all()
 
 def to_df(r):
