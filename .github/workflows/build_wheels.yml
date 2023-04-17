@@ -82,6 +82,7 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
+          python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Check ccache statistics
@@ -193,6 +194,7 @@ jobs:
           export CXX=$(brew --prefix llvm@15)/bin/clang++
           bash gen_manifest.sh
           bash ./chdb/build.sh
+          python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Keep killall ccache and wait for ccache to finish
