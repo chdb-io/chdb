@@ -1,6 +1,12 @@
 name: Build
 
-on: [push, pull_request]
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - pybind
 
 jobs:
   build_wheels_linux:
@@ -82,6 +88,7 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
+          python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Check ccache statistics
@@ -148,7 +155,6 @@ jobs:
         run: |
           pwd
           uname -a
-          export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew install git ccache ninja libtool gettext llvm@15 gcc binutils grep findutils zstd
           export PATH=$(brew --prefix llvm@15)/bin:$PATH
@@ -193,12 +199,13 @@ jobs:
           export CXX=$(brew --prefix llvm@15)/bin/clang++
           bash gen_manifest.sh
           bash ./chdb/build.sh
+          python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
-          sleep 300
+          sleep 60
           while ps -ef | grep ccache | grep -v grep; do \
             killall ccache; \
             sleep 10; \
@@ -261,7 +268,6 @@ jobs:
         run: |
           pwd
           uname -a
-          export HOMEBREW_NO_AUTO_UPDATE=1
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew install git ccache ninja libtool gettext llvm@15 gcc binutils grep findutils zstd
           export PATH=$(brew --prefix llvm@15)/bin:$PATH
@@ -349,7 +355,7 @@ jobs:
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
-          sleep 300
+          sleep 60
           while ps -ef | grep ccache | grep -v grep; do \
             killall ccache; \
             sleep 10; \
