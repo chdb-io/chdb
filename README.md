@@ -13,17 +13,6 @@
 > chDB is an in-process SQL OLAP Engine powered by ClickHouse
 
 
-## Table of Contents
-* [Features](#features)
-* [Arch](#arch)
-* [Installation](#installation)
-* [Usage](#usage)
-* [Documentation](#documentation)
-* [Contributing](#contributing)
-* [License](#license)
-* [Acknowledgments](#acknowledgments)
-* [Contact](#contact)
-
 ## Features
      
 * In-process SQL OLAP Engine, powered by ClickHouse
@@ -64,6 +53,11 @@ chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 
 more examples, please refer to [examples](examples)
 
+## Demos
+
+- [Serverless Query Demo](https://chdb.fly.dev/?user=default#Ly8gaHR0cHM6Ly9naXRodWIuY29tL21ldHJpY28vY2hkYi1zZXJ2ZXIKU0VMRUNUCiAgICB0b3duLAogICAgZGlzdHJpY3QsCiAgICBjb3VudCgpIEFTIGMsCiAgICByb3VuZChhdmcocHJpY2UpKSBBUyBwcmljZQpGUk9NIHVybCgnaHR0cHM6Ly9kYXRhc2V0cy1kb2N1bWVudGF0aW9uLnMzLmV1LXdlc3QtMy5hbWF6b25hd3MuY29tL2hvdXNlX3BhcnF1ZXQvaG91c2VfMC5wYXJxdWV0JykKR1JPVVAgQlkKICAgIHRvd24sCiAgICBkaXN0cmljdApMSU1JVCAxMA==)
+
+
 ## Documentation
 - For SQL syntax, please refer to [ClickHouse SQL Reference](https://clickhouse.com/docs/en/sql-reference/syntax)
 
@@ -82,5 +76,6 @@ chDB is mainly based on [ClickHouse](https://github.com/ClickHouse/ClickHouse)
 for trade mark and other reasons, I named it chDB.
 
 ## Contact
+- Discord: https://discord.gg/nqSkfJRR
 - Email: auxtenwpc@gmail.com
 - Twitter: [@auxten](https://twitter.com/auxten)
