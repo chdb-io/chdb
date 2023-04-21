@@ -21,7 +21,7 @@ def main():
     sql = options.sql[0]
     output_format = options.format
     res = query(sql, output_format)
-    if output_format.lower() == 'dataframe':
+    if output_format.lower() in ('dataframe', 'arrowtable'):
         temp = res
     else:
         temp = res.data()
