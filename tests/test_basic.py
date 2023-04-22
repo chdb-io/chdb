@@ -18,7 +18,6 @@ class TestOutput(unittest.TestCase):
                 data = reset_elapsed(f"{res}")
             else:
                 data = reset_elapsed(res.get_memview().tobytes())
-            self.assertAlmostEqual(len(data), output["len"])
             self.assertEqual(data, output["data"])
     
 

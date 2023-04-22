@@ -9,7 +9,7 @@ format_output = {'ArrowTable': {'data': 'pyarrow.Table\n'
                         'double_col: double\n'
                         'date_string_col: binary\n'
                         'string_col: binary\n'
-                        'timestamp_col: timestamp[ns, tz=Asia/Shanghai]\n'
+                        'timestamp_col: timestamp[ns, tz=Etc/UTC]\n'
                         '----\n'
                         'id: [[0,1]]\n'
                         'bool_col: [[1,0]]\n'
@@ -23,7 +23,7 @@ format_output = {'ArrowTable': {'data': 'pyarrow.Table\n'
                         '[[30312F30312F3039,30312F30312F3039]]\n'
                         'string_col: [[30,31]]\n'
                         '...',
-                'len': 478},
+                'len': 472},
  'BSONEachRow': {'data': b'\xcd\x00\x00\x00\x10id\x00\x00\x00\x00\x00\x10boo'
                          b'l_col\x00\x01\x00\x00\x00\x10tinyint_col\x00\x00'
                          b'\x00\x00\x00\x10smallint_col\x00\x00\x00\x00'
