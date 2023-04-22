@@ -203,6 +203,12 @@ jobs:
           python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
+      - name: Run tests
+        run: |
+          python3 -m pip install dist/*.whl
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+          make test
+        continue-on-error: false
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
@@ -231,10 +237,11 @@ jobs:
       - name: Fix wheel platform tag
         run: |
           python3 -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
-      - name: Run simple test
+      - name: Run tests
         run: |
           python3 -m pip install dist/*.whl
           python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+          make test
         continue-on-error: false
       - name: Show files
         run: ls -lh dist
@@ -336,7 +343,7 @@ jobs:
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
-          CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+          CIBW_TEST_COMMAND: "pwd && make test"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
