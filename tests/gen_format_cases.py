@@ -18,7 +18,7 @@ formats = ["TabSeparated",  "TabSeparatedRaw", "TabSeparatedWithNames", "TabSepa
            "JSONCompactStringsEachRowWithNames", "JSONCompactStringsEachRowWithNamesAndTypes", "JSONObjectEachRow", "BSONEachRow",
            "TSKV", "Pretty", "PrettyNoEscapes", "PrettyMonoBlock", "PrettyNoEscapesMonoBlock", "PrettyCompact", "PrettyCompactNoEscapes",
            "PrettyCompactMonoBlock", "PrettyCompactNoEscapesMonoBlock", "PrettySpace", "PrettySpaceNoEscapes", "PrettySpaceMonoBlock",
-           "PrettySpaceNoEscapesMonoBlock", "Parquet", "Arrow", "ArrowStream",
+           "PrettySpaceNoEscapesMonoBlock", "Parquet", "ArrowTable",
            "ORC", "RowBinary", "RowBinaryWithNames", "RowBinaryWithNamesAndTypes", "Native", "Null", "XML", "LineAsString",
            "RawBLOB", "Markdown"]
 
@@ -29,7 +29,10 @@ format_output = {}
 
 for fmt in formats:
     res = chdb.query("SELECT * FROM file('" + data_file + "', Parquet) limit 10", fmt)
-    data = reset_elapsed(res.get_memview().tobytes())
+    if fmt == "ArrowTable":
+        data = reset_elapsed(f"{res}")
+    else:
+        data = reset_elapsed(res.get_memview().tobytes())
     print("format: " + fmt + " size: " + str(len(data)))
     format_output[fmt] = {"len": len(data), "data": data}
 
