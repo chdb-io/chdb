@@ -15,8 +15,8 @@ class TestOutput(unittest.TestCase):
         for format, output in format_output.items():
             res = chdb.query("SELECT * FROM file('" + data_file + "', Parquet) limit 10", format)
             data = reset_elapsed(res.get_memview().tobytes())
-            self.assertEqual(len(data), output["len"])
-            self.assertEqual(data, output["data"])
+            self.assertAlmostEqual(len(data), output["len"])
+            self.assertAlmostEqual(data, output["data"])
     
 
 if __name__ == '__main__':
