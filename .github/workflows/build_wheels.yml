@@ -345,7 +345,8 @@ jobs:
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp37-macosx_x86_64 cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
-          CIBW_TEST_COMMAND: "pwd && pip install pyarrow pandas && make test"
+          CIBW_TEST_REQUIRES: "pyarrow pandas"
+          CIBW_TEST_COMMAND: "cd {project} && make test"
         # with:
         #   package-dir: .
         #   output-dir: wheelhouse
