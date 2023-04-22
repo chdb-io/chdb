@@ -13,7 +13,6 @@ wheel:
 test:
 	@echo "Testing..."
 	cd tests && python3 run_all.py
-	@echo "Done."
 
 pub:
 	@echo "Publishing wheel..."
