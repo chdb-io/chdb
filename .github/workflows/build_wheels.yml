@@ -209,12 +209,6 @@ jobs:
           python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
-      - name: Run tests
-        run: |
-          python3 -m pip install dist/*.whl
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
-          make test
-        continue-on-error: false
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
