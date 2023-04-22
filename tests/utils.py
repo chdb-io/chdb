@@ -15,6 +15,7 @@ def reset_elapsed(input):
             input = input.decode()
         input = re.sub(r'("elapsed": )\d+\.\d+', r'\g<1>0.0', input)
         input = re.sub(r'(<elapsed>)\d+\.\d+(</elapsed>)', r'\g<1>0.0\g<2>', input)
+        input = re.sub(r'(tz=).*]', r'\g<1>Etc/UTC]', input)
         input = input.replace('08:', '00:')
     except UnicodeDecodeError:
         pass
