@@ -10,6 +10,10 @@ wheel:
 	tox -e build -- --wheel
 	@echo "Done."
 
+test:
+	@echo "Testing..."
+	cd tests && python3 run_all.py
+
 pub:
 	@echo "Publishing wheel..."
 	tox -e publish
