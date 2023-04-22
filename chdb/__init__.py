@@ -1,7 +1,7 @@
 import sys
 import os
 
-chdb_version = (0, 5, 0)
+chdb_version = (0, 6, 0)
 if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
