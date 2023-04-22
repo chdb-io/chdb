@@ -120,6 +120,12 @@ jobs:
           sudo rm -f dist/*-linux_x86_64.whl
           ls -lh dist
         shell: bash
+      - name: Run tests
+        run: |
+          python3 -m pip install dist/*.whl
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+          make test
+        continue-on-error: false
       - uses: actions/upload-artifact@v3
         with:
           path: ./dist/*.whl
