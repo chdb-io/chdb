@@ -14,9 +14,12 @@ class TestOutput(unittest.TestCase):
     def test_output(self):
         for format, output in format_output.items():
             res = chdb.query("SELECT * FROM file('" + data_file + "', Parquet) limit 10", format)
-            data = reset_elapsed(res.get_memview().tobytes())
+            if format == "ArrowTable":
+                data = reset_elapsed(f"{res}")
+            else:
+                data = reset_elapsed(res.get_memview().tobytes())
             self.assertAlmostEqual(len(data), output["len"])
-            self.assertAlmostEqual(data, output["data"])
+            self.assertEqual(data, output["data"])
     
 
 if __name__ == '__main__':
