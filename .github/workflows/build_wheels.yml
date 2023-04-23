@@ -72,7 +72,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ matrix.os }}-${{ github.ref_name }}
+          key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: false
       - name: remove old clang and link clang-15 to clang
@@ -197,7 +197,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ matrix.os }}-${{ github.ref_name }}
+          key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: false
       - name: Run chdb/build.sh
@@ -312,7 +312,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ matrix.os }}-${{ github.ref_name }}
+          key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: false
       - name: Prepare chdb/build.sh
