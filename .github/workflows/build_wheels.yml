@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+    branches:
+      - pybind
   pull_request:
     branches:
       - pybind
