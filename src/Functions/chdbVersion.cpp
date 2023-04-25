@@ -1,3 +1,5 @@
+#if defined(CHDB_VERSION_STRING)
+
 #include <DataTypes/DataTypeString.h>
 #include <Functions/FunctionFactory.h>
 #include <Functions/FunctionConstantBase.h>
@@ -16,8 +18,7 @@ namespace
         explicit FunctionChdbVersion(ContextPtr context) : FunctionConstantBase(CHDB_VERSION_STRING, context->isDistributed()) {}
     };
 }
-  
-#if defined(CHDB_VERSION_STRING)
+    
 REGISTER_FUNCTION(ChdbVersion)
 {
     factory.registerFunction<FunctionChdbVersion>(
@@ -29,6 +30,5 @@ Returns the version of chDB.  The result type is String.
         Documentation::Categories{"String"}
         }, FunctionFactory::CaseInsensitive);
 }
-#endif
-
 }
+#endif
