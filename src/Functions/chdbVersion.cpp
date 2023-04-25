@@ -1,5 +1,6 @@
 #include <DataTypes/DataTypeString.h>
 #include <Functions/FunctionFactory.h>
+#include <Functions/FunctionConstantBase.h>
 
 namespace DB
 {
