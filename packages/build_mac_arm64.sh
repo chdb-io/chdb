@@ -90,6 +90,12 @@ for PY_VER in 3.9.13 3.10.11 3.11.3; do
     python3 -m pip install --force-reinstall dist/chdb-*-cp${PY_SHORT_VER//./}-cp${PY_SHORT_VER//./}-macosx_11_0_arm64.whl
 
     python3 -c "import chdb; res = chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
+
+    python3 -m chdb "SELECT 1, 'ab'" arrowtable
+
+    python3 -m chdb "SELECT 1, 'ab'" dataframe
+
+    make test
 done
 
 cd ${PROJ_DIR}
