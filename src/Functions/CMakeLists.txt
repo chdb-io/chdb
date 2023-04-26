@@ -121,3 +121,7 @@ else()
     add_library(clickhouse_functions SHARED ${OBJECT_LIBS})
     target_link_libraries(clickhouse_functions PUBLIC ${PUBLIC_LIBS} PRIVATE ${PRIVATE_LIBS})
 endif ()
+
+if (CHDB_VERSION)
+    add_compile_definitions(CHDB_VERSION_STRING=${CHDB_VERSION})
+endif ()
