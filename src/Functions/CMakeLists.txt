@@ -123,5 +123,5 @@ else()
 endif ()
 
 if (CHDB_VERSION)
-    add_compile_definitions(CHDB_VERSION_STRING=${CHDB_VERSION})
+    add_compile_definitions(CHDB_VERSION_STRING="${CHDB_VERSION}")
 endif ()
