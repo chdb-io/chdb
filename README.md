@@ -37,17 +37,20 @@ Currently, chDB only supports `query` function, which is used to execute SQL and
 
 ```python
 import chdb
-res = chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))
+res = chdb.query('select version()', 'JSON'); print(str(res.get_memview().tobytes()))
 ```
 
 ### work with Parquet or CSV
 ```python
-chdb.query('select * from file("data.parquet", Parquet)', 'CSV')
+# See more data type format in tests/format_output.py
+chdb.query('select * from file("data.parquet", Parquet)', 'CSVWithNamesAndTypes')
 chdb.query('select * from file("data.csv", CSV)', 'CSV')
 ```
 
 ### pandas dataframe output
 ```python
+# input type and output type support may different
+# see more in https://clickhouse.com/docs/en/interfaces/formats
 chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ```
 
