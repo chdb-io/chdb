@@ -37,14 +37,14 @@ Currently, chDB only supports `query` function, which is used to execute SQL and
 
 ```python
 import chdb
-res = chdb.query('select version()', 'JSON'); print(str(res.get_memview().tobytes()))
+res = chdb.query('select version()', 'Pretty'); print(res.data())
 ```
 
 ### work with Parquet or CSV
 ```python
 # See more data type format in tests/format_output.py
-chdb.query('select * from file("data.parquet", Parquet)', 'CSVWithNamesAndTypes')
-chdb.query('select * from file("data.csv", CSV)', 'CSV')
+chdb.query('select * from file("data.parquet", Parquet)', 'JSON')
+res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.get_memview().tobytes()))
 ```
 
 ### pandas dataframe output
