@@ -11,6 +11,8 @@
 
 # chDB
 
+[中文](README-zh.md)
+
 > chDB is an embedded SQL OLAP Engine powered by ClickHouse
 
 
