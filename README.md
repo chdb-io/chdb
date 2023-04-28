@@ -3,14 +3,17 @@
   <img src="docs/_static/snake-chdb.png" height="100">
 </div>
 
-[![Build](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
+[![Build](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg?branch=pybind)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
 [![PyPI](https://img.shields.io/pypi/v/chdb.svg)](https://pypi.org/project/chdb/)
 [![Monthly Downloads](https://pepy.tech/badge/chdb/month)](https://pepy.tech/project/chdb)
+[![Discord](https://img.shields.io/discord/1098133460310294528?logo=Discord)](https://discord.gg/Njw5YXSPPc)
 [![Twitter](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter)](https://twitter.com/auxten)
 
 # chDB
 
-> chDB is an in-process SQL OLAP Engine powered by ClickHouse
+[中文](README-zh.md)
+
+> chDB is an embedded SQL OLAP Engine powered by ClickHouse
 
 
 ## Features
@@ -18,7 +21,7 @@
 * In-process SQL OLAP Engine, powered by ClickHouse
 * No need to install ClickHouse
 * Minimized data copy from C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
-* Input&Output support Parquet, CSV, JSON, Arrow, ORC and [more](https://clickhouse.com/docs/en/interfaces/formats)
+* Input&Output support Parquet, CSV, JSON, Arrow, ORC and 60+[more](https://clickhouse.com/docs/en/interfaces/formats) formats, [samples](tests/format_output.py)
 
 ## Arch
 <div align="center">
@@ -33,6 +36,12 @@ pip install chdb
 
 ## Usage
 
+### Run in command line
+> `python3 -m chdb SQL [OutputFormat]`
+```bash
+python3 -m chdb "SELECT 1,'abc'" Pretty
+```
+
 Currently, chDB only supports `query` function, which is used to execute SQL and return desired format data.
 
 ```python
@@ -40,25 +49,23 @@ import chdb
 res = chdb.query('select version()', 'Pretty'); print(res.data())
 ```
 
-### work with Parquet or CSV
+### Work with Parquet or CSV
 ```python
 # See more data type format in tests/format_output.py
-res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res.get_memview().tobytes().decode("utf-8"))
+res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res.data())
 # With large data result, get_memview() is more quickly cos it does not do an extra data copy.
 res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.get_memview().tobytes()))
 ```
 
-### pandas dataframe output
+### Pandas dataframe output
 ```python
-# Input type and output type support may different.
 # See more in https://clickhouse.com/docs/en/interfaces/formats
 chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ```
 
-more examples, please refer to [examples](examples)
+## Demos and Examples
 
-## Demos
-
+- [Examples](examples)
 - [Serverless Query Demo](https://chdb.fly.dev/?user=default#Ly8gaHR0cHM6Ly9naXRodWIuY29tL21ldHJpY28vY2hkYi1zZXJ2ZXIKU0VMRUNUCiAgICB0b3duLAogICAgZGlzdHJpY3QsCiAgICBjb3VudCgpIEFTIGMsCiAgICByb3VuZChhdmcocHJpY2UpKSBBUyBwcmljZQpGUk9NIHVybCgnaHR0cHM6Ly9kYXRhc2V0cy1kb2N1bWVudGF0aW9uLnMzLmV1LXdlc3QtMy5hbWF6b25hd3MuY29tL2hvdXNlX3BhcnF1ZXQvaG91c2VfMC5wYXJxdWV0JykKR1JPVVAgQlkKICAgIHRvd24sCiAgICBkaXN0cmljdApMSU1JVCAxMA==)
 
 ## Benchmark
@@ -71,7 +78,6 @@ more examples, please refer to [examples](examples)
 ## Contributing
 Contributions are what make the open source community such an amazing place to be learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 There are something you can help:
-- Report bugs on [GitHub Issues](https://github.com/auxten/chdb/issues).
 - [ ] Help me with Windows support, I don't know much about Windows toolchain.
 - [x] The Python Wrapper just have a `query` function. I want to add more functions to make it more convenient to use. like `toPandas`, `toNumpy` and so on.
 
