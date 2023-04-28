@@ -43,14 +43,15 @@ res = chdb.query('select version()', 'Pretty'); print(res.data())
 ### work with Parquet or CSV
 ```python
 # See more data type format in tests/format_output.py
-chdb.query('select * from file("data.parquet", Parquet)', 'JSON')
+res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res.get_memview().tobytes().decode("utf-8"))
+# With large data result, get_memview() is more quickly cos it does not do an extra data copy.
 res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.get_memview().tobytes()))
 ```
 
 ### pandas dataframe output
 ```python
-# input type and output type support may different
-# see more in https://clickhouse.com/docs/en/interfaces/formats
+# Input type and output type support may different.
+# See more in https://clickhouse.com/docs/en/interfaces/formats
 chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ```
 
