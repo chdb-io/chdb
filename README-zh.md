@@ -10,6 +10,8 @@
 
 # chDB
 
+[English](README.md)
+
 > chDB 是一个由 ClickHouse 驱动的嵌入式 SQL OLAP 引擎
 
 
