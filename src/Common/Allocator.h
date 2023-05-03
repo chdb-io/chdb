@@ -11,7 +11,7 @@
 #include <pcg_random.hpp>
 #include <Common/thread_local_rng.h>
 
-#if USE_JEMALLOC
+#if defined(USE_JEMALLOC) && (USE_JEMALLOC)
 #    include <jemalloc/jemalloc.h>
 #else
 #    if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
@@ -134,7 +134,7 @@ public:
         {
             /// Resize malloc'd memory region with no special alignment requirement.
             CurrentMemoryTracker::realloc(old_size, new_size);
-#if USE_JEMALLOC
+#if defined(USE_JEMALLOC) && (USE_JEMALLOC)
             void * new_buf = je_realloc(buf, new_size);
 #else
             void * new_buf = ::realloc(buf, new_size);
@@ -228,7 +228,7 @@ private:
         {
             if (alignment <= MALLOC_MIN_ALIGNMENT)
             {
-#if USE_JEMALLOC
+#if defined(USE_JEMALLOC) && (USE_JEMALLOC)
                 if constexpr (clear_memory)
                     buf = je_calloc(size, 1);
                 else
@@ -267,7 +267,7 @@ private:
         }
         else
         {
-#if USE_JEMALLOC
+#if defined(USE_JEMALLOC) && (USE_JEMALLOC)
             je_free(buf);
 #else
             ::free(buf);
