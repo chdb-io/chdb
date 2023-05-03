@@ -62,10 +62,17 @@ void * allocNoTrack(size_t size, size_t alignment)
     void * buf;
     if (alignment <= MALLOC_MIN_ALIGNMENT)
     {
+#if USE_JEMALLOC
+        if constexpr (clear_memory)
+            buf = je_calloc(size, 1);
+        else
+            buf = je_malloc(size);
+#else
         if constexpr (clear_memory)
             buf = ::calloc(size, 1);
         else
             buf = ::malloc(size);
+#endif
 
         if (nullptr == buf)
             throw DB::ErrnoException(DB::ErrorCodes::CANNOT_ALLOCATE_MEMORY, "Allocator: Cannot malloc {}.", ReadableSize(size));
@@ -89,10 +96,16 @@ void * allocNoTrack(size_t size, size_t alignment)
     return buf;
 }
 
+
 void freeNoTrack(void * buf)
 {
-    ::free(buf);
+#if USE_JEMALLOC
+     je_free(buf);
+#else
+     ::free(buf);
+#endif
 }
+
 
 void checkSize(size_t size)
 {
@@ -152,7 +165,11 @@ void * Allocator<clear_memory_, populate>::realloc(void * buf, size_t old_size, 
         auto trace_alloc = CurrentMemoryTracker::alloc(new_size);
         trace_free.onFree(buf, old_size);
 
+#if USE_JEMALLOC
+        void * new_buf = je_realloc(buf, new_size);
+#else
         void * new_buf = ::realloc(buf, new_size);
+#endif
         if (nullptr == new_buf)
         {
             throw DB::ErrnoException(

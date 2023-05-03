@@ -8,8 +8,15 @@
     #define ALLOCATOR_ASLR 1
 #endif
 
-#if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
-#include <malloc.h>
+#include <pcg_random.hpp>
+#include <Common/thread_local_rng.h>
+
+#if USE_JEMALLOC
+#    include <jemalloc/jemalloc.h>
+#else
+#    if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
+#        include <malloc.h>
+#    endif
 #endif
 
 #include <Core/Defines.h>
@@ -61,6 +68,7 @@ protected:
     static constexpr bool clear_memory = clear_memory_;
 
 private:
+
 };
 
 
