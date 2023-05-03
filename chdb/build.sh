@@ -100,6 +100,13 @@ LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
     | sed 's/ -Xlinker --no-undefined//g' \
      )
 
+if [ "$(uname)" == "Linux" ]; then
+    # remove src/CMakeFiles/clickhouse_malloc.dir/Common/stubFree.c.o
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g')
+    # put -Wl,-wrap,malloc ... after -DUSE_JEMALLOC=1
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g')
+fi
+
 # save the command to a file for debug
 echo ${LIBCHDB_CMD} > libchdb_cmd.sh
 
