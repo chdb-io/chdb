@@ -281,6 +281,23 @@ struct Checker
 #endif
 ;
 
+// // if ENABLE_JEMALLOC is 1, we need to initialize it before any other memory allocation
+// // #if ENABLE_JEMALLOC
+// extern "C" {
+// extern bool malloc_init(void);
+// }
+// struct JEMallocInitializer
+// {
+//     JEMallocInitializer()
+//     {
+//         malloc_init();
+//         if (void * ptr = malloc(0))
+//         {
+//             free(ptr);
+//         }
+//     }
+// } jemalloc_initializer __attribute__((init_priority(101)));
+// // #endif
 
 #if !defined(USE_MUSL)
 /// NOTE: We will migrate to full static linking or our own dynamic loader to make this code obsolete.
@@ -444,12 +461,12 @@ bool isClickhouseApp(std::string_view app_suffix, std::vector<char *> & argv)
 ///
 /// extern bool inside_main;
 /// class C { C() { assert(inside_main); } };
-bool inside_main = false;
+// bool inside_main = false;
 
 int main(int argc_, char ** argv_)
 {
-    inside_main = true;
-    SCOPE_EXIT({ inside_main = false; });
+    // inside_main = true;
+    // SCOPE_EXIT({ inside_main = false; });
 
     /// PHDR cache is required for query profiler to work reliably
     /// It also speed up exception handling, but exceptions from dynamically loaded libraries (dlopen)
