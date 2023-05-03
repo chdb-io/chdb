@@ -87,7 +87,7 @@ add_headers_and_sources(clickhouse_common_io IO)
 add_headers_and_sources(clickhouse_common_io IO/Archives)
 add_headers_and_sources(clickhouse_common_io IO/Resource)
 add_headers_and_sources(clickhouse_common_io IO/S3)
-list (REMOVE_ITEM clickhouse_common_io_sources Common/malloc.cpp Common/new_delete.cpp)
+list (REMOVE_ITEM clickhouse_common_io_sources Common/malloc.cpp Common/mallocAdapt.c Common/stub_free.c Common/new_delete.cpp)
 
 add_headers_and_sources(dbms Disks/IO)
 add_headers_and_sources(dbms Disks/ObjectStorages)
@@ -159,7 +159,22 @@ endif ()
 
 add_library(clickhouse_common_io ${clickhouse_common_io_headers} ${clickhouse_common_io_sources})
 
-add_library (clickhouse_malloc OBJECT Common/malloc.cpp)
+if (SPLIT_SHARED_LIBRARIES)
+    target_compile_definitions(clickhouse_common_io PRIVATE SPLIT_SHARED_LIBRARIES)
+endif ()
+
+if (ENABLE_JEMALLOC)
+    add_library (clickhouse_malloc OBJECT Common/mallocAdapt.c Common/stubFree.c Common/malloc.cpp)
+    set_source_files_properties(Common/mallocAdapt.c PROPERTIES COMPILE_FLAGS "-DJEMALLOC_NO_RENAME")
+    set_source_files_properties(Common/mallocAdapt.c PROPERTIES COMPILE_FLAGS "-Wno-reserved-identifier") # suppress warning about __wrap_ functions
+    set_source_files_properties(Common/stubFree.c PROPERTIES COMPILE_FLAGS "-Wno-reserved-identifier") # suppress warning about __wrap_ functions
+    if (TARGET ch_contrib::jemalloc)
+        target_link_libraries (clickhouse_malloc PRIVATE ch_contrib::jemalloc)
+    endif()
+else()
+    add_library (clickhouse_malloc OBJECT Common/malloc.cpp)
+endif()
+
 set_source_files_properties(Common/malloc.cpp PROPERTIES COMPILE_FLAGS "-fno-builtin")
 
 add_library (clickhouse_new_delete STATIC Common/new_delete.cpp)
@@ -172,6 +187,10 @@ endif()
 
 if (TARGET ch_contrib::azure_sdk)
     target_link_libraries(clickhouse_storages_system PRIVATE ch_contrib::azure_sdk)
+endif()
+
+if (TARGET ch_contrib::jemalloc)
+    target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::jemalloc)
 endif()
 
 target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::sparsehash ch_contrib::incbin)
