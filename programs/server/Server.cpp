@@ -158,7 +158,7 @@ static bool jemallocOptionEnabled(const char *name)
     bool value;
     size_t size = sizeof(value);
 
-    if (mallctl(name, reinterpret_cast<void *>(&value), &size, /* newp= */ nullptr, /* newlen= */ 0))
+    if (je_mallctl(name, reinterpret_cast<void *>(&value), &size, /* newp= */ nullptr, /* newlen= */ 0))
         throw Poco::SystemException("mallctl() failed");
 
     return value;

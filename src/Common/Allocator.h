@@ -11,8 +11,12 @@
 #include <pcg_random.hpp>
 #include <Common/thread_local_rng.h>
 
-#if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
-#include <malloc.h>
+#if USE_JEMALLOC
+#    include <jemalloc/jemalloc.h>
+#else
+#    if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
+#        include <malloc.h>
+#    endif
 #endif
 
 #include <cstdlib>
@@ -115,7 +119,11 @@ public:
             auto trace_alloc = CurrentMemoryTracker::alloc(new_size);
             trace_free.onFree(buf, old_size);
 
+#if USE_JEMALLOC
+            void * new_buf = je_realloc(buf, new_size);
+#else
             void * new_buf = ::realloc(buf, new_size);
+#endif
             if (nullptr == new_buf)
             {
                 DB::throwFromErrno(
@@ -158,10 +166,17 @@ private:
         void * buf;
         if (alignment <= MALLOC_MIN_ALIGNMENT)
         {
-            if constexpr (clear_memory)
-                buf = ::calloc(size, 1);
-            else
-                buf = ::malloc(size);
+#if USE_JEMALLOC
+                if constexpr (clear_memory)
+                    buf = je_calloc(size, 1);
+                else
+                    buf = je_malloc(size);
+#else
+                if constexpr (clear_memory)
+                    buf = ::calloc(size, 1);
+                else
+                    buf = ::malloc(size);
+#endif
 
             if (nullptr == buf)
                 DB::throwFromErrno(fmt::format("Allocator: Cannot malloc {}.", ReadableSize(size)), DB::ErrorCodes::CANNOT_ALLOCATE_MEMORY);
@@ -187,7 +202,11 @@ private:
 
     void freeNoTrack(void * buf)
     {
+#if USE_JEMALLOC
+        je_free(buf);
+#else
         ::free(buf);
+#endif
     }
 
     void checkSize(size_t size)

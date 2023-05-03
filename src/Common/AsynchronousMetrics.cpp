@@ -365,7 +365,7 @@ uint64_t updateJemallocEpoch()
 {
     uint64_t value = 0;
     size_t size = sizeof(value);
-    mallctl("epoch", &value, &size, &value, size);
+    je_mallctl("epoch", &value, &size, &value, size);
     return value;
 }
 
@@ -377,7 +377,7 @@ static Value saveJemallocMetricImpl(
 {
     Value value{};
     size_t size = sizeof(value);
-    mallctl(jemalloc_full_name.c_str(), &value, &size, nullptr, 0);
+    je_mallctl(jemalloc_full_name.c_str(), &value, &size, nullptr, 0);
     values[clickhouse_full_name] = AsynchronousMetricValue(value, "An internal metric of the low-level memory allocator (jemalloc). See https://jemalloc.net/jemalloc.3.html");
     return value;
 }

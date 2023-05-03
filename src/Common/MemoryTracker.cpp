@@ -309,7 +309,7 @@ AllocationTrace MemoryTracker::allocImpl(Int64 size, bool throw_if_memory_exceed
             if (free_memory_in_allocator_arenas.exchange(-current_free_memory_in_allocator_arenas) > 0)
             {
                 Stopwatch watch;
-                mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+                je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
                 ProfileEvents::increment(ProfileEvents::MemoryAllocatorPurge);
                 ProfileEvents::increment(ProfileEvents::MemoryAllocatorPurgeTimeMicroseconds, watch.elapsedMicroseconds());
             }
