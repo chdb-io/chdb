@@ -11,8 +11,12 @@
 #include <pcg_random.hpp>
 #include <Common/thread_local_rng.h>
 
-#if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
-#include <malloc.h>
+#if USE_JEMALLOC
+#    include <jemalloc/jemalloc.h>
+#else
+#    if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
+#        include <malloc.h>
+#    endif
 #endif
 
 #include <cstdlib>
@@ -137,8 +141,11 @@ public:
         {
             /// Resize malloc'd memory region with no special alignment requirement.
             CurrentMemoryTracker::realloc(old_size, new_size);
-
+#if USE_JEMALLOC
+            void * new_buf = je_realloc(buf, new_size);
+#else
             void * new_buf = ::realloc(buf, new_size);
+#endif
             if (nullptr == new_buf)
                 DB::throwFromErrno(fmt::format("Allocator: Cannot realloc from {} to {}.", ReadableSize(old_size), ReadableSize(new_size)), DB::ErrorCodes::CANNOT_ALLOCATE_MEMORY);
 
@@ -231,11 +238,17 @@ private:
         {
             if (alignment <= MALLOC_MIN_ALIGNMENT)
             {
+#if USE_JEMALLOC
+                if constexpr (clear_memory)
+                    buf = je_calloc(size, 1);
+                else
+                    buf = je_malloc(size);
+#else
                 if constexpr (clear_memory)
                     buf = ::calloc(size, 1);
                 else
                     buf = ::malloc(size);
-
+#endif
                 if (nullptr == buf)
                     DB::throwFromErrno(fmt::format("Allocator: Cannot malloc {}.", ReadableSize(size)), DB::ErrorCodes::CANNOT_ALLOCATE_MEMORY);
             }
@@ -267,7 +280,11 @@ private:
         }
         else
         {
+#if USE_JEMALLOC
+            je_free(buf);
+#else
             ::free(buf);
+#endif
         }
     }
 
