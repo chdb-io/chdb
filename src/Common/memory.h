@@ -25,6 +25,26 @@ inline ALWAYS_INLINE size_t alignToSizeT(std::align_val_t align) noexcept
     return static_cast<size_t>(align);
 }
 
+# if USE_JEMALLOC
+template <std::same_as<std::align_val_t>... TAlign>
+requires DB::OptionalArgument<TAlign...>
+inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
+{
+    void * ptr = nullptr;
+    if constexpr (sizeof...(TAlign) == 1)
+        ptr = je_aligned_alloc(alignToSizeT(align...), size);
+    else
+        ptr = je_malloc(size);
+
+    if (likely(ptr != nullptr))
+        return ptr;
+
+    /// @note no std::get_new_handler logic implemented
+    throw std::bad_alloc{};
+}
+
+# else
+
 template <std::same_as<std::align_val_t>... TAlign>
 requires DB::OptionalArgument<TAlign...>
 inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
@@ -41,6 +61,25 @@ inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
     /// @note no std::get_new_handler logic implemented
     throw std::bad_alloc{};
 }
+# endif
+
+# if USE_JEMALLOC
+inline ALWAYS_INLINE void * newNoExept(std::size_t size) noexcept
+{
+    return je_malloc(size);
+}
+
+inline ALWAYS_INLINE void * newNoExept(std::size_t size, std::align_val_t align) noexcept
+{
+    return je_aligned_alloc(static_cast<size_t>(align), size);
+}
+
+inline ALWAYS_INLINE void deleteImpl(void * ptr) noexcept
+{
+    je_free(ptr);
+}
+
+# else
 
 inline ALWAYS_INLINE void * newNoExept(std::size_t size) noexcept
 {
@@ -57,6 +96,8 @@ inline ALWAYS_INLINE void deleteImpl(void * ptr) noexcept
     free(ptr);
 }
 
+# endif
+
 #if USE_JEMALLOC
 
 template <std::same_as<std::align_val_t>... TAlign>
@@ -67,9 +108,9 @@ inline ALWAYS_INLINE void deleteSized(void * ptr, std::size_t size, TAlign... al
         return;
 
     if constexpr (sizeof...(TAlign) == 1)
-        sdallocx(ptr, size, MALLOCX_ALIGN(alignToSizeT(align...)));
+        je_sdallocx(ptr, size, MALLOCX_ALIGN(alignToSizeT(align...)));
     else
-        sdallocx(ptr, size, 0);
+        je_sdallocx(ptr, size, 0);
 }
 
 #else
@@ -101,9 +142,9 @@ inline ALWAYS_INLINE size_t getActualAllocationSize(size_t size, TAlign... align
     if (likely(size != 0))
     {
         if constexpr (sizeof...(TAlign) == 1)
-            actual_size = nallocx(size, MALLOCX_ALIGN(alignToSizeT(align...)));
+            actual_size = je_nallocx(size, MALLOCX_ALIGN(alignToSizeT(align...)));
         else
-            actual_size = nallocx(size, 0);
+            actual_size = je_nallocx(size, 0);
     }
 #endif
 
@@ -130,9 +171,9 @@ inline ALWAYS_INLINE void untrackMemory(void * ptr [[maybe_unused]], std::size_t
         if (likely(ptr != nullptr))
         {
             if constexpr (sizeof...(TAlign) == 1)
-                CurrentMemoryTracker::free(sallocx(ptr, MALLOCX_ALIGN(alignToSizeT(align...))));
+                CurrentMemoryTracker::free(je_sallocx(ptr, MALLOCX_ALIGN(alignToSizeT(align...))));
             else
-                CurrentMemoryTracker::free(sallocx(ptr, 0));
+                CurrentMemoryTracker::free(je_sallocx(ptr, 0));
         }
 #else
         if (size)
