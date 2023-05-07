@@ -14,8 +14,8 @@ if (ENABLE_CLICKHOUSE_SELF_EXTRACTING)
 endif ()
 
 # Utils used in package
-add_subdirectory (config-processor)
-add_subdirectory (report)
+# add_subdirectory (config-processor)
+# add_subdirectory (report)
 
 # Not used in package
 if (NOT DEFINED ENABLE_UTILS OR ENABLE_UTILS)
