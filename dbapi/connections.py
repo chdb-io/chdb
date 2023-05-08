@@ -189,10 +189,8 @@ class CHDBResult(object):
         try:
             self.field_count = len(data["meta"])
             description = []
-            for i in range(data["meta"]):
-                fields = []
-                fields.append(data['meta'][i]["name"])
-                fields.append(data['meta'][i]["type"])
+            for meta in data["meta"]:
+                fields = [meta["name"], meta["type"]]
                 description.append(tuple(fields))
             self.description = tuple(description)
 
@@ -200,7 +198,7 @@ class CHDBResult(object):
             for line in data["data"]:
                 row = []
                 for i in range(self.field_count):
-                    column_data = converters.convert_column_data(self.description[i][1], line[i])
+                    column_data = converters.convert_column_data(self.description[i][1], line[self.description[i][0]])
                     row.append(column_data)
                 rows.append(tuple(row))
             self.rows = tuple(rows)

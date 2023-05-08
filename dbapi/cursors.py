@@ -281,13 +281,11 @@ class DictCursor(Cursor):
     dict_type = dict
 
     def _do_get_result(self):
-        super(self)._do_get_result()
+        super()._do_get_result()
         fields = []
         if self.description:
-            for f in self._result.fields:
-                name = f.name
-                if name in fields:
-                    name = f.table_name + '.' + name
+            for f in self.description:
+                name = f[0]
                 fields.append(name)
             self._fields = fields
 
