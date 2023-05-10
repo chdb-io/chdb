@@ -462,7 +462,12 @@ void ClientBase::onData(Block & block, ASTPtr parsed_query)
     }
 
     /// Received data block is immediately displayed to the user.
-    output_format->flush();
+    // FIXME: this is a hack to avoid flush the writebuffer when we are inside chdb
+    // which will cause memory doubled every call of onData.
+    // Another possible solution is fix the logic in WriteBufferFromVector.nextImpl()
+    // We could use `if (&inside_chdb == nullptr || !inside_chdb)` here but it will cause
+    // clickhouse-local has different behavior with chdb, which will make debugging harder.
+    // output_format->flush();
 
     /// Restore progress bar after data block.
     if (need_render_progress && tty_buf)
@@ -539,8 +544,7 @@ try
         }
         else
         {
-            // query_result_memory.resize(DBMS_DEFAULT_BUFFER_SIZE);
-            query_result_memory = std::make_unique<std::vector<char>>();
+            query_result_memory = std::make_unique<std::vector<char>>(DBMS_DEFAULT_BUFFER_SIZE);
             query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory.get());
 
             out_buf = query_result_buf.get();
@@ -635,7 +639,8 @@ try
             output_format = global_context->getOutputFormat(
                 current_format, out_file_buf ? *out_file_buf : *out_buf, block);
 
-        output_format->setAutoFlush();
+        // See comment above `output_format->flush();`
+        // output_format->setAutoFlush();
     }
 }
 catch (...)
