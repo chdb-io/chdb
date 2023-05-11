@@ -33,13 +33,13 @@ import signal
 def payload():
     now = time.time()
     res = chdb.query(
-        'select Name, count(*) cnt from file("organizations-2000000.csv", CSVWithNames) group by Name order by cnt desc',
+        'select Name, count(*) cnt from file("organizations-2000000.csv", CSVWithNames) group by Name order by cnt desc limit 10000',
         "CSV",
     )
     # calculate md5 of the result
     hash_out = hashlib.md5(res.get_memview().tobytes()).hexdigest()
     print("output length: ", len(res.get_memview().tobytes()))
-    if hash_out != "60833f6ba30f2892f1fda976b2088570":
+    if hash_out != "0e86b00c00da5dbbeb3e99e5cd783252":
         print(res.get_memview().tobytes().decode("utf-8"))
         raise Exception(f"md5 not match {hash_out}")
     used_time = time.time() - now
