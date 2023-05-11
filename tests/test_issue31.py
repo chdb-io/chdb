@@ -15,7 +15,7 @@ csv_url = "https://media.githubusercontent.com/media/datablist/sample-csv-files/
 
 # download csv file, and unzip it
 def download_and_extract(url, save_path):
-    print("Downloading file...")
+    print("\nDownloading file...")
     urllib.request.urlretrieve(url, save_path)
 
     print("Extracting file...")
@@ -33,13 +33,13 @@ import signal
 def payload():
     now = time.time()
     res = chdb.query(
-        'select Name, count(*) cnt from file("organizations-2000000.csv", CSVWithNames) group by Name order by cnt desc limit 10000',
+        'select Name, count(*) cnt from file("organizations-2000000.csv", CSVWithNames) group by Name order by cnt desc, Name asc limit 10000',
         "CSV",
     )
     # calculate md5 of the result
     hash_out = hashlib.md5(res.get_memview().tobytes()).hexdigest()
     print("output length: ", len(res.get_memview().tobytes()))
-    if hash_out != "0e86b00c00da5dbbeb3e99e5cd783252":
+    if hash_out != "423570bd700ba230ccd2b720b7976626":
         print(res.get_memview().tobytes().decode("utf-8"))
         raise Exception(f"md5 not match {hash_out}")
     used_time = time.time() - now
@@ -81,7 +81,7 @@ class TestAggOnCSVSpeed(unittest.TestCase):
         payload()
 
     def test_agg(self):
-        result = TimeoutTestRunner(timeout=20).run(self._test_agg)
+        result = TimeoutTestRunner(timeout=10).run(self._test_agg)
         self.assertTrue(result.wasSuccessful(), "Test failed: took too long to execute")
 
 
