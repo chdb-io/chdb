@@ -1,4 +1,5 @@
 import os
+import platform
 import sys
 import re
 import subprocess
@@ -72,7 +73,7 @@ def fix_version_init(version):
         f.seek(0)
         f.write(init_content)
         f.truncate()
-    
+
 
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
@@ -117,12 +118,15 @@ class BuildExt(build_ext):
             print("CC: " + os.environ.get('CC'))
             print("CXX: " + os.environ.get('CXX'))
         if sys.platform == 'darwin':
-            if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = '/usr/local/opt/llvm/bin/clang'
-                os.environ['CXX'] = '/usr/local/opt/llvm/bin/clang++'
-            elif os.system('which /usr/local/opt/llvm@15/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = '/usr/local/opt/llvm@15/bin/clang'
-                os.environ['CXX'] = '/usr/local/opt/llvm@15/bin/clang++'
+            brew_prefix = '/usr/local/opt'
+            if platform.machine() == 'arm64':
+                brew_prefix = '/opt/homebrew/opt'
+            if os.system('which '+brew_prefix+'/llvm/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = brew_prefix + '/llvm/bin/clang'
+                os.environ['CXX'] = brew_prefix + '/llvm/bin/clang++'
+            elif os.system('which '+brew_prefix+'/llvm@15/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = brew_prefix + '/llvm@15/bin/clang'
+                os.environ['CXX'] = brew_prefix + '/llvm@15/bin/clang++'
             else:
                 raise RuntimeError("Must use brew clang++")
         elif sys.platform == 'linux':

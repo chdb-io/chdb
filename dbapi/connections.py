@@ -1,4 +1,3 @@
-import chdb
 import json
 from . import err
 from .cursors import Cursor
@@ -120,6 +119,7 @@ class Connection(object):
         if DEBUG:
             print("DEBUG: query:", sql)
         try:
+            import chdb
             self._resp = chdb.query(sql, output_format="JSON").data()
         except Exception as error:
             raise err.InterfaceError("query err: %s" % error)
