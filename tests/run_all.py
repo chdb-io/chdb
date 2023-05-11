@@ -5,7 +5,7 @@ import unittest
 test_loader = unittest.TestLoader()
 test_suite = test_loader.discover('./')
 
-test_runner = unittest.TextTestRunner()
+test_runner = unittest.TextTestRunner(verbosity=2)
 ret = test_runner.run(test_suite)
 
 # if any test fails, exit with non-zero code
