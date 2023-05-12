@@ -118,9 +118,11 @@ class BuildExt(build_ext):
             print("CC: " + os.environ.get('CC'))
             print("CXX: " + os.environ.get('CXX'))
         if sys.platform == 'darwin':
-            brew_prefix = '/usr/local/opt'
-            if platform.machine() == 'arm64':
-                brew_prefix = '/opt/homebrew/opt'
+            try:
+                import subprocess
+                brew_prefix = subprocess.check_output('brew --prefix', shell=True).decode("utf-8").strip("\n")
+            except Exception:
+                raise RuntimeError("Must install brew")
             if os.system('which '+brew_prefix+'/llvm/bin/clang++ > /dev/null') == 0:
                 os.environ['CC'] = brew_prefix + '/llvm/bin/clang'
                 os.environ['CXX'] = brew_prefix + '/llvm/bin/clang++'
