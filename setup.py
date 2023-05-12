@@ -123,12 +123,12 @@ class BuildExt(build_ext):
                 brew_prefix = subprocess.check_output('brew --prefix', shell=True).decode("utf-8").strip("\n")
             except Exception:
                 raise RuntimeError("Must install brew")
-            if os.system('which '+brew_prefix+'/llvm/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = brew_prefix + '/llvm/bin/clang'
-                os.environ['CXX'] = brew_prefix + '/llvm/bin/clang++'
-            elif os.system('which '+brew_prefix+'/llvm@15/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = brew_prefix + '/llvm@15/bin/clang'
-                os.environ['CXX'] = brew_prefix + '/llvm@15/bin/clang++'
+            if os.system('which '+brew_prefix+'/opt/llvm/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = brew_prefix + '/opt/llvm/bin/clang'
+                os.environ['CXX'] = brew_prefix + '/opt/llvm/bin/clang++'
+            elif os.system('which '+brew_prefix+'/opt/llvm@15/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = brew_prefix + '/opt/llvm@15/bin/clang'
+                os.environ['CXX'] = brew_prefix + '/opt/llvm@15/bin/clang++'
             else:
                 raise RuntimeError("Must use brew clang++")
         elif sys.platform == 'linux':
