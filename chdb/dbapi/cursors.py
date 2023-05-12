@@ -1,5 +1,4 @@
 from . import err
-from functools import partial
 import re
 
 # Regular expression for :meth:`Cursor.executemany`.
