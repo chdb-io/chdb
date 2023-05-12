@@ -118,7 +118,6 @@ class BuildExt(build_ext):
             print("CXX: " + os.environ.get('CXX'))
         if sys.platform == 'darwin':
             try:
-                import subprocess
                 brew_prefix = subprocess.check_output('brew --prefix', shell=True).decode("utf-8").strip("\n")
             except Exception:
                 raise RuntimeError("Must install brew")
