@@ -5,12 +5,12 @@ from .err import (
     DatabaseError, OperationalError, IntegrityError, InternalError,
     NotSupportedError, ProgrammingError)
 from . import connections as _orig_conn
+from .. import chdb_version
 
-VERSION = (0, 1, 0, None)
-if VERSION[3] is not None:
-    VERSION_STRING = "%d.%d.%d_%s" % VERSION
+if chdb_version[3] is not None:
+    VERSION_STRING = "%d.%d.%d_%s" % chdb_version
 else:
-    VERSION_STRING = "%d.%d.%d" % VERSION[:3]
+    VERSION_STRING = "%d.%d.%d" % chdb_version[:3]
 
 threadsafety = 1
 apilevel = "2.0"
@@ -71,9 +71,9 @@ del _orig_conn
 
 
 def get_client_info():  # for MySQLdb compatibility
-    version = VERSION
-    if VERSION[3] is None:
-        version = VERSION[:3]
+    version = chdb_version
+    if chdb_version[3] is None:
+        version = chdb_version[:3]
     return '.'.join(map(str, version))
 
 
