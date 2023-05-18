@@ -170,10 +170,19 @@ if __name__ == "__main__":
         # fix the version in chdb/__init__.py
         versionStr = get_latest_git_tag()
         fix_version_init(versionStr)
+        
+        # scan the chdb directory and add all the .py files to the package
+        pkg_files = []
+        for root, dirs, files in os.walk(libdir):
+            for file in files:
+                if file.endswith(".py"):
+                    pkg_files.append(os.path.join(root, file))
+        pkg_files.append(chdb_so)
+        
         setup(
             packages=['chdb'],
             version=versionStr,
-            package_data={'chdb': [chdb_so]},
+            package_data={'chdb': pkg_files},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
             python_requires='>=3.7',
