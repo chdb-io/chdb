@@ -7,7 +7,7 @@ from .err import (
 from . import connections as _orig_conn
 from .. import chdb_version
 
-if chdb_version[3] is not None:
+if len(chdb_version) > 3 and chdb_version[3] is not None:
     VERSION_STRING = "%d.%d.%d_%s" % chdb_version
 else:
     VERSION_STRING = "%d.%d.%d" % chdb_version[:3]
@@ -72,7 +72,7 @@ del _orig_conn
 
 def get_client_info():  # for MySQLdb compatibility
     version = chdb_version
-    if chdb_version[3] is None:
+    if len(chdb_version) > 3 and chdb_version[3] is None:
         version = chdb_version[:3]
     return '.'.join(map(str, version))
 
