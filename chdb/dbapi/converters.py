@@ -3,7 +3,6 @@ from decimal import Decimal
 from .err import DataError
 import re
 import time
-import arrow
 
 
 def escape_item(val, mapping=None):
@@ -140,8 +139,6 @@ def convert_datetime(obj):
 
       >>> datetime_or_None('2007-02-25 23:06:20')
       datetime.datetime(2007, 2, 25, 23, 6, 20)
-      >>> datetime_or_None('2007-02-25T23:06:20')
-      datetime.datetime(2007, 2, 25, 23, 6, 20)
 
     Illegal values are raise DataError
 
@@ -150,7 +147,8 @@ def convert_datetime(obj):
         obj = obj.decode('ascii')
 
     try:
-        return arrow.get(obj).datetime
+        time_obj = datetime.datetime.strptime(obj, '%Y-%m-%d %H:%M:%S')
+        return time_obj
     except Exception as err:
         raise DataError("Not valid datetime struct: %s" % err)
 
@@ -212,7 +210,8 @@ def convert_time(obj):
         obj = obj.decode('ascii')
 
     try:
-        return arrow.get("1970-01-01T" + obj).time()
+        time_obj = datetime.datetime.strptime(obj, '%H:%M:%S')
+        return time_obj.time()
     except Exception:
         return convert_timedelta(obj)
 
@@ -234,7 +233,8 @@ def convert_date(obj):
     if isinstance(obj, (bytes, bytearray)):
         obj = obj.decode('ascii')
     try:
-        return arrow.get(obj).date()
+        time_obj = datetime.datetime.strptime(obj, '%Y-%m-%d')
+        return time_obj.date()
     except Exception as err:
         raise DataError("Not valid date struct: %s" % err)
 
