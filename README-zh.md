@@ -20,6 +20,7 @@
 * 嵌入在 Python 中的 SQL OLAP 引擎，由 ClickHouse 驱动
 * 不需要安装 ClickHouse
 * 支持 Parquet、CSV、JSON、Arrow、ORC 和其他 60 多种格式的[输入输出](https://clickhouse.com/docs/en/interfaces/formats)，[示例](tests/format_output.py)。
+* 支持 Python DB API 2.0 标准, [example](examples/dbapi.py)
 
 ## 架构
 <div align="center">

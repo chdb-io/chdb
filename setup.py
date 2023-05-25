@@ -72,7 +72,7 @@ def fix_version_init(version):
         f.seek(0)
         f.write(init_content)
         f.truncate()
-    
+
 
 # As of Python 3.6, CCompiler has a `has_flag` method.
 # cf http://bugs.python.org/issue26689
@@ -117,12 +117,16 @@ class BuildExt(build_ext):
             print("CC: " + os.environ.get('CC'))
             print("CXX: " + os.environ.get('CXX'))
         if sys.platform == 'darwin':
-            if os.system('which /usr/local/opt/llvm/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = '/usr/local/opt/llvm/bin/clang'
-                os.environ['CXX'] = '/usr/local/opt/llvm/bin/clang++'
-            elif os.system('which /usr/local/opt/llvm@15/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = '/usr/local/opt/llvm@15/bin/clang'
-                os.environ['CXX'] = '/usr/local/opt/llvm@15/bin/clang++'
+            try:
+                brew_prefix = subprocess.check_output('brew --prefix', shell=True).decode("utf-8").strip("\n")
+            except Exception:
+                raise RuntimeError("Must install brew")
+            if os.system('which '+brew_prefix+'/opt/llvm/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = brew_prefix + '/opt/llvm/bin/clang'
+                os.environ['CXX'] = brew_prefix + '/opt/llvm/bin/clang++'
+            elif os.system('which '+brew_prefix+'/opt/llvm@15/bin/clang++ > /dev/null') == 0:
+                os.environ['CC'] = brew_prefix + '/opt/llvm@15/bin/clang'
+                os.environ['CXX'] = brew_prefix + '/opt/llvm@15/bin/clang++'
             else:
                 raise RuntimeError("Must use brew clang++")
         elif sys.platform == 'linux':
@@ -166,10 +170,19 @@ if __name__ == "__main__":
         # fix the version in chdb/__init__.py
         versionStr = get_latest_git_tag()
         fix_version_init(versionStr)
+        
+        # scan the chdb directory and add all the .py files to the package
+        pkg_files = []
+        for root, dirs, files in os.walk(libdir):
+            for file in files:
+                if file.endswith(".py"):
+                    pkg_files.append(os.path.join(root, file))
+        pkg_files.append(chdb_so)
+        
         setup(
             packages=['chdb'],
             version=versionStr,
-            package_data={'chdb': [chdb_so]},
+            package_data={'chdb': pkg_files},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
             python_requires='>=3.7',
