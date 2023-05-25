@@ -22,6 +22,7 @@
 * No need to install ClickHouse
 * Minimized data copy from C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
 * Input&Output support Parquet, CSV, JSON, Arrow, ORC and 60+[more](https://clickhouse.com/docs/en/interfaces/formats) formats, [samples](tests/format_output.py)
+* Support Python DB API 2.0, [example](examples/dbapi.py)
 
 ## Arch
 <div align="center">
