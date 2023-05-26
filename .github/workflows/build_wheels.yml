@@ -6,6 +6,10 @@ on:
       - 'v*'
     branches:
       - pybind
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - 'examples/**'
   pull_request:
     branches:
       - pybind
