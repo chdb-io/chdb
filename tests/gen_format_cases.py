@@ -18,7 +18,7 @@ formats = ["TabSeparated",  "TabSeparatedRaw", "TabSeparatedWithNames", "TabSepa
            "JSONCompactStringsEachRowWithNames", "JSONCompactStringsEachRowWithNamesAndTypes", "JSONObjectEachRow", "BSONEachRow",
            "TSKV", "Pretty", "PrettyNoEscapes", "PrettyMonoBlock", "PrettyNoEscapesMonoBlock", "PrettyCompact", "PrettyCompactNoEscapes",
            "PrettyCompactMonoBlock", "PrettyCompactNoEscapesMonoBlock", "PrettySpace", "PrettySpaceNoEscapes", "PrettySpaceMonoBlock",
-           "PrettySpaceNoEscapesMonoBlock", "Parquet", "ArrowTable",
+           "PrettySpaceNoEscapesMonoBlock", "Parquet", "ArrowTable", "Arrow", "ArrowStream",
            "ORC", "RowBinary", "RowBinaryWithNames", "RowBinaryWithNamesAndTypes", "Native", "Null", "XML", "LineAsString",
            "RawBLOB", "Markdown"]
 
