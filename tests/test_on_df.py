@@ -12,7 +12,7 @@ hits_0 = os.path.join(current_dir, "hits_0.parquet")
 sql = """SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
                         FROM __table__ GROUP BY RegionID ORDER BY c DESC LIMIT 10"""
 
-expected = """   RegionID  sum(AdvEngineID)       c  avg(ResolutionWidth)  uniqExact(UserID)
+expected_query_output = """   RegionID  sum(AdvEngineID)       c  avg(ResolutionWidth)  uniqExact(UserID)
 0       229             38044  426435           1612.787187              27961
 1         2             12801  148193           1593.870891              10413
 2       208              2673   30614           1490.615111               3073
@@ -32,35 +32,59 @@ atexit.register(lambda: print("\n" + output.getvalue()))
 class TestRunOnDf(unittest.TestCase):
     def test_run_parquet(self):
         pq_table = Table(parquet_path=hits_0)
+        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
         t = time.time()
         ret = pq_table.query(sql)
         print("Run on parquet file. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected, str(ret))
+        self.assertEqual(expected_query_output, str(ret))
 
     def test_run_parquet_buf(self):
         pq_table = Table(parquet_memoryview=memoryview(open(hits_0, 'rb').read()))
+        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
         t = time.time()
         ret = pq_table.query(sql)
         print("Run on parquet buffer. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected, str(ret))
+        self.assertEqual(expected_query_output, str(ret))
 
     def test_run_arrow_table(self):
         import pyarrow.parquet as pq
         arrow_table = pq.read_table(hits_0)
         pq_table = Table(arrow_table=arrow_table)
+        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
         t = time.time()
         ret = pq_table.query(sql)
         print("Run on arrow table. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected, str(ret))
+        self.assertEqual(expected_query_output, str(ret))
 
     def test_run_df(self):
         import pandas as pd
         df = pd.read_parquet(hits_0)
         pq_table = Table(dataframe=df)
+        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
         t = time.time()
         ret = pq_table.query(sql)
         print("Run on dataframe. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected, str(ret))
+        self.assertEqual(expected_query_output, str(ret))
+
+    def test_run_temp_file(self):
+        import tempfile
+        import shutil
+        temp_dir = tempfile.mkdtemp()
+        try:
+            temp_file = os.path.join(temp_dir, "hits_0.parquet")
+            shutil.copyfile(hits_0, temp_file)
+            pq_table = Table(temp_parquet_path=temp_file)
+            self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+            t = time.time()
+            ret = pq_table.query(sql)
+            print("Run on temp file. Time cost:", time.time() - t, "s", file=output)
+            self.assertEqual(expected_query_output, str(ret))
+            # temp file should be deleted after del pq_table
+            del pq_table
+            print(temp_file)
+            self.assertFalse(os.path.exists(temp_file))
+        finally:
+            shutil.rmtree(temp_dir)
 
 
 if __name__ == '__main__':
