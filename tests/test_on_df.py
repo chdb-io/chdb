@@ -7,6 +7,15 @@ import unittest
 from chdb.dataframe.query import Table
 from utils import current_dir
 
+# if hits_0.parquet is not available, download it:
+# https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_0.parquet
+if not os.path.exists(os.path.join(current_dir, "hits_0.parquet")):
+    import urllib.request
+    opener = urllib.request.URLopener()
+    opener.addheader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+    opener.retrieve("https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_0.parquet",
+                               os.path.join(current_dir, "hits_0.parquet"))
+
 # 122MB parquet file
 hits_0 = os.path.join(current_dir, "hits_0.parquet")
 sql = """SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
