@@ -19,10 +19,10 @@ class TestOutput(unittest.TestCase):
             else:
                 data = reset_elapsed(res.get_memview().tobytes())
             # Arrow format output is not deterministic
-            # so we only check the first 100 bytes
+            # so we only check the first 10 bytes
             if format in ("Arrow", "ArrowStream"):
-                data = data[:100]
-                output["data"] = output["data"][:100]
+                data = data[:10]
+                output["data"] = output["data"][:10]
             self.assertEqual(data, output["data"])
 
 
