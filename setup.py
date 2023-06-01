@@ -185,7 +185,7 @@ if __name__ == "__main__":
             package_data={'chdb': pkg_files},
             exclude_package_data={'': ['*.pyc', 'src/**']},
             ext_modules=ext_modules,
-            python_requires='>=3.7',
+            python_requires='>=3.8',
             cmdclass={'build_ext': BuildExt},
             test_suite="tests",
             zip_safe=False,
