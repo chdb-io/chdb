@@ -10,6 +10,8 @@ class Table(object):
     """
     Table is a wrapper of multiple formats of data buffer, including parquet file path,
     parquet bytes, and pandas dataframe.
+    if use_memfd is True, will try using memfd_create to create a temp file in memory, which is
+    only available on Linux. If failed, will fallback to use tempfile.mkstemp to create a temp file
     """
 
     def __init__(self,
@@ -52,6 +54,37 @@ class Table(object):
             else:
                 raise ValueError("No data buffer in Table object")
         return self._dataframe
+
+    def flush_to_disk(self):
+        """
+        Flush the data in memory to disk.
+        """
+        if self._parquet_path is not None or self._temp_parquet_path is not None:
+            return
+
+        if self._dataframe is not None:
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                self._dataframe.to_parquet(tmp)
+                self._temp_parquet_path = tmp.name
+                del self._dataframe
+                self._dataframe = None
+        elif self._arrow_table is not None:
+            import pyarrow.parquet as pq
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                pq.write_table(self._arrow_table, tmp.name)
+                self._temp_parquet_path = tmp.name
+                del self._arrow_table
+                self._arrow_table = None
+        elif self._parquet_memoryview is not None:
+            # copy memoryview to temp file
+            with tempfile.NamedTemporaryFile(suffix=".parquet", delete=False) as tmp:
+                tmp.write(self._parquet_memoryview.tobytes())
+                self._temp_parquet_path = tmp.name
+                self._parquet_memoryview.release()
+                del self._parquet_memoryview
+                self._parquet_memoryview = None
+        else:
+            raise ValueError("No data in Table object")
 
     def __repr__(self):
         return repr(self.to_pandas())
