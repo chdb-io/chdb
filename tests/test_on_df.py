@@ -75,6 +75,16 @@ class TestRunOnDf(unittest.TestCase):
         print("Run on dataframe. Time cost:", time.time() - t, "s", file=output)
         self.assertEqual(expected_query_output, str(ret))
 
+    def test_run_df_arrow(self):
+        import pandas as pd
+        df = pd.read_parquet(hits_0, engine="pyarrow", dtype_backend="pyarrow")
+        pq_table = Table(dataframe=df)
+        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+        t = time.time()
+        ret = pq_table.query(sql)
+        print("Run on dataframe arrow. Time cost:", time.time() - t, "s", file=output)
+        self.assertEqual(expected_query_output, str(ret))
+
     def test_run_temp_file(self):
         import tempfile
         import shutil
