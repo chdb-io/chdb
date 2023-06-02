@@ -10,6 +10,7 @@ if sys.version_info[:2] >= (3, 7):
     cwd = os.getcwd()
     os.chdir(current_path)
     from . import _chdb  # noqa
+
     os.chdir(cwd)
     engine_version = str(_chdb.query("SELECT version();", "CSV").get_memview().tobytes())[3:-4]
 else:
@@ -22,6 +23,7 @@ try:
 except:  # pragma: no cover
     __version__ = "unknown"
 
+
 # return pyarrow table
 def to_arrowTable(res):
     """convert res to arrow table"""
@@ -33,14 +35,16 @@ def to_arrowTable(res):
         print(f'ImportError: {e}')
         print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
         raise ImportError('Failed to import pyarrow or pandas') from None
-        
+
     return pa.RecordBatchFileReader(res.get_memview()).read_all()
+
 
 # return pandas dataframe
 def to_df(r):
     """"convert arrow table to Dataframe"""
     t = to_arrowTable(r)
     return t.to_pandas(use_threads=True)
+
 
 # wrap _chdb functions
 def query(sql, output_format="CSV", **kwargs):

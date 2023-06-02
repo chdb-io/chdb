@@ -44,11 +44,11 @@ class Table(object):
             elif self._parquet_memoryview is not None:
                 # wrap bytes to ReadBuffer
                 pq_reader = BytesIO(self._parquet_memoryview.tobytes())
-                return pd.read_parquet(pq_reader, engine='pyarrow', dtype_backend='pyarrow')
+                return pandas_read_parquet(pq_reader)
             elif self._parquet_path is not None:
-                return pd.read_parquet(self._parquet_path, engine='pyarrow', dtype_backend='pyarrow')
+                return pandas_read_parquet(self._parquet_path)
             elif self._temp_parquet_path is not None:
-                return pd.read_parquet(self._temp_parquet_path, engine='pyarrow', dtype_backend='pyarrow')
+                return pandas_read_parquet(self._temp_parquet_path)
             else:
                 raise ValueError("No data buffer in Table object")
         return self._dataframe
@@ -59,7 +59,7 @@ class Table(object):
     def __str__(self):
         return str(self.to_pandas())
 
-    def query(self, sql, **kwargs):
+    def query(self, sql, **kwargs) -> "Table":
         """
         Query on current Table object, return a new Table object.
         The `FROM` table name in SQL should always be `__table__`. eg:
@@ -88,43 +88,32 @@ class Table(object):
         else:
             raise ValueError("Table object is not initialized correctly")
 
-    def queryParquetBuffer(self, sql: str, **kwargs):
+    def queryParquetBuffer(self, sql: str, **kwargs) -> "Table":
         if "__table__" not in sql:
             raise ValueError("SQL should always contain `FROM __table__`")
         if self._parquet_memoryview is None:
             raise ValueError("Parquet buffer is None")
 
-        parquet_fd = -1
         temp_path = None
-        # on Linux, try use memfd_create to create a file descriptor for the memoryview
-        if self.use_memfd and os.name == "posix":
-            try:
-                parquet_fd = os.memfd_create("parquet_buffer", flags=os.MFD_CLOEXEC)
-            except:
-                pass
+        parquet_fd = memfd_create("parquet_buffer")
         # if memfd_create failed, use tempfile to create a file descriptor for the memoryview
         if parquet_fd == -1:
             parquet_fd, temp_path = tempfile.mkstemp()
         ffd = os.fdopen(parquet_fd, "wb")
         ffd.write(self._parquet_memoryview.tobytes())
         ffd.flush()
-        ret = self._run_on_temp(parquet_fd, temp_path, sql, **kwargs)
+        ret = self._run_on_temp(parquet_fd, temp_path, sql=sql, fmt="Parquet", **kwargs)
         ffd.close()
         return ret
 
-    def queryArrowTable(self, sql: str, **kwargs):
+    def queryArrowTable(self, sql: str, **kwargs) -> "Table":
         if "__table__" not in sql:
             raise ValueError("SQL should always contain `FROM __table__`")
         if self._arrow_table is None:
             raise ValueError("Arrow table is None")
 
-        arrow_fd = -1
         temp_path = None
-        if self.use_memfd and os.name == "posix":
-            try:
-                arrow_fd = os.memfd_create("arrow_table", flags=os.MFD_CLOEXEC)
-            except:
-                pass
+        arrow_fd = memfd_create("arrow_buffer")
         if arrow_fd == -1:
             arrow_fd, temp_path = tempfile.mkstemp()
         ffd = os.fdopen(arrow_fd, "wb")
@@ -135,29 +124,24 @@ class Table(object):
         ffd.close()
         return ret
 
-    def queryDF(self, sql: str, **kwargs):
+    def queryDF(self, sql: str, **kwargs) -> "Table":
         if "__table__" not in sql:
             raise ValueError("SQL should always contain `FROM __table__`")
         if self._dataframe is None:
             raise ValueError("Dataframe is None")
 
-        parquet_fd = -1
         temp_path = None
-        if self.use_memfd and os.name == "posix":
-            try:
-                parquet_fd = os.memfd_create("parquet_buffer", flags=os.MFD_CLOEXEC)
-            except:
-                pass
+        parquet_fd = memfd_create()
         if parquet_fd == -1:
             parquet_fd, temp_path = tempfile.mkstemp()
         ffd = os.fdopen(parquet_fd, "wb")
         self._dataframe.to_parquet(ffd, engine='pyarrow', compression=None)
         ffd.flush()
-        ret = self._run_on_temp(parquet_fd, temp_path, sql=sql, **kwargs)
+        ret = self._run_on_temp(parquet_fd, temp_path, sql=sql, fmt="Parquet", **kwargs)
         ffd.close()
         return ret
 
-    def _run_on_temp(self, fd: int, temp_path: str = None, sql: str = None, fmt: str = "Parquet", **kwargs):
+    def _run_on_temp(self, fd: int, temp_path: str = None, sql: str = None, fmt: str = "Parquet", **kwargs) -> "Table":
         # replace "__table__" with file("temp_path", Parquet) or file("/dev/fd/{parquet_fd}", Parquet)
         if temp_path is not None:
             new_sql = sql.replace("__table__", f"file(\"{temp_path}\", {fmt})")
@@ -166,6 +150,27 @@ class Table(object):
             new_sql = sql.replace("__table__", f"file(\"/dev/fd/{fd}\", {fmt})")
         res = chdb_query(new_sql, "Parquet", **kwargs)
         return Table(parquet_memoryview=res.get_memview())
+
+
+def pandas_read_parquet(path) -> pd.DataFrame:
+    if pd.__version__[0] >= '1':
+        return pd.read_parquet(path, engine='pyarrow', dtype_backend='pyarrow')
+    else:
+        return pd.read_parquet(path)
+
+
+def memfd_create(name: str = None) -> int:
+    """
+    Try to use memfd_create(2) to create a file descriptor with memory.
+    Only available on Linux 3.17 or newer with glibc 2.27 or newer.
+    """
+    if hasattr(os, "memfd_create"):
+        try:
+            fd = os.memfd_create(name, flags=os.MFD_CLOEXEC)
+            return fd
+        except:
+            return -1
+    return -1
 
 
 if __name__ == "__main__":
