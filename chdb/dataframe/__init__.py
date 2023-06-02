@@ -10,3 +10,5 @@ except ImportError as e:
 # check if pandas version >= 2.0.0
 if pd.__version__[0] < '2':
     print('Please upgrade pandas to version 2.0.0 or higher to have better performance')
+
+from .query import *
