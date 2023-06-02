@@ -51,7 +51,9 @@ class TestRunOnDf(unittest.TestCase):
         self.assertIsNotNone(pq_table._parquet_path)
 
     def test_run_parquet_buf(self):
-        pq_table = Table(parquet_memoryview=memoryview(open(hits_0, 'rb').read()), use_memfd=True)
+        with open(hits_0, "rb") as f:
+            parquet_buf = f.read()
+        pq_table = Table(parquet_memoryview=memoryview(parquet_buf), use_memfd=True)
         self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
         t = time.time()
         ret = pq_table.query(sql)
