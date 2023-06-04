@@ -70,7 +70,7 @@ chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 </details>
 
 <details>
-    <summary><h4>Query On Memory (Pandas DataFrame, Parquet file/bytes, Arrow bytes)</h4></summary>
+    <summary><h4>Query On Table (Pandas DataFrame, Parquet file/bytes, Arrow bytes)</h4></summary>
 
 ### Query On Pandas DataFrame
 ```python
