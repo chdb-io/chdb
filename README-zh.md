@@ -41,7 +41,12 @@ pip install chdb
 python3 -m chdb "SELECT 1,'abc'" Pretty
 ```
 
-目前，chDB 仅支持 `query` 函数，用于执行 SQL 并返回所需格式的数据。
+
+有三种使用 chdb 的方法：“原始文件查询（性能）”、“高级查询（推荐）”和“DB-API”：
+<details>
+    <summary><h4>原始文件查询（Parquet、CSV、JSON、Arrow、ORC 等 60 多种格式）</h4></summary>
+
+您可以执行 SQL 并返回所需格式的数据。
 
 ```python
 import chdb
@@ -61,6 +66,40 @@ res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.g
 # 更多内容请参见 https://clickhouse.com/docs/en/interfaces/formats
 chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ```
+</details>
+
+<details>
+    <summary><h4>高级查询（Pandas DataFrame、Parquet 文件/字节、Arrow 文件/字节）</h4></summary>
+
+### 查询 Pandas DataFrame
+```python
+import chdb.dataframe as cdf
+import pandas as pd
+tbl = cdf.Table(dataframe=pd.DataFrame({'a': [1, 2, 3], 'b': ['a', 'b', 'c']}))
+ret_tbl = tbl.query('select * from __table__')
+print(ret_tbl)
+print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
+```
+</details>
+
+<details>
+    <summary><h4>Python DB-API 2.0</h4></summary>
+
+```python
+import chdb.dbapi as dbapi
+print("chdb driver version: {0}".format(dbapi.get_client_info()))
+
+conn1 = dbapi.connect()
+cur1 = conn1.cursor()
+cur1.execute('select version()')
+print("description: ", cur1.description)
+print("data: ", cur1.fetchone())
+cur1.close()
+conn1.close()
+```
+</details>
+
+更多示例，请参见 [examples](examples) 和 [tests](tests)。
 
 ## 演示和示例
 
