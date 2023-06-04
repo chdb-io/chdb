@@ -44,7 +44,7 @@ python3 -m chdb "SELECT 1,'abc'" Pretty
 
 有三种使用 chdb 的方法：“原始文件查询（性能）”、“高级查询（推荐）”和“DB-API”：
 <details>
-    <summary><h4>原始文件查询（Parquet、CSV、JSON、Arrow、ORC 等 60 多种格式）</h4></summary>
+    <summary><h4>🗂️ 原始文件查询</h4>（Parquet、CSV、JSON、Arrow、ORC 等 60 多种格式）</summary>
 
 您可以执行 SQL 并返回所需格式的数据。
 
@@ -69,7 +69,7 @@ chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 </details>
 
 <details>
-    <summary><h4>高级查询（Pandas DataFrame、Parquet 文件/字节、Arrow 文件/字节）</h4></summary>
+    <summary><h4>🗂️ 高级查询</h4>（Pandas DataFrame、Parquet 文件/字节、Arrow 文件/字节）</summary>
 
 ### 查询 Pandas DataFrame
 ```python
@@ -83,7 +83,7 @@ print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
 </details>
 
 <details>
-    <summary><h4>Python DB-API 2.0</h4></summary>
+    <summary><h4>🗂️ Python DB-API 2.0</h4></summary>
 
 ```python
 import chdb.dbapi as dbapi
