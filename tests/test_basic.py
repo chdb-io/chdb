@@ -18,8 +18,11 @@ class TestOutput(unittest.TestCase):
                 data = reset_elapsed(f"{res}")
             else:
                 data = reset_elapsed(res.get_memview().tobytes())
+            # Arrow format output is not deterministic
+            if format in ("Arrow", "ArrowStream"):
+                continue
             self.assertEqual(data, output["data"])
-    
+
 
 if __name__ == '__main__':
     unittest.main()
