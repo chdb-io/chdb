@@ -43,9 +43,13 @@ pip install chdb
 python3 -m chdb "SELECT 1,'abc'" Pretty
 ```
 
-There are 3 ways to use chdb: "Query On File(**Performace**)", "Query On Table(**Perfered**)" and "Python DB-API":
+<br>
+
+### Data Input
+The following methods are available to access on-disk and in-memory data formats:
+
 <details>
-    <summary><h4>Query On File (Parquet, CSV, JSON, Arrow, ORC and 60+)</h4></summary>
+    <summary><h4>🗂️ Query On File</h4> (Parquet, CSV, JSON, Arrow, ORC and 60+)</summary>
 
 You can execute SQL and return desired format data.
 
@@ -70,7 +74,7 @@ chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 </details>
 
 <details>
-    <summary><h4>Query On Table (Pandas DataFrame, Parquet file/bytes, Arrow bytes)</h4></summary>
+    <summary><h4>🗂️ Query On Table</h4> (Pandas DataFrame, Parquet file/bytes, Arrow bytes) </summary>
 
 ### Query On Pandas DataFrame
 ```python
@@ -84,7 +88,7 @@ print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
 </details>
 
 <details>
-    <summary><h4>Python DB-API 2.0</h4></summary>
+    <summary><h4>🗂️ Python DB-API 2.0</h4></summary>
 
 ```python
 import chdb.dbapi as dbapi
@@ -100,7 +104,10 @@ conn1.close()
 ```
 </details>
 
+
 For more examples, see [examples](examples) and [tests](tests).
+
+<br>
 
 ## Demos and Examples
 
