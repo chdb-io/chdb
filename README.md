@@ -43,7 +43,11 @@ pip install chdb
 python3 -m chdb "SELECT 1,'abc'" Pretty
 ```
 
-Currently, chDB only supports `query` function, which is used to execute SQL and return desired format data.
+There are 3 ways to use chdb: "Query On File(**Performace**)", "Query On Table(**Perfered**)" and "Python DB-API":
+<details>
+    <summary><h4>Query On File (Parquet, CSV, JSON, Arrow, ORC and 60+)</h4></summary>
+
+You can execute SQL and return desired format data.
 
 ```python
 import chdb
@@ -63,6 +67,40 @@ res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.g
 # See more in https://clickhouse.com/docs/en/interfaces/formats
 chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ```
+</details>
+
+<details>
+    <summary><h4>Query On Memory (Pandas DataFrame, Parquet file/bytes, Arrow bytes)</h4></summary>
+
+### Query On Pandas DataFrame
+```python
+import chdb.dataframe as cdf
+import pandas as pd
+tbl = cdf.Table(dataframe=pd.DataFrame({'a': [1, 2, 3], 'b': ['a', 'b', 'c']}))
+ret_tbl = tbl.query('select * from __table__')
+print(ret_tbl)
+print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
+```
+</details>
+
+<details>
+    <summary><h4>Python DB-API 2.0</h4></summary>
+
+```python
+import chdb.dbapi as dbapi
+print("chdb driver version: {0}".format(dbapi.get_client_info()))
+
+conn1 = dbapi.connect()
+cur1 = conn1.cursor()
+cur1.execute('select version()')
+print("description: ", cur1.description)
+print("data: ", cur1.fetchone())
+cur1.close()
+conn1.close()
+```
+</details>
+
+For more examples, see [examples](examples) and [tests](tests).
 
 ## Demos and Examples
 
@@ -79,8 +117,9 @@ chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ## Contributing
 Contributions are what make the open source community such an amazing place to be learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 There are something you can help:
-- [ ] Help me with Windows support, I don't know much about Windows toolchain.
-- [x] The Python Wrapper just have a `query` function. I want to add more functions to make it more convenient to use. like `toPandas`, `toNumpy` and so on.
+- [ ] Help test and report bugs
+- [ ] Help improve documentation
+- [ ] Help improve code quality and performance
 
 ## License
 AGPL-v3.0 or Commercial License, see [LICENSE](LICENSE.txt) for more information.
