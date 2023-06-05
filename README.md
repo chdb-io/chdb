@@ -30,7 +30,7 @@
 </div>
 
 ## Installation
-Currently, chDB only supports Python 3.7+ on macOS(x86_64 and ARM64) and Linux.
+Currently, chDB only supports Python 3.8+ on macOS(x86_64 and ARM64) and Linux.
 ```bash
 pip install chdb
 ```
