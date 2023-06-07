@@ -120,7 +120,7 @@ conn1.close()
 - [x] Python 包装器目前只有一个 `query` 函数。我想添加更多函数，以使其使用更加方便，比如 `toPandas`，`toNumpy` 等等。
 
 ## 版权信息
-AGPL-v3.0 或商业许可证，请查看 [LICENSE](LICENSE.txt) 获取更多信息。
+Apache 2.0，请查看 [LICENSE](LICENSE.txt) 获取更多信息。
 
 ## 鸣谢
 chDB 主要基于 [ClickHouse](https://github.com/ClickHouse/ClickHouse)。由于商标和其他原因，我将其命名为 chDB。

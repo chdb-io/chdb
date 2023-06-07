@@ -129,7 +129,7 @@ There are something you can help:
 - [ ] Help improve code quality and performance
 
 ## License
-AGPL-v3.0 or Commercial License, see [LICENSE](LICENSE.txt) for more information.
+Apache 2.0, see [LICENSE](LICENSE.txt) for more information.
 
 ## Acknowledgments
 chDB is mainly based on [ClickHouse](https://github.com/ClickHouse/ClickHouse)
