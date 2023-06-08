@@ -186,10 +186,7 @@ class Table(object):
 
 
 def pandas_read_parquet(path) -> pd.DataFrame:
-    if pd.__version__[0] >= '1':
-        return pd.read_parquet(path, engine='pyarrow', dtype_backend='pyarrow')
-    else:
-        return pd.read_parquet(path)
+    return pd.read_parquet(path)
 
 
 def memfd_create(name: str = None) -> int:
