@@ -35,7 +35,8 @@ def to_arrowTable(res):
         print(f'ImportError: {e}')
         print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
         raise ImportError('Failed to import pyarrow or pandas') from None
-
+    if len(res.get_memview()) == 0:
+        return pa.Table.from_batches([], schema=pa.schema([]))
     return pa.RecordBatchFileReader(res.get_memview()).read_all()
 
 
