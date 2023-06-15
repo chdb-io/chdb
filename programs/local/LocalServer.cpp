@@ -61,6 +61,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int BAD_ARGUMENTS;
+    extern const int UNKNOWN_FORMAT;
     extern const int CANNOT_LOAD_CONFIG;
     extern const int FILE_ALREADY_EXISTS;
 }
@@ -557,6 +558,11 @@ void LocalServer::processConfig()
         global_context->setMacros(std::make_unique<Macros>(config(), "macros", log));
 
     format = config().getString("output-format", config().getString("format", is_interactive ? "PrettyCompact" : "TSV"));
+
+    /// Check format is supported before the engine runs too far
+    if (!FormatFactory::instance().isOutputFormat(format))
+        throw Exception(ErrorCodes::UNKNOWN_FORMAT, "Unknown output format {}", format);
+
     insert_format = "Values";
 
     /// Setting value from cmd arg overrides one from config
