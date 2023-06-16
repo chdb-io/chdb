@@ -374,7 +374,7 @@ jobs:
   ## Experimental Restart on Failures (WIP)
   ## Requires: Workflow ID, PAT Token w/ Action permissions
   restart_failed:
-    name: Retry Failed/Expired Build
+    name: Retry Expired Builds
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && failure()
     needs: [ build_wheels_linux, build_wheels_macos, build_wheels_macos_12 ]
@@ -385,6 +385,6 @@ jobs:
         -X POST \
         -H "Accept: application/vnd.github.v3+json" \
         -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
-        https://api.github.com/repos/chdb-io/chdb/actions/workflows/51406497/dispatches -d '{"ref": "${{ github.ref }}" }'
+        https://api.github.com/repos/chdb-io/chdb/actions/workflows/51406497/rerun -d '{"ref": "${{ github.ref }}" }'
         #                                                           ^^^^^^^^ this worflow id
      
