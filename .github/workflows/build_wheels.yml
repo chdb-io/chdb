@@ -371,12 +371,12 @@ jobs:
   # #build for macos12 arm64(Apple Silicon)
   # build_wheels_macos_arm64:
   
-  ## Experimental Restart on Failures (WIP)
+  ## Experimental Restart on Expire/Cancel (WIP)
   ## Requires: Workflow ID, PAT Token w/ Action permissions
   restart_failed:
     name: Retry Expired Builds
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && failure()
+    if: github.event_name == 'push' && cancelled()
     needs: [ build_wheels_linux, build_wheels_macos, build_wheels_macos_12 ]
     steps:
     - name: Retry Failed/Expired Build
