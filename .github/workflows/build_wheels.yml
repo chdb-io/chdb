@@ -372,7 +372,9 @@ jobs:
   # build_wheels_macos_arm64:
   
   ## Experimental Restart on Expire/Cancel (WIP)
-  ## Requires: Workflow ID, PAT Token w/ Action permissions
+  ## Requires: PAT Token
+  ## the PAT token should have permissions according to this  
+  ## documentation - https://developer.github.com/v3/actions/workflow-runs/
   restart_failed:
     name: Retry Expired Builds
     runs-on: ubuntu-latest
@@ -385,6 +387,6 @@ jobs:
         -X POST \
         -H "Accept: application/vnd.github.v3+json" \
         -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
-        https://api.github.com/repos/chdb-io/chdb/actions/workflows/51406497/rerun -d '{"ref": "${{ github.ref }}" }'
-        #                                                           ^^^^^^^^ this worflow id
+        https://api.github.com/repos/chdb-io/chdb/actions/runs/${{ github.run_id }}/rerun \
+        -d '{"ref": "${{ github.ref }}" }'
      
