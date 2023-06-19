@@ -8,11 +8,13 @@ on:
       - pybind
     paths-ignore:
       - '**.md'
+      - '**.yml'
       - '.github/**'
       - 'examples/**'
   pull_request:
     branches:
       - pybind
+  workflow_dispatch:
 
 jobs:
   build_wheels_linux:
@@ -230,8 +232,7 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
       - name: Install dependencies for building wheels
         run: |
           python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
@@ -306,13 +307,6 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           git submodule update --init --recursive --jobs 4
-      # - name: Save submodules cache
-      #   uses: actions/cache/save@v3
-      #   with:
-      #     path: |
-      #       contrib/**
-      #     key: |
-      #       submodule-${{ hashFiles('.gitmodules') }}
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
@@ -332,8 +326,7 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
       - name: Remove /usr/local/bin/python3
         run: |
           sudo rm -f /usr/local/bin/python3
@@ -345,31 +338,13 @@ jobs:
         run: python3 -m cibuildwheel --output-dir wheelhouse
         timeout-minutes: 300
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-             CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
           CIBW_TEST_REQUIRES: "pyarrow pandas"
           CIBW_TEST_COMMAND: "cd {project} && make test"
-        # with:
-        #   package-dir: .
-        #   output-dir: wheelhouse
-        #   config-file: "{package}/pyproject.toml"
-      # - name: Build wheels for macos12 including universal2
-      #   if: matrix.os == 'macos-12'
-      #   run: |
-      #     python3 -m cibuildwheel --output-dir wheelhouse
-      #   timeout-minutes: 300
-      #   env:
-      #     CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin \
-      #        CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
-      #     CIBW_DEBUG: 1
-      #     CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
-      #     CIBW_BUILD_VERBOSITY: 3
-      #     CIBW_BUILD: "cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64 cp311-macosx_x86_64"
-      #     CIBW_TEST_COMMAND: python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
@@ -396,3 +371,22 @@ jobs:
   # #build for macos12 arm64(Apple Silicon)
   # build_wheels_macos_arm64:
   
+  ## Experimental Restart on Expire/Cancel (WIP)
+  ## Requires: PAT Token
+  ## the PAT token should have permissions according to this  
+  ## documentation - https://developer.github.com/v3/actions/workflow-runs/
+  restart_failed:
+    name: Retry Expired Builds
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && cancelled()
+    needs: [ build_wheels_linux, build_wheels_macos, build_wheels_macos_12 ]
+    steps:
+    - name: Retry Failed/Expired Build
+      run: |
+        curl -i \
+        -X POST \
+        -H "Accept: application/vnd.github.v3+json" \
+        -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
+        https://api.github.com/repos/chdb-io/chdb/actions/runs/${{ github.run_id }}/rerun \
+        -d '{"ref": "${{ github.ref }}" }'
+     
