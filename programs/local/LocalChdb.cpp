@@ -34,8 +34,23 @@ public:
         delete memview;
     }
 
-    char * data() { return result->buf; }
-    size_t size() { return result->len; }
+    char * data()
+    {
+        if (result == nullptr)
+        {
+            return nullptr;
+        }
+        return result->buf;
+    }
+
+    size_t size()
+    {
+        if (result == nullptr)
+        {
+            return 0;
+        }
+        return result->len;
+    }
     py::memoryview get_memview() { return *memview; }
 };
 
