@@ -3,7 +3,7 @@
   <img src="docs/_static/snake-chdb.png" height="100">
 </div>
 
-[![Build](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg?branch=pybind)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
+[![Build](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg?branch=main)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
 [![PyPI](https://img.shields.io/pypi/v/chdb.svg)](https://pypi.org/project/chdb/)
 [![Downloads](https://static.pepy.tech/badge/chdb)](https://pepy.tech/project/chdb)
 [![Discord](https://img.shields.io/discord/1098133460310294528?logo=Discord)](https://discord.gg/Njw5YXSPPc)
