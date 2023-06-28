@@ -5,7 +5,7 @@ on:
     tags:
       - 'v*'
     branches:
-      - pybind
+      - main
     paths-ignore:
       - '**.md'
       - '**.yml'
@@ -13,7 +13,7 @@ on:
       - 'examples/**'
   pull_request:
     branches:
-      - pybind
+      - main
   workflow_dispatch:
 
 jobs:
