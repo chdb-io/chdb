@@ -304,6 +304,7 @@ if (COMPILER_CLANG)
         set(BRANCHES_WITHIN_32B_BOUNDARIES "-mbranches-within-32B-boundaries")
         set(COMPILER_FLAGS "${COMPILER_FLAGS} ${BRANCHES_WITHIN_32B_BOUNDARIES}")
     endif()
+endif ()
 
 if (COMPILER_GCC)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fcoroutines")
