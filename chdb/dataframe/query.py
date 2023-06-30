@@ -128,7 +128,9 @@ class Table(object):
             raise ValueError("Parquet buffer is None")
 
         temp_path = None
-        parquet_fd = memfd_create("parquet_buffer")
+        parquet_fd = -1
+        if self.use_memfd:
+            parquet_fd = memfd_create("parquet_buffer")
         # if memfd_create failed, use tempfile to create a file descriptor for the memoryview
         if parquet_fd == -1:
             parquet_fd, temp_path = tempfile.mkstemp()
@@ -146,7 +148,9 @@ class Table(object):
             raise ValueError("Arrow table is None")
 
         temp_path = None
-        arrow_fd = memfd_create("arrow_buffer")
+        arrow_fd = -1
+        if self.use_memfd:
+            arrow_fd = memfd_create("arrow_buffer")
         if arrow_fd == -1:
             arrow_fd, temp_path = tempfile.mkstemp()
         ffd = os.fdopen(arrow_fd, "wb")
@@ -164,7 +168,9 @@ class Table(object):
             raise ValueError("Dataframe is None")
 
         temp_path = None
-        parquet_fd = memfd_create()
+        parquet_fd = -1
+        if self.use_memfd:
+            parquet_fd = memfd_create()
         if parquet_fd == -1:
             parquet_fd, temp_path = tempfile.mkstemp()
         ffd = os.fdopen(parquet_fd, "wb")
