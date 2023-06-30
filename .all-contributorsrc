@@ -1,0 +1,26 @@
+{
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "commit": false,
+  "commitType": "docs",
+  "commitConvention": "angular",
+  "contributors": [
+    {
+      "login": "auxten",
+      "name": "auxten",
+      "avatar_url": "https://avatars.githubusercontent.com/u/240147?v=4",
+      "profile": "http://auxten.com",
+      "contributions": [
+        "code"
+      ]
+    }
+  ],
+  "contributorsPerLine": 7,
+  "skipCi": true,
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "projectName": "chdb",
+  "projectOwner": "chdb-io"
+}
