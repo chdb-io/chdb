@@ -5,7 +5,7 @@ import chdb
 
 # get current file dir
 current_dir = os.path.dirname(os.path.abspath(__file__))
-test_parquet = current_dir + "/../contrib/arrow/cpp/submodules/parquet-testing/data/alltypes_dictionary.parquet"
+test_parquet = current_dir + "/../tests/data/alltypes_dictionary.parquet"
 
 # run SQL on parquet file and return arrow format
 res = chdb.query(f"select * from file('{test_parquet}', Parquet)", "Arrow")
