@@ -3,7 +3,7 @@ import os
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 data_file = os.path.join(
-    current_dir, "../contrib/arrow/cpp/submodules/parquet-testing/data/alltypes_dictionary.parquet")
+    current_dir, "../tests/data/alltypes_dictionary.parquet")
 
 # reset elapsed time to 0.0 from output, since it will be different each time
 # eg: "elapsed": 0.001015,
