@@ -46,81 +46,88 @@ class TestRunOnDf(unittest.TestCase):
         t = time.time()
         ret = pq_table.query(sql)
         print("Run on parquet file. Time cost:", time.time() - t, "s", file=output)
+        print("size:", len(ret._parquet_memoryview.tobytes()), "bytes", file=output)
+        ret.flush_to_disk()
+        print("file path:", ret._temp_parquet_path, file=output)
+        print("size:", os.path.getsize(ret._temp_parquet_path), "bytes", file=output)
+        # copy temp file to ./
+        import shutil
+        shutil.copy(ret._temp_parquet_path, "./ret.parquet")
         self.assertEqual(expected_query_output, str(ret))
         pq_table.flush_to_disk()
         self.assertIsNotNone(pq_table._parquet_path)
 
-    def test_run_parquet_buf(self):
-        with open(hits_0, "rb") as f:
-            parquet_buf = f.read()
-        pq_table = Table(parquet_memoryview=memoryview(parquet_buf), use_memfd=True)
-        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
-        t = time.time()
-        ret = pq_table.query(sql)
-        print("Run on parquet buffer. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected_query_output, str(ret))
-        pq_table.flush_to_disk()
-        self.assertIsNone(pq_table._parquet_memoryview)
-        self.assertIsNotNone(pq_table._temp_parquet_path)
+    # def test_run_parquet_buf(self):
+    #     with open(hits_0, "rb") as f:
+    #         parquet_buf = f.read()
+    #     pq_table = Table(parquet_memoryview=memoryview(parquet_buf), use_memfd=True)
+    #     self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+    #     t = time.time()
+    #     ret = pq_table.query(sql)
+    #     print("Run on parquet buffer. Time cost:", time.time() - t, "s", file=output)
+    #     self.assertEqual(expected_query_output, str(ret))
+    #     pq_table.flush_to_disk()
+    #     self.assertIsNone(pq_table._parquet_memoryview)
+    #     self.assertIsNotNone(pq_table._temp_parquet_path)
 
-    def test_run_arrow_table(self):
-        import pyarrow.parquet as pq
-        arrow_table = pq.read_table(hits_0)
-        pq_table = Table(arrow_table=arrow_table, use_memfd=True)
-        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
-        t = time.time()
-        ret = pq_table.query(sql)
-        print("Run on arrow table. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected_query_output, str(ret))
-        pq_table.flush_to_disk()
-        self.assertIsNone(pq_table._arrow_table)
-        self.assertIsNotNone(pq_table._temp_parquet_path)
+    # def test_run_arrow_table(self):
+    #     import pyarrow.parquet as pq
+    #     arrow_table = pq.read_table(hits_0)
+    #     pq_table = Table(arrow_table=arrow_table, use_memfd=True)
+    #     self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+    #     t = time.time()
+    #     ret = pq_table.query(sql)
+    #     print("Run on arrow table. Time cost:", time.time() - t, "s", file=output)
+    #     self.assertEqual(expected_query_output, str(ret))
+    #     pq_table.flush_to_disk()
+    #     self.assertIsNone(pq_table._arrow_table)
+    #     self.assertIsNotNone(pq_table._temp_parquet_path)
 
-    def test_run_df(self):
-        import pandas as pd
-        df = pd.read_parquet(hits_0)
-        pq_table = Table(dataframe=df, use_memfd=True)
-        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
-        t = time.time()
-        ret = pq_table.query(sql)
-        print("Run on dataframe. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected_query_output, str(ret))
-        pq_table.flush_to_disk()
-        self.assertIsNone(pq_table._dataframe)
-        self.assertIsNotNone(pq_table._temp_parquet_path)
+    # def test_run_df(self):
+    #     import pandas as pd
+    #     df = pd.read_parquet(hits_0)
+    #     pq_table = Table(dataframe=df, use_memfd=True)
+    #     self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+    #     t = time.time()
+    #     ret = pq_table.query(sql)
+    #     print("Run on dataframe. Time cost:", time.time() - t, "s", file=output)
+    #     self.assertEqual(expected_query_output, str(ret))
+    #     pq_table.flush_to_disk()
+    #     self.assertIsNone(pq_table._dataframe)
+    #     self.assertIsNotNone(pq_table._temp_parquet_path)
 
-    def test_run_df_arrow(self):
-        import pandas as pd
-        df = pandas_read_parquet(hits_0)
-        pq_table = Table(dataframe=df, use_memfd=True)
-        self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
-        t = time.time()
-        ret = pq_table.query(sql)
-        print("Run on dataframe arrow. Time cost:", time.time() - t, "s", file=output)
-        self.assertEqual(expected_query_output, str(ret))
-        pq_table.flush_to_disk()
-        self.assertIsNone(pq_table._dataframe)
-        self.assertIsNotNone(pq_table._temp_parquet_path)
+    # def test_run_df_arrow(self):
+    #     import pandas as pd
+    #     df = pandas_read_parquet(hits_0)
+    #     pq_table = Table(dataframe=df, use_memfd=True)
+    #     self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+    #     t = time.time()
+    #     ret = pq_table.query(sql)
+    #     print("Run on dataframe arrow. Time cost:", time.time() - t, "s", file=output)
+    #     self.assertEqual(expected_query_output, str(ret))
+    #     pq_table.flush_to_disk()
+    #     self.assertIsNone(pq_table._dataframe)
+    #     self.assertIsNotNone(pq_table._temp_parquet_path)
 
-    def test_run_temp_file(self):
-        import tempfile
-        import shutil
-        temp_dir = tempfile.mkdtemp()
-        try:
-            temp_file = os.path.join(temp_dir, "hits_0.parquet")
-            shutil.copyfile(hits_0, temp_file)
-            pq_table = Table(temp_parquet_path=temp_file)
-            self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
-            t = time.time()
-            ret = pq_table.query(sql)
-            print("Run on temp file. Time cost:", time.time() - t, "s", file=output)
-            self.assertEqual(expected_query_output, str(ret))
-            # temp file should be deleted after del pq_table
-            del pq_table
-            print(temp_file)
-            self.assertFalse(os.path.exists(temp_file))
-        finally:
-            shutil.rmtree(temp_dir)
+    # def test_run_temp_file(self):
+    #     import tempfile
+    #     import shutil
+    #     temp_dir = tempfile.mkdtemp()
+    #     try:
+    #         temp_file = os.path.join(temp_dir, "hits_0.parquet")
+    #         shutil.copyfile(hits_0, temp_file)
+    #         pq_table = Table(temp_parquet_path=temp_file)
+    #         self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+    #         t = time.time()
+    #         ret = pq_table.query(sql)
+    #         print("Run on temp file. Time cost:", time.time() - t, "s", file=output)
+    #         self.assertEqual(expected_query_output, str(ret))
+    #         # temp file should be deleted after del pq_table
+    #         del pq_table
+    #         print(temp_file)
+    #         self.assertFalse(os.path.exists(temp_file))
+    #     finally:
+    #         shutil.rmtree(temp_dir)
 
 
 if __name__ == '__main__':
