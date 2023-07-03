@@ -906,7 +906,7 @@ void KeeperDispatcher::cleanResources()
 #if USE_JEMALLOC
     LOG_TRACE(&Poco::Logger::get("KeeperDispatcher"), "Purging unused memory");
     Stopwatch watch;
-    mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+    je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
     ProfileEvents::increment(ProfileEvents::MemoryAllocatorPurge);
     ProfileEvents::increment(ProfileEvents::MemoryAllocatorPurgeTimeMicroseconds, watch.elapsedMicroseconds());
 #endif
