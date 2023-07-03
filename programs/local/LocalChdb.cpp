@@ -56,7 +56,7 @@ public:
 
 local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV")
 {
-    char * argv_[] = {(char *)"clickhouse", (char *)"--multiquery"};
+    char * argv_[] = {(char *)"clickhouse", (char *)"--multiquery", (char *)"--verbose", (char *)"--log-level=trace"};
 
     std::vector<char *> argv(argv_, argv_ + sizeof(argv_) / sizeof(argv_[0]));
     std::unique_ptr<char[]> formatStr(new char[format.size() + 17]);
