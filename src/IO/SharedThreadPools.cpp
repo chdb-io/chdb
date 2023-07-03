@@ -39,7 +39,8 @@ StaticThreadPool::StaticThreadPool(
 void StaticThreadPool::initialize(size_t max_threads, size_t max_free_threads, size_t queue_size)
 {
     if (instance)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "The {} is initialized twice", name);
+        // throw Exception(ErrorCodes::LOGICAL_ERROR, "The {} is initialized twice", name);
+        return;
 
     /// By default enabling "turbo mode" won't affect the number of threads anyhow
     max_threads_turbo = max_threads;
