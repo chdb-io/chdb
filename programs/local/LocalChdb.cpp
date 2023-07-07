@@ -1,76 +1,51 @@
-#include "chdb.h"
+#include "LocalChdb.h"
 
 #include <iostream>
-// #include "pybind11/numpy.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/pytypes.h"
-#include "pybind11/stl.h"
 
-namespace py = pybind11;
 
 extern bool inside_main = true;
 
-class __attribute__((visibility("default"))) query_result
-{
-private:
-    local_result * result;
-    py::memoryview * memview;
-
-public:
-    query_result(local_result * result) : result(result)
-    {
-        if (result)
-        {
-            memview = new py::memoryview(py::memoryview::from_memory(result->buf, result->len, true));
-        }
-        else
-        {
-            memview = new py::memoryview(py::memoryview::from_memory(nullptr, 0, true));
-        }
-    }
-    ~query_result()
-    {
-        free_result(result);
-        delete memview;
-    }
-
-    char * data()
-    {
-        if (result == nullptr)
-        {
-            return nullptr;
-        }
-        return result->buf;
-    }
-
-    size_t size()
-    {
-        if (result == nullptr)
-        {
-            return 0;
-        }
-        return result->len;
-    }
-    py::memoryview get_memview() { return *memview; }
-};
 
 local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV")
 {
-    char * argv_[] = {(char *)"clickhouse", (char *)"--multiquery", (char *)"--verbose", (char *)"--log-level=trace"};
+    std::vector<std::string> argv = {"clickhouse", "--multiquery"};
 
-    std::vector<char *> argv(argv_, argv_ + sizeof(argv_) / sizeof(argv_[0]));
-    std::unique_ptr<char[]> formatStr(new char[format.size() + 17]);
-    snprintf(formatStr.get(), format.size() + 17, "--output-format=%s", format.c_str());
-    argv.push_back(formatStr.get());
-    std::unique_ptr<char[]> qStr(new char[queryStr.size() + 11]);
-    snprintf(qStr.get(), queryStr.size() + 11, "--query=%s", queryStr.c_str());
-    argv.push_back(qStr.get());
-    return query_stable(argv.size(), argv.data());
+    // if format is "Debug" or "debug", then we will add --verbose and --log-level=trace to argv
+    if (format == "Debug" || format == "debug")
+    {
+        argv.push_back("--verbose");
+        argv.push_back("--log-level=trace");
+        // Add format string
+        argv.push_back("--output-format=CSV");
+    }
+    else
+    {
+        // Add format string
+        argv.push_back("--output-format=" + format);
+    }
+
+    // Add query string
+    argv.push_back("--query=" + queryStr);
+
+    // Convert std::string to char*
+    std::vector<char *> argv_char;
+    for (auto & arg : argv)
+        argv_char.push_back(const_cast<char *>(arg.c_str()));
+
+    return query_stable(argv_char.size(), argv_char.data());
 }
 
-std::unique_ptr<query_result> query(const std::string & queryStr, const std::string & format = "CSV")
+// Pybind11 will take over the ownership of the `query_result` object
+// using smart ptr will cause early free of the object
+query_result * query(const std::string & queryStr, const std::string & format = "CSV")
 {
-    return std::make_unique<query_result>(queryToBuffer(queryStr, format));
+    return new query_result(queryToBuffer(queryStr, format));
+}
+
+// The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
+memoryview_wrapper * query_result::get_memview()
+{
+    return new memoryview_wrapper(this->result_wrapper);
 }
 
 #ifdef PY_TEST_MAIN
@@ -125,11 +100,24 @@ PYBIND11_MODULE(_chdb, m)
 {
     m.doc() = "chDB module for query function";
 
+    py::class_<memoryview_wrapper>(m, "memoryview_wrapper")
+        .def(py::init<std::shared_ptr<local_result_wrapper>>(), py::return_value_policy::take_ownership)
+        .def("tobytes", &memoryview_wrapper::bytes)
+        .def("__len__", &memoryview_wrapper::size)
+        .def("size", &memoryview_wrapper::size)
+        .def("release", &memoryview_wrapper::release)
+        .def("view", &memoryview_wrapper::view);
+
     py::class_<query_result>(m, "query_result")
-        .def(py::init<local_result *>())
+        .def(py::init<local_result *>(), py::return_value_policy::take_ownership)
         .def("data", &query_result::data)
+        .def("bytes", &query_result::bytes)
+        .def("__str__", &query_result::str)
+        .def("__len__", &query_result::size)
+        .def("__repr__", &query_result::str)
         .def("size", &query_result::size)
         .def("get_memview", &query_result::get_memview);
+
 
     m.def("query", &query, "A function which queries Clickhouse and returns a query_result object");
 }
