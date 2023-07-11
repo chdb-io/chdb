@@ -37,10 +37,10 @@ def payload():
         "CSV",
     )
     # calculate md5 of the result
-    hash_out = hashlib.md5(res.get_memview().tobytes()).hexdigest()
-    print("output length: ", len(res.get_memview().tobytes()))
+    hash_out = hashlib.md5(res.bytes()).hexdigest()
+    print("output length: ", len(res))
     if hash_out != "423570bd700ba230ccd2b720b7976626":
-        print(res.get_memview().tobytes().decode("utf-8"))
+        print(res.bytes().decode("utf-8"))
         raise Exception(f"md5 not match {hash_out}")
     used_time = time.time() - now
     print("used time: ", used_time)

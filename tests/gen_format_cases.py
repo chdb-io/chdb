@@ -32,7 +32,7 @@ for fmt in formats:
     if fmt == "ArrowTable":
         data = reset_elapsed(f"{res}")
     else:
-        data = reset_elapsed(res.get_memview().tobytes())
+        data = reset_elapsed(res.bytes())
     print("format: " + fmt + " size: " + str(len(data)))
     format_output[fmt] = {"len": len(data), "data": data}
 
