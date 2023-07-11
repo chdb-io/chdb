@@ -15,7 +15,7 @@ def clickhouse():
         return "Query not found", 400
 
     res = chdb.query(query, format)
-    return res.get_memview().tobytes()
+    return res.bytes()
 
 @app.route('/', methods=["POST"])
 def play():
@@ -25,7 +25,7 @@ def play():
         return "Query not found", 400
 
     res = chdb.query(query, format)
-    return res.get_memview().tobytes()
+    return res.bytes()
 
 @app.errorhandler(404)
 def handle_404(e):
