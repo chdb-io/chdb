@@ -7,6 +7,9 @@
 [![Downloads](https://static.pepy.tech/badge/chdb)](https://pepy.tech/project/chdb)
 [![Discord](https://img.shields.io/discord/1098133460310294528?logo=Discord)](https://discord.gg/Njw5YXSPPc)
 [![Twitter](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter)](https://twitter.com/auxten)
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-4-orange.svg?style=flat-square)](#contributors)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
 
 # chDB
 
@@ -50,15 +53,14 @@ python3 -m chdb "SELECT 1,'abc'" Pretty
 
 ```python
 import chdb
-res = chdb.query('select version()', 'Pretty'); print(res.data())
+res = chdb.query('select version()', 'Pretty'); print(res)
 ```
 
 ### 使用 Parquet 或 CSV
 ```python
 # 查看更多数据类型格式，请参见 tests/format_output.py
-res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res.data())
-# 对于大型数据结果，get_memview() 更快，因为它不需要额外的数据复制。
-res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.get_memview().tobytes()))
+res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res)
+res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(res)
 ```
 
 ### Pandas DataFrame 输出
@@ -113,11 +115,41 @@ conn1.close()
 ## 文档
 - 关于 SQL 语法，请参考 [ClickHouse SQL 参考](https://clickhouse.com/docs/en/sql-reference/syntax)
 
+## 贡献者
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/auxten"><img src="https://avatars.githubusercontent.com/u/240147?v=4?s=100" width="100px;" alt="auxten"/><br /><sub><b>auxten</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=auxten" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://metrico.in"><img src="https://avatars.githubusercontent.com/u/1423657?v=4?s=100" width="100px;" alt="Lorenzo Mangani"/><br /><sub><b>Lorenzo Mangani</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=lmangani" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/laodouya"><img src="https://avatars.githubusercontent.com/u/4847103?v=4?s=100" width="100px;" alt="laodouya"/><br /><sub><b>laodouya</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=laodouya" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/nmreadelf"><img src="https://avatars.githubusercontent.com/u/7260482?v=4?s=100" width="100px;" alt="nmreadelf"/><br /><sub><b>nmreadelf</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=nmreadelf" title="Code">💻</a></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
+
 ## 贡献
 贡献是使开源社区成为一个学习、激励和创造的绝佳场所的原因。您做出的任何贡献都将受到**高度赞赏**。
 以下是您可以提供帮助的事项：
-- [ ] 帮助我支持 Windows 平台，我不太了解 Windows 工具链。
-- [x] Python 包装器目前只有一个 `query` 函数。我想添加更多函数，以使其使用更加方便，比如 `toPandas`，`toNumpy` 等等。
+- 「Star」和「分享」
+- [ ] 帮助测试和报告错误
+- [ ] 帮助改进文档
+- [ ] 帮助提高代码质量和性能
 
 ## 版权信息
 Apache 2.0，请查看 [LICENSE](LICENSE.txt) 获取更多信息。

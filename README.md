@@ -57,15 +57,14 @@ You can execute SQL and return desired format data.
 
 ```python
 import chdb
-res = chdb.query('select version()', 'Pretty'); print(res.data())
+res = chdb.query('select version()', 'Pretty'); print(res)
 ```
 
 ### Work with Parquet or CSV
 ```python
 # See more data type format in tests/format_output.py
-res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res.data())
-# With large data result, get_memview() is more quickly cos it does not do an extra data copy.
-res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(str(res.get_memview().tobytes()))
+res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res)
+res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(res)
 ```
 
 ### Pandas dataframe output
