@@ -12,7 +12,7 @@ if sys.version_info[:2] >= (3, 7):
     from . import _chdb  # noqa
 
     os.chdir(cwd)
-    engine_version = str(_chdb.query("SELECT version();", "CSV").get_memview().tobytes())[3:-4]
+    engine_version = str(_chdb.query("SELECT version();", "CSV").bytes())[3:-4]
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
 
@@ -35,9 +35,9 @@ def to_arrowTable(res):
         print(f'ImportError: {e}')
         print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
         raise ImportError('Failed to import pyarrow or pandas') from None
-    if len(res.get_memview()) == 0:
+    if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
-    return pa.RecordBatchFileReader(res.get_memview()).read_all()
+    return pa.RecordBatchFileReader(res.bytes()).read_all()
 
 
 # return pandas dataframe
