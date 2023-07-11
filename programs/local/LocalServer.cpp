@@ -958,7 +958,7 @@ void free_result(local_result * result)
     }
     std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
     delete vec;
-    delete result;
+    result->_vec = nullptr;
 }
 
 
