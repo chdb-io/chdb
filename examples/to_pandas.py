@@ -10,11 +10,11 @@ test_parquet = current_dir + "/../tests/data/alltypes_dictionary.parquet"
 # run SQL on parquet file and return arrow format
 res = chdb.query(f"select * from file('{test_parquet}', Parquet)", "Arrow")
 print("\nresult from chdb:")
-print(res.get_memview().tobytes())
+print(res.bytes())
 
 def to_arrowTable(res):
     # convert arrow format to arrow table
-    paTable = pa.RecordBatchFileReader(res.get_memview()).read_all()
+    paTable = pa.RecordBatchFileReader(res.bytes()).read_all()
     return paTable
 
 def to_df(res):

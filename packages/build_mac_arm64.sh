@@ -77,7 +77,7 @@ for PY_VER in 3.9.13 3.10.11 3.11.3; do
     rm -rf ${PROJ_DIR}/buildlib
 
     ${PROJ_DIR}/chdb/build.sh
-    cd ${PROJ_DIR}/chdb && python3 -c "import _chdb; res = _chdb.query('select 1112222222,555', 'JSON'); print(res.get_memview().tobytes())"
+    cd ${PROJ_DIR}/chdb && python3 -c "import _chdb; res = _chdb.query('select 1112222222,555', 'JSON'); print(res)"
 
     cd ${PROJ_DIR}
     ${PROJ_DIR}/gen_manifest.sh
@@ -89,7 +89,7 @@ for PY_VER in 3.9.13 3.10.11 3.11.3; do
 
     python3 -m pip install --force-reinstall dist/chdb-*-cp${PY_SHORT_VER//./}-cp${PY_SHORT_VER//./}-macosx_11_0_arm64.whl
 
-    python3 -c "import chdb; res = chdb.query('select version()', 'CSV'); print(str(res.get_memview().tobytes()))"
+    python3 -c "import chdb; res = chdb.query('select version()', 'CSV'); print(res)"
 
     python3 -m chdb "SELECT 1, 'ab'" arrowtable
 

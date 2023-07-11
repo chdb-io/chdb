@@ -9,7 +9,7 @@ from utils import data_file, reset_elapsed
 class TestBasic(unittest.TestCase):
     def test_basic(self):
         res = chdb.query("SELECT 1", "CSV")
-        self.assertEqual(len(res.get_memview().tobytes()), 2) # "1\n"
+        self.assertEqual(len(res), 2) # "1\n"
 class TestOutput(unittest.TestCase):
     def test_output(self):
         for format, output in format_output.items():
@@ -17,7 +17,7 @@ class TestOutput(unittest.TestCase):
             if format == "ArrowTable":
                 data = reset_elapsed(f"{res}")
             else:
-                data = reset_elapsed(res.get_memview().tobytes())
+                data = reset_elapsed(res.bytes())
             # Arrow format output is not deterministic
             if format in ("Arrow", "ArrowStream"):
                 continue

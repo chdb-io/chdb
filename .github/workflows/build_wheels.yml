@@ -132,7 +132,7 @@ jobs:
         run: |
           python3 -m pip install dist/*.whl
           python3 -m pip install pandas pyarrow
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
           make test
         continue-on-error: false
       - uses: actions/upload-artifact@v3
@@ -249,7 +249,7 @@ jobs:
         run: |
           python3 -m pip install dist/*.whl
           python3 -m pip install pandas pyarrow
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res.get_memview().tobytes())"
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
           make test
         continue-on-error: false
       - name: Show files

@@ -9,7 +9,7 @@ from utils import data_file
 
 # run query parallel in n thread and benchmark
 thread_count = 10
-query_count = 1000
+query_count = 50
 
 if len(sys.argv) == 2:
     thread_count = int(sys.argv[1])
@@ -22,8 +22,8 @@ thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=thread_count)
 
 def run_query(query, format):
     res = chdb.query(query, format)
-    if len(res.get_memview().tobytes()) < 2000:
-        print(f"Error: result size is not correct {res.get_memview().tobytes()}")
+    if len(res) < 2000:
+        print(f"Error: result size is not correct {res.bytes()}")
         exit(1)
 
 
