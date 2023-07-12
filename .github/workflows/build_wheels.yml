@@ -11,6 +11,7 @@ on:
       - '**.yml'
       - '.github/**'
       - 'examples/**'
+      - 'tests/**'
   pull_request:
     branches:
       - main
