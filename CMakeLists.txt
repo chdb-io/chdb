@@ -396,7 +396,7 @@ else()
     link_libraries(global-group)
 endif ()
 
-option (ENABLE_GWP_ASAN "Enable Gwp-Asan" ON)
+option (ENABLE_GWP_ASAN "Enable Gwp-Asan" OFF)
 # We use mmap for allocations more heavily in debug builds,
 # but GWP-ASan also wants to use mmap frequently,
 # and due to a large number of memory mappings,
@@ -404,7 +404,6 @@ option (ENABLE_GWP_ASAN "Enable Gwp-Asan" ON)
 # if ((NOT OS_LINUX AND NOT OS_ANDROID) OR (CMAKE_BUILD_TYPE_UC STREQUAL "DEBUG"))
 #     set(ENABLE_GWP_ASAN OFF)
 # endif ()
-set(ENABLE_GWP_ASAN OFF)
 
 option (ENABLE_FIU "Enable Fiu" ON)
 
