@@ -105,7 +105,7 @@ public:
         if (size > 0)
         {
             /// When sleeping, the query cannot be cancelled. For ability to cancel query, we limit sleep time.
-            if (seconds > 3.0)   /// The choice is arbitrary
+            if (seconds > 120.0) /// The choice is arbitrary
                 throw Exception(ErrorCodes::TOO_SLOW, "The maximum sleep time is 3 seconds. Requested: {}", toString(seconds));
 
             if (!dry_run)
