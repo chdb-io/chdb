@@ -23,6 +23,7 @@
 #include <Common/Exception.h>
 #include <Common/Macros.h>
 #include <Common/Config/ConfigProcessor.h>
+#include <Common/NamedCollections/NamedCollectionUtils.h>
 #include <Common/ThreadStatus.h>
 #include <Common/TLDListsHolder.h>
 #include <Common/quoteString.h>
@@ -391,7 +392,10 @@ void LocalServer::setupUsers()
     else
         users_config = getConfigurationFromXMLString(minimal_default_user_xml);
     if (users_config)
+    {
         global_context->setUsersConfig(users_config);
+        NamedCollectionUtils::loadIfNot();
+    }
     else
         throw Exception(ErrorCodes::CANNOT_LOAD_CONFIG, "Can't load config for users");
 }
