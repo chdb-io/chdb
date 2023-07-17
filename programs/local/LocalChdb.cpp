@@ -6,7 +6,7 @@
 extern bool inside_main = true;
 
 
-local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV")
+local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {})
 {
     std::vector<std::string> argv = {"clickhouse", "--multiquery"};
 
@@ -24,6 +24,11 @@ local_result * queryToBuffer(const std::string & queryStr, const std::string & f
         argv.push_back("--output-format=" + format);
     }
 
+    if (!path.empty()) 
+    {
+        // Add path string
+        argv.push_back("--path=" + path);
+    }
     // Add query string
     argv.push_back("--query=" + queryStr);
 
@@ -40,6 +45,11 @@ local_result * queryToBuffer(const std::string & queryStr, const std::string & f
 query_result * query(const std::string & queryStr, const std::string & format = "CSV")
 {
     return new query_result(queryToBuffer(queryStr, format));
+}
+
+query_result * query_stateful(const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {})
+{
+    return new query_result(queryToBuffer(queryStr, format, path));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
@@ -119,7 +129,9 @@ PYBIND11_MODULE(_chdb, m)
         .def("get_memview", &query_result::get_memview);
 
 
-    m.def("query", &query, "A function which queries Clickhouse and returns a query_result object");
+    m.def("query", &query, "Stateless query Clickhouse and return a query_result object");
+
+    m.def("query_stateful", &query_stateful, "Stateful query Clickhouse and return a query_result object");
 }
 
 #endif // PY_TEST_MAIN
