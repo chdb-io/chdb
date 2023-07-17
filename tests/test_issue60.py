@@ -3,32 +3,22 @@ import time
 import unittest
 import chdb
 
-query_str = '''
+data = """url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')"""
+# data = """file('/home/Clickhouse/server/chdb-server/house_0.parquet', Parquet)"""
+
+query_str = f'''
 SELECT
     town,
     district,
     count() AS c,
     round(avg(price)) AS price
-FROM url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')
+FROM {data}
 GROUP BY
     town,
     district
+ORDER BY c DESC
 LIMIT 10
 '''
-
-# query_str = '''
-# SELECT
-#     town,
-#     district,
-#     count() AS c,
-#     round(avg(price)) AS price
-# FROM file('/home/Clickhouse/server/chdb-server/house_0.parquet', Parquet)
-# GROUP BY
-#     town,
-#     district
-# ORDER BY c DESC
-# LIMIT 10
-# '''
 
 expected_result = '''"BIRMINGHAM","BIRMINGHAM",35326,146648
 "LEEDS","LEEDS",30640,160353
