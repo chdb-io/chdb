@@ -48,11 +48,21 @@ def to_df(r):
 
 
 # wrap _chdb functions
-def query(sql, output_format="CSV", **kwargs):
+def query(sql, output_format="CSV"):
     lower_output_format = output_format.lower()
     if lower_output_format == "dataframe":
-        return to_df(_chdb.query(sql, "Arrow", **kwargs))
+        return to_df(_chdb.query(sql, "Arrow"))
     elif lower_output_format == 'arrowtable':
-        return to_arrowTable(_chdb.query(sql, "Arrow", **kwargs))
+        return to_arrowTable(_chdb.query(sql, "Arrow"))
     else:
-        return _chdb.query(sql, output_format, **kwargs)
+        return _chdb.query(sql, output_format)
+
+
+def query_stateful(sql, output_format="CSV", path=None):
+    lower_output_format = output_format.lower()
+    if lower_output_format == "dataframe":
+        return to_df(_chdb.query_stateful(sql, "Arrow", path))
+    elif lower_output_format == 'arrowtable':
+        return to_arrowTable(_chdb.query_stateful(sql, "Arrow", path))
+    else:
+        return _chdb.query_stateful(sql, output_format, path)
