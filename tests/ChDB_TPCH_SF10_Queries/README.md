@@ -11,6 +11,5 @@
 - ChDB can access data from a wide variety of formats - both on-disk and in-memory(Parquet, CSV, JSON etc)
 - Running SQL queries is very straight forward. ChDB use 'chdb.query' command to run SQL queries
 - Currently ChDB don't support creating views
-- ChDB fails to execute Query 21 of TPCH_SF10
 
 TPC-H reference: http://tpc.org/tpc_documents_current_versions/pdf/tpc-h_v3.0.0.pdf
