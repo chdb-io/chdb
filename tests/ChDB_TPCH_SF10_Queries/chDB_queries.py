@@ -76,7 +76,6 @@ print(query20)
 query22=chdb.query("SELECT cntrycode,COUNT(*) AS numcust,SUM(c_acctbal) AS totacctbal FROM (SELECT SUBSTRING(cus2.C_PHONE, 1, 2) AS cntrycode, cus2.C_ACCTBAL as c_acctbal FROM file('customer.parquet') as cus2 WHERE SUBSTRING(cus2.C_PHONE, 1, 2) IN ('13','31','23','29','30','18','17')AND cus2.C_ACCTBAL > (SELECT AVG(cus1.C_ACCTBAL) FROM file('customer.parquet') as cus1 WHERE cus1.C_ACCTBAL > 0.00 AND SUBSTRING(cus1.C_PHONE, 1, 2) IN ('13','31','23','29','30','18','17'))AND cus2.C_CUSTKEY NOT IN  (SELECT ord.O_CUSTKEY FROM file('orders.parquet') as ord)) AS custsale GROUP BY cntrycode ORDER BY cntrycode",'DataFrame')
 print(query22)
 
-#Fails to execute query 21
 query21=chdb.query("SELECT supp.S_NAME,COUNT(*) AS numwait FROM file('supplier.parquet') as supp JOIN file('lineitem.parquet') AS l1 ON supp.S_SUPPKEY = l1.L_SUPPKEY JOIN file('orders.parquet') as ord ON ord.O_ORDERKEY = l1.L_ORDERKEY JOIN file('nation.parquet') as nat ON supp.S_NATIONKEY = nat.N_NATIONKEY WHERE  ord.O_ORDERSTATUS = 'F' AND l1.l_receiptdate > l1.l_commitdate AND l1.L_ORDERKEY IN (SELECT l2.L_ORDERKEY FROM file('lineitem.parquet') AS l2 GROUP BY l2.L_ORDERKEY HAVING count(l2.L_SUPPKEY)>1) AND l1.L_ORDERKEY NOT IN (SELECT l3.L_ORDERKEY FROM file('lineitem.parquet') AS l3 WHERE l3.l_receiptdate > l3.l_commitdate GROUP BY l3.L_ORDERKEY HAVING count(l3.L_SUPPKEY)>1) AND nat.N_NAME = 'SAUDI ARABIA' GROUP BY supp.S_NAME ORDER BY numwait DESC,supp.S_NAME LIMIT 100",'DataFrame')
 print(query21)
 
