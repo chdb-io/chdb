@@ -382,6 +382,9 @@ jobs:
     if: github.event_name == 'push' && cancelled()
     needs: [ build_wheels_linux, build_wheels_macos, build_wheels_macos_12 ]
     steps:
+    - name: Sleep for 20 seconds
+      run: sleep 20s
+      shell: bash
     - name: Retry Failed/Expired Build
       run: |
         curl -i \
