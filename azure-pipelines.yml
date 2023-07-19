@@ -1,0 +1,72 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  tags:
+    include:
+    - '*'
+  branches:
+    include:
+    - '*'
+jobs:
+- job: LinuxBuild
+  strategy:
+    matrix:
+      ubuntu-20.04:
+        imageName: 'ubuntu-20.04'
+      py36:
+        pyVer: '3.8'
+      py39:
+        pyVer: '3.9'
+      py310:
+        pyVer: '3.10'
+      py311:
+        pyVer: '3.11'
+      amd64:
+        arch: 'x64'
+      aarch64:
+        arch: 'arm64'
+  displayName: Linux Build
+  pool:
+    vmImage: $(imageName)
+  os: linux
+  arch: $(arch)
+  steps:
+    - script: sudo apt-get update -y
+    - script: sudo apt-get install -y libxtst-dev qtdeclarative5-dev libavahi-compat-libdnssd-dev libcurl4-openssl-dev
+      displayName: Install Dependencies
+    - script: sh -x ./clean_build.sh
+      displayName: Clean Build
+
+- job: MacBuild
+  displayName: Mac Build
+  strategy:
+    matrix:
+      macOS12:
+          imageName: "macOS-12"
+      amd64:
+        arch: 'x64'
+      aarch64:
+        arch: 'arm64'
+  pool:
+    vmImage: $(imageName)
+  variables:
+    VERBOSE: 1
+    TERM: xterm-256color
+  steps:
+    - script: rm -rf /usr/local/opt/openssl
+      displayName: Remove incompatible OpenSSL 1.0.2t from macOS-10.14 vmImage
+    - script: brew reinstall openssl
+      displayName: Installed newer OpenSSL 1.1.x
+    - script: brew install pkg-config qt5
+      displayName: Install Qt5 and pkg-config prereqs
+    - script: sh -x ./clean_build.sh
+      displayName: Clean Build
+    - task: PublishBuildArtifacts@1
+      displayName: Publish Release DMG
+      condition: eq(variables['B_BUILD_TYPE'], 'Release')
+      inputs:
+        pathtoPublish: build/bundle
+        artifactName: Mac Release Disk Image and App $(imageName)
