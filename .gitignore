@@ -3,6 +3,7 @@
 *\#
 .tramp_history
 *.parquet
+*.arrow
 
 # vim cache files
 *.swp
@@ -11,6 +12,7 @@
 *.logrt
 
 /python_pkg/
+state_tmp_l3jfk
 /chdb-0.*/
 *.strings
 /arrow1100
