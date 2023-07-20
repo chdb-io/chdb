@@ -281,7 +281,7 @@ void Session::shutdownNamedSessions()
 }
 
 Session::Session(const ContextPtr & global_context_, ClientInfo::Interface interface_, bool is_secure, const std::string & certificate)
-    : auth_id(UUIDHelpers::generateV4()),
+    : auth_id(UUIDHelpers::generate_from_pid()),
       global_context(global_context_),
       log(&Poco::Logger::get(String{magic_enum::enum_name(interface_)} + "-Session"))
 {
