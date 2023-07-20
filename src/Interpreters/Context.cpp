@@ -716,6 +716,20 @@ SharedContextHolder::SharedContextHolder(std::unique_ptr<ContextSharedPart> shar
 
 void SharedContextHolder::reset() { shared.reset(); }
 
+SharedPtrContextHolder::SharedPtrContextHolder(SharedPtrContextHolder &&) noexcept = default;
+SharedPtrContextHolder & SharedPtrContextHolder::operator=(SharedPtrContextHolder &&) noexcept = default;
+SharedPtrContextHolder::SharedPtrContextHolder() = default;
+SharedPtrContextHolder::~SharedPtrContextHolder() = default;
+SharedPtrContextHolder::SharedPtrContextHolder(ContextSharedPart * shared_context) : shared(shared_context)
+{
+}
+
+void SharedPtrContextHolder::reset()
+{
+    delete shared;
+    shared = nullptr;
+}
+
 ContextMutablePtr Context::createGlobal(ContextSharedPart * shared_part)
 {
     auto res = std::shared_ptr<Context>(new Context);
@@ -735,6 +749,11 @@ void Context::initGlobal()
 SharedContextHolder Context::createShared()
 {
     return SharedContextHolder(std::make_unique<ContextSharedPart>());
+}
+
+SharedPtrContextHolder Context::createSharedHolder()
+{
+    return SharedPtrContextHolder(new ContextSharedPart());
 }
 
 ContextMutablePtr Context::createCopy(const ContextPtr & other)
