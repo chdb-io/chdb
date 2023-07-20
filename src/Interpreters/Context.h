@@ -225,6 +225,22 @@ private:
     std::unique_ptr<ContextSharedPart> shared;
 };
 
+struct SharedPtrContextHolder
+{
+    ~SharedPtrContextHolder();
+    SharedPtrContextHolder();
+    SharedPtrContextHolder(ContextSharedPart *);
+    SharedPtrContextHolder(SharedPtrContextHolder &&) noexcept;
+
+    SharedPtrContextHolder & operator=(SharedPtrContextHolder &&) noexcept;
+
+    ContextSharedPart * get() const { return shared; }
+    void reset();
+
+private:
+    ContextSharedPart * shared;
+};
+
 
 /** A set of known objects that can be used in the query.
   * Consists of a shared part (always common to all sessions and queries)
@@ -473,6 +489,7 @@ public:
     static ContextMutablePtr createCopy(const ContextMutablePtr & other);
     static ContextMutablePtr createCopy(const ContextPtr & other);
     static SharedContextHolder createShared();
+    static SharedPtrContextHolder createSharedHolder();
 
     ~Context();
 
