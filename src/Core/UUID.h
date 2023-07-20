@@ -63,6 +63,8 @@ namespace UUIDHelpers
 {
     /// Generate random UUID.
     UUID generateV4();
+    /// Generate UUID from process id. For testing purposes.
+    UUID generate_from_pid();
 
     constexpr size_t HighBytes = (std::endian::native == std::endian::little) ? 0 : 1;
     constexpr size_t LowBytes = (std::endian::native == std::endian::little) ? 1 : 0;

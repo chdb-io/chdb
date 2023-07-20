@@ -15,6 +15,13 @@ namespace UUIDHelpers
 
         return uuid;
     }
+
+    UUID generate_from_pid()
+    {
+        UInt128 res{0, 0};
+        res.items[1] = (res.items[1] & 0xffffffffffff0fffull) | (static_cast<UInt64>(getpid()));
+        return UUID{res};
+    }
 }
 
 }
