@@ -250,7 +250,7 @@ protected:
 
     /// Output Buffer for query results.
     // PODArray<char> query_result_memory;
-    std::vector<char> * query_result_memory;
+    std::vector<char> * query_result_memory = nullptr;
     std::shared_ptr<WriteBuffer> query_result_buf;
 
     /// The user can specify to redirect query output to a file.
