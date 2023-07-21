@@ -44,7 +44,7 @@ uint32_t getCGroupLimitedCPUCores(unsigned default_cpu_count)
 
 /// Returns number of physical cores, unlike std::thread::hardware_concurrency() which returns the logical core count. With 2-way SMT
 /// (HyperThreading) enabled, physical_concurrency() returns half of of std::thread::hardware_concurrency(), otherwise return the same.
-#if defined(__x86_64__) && defined(OS_LINUX)
+#if defined(__x86_64__) && defined(OS_LINUX) && 0
 unsigned physical_concurrency()
 try
 {
