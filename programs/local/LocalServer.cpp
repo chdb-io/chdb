@@ -21,6 +21,7 @@
 #include <Interpreters/Session.h>
 #include <Access/AccessControl.h>
 #include <Common/Exception.h>
+#include <Common/getNumberOfPhysicalCPUCores.h>
 #include <Common/Macros.h>
 #include <Common/Config/ConfigProcessor.h>
 #include <Common/NamedCollections/NamedCollectionUtils.h>
@@ -120,10 +121,9 @@ void LocalServer::initialize(Poco::Util::Application & self)
     }
 
     GlobalThreadPool::initialize(
-        config().getUInt("max_thread_pool_size", 10000),
-        config().getUInt("max_thread_pool_free_size", 1000),
-        config().getUInt("thread_pool_queue_size", 10000)
-    );
+        config().getUInt("max_thread_pool_size", std::max(getNumberOfPhysicalCPUCores() * 2, 256u)),
+        config().getUInt("max_thread_pool_free_size", 0),
+        config().getUInt("thread_pool_queue_size", 10000));
 
 #if USE_AZURE_BLOB_STORAGE
     /// See the explanation near the same line in Server.cpp
@@ -592,7 +592,7 @@ void LocalServer::processConfig()
         logging_initialized = false;
     }
 
-    shared_context = Context::createShared();
+    shared_context = Context::createSharedHolder();
     global_context = Context::createGlobal(shared_context.get());
 
     global_context->makeGlobalContext();
@@ -688,6 +688,14 @@ void LocalServer::processConfig()
       */
     std::string default_database = config().getString("default_database", "_local");
     DatabaseCatalog::instance().attachDatabase(default_database, std::make_shared<DatabaseMemory>(default_database, global_context));
+    // DatabaseCatalog::instance().attachDatabase(
+    //     default_database,
+    //     std::make_shared<DatabaseOrdinary>(
+    //         default_database,
+    //         "./state_tmp_l3jfk/metadata/" + escapeForFileName(default_database) + "/",
+    //         "./data/" + escapeForFileName(default_database) + "/",
+    //         "DatabaseOrdinary (" + default_database + ")",
+    //         global_context));
     global_context->setCurrentDatabase(default_database);
     applyCmdOptions(global_context);
 
@@ -709,6 +717,7 @@ void LocalServer::processConfig()
         {
             DatabaseCatalog::instance().createBackgroundTasks();
             loadMetadata(global_context);
+            // loadMetadata(global_context, default_database);
             DatabaseCatalog::instance().startupBackgroundCleanup();
         }
 
@@ -897,16 +906,8 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 //     }
 // }
 
-std::unique_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
+std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
 {
-    // std::cerr << "argc = " << argc << std::endl;
-    // std::cerr << "argv = " << argv << std::endl;
-    //print all args
-    // for (int i = 0; i < argc; ++i)
-    // {
-    //     std::cerr << argv[i] << " " << std::endl;
-    // }
-
     try
     {
         DB::LocalServer app;
@@ -942,15 +943,15 @@ std::unique_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv
 // todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
-    std::unique_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    std::vector<char> * result = pyEntryClickHouseLocal(argc, argv);
     if (!result)
     {
         return nullptr;
     }
     local_result * res = new local_result;
     res->len = result->size();
-    res->_vec = result.release();
-    res->buf = reinterpret_cast<std::vector<char> *>(res->_vec)->data();
+    res->buf = result->data();
+    res->_vec = result;
     return res;
 }
 
