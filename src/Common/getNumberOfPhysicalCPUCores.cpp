@@ -107,8 +107,8 @@ unsigned getNumberOfPhysicalCPUCoresImpl()
 #if defined(__x86_64__) && defined(OS_LINUX)
     /// On really big machines, SMT is detrimental to performance (+ ~5% overhead in ClickBench). On such machines, we limit ourself to the physical cores.
     /// Few cores indicate it is a small machine, runs in a VM or is a limited cloud instance --> it is reasonable to use all the cores.
-    if (cpu_count >= 32)
-        cpu_count = physical_concurrency();
+    // if (cpu_count >= 32)
+    //     cpu_count = physical_concurrency();
 #endif
 
 #if defined(OS_LINUX)
