@@ -26,6 +26,7 @@
 #include <Access/AccessControl.h>
 #include <Common/PoolId.h>
 #include <Common/Exception.h>
+#include <Common/getNumberOfPhysicalCPUCores.h>
 #include <Common/Macros.h>
 #include <Common/Config/ConfigProcessor.h>
 #include <Common/NamedCollections/NamedCollectionUtils.h>
@@ -130,10 +131,9 @@ void LocalServer::initialize(Poco::Util::Application & self)
     }
 
     GlobalThreadPool::initialize(
-        config().getUInt("max_thread_pool_size", 10000),
-        config().getUInt("max_thread_pool_free_size", 1000),
-        config().getUInt("thread_pool_queue_size", 10000)
-    );
+        config().getUInt("max_thread_pool_size", std::max(getNumberOfPhysicalCPUCores() * 2, 256u)),
+        config().getUInt("max_thread_pool_free_size", 0),
+        config().getUInt("thread_pool_queue_size", 10000));
 
 #if USE_AZURE_BLOB_STORAGE
     /// See the explanation near the same line in Server.cpp
@@ -604,7 +604,7 @@ void LocalServer::processConfig()
         buildLoggers(config(), logger(), "clickhouse-local");
     }
 
-    shared_context = Context::createShared();
+    shared_context = Context::createSharedHolder();
     global_context = Context::createGlobal(shared_context.get());
 
     global_context->makeGlobalContext();
@@ -732,9 +732,9 @@ void LocalServer::processConfig()
 
         if (!config().has("only-system-tables"))
         {
-            DatabaseCatalog::instance().createBackgroundTasks();
+            // DatabaseCatalog::instance().createBackgroundTasks();
             waitLoad(loadMetadata(global_context));
-            DatabaseCatalog::instance().startupBackgroundTasks();
+            // DatabaseCatalog::instance().startupBackgroundTasks();
         }
 
         /// For ClickHouse local if path is not set the loader will be disabled.
@@ -944,16 +944,8 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 //     }
 // }
 
-std::unique_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv)
+std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
 {
-    // std::cerr << "argc = " << argc << std::endl;
-    // std::cerr << "argv = " << argv << std::endl;
-    //print all args
-    // for (int i = 0; i < argc; ++i)
-    // {
-    //     std::cerr << argv[i] << " " << std::endl;
-    // }
-
     try
     {
         DB::LocalServer app;
@@ -989,15 +981,15 @@ std::unique_ptr<std::vector<char>> pyEntryClickHouseLocal(int argc, char ** argv
 // todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
-    std::unique_ptr<std::vector<char>> result = pyEntryClickHouseLocal(argc, argv);
+    std::vector<char> * result = pyEntryClickHouseLocal(argc, argv);
     if (!result)
     {
         return nullptr;
     }
     local_result * res = new local_result;
     res->len = result->size();
-    res->_vec = result.release();
-    res->buf = reinterpret_cast<std::vector<char> *>(res->_vec)->data();
+    res->buf = result->data();
+    res->_vec = result;
     return res;
 }
 
