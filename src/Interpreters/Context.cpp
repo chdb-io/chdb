@@ -674,6 +674,7 @@ void SharedContextHolder::reset() { shared.reset(); }
 SharedPtrContextHolder::SharedPtrContextHolder(SharedPtrContextHolder &&) noexcept = default;
 SharedPtrContextHolder & SharedPtrContextHolder::operator=(SharedPtrContextHolder &&) noexcept = default;
 SharedPtrContextHolder::SharedPtrContextHolder() = default;
+//chdb-todo: fix SharedPtrContextHolder.shared leak
 SharedPtrContextHolder::~SharedPtrContextHolder() = default;
 SharedPtrContextHolder::SharedPtrContextHolder(ContextSharedPart * shared_context) : shared(shared_context)
 {
