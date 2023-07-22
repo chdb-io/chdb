@@ -809,7 +809,7 @@ class IColumn;
     MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_move_pool_size, 8) \
     MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_fetches_pool_size, 8) \
     MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_common_pool_size, 8) \
-    MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_schedule_pool_size, 8) \
+    MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_schedule_pool_size, 0) \
     MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_message_broker_schedule_pool_size, 16) \
     MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, background_distributed_schedule_pool_size, 16) \
     MAKE_DEPRECATED_BY_SERVER_CONFIG(M, UInt64, max_remote_read_network_bandwidth_for_server, 0) \
