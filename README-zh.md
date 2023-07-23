@@ -15,7 +15,7 @@
 
 [English](README.md)
 
-> chDB 是一个由 ClickHouse 驱动的嵌入式 SQL OLAP 引擎
+> chDB 是一个由 ClickHouse 驱动的嵌入式 SQL OLAP 引擎。更多细节：[chDB: ClickHouse as a Function](https://zhuanlan.zhihu.com/p/642345300)
 
 
 ## 特点
@@ -27,7 +27,7 @@
 
 ## 架构
 <div align="center">
-  <img src="docs/_static/arch-chdb.png" width="700">
+  <img src="docs/_static/arch-chdb2.png" width="450">
 </div>
 
 ## 安装方式
@@ -123,10 +123,11 @@ conn1.close()
 <table>
   <tbody>
     <tr>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/auxten"><img src="https://avatars.githubusercontent.com/u/240147?v=4?s=100" width="100px;" alt="auxten"/><br /><sub><b>auxten</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=auxten" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://metrico.in"><img src="https://avatars.githubusercontent.com/u/1423657?v=4?s=100" width="100px;" alt="Lorenzo Mangani"/><br /><sub><b>Lorenzo Mangani</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=lmangani" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/laodouya"><img src="https://avatars.githubusercontent.com/u/4847103?v=4?s=100" width="100px;" alt="laodouya"/><br /><sub><b>laodouya</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=laodouya" title="Code">💻</a></td>
-      <td align="center" valign="top" width="14.28%"><a href="https://github.com/nmreadelf"><img src="https://avatars.githubusercontent.com/u/7260482?v=4?s=100" width="100px;" alt="nmreadelf"/><br /><sub><b>nmreadelf</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=nmreadelf" title="Code">💻</a></td>
+      <td align="center" valign="top" width="100px"><a href="https://github.com/auxten"><img src="https://avatars.githubusercontent.com/u/240147?v=4?s=100" width="100px;" alt="auxten"/><br /><sub><b>auxten</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=auxten" title="Code">💻</a></td>
+      <td align="center" valign="top" width="100px"><a href="https://metrico.in"><img src="https://avatars.githubusercontent.com/u/1423657?v=4?s=100" width="100px;" alt="Lorenzo"/><br /><sub><b>Lorenzo</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=lmangani" title="Code">💻</a></td>
+      <td align="center" valign="top" width="100px"><a href="https://github.com/laodouya"><img src="https://avatars.githubusercontent.com/u/4847103?v=4?s=100" width="100px;" alt="laodouya"/><br /><sub><b>laodouya</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=laodouya" title="Code">💻</a></td>
+      <td align="center" valign="top" width="100px"><a href="https://github.com/nmreadelf"><img src="https://avatars.githubusercontent.com/u/7260482?v=4?s=100" width="100px;" alt="nmreadelf"/><br /><sub><b>nmreadelf</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=nmreadelf" title="Code">💻</a></td>
+      <td align="center" valign="top" width="100px"><a href="https://github.com/reema93jain"><img src="https://avatars.githubusercontent.com/u/113460610?v=4?s=100" width="100px;" alt="reema93jain"/><br /><sub><b>reema93jain</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=reema93jain" title="Tests">⚠️</a></td>
     </tr>
   </tbody>
 </table>
