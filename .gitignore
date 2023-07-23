@@ -12,17 +12,13 @@
 *.logrt
 
 /python_pkg/
+/tmps
 state_tmp_l3jfk
 /chdb-0.*/
 *.strings
 /arrow1100
 test_main
-/buildlib
-/builddbg
-/buildx86
-/build
-/build_*
-/build-*
+/build*
 /bench
 /tests/venv
 /obj-x86_64-linux-gnu/

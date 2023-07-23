@@ -67,7 +67,7 @@ ThreadPoolRemoteFSReader::ThreadPoolRemoteFSReader(size_t pool_size, size_t queu
     : pool(std::make_unique<ThreadPool>(CurrentMetrics::ThreadPoolRemoteFSReaderThreads,
                                         CurrentMetrics::ThreadPoolRemoteFSReaderThreadsActive,
                                         CurrentMetrics::ThreadPoolRemoteFSReaderThreadsScheduled,
-                                        pool_size, pool_size, queue_size_))
+                                        pool_size, 0, queue_size_))
 {
 }
 
