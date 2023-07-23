@@ -59,7 +59,7 @@ namespace
 ThreadPoolRemoteFSReader::ThreadPoolRemoteFSReader(size_t pool_size, size_t queue_size_)
     : pool(std::make_unique<ThreadPool>(CurrentMetrics::ThreadPoolRemoteFSReaderThreads,
                                         CurrentMetrics::ThreadPoolRemoteFSReaderThreadsActive,
-                                        pool_size, pool_size, queue_size_))
+                                        pool_size, /* max_free_threads = */ 0, queue_size_))
 {
 }
 
