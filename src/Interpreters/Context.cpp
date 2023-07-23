@@ -2281,7 +2281,11 @@ ThreadPool & Context::getLoadMarksThreadpool() const
         auto pool_size = config.getUInt(".load_marks_threadpool_pool_size", 50);
         auto queue_size = config.getUInt(".load_marks_threadpool_queue_size", 1000000);
         shared->load_marks_threadpool = std::make_unique<ThreadPool>(
-            CurrentMetrics::MarksLoaderThreads, CurrentMetrics::MarksLoaderThreadsActive, pool_size, pool_size, queue_size);
+            CurrentMetrics::MarksLoaderThreads,
+            CurrentMetrics::MarksLoaderThreadsActive,
+            pool_size,
+            /* max_free_threads = */ 0,
+            queue_size);
     }
     return *shared->load_marks_threadpool;
 }
@@ -2307,7 +2311,7 @@ ThreadPool & Context::getPrefetchThreadpool() const
         auto pool_size = getPrefetchThreadpoolSize();
         auto queue_size = config.getUInt(".prefetch_threadpool_queue_size", 1000000);
         shared->prefetch_threadpool = std::make_unique<ThreadPool>(
-            CurrentMetrics::IOPrefetchThreads, CurrentMetrics::IOPrefetchThreadsActive, pool_size, pool_size, queue_size);
+            CurrentMetrics::IOPrefetchThreads, CurrentMetrics::IOPrefetchThreadsActive, pool_size, /* max_free_threads = */ 0, queue_size);
     }
     return *shared->prefetch_threadpool;
 }
@@ -4249,7 +4253,7 @@ ThreadPool & Context::getThreadPoolWriter() const
         auto queue_size = config.getUInt(".threadpool_writer_queue_size", 1000000);
 
         shared->threadpool_writer = std::make_unique<ThreadPool>(
-            CurrentMetrics::IOWriterThreads, CurrentMetrics::IOWriterThreadsActive, pool_size, pool_size, queue_size);
+            CurrentMetrics::IOWriterThreads, CurrentMetrics::IOWriterThreadsActive, pool_size, /* max_free_threads = */ 0, queue_size);
     }
 
     return *shared->threadpool_writer;
