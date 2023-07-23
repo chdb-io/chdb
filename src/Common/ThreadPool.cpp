@@ -42,7 +42,7 @@ ThreadPoolImpl<Thread>::ThreadPoolImpl(
     Metric metric_threads_,
     Metric metric_active_threads_,
     size_t max_threads_)
-    : ThreadPoolImpl(metric_threads_, metric_active_threads_, max_threads_, max_threads_, max_threads_)
+    : ThreadPoolImpl(metric_threads_, metric_active_threads_, max_threads_, 0, max_threads_)
 {
 }
 
