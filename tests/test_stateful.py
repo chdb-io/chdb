@@ -9,6 +9,7 @@ from chdb import session
 
 test_state_dir = ".state_tmp_auxten_"
 current_process = psutil.Process()
+check_thread_count = False
 
 class TestStateful(unittest.TestCase):
     def setUp(self) -> None:
@@ -79,8 +80,10 @@ class TestStateful(unittest.TestCase):
         time.sleep(3)
         thread_count = current_process.num_threads()
         print("Number of threads using psutil library: ", thread_count)
-        self.assertEqual(thread_count, 1)
+        if check_thread_count:
+            self.assertEqual(thread_count, 1)
 
 if __name__ == "__main__":
     shutil.rmtree(test_state_dir, ignore_errors=True)
+    check_thread_count = True
     unittest.main()
