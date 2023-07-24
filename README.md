@@ -90,7 +90,7 @@ print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
 </details>
 
 <details>
-  <summary><h4>🗂️ Query Stateful Sessions</h4></summary>
+  <summary><h4>🗂️ Query with Stateful Sessions</h4></summary>
 
 ```python
 from chdb import session as chs
@@ -110,7 +110,7 @@ print(sess.query("SELECT * FROM db_xxx.view_xxx", "Pretty"))
 </details>
 
 <details>
-    <summary><h4>🗂️ Python DB-API 2.0</h4></summary>
+    <summary><h4>🗂️ Query with Python DB-API 2.0</h4></summary>
 
 ```python
 import chdb.dbapi as dbapi
