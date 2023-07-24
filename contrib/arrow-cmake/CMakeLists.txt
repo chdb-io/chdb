@@ -29,6 +29,11 @@ if (OS_FREEBSD)
     message (FATAL_ERROR "Using internal parquet library on FreeBSD is not supported")
 endif()
 
+if (OS_LINUX)
+    set (ARROW_JEMALLOC ON)
+    message(STATUS "Using jemalloc in arrow lib")
+endif()
+
 set (CMAKE_CXX_STANDARD 17)
 
 set(ARROW_VERSION "11.0.0")
@@ -194,6 +199,7 @@ set(ORC_SRCS
 add_library(_orc ${ORC_SRCS})
 target_link_libraries(_orc PRIVATE
     ch_contrib::protobuf
+    ch_contrib::jemalloc
     ch_contrib::lz4
     ch_contrib::snappy
     ch_contrib::zlib
@@ -245,6 +251,7 @@ set(ARROW_SRCS
         "${LIBRARY_DIR}/device.cc"
         "${LIBRARY_DIR}/extension_type.cc"
         "${LIBRARY_DIR}/memory_pool.cc"
+        "${LIBRARY_DIR}/memory_pool_jemalloc.cc"
         "${LIBRARY_DIR}/pretty_print.cc"
         "${LIBRARY_DIR}/record_batch.cc"
         "${LIBRARY_DIR}/result.cc"
@@ -437,7 +444,7 @@ target_link_libraries(_arrow PRIVATE
     _flatbuffers
 
     ch_contrib::double_conversion
-
+    ch_contrib::jemalloc
     ch_contrib::lz4
     ch_contrib::snappy
     ch_contrib::zlib
@@ -505,6 +512,7 @@ target_link_libraries(_parquet
     PUBLIC _arrow
     PRIVATE
         ch_contrib::thrift
+        ch_contrib::jemalloc
         boost::headers_only
         boost::regex
         OpenSSL::Crypto OpenSSL::SSL)
