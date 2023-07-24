@@ -40,9 +40,6 @@
 [submodule "contrib/boost"]
 	path = contrib/boost
 	url = https://github.com/ClickHouse/boost
-[submodule "contrib/arrow"]
-	path = contrib/arrow
-	url = https://github.com/ClickHouse/arrow
 [submodule "contrib/thrift"]
 	path = contrib/thrift
 	url = https://github.com/apache/thrift
@@ -351,3 +348,6 @@
 [submodule "contrib/aklomp-base64"]
 	path = contrib/aklomp-base64
 	url = https://github.com/aklomp/base64.git
+[submodule "contrib/arrow"]
+	path = contrib/arrow
+	url = https://github.com/auxten/arrow
