@@ -13,6 +13,7 @@
 
 /python_pkg/
 /tmps
+/bak
 state_tmp_l3jfk
 /chdb-0.*/
 *.strings
