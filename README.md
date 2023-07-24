@@ -90,6 +90,26 @@ print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
 </details>
 
 <details>
+  <summary><h4>🗂️ Query Stateful Sessions</h4></summary>
+
+```python
+from chdb import session as chs
+
+## Create DB, Table, View in temp session, auto cleanup when session is deleted.
+sess = chs.Session()
+sess.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic")
+sess.query("CREATE TABLE IF NOT EXISTS db_xxx.log_table_xxx (x String, y Int) ENGINE = Log;")
+sess.query("INSERT INTO db_xxx.log_table_xxx VALUES ('a', 1), ('b', 3), ('c', 2), ('d', 5);")
+sess.query(
+    "CREATE VIEW db_xxx.view_xxx AS SELECT * FROM db_xxx.log_table_xxx LIMIT 4;"
+)
+print("Select from view:\n")
+print(sess.query("SELECT * FROM db_xxx.view_xxx", "Pretty"))
+```
+  
+</details>
+
+<details>
     <summary><h4>🗂️ Python DB-API 2.0</h4></summary>
 
 ```python
