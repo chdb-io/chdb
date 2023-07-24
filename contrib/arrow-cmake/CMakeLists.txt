@@ -254,7 +254,6 @@ set(ARROW_SRCS
         "${LIBRARY_DIR}/device.cc"
         "${LIBRARY_DIR}/extension_type.cc"
         "${LIBRARY_DIR}/memory_pool.cc"
-        "${LIBRARY_DIR}/memory_pool_jemalloc.cc"
         "${LIBRARY_DIR}/pretty_print.cc"
         "${LIBRARY_DIR}/record_batch.cc"
         "${LIBRARY_DIR}/result.cc"
@@ -422,6 +421,10 @@ set(ARROW_SRCS
         "${ARROW_SRC_DIR}/arrow/adapters/orc/util.cc"
         "${ARROW_SRC_DIR}/arrow/adapters/orc/options.cc"
         )
+
+if (OS_LINUX)
+    SET(ARROW_SRCS "${LIBRARY_DIR}/memory_pool_jemalloc.cc" ${ARROW_SRCS})
+elseif()
 
 add_definitions(-DARROW_WITH_LZ4)
 SET(ARROW_SRCS "${LIBRARY_DIR}/util/compression_lz4.cc" ${ARROW_SRCS})
