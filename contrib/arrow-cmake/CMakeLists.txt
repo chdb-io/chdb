@@ -199,11 +199,14 @@ set(ORC_SRCS
 add_library(_orc ${ORC_SRCS})
 target_link_libraries(_orc PRIVATE
     ch_contrib::protobuf
-    ch_contrib::jemalloc
     ch_contrib::lz4
     ch_contrib::snappy
     ch_contrib::zlib
     ch_contrib::zstd)
+if (OS_LINUX)
+    target_link_libraries(_orc PRIVATE ch_contrib::jemalloc)
+endif ()
+
 target_include_directories(_orc SYSTEM BEFORE PUBLIC ${ORC_INCLUDE_DIR})
 target_include_directories(_orc SYSTEM BEFORE PUBLIC ${ORC_BUILD_INCLUDE_DIR})
 target_include_directories(_orc SYSTEM PRIVATE
@@ -454,13 +457,16 @@ target_link_libraries(_arrow PRIVATE
     _flatbuffers
 
     ch_contrib::double_conversion
-    ch_contrib::jemalloc
     ch_contrib::lz4
     ch_contrib::snappy
     ch_contrib::zlib
     ch_contrib::zstd
     ch_contrib::brotli
 )
+if (OS_LINUX)
+    target_link_libraries(_arrow PRIVATE ch_contrib::jemalloc)
+endif ()
+
 target_link_libraries(_arrow PUBLIC _orc)
 
 add_dependencies(_arrow protoc)
@@ -522,11 +528,14 @@ target_link_libraries(_parquet
     PUBLIC
         _arrow
         ch_contrib::thrift
-        ch_contrib::jemalloc
     PRIVATE
         boost::headers_only
         boost::regex
         OpenSSL::Crypto OpenSSL::SSL)
+
+if (OS_LINUX)
+    target_link_libraries(_parquet PRIVATE ch_contrib::jemalloc)
+endif ()
 
 if (SANITIZE STREQUAL "undefined")
     target_compile_options(_parquet PRIVATE -fno-sanitize=undefined)
