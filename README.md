@@ -90,7 +90,7 @@ print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
 </details>
 
 <details>
-  <summary><h4>🗂️ Query with Stateful Sessions</h4></summary>
+  <summary><h4>🗂️ Query with Stateful Session</h4></summary>
 
 ```python
 from chdb import session as chs
