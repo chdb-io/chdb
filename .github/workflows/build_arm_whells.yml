@@ -1,0 +1,156 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '**.yml'
+      - '.github/**'
+      - 'examples/**'
+      - 'tests/**'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash -leo pipefail {0}
+
+jobs:
+  build_wheels_linux_arm64:
+    name: ${{ matrix.os }} py${{ matrix.python-version }}
+    runs-on:
+      - self-hosted
+      - ARM64
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-20.04 ]
+        # python-version: [ "3.8", "3.9", "3.10", "3.11"]
+        python-version: [ "3.11" ]
+    env:
+      RUNNER_OS: ${{ matrix.os }}
+      PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - name: switch python
+        run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          export PATH="$PYENV_ROOT/bin:$PATH"
+          pyenv local "${{ matrix.python-version }}"
+          python --version
+        shell: bash -l {0}
+      - name: Update git
+        run: |
+          sudo add-apt-repository ppa:git-core/ppa -y
+          sudo apt-get update
+          sudo apt-get install -y git
+          git --version
+        shell: bash -l {0}
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Restore submodules cache
+        uses: actions/cache/restore@v3
+        id: cache
+        with:
+          path: |
+            contrib/**
+          key: |
+            submodule-${{ hashFiles('.gitmodules') }}
+      - name: Update submodules if cache miss
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git submodule update --init --recursive --jobs 4
+      - name: Save submodules cache
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v3
+        with:
+          path: |
+            contrib/**
+          key: |
+            submodule-${{ hashFiles('.gitmodules') }}
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}
+          max-size: 5G
+          append-timestamp: true
+      - name: Prepare chdb/build.sh
+        run: |
+          pyenv local "${{ matrix.python-version }}"
+          python3 --version
+          export CC=/usr/bin/clang
+          export CXX=/usr/bin/clang++
+        shell: bash -l {0}
+        continue-on-error: false
+      - name: Install dependencies for building wheels
+        run: |
+          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+          python3 -m pip install cibuildwheel==2.12.1
+        shell: bash -l {0}
+      - name: Build wheels
+        run: python3 -m cibuildwheel --output-dir wheelhouse
+        timeout-minutes: 300
+        env:
+          CIBW_DEBUG: 1
+          CIBW_BEFORE_BUILD_LINUX: "yum install -y wget && wget https://apt.llvm.org/llvm.sh; chmod +x llvm.sh; bash ./llvm.sh 15; which clang++-15; wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz; tar -xvf patchelf.tar.gz; cp bin/patchelf /usr/bin/; chmod +x /usr/bin/patchelf; patchelf --version;"
+          CIBW_CONTAINER_ENGINE: podman
+          CIBW_ENVIRONMENT_LINUX: "CC=/usr/bin/clang CXX=/usr/bin/clang++"
+          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
+          CIBW_BUILD_VERBOSITY: 3
+          CIBW_BUILD: "cp38-manylinux_aarch64 cp39-manylinux_aarch64 cp310-manylinux_aarch64"
+          CIBW_TEST_REQUIRES: "pyarrow pandas psutil"
+          CIBW_TEST_COMMAND: "cd {project} && make test"
+      - name: Keep killall ccache and wait for ccache to finish
+        if: always()
+        run: |
+          sleep 60
+          while ps -ef | grep ccache | grep -v grep; do \
+            killall ccache; \
+            sleep 10; \
+          done
+      - name: Show files
+        run: ls -lh wheelhouse
+        shell: bash
+      - uses: actions/upload-artifact@v3
+        with:
+          path: ./wheelhouse/*.whl
+      - name: Upload pypi
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python3 -m pip install twine
+          python3 -m twine upload wheelhouse/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+
+  # #build for macos12 arm64(Apple Silicon)
+  # build_wheels_macos_arm64:
+  
+  ## Experimental Restart on Expire/Cancel (WIP)
+  ## Requires: PAT Token
+  ## the PAT token should have permissions according to this  
+  ## documentation - https://developer.github.com/v3/actions/workflow-runs/
+  restart_failed:
+    name: Retry Expired Builds
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && cancelled()
+    needs: [ build_wheels_linux_arm64 ]
+    steps:
+    - name: Sleep for 20 seconds
+      run: sleep 20s
+      shell: bash
+    - name: Retry Failed/Expired Build
+      run: |
+        curl -i \
+        -X POST \
+        -H "Accept: application/vnd.github.v3+json" \
+        -H "Authorization: token ${{ secrets.PAT_TOKEN }}" \
+        https://api.github.com/repos/chdb-io/chdb/actions/runs/${{ github.run_id }}/rerun \
+        -d '{"ref": "${{ github.ref }}" }'
+     
