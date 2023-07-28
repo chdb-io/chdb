@@ -1870,6 +1870,8 @@ void Context::setCurrentDatabase(const String & name)
     auto lock = getLock();
     current_database = name;
     calculateAccessRights();
+    // if path is not empty, save default database name to path/_default_database
+    // to be able to set default database name on the next query-with-session
 }
 
 void Context::setCurrentQueryId(const String & query_id)

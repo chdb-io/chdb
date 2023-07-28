@@ -11,6 +11,7 @@
 # auto generated files
 *.logrt
 
+/tests/.*
 /python_pkg/
 /tmps
 /bak
