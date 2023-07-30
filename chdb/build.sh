@@ -18,7 +18,7 @@ if [ "$(uname)" == "Darwin" ]; then
     if [ "$(uname -m)" == "arm64" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
         AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-        EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
+        EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0 -DNO_ARMV81_OR_HIGHER=1"
         export CXX=/usr/local/opt/llvm/bin/clang++
         export CC=/usr/local/opt/llvm/bin/clang
     else
@@ -51,7 +51,7 @@ elif [ "$(uname)" == "Linux" ]; then
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
     else
         AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-        EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
+        EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0 -DNO_ARMV81_OR_HIGHER=1"
     fi
 else
     echo "OS not supported"
