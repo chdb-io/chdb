@@ -17,7 +17,7 @@ if [ "$(uname)" == "Darwin" ]; then
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
-        AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
         export CXX=/usr/local/opt/llvm/bin/clang++
         export CC=/usr/local/opt/llvm/bin/clang
@@ -25,18 +25,18 @@ if [ "$(uname)" == "Darwin" ]; then
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
         # disable AVX on Darwin for macos11
         if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
-            AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         else
             # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
-            AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
             # # If target macos version is 12, we need to test if support AVX2, 
             # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
             # # just test it on the github action, hope you don't using Mac Pro Late 2013.
             # # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
             # if [ "$(sysctl -n machdep.cpu.leaf7_features | grep AVX2)" != "" ]; then
-            #     AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
+            #     CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1"
             # else
-            #     AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=0"
+            #     CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
             # fi
         fi
     fi
@@ -47,10 +47,10 @@ elif [ "$(uname)" == "Linux" ]; then
     PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     # only x86_64, enable AVX and AVX2, enable embedded compiler
     if [ "$(uname -m)" == "x86_64" ]; then
-        AVX_SUPPORT="-DENABLE_AVX=1 -DENABLE_AVX2=1"
+        CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1"
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
     else
-        AVX_SUPPORT="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
     fi
 else
@@ -79,7 +79,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
     -DENABLE_BROTLI=1 \
     -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
-    ${AVX_SUPPORT} \
+    ${CPU_FEATURES} \
     ${CMAKE_TOOLCHAIN_FILE} \
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     ..
