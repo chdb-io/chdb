@@ -133,7 +133,17 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-
+      
   # #build for macos12 arm64(Apple Silicon)
   # build_wheels_macos_arm64:
-  
+
+  runner_cleanup_arm64:
+    name: Wipe Caches on Self-Hosted Runners
+    needs: [ build_wheels_linux_arm64 ]
+    if: always()
+    runs-on:
+      - self-hosted
+      - ARM64
+    steps:
+      - name: Actions Cache Cleanup
+        run: if [ "$(which action_cleanup)" != "" ]; then action_cleanup; else echo bypass; fi
