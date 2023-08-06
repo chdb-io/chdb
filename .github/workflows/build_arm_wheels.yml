@@ -1,4 +1,4 @@
-name: Build arm64
+name: Build ARM64
 
 on:
   # for test action
@@ -125,7 +125,7 @@ jobs:
         with:
           path: ./dist/*.whl
       - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: ${{ startsWith(github.ref, 'refs/tags/v') || startsWIth(github.event.inputs.TAG_NAME, 'v') }}
         run: |
           pyenv local "${{ matrix.python-version }}"
           python3 -m pip install twine
