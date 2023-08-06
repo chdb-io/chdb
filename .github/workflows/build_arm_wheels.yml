@@ -129,7 +129,7 @@ jobs:
         run: |
           pyenv local "${{ matrix.python-version }}"
           python3 -m pip install twine
-          python3 -m twine upload wheelhouse/*.whl
+          python3 -m twine upload ./dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
