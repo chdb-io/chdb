@@ -1,21 +1,13 @@
-name: Build
+name: Build X86
 
 on:
-  push:
-    tags:
-      - 'v*'
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - '**.yml'
-      - '.github/**'
-      - 'examples/**'
-      - 'tests/**'
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: 'Release Version Tag'
+        required: true
+  release:
+    types: [created]
 
 jobs:
   build_wheels_linux:
