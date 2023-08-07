@@ -1,12 +1,6 @@
 name: Build ARM64
 
 on:
-  # for test action
-  pull_request:
-    branches:
-      - main
-      - feat/add-arm-wheel-build
-  # end for test action
   workflow_dispatch:
     inputs:
       TAG_NAME:
