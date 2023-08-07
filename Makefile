@@ -26,7 +26,12 @@ clean:
 
 mac-arm64:
 	@echo "Make macOS arm64 whl"
-	packages/build_mac_arm64.sh
+	chdb/build_mac_arm64.sh
+	@echo "Done."
+
+linux-arm64:
+	@echo "Make linux arm64 whl"
+	chdb/build_linux_arm64.sh
 	@echo "Done."
 
 build: clean buildlib wheel
