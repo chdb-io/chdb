@@ -42,8 +42,8 @@ MergeTreeBackgroundExecutor<Queue>::MergeTreeBackgroundExecutor(
     , pool(std::make_unique<ThreadPool>(
           CurrentMetrics::MergeTreeBackgroundExecutorThreads, CurrentMetrics::MergeTreeBackgroundExecutorThreadsActive))
 {
-    if (max_tasks_count == 0)
-        throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "Task count for MergeTreeBackgroundExecutor must not be zero");
+    // if (max_tasks_count == 0)
+    //     throw Exception(ErrorCodes::INVALID_CONFIG_PARAMETER, "Task count for MergeTreeBackgroundExecutor must not be zero");
 
     pending.setCapacity(max_tasks_count);
     active.set_capacity(max_tasks_count);
