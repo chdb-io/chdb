@@ -11,6 +11,7 @@ test_state_dir = ".state_tmp_auxten_"
 current_process = psutil.Process()
 check_thread_count = False
 
+
 class TestStateful(unittest.TestCase):
     def setUp(self) -> None:
         shutil.rmtree(test_state_dir, ignore_errors=True)
@@ -41,7 +42,7 @@ class TestStateful(unittest.TestCase):
         ret = sess.query("SELECT * FROM db_xxx.view_xxx", "CSV")
         self.assertEqual(str(ret), "1\n2\n")
 
-        del sess # name sess dir will not be deleted
+        del sess  # name sess dir will not be deleted
 
         sess = session.Session(test_state_dir)
         ret = sess.query("SELECT chdb_xxx()", "CSV")
@@ -64,6 +65,22 @@ class TestStateful(unittest.TestCase):
         ret = sess2.query("SELECT chdb_xxx()", "CSV")
         self.assertEqual(str(ret), "")
 
+    def test_mergetree(self):
+        sess = session.Session()
+        sess.query(
+            "CREATE DATABASE IF NOT EXISTS db_xxx_merge ENGINE = Atomic;", "CSV"
+        )
+        sess.query(
+            "CREATE TABLE IF NOT EXISTS db_xxx_merge.log_table_xxx (x String, y Int) ENGINE = MergeTree ORDER BY x;"
+        )
+        # insert 1000000 random rows
+        sess.query(
+            "INSERT INTO db_xxx_merge.log_table_xxx (x, y) SELECT toString(rand()), rand() FROM numbers(1000000);"
+        )
+        sess.query("Optimize TABLE db_xxx_merge.log_table_xxx;")
+        ret = sess.query("SELECT count(*) FROM db_xxx_merge.log_table_xxx;")
+        self.assertEqual(str(ret), "1000000\n")
+
     def test_tmp(self):
         sess = session.Session()
         sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
@@ -82,6 +99,7 @@ class TestStateful(unittest.TestCase):
         print("Number of threads using psutil library: ", thread_count)
         if check_thread_count:
             self.assertEqual(thread_count, 1)
+
 
 if __name__ == "__main__":
     shutil.rmtree(test_state_dir, ignore_errors=True)
