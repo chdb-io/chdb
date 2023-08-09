@@ -709,7 +709,14 @@ void LocalServer::processConfig()
     // global once flag
     /// We load temporary database first, because projections need it.
     static std::once_flag db_catalog_once;
-    std::call_once(db_catalog_once, [&] { DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase(); });
+    if (config().has("path"))
+    {
+        DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase();
+    }
+    else
+    {
+        std::call_once(db_catalog_once, [&] { DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase(); });
+    }
 
     std::string default_database = config().getString("default_database", "default");
     DatabaseCatalog::instance().attachDatabase(default_database, createClickHouseLocalDatabaseOverlay(default_database, global_context));
