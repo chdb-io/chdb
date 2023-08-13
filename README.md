@@ -15,7 +15,7 @@
 
 [中文](README-zh.md)
 
-> chDB is an embedded SQL OLAP Engine powered by ClickHouse.
+> chDB is an embedded SQL OLAP Engine powered by ClickHouse  [^1]
 > For more details: [The birth of chDB](https://auxten.com/the-birth-of-chdb/) 
 
 
@@ -194,3 +194,8 @@ for trade mark and other reasons, I named it chDB.
 - Discord: [https://discord.gg/nqSkfJRR](https://discord.gg/Njw5YXSPPc)
 - Email: auxtenwpc@gmail.com
 - Twitter: [@auxten](https://twitter.com/auxten)
+
+
+<br>
+
+[^1]: ClickHouse® is a trademark of ClickHouse Inc. All trademarks, service marks, and logos mentioned or depicted are the property of their respective owners. The use of any third-party trademarks, brand names, product names, and company names does not imply endorsement, affiliation, or association with the respective owners.
