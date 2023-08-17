@@ -36,6 +36,6 @@ class TestGC(unittest.TestCase):
         gc.collect()
         self.assertEqual(mv3.tobytes(), b'123,"adbcdefg"\n')
         self.assertEqual(len(mv3), 15)
-        
+
 if __name__ == '__main__':
     unittest.main()
