@@ -77,9 +77,13 @@ chdb.query('select * from file("data.parquet", Parquet)', 'Dataframe')
 ```python
 import chdb.dataframe as cdf
 import pandas as pd
-tbl = cdf.Table(dataframe=pd.DataFrame({'a': [1, 2, 3], 'b': ['a', 'b', 'c']}))
-ret_tbl = tbl.query('select * from __table__')
+# Join 2 DataFrames
+df1 = pd.DataFrame({'a': [1, 2, 3], 'b': ["one", "two", "three"]})
+df2 = pd.DataFrame({'c': [1, 2, 3], 'd': ["①", "②", "③"]})
+ret_tbl = cdf.query(sql="select * from __tbl1__ t1 join __tbl2__ t2 on t1.a = t2.c",
+                  tbl1=df1, tbl2=df2)
 print(ret_tbl)
+# Query on the DataFrame Table
 print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
 ```
 </details>

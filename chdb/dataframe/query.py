@@ -215,8 +215,11 @@ class Table:
                 raise ValueError(f"Table {tableName} should be passed as a parameter")
 
             tbl = kwargs[tableName]
-            if not isinstance(tbl, Table):
-                raise ValueError(f"Table {tableName} should be an instance of Table")
+            # if tbl is DataFrame, convert it to Table
+            if isinstance(tbl, pd.DataFrame):
+                tbl = Table(dataframe=tbl)
+            elif not isinstance(tbl, Table):
+                raise ValueError(f"Table {tableName} should be an instance of Table or DataFrame")
 
             if tbl._parquet_path is not None:
                 return f'file("{tbl._parquet_path}", Parquet)'
