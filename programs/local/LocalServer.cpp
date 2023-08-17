@@ -983,7 +983,16 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 //     }
 // }
 
-std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
+class query_result_
+{
+public:
+    uint64_t rows;
+    uint64_t bytes;
+    double elapsed;
+    std::vector<char> * buf;
+};
+
+std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 {
     try
     {
@@ -992,10 +1001,14 @@ std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
         int ret = app.run();
         if (ret == 0)
         {
-            auto buf = app.getQueryOutputVector();
+            auto result = std::make_unique<query_result_>();
+            result->buf = app.getQueryOutputVector();
+            result->rows = app.getProcessedRows();
+            result->bytes = app.getProcessedBytes();
+            result->elapsed = app.getElapsedTime();
 
             // std::cerr << std::string(out->begin(), out->end()) << std::endl;
-            return buf;
+            return result;
         }
         else
         {
@@ -1020,15 +1033,18 @@ std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
 // todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
-    std::vector<char> * result = pyEntryClickHouseLocal(argc, argv);
+    auto result = pyEntryClickHouseLocal(argc, argv);
     if (!result)
     {
         return nullptr;
     }
     local_result * res = new local_result;
-    res->len = result->size();
-    res->buf = result->data();
-    res->_vec = result;
+    res->len = result->buf->size();
+    res->buf = result->buf->data();
+    res->_vec = result->buf;
+    res->rows_read = result->rows;
+    res->bytes_read = result->bytes;
+    res->elapsed = result->elapsed;
     return res;
 }
 
@@ -1046,10 +1062,10 @@ void free_result(local_result * result)
 
 int mainEntryClickHouseLocal(int argc, char ** argv)
 {
-    auto buf = pyEntryClickHouseLocal(argc, argv);
-    if (buf)
+    auto result = pyEntryClickHouseLocal(argc, argv);
+    if (result)
     {
-        std::cout << std::string(buf->begin(), buf->end()) << std::endl;
+        std::cout << std::string(result->buf->begin(), result->buf->end()) << std::endl;
         return 0;
     }
     else
