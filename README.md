@@ -66,6 +66,7 @@ res = chdb.query('select version()', 'Pretty'); print(res)
 # See more data type format in tests/format_output.py
 res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res)
 res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(res)
+print(f"SQL read {res.rows_read()} rows, {res.bytes_read()} bytes, elapsed {res.elapsed()} seconds")
 ```
 
 ### Pandas dataframe output

@@ -450,6 +450,7 @@ void ClientBase::onData(Block & block, ASTPtr parsed_query)
         return;
 
     processed_rows += block.rows();
+    processed_bytes += block.bytes();
     /// Even if all blocks are empty, we still need to initialize the output stream to write empty resultset.
     initOutputFormat(block, parsed_query);
 
@@ -1774,6 +1775,7 @@ try
         {
             connection->sendData(block, /* name */"", /* scalar */false);
             processed_rows += block.rows();
+            processed_bytes += block.bytes();
         }
     }
 
@@ -1926,6 +1928,7 @@ void ClientBase::processParsedSingleQuery(const String & full_query, const Strin
     }
 
     processed_rows = 0;
+    processed_bytes = 0;
     written_first_block = false;
     progress_indication.resetProgress();
     profile_events.watch.restart();

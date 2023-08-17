@@ -56,6 +56,31 @@ public:
         }
         return py::str(result->buf, result->len);
     }
+    // Query statistics
+    size_t rows_read()
+    {
+        if (result == nullptr)
+        {
+            return 0;
+        }
+        return result->rows_read;
+    }
+    size_t bytes_read()
+    {
+        if (result == nullptr)
+        {
+            return 0;
+        }
+        return result->bytes_read;
+    }
+    double elapsed()
+    {
+        if (result == nullptr)
+        {
+            return 0;
+        }
+        return result->elapsed;
+    }
 };
 
 class query_result
@@ -70,6 +95,9 @@ public:
     py::bytes bytes() { return result_wrapper->bytes(); }
     py::str str() { return result_wrapper->str(); }
     size_t size() { return result_wrapper->size(); }
+    size_t rows_read() { return result_wrapper->rows_read(); }
+    size_t bytes_read() { return result_wrapper->bytes_read(); }
+    double elapsed() { return result_wrapper->elapsed(); }
     memoryview_wrapper * get_memview();
 };
 
