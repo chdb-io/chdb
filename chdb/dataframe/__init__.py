@@ -11,4 +11,8 @@ except ImportError as e:
 if pd.__version__[0] < '2':
     print('Please upgrade pandas to version 2.0.0 or higher to have better performance')
 
-from .query import *
+from .query import Table, pandas_read_parquet # noqa: C0413
+
+query = Table.queryStatic
+
+__all__ = ['Table', 'query', 'pandas_read_parquet']
