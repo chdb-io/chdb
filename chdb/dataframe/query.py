@@ -34,6 +34,9 @@ class Table:
         self._dataframe = dataframe
         self._arrow_table = arrow_table
         self.use_memfd = use_memfd
+        self._rows_read = 0
+        self._bytes_read = 0
+        self._elapsed = 0
 
     def __del__(self):
         if self._temp_parquet_path is not None:
@@ -41,6 +44,15 @@ class Table:
                 os.remove(self._temp_parquet_path)
             except OSError:
                 pass
+
+    def rows_read(self):
+        return self._rows_read
+
+    def bytes_read(self):
+        return self._bytes_read
+
+    def elapsed(self):
+        return self._elapsed
 
     def to_pandas(self) -> pd.DataFrame:
         if self._dataframe is None:
@@ -125,7 +137,11 @@ class Table:
     def _query_on_path(self, path, sql, **kwargs):
         new_sql = sql.replace("__table__", f'file("{path}", Parquet)')
         res = chdb_query(new_sql, "Parquet", **kwargs)
-        return Table(parquet_memoryview=res.get_memview())
+        tbl = Table(parquet_memoryview=res.get_memview())
+        tbl._rows_read = res.rows_read()
+        tbl._bytes_read = res.bytes_read()
+        tbl._elapsed = res.elapsed()
+        return tbl
 
     def _validate_sql(self, sql):
         if "__table__" not in sql:
@@ -270,7 +286,11 @@ class Table:
         for tmp_path in temp_paths:
             os.remove(tmp_path)
 
-        return Table(parquet_memoryview=res.get_memview())
+        tbl = Table(parquet_memoryview=res.get_memview())
+        tbl._rows_read = res.rows_read()
+        tbl._bytes_read = res.bytes_read()
+        tbl._elapsed = res.elapsed()
+        return tbl
 
     def _run_on_temp(
         self,
@@ -287,7 +307,11 @@ class Table:
             os.lseek(fd, 0, os.SEEK_SET)
             new_sql = sql.replace("__table__", f'file("/dev/fd/{fd}", {fmt})')
         res = chdb_query(new_sql, "Parquet", **kwargs)
-        return Table(parquet_memoryview=res.get_memview())
+        tbl = Table(parquet_memoryview=res.get_memview())
+        tbl._rows_read = res.rows_read()
+        tbl._bytes_read = res.bytes_read()
+        tbl._elapsed = res.elapsed()
+        return tbl
 
 
 def pandas_read_parquet(path) -> pd.DataFrame:
