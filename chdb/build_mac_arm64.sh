@@ -1,6 +1,13 @@
-#!/usr/bin/arch -arm64 /bin/bash
+#!/bin/bash
+
+# #!/usr/bin/arch -arm64 /bin/bash
 
 set -e
+
+#export PATH=$(brew --prefix llvm@15)/bin:$(brew --prefix)/opt/grep/libexec/gnubin:$(brew --prefix)/opt/binutils/bin:$PATH:$(brew --prefix)/opt/findutils/libexec/gnubin
+export PATH=$(brew --prefix llvm@15)/bin:$PATH
+#export PATH=$(brew --prefix llvm@15)/bin:$(brew --prefix)/opt/grep/libexec/gnubin:$(brew --prefix)/opt/binutils/bin:$(brew --prefix)/opt/protobuf/bin:$(brew --prefix)/opt/findutils/libexec/gnubin:$PATH
+
 
 # check current arch
 if [ "$(uname -m)" != "arm64" ]; then
@@ -19,16 +26,18 @@ if [ ! -d ${PROJ_DIR}/python_pkg ]; then
 fi
 
 # prefer /usr/local/opt/llvm@15/bin/clang++ then /usr/local/opt/llvm/bin/clang++
-if [ -f /usr/local/opt/llvm@15/bin/clang++ ]; then
-    export CXX=/usr/local/opt/llvm@15/bin/clang++
-elif [ -f /usr/local/opt/llvm/bin/clang++ ]; then
-    export CXX=/usr/local/opt/llvm/bin/clang++
-fi
-if [ -f /usr/local/opt/llvm@15/bin/clang ]; then
-    export CC=/usr/local/opt/llvm@15/bin/clang
-elif [ -f /usr/local/opt/llvm/bin/clang ]; then
-    export CC=/usr/local/opt/llvm/bin/clang
-fi
+#if [ -f /usr/local/opt/llvm@15/bin/clang++ ]; then
+#    export CXX=/usr/local/opt/llvm@15/bin/clang++
+#elif [ -f /usr/local/opt/llvm/bin/clang++ ]; then
+#    export CXX=/usr/local/opt/llvm/bin/clang++
+#fi
+#if [ -f /usr/local/opt/llvm@15/bin/clang ]; then
+#    export CC=/usr/local/opt/llvm@15/bin/clang
+#elif [ -f /usr/local/opt/llvm/bin/clang ]; then
+#    export CC=/usr/local/opt/llvm/bin/clang
+#fi
+export CC=$(brew --prefix llvm@15)/bin/clang
+export CXX=$(brew --prefix llvm@15)/bin/clang++
 
 # Download MacOSX11.0.sdk.tar.xz
 if [ ! -f ${PROJ_DIR}/python_pkg/MacOSX11.0.sdk.tar.xz ]; then

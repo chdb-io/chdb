@@ -19,8 +19,10 @@ if [ "$(uname)" == "Darwin" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
-        export CXX=/usr/local/opt/llvm/bin/clang++
-        export CC=/usr/local/opt/llvm/bin/clang
+#        export PATH=$(brew --prefix llvm@15)/bin:$(brew --prefix)/opt/grep/libexec/gnubin:$(brew --prefix)/opt/binutils/bin:$PATH:$(brew --prefix)/opt/findutils/libexec/gnubin
+#        export PATH=$(brew --prefix llvm@15)/bin:$(brew --prefix)/opt/grep/libexec/gnubin:$(brew --prefix)/opt/binutils/bin:$(brew --prefix)/opt/protobuf/bin:$(brew --prefix)/opt/findutils/libexec/gnubin:$PATH
+        export CC=$(brew --prefix llvm@15)/bin/clang
+        export CXX=$(brew --prefix llvm@15)/bin/clang++
     else
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
         # disable AVX on Darwin for macos11

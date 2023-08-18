@@ -11,6 +11,7 @@
 # auto generated files
 *.logrt
 
+/chdb-session
 /python_pkg/
 /tmps
 /bak
