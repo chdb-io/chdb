@@ -970,21 +970,55 @@ std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
 // todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
-    std::vector<char> * result = pyEntryClickHouseLocal(argc, argv);
-    if (!result)
+    try
     {
-        return nullptr;
+        std::vector<char> * result = pyEntryClickHouseLocal(argc, argv);
+        if (!result)
+        {
+            return nullptr;
+        }
+        local_result * res = new local_result;
+        res->len = result->size();
+        res->buf = result->data();
+        res->_vec = result;
+        res->error_message = nullptr;
+        return res;
+    } catch (const DB::Exception & e) {
+        local_result * res = new local_result;
+        res->len = 0;
+        res->buf = nullptr;
+        res->_vec = nullptr;
+        res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
+        return res;
     }
-    local_result * res = new local_result;
-    res->len = result->size();
-    res->buf = result->data();
-    res->_vec = result;
-    return res;
+    catch (const boost::program_options::error & e) {
+        local_result * res = new local_result;
+        res->len = 0;
+        res->buf = nullptr;
+        res->_vec = nullptr;
+        res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
+        return res;
+    }
+    catch (...) {
+        local_result * res = new local_result;
+        res->len = 0;
+        res->buf = nullptr;
+        res->_vec = nullptr;
+        res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
+        return res;
+    }
 }
 
 void free_result(local_result * result)
 {
-    if (!result || !result->_vec)
+    if (!result)
+    {
+        return;
+    }
+
+    result->error_message = nullptr;
+
+    if (!result->_vec)
     {
         return;
     }

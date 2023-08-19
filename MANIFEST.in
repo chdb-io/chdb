@@ -1,0 +1,9 @@
+include README.md
+include LICENSE.txt
+graft chdb
+global-exclude *.py[cod]
+global-exclude __pycache__
+global-exclude .DS_Store
+global-exclude .git*
+global-exclude ~*
+include chdb/_chdb.cpython-39-darwin.so

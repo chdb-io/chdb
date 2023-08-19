@@ -29,6 +29,11 @@ mac-arm64:
 	chdb/build_mac_arm64.sh
 	@echo "Done."
 
+libchdb-mac-arm64:
+	@echo "Make macOS arm64 libchdb.so"
+	chdb/build_libchdb_mac_arm64.sh
+	@echo "Done."
+
 linux-arm64:
 	@echo "Make linux arm64 whl"
 	chdb/build_linux_arm64.sh
