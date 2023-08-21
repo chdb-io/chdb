@@ -7,7 +7,7 @@ struct local_result
     char * buf;
     size_t len;
     void * _vec; // std::vector<char> *, for freeing
-    const char* error_message;
+    char * error_message;
 };
 
 local_result * query_stable(int argc, char ** argv);

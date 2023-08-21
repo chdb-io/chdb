@@ -935,35 +935,20 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 
 std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
 {
-    try
-    {
-        DB::LocalServer app;
-        app.init(argc, argv);
-        int ret = app.run();
-        if (ret == 0)
-        {
-            auto buf = app.getQueryOutputVector();
+    DB::LocalServer app;
 
-            // std::cerr << std::string(out->begin(), out->end()) << std::endl;
-            return buf;
-        }
-        else
-        {
-            return nullptr;
-        }
-    }
-    catch (const DB::Exception & e)
+    app.init(argc, argv);
+    int ret = app.run();
+    if (ret == 0)
     {
-        // wrap the error message into a new std::exception
-        throw std::domain_error(DB::getExceptionMessage(e, false));
+        auto buf = app.getQueryOutputVector();
+
+        // std::cerr << std::string(out->begin(), out->end()) << std::endl;
+        return buf;
     }
-    catch (const boost::program_options::error & e)
+    else
     {
-        throw std::invalid_argument("Bad arguments: " + std::string(e.what()));
-    }
-    catch (...)
-    {
-        throw std::domain_error(DB::getCurrentExceptionMessage(true));
+        return nullptr;
     }
 }
 
@@ -972,9 +957,31 @@ local_result * query_stable(int argc, char ** argv)
 {
     try
     {
+        // Backup the original std::cerr buffer
+        std::streambuf* originalCerrBuffer = std::cerr.rdbuf();
+        std::ostringstream capturedErrorOutput;  // This will capture the error output
+        // Redirect the std::cerr to your own buffer
+        std::cerr.rdbuf(capturedErrorOutput.rdbuf());
+
+        // Run query
         std::vector<char> * result = pyEntryClickHouseLocal(argc, argv);
+
+        // Reset std::cerr back to its original state
+        std::cerr.rdbuf(originalCerrBuffer);
+
         if (!result)
         {
+            std::string errorMsg = capturedErrorOutput.str();
+            if (!errorMsg.empty())  // If there is a captured error message
+            {
+                local_result * res = new local_result;
+                res->len = 0;
+                res->buf = nullptr;
+                res->_vec = nullptr;
+                res->error_message = strdup(errorMsg.c_str());
+                return res;
+            }
+
             return nullptr;
         }
         local_result * res = new local_result;
@@ -1011,20 +1018,25 @@ local_result * query_stable(int argc, char ** argv)
 
 void free_result(local_result * result)
 {
-    if (!result)
-    {
+    if (!result) {
         return;
     }
 
-    result->error_message = nullptr;
-
-    if (!result->_vec)
-    {
-        return;
+    // Free error_message if it's non-null.
+    if (result->error_message) {
+        free(result->error_message);
+        result->error_message = nullptr; // Nullify pointer after freeing.
     }
-    std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
-    delete vec;
-    result->_vec = nullptr;
+
+    // Delete _vec if it's non-null.
+    if (result->_vec) {
+        std::vector<char>* vec = reinterpret_cast<std::vector<char>*>(result->_vec);
+        delete vec;
+        result->_vec = nullptr; // Nullify pointer after deleting.
+    }
+
+    // Finally, delete the struct itself.
+    delete result;
 }
 
 
