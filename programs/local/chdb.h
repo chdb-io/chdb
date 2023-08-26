@@ -2,23 +2,23 @@
 #include <stddef.h>
 
 extern "C" {
-typedef void* LocalServerPtr;
+typedef void* ChdbLocalServerPtr;
 
-struct local_result
+struct chdb_local_result
 {
     char * buf;
     size_t len;
     char * error_message;
 };
 
-struct init_result
+struct chdb_init_result
 {
-   LocalServerPtr local_server;
+   ChdbLocalServerPtr local_server;
    char * error_message;
 };
 
-init_result * chdb_connect(int argc, char ** argv);
-void chdb_disconnect(LocalServerPtr obj);
-local_result * chdb_query(LocalServerPtr obj, char * query, char * format);
-void chdb_free_result(LocalServerPtr obj, local_result * result);
+chdb_init_result * chdb_connect(int argc, char ** argv);
+void chdb_disconnect(ChdbLocalServerPtr obj);
+chdb_local_result * chdb_query(ChdbLocalServerPtr obj, char * query, char * format);
+void chdb_free_result(ChdbLocalServerPtr obj, chdb_local_result * result);
 }

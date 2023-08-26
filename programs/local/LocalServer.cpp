@@ -965,7 +965,7 @@ std::vector<char> * LocalServer::run_chdb_query(char * query, char * query_forma
 
 }
 
-void LocalServer::free_result(local_result * result)
+void LocalServer::free_result(chdb_local_result * result)
 {
     if (!result) {
         return;
@@ -1034,7 +1034,7 @@ std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
     }
 }
 
-init_result * chdb_connect(int argc, char ** argv)
+chdb_init_result * chdb_connect(int argc, char ** argv)
 {
     try
     {
@@ -1043,31 +1043,31 @@ init_result * chdb_connect(int argc, char ** argv)
         // Note: app.run() does more startup setup but doesn't run any user-provided query
         app->run();
 
-        init_result * res = new init_result;
+        chdb_init_result * res = new chdb_init_result;
         res->local_server = app;
         res->error_message = nullptr;
         return res;
     } catch (const DB::Exception & e) {
-        init_result * res = new init_result;
+        chdb_init_result * res = new chdb_init_result;
         res->local_server = nullptr;
         res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
         return res;
     }
     catch (const boost::program_options::error & e) {
-        init_result * res = new init_result;
+        chdb_init_result * res = new chdb_init_result;
         res->local_server = nullptr;
         res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
         return res;
     }
     catch (...) {
-        init_result * res = new init_result;
+        chdb_init_result * res = new chdb_init_result;
         res->local_server = nullptr;
         res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
         return res;
     }
 }
 
-void chdb_disconnect(LocalServerPtr obj) {
+void chdb_disconnect(ChdbLocalServerPtr obj) {
     DB::LocalServer* app = static_cast<DB::LocalServer*>(obj);
     app->cleanup();
     app->disconnect();
@@ -1075,7 +1075,7 @@ void chdb_disconnect(LocalServerPtr obj) {
 }
 
 
-local_result * chdb_query(LocalServerPtr obj, char * query, char * format)
+chdb_local_result * chdb_query(ChdbLocalServerPtr obj, char * query, char * format)
 {
     try
     {
@@ -1097,7 +1097,7 @@ local_result * chdb_query(LocalServerPtr obj, char * query, char * format)
         // Check for error on stderr, return it if there is one
         if (!errorMsg.empty())
         {
-            local_result * res = new local_result;
+            chdb_local_result * res = new chdb_local_result;
             res->len = 0;
             res->buf = nullptr;
             res->error_message = strdup(errorMsg.c_str());
@@ -1108,27 +1108,27 @@ local_result * chdb_query(LocalServerPtr obj, char * query, char * format)
             return nullptr;
         }
 
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = result->size();
         res->buf = result->data();
         res->error_message = nullptr;
         return res;
     } catch (const DB::Exception & e) {
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = 0;
         res->buf = nullptr;
         res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
         return res;
     }
     catch (const boost::program_options::error & e) {
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = 0;
         res->buf = nullptr;
         res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
         return res;
     }
     catch (...) {
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = 0;
         res->buf = nullptr;
         res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
@@ -1137,7 +1137,7 @@ local_result * chdb_query(LocalServerPtr obj, char * query, char * format)
 }
 
 // todo fix the memory leak and unnecessary copy
-local_result * query_stable(int argc, char ** argv)
+chdb_local_result * query_stable(int argc, char ** argv)
 {
     try
     {
@@ -1158,7 +1158,7 @@ local_result * query_stable(int argc, char ** argv)
             std::string errorMsg = capturedErrorOutput.str();
             if (!errorMsg.empty())  // If there is a captured error message
             {
-                local_result * res = new local_result;
+                chdb_local_result * res = new chdb_local_result;
                 res->len = 0;
                 res->buf = nullptr;
                 res->error_message = strdup(errorMsg.c_str());
@@ -1167,27 +1167,27 @@ local_result * query_stable(int argc, char ** argv)
 
             return nullptr;
         }
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = result->size();
         res->buf = result->data();
         res->error_message = nullptr;
         return res;
     } catch (const DB::Exception & e) {
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = 0;
         res->buf = nullptr;
         res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
         return res;
     }
     catch (const boost::program_options::error & e) {
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = 0;
         res->buf = nullptr;
         res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
         return res;
     }
     catch (...) {
-        local_result * res = new local_result;
+        chdb_local_result * res = new chdb_local_result;
         res->len = 0;
         res->buf = nullptr;
         res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
@@ -1195,7 +1195,7 @@ local_result * query_stable(int argc, char ** argv)
     }
 }
 
-void chdb_free_result(LocalServerPtr obj, local_result * result)
+void chdb_free_result(ChdbLocalServerPtr obj, chdb_local_result * result)
 {
     DB::LocalServer* app = static_cast<DB::LocalServer*>(obj);
     app->free_result(result);

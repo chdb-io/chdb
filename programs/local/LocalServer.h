@@ -34,7 +34,7 @@ public:
 
     std::vector<char> * run_chdb_query(char * query, char * format);
 
-    void free_result(local_result * result);
+    void free_result(chdb_local_result * result);
 
     void disconnect() {
         ClientBase::uninitialize();
