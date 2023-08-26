@@ -53,6 +53,50 @@
 #include <base/argsToConfig.h>
 #include <filesystem>
 
+//#include <iostream>
+//#include <string>
+//#include <stdio.h>
+//#include <time.h>
+//
+//// Get current date/time, format is YYYY-MM-DD.HH:mm:ss
+//const std::string currentDateTime() {
+//    time_t     now = time(nullptr);
+//    struct tm  tstruct;
+//    char       buf[80];
+//    tstruct = *localtime(&now);
+//    // Visit http://en.cppreference.com/w/cpp/chrono/c/strftime
+//    // for more information about date/time format
+//    strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
+//
+//    return buf;
+//}
+
+#include <chrono>
+#include <ctime>
+#include <string>
+#include <iomanip>
+#include <sstream>
+#include <thread>
+
+const std::string currentDateTime() {
+    // Get the current time with high resolution
+    auto now = std::chrono::system_clock::now();
+    auto now_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now);
+    auto epoch = now_ms.time_since_epoch();
+    auto value = std::chrono::duration_cast<std::chrono::milliseconds>(epoch);
+    long ms = value.count() % 1000;  // Extract milliseconds part
+
+    std::time_t tt = std::chrono::system_clock::to_time_t(now);
+    std::tm tstruct = *std::localtime(&tt);
+    char buf[80];
+    strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
+
+    std::ostringstream datetime_stream;
+    datetime_stream << buf << "." << std::setfill('0') << std::setw(3) << ms;
+
+    return datetime_stream.str();
+}
+
 #if defined(FUZZING_MODE)
     #include <Functions/getFuzzerData.h>
 #endif
@@ -413,7 +457,7 @@ void LocalServer::connect()
 
 
 int LocalServer::main(const std::vector<std::string> & /*args*/)
-try
+//try
 {
     UseSSL use_ssl;
     thread_status.emplace();
@@ -514,38 +558,38 @@ try
     if (!initial_query.empty())
         processQueryText(initial_query);
 
-    if (is_interactive && !delayed_interactive)
-    {
-        runInteractive();
-    }
-    else
-    {
-        runNonInteractive();
+//    if (is_interactive && !delayed_interactive)
+//    {
+//        runInteractive();
+//    }
+//    else
+//    {
+//    runNonInteractive();
 
-        if (delayed_interactive)
-            runInteractive();
-    }
+//        if (delayed_interactive)
+//            runInteractive();
+//    }
 
 #ifndef FUZZING_MODE
-    cleanup();
+//    cleanup();
 #endif
     return Application::EXIT_OK;
 }
-catch (const DB::Exception & e)
-{
-    cleanup();
-
-    bool need_print_stack_trace = config().getBool("stacktrace", false);
-    std::cerr << getExceptionMessage(e, need_print_stack_trace, true) << std::endl;
-    return e.code() ? e.code() : -1;
-}
-catch (...)
-{
-    cleanup();
-
-    std::cerr << getCurrentExceptionMessage(false) << std::endl;
-    return getCurrentExceptionCode();
-}
+//catch (const DB::Exception & e)
+//{
+//    cleanup();
+//
+//    bool need_print_stack_trace = config().getBool("stacktrace", false);
+//    std::cerr << getExceptionMessage(e, need_print_stack_trace, true) << std::endl;
+//    return e.code() ? e.code() : -1;
+//}
+//catch (...)
+//{
+//    cleanup();
+//
+//    std::cerr << getCurrentExceptionMessage(false) << std::endl;
+//    return getCurrentExceptionCode();
+//}
 
 void LocalServer::updateLoggerLevel(const String & logs_level)
 {
@@ -742,10 +786,10 @@ void LocalServer::processConfig()
             // This should be fixed in the future. But it seems chdb do not nedd background tasks which
             // will do some drop table cleanup issues. So we just disable it for now.
             // before the global thread pool is destroyed.
-            // DatabaseCatalog::instance().createBackgroundTasks();
+//             DatabaseCatalog::instance().createBackgroundTasks();
             loadMetadata(global_context);
             // loadMetadata(global_context, default_database);
-            // DatabaseCatalog::instance().startupBackgroundCleanup();
+//             DatabaseCatalog::instance().startupBackgroundCleanup();
         }
 
         /// For ClickHouse local if path is not set the loader will be disabled.
@@ -901,6 +945,44 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
     }
 }
 
+
+std::vector<char> * LocalServer::run_chdb_query(char * query, char * query_format) {
+    std::string formatText(query_format);
+    format = formatText;
+
+    std::string queryText(query);
+
+    bool success = processQueryText(queryText);
+
+    if (success)
+    {
+        auto buf = getQueryOutputVector();
+        return buf;
+    } else
+    {
+        return nullptr;
+    }
+
+}
+
+void LocalServer::free_result(local_result * result)
+{
+    if (!result) {
+        return;
+    }
+
+    if (result->error_message) {
+        free(result->error_message);
+        result->error_message = nullptr;
+    }
+
+    if (query_result_memory) {
+        delete query_result_memory;
+        query_result_memory = nullptr;
+    }
+
+    delete result;
+}
 }
 
 #pragma GCC diagnostic ignored "-Wunused-function"
@@ -952,6 +1034,108 @@ std::vector<char> * pyEntryClickHouseLocal(int argc, char ** argv)
     }
 }
 
+init_result * chdb_connect(int argc, char ** argv)
+{
+    try
+    {
+        DB::LocalServer* app = new DB::LocalServer();
+        app->init(argc, argv);
+        // Note: app.run() does more startup setup but doesn't run any user-provided query
+        app->run();
+
+        init_result * res = new init_result;
+        res->local_server = app;
+        res->error_message = nullptr;
+        return res;
+    } catch (const DB::Exception & e) {
+        init_result * res = new init_result;
+        res->local_server = nullptr;
+        res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
+        return res;
+    }
+    catch (const boost::program_options::error & e) {
+        init_result * res = new init_result;
+        res->local_server = nullptr;
+        res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
+        return res;
+    }
+    catch (...) {
+        init_result * res = new init_result;
+        res->local_server = nullptr;
+        res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
+        return res;
+    }
+}
+
+void chdb_disconnect(LocalServerPtr obj) {
+    DB::LocalServer* app = static_cast<DB::LocalServer*>(obj);
+    app->cleanup();
+    app->disconnect();
+    delete app;
+}
+
+
+local_result * chdb_query(LocalServerPtr obj, char * query, char * format)
+{
+    try
+    {
+        // Backup the original std::cerr buffer
+        std::streambuf* originalCerrBuffer = std::cerr.rdbuf();
+        std::ostringstream capturedErrorOutput;  // This will capture the error output
+        // Redirect the std::cerr to your own buffer
+        std::cerr.rdbuf(capturedErrorOutput.rdbuf());
+
+        DB::LocalServer* app = static_cast<DB::LocalServer*>(obj);
+
+        // Run query
+        std::vector<char> * result = app->run_chdb_query(query, format);
+
+        std::string errorMsg = capturedErrorOutput.str();
+        // Reset std::cerr back to its original state
+        std::cerr.rdbuf(originalCerrBuffer);
+
+        // Check for error on stderr, return it if there is one
+        if (!errorMsg.empty())
+        {
+            local_result * res = new local_result;
+            res->len = 0;
+            res->buf = nullptr;
+            res->error_message = strdup(errorMsg.c_str());
+            return res;
+        }
+
+        if (!result) {
+            return nullptr;
+        }
+
+        local_result * res = new local_result;
+        res->len = result->size();
+        res->buf = result->data();
+        res->error_message = nullptr;
+        return res;
+    } catch (const DB::Exception & e) {
+        local_result * res = new local_result;
+        res->len = 0;
+        res->buf = nullptr;
+        res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
+        return res;
+    }
+    catch (const boost::program_options::error & e) {
+        local_result * res = new local_result;
+        res->len = 0;
+        res->buf = nullptr;
+        res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
+        return res;
+    }
+    catch (...) {
+        local_result * res = new local_result;
+        res->len = 0;
+        res->buf = nullptr;
+        res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
+        return res;
+    }
+}
+
 // todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
@@ -977,7 +1161,6 @@ local_result * query_stable(int argc, char ** argv)
                 local_result * res = new local_result;
                 res->len = 0;
                 res->buf = nullptr;
-                res->_vec = nullptr;
                 res->error_message = strdup(errorMsg.c_str());
                 return res;
             }
@@ -987,14 +1170,12 @@ local_result * query_stable(int argc, char ** argv)
         local_result * res = new local_result;
         res->len = result->size();
         res->buf = result->data();
-        res->_vec = result;
         res->error_message = nullptr;
         return res;
     } catch (const DB::Exception & e) {
         local_result * res = new local_result;
         res->len = 0;
         res->buf = nullptr;
-        res->_vec = nullptr;
         res->error_message = strdup(DB::getExceptionMessage(e, false).c_str());
         return res;
     }
@@ -1002,7 +1183,6 @@ local_result * query_stable(int argc, char ** argv)
         local_result * res = new local_result;
         res->len = 0;
         res->buf = nullptr;
-        res->_vec = nullptr;
         res->error_message = strdup(("Bad arguments: " + std::string(e.what())).c_str());
         return res;
     }
@@ -1010,33 +1190,15 @@ local_result * query_stable(int argc, char ** argv)
         local_result * res = new local_result;
         res->len = 0;
         res->buf = nullptr;
-        res->_vec = nullptr;
         res->error_message = strdup(DB::getCurrentExceptionMessage(true).c_str());
         return res;
     }
 }
 
-void free_result(local_result * result)
+void chdb_free_result(LocalServerPtr obj, local_result * result)
 {
-    if (!result) {
-        return;
-    }
-
-    // Free error_message if it's non-null.
-    if (result->error_message) {
-        free(result->error_message);
-        result->error_message = nullptr; // Nullify pointer after freeing.
-    }
-
-    // Delete _vec if it's non-null.
-    if (result->_vec) {
-        std::vector<char>* vec = reinterpret_cast<std::vector<char>*>(result->_vec);
-        delete vec;
-        result->_vec = nullptr; // Nullify pointer after deleting.
-    }
-
-    // Finally, delete the struct itself.
-    delete result;
+    DB::LocalServer* app = static_cast<DB::LocalServer*>(obj);
+    app->free_result(result);
 }
 
 

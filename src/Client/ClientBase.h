@@ -78,10 +78,16 @@ public:
         //get Buffer and convert to vector
         // auto buf = query_result_buf->buffer();
         // std::vector<char> vec(buf.begin(), buf.end());
+
+        // This cuts query_result_memory to the size of written data.
+        query_result_buf = nullptr;
+
         return query_result_memory;
     }
 
     std::vector<String> getAllRegisteredNames() const override { return cmd_options; }
+
+    bool processQueryText(const String & text);
 
 protected:
     void runInteractive();
@@ -135,7 +141,6 @@ protected:
                                 const std::vector<Arguments> & hosts_and_ports_arguments) = 0;
     virtual void processConfig() = 0;
 
-    bool processQueryText(const String & text);
 
     virtual void readArguments(
         int argc,

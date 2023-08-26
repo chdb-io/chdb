@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include "chdb.h"
 
 
 namespace DB
@@ -28,6 +29,16 @@ public:
     void initialize(Poco::Util::Application & self) override;
 
     int main(const std::vector<String> & /*args*/) override;
+
+    void cleanup();
+
+    std::vector<char> * run_chdb_query(char * query, char * format);
+
+    void free_result(local_result * result);
+
+    void disconnect() {
+        ClientBase::uninitialize();
+    }
 
 protected:
     void connect() override;
@@ -49,6 +60,12 @@ protected:
 
     void updateLoggerLevel(const String & logs_level) override;
 
+    void uninitialize() override {
+        // Do nothing in standard uninitialize. It's called automatically at the end of main(),
+        // but we don't want to uninitialize at that point. We call the original unitialize
+        // in disconnect().k
+    }
+
 private:
     /** Composes CREATE subquery based on passed arguments (--structure --file --table and --input-format)
       * This query will be executed first, before queries passed through --query argument
@@ -58,7 +75,6 @@ private:
 
     void tryInitPath();
     void setupUsers();
-    void cleanup();
 
     void applyCmdOptions(ContextMutablePtr context);
     void applyCmdSettings(ContextMutablePtr context);
@@ -66,5 +82,4 @@ private:
     std::optional<StatusFile> status;
     std::optional<std::filesystem::path> temporary_directory_to_delete;
 };
-
 }
