@@ -1,7 +1,7 @@
 import tempfile
 import shutil
 
-from chdb import query_stateful
+from chdb import query
 
 
 class Session():
@@ -35,4 +35,4 @@ class Session():
         """
         Execute a query.
         """
-        return query_stateful(sql, fmt, path=self._path)
+        return query(sql, fmt, path=self._path)
