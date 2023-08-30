@@ -1,6 +1,7 @@
 #include "LocalChdb.h"
 
 #include <iostream>
+#include <pybind11/iostream.h>
 
 
 extern bool inside_main = true;
@@ -8,6 +9,8 @@ extern bool inside_main = true;
 
 local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {})
 {
+    py::scoped_ostream_redirect out_stderr{std::cerr, py::module::import("sys").attr("stderr")};
+    py::scoped_ostream_redirect out_stdout{std::cout, py::module::import("sys").attr("stdout")};
     std::vector<std::string> argv = {"clickhouse", "--multiquery"};
 
     // if format is "Debug" or "debug", then we will add --verbose and --log-level=trace to argv
