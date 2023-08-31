@@ -1,7 +1,9 @@
+<div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/_static/snake-chdb-dark.png" height="130">
-  <source media="(prefers-color-scheme: light)" srcset="docs/_static/snake-chdb.png" height="130">
+  <img src="docs/_static/snake-chdb.png" height="130">
 </picture>
+</div>
 
 [![构建状态](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg?branch=main)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
 [![PyPI](https://img.shields.io/pypi/v/chdb.svg)](https://pypi.org/project/chdb/)
