@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/_static/snake-chdb.png" height="100">
+  <img src="docs/_static/snake-chdb-white.png" height="100">
 </div>
 
 [![构建状态](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg?branch=main)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
