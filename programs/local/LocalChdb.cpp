@@ -7,12 +7,15 @@ extern bool inside_main = true;
 
 
 local_result * queryToBuffer(
-    const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {}, const std::string & udfPath = {})
+    const std::string & queryStr,
+    const std::string & output_format = "CSV",
+    const std::string & path = {},
+    const std::string & udfPath = {})
 {
     std::vector<std::string> argv = {"clickhouse", "--", "--multiquery"};
 
     // If format is "Debug" or "debug", then we will add `--verbose` and `--log-level=trace` to argv
-    if (format == "Debug" || format == "debug")
+    if (output_format == "Debug" || output_format == "debug")
     {
         argv.push_back("--verbose");
         argv.push_back("--log-level=trace");
@@ -22,7 +25,7 @@ local_result * queryToBuffer(
     else
     {
         // Add format string
-        argv.push_back("--output-format=" + format);
+        argv.push_back("--output-format=" + output_format);
     }
 
     // If udfPath is not empty, then we will add `--user_scripts_path` and `--user_defined_executable_functions_config` to argv
@@ -52,10 +55,13 @@ local_result * queryToBuffer(
 
 // Pybind11 will take over the ownership of the `query_result` object
 // using smart ptr will cause early free of the object
-query_result *
-query(const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {}, const std::string & udfPath = {})
+query_result * query(
+    const std::string & queryStr,
+    const std::string & output_format = "CSV",
+    const std::string & path = {},
+    const std::string & udfPath = {})
 {
-    return new query_result(queryToBuffer(queryStr, format, path, udfPath));
+    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
@@ -142,7 +148,7 @@ PYBIND11_MODULE(_chdb, m)
         "query",
         &query,
         py::arg("queryStr"),
-        py::arg("format") = "CSV",
+        py::arg("output_format") = "CSV",
         py::kw_only(),
         py::arg("path") = "",
         py::arg("udf_path") = "",
