@@ -93,6 +93,16 @@ class TestStateful(unittest.TestCase):
         ret = sess2.query("SELECT chdb_xxx()", "CSV")
         self.assertEqual(str(ret), "")
 
+    def test_context_mgr(self):
+        with session.Session() as sess:
+            sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
+            ret = sess.query("SELECT chdb_xxx()", "CSV")
+            self.assertEqual(str(ret), '"0.12.0"\n')
+
+        with session.Session() as sess:
+            ret = sess.query("SELECT chdb_xxx()", "CSV")
+            self.assertEqual(str(ret), "")
+
     def test_zfree_thread_count(self):
         time.sleep(3)
         thread_count = current_process.num_threads()
