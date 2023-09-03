@@ -106,7 +106,8 @@ sess.query(
 print("Select from view:\n")
 print(sess.query("SELECT * FROM db_xxx.view_xxx", "Pretty"))
 ```
-  
+
+参见: [test_stateful.py](tests/test_stateful.py)
 </details>
 
 <details>
@@ -124,6 +125,23 @@ print("data: ", cur1.fetchone())
 cur1.close()
 conn1.close()
 ```
+</details>
+
+<details>
+    <summary><h4>🗂️ Query with UDF(User Defined Functions)</h4></summary>
+
+```python
+from chdb.udf import chdb_udf
+from chdb import query
+
+@chdb_udf()
+def sum_udf(lhs, rhs):
+    return int(lhs) + int(rhs)
+
+print(query("select sum_udf(12,22)"))
+```
+
+参见: [test_udf.py](tests/test_udf.py).
 </details>
 
 更多示例，请参见 [examples](examples) 和 [tests](tests)。
