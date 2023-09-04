@@ -6,12 +6,16 @@
 extern bool inside_main = true;
 
 
-local_result * queryToBuffer(const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {})
+local_result * queryToBuffer(
+    const std::string & queryStr,
+    const std::string & output_format = "CSV",
+    const std::string & path = {},
+    const std::string & udfPath = {})
 {
-    std::vector<std::string> argv = {"clickhouse", "--multiquery"};
+    std::vector<std::string> argv = {"clickhouse", "--", "--multiquery"};
 
-    // if format is "Debug" or "debug", then we will add --verbose and --log-level=trace to argv
-    if (format == "Debug" || format == "debug")
+    // If format is "Debug" or "debug", then we will add `--verbose` and `--log-level=trace` to argv
+    if (output_format == "Debug" || output_format == "debug")
     {
         argv.push_back("--verbose");
         argv.push_back("--log-level=trace");
@@ -21,10 +25,19 @@ local_result * queryToBuffer(const std::string & queryStr, const std::string & f
     else
     {
         // Add format string
-        argv.push_back("--output-format=" + format);
+        argv.push_back("--output-format=" + output_format);
     }
 
-    if (!path.empty()) 
+    // If udfPath is not empty, then we will add `--user_scripts_path` and `--user_defined_executable_functions_config` to argv
+    // the path should be a one time thing, so the caller should take care of the temporary files deletion
+    if (!udfPath.empty())
+    {
+        argv.push_back("--user_scripts_path=" + udfPath);
+        argv.push_back("--user_defined_executable_functions_config=" + udfPath + "/*.xml");
+    }
+
+    // If path is not empty, then we will add `--path` to argv. This is used for chdb.Session to support stateful query
+    if (!path.empty())
     {
         // Add path string
         argv.push_back("--path=" + path);
@@ -42,14 +55,13 @@ local_result * queryToBuffer(const std::string & queryStr, const std::string & f
 
 // Pybind11 will take over the ownership of the `query_result` object
 // using smart ptr will cause early free of the object
-query_result * query(const std::string & queryStr, const std::string & format = "CSV")
+query_result * query(
+    const std::string & queryStr,
+    const std::string & output_format = "CSV",
+    const std::string & path = {},
+    const std::string & udfPath = {})
 {
-    return new query_result(queryToBuffer(queryStr, format));
-}
-
-query_result * query_stateful(const std::string & queryStr, const std::string & format = "CSV", const std::string & path = {})
-{
-    return new query_result(queryToBuffer(queryStr, format, path));
+    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
@@ -132,9 +144,15 @@ PYBIND11_MODULE(_chdb, m)
         .def("get_memview", &query_result::get_memview);
 
 
-    m.def("query", &query, "Stateless query Clickhouse and return a query_result object");
-
-    m.def("query_stateful", &query_stateful, "Stateful query Clickhouse and return a query_result object");
+    m.def(
+        "query",
+        &query,
+        py::arg("queryStr"),
+        py::arg("output_format") = "CSV",
+        py::kw_only(),
+        py::arg("path") = "",
+        py::arg("udf_path") = "",
+        "Query chDB and return a query_result object");
 }
 
 #endif // PY_TEST_MAIN
