@@ -134,7 +134,7 @@ conn1.close()
 
 
 <details>
-    <summary><h4>🗂️ Query with UDF(User Defined Functions)</h4></summary>
+    <summary><h4>🗂️ Query with UDF (User Defined Functions)</h4></summary>
 
 ```python
 from chdb.udf import chdb_udf
