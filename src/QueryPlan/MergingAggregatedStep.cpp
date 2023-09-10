@@ -15,7 +15,7 @@
 
 #include <QueryPlan/MergingAggregatedStep.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/AggregatingTransform.h>
 #include <Processors/Transforms/MergingAggregatedTransform.h>
 #include <Processors/Transforms/MergingAggregatedMemoryEfficientTransform.h>

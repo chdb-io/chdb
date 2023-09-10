@@ -65,8 +65,8 @@ PlanNodePtr join(const PlanNodePtr & left, const PlanNodePtr & right, const Name
     auto join_step = std::make_shared<JoinStep>(
         DataStreams{left->getStep()->getOutputStream(), right->getStep()->getOutputStream()},
         output,
-        ASTTableJoin::Kind::Inner,
-        ASTTableJoin::Strictness::All,
+        JoinKind::Inner,
+        JoinStrictness::All,
         1,
         false,
         left_keys,

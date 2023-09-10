@@ -18,7 +18,7 @@
 #include <Core/Block.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/ResizeProcessor.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Transforms/ExpressionTransform.h>
@@ -40,7 +40,7 @@ void ExceptStep::setInputStreams(const DataStreams & input_streams_)
     input_streams = input_streams_;
 }
 
-QueryPipelinePtr ExceptStep::updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & context)
+QueryPipelinePtr ExceptStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & context)
 {
     (void) pipelines;
     (void) context;

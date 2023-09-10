@@ -20,10 +20,10 @@
 #include <Optimizer/Rule/Rule.h>
 #include <Parsers/ASTFunction.h>
 #include <Processors/Transforms/PartitionTopNTransform.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/PartitionTopNStep.h>
 #include <QueryPlan/PlanNode.h>
-#include <common/types.h>
+#include <Common/types.h>
 
 namespace DB
 {

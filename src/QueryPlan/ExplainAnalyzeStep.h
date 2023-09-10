@@ -14,13 +14,12 @@ public:
         const DataStream & input_stream_,
         ASTExplainQuery::ExplainKind explain_kind_,
         ContextMutablePtr context_,
-        std::shared_ptr<QueryPlan> query_plan_ptr_ = nullptr
-    );
+        std::shared_ptr<QueryPlan> query_plan_ptr_ = nullptr);
 
     String getName() const override { return "ExplainAnalyze"; }
     Type getType() const override { return Type::ExplainAnalyze; }
     bool hasPlan() const { return query_plan_ptr != nullptr; }
-//    void setQueryPlan(QueryPlanPtr query_plan_ptr_) { query_plan = query_plan_ptr_; }
+    //    void setQueryPlan(QueryPlanPtr query_plan_ptr_) { query_plan = query_plan_ptr_; }
 
     void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
     void serialize(WriteBuffer &) const override;
@@ -29,13 +28,13 @@ public:
     ASTExplainQuery::ExplainKind getKind() const { return kind; }
     void setInputStreams(const DataStreams & input_streams_) override;
 
-    void setPlanSegmentDescriptions(PlanSegmentDescriptions & descriptions) { segment_descriptions = descriptions; }
+    // void setPlanSegmentDescriptions(PlanSegmentDescriptions & descriptions) { segment_descriptions = descriptions; }
 
 private:
     ASTExplainQuery::ExplainKind kind;
     ContextMutablePtr context;
     std::shared_ptr<QueryPlan> query_plan_ptr;
-    PlanSegmentDescriptions segment_descriptions;
+    // PlanSegmentDescriptions segment_descriptions;
 };
 using ExplainAnalyzeStepPtr = std::shared_ptr<ExplainAnalyzeStep>;
 

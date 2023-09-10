@@ -18,14 +18,15 @@
 #include <sstream>
 #include <utility>
 #include <IO/Operators.h>
-#include <Interpreters/DistributedStages/PlanSegment.h>
+// #include <Interpreters/DistributedStages/PlanSegment.h>
+#include <Processors/Executors/PipelineExecutor.h>
+#include <Interpreters/ProcessorProfile.h>
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 #include <Optimizer/CostModel/CostCalculator.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Parsers/IAST.h>
 #include <QueryPlan/CTEVisitHelper.h>
 #include <QueryPlan/PlanVisitor.h>
-#include <Interpreters/ProcessorProfile.h>
 
 namespace DB
 {
@@ -36,7 +37,12 @@ struct PrinterContext;
 class PlanNodePrinter : public PlanNodeVisitor<Void, PrinterContext>
 {
 public:
-    explicit PlanNodePrinter(std::stringstream & out_, bool with_id_ = false, CTEInfo * cte_info = nullptr, PlanCostMap plan_cost_map_ = {}, StepAggregatedOperatorProfiles profiles_ = {})
+    explicit PlanNodePrinter(
+        std::stringstream & out_,
+        bool with_id_ = false,
+        CTEInfo * cte_info = nullptr,
+        PlanCostMap plan_cost_map_ = {},
+        StepAggregatedOperatorProfiles profiles_ = {})
         : out(out_)
         , cte_helper(cte_info ? std::make_optional<CTEPreorderVisitHelper>(*cte_info) : std::nullopt)
         , with_id(with_id_)
@@ -57,8 +63,8 @@ public:
     Void visitUnionNode(UnionNode & node, PrinterContext & context) override;
     Void visitIntersectNode(IntersectNode & node, PrinterContext & context) override;
     Void visitExceptNode(ExceptNode & node, PrinterContext & context) override;
-    Void visitExchangeNode(ExchangeNode & node, PrinterContext & context) override;
-    Void visitRemoteExchangeSourceNode(RemoteExchangeSourceNode & node, PrinterContext & context) override;
+    // Void visitExchangeNode(ExchangeNode & node, PrinterContext & context) override;
+    // Void visitRemoteExchangeSourceNode(RemoteExchangeSourceNode & node, PrinterContext & context) override;
     Void visitTableScanNode(TableScanNode & node, PrinterContext & context) override;
     Void visitReadNothingNode(ReadNothingNode & node, PrinterContext & context) override;
     Void visitValuesNode(ValuesNode & node, PrinterContext & context) override;
@@ -125,8 +131,8 @@ public:
     Void visitUnionNode(QueryPlan::Node * node, PrinterContext & context) override;
     Void visitIntersectNode(QueryPlan::Node * node, PrinterContext & context) override;
     Void visitExceptNode(QueryPlan::Node * node, PrinterContext & context) override;
-    Void visitExchangeNode(QueryPlan::Node * node, PrinterContext & context) override;
-    Void visitRemoteExchangeSourceNode(QueryPlan::Node * node, PrinterContext & context) override;
+    // Void visitExchangeNode(QueryPlan::Node * node, PrinterContext & context) override;
+    // Void visitRemoteExchangeSourceNode(QueryPlan::Node * node, PrinterContext & context) override;
     Void visitTableScanNode(QueryPlan::Node * node, PrinterContext & context) override;
     Void visitReadNothingNode(QueryPlan::Node * node, PrinterContext & context) override;
     Void visitValuesNode(QueryPlan::Node * node, PrinterContext & context) override;
@@ -155,17 +161,17 @@ private:
     Void visitChildren(QueryPlan::Node *, PrinterContext &);
 };
 
-class PlanSegmentEdgePrinter : public NodeVisitor<Void, std::unordered_map<size_t, PlanSegmentPtr &>>
-{
-public:
-    explicit PlanSegmentEdgePrinter(std::stringstream & out_) : out(out_) { }
-    Void visitNode(QueryPlan::Node *, std::unordered_map<size_t, PlanSegmentPtr &> &) override;
-    Void visitRemoteExchangeSourceNode(QueryPlan::Node * node, std::unordered_map<size_t, PlanSegmentPtr &> &) override;
+// class PlanSegmentEdgePrinter : public NodeVisitor<Void, std::unordered_map<size_t, PlanSegmentPtr &>>
+// {
+// public:
+//     explicit PlanSegmentEdgePrinter(std::stringstream & out_) : out(out_) { }
+//     Void visitNode(QueryPlan::Node *, std::unordered_map<size_t, PlanSegmentPtr &> &) override;
+//     Void visitRemoteExchangeSourceNode(QueryPlan::Node * node, std::unordered_map<size_t, PlanSegmentPtr &> &) override;
 
-private:
-    std::stringstream & out;
-    void printEdge(QueryPlan::Node * from, QueryPlan::Node * to);
-};
+// private:
+//     std::stringstream & out;
+//     void printEdge(QueryPlan::Node * from, QueryPlan::Node * to);
+// };
 
 class StepPrinter
 {
@@ -180,8 +186,8 @@ public:
     static String printUnionStep(const UnionStep & step);
     static String printIntersectStep(const IntersectStep & step);
     static String printExceptStep(const ExceptStep & step);
-    static String printExchangeStep(const ExchangeStep & step);
-    static String printRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step);
+    // static String printExchangeStep(const ExchangeStep & step);
+    // static String printRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step);
     static String printTableScanStep(const TableScanStep & step);
     static String printValuesStep(const ValuesStep & step);
     static String printLimitStep(const LimitStep & step);
@@ -220,22 +226,23 @@ public:
     static void printLogicalPlan(QueryPlan &, ContextMutablePtr &, const String & name, StepAggregatedOperatorProfiles profiles = {});
     static void printMemo(const Memo & memo, const ContextMutablePtr & context, const String & name);
     static void printMemo(const Memo & memo, GroupId root_id, const ContextMutablePtr & context, const String & name);
-    static void printPlanSegment(const PlanSegmentTreePtr &, const ContextMutablePtr &);
+    // static void printPlanSegment(const PlanSegmentTreePtr &, const ContextMutablePtr &);
     static void printChunk(String transform, const Block & block, const Chunk & chunk);
-    static void printPipeline(const Processors & processors, const ExecutingGraphPtr & graph, const ContextPtr & context, size_t segment_id, const String & host);
+    static void printPipeline(
+        const Processors & processors, const ExecutingGraphPtr & graph, const ContextPtr & context, size_t segment_id, const String & host);
 
 private:
     static String printAST(ASTPtr);
     static void addID(ASTPtr & ast, std::unordered_map<ASTPtr, UInt16> & asts, std::shared_ptr<std::atomic<UInt16>> & max_node_id);
 
     static String printLogicalPlan(PlanNodeBase &, CTEInfo * cte_info = nullptr, StepAggregatedOperatorProfiles profiles = {});
-    static String printPlanSegment(const PlanSegmentTreePtr &);
-    static void appendPlanSegmentNodes(
-        std::stringstream & out,
-        PlanSegmentTree::Node * segmentNode,
-        std::unordered_map<size_t, PlanSegmentPtr &> &,
-        std::unordered_set<PlanSegmentTree::Node *> & visited);
-    static void appendPlanSegmentNode(std::stringstream & out, const PlanSegmentPtr & segment_ptr);
+    // static String printPlanSegment(const PlanSegmentTreePtr &);
+    // static void appendPlanSegmentNodes(
+    //     std::stringstream & out,
+    //     PlanSegmentTree::Node * segmentNode,
+    //     std::unordered_map<size_t, PlanSegmentPtr &> &,
+    //     std::unordered_set<PlanSegmentTree::Node *> & visited);
+    // static void appendPlanSegmentNode(std::stringstream & out, const PlanSegmentPtr & segment_ptr);
 
     static String printMemo(const Memo & memo, GroupId root_id);
     static String printGroup(const Group & group);

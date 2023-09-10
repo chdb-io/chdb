@@ -21,7 +21,7 @@
 #include <Databases/DatabaseMemory.h>
 #include <IO/ReadBufferFromString.h>
 #include <IO/WriteBufferFromString.h>
-#include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
+// #include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
 #include <Interpreters/InterpreterSelectQueryUseOptimizer.h>
 #include <Interpreters/InterpreterShowStatsQuery.h>
 #include <Interpreters/NormalizeSelectWithUnionQueryVisitor.h>

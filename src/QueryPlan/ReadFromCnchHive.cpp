@@ -18,7 +18,7 @@
 #include <Storages/Hive/HiveDataSelectExecutor.h>
 #include <Storages/MergeTree/CnchHiveReadPool.h>
 #include <Storages/MergeTree/CnchHiveThreadSelectBlockInputProcessor.h>
-#include <common/scope_guard_safe.h>
+#include <Common/scope_guard_safe.h>
 
 namespace DB
 {

@@ -150,6 +150,9 @@ public:
     /// Different INSERT queries may write in parallel regardless of this value.
     virtual bool supportsParallelInsert() const { return false; }
 
+    /// Return true if the storage use MAP flattened model. i.e. MergeTree for now
+    virtual bool supportsMapImplicitColumn() const { return false; }
+
     /// Returns true if the storage supports deduplication of inserted data blocks.
     virtual bool supportsDeduplication() const { return false; }
 

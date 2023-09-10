@@ -17,7 +17,7 @@
 #include <QueryPlan/SubstitutionStep.h>
 #include <DataStreams/materializeBlock.h>
 #include <Processors/Transforms/SubstitutionTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>
 #include <Common/JSONBuilder.h>
 

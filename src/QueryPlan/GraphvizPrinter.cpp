@@ -27,12 +27,12 @@
 #include <QueryPlan/AggregatingStep.h>
 #include <QueryPlan/ApplyStep.h>
 #include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/ExplainAnalyzeStep.h>
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/GraphvizPrinter.h>
 #include <QueryPlan/Hints/Leading.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/LimitByStep.h>
 #include <QueryPlan/LimitStep.h>
@@ -1119,43 +1119,43 @@ String StepPrinter::printJoinStep(const JoinStep & step)
 {
     const Names & left = step.getLeftKeys();
     const Names & right = step.getRightKeys();
-    ASTTableJoin::Kind kind = step.getKind();
+    JoinKind kind = step.getKind();
     std::stringstream details;
 
-    auto f = [](ASTTableJoin::Kind v) {
+    auto f = [](JoinKind v) {
         switch (v)
         {
-            case ASTTableJoin::Kind::Inner:
+            case JoinKind::Inner:
                 return "INNER";
-            case ASTTableJoin::Kind::Left:
+            case JoinKind::Left:
                 return "LEFT";
-            case ASTTableJoin::Kind::Right:
+            case JoinKind::Right:
                 return "RIGHT";
-            case ASTTableJoin::Kind::Full:
+            case JoinKind::Full:
                 return "FULL";
-            case ASTTableJoin::Kind::Cross:
+            case JoinKind::Cross:
                 return "CROSS";
-            case ASTTableJoin::Kind::Comma:
+            case JoinKind::Comma:
                 return "COMMA";
         }
     };
 
-    auto strictnessf = [](ASTTableJoin::Strictness v) {
+    auto strictnessf = [](JoinStrictness v) {
         switch (v)
         {
-            case ASTTableJoin::Strictness::Unspecified:
+            case JoinStrictness::Unspecified:
                 return "Unspecified";
-            case ASTTableJoin::Strictness::RightAny:
+            case JoinStrictness::RightAny:
                 return "RightAny";
-            case ASTTableJoin::Strictness::Any:
+            case JoinStrictness::Any:
                 return "Any";
-            case ASTTableJoin::Strictness::Asof:
+            case JoinStrictness::Asof:
                 return "Asof";
-            case ASTTableJoin::Strictness::All:
+            case JoinStrictness::All:
                 return "All";
-            case ASTTableJoin::Strictness::Semi:
+            case JoinStrictness::Semi:
                 return "Semi";
-            case ASTTableJoin::Strictness::Anti:
+            case JoinStrictness::Anti:
                 return "Anti";
         }
     };

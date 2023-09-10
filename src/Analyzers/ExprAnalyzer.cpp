@@ -17,26 +17,26 @@
 #include <AggregateFunctions/parseAggregateFunctionParameters.h>
 #include <Analyzers/ExprAnalyzer.h>
 #include <Analyzers/QueryAnalyzer.h>
-#include <Analyzers/tryEvaluateConstantExpression.h>
 #include <Analyzers/function_utils.h>
+#include <Analyzers/tryEvaluateConstantExpression.h>
 #include <Core/ColumnsWithTypeAndName.h>
-#include <Common/StringUtils/StringUtils.h>
 #include <DataTypes/DataTypeFunction.h>
 #include <DataTypes/DataTypeLowCardinality.h>
-#include <DataTypes/DataTypesNumber.h>
+#include <DataTypes/DataTypeMap.h>
 #include <DataTypes/DataTypeNullable.h>
-#include <DataTypes/DataTypeTuple.h>
 #include <DataTypes/DataTypeSet.h>
+#include <DataTypes/DataTypeTuple.h>
+#include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/FieldToDataType.h>
 #include <DataTypes/getLeastSupertype.h>
 #include <Functions/FunctionFactory.h>
 #include <Functions/FunctionHelpers.h>
+#include <IO/WriteHelpers.h>
 #include <Interpreters/convertFieldToType.h>
 #include <Interpreters/misc.h>
-#include <IO/WriteHelpers.h>
 #include <Parsers/ASTVisitor.h>
 #include <QueryPlan/Void.h>
-#include <DataTypes/DataTypeMap.h>
+#include <Common/StringUtils/StringUtils.h>
 
 #include <Poco/String.h>
 
@@ -74,15 +74,16 @@ public:
     ColumnWithTypeAndName visitASTOrderByElement(ASTPtr & node, const Void &) override;
     ColumnWithTypeAndName visitASTQuantifiedComparison(ASTPtr & node, const Void &) override;
 
-    ExprAnalyzerVisitor(ContextMutablePtr context_, Analysis & analysis_, ScopePtr scope_, ExprAnalyzerOptions options_):
-        context(std::move(context_)),
-        analysis(analysis_),
-        options(std::move(options_)),
-        use_ansi_semantic(context->getSettingsRef().dialect_type != DialectType::CLICKHOUSE),
-        enable_implicit_type_conversion(context->getSettingsRef().enable_implicit_type_conversion),
-        allow_extended_conversion(context->getSettingsRef().allow_extended_type_conversion),
-        scopes({scope_})
-    {}
+    ExprAnalyzerVisitor(ContextMutablePtr context_, Analysis & analysis_, ScopePtr scope_, ExprAnalyzerOptions options_)
+        : context(std::move(context_))
+        , analysis(analysis_)
+        , options(std::move(options_))
+        , use_ansi_semantic(context->getSettingsRef().dialect != Dialect::clickhouse)
+        , enable_implicit_type_conversion(context->getSettingsRef().enable_implicit_type_conversion)
+        , allow_extended_conversion(context->getSettingsRef().allow_extended_type_conversion)
+        , scopes({scope_})
+    {
+    }
 
     void setInWindow(bool x) { in_window = x; }
 
@@ -100,15 +101,9 @@ private:
     // whether we are in a window function
     bool in_window = false;
 
-    ScopePtr currentScope() const
-    {
-        return scopes.back();
-    }
+    ScopePtr currentScope() const { return scopes.back(); }
 
-    ScopePtr baseScope() const
-    {
-        return scopes.front();
-    }
+    ScopePtr baseScope() const { return scopes.front(); }
 
     void enterLambda(ScopePtr lambda_scope)
     {
@@ -148,13 +143,10 @@ private:
     static String getFunctionColumnName(const String & func_name, const ColumnsWithTypeAndName & arguments);
 };
 
-DataTypePtr ExprAnalyzer::analyze(ASTPtr expression,
-                                  ScopePtr scope,
-                                  ContextMutablePtr context,
-                                  Analysis & analysis,
-                                  ExprAnalyzerOptions options)
+DataTypePtr
+ExprAnalyzer::analyze(ASTPtr expression, ScopePtr scope, ContextMutablePtr context, Analysis & analysis, ExprAnalyzerOptions options)
 {
-    ExprAnalyzerVisitor expr_visitor {context, analysis, scope, options};
+    ExprAnalyzerVisitor expr_visitor{context, analysis, scope, options};
     return expr_visitor.process(expression).type;
 }
 
@@ -180,7 +172,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::process(ASTPtr & node)
 ColumnsWithTypeAndName ExprAnalyzerVisitor::processNodes(ASTs & nodes)
 {
     ColumnsWithTypeAndName processed(nodes.size());
-    std::transform(nodes.begin(), nodes.end(), processed.begin(), [&](auto && node) { return process(node);});
+    std::transform(nodes.begin(), nodes.end(), processed.begin(), [&](auto && node) { return process(node); });
     return processed;
 }
 
@@ -222,7 +214,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::visitASTFieldReference(ASTPtr & node,
     if (field_ref.field_index >= baseScope()->size())
         throw Exception("Illegal field reference node", ErrorCodes::LOGICAL_ERROR);
 
-    ResolvedField resolved {baseScope(), field_ref.field_index};
+    ResolvedField resolved{baseScope(), field_ref.field_index};
 
     return handleResolvedField(node, resolved);
 }
@@ -268,7 +260,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::visitASTFunction(ASTPtr & node, const
 
 ColumnWithTypeAndName ExprAnalyzerVisitor::visitASTQuantifiedComparison(ASTPtr & node, const Void &)
 {
-    auto  quantified_comparison = std::dynamic_pointer_cast<ASTQuantifiedComparison>(node);
+    auto quantified_comparison = std::dynamic_pointer_cast<ASTQuantifiedComparison>(node);
     auto & lhs_ast = quantified_comparison->children[0];
     auto & rhs_ast = quantified_comparison->children[1];
     processSubqueryArgsWithCoercion(lhs_ast, rhs_ast);
@@ -348,7 +340,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeOrdinaryFunction(ASTFunctionPt
                 lambda_fields.emplace_back(*lambda_arg_name, lambda_type->getArgumentTypes()[j]);
             }
 
-            const auto *lambda_scope = analysis.scope_factory.createLambdaScope(currentScope(), lambda_fields);
+            const auto * lambda_scope = analysis.scope_factory.createLambdaScope(currentScope(), lambda_fields);
 
             analysis.setScope(lambda, lambda_scope);
 
@@ -359,7 +351,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeOrdinaryFunction(ASTFunctionPt
             auto resolved_lambda_type = std::make_shared<DataTypeFunction>(lambda_type->getArgumentTypes(), lambda_ret_type);
             // since we don't call `process` for lambda argument, register its type manually
             analysis.setExpressionColumnWithType(arguments[index], {resolved_lambda_type});
-            processed_arguments[index] = {nullptr, resolved_lambda_type,""};
+            processed_arguments[index] = {nullptr, resolved_lambda_type, ""};
         }
     }
 
@@ -369,7 +361,8 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeOrdinaryFunction(ASTFunctionPt
     // post analysis for sub column optimization
     String func_name_lowercase = Poco::toLower(function->name);
 
-    auto check_subcolumn = [](const FieldDescription & field, auto && pred) {
+    auto check_subcolumn = [](const FieldDescription & field, auto && pred)
+    {
         if (!field.hasOriginInfo())
             return false;
 
@@ -380,7 +373,8 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeOrdinaryFunction(ASTFunctionPt
         return true;
     };
 
-    auto register_subcolumn = [&](const ASTPtr & ast, const ResolvedField & column_ref, const SubColumnID & sub_column_id) {
+    auto register_subcolumn = [&](const ASTPtr & ast, const ResolvedField & column_ref, const SubColumnID & sub_column_id)
+    {
         analysis.setSubColumnReference(ast, SubColumnReference{column_ref, sub_column_id});
 
         for (const auto & origin_col : column_ref.getFieldDescription().origin_columns)
@@ -413,13 +407,13 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeOrdinaryFunction(ASTFunctionPt
         if (auto column_reference = analysis.tryGetColumnReference(function->arguments->children[0]))
         {
             const auto & resolved_field = column_reference->getFieldDescription();
-            if (resolved_field.hasOriginInfo() && 
-                resolved_field.type->isMap() &&
-                (check_subcolumn(resolved_field, [](const auto & origin_col) { return !origin_col.storage->supportsMapImplicitColumn(); })
-                || resolved_field.type->isMapKVStore()))
+            if (resolved_field.hasOriginInfo() && resolved_field.type->isMap()
+                && (check_subcolumn(
+                        resolved_field, [](const auto & origin_col) { return !origin_col.storage->supportsMapImplicitColumn(); })
+                    || resolved_field.type->isMapKVStore()))
             {
                 auto column_id = SubColumnID::mapKeys();
-                analysis.setSubColumnReference(function, SubColumnReference {*column_reference, column_id});
+                analysis.setSubColumnReference(function, SubColumnReference{*column_reference, column_id});
                 register_subcolumn(function, *column_reference, column_id);
             }
         }
@@ -438,8 +432,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeOrdinaryFunction(ASTFunctionPt
 ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeAggregateFunction(ASTFunctionPtr & function)
 {
     if (options.aggregate_support == ExprAnalyzerOptions::AggregateSupport::DISALLOWED)
-        throw Exception("Aggregate function is not supported in " + options.statement_name,
-                        ErrorCodes::SYNTAX_ERROR);
+        throw Exception("Aggregate function is not supported in " + options.statement_name, ErrorCodes::SYNTAX_ERROR);
 
     if (!options.select_query)
         throw Exception("Provide query node if aggregate function is allowed", ErrorCodes::LOGICAL_ERROR);
@@ -459,7 +452,7 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeAggregateFunction(ASTFunctionP
     aggregate_analysis.parameters = parameters;
     analysis.aggregate_results[options.select_query].push_back(aggregate_analysis);
     in_aggregate = false;
-    return {nullptr, aggregate_analysis.function->getReturnType(), column_name};
+    return {nullptr, aggregate_analysis.function->getResultType(), column_name};
 }
 
 ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeWindowFunction(ASTFunctionPtr & function)
@@ -491,10 +484,9 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeWindowFunction(ASTFunctionPtr 
         // Lead and lag
         if (function->window_definition)
         {
-            const struct WindowFrame def =
-            {
+            const struct WindowFrame def = {
                 .is_default = false,
-                .type = WindowFrame::FrameType::Rows,
+                .type = WindowFrame::FrameType::ROWS,
                 .end_type = WindowFrame::BoundaryType::Unbounded,
             };
 
@@ -536,14 +528,13 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeWindowFunction(ASTFunctionPtr 
     window_analysis->parameters = parameters;
     analysis.addWindowAnalysis(*options.select_query, std::move(window_analysis));
     in_window = false;
-    return {nullptr, aggregator->getReturnType(), column_name};
+    return {nullptr, aggregator->getResultType(), column_name};
 }
 
 ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeGroupingOperation(ASTFunctionPtr & function)
 {
     if (options.aggregate_support == ExprAnalyzerOptions::AggregateSupport::DISALLOWED)
-        throw Exception("Grouping operation is not supported in " + options.statement_name,
-                        ErrorCodes::SYNTAX_ERROR);
+        throw Exception("Grouping operation is not supported in " + options.statement_name, ErrorCodes::SYNTAX_ERROR);
 
     if (!options.select_query)
         throw Exception("Provide query node if grouping operation is allowed", ErrorCodes::LOGICAL_ERROR);
@@ -557,7 +548,10 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::analyzeGroupingOperation(ASTFunctionP
         throw Exception(ErrorCodes::TOO_FEW_ARGUMENTS_FOR_FUNCTION, "Function GROUPING expects at least one argument");
 
     if (function->arguments->children.size() > 64)
-        throw Exception(ErrorCodes::TOO_MANY_ARGUMENTS_FOR_FUNCTION, "Function GROUPING can have up to 64 arguments, but {} provided", function->arguments->children.size());
+        throw Exception(
+            ErrorCodes::TOO_MANY_ARGUMENTS_FOR_FUNCTION,
+            "Function GROUPING can have up to 64 arguments, but {} provided",
+            function->arguments->children.size());
 
     auto processed_arguments = processNodes(function->arguments->children);
     auto column_name = getFunctionColumnName(function->name, processed_arguments);
@@ -595,7 +589,7 @@ void ExprAnalyzerVisitor::processSubqueryArgsWithCoercion(ASTPtr & lhs_ast, ASTP
     {
         DataTypePtr super_type = nullptr;
         if (enable_implicit_type_conversion)
-            super_type = getLeastSupertype({lhs_type, rhs_type}, allow_extended_conversion);
+            super_type = getLeastSupertype(DataTypes({lhs_type, rhs_type}));
         if (!super_type)
             throw Exception("Incompatible types for IN prediacte", ErrorCodes::TYPE_MISMATCH);
         if (!lhs_type->equals(*super_type))
@@ -614,21 +608,23 @@ void ExprAnalyzerVisitor::expandUntuple(ASTs & nodes)
     new_nodes.reserve(nodes.size());
     bool has_untuple = false;
 
-    for (auto & node: nodes)
+    for (auto & node : nodes)
     {
         if (auto * untuple = node->as<ASTFunction>(); untuple && untuple->name == "untuple")
         {
             if (untuple->arguments->children.size() != 1)
-                throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH,
-                                "Number of arguments for function untuple doesn't match. Passed {}, should be 1",
-                                untuple->arguments->children.size());
+                throw Exception(
+                    ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH,
+                    "Number of arguments for function untuple doesn't match. Passed {}, should be 1",
+                    untuple->arguments->children.size());
 
             auto & tuple_ast = untuple->arguments->children[0];
             /// Get type and name for tuple argument
             auto argument_type = process(tuple_ast);
             const auto * tuple_type = typeid_cast<const DataTypeTuple *>(argument_type.type.get());
             if (!tuple_type)
-                throw Exception(ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function untuple expect tuple argument, got {}", argument_type.type->getName());
+                throw Exception(
+                    ErrorCodes::ILLEGAL_TYPE_OF_ARGUMENT, "Function untuple expect tuple argument, got {}", argument_type.type->getName());
 
             size_t tid = 0;
             for (const auto & name [[maybe_unused]] : tuple_type->getElementNames())
@@ -716,23 +712,23 @@ ColumnWithTypeAndName ExprAnalyzerVisitor::handleResolvedField(ASTPtr & node, co
 String ExprAnalyzerVisitor::getFunctionColumnName(const String & func_name, const ColumnsWithTypeAndName & arguments)
 {
     Strings arg_result_names;
-    for (const auto & arg: arguments)
+    for (const auto & arg : arguments)
         arg_result_names.emplace_back(arg.name);
     return getFunctionResultName(func_name, arg_result_names);
 }
 
-void ExprAnalyzerVisitor::expandAsterisk(ASTs & nodes) 
+void ExprAnalyzerVisitor::expandAsterisk(ASTs & nodes)
 {
-    if (!options.expand_asterisk) 
+    if (!options.expand_asterisk)
         return;
 
     ASTs new_nodes;
     new_nodes.reserve(nodes.size());
     bool has_asterisk = false;
-    
-    for (auto & node: nodes) 
+
+    for (auto & node : nodes)
     {
-        if (auto * asterisk = node->as<ASTAsterisk>()) 
+        if (auto * asterisk = node->as<ASTAsterisk>())
         {
             has_asterisk = true;
             for (size_t field_index = 0; field_index < baseScope()->size(); ++field_index)
@@ -744,14 +740,14 @@ void ExprAnalyzerVisitor::expandAsterisk(ASTs & nodes)
                     new_nodes.push_back(field_reference);
                 }
             }
-         }
-        else if (auto * qualified_asterisk = node->as<ASTQualifiedAsterisk>()) 
-        {   
+        }
+        else if (auto * qualified_asterisk = node->as<ASTQualifiedAsterisk>())
+        {
             if (qualified_asterisk->children.empty() || !qualified_asterisk->getChildren()[0]->as<ASTTableIdentifier>())
                 throw Exception("Unable to resolve qualified asterisk", ErrorCodes::UNKNOWN_IDENTIFIER);
 
-            has_asterisk = true;    
-            ASTIdentifier& astidentifier = qualified_asterisk->getChildren()[0]->as<ASTTableIdentifier&>();
+            has_asterisk = true;
+            ASTIdentifier & astidentifier = qualified_asterisk->getChildren()[0]->as<ASTTableIdentifier &>();
             auto prefix = QualifiedName::extractQualifiedName(astidentifier);
             bool matched = false;
             for (size_t field_index = 0; field_index < baseScope()->size(); ++field_index)
@@ -767,7 +763,7 @@ void ExprAnalyzerVisitor::expandAsterisk(ASTs & nodes)
             if (!matched)
                 throw Exception("Can not find column of " + prefix.toString() + " in Scope", ErrorCodes::UNKNOWN_IDENTIFIER);
         }
-        else 
+        else
             new_nodes.push_back(node);
     }
     if (has_asterisk)

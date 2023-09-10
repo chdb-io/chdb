@@ -1,6 +1,6 @@
 #include <QueryPlan/Hints/HintsPropagator.h>
 
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/PlanNode.h>
 #include <QueryPlan/Hints/Leading.h>

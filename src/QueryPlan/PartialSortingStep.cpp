@@ -14,7 +14,7 @@
  */
 
 #include <QueryPlan/PartialSortingStep.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/PartialSortingTransform.h>
 #include <Processors/Transforms/LimitsCheckingTransform.h>
 #include <IO/Operators.h>
@@ -50,7 +50,7 @@ PartialSortingStep::PartialSortingStep(
     , size_limits(size_limits_)
 {
     output_stream->sort_description = sort_description;
-    output_stream->sort_mode = DataStream::SortMode::Chunk;
+    output_stream->sort_mode = DataStream::SortScope::Chunk;
 }
 
 void PartialSortingStep::setInputStreams(const DataStreams & input_streams_)

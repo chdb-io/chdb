@@ -186,7 +186,7 @@ String parseKeyNameFromImplicitFileName(const String & implicit_file_name, const
 
     auto extension_loc = implicit_file_name.find('.'); /// only extension contain dot, other dots in column name are escaped.
     if (extension_loc == String::npos)
-        throw Exception(ErrorCodes::INVALID_IMPLICIT_COLUMN_FILE_NAME, "Invalid file name of implicit column: {]", implicit_file_name);
+        throw Exception(ErrorCodes::INVALID_IMPLICIT_COLUMN_FILE_NAME, "Invalid file name of implicit column: {}", implicit_file_name);
     size_t extension_size = implicit_file_name.size() - extension_loc;
 
     return unescape_file_name.substr(prefix.size(), unescape_file_name.size() - prefix.size() - extension_size);

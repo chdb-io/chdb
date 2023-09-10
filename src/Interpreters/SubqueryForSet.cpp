@@ -19,9 +19,9 @@
  * All Bytedance's Modifications are Copyright (2023) Bytedance Ltd. and/or its affiliates.
  */
 
+#include <Interpreters/PreparedSets.h>
 #include <Interpreters/SubqueryForSet.h>
 #include <QueryPlan/QueryPlan.h>
-#include <Interpreters/PreparedSets.h>
 
 namespace DB
 {
@@ -29,6 +29,6 @@ namespace DB
 SubqueryForSet::SubqueryForSet() = default;
 SubqueryForSet::~SubqueryForSet() = default;
 SubqueryForSet::SubqueryForSet(SubqueryForSet &&) = default;
-SubqueryForSet & SubqueryForSet::operator= (SubqueryForSet &&) = default;
+SubqueryForSet & SubqueryForSet::operator=(SubqueryForSet &&) = default;
 
 }

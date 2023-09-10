@@ -23,9 +23,7 @@
 namespace DB
 {
 FinalSampleTransform::FinalSampleTransform(const Block & header_, size_t sample_size_, size_t max_chunk_size_, size_t num_streams_)
-    : IProcessor({num_streams_, header_}, {1, header_})
-    , sample_size(sample_size_)
-    , max_chunk_size(max_chunk_size_)
+    : IProcessor({num_streams_, header_}, {1, header_}), sample_size(sample_size_), max_chunk_size(max_chunk_size_)
 {
     sampled_chunks = std::make_shared<SampledChunks>(sample_size, max_chunk_size);
 }
@@ -70,7 +68,7 @@ IProcessor::Status FinalSampleTransform::prepare()
         return Status::Ready;
 
     bool all_inputs_finished = true;
-    for (auto & input: inputs)
+    for (auto & input : inputs)
     {
         if (!input.isFinished())
         {
@@ -84,7 +82,7 @@ IProcessor::Status FinalSampleTransform::prepare()
         return Status::Finished;
     }
 
-    for (auto & input: inputs)
+    for (auto & input : inputs)
     {
         input.setNeeded();
         if (input.hasData())
@@ -131,7 +129,7 @@ size_t FinalSampleTransform::SampledChunk::sample(const size_t sample_size_, con
     if (step > 1 && step < 2)
     {
         size_t base = 10;
-        size_t window = step * base;
+        size_t window = static_cast<size_t>(step * static_cast<Float64>(base));
         for (size_t idx = 0; idx < rows; idx += window)
         {
             memset(filter_vec.data() + idx, 1, base);
@@ -139,7 +137,7 @@ size_t FinalSampleTransform::SampledChunk::sample(const size_t sample_size_, con
     }
     else
     {
-        size_t window = step * 10 / 10;
+        size_t window = static_cast<size_t>(step * 10 / 10);
         for (size_t idx = 0; idx < rows; idx += window)
             filter_vec[idx] = 1;
     }

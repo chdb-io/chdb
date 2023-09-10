@@ -16,7 +16,7 @@
 #include <Optimizer/Property/PropertyEnforcer.h>
 
 #include <Optimizer/Cascades/GroupExpression.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/UnionStep.h>
 
 namespace DB

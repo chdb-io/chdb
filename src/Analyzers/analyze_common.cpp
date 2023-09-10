@@ -41,9 +41,9 @@ ASTPtr joinCondition(const ASTTableJoin & join)
 
 bool isNormalInnerJoin(const ASTTableJoin & join)
 {
-    return join.kind == ASTTableJoin::Kind::Inner && (
-               join.strictness == ASTTableJoin::Strictness::All ||
-               join.strictness == ASTTableJoin::Strictness::Unspecified
+    return join.kind == JoinKind::Inner && (
+               join.strictness == JoinStrictness::All ||
+               join.strictness == JoinStrictness::Unspecified
            );
 }
 

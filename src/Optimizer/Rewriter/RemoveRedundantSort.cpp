@@ -17,7 +17,7 @@
 
 #include <QueryPlan/ApplyStep.h>
 #include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/IntersectStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/SortingStep.h>

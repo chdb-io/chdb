@@ -600,18 +600,18 @@ String PlanPrinter::TextPrinter::printPrefix(PlanNodeBase & plan)
     if (plan.getStep()->getType() == IQueryPlanStep::Type::Join)
     {
         const auto * join = dynamic_cast<const JoinStep *>(plan.getStep().get());
-        auto f = [](ASTTableJoin::Kind kind) {
+        auto f = [](JoinKind kind) {
             switch (kind)
             {
-                case ASTTableJoin::Kind::Inner:
+                case JoinKind::Inner:
                     return "Inner ";
-                case ASTTableJoin::Kind::Left:
+                case JoinKind::Left:
                     return "Left ";
-                case ASTTableJoin::Kind::Right:
+                case JoinKind::Right:
                     return "Right ";
-                case ASTTableJoin::Kind::Full:
+                case JoinKind::Full:
                     return "Full ";
-                case ASTTableJoin::Kind::Cross:
+                case JoinKind::Cross:
                     return "Cross ";
                 default:
                     return "";
@@ -909,18 +909,18 @@ void PlanPrinter::JsonPrinter::detail(Poco::JSON::Object::Ptr & json, QueryPlanS
 
         json->set("filter", serializeAST(*join->getFilter()));
 
-        auto f = [](ASTTableJoin::Kind kind) {
+        auto f = [](JoinKind kind) {
             switch (kind)
             {
-                case ASTTableJoin::Kind::Inner:
+                case JoinKind::Inner:
                     return "inner";
-                case ASTTableJoin::Kind::Left:
+                case JoinKind::Left:
                     return "left";
-                case ASTTableJoin::Kind::Right:
+                case JoinKind::Right:
                     return "right";
-                case ASTTableJoin::Kind::Full:
+                case JoinKind::Full:
                     return "full";
-                case ASTTableJoin::Kind::Cross:
+                case JoinKind::Cross:
                     return "cross";
                 default:
                     return "";

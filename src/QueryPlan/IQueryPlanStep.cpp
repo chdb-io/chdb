@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 
 #include <Functions/FunctionsHashing.h>
 #include <IO/Operators.h>
@@ -22,7 +22,7 @@
 #include <Interpreters/ActionsVisitor.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Processors/IProcessor.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Exchange/ExchangeSource.h>
 #include <QueryPlan/Hints/PlanHintFactory.h>

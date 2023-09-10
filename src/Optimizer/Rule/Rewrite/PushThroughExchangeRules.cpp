@@ -20,7 +20,7 @@
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 
 namespace DB
 {

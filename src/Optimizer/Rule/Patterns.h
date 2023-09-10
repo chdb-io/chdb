@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Optimizer/Rule/Pattern.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 
 #include <sstream>
 

@@ -409,7 +409,7 @@ TEST(OptimizerPatternTest, Case3)
         "sum",
         true,
         {createJoinNode(
-            ASTTableJoin::Kind::Inner,
+            JoinKind::Inner,
             {"col1"},
             {createTableScanNode("db1", "t1", {}), createExchangeNode(ExchangeMode::BROADCAST, {createTableScanNode("db1", "t2", {})})})});
 
@@ -488,11 +488,11 @@ TEST(OptimizerPatternTest, Case3)
 TEST(OptimizerPatternTest, Case4)
 {
     PlanNodePtr plan = createJoinNode(
-        ASTTableJoin::Kind::Inner,
+        JoinKind::Inner,
         {"col1"},
         {createTableScanNode("db1", "t1", {}),
          createJoinNode(
-             ASTTableJoin::Kind::Cross, {"col2"}, {createTableScanNode("db1", "t2", {}), createTableScanNode("db1", "t3", {})})});
+             JoinKind::Cross, {"col2"}, {createTableScanNode("db1", "t2", {}), createTableScanNode("db1", "t3", {})})});
 
     Capture join1Cap{"join1"};
     Capture join2Cap{"join2"};
@@ -570,7 +570,7 @@ TEST(OptimizerPatternTest, Case5)
         "sum",
         true,
         {createJoinNode(
-            ASTTableJoin::Kind::Cross,
+            JoinKind::Cross,
             {"jk1"},
             {createExchangeNode(ExchangeMode::REPARTITION, {createTableScanNode("db1", "t1", {})}),
              createExchangeNode(ExchangeMode::REPARTITION, {createTableScanNode("db2", "t2", {})})})});
@@ -589,7 +589,7 @@ TEST(OptimizerPatternTest, Case5)
     ASSERT_TRUE(pattern1->matches(plan));
     ASSERT_TRUE(pattern1->match(plan)->captures.size() == 4);
     ASSERT_TRUE(pattern1->match(plan)->captures.at<std::string>(aggOpCap) == "sum");
-    ASSERT_TRUE(pattern1->match(plan)->captures.at<ASTTableJoin::Kind>(joinTypeCap) == ASTTableJoin::Kind::Cross);
+    ASSERT_TRUE(pattern1->match(plan)->captures.at<JoinKind>(joinTypeCap) == JoinKind::Cross);
     ASSERT_TRUE(pattern1->match(plan)->captures.at<PlanNodePtr>(excgCap) == plan->getChildren()[0]->getChildren()[0]);
     ASSERT_TRUE(pattern1->match(plan)->captures.at<std::string>(tableCap) == "t1");
 }

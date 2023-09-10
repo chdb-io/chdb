@@ -17,7 +17,7 @@
 #include <Statistics/StatisticsCollector.h>
 #include <Statistics/StatsTableBasic.h>
 #include <Poco/Logger.h>
-#include <common/ErrorHandlers.h>
+#include <Common/ErrorHandlers.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Optimizer/CardinalityEstimate/LimitEstimator.h>
 #include <Interpreters/convertFieldToType.h>

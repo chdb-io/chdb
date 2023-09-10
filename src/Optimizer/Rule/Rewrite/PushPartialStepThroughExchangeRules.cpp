@@ -23,7 +23,7 @@
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/SymbolsExtractor.h>
 #include <Processors/Transforms/AggregatingTransform.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/QueryPlan.h>
 #include <QueryPlan/SymbolMapper.h>
 

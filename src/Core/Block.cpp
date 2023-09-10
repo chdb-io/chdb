@@ -625,6 +625,16 @@ NamesAndTypes Block::getNamesAndTypes() const
     return res;
 }
 
+NameToType Block::getNamesToTypes() const
+{
+    NameToType res;
+
+    for (const auto & elem : data)
+        res.emplace(elem.name, elem.type);
+
+    return res;
+}
+
 Names Block::getNames() const
 {
     Names res;

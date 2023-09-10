@@ -14,7 +14,7 @@
  */
 
 #pragma once
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 
 namespace DB
 {
@@ -52,7 +52,7 @@ public:
     const Fields & getFields() const { return fields; }
     size_t getRows() const { return rows; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & build_context) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & build_context) override;
     void serialize(WriteBuffer & buffer) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr context);
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr context) const override;

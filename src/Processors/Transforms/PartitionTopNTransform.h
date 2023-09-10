@@ -15,11 +15,11 @@
 
 #pragma once
 
-#include <Common/WeakHash.h>
-#include <Processors/IProcessor.h>
 #include <Core/ColumnNumbers.h>
-#include <Common/AlignedBuffer.h>
+#include <Processors/IProcessor.h>
 #include <QueryPlan/TopNModel.h>
+#include <Common/AlignedBuffer.h>
+#include <Common/WeakHash.h>
 
 #include <deque>
 #include <queue>
@@ -30,7 +30,13 @@ namespace DB
 
 struct PartitionTopNTransform : IProcessor
 {
-    PartitionTopNTransform(Block header, size_t topN, ColumnNumbers partition_by_column_, ColumnNumbers order_by_columns_, TopNModel model, bool reverse = false);
+    PartitionTopNTransform(
+        Block header,
+        size_t topN,
+        ColumnNumbers partition_by_column_,
+        ColumnNumbers order_by_columns_,
+        TopNModel model,
+        bool reverse = false);
     String getName() const override { return "PartitionTopNTransform"; }
 
     Status prepare() override;
@@ -42,21 +48,11 @@ private:
         uint64_t block = 0;
         uint64_t row = 0;
 
-        bool operator < (const RowNumber & other) const
-        {
-            return block < other.block
-                || (block == other.block && row < other.row);
-        }
+        bool operator<(const RowNumber & other) const { return block < other.block || (block == other.block && row < other.row); }
 
-        bool operator == (const RowNumber & other) const
-        {
-            return block == other.block && row == other.row;
-        }
+        bool operator==(const RowNumber & other) const { return block == other.block && row == other.row; }
 
-        bool operator <= (const RowNumber & other) const
-        {
-            return *this < other || *this == other;
-        }
+        bool operator<=(const RowNumber & other) const { return *this < other || *this == other; }
     };
 
     TopNModel model;
@@ -79,11 +75,11 @@ private:
     std::list<Chunk> output_chunk_list;
 
     WeakHash32 hash;
-// For tests
+    // For tests
 public:
-    void setChunk(Chunk chunk_) {std::swap(chunk, chunk_);}
-    void setReceiveAllData(bool receive_all_data_) {receive_all_data = receive_all_data_;}
-    void setStartOutputChunk(bool start_output_chunk_) {start_output_chunk = start_output_chunk_;}
+    void setChunk(Chunk chunk_) { std::swap(chunk, chunk_); }
+    void setReceiveAllData(bool receive_all_data_) { receive_all_data = receive_all_data_; }
+    void setStartOutputChunk(bool start_output_chunk_) { start_output_chunk = start_output_chunk_; }
     void printOutputChunk()
     {
         while (!output_chunk_list.empty())
@@ -96,7 +92,7 @@ public:
                 {
                     std::cerr << output_first_chunk.getColumns()[j]->get64(i) << "\t";
                 }
-                std::cerr<<std::endl;
+                std::cerr << std::endl;
             }
             output_chunk_list.pop_front();
         }

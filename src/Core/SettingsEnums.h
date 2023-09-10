@@ -170,6 +170,94 @@ enum class HandleKafkaErrorMode
 
 DECLARE_SETTING_ENUM(HandleKafkaErrorMode)
 
+enum class Dialect
+{
+    clickhouse,
+    kusto,
+    kusto_auto,
+    mysql,
+    ansi
+};
+
+// struct SettingFieldDialect
+// {
+//     using EnumType = Dialect;
+//     using Traits = SettingFieldDialectTraits;
+
+//     Dialect value;
+//     bool changed = false;
+//     bool pending = false;
+
+//     explicit SettingFieldDialect(Dialect x = Dialect{0}) : value(x) { }
+//     explicit SettingFieldDialect(const Field & f) : SettingFieldDialect(Traits::fromString(f.safeGet<const String &>())) { }
+
+//     SettingFieldDialect & operator=(Dialect x)
+//     {
+//         value = x;
+//         changed = true;
+//         return *this;
+//     }
+//     SettingFieldDialect & operator=(const Field & f)
+//     {
+//         *this = Traits::fromString(f.safeGet<const String &>());
+//         return *this;
+//     }
+
+//     operator Dialect() const { return value; }
+//     explicit operator Field() const { return toString(); }
+
+//     String toString() const { return Traits::toString(value); }
+//     void parseFromString(const String & str) { *this = Traits::fromString(str); }
+
+//     void writeBinary(WriteBuffer & out) const { SettingFieldEnumHelpers::writeBinary(toString(), out); }
+
+//     void readBinary(ReadBuffer & in) { *this = Traits::fromString(SettingFieldEnumHelpers::readBinary(in)); }
+// };
+
+enum class CTEMode
+{
+    INLINED,
+    SHARED,
+    AUTO,
+};
+
+DECLARE_SETTING_ENUM(CTEMode)
+
+enum class StatisticsAccurateSampleNdvMode
+{
+    NEVER,
+    AUTO,
+    ALWAYS,
+};
+
+DECLARE_SETTING_ENUM(StatisticsAccurateSampleNdvMode)
+
+/// The setting for controlling usage of local disk cache
+enum class DiskCacheMode
+{
+    AUTO = 0, /// depends on storage settings
+    USE_DISK_CACHE, /// use disk cache if cache is available
+    SKIP_DISK_CACHE, /// use no disk cache
+    FORCE_CHECKSUMS_DISK_CACHE, /// if disk cache is not hit, throw an exception
+};
+
+DECLARE_SETTING_ENUM(DiskCacheMode);
+
+enum class StatisticsCachePolicy
+{
+    Default,
+    Cache,
+    Catalog,
+};
+DECLARE_SETTING_ENUM(StatisticsCachePolicy)
+
+enum class MaterializedViewConsistencyCheckMethod
+{
+    NONE,
+    PARTITION,
+};
+
+DECLARE_SETTING_ENUM(MaterializedViewConsistencyCheckMethod)
 enum class ShortCircuitFunctionEvaluation
 {
     ENABLE, // Use short-circuit function evaluation for functions that are suitable for it.
@@ -200,12 +288,6 @@ DECLARE_SETTING_ENUM_WITH_RENAME(ArrowCompression, FormatSettings::ArrowCompress
 
 DECLARE_SETTING_ENUM_WITH_RENAME(ORCCompression, FormatSettings::ORCCompression)
 
-enum class Dialect
-{
-    clickhouse,
-    kusto,
-    kusto_auto,
-};
 
 DECLARE_SETTING_ENUM(Dialect)
 

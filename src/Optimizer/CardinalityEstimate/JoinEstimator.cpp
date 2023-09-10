@@ -38,7 +38,7 @@ PlanNodeStatisticsPtr JoinEstimator::estimate(
     const Names & left_keys = join_step.getLeftKeys();
     const Names & right_keys = join_step.getRightKeys();
 
-    ASTTableJoin::Kind kind = join_step.getKind();
+    JoinKind kind = join_step.getKind();
 
     return computeCardinality(left_stats, right_stats, left_keys, right_keys, kind, context, is_left_base_table, is_right_base_table, join_step.getFilter());
 }
@@ -48,7 +48,7 @@ PlanNodeStatisticsPtr JoinEstimator::computeCardinality(
     PlanNodeStatistics & right_stats,
     const Names & left_keys,
     const Names & right_keys,
-    ASTTableJoin::Kind kind,
+    JoinKind kind,
     Context & context,
     bool is_left_base_table,
     bool is_right_base_table,
@@ -70,7 +70,7 @@ PlanNodeStatisticsPtr JoinEstimator::computeCardinality(
     }
 
     // cross join
-    if (kind == ASTTableJoin::Kind::Cross)
+    if (kind == JoinKind::Cross)
     {
         for (auto & item : left_stats.getSymbolStatistics())
         {
@@ -185,17 +185,17 @@ PlanNodeStatisticsPtr JoinEstimator::computeCardinality(
     // Adjust the number of output rows by join kind.
 
     // All rows from left side should be in the result.
-    if (kind == ASTTableJoin::Kind::Left)
+    if (kind == JoinKind::Left)
     {
         join_card = std::max(left_rows, join_card);
     }
     // All rows from right side should be in the result.
-    if (kind == ASTTableJoin::Kind::Right)
+    if (kind == JoinKind::Right)
     {
         join_card = std::max(right_rows, join_card);
     }
     // T(A FOJ B) = T(A LOJ B) + T(A ROJ B) - T(A IJ B)
-    if (kind == ASTTableJoin::Kind::Full)
+    if (kind == JoinKind::Full)
     {
         join_card = std::max(left_rows, join_card) + std::max(right_rows, join_card) - join_card;
     }
@@ -389,7 +389,7 @@ UInt64 JoinEstimator::computeCardinalityByHistogram(
     PlanNodeStatistics & right_stats,
     SymbolStatistics & left_key_stats,
     SymbolStatistics & right_key_stats,
-    ASTTableJoin::Kind kind,
+    JoinKind kind,
     String left_key,
     String right_key,
     std::unordered_map<String, SymbolStatisticsPtr> & join_output_statistics)
@@ -419,7 +419,7 @@ UInt64 JoinEstimator::computeCardinalityByHistogram(
         if (item.first == left_key)
         {
             auto new_left_key_stats = left_key_stats.createJoin(join_buckets);
-            if (kind == ASTTableJoin::Kind::Inner)
+            if (kind == JoinKind::Inner)
             {
                 new_left_key_stats->setNdv(min_ndv);
             }
@@ -437,7 +437,7 @@ UInt64 JoinEstimator::computeCardinalityByHistogram(
         if (item.first == right_key)
         {
             auto new_right_key_stats = right_key_stats.createJoin(join_buckets);
-            if (kind == ASTTableJoin::Kind::Inner)
+            if (kind == JoinKind::Inner)
             {
                 new_right_key_stats->setNdv(min_ndv);
             }
@@ -457,7 +457,7 @@ UInt64 JoinEstimator::computeCardinalityByNDV(
     PlanNodeStatistics & right_stats,
     SymbolStatistics & left_key_stats,
     SymbolStatistics & right_key_stats,
-    ASTTableJoin::Kind kind,
+    JoinKind kind,
     String left_key,
     String right_key,
     std::unordered_map<String, SymbolStatisticsPtr> & join_output_statistics)
@@ -472,7 +472,7 @@ UInt64 JoinEstimator::computeCardinalityByNDV(
     for (auto & item : left_stats.getSymbolStatistics())
     {
         join_output_statistics[item.first] = item.second->applySelectivity(adjust_left_rowcount, 1.0);
-        if (item.first == left_key && kind == ASTTableJoin::Kind::Inner)
+        if (item.first == left_key && kind == JoinKind::Inner)
         {
             join_output_statistics[item.first]->setNdv(min_ndv);
         }
@@ -481,7 +481,7 @@ UInt64 JoinEstimator::computeCardinalityByNDV(
     for (auto & item : right_stats.getSymbolStatistics())
     {
         join_output_statistics[item.first] = item.second->applySelectivity(adjust_right_rowcount, 1.0);
-        if (item.first == right_key && kind == ASTTableJoin::Kind::Inner)
+        if (item.first == right_key && kind == JoinKind::Inner)
         {
             join_output_statistics[item.first]->setNdv(min_ndv);
         }

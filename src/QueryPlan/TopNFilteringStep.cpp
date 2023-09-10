@@ -1,6 +1,6 @@
 #include <QueryPlan/TopNFilteringStep.h>
 #include <IO/Operators.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/TopNFilteringTransform.h>
 
 namespace DB

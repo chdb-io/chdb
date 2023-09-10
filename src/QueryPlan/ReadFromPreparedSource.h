@@ -14,11 +14,11 @@
  */
 
 #pragma once
-#include <QueryPlan/ISourceStep.h>
-#include <Processors/Pipe.h>
-#include <Storages/SelectQueryInfo.h>
-#include <Interpreters/StorageID.h>
 #include <Core/QueryProcessingStage.h>
+#include <Interpreters/StorageID.h>
+#include <Processors/QueryPlan/ISourceStep.h>
+#include <QueryPipeline/Pipe.h>
+#include <Storages/SelectQueryInfo.h>
 
 namespace DB
 {
@@ -36,7 +36,7 @@ public:
 
     Type getType() const override { return Type::ReadFromPreparedSource; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
 
 protected:
@@ -47,11 +47,7 @@ protected:
 class ReadFromStorageStep : public ReadFromPreparedSource
 {
 public:
-    ReadFromStorageStep(Pipe pipe_, String storage_name)
-        : ReadFromPreparedSource(std::move(pipe_))
-    {
-        setStepDescription(storage_name);
-    }
+    ReadFromStorageStep(Pipe pipe_, String storage_name) : ReadFromPreparedSource(std::move(pipe_)) { setStepDescription(storage_name); }
 
     String getName() const override { return "ReadFromStorage"; }
 
@@ -62,7 +58,6 @@ public:
     // void serialize(WriteBuffer &) const override;
 
     // static QueryPlanStepPtr deserialize(ReadBuffer &, ContextPtr context_ = nullptr);
-
 };
 
 }

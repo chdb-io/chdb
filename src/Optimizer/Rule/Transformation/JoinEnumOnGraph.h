@@ -113,13 +113,13 @@ public:
             auto pos = left_bit.find_first();
             while (pos != BitSet::npos)
             {
-                left.insert(pos);
+                left.insert(static_cast<GroupId>(pos));
                 pos = left_bit.find_next(pos);
             }
             pos = right_bit.find_first();
             while (pos != BitSet::npos)
             {
-                right.insert(pos);
+                right.insert(static_cast<GroupId>(pos));
                 pos = right_bit.find_next(pos);
             }
         }

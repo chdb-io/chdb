@@ -19,17 +19,20 @@
 namespace DB
 {
 
-QueryCacheTransform::QueryCacheTransform(const Block & header,
-                                         const QueryCachePtr & query_cache_,
-                                         const UInt128 & query_key_,
-                                         const QueryResultPtr & query_result_,
-                                         const std::set<String> & ref_db_and_table_,
-                                         UInt64 update_time_)
-    : ISimpleTransform(header, header, false),
-    query_cache(query_cache_), query_key(query_key_), query_result(query_result_),
-    ref_db_and_table(ref_db_and_table_), update_time(update_time_)
+QueryCacheTransform::QueryCacheTransform(
+    const Block & header,
+    const QueryCachePtr & query_cache_,
+    const UInt128 & query_key_,
+    const QueryResultPtr & query_result_,
+    const std::set<String> & ref_db_and_table_,
+    UInt64 update_time_)
+    : ISimpleTransform(header, header, false)
+    , query_cache(query_cache_)
+    , query_key(query_key_)
+    , query_result(query_result_)
+    , ref_db_and_table(ref_db_and_table_)
+    , update_time(update_time_)
 {
-
 }
 
 QueryCacheTransform::~QueryCacheTransform()

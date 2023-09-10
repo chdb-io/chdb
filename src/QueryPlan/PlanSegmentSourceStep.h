@@ -14,8 +14,8 @@
  */
 
 #pragma once
-#include <QueryPlan/ISourceStep.h>
-#include <Processors/Pipe.h>
+#include <Processors/QueryPlan/ISourceStep.h>
+#include <QueryPipeline/Pipe.h>
 #include <Storages/SelectQueryInfo.h>
 #include <Interpreters/StorageID.h>
 #include <Interpreters/Context_fwd.h>
@@ -40,7 +40,7 @@ public:
 
     Type getType() const override { return Type::PlanSegmentSource; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void serialize(WriteBuffer &) const override;
 

@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include <Interpreters/DistributedStages/PlanSegment.h>
-#include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
+// #include <Interpreters/DistributedStages/PlanSegment.h>
+// #include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>
 #include <Optimizer/Dump/Json2Pb.h>
 #include <Parsers/IAST.h>

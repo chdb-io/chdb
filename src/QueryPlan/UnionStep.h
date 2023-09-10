@@ -38,7 +38,7 @@ public:
 
     Type getType() const override { return Type::Union; }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings &) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
     void describePipeline(FormatSettings & settings) const override;
 
@@ -53,7 +53,7 @@ private:
     Block header;
     size_t max_threads;
     bool local;
-    Processors processors;
+    // Processors processors;
 };
 
 }

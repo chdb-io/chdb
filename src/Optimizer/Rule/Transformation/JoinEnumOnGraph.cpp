@@ -122,8 +122,8 @@ static PlanNodePtr createJoinNode(
     auto join_step = std::make_shared<JoinStep>(
         DataStreams{left->getStep()->getOutputStream(), right->getStep()->getOutputStream()},
         DataStream{output},
-        ASTTableJoin::Kind::Inner,
-        ASTTableJoin::Strictness::All,
+        JoinKind::Inner,
+        JoinStrictness::All,
         context->getOptimizerContext().getContext()->getSettingsRef().max_threads,
         context->getOptimizerContext().getContext()->getSettingsRef().optimize_read_in_order,
         join_keys.first,

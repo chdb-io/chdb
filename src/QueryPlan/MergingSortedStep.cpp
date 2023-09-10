@@ -14,7 +14,7 @@
  */
 
 #include <QueryPlan/MergingSortedStep.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Merges/MergingSortedTransform.h>
 #include <IO/Operators.h>
 #include <Common/JSONBuilder.h>
@@ -50,7 +50,7 @@ MergingSortedStep::MergingSortedStep(
 {
     /// TODO: check input_stream is partially sorted (each port) by the same description.
     output_stream->sort_description = sort_description;
-    output_stream->sort_mode = DataStream::SortMode::Stream;
+    output_stream->sort_mode = DataStream::SortScope::Stream;
 }
 
 void MergingSortedStep::setInputStreams(const DataStreams & input_streams_)

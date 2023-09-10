@@ -15,7 +15,7 @@
 
 #pragma once
 #include <QueryPlan/ITransformingStep.h>
-#include <DataStreams/SizeLimits.h>
+#include <QueryPipeline/SizeLimits.h>
 #include <Interpreters/Aggregator.h>
 
 namespace DB

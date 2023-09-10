@@ -14,7 +14,7 @@
  */
 
 #include <QueryPlan/ReadNothingStep.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Sources/NullSource.h>
 
 namespace DB

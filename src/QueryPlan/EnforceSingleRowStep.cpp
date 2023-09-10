@@ -16,7 +16,7 @@
 #include <QueryPlan/EnforceSingleRowStep.h>
 
 #include <Processors/Transforms/EnforceSingleRowTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 
 namespace DB
 {

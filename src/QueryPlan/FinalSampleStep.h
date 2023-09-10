@@ -17,10 +17,10 @@
 #include <IO/Operators.h>
 #include <IO/ReadBuffer.h>
 #include <IO/WriteBuffer.h>
-#include <DataStreams/SizeLimits.h>
-#include <QueryPlan/ITransformingStep.h>
 #include <Processors/Transforms/FinalSampleTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/SizeLimits.h>
+#include <QueryPlan/ITransformingStep.h>
 #include <Common/JSONBuilder.h>
 
 namespace DB
@@ -44,8 +44,10 @@ public:
 
     void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override
     {
-        auto transform = std::make_shared<FinalSampleTransform>(pipeline.getHeader(), sample_size, max_chunk_size, pipeline.getNumStreams());
-        pipeline.addTransform(std::move(transform));
+        auto transform
+            = std::make_shared<FinalSampleTransform>(pipeline.getHeader(), sample_size, max_chunk_size, pipeline.getNumStreams());
+        //chdb-todo: omit this for compile test!!!!
+        // pipeline.addTransform(std::move(transform));
     }
 
     void describeActions(FormatSettings & settings) const override

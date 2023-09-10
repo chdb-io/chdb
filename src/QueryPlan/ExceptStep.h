@@ -32,7 +32,7 @@ public:
     String getName() const override { return "Except"; }
     Type getType() const override { return Type::Except; }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & context) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & context) override;
     void serialize(WriteBuffer & buffer) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr context);
 
@@ -42,6 +42,6 @@ public:
 
 private:
     bool distinct;
-    Processors processors;
+    // Processors processors;
 };
 }

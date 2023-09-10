@@ -27,21 +27,22 @@
 #include <QueryPlan/DistinctStep.h>
 #include <QueryPlan/EnforceSingleRowStep.h>
 #include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
+#include <Parsers/IAST_fwd.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
+#include <QueryPlan/ExplainAnalyzeStep.h>
 #include <QueryPlan/ExpressionStep.h>
 #include <QueryPlan/ExtremesStep.h>
-#include <QueryPlan/ExplainAnalyzeStep.h>
 #include <QueryPlan/FillingStep.h>
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/FinalSampleStep.h>
 #include <QueryPlan/FinishSortingStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/IntersectStep.h>
 #include <QueryPlan/IntersectOrExceptStep.h>
+#include <QueryPlan/IntersectStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/LimitByStep.h>
 #include <QueryPlan/LimitStep.h>
-#include <QueryPlan/SortingStep.h>
+#include <QueryPlan/MarkDistinctStep.h>
 #include <QueryPlan/MergeSortingStep.h>
 #include <QueryPlan/MergingAggregatedStep.h>
 #include <QueryPlan/MergingSortedStep.h>
@@ -50,23 +51,22 @@
 #include <QueryPlan/PartitionTopNStep.h>
 #include <QueryPlan/PlanSegmentSourceStep.h>
 #include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/QueryCacheStep.h>
-#include <QueryPlan/ReadFromMergeTree.h>
-#include <QueryPlan/MarkDistinctStep.h>
+// #include <QueryPlan/QueryCacheStep.h>
+#include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <QueryPlan/ReadFromPreparedSource.h>
 #include <QueryPlan/ReadNothingStep.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+// #include <QueryPlan/RemoteExchangeSourceStep.h>
 #include <QueryPlan/RollupStep.h>
-#include <QueryPlan/SettingQuotaAndLimitsStep.h>
+// #include <QueryPlan/SettingQuotaAndLimitsStep.h>
+#include <QueryPlan/SortingStep.h>
 #include <QueryPlan/SymbolAllocator.h>
 #include <QueryPlan/TableScanStep.h>
+#include <QueryPlan/TopNFilteringStep.h>
 #include <QueryPlan/TotalsHavingStep.h>
 #include <QueryPlan/UnionStep.h>
 #include <QueryPlan/ValuesStep.h>
 #include <QueryPlan/Void.h>
 #include <QueryPlan/WindowStep.h>
-#include <QueryPlan/TopNFilteringStep.h>
-#include <Parsers/IAST_fwd.h>
 
 #include <memory>
 #include <utility>
@@ -125,8 +125,8 @@ public:
         plan_node = std::dynamic_pointer_cast<PlanNodeBase>(std::make_shared<PlanNode<TYPE##Step>>(id_, std::move(spec_step), children_)); \
     }
 
-    APPLY_STEP_TYPES(CREATE_PLAN_NODE)
-    CREATE_PLAN_NODE(Any)
+        APPLY_STEP_TYPES(CREATE_PLAN_NODE)
+        CREATE_PLAN_NODE(Any)
 #undef CREATE_PLAN_NODE
         plan_node->setStatistics(statistics_);
         return plan_node;
@@ -138,11 +138,9 @@ protected:
     PlanNodeStatisticsEstimate statistics;
 
 private:
-
     virtual QueryPlanStepPtr getStepImpl() const = 0;
     virtual void setStepImpl(QueryPlanStepPtr & step_) = 0;
     virtual void replaceChildrenImpl(const PlanNodes & children_) = 0;
-
 };
 
 template <class Step>
@@ -162,8 +160,8 @@ public:
     void setStep(StepPtr & step_) { step = step_; }
     const DataStream & getCurrentDataStream() const override { return step->getOutputStream(); }
 
-    static PlanNodePtr createPlanNode(
-        PlanNodeId id_, StepPtr step_, const PlanNodes & children_ = {}, const PlanNodeStatisticsEstimate & statistics_ = {})
+    static PlanNodePtr
+    createPlanNode(PlanNodeId id_, StepPtr step_, const PlanNodes & children_ = {}, const PlanNodeStatisticsEstimate & statistics_ = {})
     {
         PlanNodePtr plan_node = std::make_shared<PlanNode<Step>>(id_, std::move(step_), children_);
         plan_node->setStatistics(statistics_);

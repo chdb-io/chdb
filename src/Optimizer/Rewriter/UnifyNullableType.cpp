@@ -112,7 +112,7 @@ PlanNodePtr UnifyNullableVisitor::visitJoinNode(JoinNode & node, Void & v)
     }
 
     bool has_outer_join_semantic = isAny(join_step.getStrictness()) || isAll(join_step.getStrictness())
-        || join_step.getStrictness() == ASTTableJoin::Strictness::RightAny || isAsof(join_step.getStrictness());
+        || join_step.getStrictness() == JoinStrictness::RightAny || isAsof(join_step.getStrictness());
     bool make_nullable_for_left = has_outer_join_semantic && isRightOrFull(join_step.getKind());
     bool make_nullable_for_right = has_outer_join_semantic && isLeftOrFull(join_step.getKind());
 

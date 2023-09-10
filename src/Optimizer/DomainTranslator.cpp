@@ -546,7 +546,7 @@ std::optional<Field> DomainVisitor::canImplicitCoerceValue(Field & value, DataTy
     DataTypePtr super_type = nullptr;
     try
     {
-        super_type = getLeastSupertype({from_type, to_type}, context->getSettingsRef().allow_extended_type_conversion);
+        super_type = getLeastSupertype(DataTypes({from_type, to_type}), context->getSettingsRef().allow_extended_type_conversion);
         if (!super_type || !super_type->equals(*to_type))
         {
             return std::nullopt;

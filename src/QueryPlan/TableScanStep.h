@@ -16,7 +16,7 @@
 #pragma once
 #include <Core/QueryProcessingStage.h>
 #include <Core/SortDescription.h>
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <QueryPlan/AggregatingStep.h>
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/ProjectionStep.h>
@@ -91,7 +91,7 @@ public:
     String getName() const override { return "TableScan"; }
     Type getType() const override { return Type::TableScan; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
     void serialize(WriteBuffer & buffer) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer & buf, ContextPtr context);
 

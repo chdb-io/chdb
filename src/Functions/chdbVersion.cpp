@@ -3,7 +3,6 @@
 #include <DataTypes/DataTypeString.h>
 #include <Functions/FunctionFactory.h>
 #include <Functions/FunctionConstantBase.h>
-#include <Common/FunctionDocumentation.h>
 
 namespace DB
 {
@@ -22,15 +21,14 @@ namespace
     
 REGISTER_FUNCTION(ChdbVersion)
 {
-    factory.registerFunction<FunctionChdbVersion>(FunctionDocumentation
+    factory.registerFunction<FunctionChdbVersion>(
         {
-          .description=R"(
+        R"(
 Returns the version of chDB.  The result type is String.
-)",
-          .examples{{"chdb", "SELECT chdb();", ""}},
-          .categories{"String"}
-        },
-        FunctionFactory::CaseInsensitive);
+        )",
+        Documentation::Examples{{"chdb", "SELECT chdb()"}},
+        Documentation::Categories{"String"}
+        }, FunctionFactory::CaseInsensitive);
 }
 }
 #endif

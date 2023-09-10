@@ -16,7 +16,7 @@
 #include <Optimizer/PlanNodeCardinality.h>
 #include <Optimizer/Rule/Rewrite/SwapAdjacenRules.h>
 #include <Optimizer/Rule/Rule.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/PlanNodeIdAllocator.h>
 #include <QueryPlan/WindowStep.h>
 

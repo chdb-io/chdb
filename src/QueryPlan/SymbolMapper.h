@@ -18,54 +18,48 @@
 #include <memory>
 #include <Core/Names.h>
 #include <Functions/IFunction.h>
-#include <Interpreters/DistributedStages/PlanSegment.h>
+// #include <Interpreters/DistributedStages/PlanSegment.h>
 #include <Interpreters/WindowDescription.h>
-#include <QueryPlan/Assignment.h>
 #include <QueryPlan/AggregatingStep.h>
 #include <QueryPlan/ApplyStep.h>
 #include <QueryPlan/ArrayJoinStep.h>
 #include <QueryPlan/AssignUniqueIdStep.h>
+#include <QueryPlan/Assignment.h>
 #include <QueryPlan/CreatingSetsStep.h>
 #include <QueryPlan/CubeStep.h>
 #include <QueryPlan/DistinctStep.h>
 #include <QueryPlan/EnforceSingleRowStep.h>
+#include <QueryPlan/ExceptStep.h>
 #include <QueryPlan/ExpressionStep.h>
 #include <QueryPlan/ExtremesStep.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/FillingStep.h>
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/FinalSampleStep.h>
 #include <QueryPlan/FinishSortingStep.h>
 #include <QueryPlan/IntersectStep.h>
 #include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitStep.h>
 #include <QueryPlan/LimitByStep.h>
+#include <QueryPlan/LimitStep.h>
 #include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingSortedStep.h>
 #include <QueryPlan/MergingAggregatedStep.h>
+#include <QueryPlan/MergingSortedStep.h>
 #include <QueryPlan/OffsetStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/PartitionTopNStep.h>
 #include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+#include <QueryPlan/PartitionTopNStep.h>
+#include <QueryPlan/ProjectionStep.h>
+// #include <QueryPlan/RemoteExchangeSourceStep.h>
+#include <Optimizer/Property/Property.h>
 #include <QueryPlan/RollupStep.h>
-#include <QueryPlan/SymbolAllocator.h>
 #include <QueryPlan/SortingStep.h>
+#include <QueryPlan/SymbolAllocator.h>
 #include <QueryPlan/TableScanStep.h>
 #include <QueryPlan/TopNFilteringStep.h>
 #include <QueryPlan/TotalsHavingStep.h>
 #include <QueryPlan/UnionStep.h>
 #include <QueryPlan/ValuesStep.h>
 #include <QueryPlan/WindowStep.h>
-#include <Optimizer/Property/Property.h>
 #include "Interpreters/Context_fwd.h"
 #include "QueryPlan/ReadNothingStep.h"
-
-
-
-
-
 
 
 namespace DB
@@ -79,17 +73,21 @@ public:
     using Symbol = std::string;
     using MappingFunction = std::function<std::string(const std::string &)>;
 
-    explicit SymbolMapper(MappingFunction mapping_function_, ContextPtr context_ = nullptr) : mapping_function(std::move(mapping_function_)), context(context_) { }
+    explicit SymbolMapper(MappingFunction mapping_function_, ContextPtr context_ = nullptr)
+        : mapping_function(std::move(mapping_function_)), context(context_)
+    {
+    }
 
     static SymbolMapper simpleMapper(std::unordered_map<Symbol, Symbol> & mapping);
     static SymbolMapper symbolMapper(const std::unordered_map<Symbol, Symbol> & mapping);
-    static SymbolMapper symbolReallocator(std::unordered_map<Symbol, Symbol> & mapping, SymbolAllocator & symbolAllocator, ContextPtr context);
+    static SymbolMapper
+    symbolReallocator(std::unordered_map<Symbol, Symbol> & mapping, SymbolAllocator & symbolAllocator, ContextPtr context);
 
     std::string map(const std::string & symbol) { return mapping_function(symbol); }
     template <typename T>
     std::vector<T> map(const std::vector<T> & items)
     {
-        std::vector<T>  ret;
+        std::vector<T> ret;
         std::transform(items.begin(), items.end(), std::back_inserter(ret), [&](const auto & param) { return map(param); });
         return ret;
     }
@@ -129,7 +127,7 @@ public:
     std::shared_ptr<ExpressionStep> map(const ExpressionStep & expression);
     std::shared_ptr<ExceptStep> map(const ExceptStep & except);
     std::shared_ptr<ExtremesStep> map(const ExtremesStep & extreme);
-    std::shared_ptr<ExchangeStep> map(const ExchangeStep & exchange);
+    // std::shared_ptr<ExchangeStep> map(const ExchangeStep & exchange);
     std::shared_ptr<FillingStep> map(const FillingStep & filling);
     std::shared_ptr<FinalSampleStep> map(const FinalSampleStep & final_sample);
     std::shared_ptr<FinishSortingStep> map(const FinishSortingStep & finish_sorting);
@@ -146,7 +144,7 @@ public:
     std::shared_ptr<PartitionTopNStep> map(const PartitionTopNStep & partition_topn);
     std::shared_ptr<PartialSortingStep> map(const PartialSortingStep & partition_sorting);
     std::shared_ptr<ReadNothingStep> map(const ReadNothingStep & read_nothing);
-    std::shared_ptr<RemoteExchangeSourceStep> map(const RemoteExchangeSourceStep & remote_exchange);
+    // std::shared_ptr<RemoteExchangeSourceStep> map(const RemoteExchangeSourceStep & remote_exchange);
     std::shared_ptr<SortingStep> map(const SortingStep & sorting);
     std::shared_ptr<TopNFilteringStep> map(const TopNFilteringStep & topn_filter);
     std::shared_ptr<TableScanStep> map(const TableScanStep & table_scan);

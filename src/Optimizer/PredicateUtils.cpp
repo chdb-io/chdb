@@ -26,7 +26,7 @@
 #include <QueryPlan/ProjectionStep.h>
 #include <Optimizer/EqualityASTMap.h>
 
-#include <common/arithmeticOverflow.h>
+#include <Common/arithmeticOverflow.h>
 
 namespace DB
 {

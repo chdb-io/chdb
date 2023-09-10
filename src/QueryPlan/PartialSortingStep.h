@@ -15,7 +15,7 @@
 
 #pragma once
 #include <Core/SortDescription.h>
-#include <DataStreams/SizeLimits.h>
+#include <QueryPipeline/SizeLimits.h>
 #include <QueryPlan/ITransformingStep.h>
 
 namespace DB

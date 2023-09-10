@@ -19,7 +19,7 @@
 #include <Optimizer/PlanNodeCardinality.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/LimitStep.h>
 #include <QueryPlan/WindowStep.h>
@@ -158,7 +158,7 @@ TransformResult PushLimitThroughUnion::transformImpl(PlanNodePtr node, const Cap
 PatternPtr PushLimitThroughOuterJoin::getPattern() const
 {
     return Patterns::limit().withSingle(Patterns::join().matchingStep<JoinStep>([](const auto & join_step) {
-        return join_step.getKind() == ASTTableJoin::Kind::Left || join_step.getKind() == ASTTableJoin::Kind::Right;
+        return join_step.getKind() == JoinKind::Left || join_step.getKind() == JoinKind::Right;
     })).result();
 }
 
@@ -171,7 +171,7 @@ TransformResult PushLimitThroughOuterJoin::transformImpl(PlanNodePtr node, const
     auto left = join->getChildren()[0];
     auto right = join->getChildren()[1];
 
-    if (join_step->getKind() == ASTTableJoin::Kind::Left && isLimitNeeded(*limit_step, left))
+    if (join_step->getKind() == JoinKind::Left && isLimitNeeded(*limit_step, left))
     {
         left = PlanNodeBase::createPlanNode(
             context.context->nextNodeId(),
@@ -187,7 +187,7 @@ TransformResult PushLimitThroughOuterJoin::transformImpl(PlanNodePtr node, const
         join->replaceChildren({left, right});
         return node;
     }
-    else if (join_step->getKind() == ASTTableJoin::Kind::Right && isLimitNeeded(*limit_step, right))
+    else if (join_step->getKind() == JoinKind::Right && isLimitNeeded(*limit_step, right))
     {
         right = PlanNodeBase::createPlanNode(
             context.context->nextNodeId(),

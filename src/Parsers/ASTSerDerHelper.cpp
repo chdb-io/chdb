@@ -22,26 +22,18 @@
 #include <Parsers/ASTColumnsTransformers.h>
 #include <Parsers/ASTConstraintDeclaration.h>
 #include <Parsers/ASTCreateQuery.h>
-#include <Parsers/ASTCreateQuotaQuery.h>
-#include <Parsers/ASTCreateRoleQuery.h>
-#include <Parsers/ASTCreateRowPolicyQuery.h>
-#include <Parsers/ASTCreateSettingsProfileQuery.h>
-#include <Parsers/ASTCreateUserQuery.h>
 #include <Parsers/ASTDeleteQuery.h>
 #include <Parsers/ASTDictionary.h>
 #include <Parsers/ASTDictionaryAttributeDeclaration.h>
-#include <Parsers/ASTDropAccessEntityQuery.h>
 #include <Parsers/ASTDropQuery.h>
-#include <Parsers/ASTUpdateQuery.h>
 #include <Parsers/ASTDumpInfoQuery.h>
 #include <Parsers/ASTExplainQuery.h>
 #include <Parsers/ASTExpressionList.h>
 #include <Parsers/ASTExternalDDLQuery.h>
 #include <Parsers/ASTFieldReference.h>
 #include <Parsers/ASTFunction.h>
-#include <Parsers/ASTTEALimit.h>
 #include <Parsers/ASTFunctionWithKeyValueArguments.h>
-#include <Parsers/ASTGrantQuery.h>
+#include <Parsers/Access/ASTGrantQuery.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTIndexDeclaration.h>
 #include <Parsers/ASTInsertQuery.h>
@@ -50,44 +42,52 @@
 #include <Parsers/ASTNameTypePair.h>
 #include <Parsers/ASTOptimizeQuery.h>
 #include <Parsers/ASTOrderByElement.h>
+#include <Parsers/ASTPartToolKit.h>
 #include <Parsers/ASTPartition.h>
 #include <Parsers/ASTProjectionDeclaration.h>
 #include <Parsers/ASTProjectionSelectQuery.h>
 #include <Parsers/ASTQualifiedAsterisk.h>
+#include <Parsers/ASTQuantifiedComparison.h>
 #include <Parsers/ASTQueryParameter.h>
 #include <Parsers/ASTQueryWithOnCluster.h>
 #include <Parsers/ASTQueryWithOutput.h>
 #include <Parsers/ASTRefreshQuery.h>
 #include <Parsers/ASTRenameQuery.h>
-#include <Parsers/ASTRolesOrUsersSet.h>
-#include <Parsers/ASTRowPolicyName.h>
 #include <Parsers/ASTReproduceQuery.h>
+#include <Parsers/Access/ASTRolesOrUsersSet.h>
+#include <Parsers/Access/ASTRowPolicyName.h>
 #include <Parsers/ASTSampleRatio.h>
 #include <Parsers/ASTSelectIntersectExceptQuery.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTSerDerHelper.h>
 #include <Parsers/ASTSetQuery.h>
-#include <Parsers/ASTSetRoleQuery.h>
-#include <Parsers/ASTPartToolKit.h>
-#include <Parsers/ASTSettingsProfileElement.h>
-#include <Parsers/ASTShowAccessEntitiesQuery.h>
-#include <Parsers/ASTShowAccessQuery.h>
-#include <Parsers/ASTShowCreateAccessEntityQuery.h>
-#include <Parsers/ASTShowGrantsQuery.h>
+#include <Parsers/Access/ASTSetRoleQuery.h>
+#include <Parsers/Access/ASTSettingsProfileElement.h>
+#include <Parsers/Access/ASTShowAccessEntitiesQuery.h>
+#include <Parsers/Access/ASTShowAccessQuery.h>
+#include <Parsers/Access/ASTShowCreateAccessEntityQuery.h>
+#include <Parsers/Access/ASTShowGrantsQuery.h>
 #include <Parsers/ASTShowTablesQuery.h>
 #include <Parsers/ASTStatsQuery.h>
 #include <Parsers/ASTSubquery.h>
 #include <Parsers/ASTSystemQuery.h>
-#include <Parsers/ASTTableColumnReference.h>
+#include <Parsers/ASTTEALimit.h>
 #include <Parsers/ASTTTLElement.h>
+#include <Parsers/ASTTableColumnReference.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
+#include <Parsers/ASTUpdateQuery.h>
 #include <Parsers/ASTUseQuery.h>
-#include <Parsers/ASTUserNameWithHost.h>
+#include <Parsers/Access/ASTUserNameWithHost.h>
 #include <Parsers/ASTWatchQuery.h>
 #include <Parsers/ASTWindowDefinition.h>
 #include <Parsers/ASTWithElement.h>
-#include <Parsers/ASTQuantifiedComparison.h>
+#include <Parsers/Access/ASTCreateQuotaQuery.h>
+#include <Parsers/Access/ASTCreateRoleQuery.h>
+#include <Parsers/Access/ASTCreateRowPolicyQuery.h>
+#include <Parsers/Access/ASTCreateSettingsProfileQuery.h>
+#include <Parsers/Access/ASTCreateUserQuery.h>
+#include <Parsers/Access/ASTDropAccessEntityQuery.h>
 
 #include <Core/Types.h>
 #include <IO/ReadHelpers.h>
@@ -104,8 +104,8 @@ ASTPtr createWithASTType(ASTType type, ReadBuffer & buf)
     switch (type)
     {
 #define DISPATCH(TYPE) \
-        case ASTType::TYPE: \
-            return TYPE::deserialize(buf);
+    case ASTType::TYPE: \
+        return TYPE::deserialize(buf);
         APPLY_AST_TYPES(DISPATCH)
 #undef DISPATCH
         default:
@@ -195,4 +195,3 @@ ASTPtr deserializeASTWithChildren(ASTs & children, ReadBuffer & buf)
 }
 
 }
-

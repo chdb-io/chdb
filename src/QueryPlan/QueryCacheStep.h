@@ -14,10 +14,10 @@
  */
 
 #pragma once
-#include <QueryPlan/IQueryPlanStep.h>
-#include <Processors/Transforms/QueryCacheTransform.h>
-#include <Processors/QueryCache.h>
+#include <Interpreters/Cache/QueryCache.h>
 #include <Interpreters/Context.h>
+#include <Processors/Transforms/QueryCacheTransform.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Storages/IStorage.h>
 
 namespace DB
@@ -26,18 +26,19 @@ namespace DB
 class QueryCacheStep : public IQueryPlanStep
 {
 public:
-    QueryCacheStep(const DataStream & input_stream_,
-                            const ASTPtr & query_ptr_,
-                            const ContextPtr & context_,
-                            QueryProcessingStage::Enum stage = QueryProcessingStage::Complete);
+    QueryCacheStep(
+        const DataStream & input_stream_,
+        const ASTPtr & query_ptr_,
+        const ContextPtr & context_,
+        QueryProcessingStage::Enum stage = QueryProcessingStage::Complete);
 
     String getName() const override { return "QueryCache"; }
 
     Type getType() const override { return Type::QueryCache; }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings) override;
     void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &);
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &);
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &);
 
     void checkDeterministic(const ASTPtr & node);
     bool checkViableQuery();
@@ -71,15 +72,9 @@ private:
 
     void init();
 
-    void updateRefDatabaseAndTable(const String & database, const String & table)
-    {
-        ref_db_and_table.insert(database + "." + table);
-    }
+    void updateRefDatabaseAndTable(const String & database, const String & table) { ref_db_and_table.insert(database + "." + table); }
 
-    inline void updateLastedTime(UInt64 time)
-    {
-        latest_time = std::max(latest_time, time);
-    }
+    inline void updateLastedTime(UInt64 time) { latest_time = std::max(latest_time, time); }
 };
 
 }

@@ -1,5 +1,5 @@
 #pragma once
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Parsers/ASTSelectIntersectExceptQuery.h>
 
 
@@ -22,7 +22,7 @@ public:
 
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override { return std::make_shared<IntersectOrExceptStep>(input_streams, current_operator, max_threads); }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings) override;
 
     void describePipeline(FormatSettings & settings) const override;
 
@@ -30,7 +30,7 @@ private:
     Block header;
     Operator current_operator;
     size_t max_threads;
-    Processors processors;
+    // Processors processors;
 };
 
 }

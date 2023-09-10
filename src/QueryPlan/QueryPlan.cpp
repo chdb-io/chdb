@@ -22,9 +22,9 @@
 #include <IO/WriteHelpers.h>
 #include <Interpreters/ActionsDAG.h>
 #include <Interpreters/ArrayJoinAction.h>
-#include <Processors/QueryPipeline.h>
-#include <QueryPlan/BuildQueryPipelineSettings.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <QueryPipeline/QueryPipeline.h>
+#include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/Optimizations/Optimizations.h>
 #include <QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <QueryPlan/PlanNode.h>
@@ -32,10 +32,9 @@
 #include <QueryPlan/PlanSerDerHelper.h>
 #include <QueryPlan/QueryPlan.h>
 #include <QueryPlan/TableScanStep.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 #include <Common/JSONBuilder.h>
 #include <Common/Stopwatch.h>
-#include <common/logger_useful.h>
 
 namespace DB
 {

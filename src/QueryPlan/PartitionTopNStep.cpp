@@ -17,7 +17,7 @@
 #include <IO/ReadHelpers.h>
 #include <IO/WriteBuffer.h>
 #include <Interpreters/Context.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <QueryPlan/PartitionTopNStep.h>
 #include <Common/JSONBuilder.h>
 

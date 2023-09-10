@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <Storages/Hive/HiveDataPart_fwd.h>
 #include <Storages/MergeTree/RowGroupsInDataPart.h>
 #include <Storages/StorageCloudHive.h>
@@ -42,7 +42,7 @@ public:
 
     Type getType() const override { return Type::ReadFromCnchHive; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
 

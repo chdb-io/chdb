@@ -25,11 +25,11 @@
 #include <QueryPlan/AggregatingStep.h>
 #include <QueryPlan/Assignment.h>
 #include <QueryPlan/FilterStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/PlanSegmentSourceStep.h>
 #include <QueryPlan/ProjectionStep.h>
 #include <QueryPlan/ReadNothingStep.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+// #include <QueryPlan/RemoteExchangeSourceStep.h>
 #include <QueryPlan/SymbolMapper.h>
 #include <QueryPlan/TotalsHavingStep.h>
 #include <QueryPlan/ValuesStep.h>

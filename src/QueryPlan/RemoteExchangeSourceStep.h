@@ -16,10 +16,10 @@
 #pragma once
 
 #include <Interpreters/Context_fwd.h>
-#include <Interpreters/DistributedStages/AddressInfo.h>
+// #include <Interpreters/DistributedStages/AddressInfo.h>
 #include <Processors/Exchange/DataTrans/Brpc/BrpcRemoteBroadcastReceiver.h>
 #include <Processors/Exchange/ExchangeOptions.h>
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <Poco/Logger.h>
 
 namespace DB
@@ -37,7 +37,7 @@ public:
     String getName() const override { return "RemoteExchangeSource"; }
     Type getType() const override { return Type::RemoteExchangeSource; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings) override;
 
     PlanSegmentInputs getInput() const { return inputs; }
 

@@ -1,3 +1,4 @@
+#include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTUpdateQuery.h>
 #include <Common/quoteString.h>
 
@@ -29,12 +30,15 @@ ASTPtr ASTUpdateQuery::clone() const
 
 void ASTUpdateQuery::formatQueryImpl(const FormatSettings & settings, FormatState & state, FormatStateStacked frame) const
 {
-     settings.ostr << (settings.hilite ? hilite_keyword : "") << "UPDATE " << (settings.hilite ? hilite_none : "");
+    settings.ostr << (settings.hilite ? hilite_keyword : "") << "UPDATE " << (settings.hilite ? hilite_none : "");
 
-    if (!database.empty())
-        settings.ostr << backQuoteIfNeed(database) << ".";
-    
-    settings.ostr << backQuoteIfNeed(table);
+    String database_name;
+    if (tryGetIdentifierNameInto(database, database_name))
+        settings.ostr << backQuoteIfNeed(database_name) << ".";
+
+    String table_name;
+    if (tryGetIdentifierNameInto(table, table_name))
+        settings.ostr << backQuoteIfNeed(table_name);
 
     settings.ostr << (settings.hilite ? hilite_keyword : "") << " SET " << (settings.hilite ? hilite_none : "");
 
@@ -63,4 +67,3 @@ void ASTUpdateQuery::formatQueryImpl(const FormatSettings & settings, FormatStat
 }
 
 }
-

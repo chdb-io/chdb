@@ -100,8 +100,8 @@ Void OuterJoinPlanPatternVisitor::visitJoinNode(JoinNode & node, Void & context)
 
     const auto & join_step = *node.getStep();
 
-    if (join_step.getKind() == ASTTableJoin::Kind::Left || join_step.getKind() == ASTTableJoin::Kind::Right
-        || join_step.getKind() == ASTTableJoin::Kind::Full)
+    if (join_step.getKind() == JoinKind::Left || join_step.getKind() == JoinKind::Right
+        || join_step.getKind() == JoinKind::Full)
     {
         has_outer_join = true;
     }

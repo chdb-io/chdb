@@ -138,7 +138,10 @@ public:
     NamesAndTypesList getSubcolumns(const String & name_in_storage) const;
     /// Returns column_name.*
     NamesAndTypesList getNested(const String & column_name) const;
-
+    NamesAndTypesList getAllWithSubcolumns() const;
+    NamesAndTypesList getAllPhysicalWithSubcolumns() const;
+    NamesAndTypesList getSubcolumnsOfAllPhysical() const;
+    
     using ColumnTTLs = std::unordered_map<String, ASTPtr>;
     ColumnTTLs getColumnTTLs() const;
     void resetColumnTTLs();

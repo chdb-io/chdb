@@ -176,7 +176,7 @@ TransformResult RemoveRedundantEnforceSingleRow::transformImpl(PlanNodePtr node,
 PatternPtr RemoveRedundantCrossJoin::getPattern() const
 {
     return Patterns::join()
-        .matchingStep<JoinStep>([&](const JoinStep & s) { return s.getKind() == ASTTableJoin::Kind::Cross; })
+        .matchingStep<JoinStep>([&](const JoinStep & s) { return s.getKind() == JoinKind::Cross; })
         .with(Patterns::any(), Patterns::any())
         .result();
 }
@@ -212,7 +212,7 @@ PatternPtr RemoveRedundantJoin::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>(
-            [&](const JoinStep & s) { return s.getKind() == ASTTableJoin::Kind::Inner || s.getKind() == ASTTableJoin::Kind::Cross; })
+            [&](const JoinStep & s) { return s.getKind() == JoinKind::Inner || s.getKind() == JoinKind::Cross; })
         .withAny(Patterns::readNothing())
         .result();
 }
@@ -232,7 +232,7 @@ PatternPtr RemoveRedundantOuterJoin::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>(
-            [&](const JoinStep & s) { return s.getKind() == ASTTableJoin::Kind::Left || s.getKind() == ASTTableJoin::Kind::Right; })
+            [&](const JoinStep & s) { return s.getKind() == JoinKind::Left || s.getKind() == JoinKind::Right; })
         .result();
 }
 
@@ -266,7 +266,7 @@ TransformResult RemoveRedundantOuterJoin::transformImpl(PlanNodePtr node, const 
     if (join_node)
     {
         auto step = join_node->getStep();
-        if (step->getKind() == ASTTableJoin::Kind::Left)
+        if (step->getKind() == JoinKind::Left)
         {
             if (node->getChildren()[1]->getStep()->getType() == IQueryPlanStep::Type::ReadNothing
                 || all_type_nothing(node->getChildren()[1]->getStep()->getOutputStream().header, step->getRightKeys()))
@@ -275,7 +275,7 @@ TransformResult RemoveRedundantOuterJoin::transformImpl(PlanNodePtr node, const 
                 return node->getChildren()[0];
             }
         }
-        if (step->getKind() == ASTTableJoin::Kind::Right)
+        if (step->getKind() == JoinKind::Right)
         {
             if (node->getChildren()[0]->getStep()->getType() == IQueryPlanStep::Type::ReadNothing
                 || all_type_nothing(node->getChildren()[0]->getStep()->getOutputStream().header, step->getLeftKeys()))

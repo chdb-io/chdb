@@ -38,7 +38,7 @@
 #include <Storages/IStorage.h>
 #include <Storages/SelectQueryInfo.h>
 #include <Storages/StorageDistributed.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 #include <Optimizer/EqualityASTMap.h>
 
 #include <map>

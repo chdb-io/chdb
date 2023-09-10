@@ -1,5 +1,5 @@
-#include <QueryPlan/ISourceStep.h>
-#include <Processors/QueryPipeline.h>
+#include <Processors/QueryPlan/ISourceStep.h>
+#include <QueryPipeline/QueryPipeline.h>
 
 namespace DB
 {
@@ -10,7 +10,7 @@ ISourceStep::ISourceStep(DataStream output_stream_, PlanHints hints_)
     hints = std::move(hints_);
 }
 
-QueryPipelinePtr ISourceStep::updatePipeline(QueryPipelines, const BuildQueryPipelineSettings & settings)
+QueryPipelinePtr ISourceStep::updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings & settings)
 {
     auto pipeline = std::make_unique<QueryPipeline>();
     QueryPipelineProcessorsCollector collector(*pipeline, this);

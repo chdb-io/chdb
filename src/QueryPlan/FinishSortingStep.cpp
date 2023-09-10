@@ -15,7 +15,7 @@
 
 #include <QueryPlan/FinishSortingStep.h>
 #include <Processors/Transforms/DistinctTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Merges/MergingSortedTransform.h>
 #include <Processors/Transforms/PartialSortingTransform.h>
 #include <Processors/Transforms/FinishSortingTransform.h>
@@ -55,7 +55,7 @@ FinishSortingStep::FinishSortingStep(
 {
     /// TODO: check input_stream is sorted by prefix_description.
     output_stream->sort_description = result_description;
-    output_stream->sort_mode = DataStream::SortMode::Stream;
+    output_stream->sort_mode = DataStream::SortScope::Stream;
 }
 
 void FinishSortingStep::setInputStreams(const DataStreams & input_streams_)

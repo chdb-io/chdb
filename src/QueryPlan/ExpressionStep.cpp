@@ -15,7 +15,7 @@
 
 #include <QueryPlan/ExpressionStep.h>
 #include <Processors/Transforms/ExpressionTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/JoiningTransform.h>
 #include <Interpreters/ExpressionActions.h>
 #include <IO/Operators.h>

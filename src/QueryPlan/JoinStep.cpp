@@ -23,7 +23,7 @@
 #include <Interpreters/NestedLoopJoin.h>
 #include <Optimizer/PredicateUtils.h>
 #include <Parsers/ASTSerDerHelper.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/FilterTransform.h>
 #include <Processors/Transforms/JoiningTransform.h>
@@ -92,11 +92,11 @@ JoinPtr JoinStep::makeJoin(ContextPtr context)
     table_join->setAsofInequality(asof_inequality);
     if (context->getSettings().enforce_all_join_to_any_join)
     {
-        strictness = ASTTableJoin::Strictness::RightAny;
+        strictness = JoinStrictness::RightAny;
     }
 
     table_join->table_join.strictness = strictness;
-    table_join->table_join.kind = isCrossJoin() ? ASTTableJoin::Kind::Cross : kind;
+    table_join->table_join.kind = isCrossJoin() ? JoinKind::Cross : kind;
 
     if (enforceNestLoopJoin())
     {
@@ -104,7 +104,7 @@ JoinPtr JoinStep::makeJoin(ContextPtr context)
             throw Exception("set enable_nested_loop_join=1 to enable outer join with filter", ErrorCodes::NOT_IMPLEMENTED);
         table_join->setJoinAlgorithm(JoinAlgorithm::NESTED_LOOP_JOIN);
         table_join->table_join.on_expression = filter->clone();
-        table_join->table_join.kind = isCrossJoin() ? ASTTableJoin::Kind::Inner : kind;
+        table_join->table_join.kind = isCrossJoin() ? JoinKind::Inner : kind;
     }
 
     bool allow_merge_join = table_join->allowMergeJoin();
@@ -145,8 +145,8 @@ JoinStep::JoinStep(const DataStream & left_stream_, const DataStream & right_str
 JoinStep::JoinStep(
     DataStreams input_streams_,
     DataStream output_stream_,
-    ASTTableJoin::Kind kind_,
-    ASTTableJoin::Strictness strictness_,
+    JoinKind kind_,
+    JoinStrictness strictness_,
     size_t max_streams_,
     bool keep_left_read_in_order_,
     Names left_keys_,
@@ -185,7 +185,7 @@ void JoinStep::setInputStreams(const DataStreams & input_streams_)
     input_streams = input_streams_;
 }
 
-QueryPipelinePtr JoinStep::updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings)
+QueryPipelinePtr JoinStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings)
 {
     if (pipelines.size() != 2)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "JoinStep expect two input steps");
@@ -224,8 +224,8 @@ bool JoinStep::enforceNestLoopJoin() const
 {
     if (filter && !PredicateUtils::isTruePredicate(filter))
     {
-        bool strictness_join = strictness != ASTTableJoin::Strictness::Unspecified && strictness != ASTTableJoin::Strictness::All;
-        bool outer_join = kind != ASTTableJoin::Kind::Inner && kind != ASTTableJoin::Kind::Cross;
+        bool strictness_join = strictness != JoinStrictness::Unspecified && strictness != JoinStrictness::All;
+        bool outer_join = kind != JoinKind::Inner && kind != JoinKind::Cross;
         return strictness_join || outer_join;
     }
     return false;
@@ -244,7 +244,7 @@ bool JoinStep::supportReorder(bool support_filter, bool support_cross) const
     if (require_right_keys || has_using)
         return false;
 
-    if (strictness != ASTTableJoin::Strictness::Unspecified && strictness != ASTTableJoin::Strictness::All)
+    if (strictness != JoinStrictness::Unspecified && strictness != JoinStrictness::All)
         return false;
 
     bool cross_join = isCrossJoin();
@@ -254,7 +254,7 @@ bool JoinStep::supportReorder(bool support_filter, bool support_cross) const
     if (support_cross && cross_join)
         return !is_magic;
 
-    return kind == ASTTableJoin::Kind::Inner && !left_keys.empty() && !is_magic;
+    return kind == JoinKind::Inner && !left_keys.empty() && !is_magic;
 }
 
 void JoinStep::describePipeline(FormatSettings & settings) const
@@ -379,8 +379,8 @@ QueryPlanStepPtr JoinStep::deserialize(ReadBuffer & buf, ContextPtr context)
         // todo output diff
         DataStream output = deserializeDataStream(buf);
 
-        DESERIALIZE_ENUM(ASTTableJoin::Kind, kind, buf)
-        DESERIALIZE_ENUM(ASTTableJoin::Strictness, strictness, buf)
+        DESERIALIZE_ENUM(JoinKind, kind, buf)
+        DESERIALIZE_ENUM(JoinStrictness, strictness, buf)
 
         size_t max_streams;
         readBinary(max_streams, buf);
@@ -574,7 +574,7 @@ std::shared_ptr<IQueryPlanStep> JoinStep::copy(ContextPtr) const
 
 bool JoinStep::mustReplicate() const
 {
-    if (left_keys.empty() && (kind == ASTTableJoin::Kind::Inner || kind == ASTTableJoin::Kind::Left || kind == ASTTableJoin::Kind::Cross))
+    if (left_keys.empty() && (kind == JoinKind::Inner || kind == JoinKind::Left || kind == JoinKind::Cross))
     {
         // There is nothing to partition on
         return true;
@@ -584,7 +584,7 @@ bool JoinStep::mustReplicate() const
 
 bool JoinStep::mustRepartition() const
 {
-    return kind == ASTTableJoin::Kind::Right || kind == ASTTableJoin::Kind::Full;
+    return kind == JoinKind::Right || kind == JoinKind::Full;
 }
 
 

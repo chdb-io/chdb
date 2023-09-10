@@ -26,7 +26,7 @@
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/ProjectionStep.h>
 #include <QueryPlan/UnionStep.h>
@@ -191,7 +191,7 @@ Property DeriverVisitor::visitJoinStep(const JoinStep & step, DeriverContext & c
     
     Property translated;
 
-    if (step.getKind() == ASTTableJoin::Kind::Inner || step.getKind() == ASTTableJoin::Kind::Cross) 
+    if (step.getKind() == JoinKind::Inner || step.getKind() == JoinKind::Cross) 
     {
         Property left_translated = context.getInput()[0].translate(identities);
         Property right_translated = context.getInput()[1].translate(identities);
@@ -225,7 +225,7 @@ Property DeriverVisitor::visitJoinStep(const JoinStep & step, DeriverContext & c
         }
     }
 
-    if (step.getKind() == ASTTableJoin::Kind::Left) 
+    if (step.getKind() == JoinKind::Left) 
     {
         Property left_translated = context.getInput()[0].translate(identities);
         translated = left_translated;
@@ -243,7 +243,7 @@ Property DeriverVisitor::visitJoinStep(const JoinStep & step, DeriverContext & c
         }
     } 
         
-    if (step.getKind() == ASTTableJoin::Kind::Right) 
+    if (step.getKind() == JoinKind::Right) 
     {
         Property right_translated = context.getInput()[1].translate(identities);
         translated = right_translated;
@@ -261,7 +261,7 @@ Property DeriverVisitor::visitJoinStep(const JoinStep & step, DeriverContext & c
         }
     }  
     
-    if (step.getKind() == ASTTableJoin::Kind::Full) 
+    if (step.getKind() == JoinKind::Full) 
     {
         return Property{};
     }

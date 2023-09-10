@@ -114,8 +114,8 @@ private:
         const ConstASTPtr & inherited_predicate,
         ContextMutablePtr context,
         const NameToType & column_types);
-    static ASTTableJoin::Kind useInnerForLeftSide(ASTTableJoin::Kind kind);
-    static ASTTableJoin::Kind useInnerForRightSide(ASTTableJoin::Kind kind);
+    static JoinKind useInnerForLeftSide(JoinKind kind);
+    static JoinKind useInnerForRightSide(JoinKind kind);
     static bool isRegularJoin(const JoinStep & step);
 };
 

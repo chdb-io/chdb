@@ -16,8 +16,8 @@
 #include <QueryPlan/PlanSegmentSourceStep.h>
 #include <QueryPlan/ReadFromPreparedSource.h>
 #include <QueryPlan/PlanSerDerHelper.h>
-#include <Processors/QueryPipeline.h>
-#include <Processors/Pipe.h>
+#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/Pipe.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/FilterTransform.h>

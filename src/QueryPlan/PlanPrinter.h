@@ -17,7 +17,7 @@
 
 #include <QueryPlan/PlanVisitor.h>
 #include <Optimizer/CostModel/PlanNodeCost.h>
-#include <Interpreters/DistributedStages/PlanSegment.h>
+// #include <Interpreters/DistributedStages/PlanSegment.h>
 #include <Interpreters/ProcessorProfile.h>
 
 #include <Poco/JSON/Object.h>

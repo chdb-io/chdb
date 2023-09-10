@@ -46,6 +46,7 @@ public:
     /// and individual components will be available inside the name_parts.
     const String & shortName() const { return name_parts.back(); }
     const String & name() const;
+    const std::vector<String> & nameParts() const;
 
     void restoreTable();  // TODO(ilezhankin): get rid of this
     std::shared_ptr<ASTTableIdentifier> createTable() const;  // returns |nullptr| if identifier is not table.

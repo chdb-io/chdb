@@ -29,25 +29,25 @@ PatternPtr PullLeftJoinThroughInnerJoin::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>([](const JoinStep & join_step) {
-            if (join_step.getStrictness() != ASTTableJoin::Strictness::Unspecified
-                && join_step.getStrictness() != ASTTableJoin::Strictness::All && join_step.getStrictness() != ASTTableJoin::Strictness::Any)
+            if (join_step.getStrictness() != JoinStrictness::Unspecified
+                && join_step.getStrictness() != JoinStrictness::All && join_step.getStrictness() != JoinStrictness::Any)
             {
                 return false;
             }
 
-            return join_step.getKind() == ASTTableJoin::Kind::Inner && PredicateUtils::isTruePredicate(join_step.getFilter())
+            return join_step.getKind() == JoinKind::Inner && PredicateUtils::isTruePredicate(join_step.getFilter())
                 && !join_step.isMagic() && !join_step.isOrdered();
         })
         .with(
             Patterns::join()
                  .matchingStep<JoinStep>([](const JoinStep & join_step) {
-                     if (join_step.getStrictness() != ASTTableJoin::Strictness::Unspecified
-                         && join_step.getStrictness() != ASTTableJoin::Strictness::All
-                         && join_step.getStrictness() != ASTTableJoin::Strictness::Any)
+                     if (join_step.getStrictness() != JoinStrictness::Unspecified
+                         && join_step.getStrictness() != JoinStrictness::All
+                         && join_step.getStrictness() != JoinStrictness::Any)
                      {
                          return false;
                      }
-                     return join_step.getKind() == ASTTableJoin::Kind::Left && PredicateUtils::isTruePredicate(join_step.getFilter())
+                     return join_step.getKind() == JoinKind::Left && PredicateUtils::isTruePredicate(join_step.getFilter())
                          && !join_step.isMagic() && !join_step.isOrdered();
                  })
                  .with(Patterns::any(), Patterns::any()),
@@ -93,8 +93,8 @@ static std::optional<PlanNodePtr> createNewJoin(
     auto new_left = std::make_shared<JoinStep>(
         DataStreams{first->getStep()->getOutputStream(), C->getStep()->getOutputStream()},
         DataStream{output},
-        ASTTableJoin::Kind::Inner,
-        ASTTableJoin::Strictness::All,
+        JoinKind::Inner,
+        JoinStrictness::All,
         context.getSettingsRef().max_threads,
         context.getSettingsRef().optimize_read_in_order,
         inner_join->getLeftKeys(),
@@ -119,7 +119,7 @@ static std::optional<PlanNodePtr> createNewJoin(
     auto new_left_join = std::make_shared<JoinStep>(
         DataStreams{new_left_node->getStep()->getOutputStream(), second->getStep()->getOutputStream()},
         data_stream,
-        ASTTableJoin::Kind::Left,
+        JoinKind::Left,
         left_join->getStrictness(),
         left_join->getMaxStreams(),
         left_join->getKeepLeftReadInOrder(),
@@ -164,13 +164,13 @@ PatternPtr PullLeftJoinProjectionThroughInnerJoin::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>([](const JoinStep & join_step) {
-            return join_step.getKind() == ASTTableJoin::Kind::Inner && PredicateUtils::isTruePredicate(join_step.getFilter())
+            return join_step.getKind() == JoinKind::Inner && PredicateUtils::isTruePredicate(join_step.getFilter())
                 && !join_step.isMagic();
         })
         .with(
             Patterns::project().withSingle(Patterns::join()
                                                  .matchingStep<JoinStep>([](const JoinStep & join_step) {
-                                                     return join_step.getKind() == ASTTableJoin::Kind::Left
+                                                     return join_step.getKind() == JoinKind::Left
                                                          && PredicateUtils::isTruePredicate(join_step.getFilter()) && !join_step.isMagic();
                                                  })
                                                  .with(Patterns::any(), Patterns::any())),
@@ -231,13 +231,13 @@ PatternPtr PullLeftJoinFilterThroughInnerJoin::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>([](const JoinStep & join_step) {
-            return join_step.getKind() == ASTTableJoin::Kind::Inner && PredicateUtils::isTruePredicate(join_step.getFilter())
+            return join_step.getKind() == JoinKind::Inner && PredicateUtils::isTruePredicate(join_step.getFilter())
                 && !join_step.isMagic();
         })
         .with(
             Patterns::filter().withSingle(Patterns::join()
                                                 .matchingStep<JoinStep>([](const JoinStep & join_step) {
-                                                    return join_step.getKind() == ASTTableJoin::Kind::Left
+                                                    return join_step.getKind() == JoinKind::Left
                                                         && PredicateUtils::isTruePredicate(join_step.getFilter()) && !join_step.isMagic();
                                                 })
                                                 .with(Patterns::any(), Patterns::any())),

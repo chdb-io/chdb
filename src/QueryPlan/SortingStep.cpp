@@ -14,7 +14,7 @@
  */
 
 #include <QueryPlan/SortingStep.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/MergeSortingTransform.h>
 #include <Processors/Transforms/PartialSortingTransform.h>
 #include <Processors/Transforms/FinishSortingTransform.h>
@@ -57,8 +57,8 @@ SortingStep::SortingStep(
 {
     /// TODO: check input_stream is partially sorted by the same description.
     output_stream->sort_description = result_description;
-    output_stream->sort_mode = input_stream_.has_single_port ? DataStream::SortMode::Stream
-                                                             : DataStream::SortMode::Port;
+    output_stream->sort_mode = input_stream_.has_single_port ? DataStream::SortScope::Stream
+                                                             : DataStream::SortScope::Port;
 }
 
 void SortingStep::setInputStreams(const DataStreams & input_streams_)

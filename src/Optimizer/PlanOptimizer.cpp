@@ -37,7 +37,7 @@
 #include <QueryPlan/Hints/ImplementJoinOperationHints.h>
 #include <QueryPlan/Hints/ImplementJoinOrderHints.h>
 #include <QueryPlan/PlanPattern.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 #include <Common/Stopwatch.h>
 #include <QueryPlan/Hints/HintsPropagator.h>
 #include <QueryPlan/Hints/ImplementJoinOperationHints.h>

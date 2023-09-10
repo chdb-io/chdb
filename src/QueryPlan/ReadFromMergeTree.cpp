@@ -1,5 +1,5 @@
 #include <QueryPlan/ReadFromMergeTree.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/ConcatProcessor.h>
 #include <Processors/Transforms/ReverseTransform.h>
 #include <Processors/Transforms/ExpressionTransform.h>
@@ -27,7 +27,7 @@
 #include <DataTypes/DataTypeByteMap.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/MapHelpers.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 #include <Common/JSONBuilder.h>
 #include <Common/escapeForFileName.h>
 #include <Parsers/queryToString.h>

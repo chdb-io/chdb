@@ -32,7 +32,6 @@ namespace DB
 class DataStream;
 
 class IQueryPlanStep;
-using QueryPlanStepPtr = std::shared_ptr<IQueryPlanStep>;
 
 class QueryPipeline;
 using QueryPipelinePtr = std::unique_ptr<QueryPipeline>;

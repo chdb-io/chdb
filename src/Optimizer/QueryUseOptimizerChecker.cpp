@@ -21,15 +21,15 @@
 #include <Interpreters/SelectQueryOptions.h>
 #include <Interpreters/getTableExpressions.h>
 #include <Interpreters/misc.h>
-#include <MergeTreeCommon/MergeTreeMetaBase.h>
+// #include <MergeTreeCommon/MergeTreeMetaBase.h>
 #include <Parsers/ASTDumpInfoQuery.h>
 #include <Parsers/ASTExplainQuery.h>
 #include <Parsers/ASTSelectIntersectExceptQuery.h>
 #include <Parsers/ASTWithElement.h>
 #include <QueryPlan/QueryPlan.h>
+#include <Storages/StorageCnchHive.h>
 #include <Storages/StorageDistributed.h>
 #include <Storages/StorageView.h>
-#include <Storages/StorageCnchHive.h>
 //#include <Common/TestLog.h>
 
 namespace DB
@@ -95,13 +95,10 @@ bool QueryUseOptimizerChecker::check(ASTPtr & node, const ContextMutablePtr & co
     {
         bool explain_plan = explain->getKind() == ASTExplainQuery::ExplainKind::OptimizerPlan
             || explain->getKind() == ASTExplainQuery::ExplainKind::QueryPlan
-            || explain->getKind() == ASTExplainQuery::ExplainKind::QueryPipeline
-            || explain->getKind() ==  ASTExplainQuery::AnalyzedSyntax
-            || explain->getKind() ==  ASTExplainQuery::DistributedAnalyze
-            || explain->getKind() ==  ASTExplainQuery::LogicalAnalyze
-            || explain->getKind() ==  ASTExplainQuery::Distributed
-            || explain->getKind() ==  ASTExplainQuery::TraceOptimizerRule
-            || explain->getKind() ==  ASTExplainQuery::TraceOptimizer;
+            || explain->getKind() == ASTExplainQuery::ExplainKind::QueryPipeline || explain->getKind() == ASTExplainQuery::AnalyzedSyntax
+            || explain->getKind() == ASTExplainQuery::DistributedAnalyze || explain->getKind() == ASTExplainQuery::LogicalAnalyze
+            || explain->getKind() == ASTExplainQuery::Distributed || explain->getKind() == ASTExplainQuery::TraceOptimizerRule
+            || explain->getKind() == ASTExplainQuery::TraceOptimizer;
         support = explain_plan && check(explain->getExplainedQuery(), context);
     }
     else if (auto * dump = node->as<ASTDumpInfoQuery>())
@@ -143,8 +140,7 @@ bool QueryUseOptimizerChecker::check(ASTPtr & node, const ContextMutablePtr & co
             }
         }
         if (!support)
-            LOG_INFO(
-                &Poco::Logger::get("QueryUseOptimizerChecker"), "query is unsupported for optimizer, reason: " + checker.getReason());
+            LOG_INFO(&Poco::Logger::get("QueryUseOptimizerChecker"), "query is unsupported for optimizer, reason: " + checker.getReason());
     }
 
     if (!support)

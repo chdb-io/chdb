@@ -2096,6 +2096,11 @@ void ReadFromMergeTree::describeIndexes(JSONBuilder::JSONMap & map) const
     }
 }
 
+std::shared_ptr<IQueryPlanStep> ReadFromMergeTree::copy(ContextPtr) const
+{
+    throw Exception("ReadFromMergeTree can not copy", ErrorCodes::NOT_IMPLEMENTED);
+}
+
 bool MergeTreeDataSelectAnalysisResult::error() const
 {
     return std::holds_alternative<std::exception_ptr>(result);

@@ -81,7 +81,7 @@ PropertySets DeterminerVisitor::visitJoinStep(const JoinStep & step, DeterminerC
     Names right_keys = step.getRightKeys();
 
     // process ASOF join, it is different with normal join.
-    if (step.getStrictness() == ASTTableJoin::Strictness::Asof)
+    if (step.getStrictness() == JoinStrictness::Asof)
     {
         Names left_keys_asof;
         Names right_keys_asof;

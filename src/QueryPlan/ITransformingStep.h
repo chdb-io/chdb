@@ -1,5 +1,5 @@
 #pragma once
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 
 #include <Parsers/IAST.h>
 
@@ -50,7 +50,7 @@ public:
 
     ITransformingStep(DataStream input_stream, Block output_header, Traits traits, bool collect_processors_ = true, PlanHints hints_ = {});
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings) override;
 
     virtual void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings) = 0;
 
@@ -66,16 +66,13 @@ protected:
     static void updateDistinctColumns(const Block & res_header, NameSet & distinct_columns);
 
     /// Create output stream from header and traits.
-    static DataStream createOutputStream(
-            const DataStream & input_stream,
-            Block output_header,
-            const DataStreamTraits & stream_traits);
+    static DataStream createOutputStream(const DataStream & input_stream, Block output_header, const DataStreamTraits & stream_traits);
 
     TransformTraits transform_traits;
 
 private:
     /// We collect processors got after pipeline transformation.
-    Processors processors;
+    // Processors processors;
     bool collect_processors;
 
     const DataStreamTraits data_stream_traits;

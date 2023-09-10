@@ -19,7 +19,7 @@
 #include <Core/QueryProcessingStage.h>
 #include <Parsers/IAST.h>
 #include <Parsers/queryToString.h>
-#include <Processors/QueryCache.h>
+#include <Interpreters/Cache/QueryCache.h>
 #include <Interpreters/Context.h>
 #include <Storages/IStorage.h>
 

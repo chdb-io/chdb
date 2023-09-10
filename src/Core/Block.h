@@ -4,6 +4,7 @@
 #include <Core/ColumnWithTypeAndName.h>
 #include <Core/ColumnsWithTypeAndName.h>
 #include <Core/NamesAndTypes.h>
+#include <Core/NameToType.h>
 
 #include <initializer_list>
 #include <list>
@@ -90,6 +91,7 @@ public:
     const ColumnsWithTypeAndName & getColumnsWithTypeAndName() const;
     NamesAndTypesList getNamesAndTypesList() const;
     NamesAndTypes getNamesAndTypes() const;
+    NameToType getNamesToTypes() const;
     Names getNames() const;
     DataTypes getDataTypes() const;
     Names getDataTypeNames() const;

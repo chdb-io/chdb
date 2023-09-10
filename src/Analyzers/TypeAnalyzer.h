@@ -18,6 +18,7 @@
 #include <Analyzers/ExprAnalyzer.h>
 #include <Analyzers/TypeAnalyzer.h>
 #include <Core/NamesAndTypes.h>
+#include <Core/NameToType.h>
 #include <Interpreters/Context_fwd.h>
 #include <Parsers/IAST_fwd.h>
 #include <boost/core/noncopyable.hpp>

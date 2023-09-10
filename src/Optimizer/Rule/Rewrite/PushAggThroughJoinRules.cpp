@@ -39,7 +39,7 @@ static bool groupsOnAllColumns(const AggregatingStep * agg, const std::set<Strin
 
 static PlanNodePtr getInnerTable(PlanNodeBase & join)
 {
-    if (dynamic_cast<const JoinStep *>(join.getStep().get())->getKind() == ASTTableJoin::Kind::Left)
+    if (dynamic_cast<const JoinStep *>(join.getStep().get())->getKind() == JoinKind::Left)
     {
         return join.getChildren()[1];
     }
@@ -48,7 +48,7 @@ static PlanNodePtr getInnerTable(PlanNodeBase & join)
 
 static PlanNodePtr getOuterTable(PlanNodeBase & join)
 {
-    if (dynamic_cast<const JoinStep *>(join.getStep().get())->getKind() == ASTTableJoin::Kind::Left)
+    if (dynamic_cast<const JoinStep *>(join.getStep().get())->getKind() == JoinKind::Left)
     {
         return join.getChildren()[0];
     }
@@ -167,8 +167,8 @@ static PlanNodePtr coalesceWithNullAggregation(const AggregatingStep * aggregati
     auto cross_join_step = std::make_shared<JoinStep>(
         DataStreams{outerJoin->getStep()->getOutputStream(), aggregation_over_null->getStep()->getOutputStream()},
         DataStream{names_and_types},
-        ASTTableJoin::Kind::Cross,
-        ASTTableJoin::Strictness::All,
+        JoinKind::Cross,
+        JoinStrictness::All,
         context.getSettingsRef().max_threads,
         context.getSettingsRef().optimize_read_in_order,
         Names{},
@@ -213,7 +213,7 @@ PatternPtr PushAggThroughOuterJoin::getPattern() const
 {
     return Patterns::aggregating()
         .withSingle(Patterns::join().matchingStep<JoinStep>([](const JoinStep & s) {
-            return (s.getKind() == ASTTableJoin::Kind::Left || s.getKind() == ASTTableJoin::Kind::Right)
+            return (s.getKind() == JoinKind::Left || s.getKind() == JoinKind::Right)
                 && PredicateUtils::isTruePredicate(s.getFilter());
         }))
         .result();
@@ -276,7 +276,7 @@ TransformResult PushAggThroughOuterJoin::transformImpl(PlanNodePtr aggregation, 
         return {};
     }
 
-    auto grouping_keys = join_step->getKind() == ASTTableJoin::Kind::Right ? join_step->getLeftKeys() : join_step->getRightKeys();
+    auto grouping_keys = join_step->getKind() == JoinKind::Right ? join_step->getLeftKeys() : join_step->getRightKeys();
 
     auto rewritten_aggregation = std::make_shared<AggregatingStep>(
         inner_table->getStep()->getOutputStream(),
@@ -292,7 +292,7 @@ TransformResult PushAggThroughOuterJoin::transformImpl(PlanNodePtr aggregation, 
 
     PlanNodePtr rewritten_join;
     const auto & rewritten_agg_output = rewritten_agg_node->getStep()->getOutputStream();
-    if (join_step->getKind() == ASTTableJoin::Kind::Left)
+    if (join_step->getKind() == JoinKind::Left)
     {
         const auto & join_left_output = join->getChildren()[0]->getStep()->getOutputStream();
         auto output_header = join_left_output.header;
@@ -392,7 +392,7 @@ PatternPtr PushAggThroughInnerJoin::getPattern() const
         .matchingStep<AggregatingStep>([](const AggregatingStep & s) { return s.getAggregates().empty(); })
         .withSingle(Patterns::join()
                         .matchingStep<JoinStep>([](const JoinStep & s) {
-                            return (s.getKind() == ASTTableJoin::Kind::Inner) && PredicateUtils::isTruePredicate(s.getFilter());
+                            return (s.getKind() == JoinKind::Inner) && PredicateUtils::isTruePredicate(s.getFilter());
                         })
                         .with(Patterns::any(), Patterns::tableScan()))
         .result();

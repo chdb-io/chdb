@@ -43,7 +43,7 @@ PlanNodePtr InnerJoinCommutation::swap(JoinNode & node, RuleContext & rule_conte
     auto join_step = std::make_shared<JoinStep>(
         streams,
         step.getOutputStream(),
-        ASTTableJoin::Kind::Inner,
+        JoinKind::Inner,
         step.getStrictness(),
         step.getMaxStreams(),
         step.getKeepLeftReadInOrder(),

@@ -14,11 +14,11 @@
  */
 
 #pragma once
-#include <QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/ITransformingStep.h>
-#include <Parsers/ASTTablesInSelectQuery.h>
 #include <Interpreters/asof.h>
 #include <Optimizer/PredicateConst.h>
+#include <Parsers/ASTTablesInSelectQuery.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
+#include <QueryPlan/ITransformingStep.h>
 
 namespace DB
 {
@@ -46,12 +46,12 @@ public:
         bool keep_left_read_in_order_,
         bool is_ordered_ = false,
         PlanHints hints_ = {});
-    
+
     JoinStep(
         DataStreams input_streams_,
         DataStream output_stream_,
-        ASTTableJoin::Kind kind,
-        ASTTableJoin::Strictness strictness_,
+        JoinKind kind,
+        JoinStrictness strictness_,
         size_t max_streams_ = 1,
         bool keep_left_read_in_order_ = false,
         Names left_keys_ = {},
@@ -65,38 +65,35 @@ public:
         bool magic_set_ = false,
         bool is_ordered_ = false,
         PlanHints hints_ = {});
-    
+
 
     String getName() const override { return "Join"; }
 
     Type getType() const override { return Type::Join; }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings &) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
     void describePipeline(FormatSettings & settings) const override;
 
     const JoinPtr & getJoin() const { return join; }
 
-    ASTTableJoin::Kind getKind() const { return kind; }
-    void setKind(ASTTableJoin::Kind kind_) { kind = kind_; }
-    ASTTableJoin::Strictness getStrictness() const { return strictness; }
+    JoinKind getKind() const { return kind; }
+    void setKind(JoinKind kind_) { kind = kind_; }
+    JoinStrictness getStrictness() const { return strictness; }
 
     size_t getMaxStreams() const { return max_streams; }
     bool getKeepLeftReadInOrder() const { return keep_left_read_in_order; }
-    
+
     const Names & getLeftKeys() const { return left_keys; }
     const Names & getRightKeys() const { return right_keys; }
     const ConstASTPtr & getFilter() const { return filter; }
     bool isHasUsing() const { return has_using; }
-    std::optional<std::vector<bool>> getRequireRightKeys() const
-    {
-        return require_right_keys;
-    }
+    std::optional<std::vector<bool>> getRequireRightKeys() const { return require_right_keys; }
     ASOF::Inequality getAsofInequality() const { return asof_inequality; }
     DistributionType getDistributionType() const { return distribution_type; }
     void setDistributionType(DistributionType distribution_type_) { distribution_type = distribution_type_; }
 
-    bool isCrossJoin() const { return kind == ASTTableJoin::Kind::Cross || (kind == ASTTableJoin::Kind::Inner && left_keys.empty()); }
+    bool isCrossJoin() const { return kind == JoinKind::Cross || (kind == JoinKind::Inner && left_keys.empty()); }
 
     bool isPhysical() const override { return distribution_type != DistributionType::UNKNOWN; }
     bool isLogical() const override { return !isPhysical(); }
@@ -115,8 +112,8 @@ public:
 
     bool supportSwap() const
     {
-        if (getStrictness() != ASTTableJoin::Strictness::Unspecified && getStrictness() != ASTTableJoin::Strictness::All
-            && getStrictness() != ASTTableJoin::Strictness::Any)
+        if (getStrictness() != JoinStrictness::Unspecified && getStrictness() != JoinStrictness::All
+            && getStrictness() != JoinStrictness::Any)
             return false;
 
         // todo can support swap
@@ -136,8 +133,7 @@ public:
 
     bool needStreamWithNonJoinedRows() const
     {
-        if (strictness == ASTTableJoin::Strictness::Asof ||
-            strictness == ASTTableJoin::Strictness::Semi)
+        if (strictness == JoinStrictness::Asof || strictness == JoinStrictness::Semi)
             return false;
         return isRightOrFull(kind);
     }
@@ -158,12 +154,12 @@ private:
     JoinPtr join;
     size_t max_block_size;
 
-    ASTTableJoin::Kind kind;
-    ASTTableJoin::Strictness strictness;
+    JoinKind kind;
+    JoinStrictness strictness;
 
     size_t max_streams;
     bool keep_left_read_in_order;
-    
+
     Names left_keys;
     Names right_keys;
 
@@ -199,7 +195,7 @@ private:
     DistributionType distribution_type = DistributionType::UNKNOWN;
     JoinAlgorithm join_algorithm = JoinAlgorithm::AUTO;
     bool is_magic;
-    Processors processors;
+    // Processors processors;
     bool is_ordered;
 };
 

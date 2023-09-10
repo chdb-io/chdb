@@ -1,5 +1,5 @@
 #include <Optimizer/OptimizerProfile.h>
-#include <common/types.h>
+#include <Common/types.h>
 #include <unordered_map>
 #include <IO/WriteBufferFromString.h>
 #include <IO/WriteHelpers.h>

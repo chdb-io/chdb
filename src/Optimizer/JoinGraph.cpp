@@ -175,7 +175,7 @@ JoinGraph JoinGraphVisitor::visitJoinNode(JoinNode & node, NameSet & required_co
             join_clauses.emplace_back(std::pair<String, String>{left_keys[i], right_keys[i]});
         }
         bool contains_cross_join
-            = step.getKind() == ASTTableJoin::Kind::Cross || (step.getKind() == ASTTableJoin::Kind::Inner && left_keys.empty());
+            = step.getKind() == JoinKind::Cross || (step.getKind() == JoinKind::Inner && left_keys.empty());
         JoinGraph graph = left.withJoinGraph(right, join_clauses, join_graph_context, node.getId(), contains_cross_join);
         return graph.withFilter(step.getFilter());
     }

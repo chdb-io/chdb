@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <QueryPlan/ProjectionStep.h>
 #include <QueryPlan/SymbolMapper.h>
 
@@ -25,6 +25,8 @@ namespace DB
 {
 using CTEId = UInt32;
 class CTEInfo;
+class PlanNodeBase;
+using PlanNodePtr = std::shared_ptr<PlanNodeBase>;
 
 /**
  * CTE is model as two parts: CTERef and CTEDef.
@@ -40,7 +42,7 @@ public:
     const std::unordered_map<String, String> & getOutputColumns() const { return output_columns; }
     std::unordered_map<String, String> getReverseOutputColumns() const;
 
-    void initializePipeline(QueryPipeline &, const BuildQueryPipelineSettings &) override
+    void initializePipeline(QueryPipelineBuilder &, const BuildQueryPipelineSettings &) override
     {
         throw Exception("Not supported", ErrorCodes::NOT_IMPLEMENTED);
     }

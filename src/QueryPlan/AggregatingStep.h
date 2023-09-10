@@ -15,10 +15,10 @@
 
 #pragma once
 #include <Core/SortDescription.h>
-#include <DataStreams/SizeLimits.h>
 #include <Interpreters/Aggregator.h>
 #include <Interpreters/Context_fwd.h>
 #include <QueryPlan/ITransformingStep.h>
+#include <QueryPipeline/SizeLimits.h>
 #include <Storages/SelectQueryInfo.h>
 
 namespace DB

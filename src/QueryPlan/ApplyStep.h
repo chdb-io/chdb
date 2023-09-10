@@ -44,7 +44,7 @@ public:
     String getName() const override { return "Apply"; }
     Type getType() const override { return Type::Apply; }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override;
     void serialize(WriteBuffer & buffer) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr context);
 

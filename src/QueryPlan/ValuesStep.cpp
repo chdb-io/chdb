@@ -16,7 +16,7 @@
 #include <QueryPlan/ValuesStep.h>
 
 #include <DataStreams/OneBlockInputStream.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Sources/SourceFromSingleChunk.h>
 #include <QueryPlan/PlanSerDerHelper.h>
 

@@ -16,13 +16,13 @@
 #include <Processors/Transforms/PartitionTopNTransform.h>
 
 #include <AggregateFunctions/AggregateFunctionFactory.h>
-#include <Common/Arena.h>
-#include <Common/FieldVisitorsAccurateComparison.h>
 #include <Columns/ColumnConst.h>
 #include <Columns/ColumnsCommon.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Interpreters/convertFieldToType.h>
+#include <Common/Arena.h>
+#include <Common/FieldVisitorsAccurateComparison.h>
 
 
 namespace DB
@@ -36,7 +36,8 @@ namespace ErrorCodes
     extern const int NOT_IMPLEMENTED;
 }
 
-PartitionTopNTransform::PartitionTopNTransform(Block header, size_t topN_, ColumnNumbers partition_by_columns_, ColumnNumbers order_by_columns_, TopNModel model_, bool reverse_)
+PartitionTopNTransform::PartitionTopNTransform(
+    Block header, size_t topN_, ColumnNumbers partition_by_columns_, ColumnNumbers order_by_columns_, TopNModel model_, bool reverse_)
     : IProcessor(InputPorts{header}, OutputPorts{header})
     , model(model_)
     , topN(topN_)
@@ -209,47 +210,47 @@ void PartitionTopNTransform::work()
         }
     }
 
-   if (receive_all_data)
-   {
-       // generate filter_map, <key, value> => <block_index, filter>
-       std::unordered_map<size_t, IColumn::Filter> filter_map;
-       for (auto iter = partition_to_map.begin(); iter != partition_to_map.end(); ++iter)
-       {
-           for (auto field_iter = iter->second.begin(); field_iter != iter->second.end(); ++field_iter)
-           {
-               for (auto & row_iter: field_iter->second)
-               {
-                   size_t block_index = row_iter.block;
-                   if (filter_map.find(block_index) == filter_map.end())
-                   {
-                       filter_map.emplace(std::make_pair(block_index, IColumn::Filter(chunk_list[block_index].getNumRows(), 0)));
-                   }
-                   filter_map[block_index][row_iter.row] = 1;
-               }
-           }
-       }
+    if (receive_all_data)
+    {
+        // generate filter_map, <key, value> => <block_index, filter>
+        std::unordered_map<size_t, IColumn::Filter> filter_map;
+        for (auto iter = partition_to_map.begin(); iter != partition_to_map.end(); ++iter)
+        {
+            for (auto field_iter = iter->second.begin(); field_iter != iter->second.end(); ++field_iter)
+            {
+                for (auto & row_iter : field_iter->second)
+                {
+                    size_t block_index = row_iter.block;
+                    if (filter_map.find(block_index) == filter_map.end())
+                    {
+                        filter_map.emplace(std::make_pair(block_index, IColumn::Filter(chunk_list[block_index].getNumRows(), 0)));
+                    }
+                    filter_map[block_index][row_iter.row] = 1;
+                }
+            }
+        }
 
-       // put all filtered block to output_chunk_list
-       for (auto iter = filter_map.begin(); iter != filter_map.end(); ++iter)
-       {
-           Chunk & source_chunk = chunk_list[iter->first];
-           size_t num_filtered_rows = countBytesInFilter(iter->second);
-           auto source_chunks_columns = source_chunk.detachColumns();
-           for (size_t i = 0; i < source_chunks_columns.size(); i++)
-           {
-               auto & current_column = source_chunks_columns[i];
-               if (isColumnConst(*current_column))
-                   current_column = current_column->cut(0, num_filtered_rows);
-               else
-                   current_column = current_column->filter(iter->second, num_filtered_rows);
-           }
-           Chunk filter_chunk;
-           filter_chunk.setColumns(std::move(source_chunks_columns), num_filtered_rows);
-           output_chunk_list.emplace_back(std::move(filter_chunk));
-       }
+        // put all filtered block to output_chunk_list
+        for (auto iter = filter_map.begin(); iter != filter_map.end(); ++iter)
+        {
+            Chunk & source_chunk = chunk_list[iter->first];
+            size_t num_filtered_rows = countBytesInFilter(iter->second);
+            auto source_chunks_columns = source_chunk.detachColumns();
+            for (size_t i = 0; i < source_chunks_columns.size(); i++)
+            {
+                auto & current_column = source_chunks_columns[i];
+                if (isColumnConst(*current_column))
+                    current_column = current_column->cut(0, num_filtered_rows);
+                else
+                    current_column = current_column->filter(iter->second, num_filtered_rows);
+            }
+            Chunk filter_chunk;
+            filter_chunk.setColumns(std::move(source_chunks_columns), num_filtered_rows);
+            output_chunk_list.emplace_back(std::move(filter_chunk));
+        }
 
-       start_output_chunk = true;
-       chunk_list.clear();
-   }
+        start_output_chunk = true;
+        chunk_list.clear();
+    }
 }
 }

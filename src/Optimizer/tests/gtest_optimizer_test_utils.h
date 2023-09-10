@@ -16,10 +16,10 @@
 #pragma once
 
 #include <Core/Names.h>
-#include <Interpreters/DistributedStages/ExchangeMode.h>
+// #include <Interpreters/DistributedStages/ExchangeMode.h>
 #include <Optimizer/Iterative/IterativeRewriter.h>
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 
 #include <optional>
 #include <stdexcept>
@@ -74,7 +74,7 @@ struct MockedTableScanStep : public IQueryPlanStep
     }
     String getName() const override { return "TableScan"; }
     Type getType() const override { return IQueryPlanStep::Type::TableScan; }
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override { return {}; }
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override { return {}; }
     void setInputStreams(const DataStreams &) override { }
     void serialize(WriteBuffer &) const override { }
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override
@@ -94,7 +94,7 @@ struct MockedFilterStep : public IQueryPlanStep
     }
     String getName() const override { return "Filter"; }
     IQueryPlanStep::Type getType() const override { return IQueryPlanStep::Type::Filter; }
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override { return {}; }
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override { return {}; }
     void setInputStreams(const DataStreams &) override { }
     void serialize(WriteBuffer &) const override { }
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override
@@ -113,7 +113,7 @@ struct MockedExchangeStep : public IQueryPlanStep
     }
     String getName() const override { return "Exchange"; }
     IQueryPlanStep::Type getType() const override { return IQueryPlanStep::Type::Exchange; }
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override { return {}; }
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override { return {}; }
     void setInputStreams(const DataStreams &) override { }
     void serialize(WriteBuffer &) const override { }
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override { return std::make_shared<MockedExchangeStep>(mode, output_stream); }
@@ -121,16 +121,16 @@ struct MockedExchangeStep : public IQueryPlanStep
 
 struct MockedJoinStep : public IQueryPlanStep
 {
-    ASTTableJoin::Kind kind;
+    JoinKind kind;
     Names keys;
 
-    MockedJoinStep(ASTTableJoin::Kind kind_, Names keys_, std::optional<DataStream> output_stream_) : kind(kind_), keys(keys_)
+    MockedJoinStep(JoinKind kind_, Names keys_, std::optional<DataStream> output_stream_) : kind(kind_), keys(keys_)
     {
         output_stream = std::move(output_stream_);
     }
     String getName() const override { return "Join"; }
     IQueryPlanStep::Type getType() const override { return IQueryPlanStep::Type::Join; }
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override { return {}; }
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override { return {}; }
     void setInputStreams(const DataStreams &) override { }
     void serialize(WriteBuffer &) const override { }
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override { return std::make_shared<MockedJoinStep>(kind, keys, output_stream); }
@@ -149,7 +149,7 @@ struct MockedAggregatingStep : public IQueryPlanStep
     }
     String getName() const override { return "Aggregating"; }
     IQueryPlanStep::Type getType() const override { return IQueryPlanStep::Type::Aggregating; }
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override { return {}; }
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override { return {}; }
     void setInputStreams(const DataStreams &) override { }
     void serialize(WriteBuffer &) const override { }
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override
@@ -165,7 +165,7 @@ struct MockedStepForRewriterTest : public IQueryPlanStep
     MockedStepForRewriterTest(int ii, std::optional<DataStream> output_stream_) : i(ii) { output_stream = std::move(output_stream_); }
     String getName() const override { return "MockedStepForRewriterTest"; }
     IQueryPlanStep::Type getType() const override { return IQueryPlanStep::Type::Filter; }
-    QueryPipelinePtr updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &) override { return {}; }
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override { return {}; }
     void setInputStreams(const DataStreams &) override { }
     void serialize(WriteBuffer &) const override { }
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override
@@ -178,7 +178,7 @@ QueryPlan createQueryPlan(const PlanNodePtr & plan);
 std::shared_ptr<PlanNode<MockedTableScanStep>> createTableScanNode(std::string database, std::string table, PlanNodes children);
 std::shared_ptr<PlanNode<MockedFilterStep>> createFilterNode(std::string column, std::string filter, PlanNodes children);
 std::shared_ptr<PlanNode<MockedExchangeStep>> createExchangeNode(ExchangeMode mode, PlanNodes children);
-std::shared_ptr<PlanNode<MockedJoinStep>> createJoinNode(ASTTableJoin::Kind kind, Names keys, PlanNodes children);
+std::shared_ptr<PlanNode<MockedJoinStep>> createJoinNode(JoinKind kind, Names keys, PlanNodes children);
 std::shared_ptr<PlanNode<MockedAggregatingStep>>
 createAggregatingNode(std::string key, std::string aggregator, bool final, PlanNodes children);
 std::shared_ptr<UnionNode> createUnionNode(PlanNodes children);
@@ -193,7 +193,7 @@ createFilterNode(std::string column, std::string filter, std::optional<DataStrea
 std::shared_ptr<PlanNode<MockedExchangeStep>>
 createExchangeNode(ExchangeMode mode, std::optional<DataStream> output_stream_, PlanNodes children);
 std::shared_ptr<PlanNode<MockedJoinStep>>
-createJoinNode(ASTTableJoin::Kind kind, Names keys, std::optional<DataStream> output_stream_, PlanNodes children);
+createJoinNode(JoinKind kind, Names keys, std::optional<DataStream> output_stream_, PlanNodes children);
 std::shared_ptr<PlanNode<MockedAggregatingStep>>
 createAggregatingNode(std::string key, std::string aggregator, bool final, std::optional<DataStream> output_stream_, PlanNodes children);
 std::shared_ptr<UnionNode> createUnionNode(std::optional<DataStream> output_stream_, PlanNodes children);

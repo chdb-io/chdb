@@ -16,7 +16,7 @@
 #include <Optimizer/CostModel/ExchangeCost.h>
 
 #include <Optimizer/CostModel/CostCalculator.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 
 namespace DB
 {

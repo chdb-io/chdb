@@ -4,7 +4,7 @@
 #include <Optimizer/CostModel/CostCalculator.h>
 #include <Optimizer/Rule/Implementation/SetJoinDistribution.h>
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 
 
 namespace DB
@@ -103,10 +103,10 @@ void JoinOperationHintsVisitor::visitJoinNode(JoinNode & node, Void & v)
             true,
             step.getHints());
 
-        if (step.getKind() == ASTTableJoin::Kind::Left)
-            new_join_step->setKind(ASTTableJoin::Kind::Right);
-        else if (step.getKind() == ASTTableJoin::Kind::Right)
-            new_join_step->setKind(ASTTableJoin::Kind::Left);
+        if (step.getKind() == JoinKind::Left)
+            new_join_step->setKind(JoinKind::Right);
+        else if (step.getKind() == JoinKind::Right)
+            new_join_step->setKind(JoinKind::Left);
 
         setStepOptions(new_join_step, DistributionType::BROADCAST, true);
         node.setStep(new_join_step);
@@ -150,10 +150,10 @@ void JoinOperationHintsVisitor::visitJoinNode(JoinNode & node, Void & v)
                 true,
                 step.getHints());
 
-            if (step.getKind() == ASTTableJoin::Kind::Left)
-                new_join_step->setKind(ASTTableJoin::Kind::Right);
-            else if (step.getKind() == ASTTableJoin::Kind::Right)
-                new_join_step->setKind(ASTTableJoin::Kind::Left);
+            if (step.getKind() == JoinKind::Left)
+                new_join_step->setKind(JoinKind::Right);
+            else if (step.getKind() == JoinKind::Right)
+                new_join_step->setKind(JoinKind::Left);
 
             setStepOptions(new_join_step, DistributionType::REPARTITION, true);
             node.setStep(new_join_step);

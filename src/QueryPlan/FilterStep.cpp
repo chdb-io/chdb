@@ -20,7 +20,7 @@
 #include <IO/WriteBuffer.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Parsers/ASTSerDerHelper.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/FilterTransform.h>
 #include <Common/JSONBuilder.h>

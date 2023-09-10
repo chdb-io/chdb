@@ -18,7 +18,7 @@
 #include <unordered_set>
 #include <Interpreters/Context.h>
 #include <Optimizer/tests/gtest_optimizer_test_utils.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Common/tests/gtest_global_context.h>
 
 #include <gtest/gtest.h>
@@ -92,10 +92,11 @@ struct AddExchangeRule : public Rule
     String getName() const override { return "NUM_RULES"; }
     PatternPtr getPattern() const override
     {
-        return join().withAny(
-            DB::Patterns::any()
-                .matchingStep<IQueryPlanStep>([](auto & step) { return step.getType() != IQueryPlanStep::Type::Exchange; })
-                .capturedAs(subNodeCap)).result();
+        return join()
+            .withAny(DB::Patterns::any()
+                         .matchingStep<IQueryPlanStep>([](auto & step) { return step.getType() != IQueryPlanStep::Type::Exchange; })
+                         .capturedAs(subNodeCap))
+            .result();
     }
     TransformResult transformImpl(PlanNodePtr node, const Captures &, RuleContext & context) override
     {
@@ -117,9 +118,11 @@ struct AddExchangeRule : public Rule
         replaceChildrenAndInputStream(node, replaced);
         auto new_step = node->getStep()->copy(context.context);
         DataStreams input_streams_;
-        std::transform(replaced.begin(), replaced.end(), std::back_inserter(input_streams_), [](PlanNodePtr & node_) {
-            return node_->getStep()->getOutputStream();
-        });
+        std::transform(
+            replaced.begin(),
+            replaced.end(),
+            std::back_inserter(input_streams_),
+            [](PlanNodePtr & node_) { return node_->getStep()->getOutputStream(); });
         new_step->setInputStreams(input_streams_);
         node->setStep(new_step);
         return node;
@@ -169,9 +172,10 @@ struct SortRule : public Rule
         static Capture innerValCap;
 
         return filter()
-                  .capturedStepAs<MockedStepForRewriterTest>(outerValCap, &MockedStepForRewriterTest::i)
-                  .withSingle(filter().capturedStepAs<MockedStepForRewriterTest>(innerValCap, &MockedStepForRewriterTest::i))
-                  .matchingCapture([](const Captures & caps) { return caps.at<int>(outerValCap) > caps.at<int>(innerValCap); }).result();
+            .capturedStepAs<MockedStepForRewriterTest>(outerValCap, &MockedStepForRewriterTest::i)
+            .withSingle(filter().capturedStepAs<MockedStepForRewriterTest>(innerValCap, &MockedStepForRewriterTest::i))
+            .matchingCapture([](const Captures & caps) { return caps.at<int>(outerValCap) > caps.at<int>(innerValCap); })
+            .result();
     }
 
     TransformResult transformImpl(PlanNodePtr node, const Captures &, RuleContext &) override
@@ -216,7 +220,7 @@ void check_continuous_nodes(PlanNodePtr node, int index, std::string testname)
     if (node->getChildren().size() > 0)
     {
         ASSERT_EQ(node->getChildren().size(), 1) << testname << " fails, index: " + std::to_string(index) << ", reason: "
-                                                   << "not single child";
+                                                 << "not single child";
         check_continuous_nodes(node->getChildren()[0], index + 1, testname);
     }
 }
@@ -299,8 +303,7 @@ TEST(OptimizerIterativeRewriterTest, RuleForArbitraryNodeType)
         "k1",
         "sum",
         true,
-        {createJoinNode(
-            ASTTableJoin::Kind::Inner, {"names"}, {createTableScanNode("db1", "t1", {}), createTableScanNode("db1", "t2", {})})});
+        {createJoinNode(JoinKind::Inner, {"names"}, {createTableScanNode("db1", "t1", {}), createTableScanNode("db1", "t2", {})})});
 
     QueryPlan query_plan = createQueryPlan(plan);
     auto context = Context::createCopy(getContext().context);
@@ -322,7 +325,7 @@ TEST(OptimizerIterativeRewriterTest, RuleApplication)
     IterativeRewriter rewriter{{fillDBNameRule, addExchangeRule}, "test"};
 
     PlanNodePtr plan = createJoinNode(
-        ASTTableJoin::Kind::Inner,
+        JoinKind::Inner,
         {},
         createDataStream({"a", "b", "c", "d"}),
         {createTableScanNode("", "t1", createDataStream({"a", "b"}), {}),

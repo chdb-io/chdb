@@ -51,14 +51,14 @@ std::optional<PlanNodePtr> PushProjectionThroughJoin::pushProjectionThroughJoin(
     }
 
     auto & join_step = *join_ptr->getStep();
-    //    if (join_step.getKind() != ASTTableJoin::Kind::Inner && join_step.getKind() != ASTTableJoin::Kind::Cross)
+    //    if (join_step.getKind() != JoinKind::Inner && join_step.getKind() != JoinKind::Cross)
     //    {
     //        return {};
     //    }
-    bool can_project_left = join_step.getKind() == ASTTableJoin::Kind::Inner || join_step.getKind() == ASTTableJoin::Kind::Left
-        || join_step.getKind() == ASTTableJoin::Kind::Cross;
-    bool can_project_right = join_step.getKind() == ASTTableJoin::Kind::Inner || join_step.getKind() == ASTTableJoin::Kind::Right
-        || join_step.getKind() == ASTTableJoin::Kind::Cross;
+    bool can_project_left = join_step.getKind() == JoinKind::Inner || join_step.getKind() == JoinKind::Left
+        || join_step.getKind() == JoinKind::Cross;
+    bool can_project_right = join_step.getKind() == JoinKind::Inner || join_step.getKind() == JoinKind::Right
+        || join_step.getKind() == JoinKind::Cross;
 
     PlanNodePtr join_left = join_ptr->getChildren()[0];
     PlanNodePtr join_right = join_ptr->getChildren()[1];

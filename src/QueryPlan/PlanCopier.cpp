@@ -24,7 +24,7 @@
 #include <QueryPlan/PartialSortingStep.h>
 #include <QueryPlan/PlanNode.h>
 #include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+// #include <QueryPlan/RemoteExchangeSourceStep.h>
 
 namespace DB
 {

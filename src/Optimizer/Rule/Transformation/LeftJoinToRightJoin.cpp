@@ -43,7 +43,7 @@ TransformResult LeftJoinToRightJoin::transformImpl(PlanNodePtr node, const Captu
     auto join_step = std::make_shared<JoinStep>(
         streams,
         step.getOutputStream(),
-        step.getKind() == ASTTableJoin::Kind::Left ? ASTTableJoin::Kind::Right : step.getKind(),
+        step.getKind() == JoinKind::Left ? JoinKind::Right : step.getKind(),
         step.getStrictness(),
         step.getMaxStreams(),
         step.getKeepLeftReadInOrder(),

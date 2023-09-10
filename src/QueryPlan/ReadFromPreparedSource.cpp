@@ -15,7 +15,7 @@
 
 #include <QueryPlan/ReadFromPreparedSource.h>
 #include <QueryPlan/PlanSerDerHelper.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Storages/IStorage.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/InterpreterSelectQuery.h>

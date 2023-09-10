@@ -14,7 +14,7 @@
  */
 
 #include <QueryPlan/ExtremesStep.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 
 namespace DB
 {

@@ -1,11 +1,12 @@
 #pragma once
 
-#include <base/types.h>
+#include <Core/Settings.h>
+#include <IO/WriteBufferFromString.h>
 #include <Parsers/IAST_fwd.h>
 #include <Parsers/IdentifierQuotingStyle.h>
+#include <base/types.h>
 #include <Common/Exception.h>
 #include <Common/TypePromotion.h>
-#include <IO/WriteBufferFromString.h>
 
 #include <algorithm>
 #include <set>
@@ -26,7 +27,138 @@ namespace ErrorCodes
 using IdentifierNameSet = std::set<String>;
 
 class WriteBuffer;
+class ReadBuffer;
 using Strings = std::vector<String>;
+
+#define APPLY_AST_TYPES(M) \
+    M(ASTAlterQuery) \
+    M(ASTDeleteQuery) \
+    M(ASTAlterCommand) \
+    M(ASTAssignment) \
+    M(ASTAsterisk) \
+    M(ASTCheckQuery) \
+    M(ASTColumnDeclaration) \
+    M(ASTColumnsMatcher) \
+    M(ASTColumnsApplyTransformer) \
+    M(ASTColumnsExceptTransformer) \
+    M(ASTColumnsReplaceTransformer) \
+    M(ASTConstraintDeclaration) \
+    M(ASTStorage) \
+    M(ASTColumns) \
+    M(ASTCreateQuery) \
+    M(ASTCreateQuotaQuery) \
+    M(ASTCreateRoleQuery) \
+    M(ASTCreateRowPolicyQuery) \
+    M(ASTCreateSettingsProfileQuery) \
+    M(ASTCreateUserQuery) \
+    M(ASTDictionaryLifetime) \
+    M(ASTDictionaryLayout) \
+    M(ASTDictionaryRange) \
+    M(ASTDictionarySettings) \
+    M(ASTDictionary) \
+    M(ASTDictionaryAttributeDeclaration) \
+    M(ASTDropAccessEntityQuery) \
+    M(ASTDropQuery) \
+    M(ASTExplainQuery) \
+    M(ASTExpressionList) \
+    M(ASTExternalDDLQuery) \
+    M(ASTFunction) \
+    M(ASTFunctionWithKeyValueArguments) \
+    M(ASTGrantQuery) \
+    M(ASTIdentifier) \
+    M(ASTIndexDeclaration) \
+    M(ASTInsertQuery) \
+    M(ASTKillQueryQuery) \
+    M(ASTLiteral) \
+    M(ASTNameTypePair) \
+    M(ASTOptimizeQuery) \
+    M(ASTOrderByElement) \
+    M(ASTPair) \
+    M(ASTPartition) \
+    M(ASTProjectionDeclaration) \
+    M(ASTProjectionSelectQuery) \
+    M(ASTQualifiedAsterisk) \
+    M(ASTQueryParameter) \
+    M(ASTQueryWithOutput) \
+    M(ASTQueryWithTableAndOutput) \
+    M(ASTRefreshQuery) \
+    M(ASTRenameQuery) \
+    M(ASTRolesOrUsersSet) \
+    M(ASTRowPolicyName) \
+    M(ASTRowPolicyNames) \
+    M(ASTSampleRatio) \
+    M(ASTSelectQuery) \
+    M(ASTSelectWithUnionQuery) \
+    M(ASTSetQuery) \
+    M(ASTSetRoleQuery) \
+    M(ASTSettingsProfileElement) \
+    M(ASTSettingsProfileElements) \
+    M(ASTShowAccessEntitiesQuery) \
+    M(ASTShowCreateAccessEntityQuery) \
+    M(ASTShowGrantsQuery) \
+    M(ASTShowTablesQuery) \
+    M(ASTSubquery) \
+    M(ASTSystemQuery) \
+    M(ASTTableIdentifier) \
+    M(ASTTableExpression) \
+    M(ASTTableJoin) \
+    M(ASTArrayJoin) \
+    M(ASTTablesInSelectQueryElement) \
+    M(ASTTablesInSelectQuery) \
+    M(ASTTTLElement) \
+    M(ASTUseQuery) \
+    M(ASTUserNameWithHost) \
+    M(ASTUserNamesWithHost) \
+    M(ASTWatchQuery) \
+    M(ASTWindowDefinition) \
+    M(ASTWithElement) \
+    M(ASTFieldReference) \
+    M(ASTCreateStatsQuery) \
+    M(ASTDropStatsQuery) \
+    M(ASTShowStatsQuery) \
+    M(ASTSelectIntersectExceptQuery) \
+    M(ASTWindowListElement) \
+    M(ASTTEALimit) \
+    M(ASTDumpInfoQuery) \
+    M(ASTReproduceQuery) \
+    M(ASTPartToolKit) \
+    M(ASTQuantifiedComparison) \
+    M(ASTTableColumnReference) \
+    M(ASTUpdateQuery)
+#define ENUM_TYPE(ITEM) ITEM,
+
+enum class ASTType : UInt8
+{
+    APPLY_AST_TYPES(ENUM_TYPE) UNDEFINED,
+};
+
+#undef ENUM_TYPE
+
+using StringPair = std::pair<String, String>;
+using StringPairs = std::vector<StringPair>;
+
+class SqlHint
+{
+private:
+    String name;
+
+    // one of below fields is non-empty
+    Strings options;
+    StringPairs kv_options;
+
+public:
+    explicit SqlHint(String name_) : name(std::move(name_)) { }
+    SqlHint(String name_, Strings options_) : name(std::move(name_)), options(std::move(options_)) { }
+    SqlHint(String name_, StringPairs kv_options_) : name(std::move(name_)), kv_options(std::move(kv_options_)) { }
+
+    void setKvOption(String & key, String & value) { kv_options.emplace_back(StringPair{key, value}); }
+    void setOption(const String & option) { options.emplace_back(option); }
+    String getName() const { return name; }
+    StringPairs getKvOptions() const { return kv_options; }
+    Strings getOptions() const { return options; }
+};
+
+using SqlHints = std::vector<SqlHint>;
 
 /** Element of the syntax tree (hereinafter - directed acyclic graph with elements of semantics)
   */
@@ -34,6 +166,7 @@ class IAST : public std::enable_shared_from_this<IAST>, public TypePromotion<IAS
 {
 public:
     ASTs children;
+    SqlHints hints;
 
     virtual ~IAST();
     IAST() = default;
@@ -70,6 +203,9 @@ public:
 
     /** Get the text that identifies this element. */
     virtual String getID(char delimiter = '_') const = 0; /// NOLINT
+
+    /// AST type, it's used for serialize/deserialize.
+    virtual ASTType getType() const { throw Exception("Not support", ErrorCodes::NOT_IMPLEMENTED); }
 
     ASTPtr ptr() { return shared_from_this(); }
 
@@ -156,6 +292,38 @@ public:
         else
             set(field, child);
     }
+
+    void setOrReplaceAST(ASTPtr & old_ast, const ASTPtr & new_ast)
+    {
+        if (!new_ast)
+            throw Exception("Trying to set or replace AST subtree with nullptr", ErrorCodes::LOGICAL_ERROR);
+
+        if (old_ast == new_ast)
+            return;
+
+        /// set ast
+        if (!old_ast)
+        {
+            old_ast = new_ast;
+            children.push_back(old_ast);
+            return;
+        }
+
+        /// replace ast
+        for (ASTPtr & current_child : children)
+        {
+            if (current_child == old_ast)
+            {
+                current_child = new_ast;
+                old_ast = new_ast;
+                return;
+            }
+        }
+
+        throw Exception("AST subtree not found in children", ErrorCodes::LOGICAL_ERROR);
+    }
+    ASTs & getChildren() { return children; }
+    void replaceChildren(ASTs & children_) { children = std::move(children_); }
 
     template <typename T>
     void reset(T * & field)

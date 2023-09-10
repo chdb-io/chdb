@@ -17,30 +17,30 @@
 #include <Optimizer/Rewriter/PredicatePushdown.h>
 
 #include <Analyzers/TypeAnalyzer.h>
-#include <DataTypes/getLeastSupertype.h>
 #include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/getLeastSupertype.h>
 #include <Interpreters/join_common.h>
+#include <Optimizer/DomainTranslator.h>
 #include <Optimizer/DynamicFilters.h>
 #include <Optimizer/EqualityInference.h>
 #include <Optimizer/ExpressionDeterminism.h>
 #include <Optimizer/ExpressionEquivalence.h>
 #include <Optimizer/ExpressionInliner.h>
 #include <Optimizer/ExpressionInterpreter.h>
+#include <Optimizer/PredicateConst.h>
+#include <Optimizer/PredicateUtils.h>
+#include <Optimizer/ProjectionPlanner.h>
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/Utils.h>
 #include <Optimizer/makeCastFunction.h>
-#include <Optimizer/PredicateConst.h>
-#include <Optimizer/PredicateUtils.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
-#include <Optimizer/ProjectionPlanner.h>
 #include <Parsers/formatAST.h>
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/ProjectionStep.h>
+#include <QueryPlan/SymbolMapper.h>
 #include <QueryPlan/UnionStep.h>
 #include <Common/FieldVisitorConvertToNumber.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <Optimizer/DomainTranslator.h>
 
 namespace DB
 {
@@ -61,9 +61,10 @@ void PredicatePushdown::rewrite(QueryPlan & plan, ContextMutablePtr context) con
 
 PlanNodePtr PredicateVisitor::visitPlanNode(PlanNodeBase & node, PredicateContext & predicate_context)
 {
-    PredicateContext true_context{.predicate = PredicateConst::TRUE_VALUE,
-                                  .extra_predicate_for_simplify_outer_join = PredicateConst::TRUE_VALUE,
-                                  .context = predicate_context.context};
+    PredicateContext true_context{
+        .predicate = PredicateConst::TRUE_VALUE,
+        .extra_predicate_for_simplify_outer_join = PredicateConst::TRUE_VALUE,
+        .context = predicate_context.context};
     PlanNodePtr rewritten = processChild(node, true_context);
     if (!PredicateUtils::isTruePredicate(predicate_context.predicate))
     {
@@ -92,7 +93,6 @@ PlanNodePtr PredicateVisitor::visitPlanNode(PlanNodeBase & node, PredicateContex
 
 PlanNodePtr PredicateVisitor::visitProjectionNode(ProjectionNode & node, PredicateContext & predicate_context)
 {
-
     if (PredicateUtils::isTruePredicate(predicate_context.predicate))
     {
         return visitPlanNode(node, predicate_context);
@@ -156,8 +156,8 @@ PlanNodePtr PredicateVisitor::visitProjectionNode(ProjectionNode & node, Predica
     pushdown_predicate = ExpressionInterpreter::optimizePredicate(pushdown_predicate, step.getInputStreams()[0].getNamesToTypes(), context);
     PredicateContext expression_context{
         .predicate = PredicateUtils::combineConjuncts(inlined_deterministic_conjuncts),
-        .extra_predicate_for_simplify_outer_join =
-            ExpressionInliner::inlineSymbols(predicate_context.extra_predicate_for_simplify_outer_join, assignments),
+        .extra_predicate_for_simplify_outer_join
+        = ExpressionInliner::inlineSymbols(predicate_context.extra_predicate_for_simplify_outer_join, assignments),
         .context = predicate_context.context};
     PlanNodePtr rewritten = processChild(node, expression_context);
 
@@ -318,7 +318,7 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
     }
 
     // Asof is clickhouse sql only, we don't process this kind of join.
-    if (step->getStrictness() == ASTTableJoin::Strictness::Asof)
+    if (step->getStrictness() == JoinStrictness::Asof)
     {
         return visitPlanNode(node, predicate_context);
     }
@@ -351,8 +351,8 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
     ConstASTPtr post_join_predicate;
     ConstASTPtr new_join_predicate;
 
-    ASTTableJoin::Kind kind = step->getKind();
-    if (kind == ASTTableJoin::Kind::Inner || kind == ASTTableJoin::Kind::Cross)
+    JoinKind kind = step->getKind();
+    if (kind == JoinKind::Inner || kind == JoinKind::Cross)
     {
         InnerJoinResult inner_result = processInnerJoin(
             inherited_predicate, left_effective_predicate, right_effective_predicate, join_predicate, left_symbols, right_symbols, context);
@@ -361,7 +361,7 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
         post_join_predicate = inner_result.post_join_predicate;
         new_join_predicate = inner_result.join_predicate;
     }
-    else if (kind == ASTTableJoin::Kind::Left)
+    else if (kind == JoinKind::Left)
     {
         OuterJoinResult left_result = processOuterJoin(
             inherited_predicate, left_effective_predicate, right_effective_predicate, join_predicate, left_symbols, right_symbols, context);
@@ -370,7 +370,7 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
         post_join_predicate = left_result.post_join_predicate;
         new_join_predicate = left_result.join_predicate;
     }
-    else if (kind == ASTTableJoin::Kind::Right)
+    else if (kind == JoinKind::Right)
     {
         OuterJoinResult left_result = processOuterJoin(
             inherited_predicate, right_effective_predicate, left_effective_predicate, join_predicate, right_symbols, left_symbols, context);
@@ -379,7 +379,7 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
         post_join_predicate = left_result.post_join_predicate;
         new_join_predicate = left_result.join_predicate;
     }
-    else if (kind == ASTTableJoin::Kind::Full)
+    else if (kind == JoinKind::Full)
     {
         left_predicate = PredicateConst::TRUE_VALUE;
         right_predicate = PredicateConst::TRUE_VALUE;
@@ -458,7 +458,8 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
     // TODO: broaden this by consider SEMI JOIN & ANTI JOIN
     if (isRegularJoin(*step))
     {
-        auto build_implicit_filter = [](const Names & join_keys) {
+        auto build_implicit_filter = [](const Names & join_keys)
+        {
             std::vector<ConstASTPtr> conjuncts;
 
             for (const auto & key : join_keys)
@@ -488,8 +489,12 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
     }
 
     // TODO: combine join implicit filter with inherited extra_predicate_for_simplify_outer_join
-    PredicateContext left_context{.predicate = left_predicate, .extra_predicate_for_simplify_outer_join = left_implicit_filter, .context = predicate_context.context};
-    PredicateContext right_context{.predicate = right_predicate, .extra_predicate_for_simplify_outer_join = right_implicit_filter, .context = predicate_context.context};
+    PredicateContext left_context{
+        .predicate = left_predicate, .extra_predicate_for_simplify_outer_join = left_implicit_filter, .context = predicate_context.context};
+    PredicateContext right_context{
+        .predicate = right_predicate,
+        .extra_predicate_for_simplify_outer_join = right_implicit_filter,
+        .context = predicate_context.context};
     PlanNodePtr left_source;
     PlanNodePtr right_source;
 
@@ -568,7 +573,7 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
 
             if (!JoinCommon::isJoinCompatibleTypes(left_type, right_type))
             {
-                auto common_type = getLeastSupertype({left_type, right_type}, allow_extended_type_conversion);
+                auto common_type = getLeastSupertype(DataTypes({left_type, right_type}), allow_extended_type_conversion);
                 left_key = left_planner.addColumn(makeCastFunction(std::make_shared<ASTIdentifier>(left_key), common_type)).first;
                 right_key = right_planner.addColumn(makeCastFunction(std::make_shared<ASTIdentifier>(right_key), common_type)).first;
                 need_project = true;
@@ -590,8 +595,8 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
 
     // can not push normal filter into any inner join
     auto strictness = step->getStrictness();
-    if (strictness != ASTTableJoin::Strictness::Unspecified && strictness != ASTTableJoin::Strictness::All
-        && (kind == ASTTableJoin::Kind::Inner || kind == ASTTableJoin::Kind::Cross)
+    if (strictness != JoinStrictness::Unspecified && strictness != JoinStrictness::All
+        && (kind == JoinKind::Inner || kind == JoinKind::Cross)
         && (!(step->getFilter() && !PredicateUtils::isTruePredicate(step->getFilter()))))
     {
         auto join_conj = PredicateUtils::extractConjuncts(new_join_filter);
@@ -600,15 +605,15 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
         post_join_predicate = PredicateUtils::combineConjuncts(join_conj);
         new_join_filter = PredicateConst::TRUE_VALUE;
     }
-    
+
     std::shared_ptr<JoinStep> join_step;
-    if (kind == ASTTableJoin::Kind::Cross)
+    if (kind == JoinKind::Cross)
     {
         join_step = std::make_shared<JoinStep>(
             streams,
             DataStream{.header = output},
-            ASTTableJoin::Kind::Inner,
-            ASTTableJoin::Strictness::All,
+            JoinKind::Inner,
+            JoinStrictness::All,
             step->getMaxStreams(),
             step->getKeepLeftReadInOrder(),
             std::move(left_keys),
@@ -652,12 +657,12 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
      * Predicate push down may produce nest loop join with right join, which is not supported by nest loop join.
      * todo: remove this if hash join support filter or nest loop join support right join.
      */
-    if (join_step->enforceNestLoopJoin() && join_step->supportSwap() && join_step->getKind() == ASTTableJoin::Kind::Right)
+    if (join_step->enforceNestLoopJoin() && join_step->supportSwap() && join_step->getKind() == JoinKind::Right)
     {
         join_step = std::make_shared<JoinStep>(
             DataStreams{join_step->getInputStreams()[1], join_step->getInputStreams()[0]},
             join_step->getOutputStream(),
-            ASTTableJoin::Kind::Left,
+            JoinKind::Left,
             join_step->getStrictness(),
             join_step->getMaxStreams(),
             join_step->getKeepLeftReadInOrder(),
@@ -699,8 +704,8 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
             output_assignments.emplace_back(output_assignment);
             output_types[column.name] = column.type;
         }
-        auto output_expression_step
-            = std::make_shared<ProjectionStep>(output_node->getStep()->getOutputStream(), std::move(output_assignments), std::move(output_types));
+        auto output_expression_step = std::make_shared<ProjectionStep>(
+            output_node->getStep()->getOutputStream(), std::move(output_assignments), std::move(output_types));
         auto output_expression_node
             = std::make_shared<ProjectionNode>(context->nextNodeId(), std::move(output_expression_step), PlanNodes{output_node});
         output_node = output_expression_node;
@@ -710,7 +715,7 @@ PlanNodePtr PredicateVisitor::visitJoinNode(JoinNode & node, PredicateContext & 
 
 PredicateVisitor::DynamicFilterResult PredicateVisitor::createDynamicFilters(const JoinStep & join) const
 {
-    if (join.getKind() != ASTTableJoin::Kind::Inner && join.getKind() != ASTTableJoin::Kind::Right)
+    if (join.getKind() != JoinKind::Inner && join.getKind() != JoinKind::Right)
         return {};
 
     std::unordered_map<std::string, DataTypePtr> right_name_to_types;
@@ -1161,8 +1166,8 @@ OuterJoinResult PredicateVisitor::processOuterJoin(
     EqualityInference potential_null_symbol_inference_without_inner_inferred = EqualityInference::newInstance(
         std::vector<ConstASTPtr>{outer_only_inherited_equalities, outer_predicate, join_predicate}, context);
 
-    EqualityPartition potential_null_symbol_inference_without_inner_inferred_partition =
-        potential_null_symbol_inference_without_inner_inferred.partitionedBy(inner_symbols);
+    EqualityPartition potential_null_symbol_inference_without_inner_inferred_partition
+        = potential_null_symbol_inference_without_inner_inferred.partitionedBy(inner_symbols);
     for (const auto & conjunct : potential_null_symbol_inference_without_inner_inferred_partition.getScopeEqualities())
     {
         inner_pushdown_conjuncts.emplace_back(conjunct);
@@ -1252,8 +1257,8 @@ OuterJoinResult PredicateVisitor::processOuterJoin(
 
 void PredicateVisitor::tryNormalizeOuterToInnerJoin(JoinNode & node, const ConstASTPtr & inherited_predicate, ContextMutablePtr context)
 {
-    using Kind = ASTTableJoin::Kind;
-    using Strictness = ASTTableJoin::Strictness;
+    using Kind = JoinKind;
+    using Strictness = JoinStrictness;
 
     auto & step = *node.getStep();
     Kind kind = step.getKind();
@@ -1268,7 +1273,8 @@ void PredicateVisitor::tryNormalizeOuterToInnerJoin(JoinNode & node, const Const
 
     auto column_types = step.getOutputStream().header.getNamesToTypes();
 
-    auto build_symbols = [&](const PlanNodePtr & source) {
+    auto build_symbols = [&](const PlanNodePtr & source)
+    {
         std::unordered_map<String, Field> result;
 
         // note we cannot use type information of `source` node as outer join will change the column types of non-outer side
@@ -1315,16 +1321,16 @@ bool PredicateVisitor::canConvertOuterToInner(
     return false;
 }
 
-ASTTableJoin::Kind PredicateVisitor::useInnerForLeftSide(ASTTableJoin::Kind kind)
+JoinKind PredicateVisitor::useInnerForLeftSide(JoinKind kind)
 {
-    Utils::checkArgument(kind == ASTTableJoin::Kind::Full || kind == ASTTableJoin::Kind::Left);
-    return kind == ASTTableJoin::Kind::Full ? ASTTableJoin::Kind::Right : ASTTableJoin::Kind::Inner;
+    Utils::checkArgument(kind == JoinKind::Full || kind == JoinKind::Left);
+    return kind == JoinKind::Full ? JoinKind::Right : JoinKind::Inner;
 }
 
-ASTTableJoin::Kind PredicateVisitor::useInnerForRightSide(ASTTableJoin::Kind kind)
+JoinKind PredicateVisitor::useInnerForRightSide(JoinKind kind)
 {
-    Utils::checkArgument(kind == ASTTableJoin::Kind::Full || kind == ASTTableJoin::Kind::Right);
-    return kind == ASTTableJoin::Kind::Full ? ASTTableJoin::Kind::Left : ASTTableJoin::Kind::Inner;
+    Utils::checkArgument(kind == JoinKind::Full || kind == JoinKind::Right);
+    return kind == JoinKind::Full ? JoinKind::Left : JoinKind::Inner;
 }
 
 bool PredicateVisitor::isRegularJoin(const JoinStep & step)

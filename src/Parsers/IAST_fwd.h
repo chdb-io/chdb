@@ -12,7 +12,8 @@ using ASTPtr = std::shared_ptr<IAST>;
 /// sizeof(absl::InlinedVector<ASTPtr, N>) == 8 + N * 16.
 /// 7 elements take 120 Bytes which is ~128
 using ASTs = absl::InlinedVector<ASTPtr, 7>;
-
+using ConstASTPtr = std::shared_ptr<const IAST>;
+using ConstASTs = std::vector<ConstASTPtr>;
 }
 
 namespace std

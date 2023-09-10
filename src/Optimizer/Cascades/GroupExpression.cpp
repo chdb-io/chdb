@@ -20,7 +20,7 @@
 #include <Optimizer/Cascades/Memo.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <QueryPlan/AnyStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Common/Exception.h>
 
 namespace DB

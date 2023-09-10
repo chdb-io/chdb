@@ -14,12 +14,14 @@
  */
 
 #include <Analyzers/ExecutePrewhereSubqueryVisitor.h>
-#include <DataStreams/BlockIO.h>
+#include <Interpreters/InterpreterFactory.h>
 #include <Parsers/ASTExpressionList.h>
 #include <Parsers/ASTFunction.h>
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/ASTSubquery.h>
-#include <Interpreters/InterpreterFactory.h>
+#include <Processors/Executors/PullingPipelineExecutor.h>
+#include <QueryPipeline/BlockIO.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 
 namespace DB
 {
@@ -57,16 +59,19 @@ void ExecutePrewhereSubquery::visit(ASTSubquery & subquery, ASTPtr & ast) const
     subquery_context->setSettings(subquery_settings);
 
     ASTPtr subquery_select = subquery.children.at(0);
-    auto interpreter = InterpreterFactory::get(subquery_select, subquery_context,
-                                               SelectQueryOptions(QueryProcessingStage::Complete).setInternal(true));
-    auto stream = interpreter->execute().getInputStream();
+    auto interpreter
+        = InterpreterFactory::get(subquery_select, subquery_context, SelectQueryOptions(QueryProcessingStage::Complete).setInternal(true));
+
+    // auto io = interpreter->execute().getInputStream();
+    auto pipeline = interpreter->execute().pipeline;
+    PullingPipelineExecutor executor(pipeline);
 
     Block block;
     try
     {
         do
         {
-            block = stream->read();
+            executor.pull(block);
         } while (block && block.rows() == 0);
 
         if (!block)
@@ -82,10 +87,10 @@ void ExecutePrewhereSubquery::visit(ASTSubquery & subquery, ASTPtr & ast) const
             throw Exception(
                 "Scalar subquery expected 1 row, got " + std::to_string(block.rows()) + " rows",
                 ErrorCodes::INCORRECT_RESULT_OF_SCALAR_SUBQUERY);
-        while (Block rest = stream->read())
+        Block rest;
+        while (executor.pull(rest))
             if (rest.rows() > 0)
-                throw Exception(
-                    "Scalar subquery returned more than one non-empty block", ErrorCodes::INCORRECT_RESULT_OF_SCALAR_SUBQUERY);
+                throw Exception("Scalar subquery returned more than one non-empty block", ErrorCodes::INCORRECT_RESULT_OF_SCALAR_SUBQUERY);
     }
     catch (const Exception & e)
     {

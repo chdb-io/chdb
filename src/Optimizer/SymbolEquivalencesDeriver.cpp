@@ -34,7 +34,7 @@ SymbolEquivalencesPtr SymbolEquivalencesDeriverVisitor::visitJoinStep(const Join
 {
     auto result = std::make_shared<SymbolEquivalences>(*context[0], *context[1]);
 
-    if (step.getKind() == ASTTableJoin::Kind::Inner)
+    if (step.getKind() == JoinKind::Inner)
     {
         for (size_t index = 0; index < step.getLeftKeys().size(); index++)
         {
@@ -70,10 +70,10 @@ SymbolEquivalencesDeriverVisitor::visitAggregatingStep(const AggregatingStep & s
     NameSet set{step.getKeys().begin(), step.getKeys().end()};
     return context[0]->translate(set);
 }
-SymbolEquivalencesPtr
-SymbolEquivalencesDeriverVisitor::visitExchangeStep(const ExchangeStep &, std::vector<SymbolEquivalencesPtr> & context)
-{
-    return context[0];
-}
+// SymbolEquivalencesPtr
+// SymbolEquivalencesDeriverVisitor::visitExchangeStep(const ExchangeStep &, std::vector<SymbolEquivalencesPtr> & context)
+// {
+//     return context[0];
+// }
 
 }

@@ -643,6 +643,32 @@ NameAndTypePair ColumnsDescription::getPhysical(const String & column_name) cons
     return *column;
 }
 
+NamesAndTypesList ColumnsDescription::getAllWithSubcolumns() const
+{
+    auto columns_list = getAll();
+    addSubcolumnsToList(columns_list);
+    return columns_list;
+}
+
+NamesAndTypesList ColumnsDescription::getAllPhysicalWithSubcolumns() const
+{
+    auto columns_list = getAllPhysical();
+    addSubcolumnsToList(columns_list);
+    return columns_list;
+}
+
+NamesAndTypesList ColumnsDescription::getSubcolumnsOfAllPhysical() const
+{
+    NamesAndTypesList result;
+    auto columns_list = getAllPhysical();
+    auto size = columns_list.size();
+    addSubcolumnsToList(columns_list);
+    auto start_it = columns_list.begin();
+    std::advance(start_it, size);
+    result.splice(result.end(), columns_list, start_it, columns_list.end());
+    return result;
+}
+
 bool ColumnsDescription::hasPhysical(const String & column_name) const
 {
     auto it = columns.get<1>().find(column_name);

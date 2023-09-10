@@ -56,7 +56,7 @@ std::shared_ptr<PlanNode<MockedExchangeStep>> createExchangeNode(DB::ExchangeMod
     return createExchangeNode(mode, {DataStream{}}, children);
 }
 
-std::shared_ptr<PlanNode<MockedJoinStep>> createJoinNode(DB::ASTTableJoin::Kind kind, DB::Names keys, DB::PlanNodes children)
+std::shared_ptr<PlanNode<MockedJoinStep>> createJoinNode(DB::JoinKind kind, DB::Names keys, DB::PlanNodes children)
 {
     return createJoinNode(kind, keys, {DataStream{}}, children);
 }
@@ -115,7 +115,7 @@ createExchangeNode(ExchangeMode mode, std::optional<DataStream> output_stream_, 
 }
 
 std::shared_ptr<PlanNode<MockedJoinStep>>
-createJoinNode(ASTTableJoin::Kind kind, Names keys, std::optional<DataStream> output_stream_, PlanNodes children)
+createJoinNode(JoinKind kind, Names keys, std::optional<DataStream> output_stream_, PlanNodes children)
 {
     auto step = std::make_unique<MockedJoinStep>(kind, keys, output_stream_);
     auto node = std::make_shared<PlanNode<MockedJoinStep>>(id_allocator->nextId(), std::move(step));

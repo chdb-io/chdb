@@ -63,14 +63,17 @@ add_subdirectory (Parsers)
 add_subdirectory (IO)
 add_subdirectory (Functions)
 add_subdirectory (Analyzer)
+add_subdirectory (Analyzers)
 add_subdirectory (Planner)
 add_subdirectory (Interpreters)
 add_subdirectory (AggregateFunctions)
 add_subdirectory (Client)
 add_subdirectory (TableFunctions)
 add_subdirectory (Processors)
+add_subdirectory (Protos)
 add_subdirectory (Compression)
 add_subdirectory (Server)
+add_subdirectory (Statistics)
 add_subdirectory (Coordination)
 add_subdirectory (Bridge)
 add_subdirectory (Daemon)
@@ -106,6 +109,7 @@ endif()
 add_headers_and_sources(dbms Storages/DataLakes)
 add_headers_and_sources(dbms Storages/MeiliSearch)
 add_headers_and_sources(dbms Common/NamedCollections)
+add_headers_and_sources(dbms Analyzers)
 
 if (TARGET ch_contrib::amqp_cpp)
     add_headers_and_sources(dbms Storages/RabbitMQ)
@@ -149,6 +153,8 @@ if (OS_LINUX)
 else()
     message(STATUS "StorageFileLog is only supported on Linux")
 endif ()
+
+add_headers_and_sources(dbms Protos)
 
 list (APPEND clickhouse_common_io_sources ${CONFIG_BUILD})
 
@@ -249,6 +255,7 @@ add_object_library(clickhouse_databases Databases)
 add_object_library(clickhouse_databases_mysql Databases/MySQL)
 add_object_library(clickhouse_disks Disks)
 add_object_library(clickhouse_analyzer Analyzer)
+add_object_library(clickhouse_analyzer_bc Analyzers)
 add_object_library(clickhouse_analyzer_passes Analyzer/Passes)
 add_object_library(clickhouse_planner Planner)
 add_object_library(clickhouse_interpreters Interpreters)
@@ -363,6 +370,11 @@ target_link_libraries(clickhouse_common_io
             boost::system
             boost::context
             ch_contrib::cityhash
+            ch_contrib::farmhash
+            ch_contrib::metrohash
+            ch_contrib::wyhash
+            ch_contrib::xxHash
+            ch_contrib::murmurhash
             ch_contrib::re2
             ch_contrib::re2_st
             ch_contrib::zlib
@@ -427,6 +439,7 @@ dbms_target_link_libraries (
     PUBLIC
         boost::system
         clickhouse_common_io
+        clickhouse_protos_lib
         Poco::MongoDB
         Poco::Redis
 )
@@ -546,6 +559,16 @@ target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::fast_float)
 if (USE_ORC)
     dbms_target_link_libraries(PUBLIC ${ORC_LIBRARIES})
     dbms_target_include_directories(SYSTEM BEFORE PUBLIC ${ORC_INCLUDE_DIR} "${PROJECT_BINARY_DIR}/contrib/orc/c++/include")
+endif ()
+
+set(Protobuf_INCLUDE_DIR "${ClickHouse_SOURCE_DIR}/contrib/google-protobuf/src")
+if (TARGET ch_contrib::protobuf)
+    dbms_target_link_libraries (PRIVATE ${Protobuf_LIBRARY})
+    dbms_target_include_directories (SYSTEM BEFORE PRIVATE ${Protobuf_INCLUDE_DIR})
+    # target_link_libraries(clickhouse_common_io PUBLIC brpc-static ${DYNAMIC_LIB})
+    target_link_libraries (clickhouse_common_io PUBLIC clickhouse_protos_lib)
+    target_link_libraries (clickhouse_common_io PUBLIC ${Protobuf_LIBRARY})
+    target_include_directories (clickhouse_common_io SYSTEM BEFORE PUBLIC ${Protobuf_INCLUDE_DIR})
 endif ()
 
 if (TARGET ch_contrib::rocksdb)

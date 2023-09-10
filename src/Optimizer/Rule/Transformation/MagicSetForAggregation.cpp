@@ -122,8 +122,8 @@ PlanNodePtr MagicSetRule::buildMagicSetAsFilterJoin(
     auto filter_join_step = std::make_shared<JoinStep>(
         DataStreams{source->getStep()->getOutputStream(), filter_node->getStep()->getOutputStream()},
         source->getStep()->getOutputStream(),
-        ASTTableJoin::Kind::Inner,
-        ASTTableJoin::Strictness::All,
+        JoinKind::Inner,
+        JoinStrictness::All,
         context->getSettingsRef().max_threads,
         context->getSettingsRef().optimize_read_in_order,
         source_names,
@@ -137,7 +137,7 @@ PatternPtr MagicSetForProjectionAggregation::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>([&](const JoinStep & s) {
-            return (s.getKind() == ASTTableJoin::Kind::Inner || s.getKind() == ASTTableJoin::Kind::Right) && !s.isMagic();
+            return (s.getKind() == JoinKind::Inner || s.getKind() == JoinKind::Right) && !s.isMagic();
         })
         .with(Patterns::project().withSingle(Patterns::aggregating().withSingle(Patterns::any())), Patterns::any())
         .result();
@@ -228,7 +228,7 @@ PatternPtr MagicSetForAggregation::getPattern() const
 {
     return Patterns::join()
         .matchingStep<JoinStep>([&](const JoinStep & s) {
-            return (s.getKind() == ASTTableJoin::Kind::Inner || s.getKind() == ASTTableJoin::Kind::Right) && !s.isMagic();
+            return (s.getKind() == JoinKind::Inner || s.getKind() == JoinKind::Right) && !s.isMagic();
         })
         .with(Patterns::aggregating().withSingle(Patterns::any()), Patterns::any())
         .result();

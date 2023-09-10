@@ -47,7 +47,7 @@ public:
 
     const std::vector<RuleType> & blockRules() const override;
 
-    static bool supportSwap(const JoinStep & s) { return s.getKind() == ASTTableJoin::Kind::Inner && s.supportSwap(); }
+    static bool supportSwap(const JoinStep & s) { return s.getKind() == JoinKind::Inner && s.supportSwap(); }
     static PlanNodePtr swap(JoinNode & node, RuleContext & rule_context);
 
 protected:

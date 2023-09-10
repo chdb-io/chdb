@@ -113,6 +113,8 @@ if (ENABLE_WOBOQ_CODEBROWSER)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-poison-system-directories")
 endif()
 
+set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-implicit-float-conversion")
+
 # Global libraries
 # See:
 # - default_libs.cmake

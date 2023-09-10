@@ -1,7 +1,7 @@
 #pragma once
 
 #include <QueryPlan/ITransformingStep.h>
-#include <DataStreams/SizeLimits.h>
+#include <QueryPipeline/SizeLimits.h>
 #include <Interpreters/SubqueryForSet.h>
 #include <Interpreters/Context_fwd.h>
 
@@ -45,14 +45,14 @@ public:
 
     Type getType() const override { return Type::CreatingSets; }
 
-    QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings &) override;
+    QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
     void describePipeline(FormatSettings & settings) const override;
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
     void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
-    Processors processors;
+    // Processors processors;
 };
 
 void addCreatingSetsStep(

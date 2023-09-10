@@ -1,18 +1,18 @@
 #include <Optimizer/Rule/Rewrite/PushDownApplyRules.h>
 
+#include <Core/ColumnsWithTypeAndName.h>
 #include <Core/Names.h>
 #include <Core/SortDescription.h>
 #include <Optimizer/PlanNodeCardinality.h>
 #include <Optimizer/Rule/Pattern.h>
 #include <Optimizer/Rule/Patterns.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/LimitStep.h>
+#include <QueryPlan/PlanNode.h>
 #include <QueryPlan/QueryPlan.h>
 #include <QueryPlan/WindowStep.h>
-#include <Core/ColumnsWithTypeAndName.h>
-#include <QueryPlan/PlanNode.h>
 
 namespace DB
 {

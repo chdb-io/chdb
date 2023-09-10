@@ -44,7 +44,7 @@ private:
     {
         auto new_group_id = groups.size();
         groups.emplace_back(std::make_shared<Group>(new_group_id));
-        return new_group_id;
+        return static_cast<GroupId>(new_group_id);
     }
     /**
      * Vector of groups tracked

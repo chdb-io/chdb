@@ -1,10 +1,11 @@
+#include <QueryPipeline/QueryPipeline.h>
 #include <QueryPlan/ITransformingStep.h>
-#include <Processors/QueryPipeline.h>
 
 namespace DB
 {
 
-ITransformingStep::ITransformingStep(DataStream input_stream, Block output_header, Traits traits, bool collect_processors_, PlanHints hints_)
+ITransformingStep::ITransformingStep(
+    DataStream input_stream, Block output_header, Traits traits, bool collect_processors_, PlanHints hints_)
     : transform_traits(std::move(traits.transform_traits))
     , collect_processors(collect_processors_)
     , data_stream_traits(std::move(traits.data_stream_traits))
@@ -14,18 +15,16 @@ ITransformingStep::ITransformingStep(DataStream input_stream, Block output_heade
     hints = std::move(hints_);
 }
 
-DataStream ITransformingStep::createOutputStream(
-    const DataStream & input_stream,
-    Block output_header,
-    const DataStreamTraits & stream_traits)
+DataStream
+ITransformingStep::createOutputStream(const DataStream & input_stream, Block output_header, const DataStreamTraits & stream_traits)
 {
     DataStream output_stream{.header = std::move(output_header)};
 
     if (stream_traits.preserves_distinct_columns)
         output_stream.distinct_columns = input_stream.distinct_columns;
 
-    output_stream.has_single_port = stream_traits.returns_single_stream
-                                     || (input_stream.has_single_port && stream_traits.preserves_number_of_streams);
+    output_stream.has_single_port
+        = stream_traits.returns_single_stream || (input_stream.has_single_port && stream_traits.preserves_number_of_streams);
 
     if (stream_traits.preserves_sorting)
     {
@@ -37,7 +36,7 @@ DataStream ITransformingStep::createOutputStream(
 }
 
 
-QueryPipelinePtr ITransformingStep::updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings)
+QueryPipelinePtr ITransformingStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings)
 {
     if (collect_processors)
     {

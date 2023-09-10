@@ -4,7 +4,7 @@
 #include <IO/Operators.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Interpreters/RuntimeFilter/BuildRuntimeFilterTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/MarkDistinctTransform.h>
 
 namespace DB

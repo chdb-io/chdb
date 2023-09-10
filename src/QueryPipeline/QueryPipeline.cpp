@@ -669,6 +669,18 @@ static void addExpression(OutputPort *& port, ExpressionActionsPtr actions, Proc
     }
 }
 
+// void QueryPipeline::addTransform(ProcessorPtr transform)
+// {
+//     checkInitializedAndNotCompleted();
+//     pipe.addTransform(std::move(transform));
+// }
+
+// void QueryPipeline::addTransform(ProcessorPtr transform, InputPort * totals, InputPort * extremes)
+// {
+//     checkInitializedAndNotCompleted();
+//     pipe.addTransform(std::move(transform), totals, extremes);
+// }
+
 void QueryPipeline::convertStructureTo(const ColumnsWithTypeAndName & columns)
 {
     if (!pulling())

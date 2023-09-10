@@ -17,9 +17,9 @@
 #include <string>
 
 #include <Interpreters/Context_fwd.h>
-#include <Interpreters/DistributedStages/AddressInfo.h>
-#include <Interpreters/DistributedStages/ExchangeMode.h>
-#include <Interpreters/DistributedStages/PlanSegment.h>
+// #include <Interpreters/DistributedStages/AddressInfo.h>
+// #include <Interpreters/DistributedStages/ExchangeMode.h>
+// #include <Interpreters/DistributedStages/PlanSegment.h>
 #include <Processors/Exchange/DataTrans/BroadcastSenderProxy.h>
 #include <Processors/Exchange/DataTrans/BroadcastSenderProxyRegistry.h>
 #include <Processors/Exchange/DataTrans/Brpc/BrpcRemoteBroadcastReceiver.h>
@@ -34,13 +34,13 @@
 #include <Processors/Exchange/ExchangeOptions.h>
 #include <Processors/Exchange/ExchangeSource.h>
 #include <Processors/Exchange/ExchangeUtils.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <QueryPlan/BuildQueryPipelineSettings.h>
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <QueryPlan/RemoteExchangeSourceStep.h>
 #include <brpc/controller.h>
 #include <butil/endpoint.h>
-#include <common/getFQDNOrHostName.h>
+#include <Common/getFQDNOrHostName.h>
 #include <Common/Exception.h>
 
 namespace DB

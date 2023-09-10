@@ -1,5 +1,5 @@
 #pragma once
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <Storages/MergeTree/RangesInDataPart.h>
 #include <boost/rational.hpp>   /// For calculations related to sampling coefficients.
 #include <Parsers/ASTSampleRatio.h>
@@ -109,7 +109,7 @@ public:
 
     Type getType() const override { return Type::ReadFromMergeTree; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(FormatSettings & format_settings) const override;
     void describeIndexes(FormatSettings & format_settings) const override;

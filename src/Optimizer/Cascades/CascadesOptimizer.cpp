@@ -15,7 +15,7 @@
 
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 
-#include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
+// #include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
 #include <Optimizer/Cascades/Task.h>
 #include <Optimizer/Rule/Implementation/SetJoinDistribution.h>
 #include <Optimizer/Rule/Rewrite/PushAggThroughJoinRules.h>

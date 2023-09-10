@@ -15,14 +15,18 @@
 
 #pragma once
 #include <Core/Block.h>
+#include <Core/NameToType.h>
 #include <Core/SortDescription.h>
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/PlanSerDerHelper.h>
-#include <QueryPlan/BuildQueryPipelineSettings.h>
+#include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
 #include <QueryPlan/Hints/IPlanHint.h>
+#include <QueryPlan/PlanSerDerHelper.h>
 
 
-namespace JSONBuilder { class JSONMap; }
+namespace JSONBuilder
+{
+class JSONMap;
+}
 
 namespace DB
 {
@@ -38,7 +42,10 @@ using Processors = std::vector<ProcessorPtr>;
 class ActionsDAG;
 using ActionsDAGPtr = std::shared_ptr<ActionsDAG>;
 
-namespace JSONBuilder { class JSONMap; }
+namespace JSONBuilder
+{
+    class JSONMap;
+}
 
 /// Description of data stream.
 /// Single logical data stream may relate to many ports of pipeline.
@@ -56,7 +63,7 @@ public:
     bool has_single_port = false;
 
     /// How data is sorted.
-    enum class SortMode
+    enum class SortScope
     {
         Chunk, /// Separate chunks are sorted
         Port, /// Data from each port is sorted
@@ -65,7 +72,7 @@ public:
 
     /// It is not guaranteed that header has columns from sort_description.
     SortDescription sort_description = {};
-    SortMode sort_mode = SortMode::Chunk;
+    SortScope sort_mode = SortScope::Chunk;
 
     /// Things which may be added:
     /// * limit
@@ -74,26 +81,15 @@ public:
 
     bool hasEqualPropertiesWith(const DataStream & other) const
     {
-        return distinct_columns == other.distinct_columns
-            && has_single_port == other.has_single_port
-            && sort_description == other.sort_description
-            && (sort_description.empty() || sort_mode == other.sort_mode);
+        return distinct_columns == other.distinct_columns && has_single_port == other.has_single_port
+            && sort_description == other.sort_description && (sort_description.empty() || sort_mode == other.sort_mode);
     }
 
-    bool hasEqualHeaderWith(const DataStream & other) const
-    {
-        return blocksHaveEqualStructure(header, other.header);
-    }
+    bool hasEqualHeaderWith(const DataStream & other) const { return blocksHaveEqualStructure(header, other.header); }
 
-    NamesAndTypes getNamesAndTypes() const
-    {
-        return header.getNamesAndTypes();
-    }
+    NamesAndTypes getNamesAndTypes() const { return header.getNamesAndTypes(); }
 
-    NameToType getNamesToTypes() const
-    {
-        return header.getNamesToTypes();
-    }
+    NameToType getNamesToTypes() const { return header.getNamesToTypes(); }
 };
 
 using DataStreams = std::vector<DataStream>;
@@ -110,55 +106,55 @@ class IQueryPlanStep
 {
 public:
 #define APPLY_STEP_TYPES(M) \
-        M(Aggregating) \
-        M(Apply) \
-        M(ArrayJoin) \
-        M(AssignUniqueId) \
-        M(CreatingSet) \
-        M(CreatingSets) \
-        M(Cube) \
-        M(Distinct) \
-        M(EnforceSingleRow) \
-        M(Expression) \
-        M(Extremes) \
-        M(Except) \
-        M(Exchange) \
-        M(ExplainAnalyze) \
-        M(Filling) \
-        M(FilledJoin) \
-        M(Filter) \
-        M(FinalSample) \
-        M(FinishSorting) \
-        M(ISource) \
-        M(ITransforming) \
-        M(Intersect) \
-        M(Join) \
-        M(LimitBy) \
-        M(Limit) \
-        M(MergeSorting) \
-        M(Sorting) \
-        M(MergingAggregated) \
-        M(MergingSorted) \
-        M(Offset) \
-        M(PartitionTopN) \
-        M(PartialSorting) \
-        M(PlanSegmentSource) \
-        M(Projection) \
-        M(QueryCache) \
-        M(ReadFromStorage) \
-        M(ReadNothing) \
-        M(RemoteExchangeSource) \
-        M(Rollup) \
-        M(SettingQuotaAndLimits) \
-        M(TotalsHaving) \
-        M(TableScan) \
-        M(Union) \
-        M(Values) \
-        M(Window) \
-        M(CTERef) \
-        M(TopNFiltering) \
-        M(MarkDistinct) \
-        M(IntersectOrExcept)
+    M(Aggregating) \
+    M(Apply) \
+    M(ArrayJoin) \
+    M(AssignUniqueId) \
+    M(CreatingSet) \
+    M(CreatingSets) \
+    M(Cube) \
+    M(Distinct) \
+    M(EnforceSingleRow) \
+    M(Expression) \
+    M(Extremes) \
+    M(Except) \
+    M(Exchange) \
+    M(ExplainAnalyze) \
+    M(Filling) \
+    M(FilledJoin) \
+    M(Filter) \
+    M(FinalSample) \
+    M(FinishSorting) \
+    M(ISource) \
+    M(ITransforming) \
+    M(Intersect) \
+    M(Join) \
+    M(LimitBy) \
+    M(Limit) \
+    M(MergeSorting) \
+    M(Sorting) \
+    M(MergingAggregated) \
+    M(MergingSorted) \
+    M(Offset) \
+    M(PartitionTopN) \
+    M(PartialSorting) \
+    M(PlanSegmentSource) \
+    M(Projection) \
+    M(QueryCache) \
+    M(ReadFromStorage) \
+    M(ReadNothing) \
+    M(RemoteExchangeSource) \
+    M(Rollup) \
+    M(SettingQuotaAndLimits) \
+    M(TotalsHaving) \
+    M(TableScan) \
+    M(Union) \
+    M(Values) \
+    M(Window) \
+    M(CTERef) \
+    M(TopNFiltering) \
+    M(MarkDistinct) \
+    M(IntersectOrExcept)
 
 #define ENUM_DEF(ITEM) ITEM,
 
@@ -187,7 +183,7 @@ public:
     ///   * header from each pipeline is the same as header from corresponding input_streams
     /// Result pipeline must contain any number of streams with compatible output header is hasOutputStream(),
     ///   or pipeline should be completed otherwise.
-    virtual QueryPipelinePtr updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings) = 0;
+    virtual QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings) = 0;
     static ActionsDAGPtr createExpressionActions(
         ContextPtr context, const NamesAndTypesList & source, const Names & output, const ASTPtr & ast, bool add_project = true);
     static ActionsDAGPtr createExpressionActions(
@@ -200,15 +196,9 @@ public:
 
     void addHints(SqlHints & sql_hints, ContextMutablePtr & context);
 
-    const PlanHints & getHints() const
-    {
-        return hints;
-    }
+    const PlanHints & getHints() const { return hints; }
 
-    void setHints(const PlanHints & new_hints)
-    {
-        hints = new_hints;
-    }
+    void setHints(const PlanHints & new_hints) { hints = new_hints; }
 
 
     bool hasOutputStream() const { return output_stream.has_value(); }
@@ -228,19 +218,22 @@ public:
     };
 
     /// Get detailed description of step actions. This is shown in EXPLAIN query with options `actions = 1`.
-    virtual void describeActions(JSONBuilder::JSONMap & /*map*/) const {}
-    virtual void describeActions(FormatSettings & /*settings*/) const {}
+    virtual void describeActions(JSONBuilder::JSONMap & /*map*/) const { }
+    virtual void describeActions(FormatSettings & /*settings*/) const { }
 
     /// Get detailed description of read-from-storage step indexes (if any). Shown in with options `indexes = 1`.
-    virtual void describeIndexes(JSONBuilder::JSONMap & /*map*/) const {}
-    virtual void describeIndexes(FormatSettings & /*settings*/) const {}
+    virtual void describeIndexes(JSONBuilder::JSONMap & /*map*/) const { }
+    virtual void describeIndexes(FormatSettings & /*settings*/) const { }
 
     /// Get description of processors added in current step. Should be called after updatePipeline().
-    virtual void describePipeline(FormatSettings & /*settings*/) const {}
+    virtual void describePipeline(FormatSettings & /*settings*/) const { }
 
     virtual void serializeImpl(WriteBuffer & buf) const;
     virtual void serialize(WriteBuffer &) const { throw Exception("Not supported serialize.", ErrorCodes::NOT_IMPLEMENTED); }
-    static QueryPlanStepPtr deserialize(ReadBuffer &, ContextPtr) { throw Exception("Not supported deserialize.", ErrorCodes::NOT_IMPLEMENTED); }
+    static QueryPlanStepPtr deserialize(ReadBuffer &, ContextPtr)
+    {
+        throw Exception("Not supported deserialize.", ErrorCodes::NOT_IMPLEMENTED);
+    }
 
     virtual bool isPhysical() const { return true; }
     virtual bool isLogical() const { return true; }

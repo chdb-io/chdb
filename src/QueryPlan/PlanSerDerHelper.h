@@ -15,13 +15,13 @@
 
 #pragma once
 
+#include <Columns/IColumn.h>
+#include <Core/Block.h>
 #include <Core/NamesAndTypes.h>
 #include <Core/Types.h>
 #include <DataTypes/IDataType.h>
 #include <IO/ReadHelpers.h>
 #include <IO/WriteHelpers.h>
-#include <Core/Block.h>
-#include <Columns/IColumn.h>
 
 namespace DB
 {
@@ -29,7 +29,6 @@ namespace DB
 class DataStream;
 
 class IQueryPlanStep;
-using QueryPlanStepPtr = std::shared_ptr<IQueryPlanStep>;
 using QueryPlanStepPtr = std::shared_ptr<IQueryPlanStep>;
 
 class Context;
@@ -54,13 +53,13 @@ using TableJoinPtr = std::shared_ptr<TableJoin>;
         ITEM = TYPE(tmp); \
     }
 
-template<typename Type>
+template <typename Type>
 void serializeEnum(const Type & item, WriteBuffer & buf)
 {
     writeBinary(UInt8(item), buf);
 }
 
-template<typename Type>
+template <typename Type>
 void deserializeEnum(Type & item, ReadBuffer & buf)
 {
     UInt8 tmp;
@@ -74,7 +73,7 @@ Strings deserializeStrings(ReadBuffer & buf);
 void serializeStringSet(const NameSet & stringSet, WriteBuffer & buf);
 NameSet deserializeStringSet(ReadBuffer & buf);
 
-template<typename T>
+template <typename T>
 void serializeItemVector(const std::vector<T> & itemVec, WriteBuffer & buf)
 {
     writeBinary(itemVec.size(), buf);
@@ -82,7 +81,7 @@ void serializeItemVector(const std::vector<T> & itemVec, WriteBuffer & buf)
         item.serialize(buf);
 }
 
-template<typename T>
+template <typename T>
 std::vector<T> deserializeItemVector(ReadBuffer & buf)
 {
     size_t s_size;

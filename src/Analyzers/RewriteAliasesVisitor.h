@@ -23,12 +23,7 @@ struct RewriteAliases
             {},
             false,
             context->getSettingsRef(),
-            true,
-            context,
-            nullptr,
-            nullptr,
-            /* rewrite_map_col */ false,
-            /* aliases_rewrite_scope */ true);
+            true);
         QueryNormalizer(normalizer_data).visit(ast);
     }
 

@@ -25,7 +25,7 @@
 #include <QueryPlan/DistinctStep.h>
 #include <QueryPlan/EnforceSingleRowStep.h>
 #include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/ExpressionStep.h>
 #include <QueryPlan/ExtremesStep.h>
 #include <QueryPlan/ExplainAnalyzeStep.h>
@@ -33,7 +33,7 @@
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/FinalSampleStep.h>
 #include <QueryPlan/FinishSortingStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <QueryPlan/IntersectStep.h>
 #include <QueryPlan/JoinStep.h>
 #include <QueryPlan/MarkDistinctStep.h>
@@ -47,13 +47,13 @@
 #include <QueryPlan/PlanNode.h>
 #include <QueryPlan/PlanSegmentSourceStep.h>
 #include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/QueryCacheStep.h>
-#include <QueryPlan/ReadFromMergeTree.h>
+// #include <QueryPlan/QueryCacheStep.h>
+#include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <QueryPlan/ReadFromPreparedSource.h>
 #include <QueryPlan/ReadNothingStep.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+// #include <QueryPlan/RemoteExchangeSourceStep.h>
 #include <QueryPlan/RollupStep.h>
-#include <QueryPlan/SettingQuotaAndLimitsStep.h>
+// #include <QueryPlan/SettingQuotaAndLimitsStep.h>
 #include <QueryPlan/SortingStep.h>
 #include <QueryPlan/SymbolAllocator.h>
 #include <QueryPlan/TableScanStep.h>

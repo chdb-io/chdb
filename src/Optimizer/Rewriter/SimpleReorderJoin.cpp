@@ -112,7 +112,7 @@ PlanNodePtr SimpleReorderJoinVisitor::getJoinOrder(JoinGraph & graph)
                                        *right_stats.value(),
                                        left_keys,
                                        right_keys,
-                                       ASTTableJoin::Kind::Inner,
+                                       JoinKind::Inner,
                                        *context,
                                        // todo is base table
                                        left_base_table,
@@ -196,8 +196,8 @@ PlanNodePtr SimpleReorderJoinVisitor::getJoinOrder(JoinGraph & graph)
             QueryPlanStepPtr new_join_step = std::make_shared<JoinStep>(
                 streams,
                 DataStream{.header = output},
-                ASTTableJoin::Kind::Inner,
-                ASTTableJoin::Strictness::All,
+                JoinKind::Inner,
+                JoinStrictness::All,
                 context->getSettingsRef().max_threads,
                 context->getSettingsRef().optimize_read_in_order,
                 left_keys,
@@ -278,7 +278,7 @@ PlanNodePtr SimpleReorderJoinVisitor::getJoinOrder(JoinGraph & graph)
                                            *right_stats.value(),
                                            new_left_keys,
                                            new_right_keys,
-                                           ASTTableJoin::Kind::Inner,
+                                           JoinKind::Inner,
                                            *context,
                                            left_base_table,
                                            right_base_table)

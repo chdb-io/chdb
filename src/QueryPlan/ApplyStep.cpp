@@ -82,7 +82,7 @@ QueryPlanStepPtr ApplyStep::deserialize(ReadBuffer &, ContextPtr)
     throw Exception("ApplyStep should be rewritten into JoinStep", ErrorCodes::NOT_IMPLEMENTED);
 }
 
-QueryPipelinePtr ApplyStep::updatePipeline(QueryPipelines, const BuildQueryPipelineSettings &)
+QueryPipelinePtr ApplyStep::updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &)
 {
     throw Exception("ApplyStep should be rewritten into JoinStep", ErrorCodes::NOT_IMPLEMENTED);
 }

@@ -15,7 +15,7 @@
 
 #include <QueryPlan/DistinctStep.h>
 #include <Processors/Transforms/DistinctTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>
 #include <Common/JSONBuilder.h>
 

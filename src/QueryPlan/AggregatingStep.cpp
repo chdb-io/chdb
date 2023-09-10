@@ -31,7 +31,7 @@
 #include <Parsers/ASTLiteral.h>
 #include <Processors/Merges/AggregatingSortedTransform.h>
 #include <Processors/Merges/FinishAggregatingInOrderTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/ResizeProcessor.h>
 #include <Processors/Transforms/AggregatingInOrderTransform.h>
 #include <Processors/Transforms/AggregatingTransform.h>
@@ -41,7 +41,7 @@
 #include <Processors/Transforms/RollupTransform.h>
 #include <Processors/Transforms/RollupWithGroupingTransform.h>
 #include <QueryPlan/PlanSerDerHelper.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 #include "Core/SettingsEnums.h"
 #include <DataStreams/IBlockInputStream.h>
 #include <Common/StringUtils/StringUtils.h>
@@ -93,7 +93,7 @@ void computeGroupingFunctions(
     if (groupings.empty())
         return;
 
-    const bool ansi_mode = build_settings.context->getSettingsRef().dialect_type != DialectType::CLICKHOUSE;
+    const bool ansi_mode = build_settings.context->getSettingsRef().dialect != Dialect::clickhouse;
     auto actions = std::make_shared<ActionsDAG>(pipeline.getHeader().getColumnsWithTypeAndName());
     ActionsDAG::NodeRawConstPtrs index = actions->getIndex();
     ActionsDAG::NodeRawConstPtrs children;
@@ -453,7 +453,7 @@ void AggregatingStep::transformPipeline(QueryPipeline & pipeline, const BuildQue
                     transform_params->params.group_by_two_level_threshold_bytes,
                     transform_params->params.max_bytes_before_external_group_by,
                     /// Return empty result when aggregating without keys on empty set, if ansi
-                    settings.dialect_type != DialectType::CLICKHOUSE ? true : transform_params->params.empty_result_for_aggregation_by_empty_set,
+                    settings.dialect != Dialect::clickhouse ? true : transform_params->params.empty_result_for_aggregation_by_empty_set,
                     transform_params->params.tmp_volume,
                     transform_params->params.max_threads,
                     transform_params->params.min_free_disk_space,

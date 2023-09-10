@@ -15,7 +15,7 @@
 
 #include <QueryPlan/RollupStep.h>
 #include <Processors/Transforms/RollupTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <QueryPlan/AggregatingStep.h>
 
 namespace DB

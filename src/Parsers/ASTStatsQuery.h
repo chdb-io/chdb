@@ -58,10 +58,13 @@ public:
 
         if (!target_all)
         {
-            if (!database.empty())
-                res << delim << database;
+            String database_name;
+            if(tryGetIdentifierNameInto(database, database_name))
+                res << delim << database_name;
 
-            res << delim << table;
+            String table_name;
+            if(tryGetIdentifierNameInto(table, table_name))
+                res << delim << table;
         }
 
         if (!columns.empty())
@@ -95,9 +98,9 @@ public:
 
     ASTType getType() const override { return StatsQueryInfo::Type; }
 
-    ASTPtr getRewrittenASTWithoutOnCluster(const std::string & new_database) const override
+    ASTPtr getRewrittenASTWithoutOnCluster(const WithoutOnClusterASTRewriteParams & params) const override
     {
-        return removeOnCluster<ASTStatsQueryBase>(clone(), new_database);
+        return removeOnCluster<ASTStatsQueryBase>(clone(), params.default_database);
     }
 
 protected:
@@ -116,8 +119,13 @@ protected:
             settings.ostr << (settings.hilite ? hilite_keyword : "") << "ALL" << (settings.hilite ? hilite_none : "");
         else
         {
-            settings.ostr << (settings.hilite ? hilite_identifier : "") << (!database.empty() ? backQuoteIfNeed(database) + "." : "")
-                          << backQuoteIfNeed(table) << (settings.hilite ? hilite_none : "");
+            String database_name = "";
+            String table_name = "";
+            tryGetIdentifierNameInto(database, database_name);
+            tryGetIdentifierNameInto(table, table_name);
+            
+            settings.ostr << (settings.hilite ? hilite_identifier : "") << (!database_name.empty() ? backQuoteIfNeed(database_name) + "." : "")
+                          << backQuoteIfNeed(table_name) << (settings.hilite ? hilite_none : "");
             if (!columns.empty())
             {
                 settings.ostr << (settings.hilite ? hilite_keyword : "") << " (" << (settings.hilite ? hilite_none : "");

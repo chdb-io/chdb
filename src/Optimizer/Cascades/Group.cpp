@@ -28,8 +28,7 @@ void Group::addExpression(const GroupExprPtr & expression, CascadesContext & con
 {
     expression->setGroupId(id);
 
-    if (expression->
-    ())
+    if (expression->isPhysical())
     {
         physical_expressions.emplace_back(expression);
     }

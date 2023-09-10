@@ -16,7 +16,7 @@
 #include <QueryPlan/CubeStep.h>
 #include <Processors/Transforms/CubeTransform.h>
 #include <Processors/Transforms/ExpressionTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <QueryPlan/AggregatingStep.h>
 #include <DataTypes/DataTypesNumber.h>
 

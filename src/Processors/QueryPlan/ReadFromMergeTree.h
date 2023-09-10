@@ -155,6 +155,8 @@ public:
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeIndexes(JSONBuilder::JSONMap & map) const override;
 
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    
     const Names & getRealColumnNames() const { return real_column_names; }
     const Names & getVirtualColumnNames() const { return virt_column_names; }
 

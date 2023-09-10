@@ -14,7 +14,7 @@
  */
 
 #include <QueryPlan/QueryCacheStep.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <QueryPlan/ITransformingStep.h>
 #include <Processors/Sources//SourceFromQueryCache.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
@@ -131,7 +131,7 @@ void QueryCacheStep::init()
     }
 }
 
-QueryPipelinePtr QueryCacheStep::updatePipeline(QueryPipelines pipelines, const BuildQueryPipelineSettings & settings)
+QueryPipelinePtr QueryCacheStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings)
 {
     // if hit query cache, generate pipeline
     if (hitCache())

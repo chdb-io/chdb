@@ -18,7 +18,7 @@
 #include <IO/Operators.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Processors/Merges/MergingSortedTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/ResizeProcessor.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/FinishSortingTransform.h>
@@ -155,7 +155,7 @@ void WindowStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPip
 
     pipeline.addSimpleTransform([&](const Block & /*header*/) {
         return std::make_shared<WindowTransform>(
-            input_header, output_stream->header, window_description, window_functions, s.actions_settings.dialect_type);
+            input_header, output_stream->header, window_description, window_functions, s.actions_settings.dialect);
     });
 
     assertBlocksHaveEqualStructure(

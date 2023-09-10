@@ -172,7 +172,7 @@ TransformResult PullProjectionOnJoinThroughJoin::transformImpl(PlanNodePtr node,
     const auto & join_step = dynamic_cast<const JoinStep &>(*node->getStep());
 
     if (isProjectionWithJoin(node->getChildren()[0])
-        && (join_step.getKind() == ASTTableJoin::Kind::Inner || join_step.getKind() == ASTTableJoin::Kind::Left))
+        && (join_step.getKind() == JoinKind::Inner || join_step.getKind() == JoinKind::Left))
     {
         auto ret = tryPushJoinThroughLeftProjection(
             node, node->getChildren()[0], node->getChildren()[1], node->getChildren()[0]->getChildren()[0], *context.context);
@@ -180,7 +180,7 @@ TransformResult PullProjectionOnJoinThroughJoin::transformImpl(PlanNodePtr node,
     }
 
     if (isProjectionWithJoin(node->getChildren()[1])
-        && (join_step.getKind() == ASTTableJoin::Kind::Inner || join_step.getKind() == ASTTableJoin::Kind::Right))
+        && (join_step.getKind() == JoinKind::Inner || join_step.getKind() == JoinKind::Right))
     {
         auto ret = tryPushJoinThroughRightProjection(
             node, node->getChildren()[1], node->getChildren()[0], node->getChildren()[1]->getChildren()[0], *context.context);

@@ -15,7 +15,7 @@
 
 #include <QueryPlan/FillingStep.h>
 #include <Processors/Transforms/FillingTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>
 #include <Common/JSONBuilder.h>
 

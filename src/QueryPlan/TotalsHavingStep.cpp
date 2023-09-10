@@ -15,7 +15,7 @@
 
 #include <IO/Operators.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/DistinctTransform.h>
 #include <Processors/Transforms/TotalsHavingTransform.h>
 #include <QueryPlan/TotalsHavingStep.h>

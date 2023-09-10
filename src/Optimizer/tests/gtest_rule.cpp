@@ -73,7 +73,7 @@ TEST(OptimizerRuleTest, Rule)
         "sum",
         false,
         {createJoinNode(
-            ASTTableJoin::Kind::Inner, {"jk1"}, {createTableScanNode("db1", "t1", {}), createTableScanNode("db1", "t2", {})})});
+            JoinKind::Inner, {"jk1"}, {createTableScanNode("db1", "t1", {}), createTableScanNode("db1", "t2", {})})});
     auto res1 = rule.transform(plan1, ctx);
     ASSERT_TRUE(!res1.empty());
     auto & transformed = res1.getPlans()[0];

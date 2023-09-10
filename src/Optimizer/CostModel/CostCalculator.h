@@ -64,8 +64,8 @@ public:
     PlanNodeCost visitUnionStep(const UnionStep & step, CostContext & context) override;
     PlanNodeCost visitIntersectStep(const IntersectStep & step, CostContext & context) override;
     PlanNodeCost visitExceptStep(const ExceptStep & step, CostContext & context) override;
-    PlanNodeCost visitExchangeStep(const ExchangeStep & step, CostContext & cost_context) override;
-    PlanNodeCost visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step, CostContext & context) override;
+    // PlanNodeCost visitExchangeStep(const ExchangeStep & step, CostContext & cost_context) override;
+    // PlanNodeCost visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step, CostContext & context) override;
     PlanNodeCost visitTableScanStep(const TableScanStep & step, CostContext & context) override;
     PlanNodeCost visitReadNothingStep(const ReadNothingStep & step, CostContext & context) override;
     PlanNodeCost visitValuesStep(const ValuesStep & step, CostContext & context) override;

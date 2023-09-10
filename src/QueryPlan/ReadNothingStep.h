@@ -14,7 +14,7 @@
  */
 
 #pragma once
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 
 namespace DB
 {
@@ -29,7 +29,7 @@ public:
 
     Type getType() const override { return Type::ReadNothing; }
 
-    void initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void serialize(WriteBuffer &) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer &, ContextPtr context_ = nullptr);

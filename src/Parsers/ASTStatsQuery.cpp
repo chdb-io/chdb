@@ -13,6 +13,7 @@
  * limitations under the License.
  */
 
+#include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTStatsQuery.h>
 
 namespace DB
@@ -41,11 +42,15 @@ String ASTCreateStatsQuery::getID(char delim) const
 
     if (!target_all)
     {
-        if (!database.empty())
-            res << delim << database;
+        String database_name;
+        if (tryGetIdentifierNameInto(database, database_name))
+            res << delim << database_name;
 
-        res << delim << table;
+        String table_name;
+        if (tryGetIdentifierNameInto(table, table_name))
+            res << delim << table;
     }
+
 
     if (!columns.empty())
     {
@@ -106,7 +111,8 @@ void ASTCreateStatsQuery::formatQueryImpl(const FormatSettings & settings, Forma
     }
 
     bool printed = false;
-    auto printWithIfNeeded = [&printed, &settings] {
+    auto printWithIfNeeded = [&printed, &settings]
+    {
         if (!printed)
         {
             settings.ostr << (settings.hilite ? hilite_keyword : "") << " WITH" << (settings.hilite ? hilite_none : "");

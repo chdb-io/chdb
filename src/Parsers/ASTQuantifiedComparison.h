@@ -23,7 +23,6 @@ namespace DB
 //AST For Quantified Comparison, for example, '> all', '= all'
 class ASTQuantifiedComparison : public ASTWithAlias
 {
-
 public:
     enum class QuantifierType
     {
@@ -36,8 +35,8 @@ public:
     String getID(char delim) const override;
     ASTType getType() const override { return ASTType::ASTQuantifiedComparison; }
     ASTPtr clone() const override;
-    void serialize(WriteBuffer & buf) const override;
-    void deserializeImpl(ReadBuffer & buf) override;
+    void serialize(WriteBuffer & buf) const;
+    void deserializeImpl(ReadBuffer & buf);
     static ASTPtr deserialize(ReadBuffer & buf);
 
 protected:
@@ -48,7 +47,8 @@ protected:
 using QuantifierType = ASTQuantifiedComparison::QuantifierType;
 
 template <typename... Args>
-std::shared_ptr<ASTQuantifiedComparison> makeASTQuantifiedComparison(const String & comparator, QuantifierType & quantifier_type, Args &&... args)
+std::shared_ptr<ASTQuantifiedComparison>
+makeASTQuantifiedComparison(const String & comparator, QuantifierType & quantifier_type, Args &&... args)
 {
     const auto quantified_comparison = std::make_shared<ASTQuantifiedComparison>();
 

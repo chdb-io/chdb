@@ -20,8 +20,8 @@
 #include <Analyzers/ExecutePrewhereSubqueryVisitor.h>
 #include <Analyzers/ImplementFunctionVisitor.h>
 #include <Analyzers/ReplaceViewWithSubqueryVisitor.h>
-#include <Analyzers/SimpleFunctionVisitor.h>
 #include <Analyzers/RewriteAliasesVisitor.h>
+#include <Analyzers/SimpleFunctionVisitor.h>
 #include <Interpreters/ApplyWithAliasVisitor.h>
 #include <Interpreters/ApplyWithSubqueryVisitor.h>
 #include <Interpreters/CollectJoinOnKeysVisitor.h>
@@ -45,6 +45,7 @@
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/queryToString.h>
+#include <Parsers/parseQuery.h>
 
 namespace DB
 {
@@ -173,7 +174,8 @@ namespace
     };
 
     using CustomizeAggregateFunctionsOrNullVisitor = InDepthNodeVisitor<OneTypeMatcher<CustomizeAggregateFunctionsSuffixData>, true>;
-    using CustomizeAggregateFunctionsMoveOrNullVisitor = InDepthNodeVisitor<OneTypeMatcher<CustomizeAggregateFunctionsMoveSuffixData>, true>;
+    using CustomizeAggregateFunctionsMoveOrNullVisitor
+        = InDepthNodeVisitor<OneTypeMatcher<CustomizeAggregateFunctionsMoveSuffixData>, true>;
 
     void expandCte(ASTPtr & query, ContextMutablePtr context, int & graphviz_index)
     {
@@ -209,7 +211,8 @@ namespace
     void normalizeUnion(ASTPtr & query, ContextMutablePtr context)
     {
         {
-            SelectIntersectExceptQueryVisitor::Data data{context->getSettingsRef().intersect_default_mode, context->getSettingsRef().except_default_mode};
+            SelectIntersectExceptQueryVisitor::Data data{
+                context->getSettingsRef().intersect_default_mode, context->getSettingsRef().except_default_mode};
             SelectIntersectExceptQueryVisitor{data}.visit(query);
         }
 
@@ -324,7 +327,7 @@ namespace
 
         static ASTPtr makeSubqueryTemplate()
         {
-            ParserSubquery parser(ParserSettings::CLICKHOUSE);
+            ParserSubquery parser;
             ASTPtr subquery_template = parseQuery(parser, "(select * from t)", 0, DBMS_DEFAULT_MAX_PARSER_DEPTH);
             if (!subquery_template)
                 throw Exception("Cannot parse subquery template", ErrorCodes::LOGICAL_ERROR);
@@ -341,7 +344,7 @@ namespace
                 {
                     static ASTPtr subquery_template = makeSubqueryTemplate();
                     ASTPtr subquery = subquery_template->clone();
-                    ReplaceTable data {table_id->getTableId()};
+                    ReplaceTable data{table_id->getTableId()};
                     ReplaceTableVisitor(data).visit(subquery);
                     right_op = subquery;
                 }
@@ -368,9 +371,15 @@ namespace
         }
     }
 
-    void normalizeNameAndAliases(ASTPtr & query, Aliases & aliases, const NameSet & source_columns_set, const Settings & settings,
-                                 ContextMutablePtr context, ConstStoragePtr /*storage*/, const StorageMetadataPtr & metadata_snapshot,
-                                 int & graphviz_index)
+    void normalizeNameAndAliases(
+        ASTPtr & query,
+        Aliases & aliases,
+        const NameSet & source_columns_set,
+        const Settings & settings,
+        ContextMutablePtr context,
+        ConstStoragePtr /*storage*/,
+        // const StorageMetadataPtr & metadata_snapshot,
+        int & graphviz_index)
     {
         /// Creates a dictionary `aliases`: alias -> ASTPtr
         QueryAliasesVisitor(aliases).visit(query);
@@ -382,7 +391,7 @@ namespace
         rewriteInTableExpression(query);
 
         /// Common subexpression elimination. Rewrite rules.
-        QueryNormalizer::Data normalizer_data(aliases, source_columns_set, false, settings, true, context, nullptr, metadata_snapshot);
+        QueryNormalizer::Data normalizer_data(aliases, source_columns_set, false, settings, true);
         QueryNormalizer(normalizer_data).visit(query);
 
         GraphvizPrinter::printAST(query, context, std::to_string(graphviz_index++) + "-AST-normalize-name-and-alias");
@@ -401,7 +410,7 @@ namespace
         cross_to_inner.cross_to_inner_join_rewrite = false;
         CrossToInnerJoinVisitor(cross_to_inner).visit(query);
 
-        JoinToSubqueryTransformVisitor::Data join_to_subs_data{tables, settings.dialect_type, aliases};
+        JoinToSubqueryTransformVisitor::Data join_to_subs_data{tables, settings.dialect, aliases};
         JoinToSubqueryTransformVisitor(join_to_subs_data).visit(query);
     }
 
@@ -439,7 +448,7 @@ namespace
         }
 
         StoragePtr storage = joined_tables.getLeftTableStorage();
-        TreeRewriterResult result {source_columns, storage, storage ? storage->getInMemoryMetadataPtr() : nullptr};
+        TreeRewriterResult result{source_columns, storage, storage ? storage->getInMemoryMetadataPtr() : nullptr};
 
         if (tables_with_columns.size() > 1)
         {
@@ -451,8 +460,7 @@ namespace
             cols_from_joined.insert(cols_from_joined.end(), right_table.hidden_columns.begin(), right_table.hidden_columns.end());
             result.analyzed_join->setColumnsFromJoinedTable(cols_from_joined);
 
-            result.analyzed_join->deduplicateAndQualifyColumnNames(
-                result.source_columns_set, right_table.table.getQualifiedNamePrefix());
+            result.analyzed_join->deduplicateAndQualifyColumnNames(result.source_columns_set, right_table.table.getQualifiedNamePrefix());
         }
 
         // 2. Rewrite qualified names
@@ -475,8 +483,8 @@ namespace
                 for (const auto & col : result.analyzed_join->columnsFromJoinedTable())
                     all_source_columns_set.insert(col.name);
             }
-            normalizeNameAndAliases(node, result.aliases, all_source_columns_set, settings, context, result.storage,
-                                    result.metadata_snapshot, graphviz_index);
+            normalizeNameAndAliases(
+                node, result.aliases, all_source_columns_set, settings, context, result.storage, result.metadata_snapshot, graphviz_index);
         }
 
         // 5. Call `TreeOptimizer` since some optimizations will change the query result
@@ -517,11 +525,11 @@ namespace
 
 ASTPtr QueryRewriter::rewrite(ASTPtr query, ContextMutablePtr context, bool enable_materialized_view)
 {
-    (void) enable_materialized_view;
+    (void)enable_materialized_view;
     graphviz_index = GraphvizPrinter::PRINT_AST_INDEX;
     GraphvizPrinter::printAST(query, context, std::to_string(graphviz_index++) + "-AST-init");
 
-    if (context->getSettingsRef().dialect_type != DialectType::CLICKHOUSE)
+    if (context->getSettingsRef().dialect != Dialect::clickhouse)
     {
         /// Statement rewriting
         expandCte(query, context, graphviz_index);
@@ -549,7 +557,8 @@ ASTPtr QueryRewriter::rewrite(ASTPtr query, ContextMutablePtr context, bool enab
         markTupleLiteralsAsLegacy(query, context);
 
         // select query level rewriter, top down rewrite each subquery.
-        std::function<void(ASTPtr &)> rewrite_query = [&](ASTPtr & ast) {
+        std::function<void(ASTPtr &)> rewrite_query = [&](ASTPtr & ast)
+        {
             if (ast->as<ASTSelectQuery>())
             {
                 rewriteSelectQuery(ast, context, graphviz_index);

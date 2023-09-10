@@ -15,7 +15,7 @@
 
 #include <QueryPlan/OffsetStep.h>
 #include <Processors/OffsetTransform.h>
-#include <Processors/QueryPipeline.h>
+#include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>
 #include <Common/JSONBuilder.h>
 

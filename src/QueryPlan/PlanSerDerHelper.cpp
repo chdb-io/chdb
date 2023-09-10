@@ -34,7 +34,7 @@
 #include <QueryPlan/DistinctStep.h>
 #include <QueryPlan/EnforceSingleRowStep.h>
 #include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/ExchangeStep.h>
+// #include <QueryPlan/ExchangeStep.h>
 #include <QueryPlan/ExpressionStep.h>
 #include <QueryPlan/ExtremesStep.h>
 #include <QueryPlan/ExplainAnalyzeStep.h>
@@ -42,8 +42,8 @@
 #include <QueryPlan/FilterStep.h>
 #include <QueryPlan/FinalSampleStep.h>
 #include <QueryPlan/FinishSortingStep.h>
-#include <QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/ISourceStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/ISourceStep.h>
 #include <QueryPlan/ITransformingStep.h>
 #include <QueryPlan/IntersectStep.h>
 #include <QueryPlan/IntersectOrExceptStep.h>
@@ -60,13 +60,13 @@
 #include <QueryPlan/PartitionTopNStep.h>
 #include <QueryPlan/PlanSegmentSourceStep.h>
 #include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/QueryCacheStep.h>
-#include <QueryPlan/ReadFromMergeTree.h>
+// #include <QueryPlan/QueryCacheStep.h>
+#include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <QueryPlan/ReadFromPreparedSource.h>
 #include <QueryPlan/ReadNothingStep.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+// #include <QueryPlan/RemoteExchangeSourceStep.h>
 #include <QueryPlan/RollupStep.h>
-#include <QueryPlan/SettingQuotaAndLimitsStep.h>
+// #include <QueryPlan/SettingQuotaAndLimitsStep.h>
 #include <QueryPlan/TableScanStep.h>
 #include <QueryPlan/TotalsHavingStep.h>
 #include <QueryPlan/UnionStep.h>
@@ -232,7 +232,7 @@ DataStream deserializeDataStream(ReadBuffer & buf)
         .distinct_columns = std::move(distinct_columns),
         .has_single_port = has_single_port,
         .sort_description = std::move(sort_description),
-        .sort_mode = DataStream::SortMode(sort_mode)};
+        .sort_mode = DataStream::SortScope(sort_mode)};
 }
 
 void serializeDataStreamFromDataStreams(const DataStreams & data_streams, WriteBuffer & buf)

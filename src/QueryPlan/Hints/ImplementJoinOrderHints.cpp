@@ -145,8 +145,8 @@ PlanNodePtr JoinOrderHintsVisitor::getJoinOrder(JoinGraph & graph, LeadingPtr & 
             auto new_join_step = std::make_shared<JoinStep>(
                 streams,
                 DataStream{.header = output},
-                ASTTableJoin::Kind::Inner,
-                ASTTableJoin::Strictness::All,
+                JoinKind::Inner,
+                JoinStrictness::All,
                 context->getSettingsRef().max_threads,
                 context->getSettingsRef().optimize_read_in_order,
                 left_keys,

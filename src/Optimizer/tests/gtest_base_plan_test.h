@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Interpreters/Context.h>
-#include <Interpreters/DistributedStages/PlanSegment.h>
+// #include <Interpreters/DistributedStages/PlanSegment.h>
 #include <Optimizer/tests/test_config.h>
 #include <QueryPlan/QueryPlan.h>
 

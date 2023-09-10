@@ -89,7 +89,7 @@ public:
         , cte_plans(cte_plans_)
         , analysis(analysis_)
         , outer_context(std::move(outer_context_))
-        , use_ansi_semantic(context->getSettingsRef().dialect_type != DialectType::CLICKHOUSE)
+        , use_ansi_semantic(context->getSettingsRef().dialect != Dialect::clickhouse)
         , enable_shared_cte(context->getSettingsRef().cte_mode != CTEMode::INLINED)
         , enable_implicit_type_conversion(context->getSettingsRef().enable_implicit_type_conversion)
         , enable_subcolumn_optimization_through_union(context->getSettingsRef().enable_subcolumn_optimization_through_union)
@@ -543,8 +543,8 @@ void QueryPlannerVisitor::planCrossJoin(ASTTableJoin & table_join, PlanBuilder &
         auto join_step = std::make_shared<JoinStep>(
             DataStreams{left_builder.getCurrentDataStream(), right_builder.getCurrentDataStream()},
             DataStream{.header = output_header},
-            ASTTableJoin::Kind::Cross,
-            ASTTableJoin::Strictness::Unspecified);
+            JoinKind::Cross,
+            JoinStrictness::Unspecified);
 
         planHint(join_step, table_join.hints);
         left_builder.addStep(std::move(join_step), {left_builder.getRoot(), right_builder.getRoot()});

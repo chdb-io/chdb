@@ -18,7 +18,7 @@
 #include <Optimizer/Rewriter/Rewriter.h>
 #include <Optimizer/Rule/Rule.h>
 #include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 
 #include <unordered_map>
 #include <vector>
