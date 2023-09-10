@@ -1,0 +1,14 @@
+Projection Est. 1 rows
+│     Expressions: revenue:=`expr#sum(multiply(l_extendedprice, l_discount))`
+└─ MergingAggregated Est. 1 rows
+   └─ Gather Exchange Est. 1 rows
+      └─ Aggregating Est. 1 rows
+         │     Group by: {}
+         │     Aggregates: expr#sum(multiply(l_extendedprice, l_discount)):=AggNull(sum)(expr#multiply(l_extendedprice, l_discount))
+         └─ Projection Est. 79354 rows
+            │     Expressions: expr#multiply(l_extendedprice, l_discount):=l_extendedprice * l_discount
+            └─ Filter Est. 79354 rows
+               │     Condition: (l_shipdate >= cast(8766, 'Date')) AND (l_shipdate < cast(9131, 'Date')) AND (l_discount >= 0.049999999999999996) AND (l_discount <= 0.06999999999999999) AND (l_quantity < 24.)
+               └─ TableScan tpch.lineitem Est. 6001215 rows
+                        Condition : (l_shipdate >= cast(8766, 'Date')) AND (l_shipdate < cast(9131, 'Date')) AND (l_discount >= 0.049999999999999996) AND (l_discount <= 0.06999999999999999) AND (l_quantity < 24.).
+                        Outputs: [l_discount, l_extendedprice, l_quantity, l_shipdate]

@@ -1,0 +1,35 @@
+Projection Est. 100 rows
+│     Expressions: [d_year], brand:=i_brand, brand_id:=i_brand_id, ext_price:=`expr#sum(ss_ext_sales_price)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {d_year asc, expr#sum(ss_ext_sales_price) desc nulls_last, i_brand_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 221 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {d_year asc, expr#sum(ss_ext_sales_price) desc nulls_last, i_brand_id asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 221 rows
+               └─ Repartition Exchange Est. 221 rows
+                  │     Partition by: {d_year, i_brand, i_brand_id}
+                  └─ Aggregating Est. 221 rows
+                     │     Group by: {d_year, i_brand, i_brand_id}
+                     │     Aggregates: expr#sum(ss_ext_sales_price):=AggNull(sum)(ss_ext_sales_price)
+                     └─ Inner Join Est. 421678 rows
+                        │     Condition: ss_item_sk == i_item_sk
+                        ├─ Inner Join Est. 23338638 rows
+                        │  │     Condition: ss_sold_date_sk == d_date_sk
+                        │  ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                        │  │        Outputs: [ss_ext_sales_price, ss_item_sk, ss_sold_date_sk]
+                        │  └─ Broadcast Exchange Est. 30 rows
+                        │     └─ Filter Est. 30 rows
+                        │        │     Condition: (d_year = 2000) AND (d_moy = 11)
+                        │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                        │                 Condition : (d_year = 2000) AND (d_moy = 11).
+                        │                 Outputs: [d_date_sk, d_moy, d_year]
+                        └─ Broadcast Exchange Est. 5420 rows
+                           └─ Filter Est. 5420 rows
+                              │     Condition: i_manager_id = 1
+                              └─ TableScan tpcds.item Est. 300000 rows
+                                       Condition : i_manager_id = 1.
+                                       Outputs: [i_brand, i_brand_id, i_item_sk, i_manager_id]

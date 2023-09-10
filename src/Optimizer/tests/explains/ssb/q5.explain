@@ -1,0 +1,39 @@
+Projection Est. 2428263 rows
+│     Expressions: [P_BRAND], d_year:=`expr#toYear(LO_ORDERDATE)`, sum(LO_REVENUE):=`expr#sum(LO_REVENUE)`
+└─ Sorting Est. 2428263 rows
+   │     Order by: {expr#toYear(LO_ORDERDATE) asc, P_BRAND asc}
+   └─ Gather Exchange Est. 2428263 rows
+      └─ Sorting Est. 2428263 rows
+         │     Order by: {expr#toYear(LO_ORDERDATE) asc, P_BRAND asc}
+         └─ MergingAggregated Est. 2428263 rows
+            └─ Repartition Exchange Est. 2428263 rows
+               │     Partition by: {P_BRAND, expr#toYear(LO_ORDERDATE)}
+               └─ Aggregating Est. 2428263 rows
+                  │     Group by: {P_BRAND, expr#toYear(LO_ORDERDATE)}
+                  │     Aggregates: expr#sum(LO_REVENUE):=AggNull(sum)(LO_REVENUE)
+                  └─ Projection Est. 600056501 rows
+                     │     Expressions: [LO_REVENUE, P_BRAND], expr#toYear(LO_ORDERDATE):=toYear(LO_ORDERDATE)
+                     └─ Inner Join Est. 600056501 rows
+                        │     Condition: LO_PARTKEY == P_PARTKEY
+                        ├─ Repartition Exchange Est. 600056501 rows
+                        │  │     Partition by: {LO_PARTKEY}
+                        │  └─ Inner Join Est. 600056501 rows
+                        │     │     Condition: LO_SUPPKEY == S_SUPPKEY
+                        │     ├─ Repartition Exchange Est. 5999989813 rows
+                        │     │  │     Partition by: {LO_SUPPKEY}
+                        │     │  └─ TableScan ssb.lineorder Est. 5999989813 rows
+                        │     │           Outputs: [LO_ORDERDATE, LO_PARTKEY, LO_REVENUE, LO_SUPPKEY]
+                        │     └─ Repartition Exchange Est. 400039 rows
+                        │        │     Partition by: {S_SUPPKEY}
+                        │        └─ Filter Est. 400039 rows
+                        │           │     Condition: S_REGION = 'ASIA'
+                        │           └─ TableScan ssb.supplier Est. 2000000 rows
+                        │                    Condition : S_REGION = 'ASIA'.
+                        │                    Outputs: [S_REGION, S_SUPPKEY]
+                        └─ Repartition Exchange Est. 2000000 rows
+                           │     Partition by: {P_PARTKEY}
+                           └─ Filter Est. 2000000 rows
+                              │     Condition: (P_BRAND >= 'MFGR#2221') AND (P_BRAND <= 'MFGR#2228')
+                              └─ TableScan ssb.part Est. 2000000 rows
+                                       Condition : (P_BRAND >= 'MFGR#2221') AND (P_BRAND <= 'MFGR#2228').
+                                       Outputs: [P_BRAND, P_PARTKEY]

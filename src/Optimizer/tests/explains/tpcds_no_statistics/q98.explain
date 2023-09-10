@@ -1,0 +1,42 @@
+Projection Est. ? rows
+│     Expressions: [i_category, i_class, i_current_price, i_item_desc, i_item_id], itemrevenue:=`expr#sum(ss_ext_sales_price)`, revenueratio:=`expr#divide(multiply(sum(ss_ext_sales_price), 100), sum(sum(ss_ext_sales_price)) OVER (PARTITION BY i_class))`
+└─ Sorting Est. ? rows
+   │     Order by: {i_category asc, i_class asc, i_item_id asc, i_item_desc asc, expr#divide(multiply(sum(ss_ext_sales_price), 100), sum(sum(ss_ext_sales_price)) OVER (PARTITION BY i_class)) asc}
+   └─ Gather Exchange Est. ? rows
+      └─ Sorting Est. ? rows
+         │     Order by: {i_category asc, i_class asc, i_item_id asc, i_item_desc asc, expr#divide(multiply(sum(ss_ext_sales_price), 100), sum(sum(ss_ext_sales_price)) OVER (PARTITION BY i_class)) asc}
+         └─ Projection Est. ? rows
+            │     Expressions: [expr#sum(ss_ext_sales_price), i_category, i_class, i_current_price, i_item_desc, i_item_id], expr#divide(multiply(sum(ss_ext_sales_price), 100), sum(sum(ss_ext_sales_price)) OVER (PARTITION BY i_class)):=(`expr#sum(ss_ext_sales_price)` * 100) / `expr#sum(sum(ss_ext_sales_price)) OVER (PARTITION BY i_class)`
+            └─ Window Est. ? rows
+               └─ Repartition Exchange Est. ? rows
+                  │     Partition by: {i_class}
+                  └─ MergingAggregated Est. ? rows
+                     └─ Repartition Exchange Est. ? rows
+                        │     Partition by: {i_category, i_class, i_current_price, i_item_desc, i_item_id}
+                        └─ Aggregating Est. ? rows
+                           │     Group by: {i_category, i_class, i_current_price, i_item_desc, i_item_id}
+                           │     Aggregates: expr#sum(ss_ext_sales_price):=AggNull(sum)(ss_ext_sales_price)
+                           └─ Inner Join Est. ? rows
+                              │     Condition: ss_sold_date_sk == d_date_sk
+                              ├─ Repartition Exchange Est. ? rows
+                              │  │     Partition by: {ss_sold_date_sk}
+                              │  └─ Inner Join Est. ? rows
+                              │     │     Condition: ss_item_sk == i_item_sk
+                              │     ├─ Repartition Exchange Est. ? rows
+                              │     │  │     Partition by: {ss_item_sk}
+                              │     │  └─ TableScan tpcds.store_sales Est. ? rows
+                              │     │           Outputs: [ss_ext_sales_price, ss_item_sk, ss_sold_date_sk]
+                              │     └─ Repartition Exchange Est. ? rows
+                              │        │     Partition by: {i_item_sk}
+                              │        └─ Filter Est. ? rows
+                              │           │     Condition: i_category IN ('Books', 'Home', 'Sports')
+                              │           └─ TableScan tpcds.item Est. ? rows
+                              │                    Condition : i_category IN ('Books', 'Home', 'Sports').
+                              │                    Outputs: [i_category, i_class, i_current_price, i_item_desc, i_item_id, i_item_sk]
+                              └─ Repartition Exchange Est. ? rows
+                                 │     Partition by: {d_date_sk}
+                                 └─ Filter Est. ? rows
+                                    │     Condition: (d_date >= cast(10644, 'Date')) AND (d_date <= cast(10674, 'Date'))
+                                    └─ TableScan tpcds.date_dim Est. ? rows
+                                             Condition : (d_date >= cast(10644, 'Date')) AND (d_date <= cast(10674, 'Date')).
+                                             Outputs: [d_date, d_date_sk]

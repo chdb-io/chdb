@@ -1,0 +1,49 @@
+Projection Est. 134270 rows
+│     Expressions: cntrycode:=`expr#substring(c_phone, 1, 2)`, numcust:=`expr#count()`, totacctbal:=`expr#sum(c_acctbal)`
+└─ Sorting Est. 134270 rows
+   │     Order by: {expr#substring(c_phone, 1, 2) asc}
+   └─ Gather Exchange Est. 134270 rows
+      └─ Sorting Est. 134270 rows
+         │     Order by: {expr#substring(c_phone, 1, 2) asc}
+         └─ MergingAggregated Est. 134270 rows
+            └─ Repartition Exchange Est. 134270 rows
+               │     Partition by: {expr#substring(c_phone, 1, 2)}
+               └─ Aggregating Est. 134270 rows
+                  │     Group by: {expr#substring(c_phone, 1, 2)}
+                  │     Aggregates: expr#count():=AggNull(count)(), expr#sum(c_acctbal):=AggNull(sum)(c_acctbal)
+                  └─ Projection Est. 135000 rows
+                     │     Expressions: [c_acctbal], expr#substring(c_phone, 1, 2):=substring(c_phone, 1, 2)
+                     └─ Filter Est. 135000 rows
+                        │     Condition: NOT cast(coalesce(build_side_non_null_symbol, 0), 'UInt8')
+                        └─ Left Join Est. 150000 rows
+                           │     Condition: c_custkey == o_custkey
+                           ├─ Repartition Exchange Est. 150000 rows
+                           │  │     Partition by: {c_custkey}
+                           │  └─ Inner Join Est. 150000 rows
+                           │     │     Condition: 
+                           │     │     Filter: c_acctbal > `expr#avg(c_acctbal)`
+                           │     ├─ Filter Est. 150000 rows
+                           │     │  │     Condition: substring(c_phone, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17')
+                           │     │  └─ TableScan tpch.customer Est. 150000 rows
+                           │     │           Condition : substring(c_phone, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17').
+                           │     │           Outputs: [c_acctbal, c_custkey, c_phone]
+                           │     └─ Broadcast Exchange Est. 1 rows
+                           │        └─ MergingAggregated Est. 1 rows
+                           │           └─ Gather Exchange Est. 1 rows
+                           │              └─ Aggregating Est. 1 rows
+                           │                 │     Group by: {}
+                           │                 │     Aggregates: expr#avg(c_acctbal):=AggNull(avg)(c_acctbal_1)
+                           │                 └─ Filter Est. 136306 rows
+                           │                    │     Condition: (c_acctbal_1 > '0.00') AND (substring(c_phone_1, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17'))
+                           │                    └─ TableScan tpch.customer Est. 150000 rows
+                           │                             Condition : (c_acctbal > '0.00') AND (substring(c_phone, 1, 2) IN ('13', '31', '23', '29', '30', '18', '17')).
+                           │                             Outputs: c_acctbal_1:=c_acctbal, c_phone_1:=c_phone
+                           └─ Projection Est. 102536 rows
+                              │     Expressions: [o_custkey], build_side_non_null_symbol:=1
+                              └─ MergingAggregated Est. 102536 rows
+                                 └─ Repartition Exchange Est. 102536 rows
+                                    │     Partition by: {o_custkey}
+                                    └─ Aggregating Est. 102536 rows
+                                       │     Group by: {o_custkey}
+                                       └─ TableScan tpch.orders Est. 1500000 rows
+                                                Outputs: [o_custkey]

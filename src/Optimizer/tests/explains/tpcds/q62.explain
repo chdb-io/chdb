@@ -1,0 +1,44 @@
+Projection Est. 100 rows
+│     Expressions: [sm_type, web_name], 30 days:=`expr#sum(multiIf(lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 30), 1, 0))`, 31-60 days:=`expr#sum(multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 30), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 60)), 1, 0))`, 61-90 days:=`expr#sum(multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 60), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 90)), 1, 0))`, 91-120 days:=`expr#sum(multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 90), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 120)), 1, 0))`, >120 days:=`expr#sum(multiIf(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 120), 1, 0))`, substring(w_warehouse_name, 1, 20):=`expr#substring(w_warehouse_name, 1, 20)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {expr#substring(w_warehouse_name, 1, 20) asc, sm_type asc, web_name asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 1026 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {expr#substring(w_warehouse_name, 1, 20) asc, sm_type asc, web_name asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 1026 rows
+               └─ Repartition Exchange Est. 1026 rows
+                  │     Partition by: {expr#substring(w_warehouse_name, 1, 20), sm_type, web_name}
+                  └─ Aggregating Est. 1026 rows
+                     │     Group by: {expr#substring(w_warehouse_name, 1, 20), sm_type, web_name}
+                     │     Aggregates: expr#sum(multiIf(lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 30), 1, 0)):=AggNull(sum)(expr#multiIf(lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 30), 1, 0)), expr#sum(multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 30), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 60)), 1, 0)):=AggNull(sum)(expr#multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 30), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 60)), 1, 0)), expr#sum(multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 60), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 90)), 1, 0)):=AggNull(sum)(expr#multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 60), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 90)), 1, 0)), expr#sum(multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 90), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 120)), 1, 0)):=AggNull(sum)(expr#multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 90), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 120)), 1, 0)), expr#sum(multiIf(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 120), 1, 0)):=AggNull(sum)(expr#multiIf(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 120), 1, 0))
+                     └─ Projection Est. 61656473 rows
+                        │     Expressions: [sm_type, web_name], expr#multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 30), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 60)), 1, 0):=multiIf(((ws_ship_date_sk - ws_sold_date_sk) > 30) AND ((ws_ship_date_sk - ws_sold_date_sk) <= 60), 1, 0), expr#multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 60), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 90)), 1, 0):=multiIf(((ws_ship_date_sk - ws_sold_date_sk) > 60) AND ((ws_ship_date_sk - ws_sold_date_sk) <= 90), 1, 0), expr#multiIf(and(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 90), lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 120)), 1, 0):=multiIf(((ws_ship_date_sk - ws_sold_date_sk) > 90) AND ((ws_ship_date_sk - ws_sold_date_sk) <= 120), 1, 0), expr#multiIf(greater(minus(ws_ship_date_sk, ws_sold_date_sk), 120), 1, 0):=multiIf((ws_ship_date_sk - ws_sold_date_sk) > 120, 1, 0), expr#multiIf(lessOrEquals(minus(ws_ship_date_sk, ws_sold_date_sk), 30), 1, 0):=multiIf((ws_ship_date_sk - ws_sold_date_sk) <= 30, 1, 0), expr#substring(w_warehouse_name, 1, 20):=substring(w_warehouse_name, 1, 20)
+                        └─ Inner Join Est. 61656473 rows
+                           │     Condition: ws_web_site_sk == web_site_sk
+                           ├─ Inner Join Est. 61656473 rows
+                           │  │     Condition: ws_ship_mode_sk == sm_ship_mode_sk
+                           │  ├─ Inner Join Est. 61656473 rows
+                           │  │  │     Condition: ws_warehouse_sk == w_warehouse_sk
+                           │  │  ├─ Inner Join Est. 61656473 rows
+                           │  │  │  │     Condition: ws_ship_date_sk == d_date_sk
+                           │  │  │  ├─ TableScan tpcds.web_sales Est. 720000376 rows
+                           │  │  │  │        Outputs: [ws_ship_date_sk, ws_ship_mode_sk, ws_sold_date_sk, ws_warehouse_sk, ws_web_site_sk]
+                           │  │  │  └─ Broadcast Exchange Est. 335 rows
+                           │  │  │     └─ Filter Est. 335 rows
+                           │  │  │        │     Condition: (d_month_seq >= 1200) AND (d_month_seq <= 1211)
+                           │  │  │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                           │  │  │                 Condition : (d_month_seq >= 1200) AND (d_month_seq <= 1211).
+                           │  │  │                 Outputs: [d_date_sk, d_month_seq]
+                           │  │  └─ Broadcast Exchange Est. 20 rows
+                           │  │     └─ TableScan tpcds.warehouse Est. 20 rows
+                           │  │              Outputs: [w_warehouse_name, w_warehouse_sk]
+                           │  └─ Broadcast Exchange Est. 20 rows
+                           │     └─ TableScan tpcds.ship_mode Est. 20 rows
+                           │              Outputs: [sm_ship_mode_sk, sm_type]
+                           └─ Broadcast Exchange Est. 54 rows
+                              └─ TableScan tpcds.web_site Est. 54 rows
+                                       Outputs: [web_name, web_site_sk]

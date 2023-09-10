@@ -1,0 +1,82 @@
+Projection Est. 100 rows
+│     Expressions: [n_name, p_mfgr, p_partkey, s_acctbal, s_address, s_comment, s_name, s_phone]
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {s_acctbal desc nulls_last, n_name asc, s_name asc, p_partkey asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 563 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {s_acctbal desc nulls_last, n_name asc, s_name asc, p_partkey asc}
+            │     Limit: 100
+            └─ Inner Join Est. 563 rows
+               │     Condition: ps_suppkey == s_suppkey
+               ├─ Repartition Exchange Est. 14064 rows
+               │  │     Partition by: {ps_suppkey}
+               │  └─ Inner Join Est. 14064 rows
+               │     │     Condition: ps_partkey_1 == p_partkey, expr#min(ps_supplycost) == ps_supplycost
+               │     ├─ Repartition Exchange Est. 16035 rows
+               │     │  │     Partition by: {expr#min(ps_supplycost), ps_partkey_1}
+               │     │  └─ MergingAggregated Est. 16035 rows
+               │     │     └─ Repartition Exchange Est. 16035 rows
+               │     │        │     Partition by: {ps_partkey_1}
+               │     │        └─ Aggregating Est. 16035 rows
+               │     │           │     Group by: {ps_partkey_1}
+               │     │           │     Aggregates: expr#min(ps_supplycost):=AggNull(minIf)(ps_supplycost_1,build_side_non_null_symbol)
+               │     │           └─ Projection Est. 16035 rows
+               │     │              │     Expressions: [ps_partkey_1, ps_supplycost_1], build_side_non_null_symbol:=1
+               │     │              └─ Inner Join Est. 16035 rows
+               │     │                 │     Condition: ps_suppkey_1 == s_suppkey_1
+               │     │                 ├─ TableScan tpch.partsupp Est. 800000 rows
+               │     │                 │        Outputs: ps_partkey_1:=ps_partkey, ps_suppkey_1:=ps_suppkey, ps_supplycost_1:=ps_supplycost
+               │     │                 └─ Broadcast Exchange Est. 400 rows
+               │     │                    └─ Inner Join Est. 400 rows
+               │     │                       │     Condition: s_nationkey_1 == n_nationkey_1
+               │     │                       ├─ TableScan tpch.supplier Est. 10000 rows
+               │     │                       │        Outputs: s_nationkey_1:=s_nationkey, s_suppkey_1:=s_suppkey
+               │     │                       └─ Broadcast Exchange Est. 2 rows
+               │     │                          └─ Inner Join Est. 2 rows
+               │     │                             │     Condition: n_regionkey_1 == r_regionkey_1
+               │     │                             ├─ Repartition Exchange Est. 25 rows
+               │     │                             │  │     Partition by: {n_regionkey_1}
+               │     │                             │  └─ TableScan tpch.nation Est. 25 rows
+               │     │                             │           Outputs: n_nationkey_1:=n_nationkey, n_regionkey_1:=n_regionkey
+               │     │                             └─ Repartition Exchange Est. 1 rows
+               │     │                                │     Partition by: {r_regionkey_1}
+               │     │                                └─ Filter Est. 1 rows
+               │     │                                   │     Condition: r_name_1 = 'EUROPE'
+               │     │                                   └─ TableScan tpch.region Est. 5 rows
+               │     │                                            Condition : r_name = 'EUROPE'.
+               │     │                                            Outputs: r_name_1:=r_name, r_regionkey_1:=r_regionkey
+               │     └─ Repartition Exchange Est. 14064 rows
+               │        │     Partition by: {p_partkey, ps_supplycost}
+               │        └─ Inner Join Est. 14064 rows
+               │           │     Condition: ps_partkey == p_partkey
+               │           ├─ TableScan tpch.partsupp Est. 800000 rows
+               │           │        Outputs: [ps_partkey, ps_suppkey, ps_supplycost]
+               │           └─ Broadcast Exchange Est. 3516 rows
+               │              └─ Filter Est. 3516 rows
+               │                 │     Condition: (p_size = 15) AND (p_type LIKE '%BRASS')
+               │                 └─ TableScan tpch.part Est. 200000 rows
+               │                          Condition : (p_size = 15) AND (p_type LIKE '%BRASS').
+               │                          Outputs: [p_mfgr, p_partkey, p_size, p_type]
+               └─ Repartition Exchange Est. 400 rows
+                  │     Partition by: {s_suppkey}
+                  └─ Inner Join Est. 400 rows
+                     │     Condition: s_nationkey == n_nationkey
+                     ├─ TableScan tpch.supplier Est. 10000 rows
+                     │        Outputs: [s_acctbal, s_address, s_comment, s_name, s_nationkey, s_phone, s_suppkey]
+                     └─ Broadcast Exchange Est. 2 rows
+                        └─ Inner Join Est. 2 rows
+                           │     Condition: n_regionkey == r_regionkey
+                           ├─ Repartition Exchange Est. 25 rows
+                           │  │     Partition by: {n_regionkey}
+                           │  └─ TableScan tpch.nation Est. 25 rows
+                           │           Outputs: [n_name, n_nationkey, n_regionkey]
+                           └─ Repartition Exchange Est. 1 rows
+                              │     Partition by: {r_regionkey}
+                              └─ Filter Est. 1 rows
+                                 │     Condition: r_name = 'EUROPE'
+                                 └─ TableScan tpch.region Est. 5 rows
+                                          Condition : r_name = 'EUROPE'.
+                                          Outputs: [r_name, r_regionkey]

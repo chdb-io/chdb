@@ -1,0 +1,72 @@
+Projection Est. 100 rows
+│     Expressions: [i_item_desc, i_item_id, s_store_id, s_store_name], catalog_sales_profit:=`expr#sum(cs_net_profit)`, store_returns_loss:=`expr#sum(sr_net_loss)`, store_sales_profit:=`expr#sum(ss_net_profit)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {i_item_id asc, i_item_desc asc, s_store_id asc, s_store_name asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 797062442 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {i_item_id asc, i_item_desc asc, s_store_id asc, s_store_name asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 797062442 rows
+               └─ Repartition Exchange Est. 797062442 rows
+                  │     Partition by: {i_item_desc, i_item_id, s_store_id, s_store_name}
+                  └─ Aggregating Est. 797062442 rows
+                     │     Group by: {i_item_desc, i_item_id, s_store_id, s_store_name}
+                     │     Aggregates: expr#sum(ss_net_profit):=AggNull(sum)(ss_net_profit), expr#sum(sr_net_loss):=AggNull(sum)(sr_net_loss), expr#sum(cs_net_profit):=AggNull(sum)(cs_net_profit)
+                     └─ Inner Join Est. 797062442 rows
+                        │     Condition: cs_bill_customer_sk == sr_customer_sk, cs_item_sk == i_item_sk
+                        ├─ Repartition Exchange Est. 82317721 rows
+                        │  │     Partition by: {cs_bill_customer_sk, cs_item_sk}
+                        │  └─ Inner Join Est. 82317721 rows
+                        │     │     Condition: cs_sold_date_sk == d_date_sk_2
+                        │     ├─ TableScan tpcds.catalog_sales Est. 1439980416 rows
+                        │     │        Outputs: [cs_bill_customer_sk, cs_item_sk, cs_net_profit, cs_sold_date_sk]
+                        │     └─ Broadcast Exchange Est. 213 rows
+                        │        └─ Filter Est. 213 rows
+                        │           │     Condition: (d_year_2 = 2001) AND (d_moy_2 >= 4) AND (d_moy_2 <= 10)
+                        │           └─ TableScan tpcds.date_dim Est. 73049 rows
+                        │                    Condition : (d_year = 2001) AND (d_moy >= 4) AND (d_moy <= 10).
+                        │                    Outputs: d_date_sk_2:=d_date_sk, d_moy_2:=d_moy, d_year_2:=d_year
+                        └─ Repartition Exchange Est. 30413402 rows
+                           │     Partition by: {i_item_sk, sr_customer_sk}
+                           └─ Inner Join Est. 30413402 rows
+                              │     Condition: ss_store_sk == s_store_sk
+                              ├─ Inner Join Est. 30413402 rows
+                              │  │     Condition: sr_item_sk == i_item_sk
+                              │  ├─ Repartition Exchange Est. 30413402 rows
+                              │  │  │     Partition by: {sr_item_sk}
+                              │  │  └─ Inner Join Est. 30413402 rows
+                              │  │     │     Condition: ss_customer_sk == sr_customer_sk, ss_item_sk == sr_item_sk, ss_ticket_number == sr_ticket_number
+                              │  │     ├─ Repartition Exchange Est. 22560683 rows
+                              │  │     │  │     Partition by: {ss_customer_sk, ss_item_sk, ss_ticket_number}
+                              │  │     │  └─ Inner Join Est. 22560683 rows
+                              │  │     │     │     Condition: ss_sold_date_sk == d_date_sk
+                              │  │     │     ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                              │  │     │     │        Outputs: [ss_customer_sk, ss_item_sk, ss_net_profit, ss_sold_date_sk, ss_store_sk, ss_ticket_number]
+                              │  │     │     └─ Broadcast Exchange Est. 29 rows
+                              │  │     │        └─ Filter Est. 29 rows
+                              │  │     │           │     Condition: (d_moy = 4) AND (d_year = 2001)
+                              │  │     │           └─ TableScan tpcds.date_dim Est. 73049 rows
+                              │  │     │                    Condition : (d_moy = 4) AND (d_year = 2001).
+                              │  │     │                    Outputs: [d_date_sk, d_moy, d_year]
+                              │  │     └─ Repartition Exchange Est. 15206730 rows
+                              │  │        │     Partition by: {sr_customer_sk, sr_item_sk, sr_ticket_number}
+                              │  │        └─ Inner Join Est. 15206730 rows
+                              │  │           │     Condition: sr_returned_date_sk == d_date_sk_1
+                              │  │           ├─ TableScan tpcds.store_returns Est. 287999764 rows
+                              │  │           │        Outputs: [sr_customer_sk, sr_item_sk, sr_net_loss, sr_returned_date_sk, sr_ticket_number]
+                              │  │           └─ Broadcast Exchange Est. 213 rows
+                              │  │              └─ Filter Est. 213 rows
+                              │  │                 │     Condition: (d_year_1 = 2001) AND (d_moy_1 >= 4) AND (d_moy_1 <= 10)
+                              │  │                 └─ TableScan tpcds.date_dim Est. 73049 rows
+                              │  │                          Condition : (d_year = 2001) AND (d_moy >= 4) AND (d_moy <= 10).
+                              │  │                          Outputs: d_date_sk_1:=d_date_sk, d_moy_1:=d_moy, d_year_1:=d_year
+                              │  └─ Repartition Exchange Est. 300000 rows
+                              │     │     Partition by: {i_item_sk}
+                              │     └─ TableScan tpcds.item Est. 300000 rows
+                              │              Outputs: [i_item_desc, i_item_id, i_item_sk]
+                              └─ Broadcast Exchange Est. 1002 rows
+                                 └─ TableScan tpcds.store Est. 1002 rows
+                                          Outputs: [s_store_id, s_store_name, s_store_sk]

@@ -1,0 +1,177 @@
+Projection Est. 100 rows
+│     Expressions: i_item_id:=i_item_id_6, total_sales:=`expr#sum(total_sales)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {expr#sum(total_sales) asc, i_item_id_6 asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. ? rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {expr#sum(total_sales) asc, i_item_id_6 asc}
+            │     Limit: 100
+            └─ Aggregating Est. ? rows
+               │     Group by: {i_item_id_6}
+               │     Aggregates: expr#sum(total_sales):=AggNull(sum)(expr#sum(ss_ext_sales_price)_1)
+               └─ Union Est. ? rows
+                  ├─ Aggregating Est. ? rows
+                  │  │     Group by: {i_item_id}
+                  │  │     Aggregates: expr#sum(ss_ext_sales_price):=AggNull(sum)(ss_ext_sales_price)
+                  │  └─ Inner Join Est. ? rows
+                  │     │     Condition: i_item_id == i_item_id_1
+                  │     ├─ Repartition Exchange Est. ? rows
+                  │     │  │     Partition by: {i_item_id}
+                  │     │  └─ Inner Join Est. ? rows
+                  │     │     │     Condition: ss_item_sk == i_item_sk
+                  │     │     ├─ Repartition Exchange Est. ? rows
+                  │     │     │  │     Partition by: {ss_item_sk}
+                  │     │     │  └─ Inner Join Est. ? rows
+                  │     │     │     │     Condition: ss_addr_sk == ca_address_sk
+                  │     │     │     ├─ Repartition Exchange Est. ? rows
+                  │     │     │     │  │     Partition by: {ss_addr_sk}
+                  │     │     │     │  └─ Inner Join Est. ? rows
+                  │     │     │     │     │     Condition: ss_sold_date_sk == d_date_sk
+                  │     │     │     │     ├─ Repartition Exchange Est. ? rows
+                  │     │     │     │     │  │     Partition by: {ss_sold_date_sk}
+                  │     │     │     │     │  └─ TableScan tpcds.store_sales Est. ? rows
+                  │     │     │     │     │           Outputs: [ss_addr_sk, ss_ext_sales_price, ss_item_sk, ss_sold_date_sk]
+                  │     │     │     │     └─ Repartition Exchange Est. ? rows
+                  │     │     │     │        │     Partition by: {d_date_sk}
+                  │     │     │     │        └─ Filter Est. ? rows
+                  │     │     │     │           │     Condition: (d_moy = 2) AND (d_year = 2001)
+                  │     │     │     │           └─ TableScan tpcds.date_dim Est. ? rows
+                  │     │     │     │                    Condition : (d_moy = 2) AND (d_year = 2001).
+                  │     │     │     │                    Outputs: [d_date_sk, d_moy, d_year]
+                  │     │     │     └─ Repartition Exchange Est. ? rows
+                  │     │     │        │     Partition by: {ca_address_sk}
+                  │     │     │        └─ Filter Est. ? rows
+                  │     │     │           │     Condition: ca_gmt_offset = -5.
+                  │     │     │           └─ TableScan tpcds.customer_address Est. ? rows
+                  │     │     │                    Condition : ca_gmt_offset = -5..
+                  │     │     │                    Outputs: [ca_address_sk, ca_gmt_offset]
+                  │     │     └─ Repartition Exchange Est. ? rows
+                  │     │        │     Partition by: {i_item_sk}
+                  │     │        └─ Filter Est. ? rows
+                  │     │           │     Condition: isNotNull(i_item_id)
+                  │     │           └─ TableScan tpcds.item Est. ? rows
+                  │     │                    Condition : isNotNull(i_item_id).
+                  │     │                    Outputs: [i_item_id, i_item_sk]
+                  │     └─ MergingAggregated Est. ? rows
+                  │        └─ Repartition Exchange Est. ? rows
+                  │           │     Partition by: {i_item_id_1}
+                  │           └─ Aggregating Est. ? rows
+                  │              │     Group by: {i_item_id_1}
+                  │              └─ Projection Est. ? rows
+                  │                 │     Expressions: [i_item_id_1]
+                  │                 └─ Filter Est. ? rows
+                  │                    │     Condition: (i_color IN ('blanched', 'burnished', 'slate')) AND isNotNull(i_item_id_1)
+                  │                    └─ TableScan tpcds.item Est. ? rows
+                  │                             Condition : (i_color IN ('blanched', 'burnished', 'slate')) AND isNotNull(i_item_id).
+                  │                             Outputs: [i_color], i_item_id_1:=i_item_id
+                  ├─ Aggregating Est. ? rows
+                  │  │     Group by: {i_item_id_2}
+                  │  │     Aggregates: expr#sum(cs_ext_sales_price):=AggNull(sum)(cs_ext_sales_price)
+                  │  └─ Inner Join Est. ? rows
+                  │     │     Condition: i_item_id_2 == i_item_id_3
+                  │     ├─ Repartition Exchange Est. ? rows
+                  │     │  │     Partition by: {i_item_id_2}
+                  │     │  └─ Inner Join Est. ? rows
+                  │     │     │     Condition: cs_item_sk == i_item_sk_1
+                  │     │     ├─ Repartition Exchange Est. ? rows
+                  │     │     │  │     Partition by: {cs_item_sk}
+                  │     │     │  └─ Inner Join Est. ? rows
+                  │     │     │     │     Condition: cs_bill_addr_sk == ca_address_sk_1
+                  │     │     │     ├─ Repartition Exchange Est. ? rows
+                  │     │     │     │  │     Partition by: {cs_bill_addr_sk}
+                  │     │     │     │  └─ Inner Join Est. ? rows
+                  │     │     │     │     │     Condition: cs_sold_date_sk == d_date_sk_1
+                  │     │     │     │     ├─ Repartition Exchange Est. ? rows
+                  │     │     │     │     │  │     Partition by: {cs_sold_date_sk}
+                  │     │     │     │     │  └─ TableScan tpcds.catalog_sales Est. ? rows
+                  │     │     │     │     │           Outputs: [cs_bill_addr_sk, cs_ext_sales_price, cs_item_sk, cs_sold_date_sk]
+                  │     │     │     │     └─ Repartition Exchange Est. ? rows
+                  │     │     │     │        │     Partition by: {d_date_sk_1}
+                  │     │     │     │        └─ Filter Est. ? rows
+                  │     │     │     │           │     Condition: (d_moy_1 = 2) AND (d_year_1 = 2001)
+                  │     │     │     │           └─ TableScan tpcds.date_dim Est. ? rows
+                  │     │     │     │                    Condition : (d_moy = 2) AND (d_year = 2001).
+                  │     │     │     │                    Outputs: d_date_sk_1:=d_date_sk, d_moy_1:=d_moy, d_year_1:=d_year
+                  │     │     │     └─ Repartition Exchange Est. ? rows
+                  │     │     │        │     Partition by: {ca_address_sk_1}
+                  │     │     │        └─ Filter Est. ? rows
+                  │     │     │           │     Condition: ca_gmt_offset_1 = -5.
+                  │     │     │           └─ TableScan tpcds.customer_address Est. ? rows
+                  │     │     │                    Condition : ca_gmt_offset = -5..
+                  │     │     │                    Outputs: ca_address_sk_1:=ca_address_sk, ca_gmt_offset_1:=ca_gmt_offset
+                  │     │     └─ Repartition Exchange Est. ? rows
+                  │     │        │     Partition by: {i_item_sk_1}
+                  │     │        └─ Filter Est. ? rows
+                  │     │           │     Condition: isNotNull(i_item_id_2)
+                  │     │           └─ TableScan tpcds.item Est. ? rows
+                  │     │                    Condition : isNotNull(i_item_id).
+                  │     │                    Outputs: i_item_id_2:=i_item_id, i_item_sk_1:=i_item_sk
+                  │     └─ MergingAggregated Est. ? rows
+                  │        └─ Repartition Exchange Est. ? rows
+                  │           │     Partition by: {i_item_id_3}
+                  │           └─ Aggregating Est. ? rows
+                  │              │     Group by: {i_item_id_3}
+                  │              └─ Projection Est. ? rows
+                  │                 │     Expressions: [i_item_id_3]
+                  │                 └─ Filter Est. ? rows
+                  │                    │     Condition: (i_color_1 IN ('blanched', 'burnished', 'slate')) AND isNotNull(i_item_id_3)
+                  │                    └─ TableScan tpcds.item Est. ? rows
+                  │                             Condition : (i_color IN ('blanched', 'burnished', 'slate')) AND isNotNull(i_item_id).
+                  │                             Outputs: i_color_1:=i_color, i_item_id_3:=i_item_id
+                  └─ Aggregating Est. ? rows
+                     │     Group by: {i_item_id_4}
+                     │     Aggregates: expr#sum(ws_ext_sales_price):=AggNull(sum)(ws_ext_sales_price)
+                     └─ Inner Join Est. ? rows
+                        │     Condition: i_item_id_4 == i_item_id_5
+                        ├─ Repartition Exchange Est. ? rows
+                        │  │     Partition by: {i_item_id_4}
+                        │  └─ Inner Join Est. ? rows
+                        │     │     Condition: ws_item_sk == i_item_sk_2
+                        │     ├─ Repartition Exchange Est. ? rows
+                        │     │  │     Partition by: {ws_item_sk}
+                        │     │  └─ Inner Join Est. ? rows
+                        │     │     │     Condition: ws_bill_addr_sk == ca_address_sk_2
+                        │     │     ├─ Repartition Exchange Est. ? rows
+                        │     │     │  │     Partition by: {ws_bill_addr_sk}
+                        │     │     │  └─ Inner Join Est. ? rows
+                        │     │     │     │     Condition: ws_sold_date_sk == d_date_sk_2
+                        │     │     │     ├─ Repartition Exchange Est. ? rows
+                        │     │     │     │  │     Partition by: {ws_sold_date_sk}
+                        │     │     │     │  └─ TableScan tpcds.web_sales Est. ? rows
+                        │     │     │     │           Outputs: [ws_bill_addr_sk, ws_ext_sales_price, ws_item_sk, ws_sold_date_sk]
+                        │     │     │     └─ Repartition Exchange Est. ? rows
+                        │     │     │        │     Partition by: {d_date_sk_2}
+                        │     │     │        └─ Filter Est. ? rows
+                        │     │     │           │     Condition: (d_year_2 = 2001) AND (d_moy_2 = 2)
+                        │     │     │           └─ TableScan tpcds.date_dim Est. ? rows
+                        │     │     │                    Condition : (d_year = 2001) AND (d_moy = 2).
+                        │     │     │                    Outputs: d_date_sk_2:=d_date_sk, d_moy_2:=d_moy, d_year_2:=d_year
+                        │     │     └─ Repartition Exchange Est. ? rows
+                        │     │        │     Partition by: {ca_address_sk_2}
+                        │     │        └─ Filter Est. ? rows
+                        │     │           │     Condition: ca_gmt_offset_2 = -5.
+                        │     │           └─ TableScan tpcds.customer_address Est. ? rows
+                        │     │                    Condition : ca_gmt_offset = -5..
+                        │     │                    Outputs: ca_address_sk_2:=ca_address_sk, ca_gmt_offset_2:=ca_gmt_offset
+                        │     └─ Repartition Exchange Est. ? rows
+                        │        │     Partition by: {i_item_sk_2}
+                        │        └─ Filter Est. ? rows
+                        │           │     Condition: isNotNull(i_item_id_4)
+                        │           └─ TableScan tpcds.item Est. ? rows
+                        │                    Condition : isNotNull(i_item_id).
+                        │                    Outputs: i_item_id_4:=i_item_id, i_item_sk_2:=i_item_sk
+                        └─ MergingAggregated Est. ? rows
+                           └─ Repartition Exchange Est. ? rows
+                              │     Partition by: {i_item_id_5}
+                              └─ Aggregating Est. ? rows
+                                 │     Group by: {i_item_id_5}
+                                 └─ Projection Est. ? rows
+                                    │     Expressions: [i_item_id_5]
+                                    └─ Filter Est. ? rows
+                                       │     Condition: (i_color_2 IN ('blanched', 'burnished', 'slate')) AND isNotNull(i_item_id_5)
+                                       └─ TableScan tpcds.item Est. ? rows
+                                                Condition : (i_color IN ('blanched', 'burnished', 'slate')) AND isNotNull(i_item_id).
+                                                Outputs: i_color_2:=i_color, i_item_id_5:=i_item_id

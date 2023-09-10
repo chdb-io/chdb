@@ -1,0 +1,29 @@
+Projection Est. 102536 rows
+│     Expressions: c_count:=`expr#count(o_orderkey)`, custdist:=`expr#count()`
+└─ Sorting Est. 102536 rows
+   │     Order by: {expr#count() desc nulls_last, expr#count(o_orderkey) desc nulls_last}
+   └─ Gather Exchange Est. 102536 rows
+      └─ Sorting Est. 102536 rows
+         │     Order by: {expr#count() desc nulls_last, expr#count(o_orderkey) desc nulls_last}
+         └─ MergingAggregated Est. 102536 rows
+            └─ Repartition Exchange Est. 102536 rows
+               │     Partition by: {expr#count(o_orderkey)}
+               └─ Aggregating Est. 102536 rows
+                  │     Group by: {expr#count(o_orderkey)}
+                  │     Aggregates: expr#count():=AggNull(count)()
+                  └─ Projection Est. 102536 rows
+                     │     Expressions: [expr#count(o_orderkey)]
+                     └─ Aggregating Est. 102536 rows
+                        │     Group by: {c_custkey}
+                        │     Aggregates: expr#count(o_orderkey):=AggNull(count)(o_orderkey)
+                        └─ Left Join Est. 1500000 rows
+                           │     Condition: c_custkey == o_custkey
+                           │     Filter: o_comment NOT LIKE '%special%requests%'
+                           ├─ Repartition Exchange Est. 150000 rows
+                           │  │     Partition by: {c_custkey}
+                           │  └─ TableScan tpch.customer Est. 150000 rows
+                           │           Outputs: [c_custkey]
+                           └─ Repartition Exchange Est. 1500000 rows
+                              │     Partition by: {o_custkey}
+                              └─ TableScan tpch.orders Est. 1500000 rows
+                                       Outputs: [o_comment, o_custkey, o_orderkey]

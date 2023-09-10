@@ -1,0 +1,63 @@
+Projection Est. 100 rows
+│     Expressions: avg_monthly_sales:=`expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1`, cc_name:=cc_name_1, d_moy:=d_moy_1, d_year:=d_year_1, i_brand:=i_brand_1, i_category:=i_category_1, nsum:=`expr#sum(cs_sales_price)_3`, psum:=`expr#sum(cs_sales_price)_2`, sum_sales:=`expr#sum(cs_sales_price)_1`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {expr#minus(sum_sales, avg_monthly_sales) asc, cc_name_1 asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 5714963100 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {expr#minus(sum_sales, avg_monthly_sales) asc, cc_name_1 asc}
+            │     Limit: 100
+            └─ Projection Est. 5714963100 rows
+               │     Expressions: [cc_name_1, d_moy_1, d_year_1, expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1, expr#sum(cs_sales_price)_1, expr#sum(cs_sales_price)_2, expr#sum(cs_sales_price)_3, i_brand_1, i_category_1], expr#minus(sum_sales, avg_monthly_sales):=`expr#sum(cs_sales_price)_1` - `expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1`
+               └─ Inner Join Est. 5714963100 rows
+                  │     Condition: cc_name_1 == cc_name_3, expr#cast(expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_1, 'Int128') == expr#cast(minus(expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_3, 1), 'Int128'), i_brand_1 == i_brand_3, i_category_1 == i_category_3
+                  ├─ Projection Est. 27214110 rows
+                  │  │     Expressions: [cc_name_1, d_moy_1, d_year_1, expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1, expr#sum(cs_sales_price)_1, expr#sum(cs_sales_price)_2, i_brand_1, i_category_1], expr#cast(expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_1, 'Int128'):=cast(`expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_1`, 'Int128')
+                  │  └─ Inner Join Est. 27214110 rows
+                  │     │     Condition: cc_name_2 == cc_name_1, plus(expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_2, 1) == expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_1, i_brand_2 == i_brand_1, i_category_2 == i_category_1
+                  │     ├─ Projection Est. 151620 rows
+                  │     │  │     Expressions: [cc_name_2, expr#sum(cs_sales_price)_2, i_brand_2, i_category_2], plus(expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_2, 1):=`expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_2` + 1
+                  │     │  └─ CTERef[1] Est. 151620 rows
+                  │     └─ Filter Est. 136458 rows
+                  │        │     Condition: (d_year_1 = 1999) AND (`expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1` > 0.) AND (multiIf(`expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1` > 0, abs(`expr#sum(cs_sales_price)_1` - `expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1`) / `expr#avg(sum(cs_sales_price)) OVER (PARTITION BY i_category, i_brand, cc_name, d_year)_1`, NULL) > '0.1')
+                  │        └─ CTERef[1] Est. 151620 rows
+                  └─ Projection Est. 151620 rows
+                     │     Expressions: [cc_name_3, expr#sum(cs_sales_price)_3, i_brand_3, i_category_3], expr#cast(minus(expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_3, 1), 'Int128'):=cast(`expr#rank() OVER (PARTITION BY i_category, i_brand, cc_name ORDER BY d_year ASC, d_moy ASC)_3` - 1, 'Int128')
+                     └─ CTERef[1] Est. 151620 rows
+CTEDef [1]
+   Window Est. 151620 rows
+   └─ Window Est. 151620 rows
+      └─ Repartition Exchange Est. 151620 rows
+         │     Partition by: {cc_name, i_brand, i_category}
+         └─ MergingAggregated Est. 151620 rows
+            └─ Repartition Exchange Est. 151620 rows
+               │     Partition by: {cc_name, d_moy, d_year, i_brand, i_category}
+               └─ Aggregating Est. 151620 rows
+                  │     Group by: {cc_name, d_moy, d_year, i_brand, i_category}
+                  │     Aggregates: expr#sum(cs_sales_price):=AggNull(sum)(cs_sales_price)
+                  └─ Inner Join Est. 330043820 rows
+                     │     Condition: cs_item_sk == i_item_sk
+                     ├─ Repartition Exchange Est. 165021910 rows
+                     │  │     Partition by: {cs_item_sk}
+                     │  └─ Inner Join Est. 165021910 rows
+                     │     │     Condition: cs_call_center_sk == cc_call_center_sk
+                     │     ├─ Inner Join Est. 165021910 rows
+                     │     │  │     Condition: cs_sold_date_sk == d_date_sk
+                     │     │  ├─ TableScan tpcds.catalog_sales Est. 1439980416 rows
+                     │     │  │        Outputs: [cs_call_center_sk, cs_item_sk, cs_sales_price, cs_sold_date_sk]
+                     │     │  └─ Broadcast Exchange Est. 427 rows
+                     │     │     └─ Filter Est. 427 rows
+                     │     │        │     Condition: (d_year = 1999) OR ((d_year = cast(1998, 'Int32')) AND (d_moy = 12)) OR ((d_year = cast(2000, 'UInt32')) AND (d_moy = 1))
+                     │     │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                     │     │                 Condition : (d_year = 1999) OR ((d_year = cast(1998, 'Int32')) AND (d_moy = 12)) OR ((d_year = cast(2000, 'UInt32')) AND (d_moy = 1)).
+                     │     │                 Outputs: [d_date_sk, d_moy, d_year]
+                     │     └─ Broadcast Exchange Est. 42 rows
+                     │        └─ TableScan tpcds.call_center Est. 42 rows
+                     │                 Outputs: [cc_call_center_sk, cc_name]
+                     └─ Repartition Exchange Est. 300000 rows
+                        │     Partition by: {i_item_sk}
+                        └─ TableScan tpcds.item Est. 300000 rows
+                                 Outputs: [i_brand, i_category, i_item_sk]
+note: CTE(Common Table Expression) is applied for 3 times.

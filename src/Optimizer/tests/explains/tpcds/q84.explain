@@ -1,0 +1,47 @@
+Projection Est. 100 rows
+│     Expressions: customer_id:=c_customer_id, customername:=concat(coalesce(c_last_name, ''), ', ', coalesce(c_first_name, ''))
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {c_customer_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 291707 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {c_customer_id asc}
+            │     Limit: 100
+            └─ Inner Join Est. 291707 rows
+               │     Condition: c_current_hdemo_sk == hd_demo_sk
+               ├─ Inner Join Est. 2340470 rows
+               │  │     Condition: sr_cdemo_sk == c_current_cdemo_sk
+               │  ├─ TableScan tpcds.store_returns Est. 287999764 rows
+               │  │        Outputs: [sr_cdemo_sk]
+               │  └─ Broadcast Exchange Est. 31104 rows
+               │     └─ Inner Join Est. 31104 rows
+               │        │     Condition: cd_demo_sk == c_current_cdemo_sk
+               │        ├─ Repartition Exchange Est. 1920800 rows
+               │        │  │     Partition by: {cd_demo_sk}
+               │        │  └─ TableScan tpcds.customer_demographics Est. 1920800 rows
+               │        │           Outputs: [cd_demo_sk]
+               │        └─ Repartition Exchange Est. 61979 rows
+               │           │     Partition by: {c_current_cdemo_sk}
+               │           └─ Inner Join Est. 61979 rows
+               │              │     Condition: c_current_addr_sk == ca_address_sk
+               │              ├─ TableScan tpcds.customer Est. 12000000 rows
+               │              │        Outputs: [c_current_addr_sk, c_current_cdemo_sk, c_current_hdemo_sk, c_customer_id, c_first_name, c_last_name]
+               │              └─ Broadcast Exchange Est. 54438 rows
+               │                 └─ Filter Est. 54438 rows
+               │                    │     Condition: ca_city = 'Edgewood'
+               │                    └─ TableScan tpcds.customer_address Est. 6000000 rows
+               │                             Condition : ca_city = 'Edgewood'.
+               │                             Outputs: [ca_address_sk, ca_city]
+               └─ Broadcast Exchange Est. 900 rows
+                  └─ Inner Join Est. 900 rows
+                     │     Condition: hd_income_band_sk == ib_income_band_sk
+                     ├─ TableScan tpcds.household_demographics Est. 7200 rows
+                     │        Outputs: [hd_demo_sk, hd_income_band_sk]
+                     └─ Broadcast Exchange Est. 5 rows
+                        └─ Filter Est. 5 rows
+                           │     Condition: (ib_lower_bound >= 38128) AND (ib_upper_bound <= 88128)
+                           └─ TableScan tpcds.income_band Est. 20 rows
+                                    Condition : (ib_lower_bound >= 38128) AND (ib_upper_bound <= 88128).
+                                    Outputs: [ib_income_band_sk, ib_lower_bound, ib_upper_bound]

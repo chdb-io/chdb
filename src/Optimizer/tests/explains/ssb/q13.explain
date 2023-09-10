@@ -1,0 +1,47 @@
+Projection Est. 871560 rows
+│     Expressions: [P_BRAND, S_CITY], d_year:=`expr#toYear(LO_ORDERDATE)`, profit:=`expr#sum(minus(LO_REVENUE, LO_SUPPLYCOST))`
+└─ Sorting Est. 871560 rows
+   │     Order by: {expr#toYear(LO_ORDERDATE) asc, S_CITY asc, P_BRAND asc}
+   └─ Gather Exchange Est. 871560 rows
+      └─ Sorting Est. 871560 rows
+         │     Order by: {expr#toYear(LO_ORDERDATE) asc, S_CITY asc, P_BRAND asc}
+         └─ MergingAggregated Est. 871560 rows
+            └─ Repartition Exchange Est. 871560 rows
+               │     Partition by: {P_BRAND, S_CITY, expr#toYear(LO_ORDERDATE)}
+               └─ Aggregating Est. 871560 rows
+                  │     Group by: {P_BRAND, S_CITY, expr#toYear(LO_ORDERDATE)}
+                  │     Aggregates: expr#sum(minus(LO_REVENUE, LO_SUPPLYCOST)):=AggNull(sum)(expr#minus(LO_REVENUE, LO_SUPPLYCOST))
+                  └─ Projection Est. 4003537 rows
+                     │     Expressions: [P_BRAND, S_CITY], expr#minus(LO_REVENUE, LO_SUPPLYCOST):=LO_REVENUE - LO_SUPPLYCOST, expr#toYear(LO_ORDERDATE):=toYear(LO_ORDERDATE)
+                     └─ Inner Join Est. 4003537 rows
+                        │     Condition: LO_CUSTKEY == C_CUSTKEY
+                        ├─ Repartition Exchange Est. 13664578 rows
+                        │  │     Partition by: {LO_CUSTKEY}
+                        │  └─ Inner Join Est. 13664578 rows
+                        │     │     Condition: LO_PARTKEY == P_PARTKEY
+                        │     ├─ Inner Join Est. 239622672 rows
+                        │     │  │     Condition: LO_SUPPKEY == S_SUPPKEY
+                        │     │  ├─ Filter Est. 5999989813 rows
+                        │     │  │  │     Condition: (toYear(LO_ORDERDATE) = 1997) OR (toYear(LO_ORDERDATE) = 1998)
+                        │     │  │  └─ TableScan ssb.lineorder Est. 5999989813 rows
+                        │     │  │           Condition : (toYear(LO_ORDERDATE) = 1997) OR (toYear(LO_ORDERDATE) = 1998).
+                        │     │  │           Outputs: [LO_CUSTKEY, LO_ORDERDATE, LO_PARTKEY, LO_REVENUE, LO_SUPPKEY, LO_SUPPLYCOST]
+                        │     │  └─ Broadcast Exchange Est. 79875 rows
+                        │     │     └─ Filter Est. 79875 rows
+                        │     │        │     Condition: S_NATION = 'UNITED STATES'
+                        │     │        └─ TableScan ssb.supplier Est. 2000000 rows
+                        │     │                 Condition : S_NATION = 'UNITED STATES'.
+                        │     │                 Outputs: [S_CITY, S_NATION, S_SUPPKEY]
+                        │     └─ Broadcast Exchange Est. 79913 rows
+                        │        └─ Filter Est. 79913 rows
+                        │           │     Condition: P_CATEGORY = 'MFGR#14'
+                        │           └─ TableScan ssb.part Est. 2000000 rows
+                        │                    Condition : P_CATEGORY = 'MFGR#14'.
+                        │                    Outputs: [P_BRAND, P_CATEGORY, P_PARTKEY]
+                        └─ Repartition Exchange Est. 6000975 rows
+                           │     Partition by: {C_CUSTKEY}
+                           └─ Filter Est. 6000975 rows
+                              │     Condition: C_REGION = 'AMERICA'
+                              └─ TableScan ssb.customer Est. 30000000 rows
+                                       Condition : C_REGION = 'AMERICA'.
+                                       Outputs: [C_CUSTKEY, C_REGION]

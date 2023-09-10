@@ -1,0 +1,74 @@
+Projection Est. 1 rows
+│     Expressions: am_pm_ratio:=`expr#divide(CAST(amc, 'decimal(15, 4)'), CAST(pmc, 'decimal(15, 4)'))`
+└─ Limit Est. 1 rows
+   │     Limit: 100
+   └─ Sorting Est. 1 rows
+      │     Order by: {expr#divide(CAST(amc, 'decimal(15, 4)'), CAST(pmc, 'decimal(15, 4)')) asc}
+      │     Limit: 100
+      └─ Projection Est. 1 rows
+         │     Expressions: expr#divide(CAST(amc, 'decimal(15, 4)'), CAST(pmc, 'decimal(15, 4)')):=CAST(`expr#count()`, 'decimal(15, 4)') / CAST(`expr#count()_1`, 'decimal(15, 4)')
+         └─ Cross Join Est. 1 rows
+            │     Condition: 
+            ├─ MergingAggregated Est. 1 rows
+            │  └─ Gather Exchange Est. 1 rows
+            │     └─ Aggregating Est. 1 rows
+            │        │     Group by: {}
+            │        │     Aggregates: expr#count():=AggNull(count)()
+            │        └─ Inner Join Est. 62393 rows
+            │           │     Condition: ws_ship_hdemo_sk == hd_demo_sk
+            │           ├─ Inner Join Est. 625757 rows
+            │           │  │     Condition: ws_sold_time_sk == t_time_sk
+            │           │  ├─ Inner Join Est. 7572624 rows
+            │           │  │  │     Condition: ws_web_page_sk == wp_web_page_sk
+            │           │  │  ├─ TableScan tpcds.web_sales Est. 720000376 rows
+            │           │  │  │        Outputs: [ws_ship_hdemo_sk, ws_sold_time_sk, ws_web_page_sk]
+            │           │  │  └─ Broadcast Exchange Est. 63 rows
+            │           │  │     └─ Filter Est. 63 rows
+            │           │  │        │     Condition: (wp_char_count >= 5000) AND (wp_char_count <= 5200)
+            │           │  │        └─ TableScan tpcds.web_page Est. 3000 rows
+            │           │  │                 Condition : (wp_char_count >= 5000) AND (wp_char_count <= 5200).
+            │           │  │                 Outputs: [wp_char_count, wp_web_page_sk]
+            │           │  └─ Broadcast Exchange Est. 7200 rows
+            │           │     └─ Filter Est. 7200 rows
+            │           │        │     Condition: (t_hour >= 8) AND (t_hour <= 9)
+            │           │        └─ TableScan tpcds.time_dim Est. 86400 rows
+            │           │                 Condition : (t_hour >= 8) AND (t_hour <= 9).
+            │           │                 Outputs: [t_hour, t_time_sk]
+            │           └─ Broadcast Exchange Est. 720 rows
+            │              └─ Filter Est. 720 rows
+            │                 │     Condition: hd_dep_count = 6
+            │                 └─ TableScan tpcds.household_demographics Est. 7200 rows
+            │                          Condition : hd_dep_count = 6.
+            │                          Outputs: [hd_demo_sk, hd_dep_count]
+            └─ Broadcast Exchange Est. 1 rows
+               └─ MergingAggregated Est. 1 rows
+                  └─ Gather Exchange Est. 1 rows
+                     └─ Aggregating Est. 1 rows
+                        │     Group by: {}
+                        │     Aggregates: expr#count()_1:=AggNull(count)()
+                        └─ Inner Join Est. 62393 rows
+                           │     Condition: ws_ship_hdemo_sk_1 == hd_demo_sk_1
+                           ├─ Inner Join Est. 625757 rows
+                           │  │     Condition: ws_sold_time_sk_1 == t_time_sk_1
+                           │  ├─ Inner Join Est. 7572624 rows
+                           │  │  │     Condition: ws_web_page_sk_1 == wp_web_page_sk_1
+                           │  │  ├─ TableScan tpcds.web_sales Est. 720000376 rows
+                           │  │  │        Outputs: ws_ship_hdemo_sk_1:=ws_ship_hdemo_sk, ws_sold_time_sk_1:=ws_sold_time_sk, ws_web_page_sk_1:=ws_web_page_sk
+                           │  │  └─ Broadcast Exchange Est. 63 rows
+                           │  │     └─ Filter Est. 63 rows
+                           │  │        │     Condition: (wp_char_count_1 >= 5000) AND (wp_char_count_1 <= 5200)
+                           │  │        └─ TableScan tpcds.web_page Est. 3000 rows
+                           │  │                 Condition : (wp_char_count >= 5000) AND (wp_char_count <= 5200).
+                           │  │                 Outputs: wp_char_count_1:=wp_char_count, wp_web_page_sk_1:=wp_web_page_sk
+                           │  └─ Broadcast Exchange Est. 7200 rows
+                           │     └─ Filter Est. 7200 rows
+                           │        │     Condition: (t_hour_1 >= 19) AND (t_hour_1 <= 20)
+                           │        └─ TableScan tpcds.time_dim Est. 86400 rows
+                           │                 Condition : (t_hour >= 19) AND (t_hour <= 20).
+                           │                 Outputs: t_hour_1:=t_hour, t_time_sk_1:=t_time_sk
+                           └─ Broadcast Exchange Est. 720 rows
+                              └─ Filter Est. 720 rows
+                                 │     Condition: hd_dep_count_1 = 6
+                                 └─ TableScan tpcds.household_demographics Est. 7200 rows
+                                          Condition : hd_dep_count = 6.
+                                          Outputs: hd_demo_sk_1:=hd_demo_sk, hd_dep_count_1:=hd_dep_count

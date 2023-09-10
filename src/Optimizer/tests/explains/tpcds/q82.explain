@@ -1,0 +1,42 @@
+Projection Est. 100 rows
+│     Expressions: [i_current_price, i_item_desc, i_item_id]
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {i_item_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 256496 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {i_item_id asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 256496 rows
+               └─ Repartition Exchange Est. 256496 rows
+                  │     Partition by: {i_current_price, i_item_desc, i_item_id}
+                  └─ Aggregating Est. 256496 rows
+                     │     Group by: {i_current_price, i_item_desc, i_item_id}
+                     └─ Inner Join Est. 1110033180 rows
+                        │     Condition: ss_item_sk == i_item_sk
+                        ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                        │        Outputs: [ss_item_sk]
+                        └─ Broadcast Exchange Est. 70867 rows
+                           └─ Inner Join Est. 70867 rows
+                              │     Condition: inv_date_sk == d_date_sk
+                              ├─ Inner Join Est. 122837 rows
+                              │  │     Condition: inv_item_sk == i_item_sk
+                              │  ├─ Filter Est. 312895332 rows
+                              │  │  │     Condition: (inv_quantity_on_hand >= 100) AND (inv_quantity_on_hand <= 500)
+                              │  │  └─ TableScan tpcds.inventory Est. 783000000 rows
+                              │  │           Condition : (inv_quantity_on_hand >= 100) AND (inv_quantity_on_hand <= 500).
+                              │  │           Outputs: [inv_date_sk, inv_item_sk, inv_quantity_on_hand]
+                              │  └─ Broadcast Exchange Est. 47 rows
+                              │     └─ Filter Est. 47 rows
+                              │        │     Condition: (i_current_price >= 62.) AND (i_current_price <= 92.) AND (i_manufact_id IN (129, 270, 423, 821))
+                              │        └─ TableScan tpcds.item Est. 300000 rows
+                              │                 Condition : (i_current_price >= 62.) AND (i_current_price <= 92.) AND (i_manufact_id IN (129, 270, 423, 821)).
+                              │                 Outputs: [i_current_price, i_item_desc, i_item_id, i_item_sk, i_manufact_id]
+                              └─ Broadcast Exchange Est. 60 rows
+                                 └─ Filter Est. 60 rows
+                                    │     Condition: (d_date >= cast(11102, 'Date')) AND (d_date <= cast(11162, 'Date'))
+                                    └─ TableScan tpcds.date_dim Est. 73049 rows
+                                             Condition : (d_date >= cast(11102, 'Date')) AND (d_date <= cast(11162, 'Date')).
+                                             Outputs: [d_date, d_date_sk]

@@ -1,0 +1,51 @@
+Projection Est. 100 rows
+│     Expressions: [i_current_price, i_item_desc, i_item_id]
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {i_item_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. ? rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {i_item_id asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. ? rows
+               └─ Repartition Exchange Est. ? rows
+                  │     Partition by: {i_current_price, i_item_desc, i_item_id}
+                  └─ Aggregating Est. ? rows
+                     │     Group by: {i_current_price, i_item_desc, i_item_id}
+                     └─ Inner Join Est. ? rows
+                        │     Condition: i_item_sk == cs_item_sk
+                        ├─ Repartition Exchange Est. ? rows
+                        │  │     Partition by: {i_item_sk}
+                        │  └─ Inner Join Est. ? rows
+                        │     │     Condition: inv_date_sk == d_date_sk
+                        │     ├─ Repartition Exchange Est. ? rows
+                        │     │  │     Partition by: {inv_date_sk}
+                        │     │  └─ Inner Join Est. ? rows
+                        │     │     │     Condition: i_item_sk == inv_item_sk
+                        │     │     ├─ Repartition Exchange Est. ? rows
+                        │     │     │  │     Partition by: {i_item_sk}
+                        │     │     │  └─ Filter Est. ? rows
+                        │     │     │     │     Condition: (i_current_price >= 68.) AND (i_current_price <= 98.) AND (i_manufact_id IN (677, 694, 808, 940))
+                        │     │     │     └─ TableScan tpcds.item Est. ? rows
+                        │     │     │              Condition : (i_current_price >= 68.) AND (i_current_price <= 98.) AND (i_manufact_id IN (677, 694, 808, 940)).
+                        │     │     │              Outputs: [i_current_price, i_item_desc, i_item_id, i_item_sk, i_manufact_id]
+                        │     │     └─ Repartition Exchange Est. ? rows
+                        │     │        │     Partition by: {inv_item_sk}
+                        │     │        └─ Filter Est. ? rows
+                        │     │           │     Condition: (inv_quantity_on_hand >= 100) AND (inv_quantity_on_hand <= 500)
+                        │     │           └─ TableScan tpcds.inventory Est. ? rows
+                        │     │                    Condition : (inv_quantity_on_hand >= 100) AND (inv_quantity_on_hand <= 500).
+                        │     │                    Outputs: [inv_date_sk, inv_item_sk, inv_quantity_on_hand]
+                        │     └─ Repartition Exchange Est. ? rows
+                        │        │     Partition by: {d_date_sk}
+                        │        └─ Filter Est. ? rows
+                        │           │     Condition: (d_date >= cast(10988, 'Date')) AND (d_date <= cast(11048, 'Date'))
+                        │           └─ TableScan tpcds.date_dim Est. ? rows
+                        │                    Condition : (d_date >= cast(10988, 'Date')) AND (d_date <= cast(11048, 'Date')).
+                        │                    Outputs: [d_date, d_date_sk]
+                        └─ Repartition Exchange Est. ? rows
+                           │     Partition by: {cs_item_sk}
+                           └─ TableScan tpcds.catalog_sales Est. ? rows
+                                    Outputs: [cs_item_sk]

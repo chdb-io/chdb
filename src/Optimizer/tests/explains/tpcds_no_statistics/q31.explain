@@ -1,0 +1,100 @@
+Projection Est. ? rows
+│     Expressions: ca_county:=ca_county_1, d_year:=d_year_1, store_q1_q2_increase:=`expr#divide(ss2.store_sales, ss1.store_sales)`, store_q2_q3_increase:=`expr#divide(ss3.store_sales, ss2.store_sales)`, web_q1_q2_increase:=`expr#divide(ws2.web_sales, ws1.web_sales)`, web_q2_q3_increase:=`expr#divide(ws3.web_sales, ws2.web_sales)`
+└─ Sorting Est. ? rows
+   │     Order by: {ca_county_1 asc}
+   └─ Gather Exchange Est. ? rows
+      └─ Sorting Est. ? rows
+         │     Order by: {ca_county_1 asc}
+         └─ Projection Est. ? rows
+            │     Expressions: [ca_county_1, d_year_1], expr#divide(ss2.store_sales, ss1.store_sales):=`expr#sum(ss_ext_sales_price)_2` / `expr#sum(ss_ext_sales_price)_1`, expr#divide(ss3.store_sales, ss2.store_sales):=`expr#sum(ss_ext_sales_price)_3` / `expr#sum(ss_ext_sales_price)_2`, expr#divide(ws2.web_sales, ws1.web_sales):=`expr#sum(ws_ext_sales_price)_2` / `expr#sum(ws_ext_sales_price)_1`, expr#divide(ws3.web_sales, ws2.web_sales):=`expr#sum(ws_ext_sales_price)_3` / `expr#sum(ws_ext_sales_price)_2`
+            └─ Inner Join Est. ? rows
+               │     Condition: ca_county_1 == ca_county_7
+               │     Filter: multiIf(`expr#sum(ws_ext_sales_price)_2` > 0, `expr#sum(ws_ext_sales_price)_3` / `expr#sum(ws_ext_sales_price)_2`, NULL) > multiIf(`expr#sum(ss_ext_sales_price)_2` > 0, `expr#sum(ss_ext_sales_price)_3` / `expr#sum(ss_ext_sales_price)_2`, NULL)
+               ├─ Inner Join Est. ? rows
+               │  │     Condition: ca_county_1 == ca_county_6
+               │  │     Filter: multiIf(`expr#sum(ws_ext_sales_price)_1` > 0, `expr#sum(ws_ext_sales_price)_2` / `expr#sum(ws_ext_sales_price)_1`, NULL) > multiIf(`expr#sum(ss_ext_sales_price)_1` > 0, `expr#sum(ss_ext_sales_price)_2` / `expr#sum(ss_ext_sales_price)_1`, NULL)
+               │  ├─ Inner Join Est. ? rows
+               │  │  │     Condition: ca_county_1 == ca_county_5
+               │  │  ├─ Inner Join Est. ? rows
+               │  │  │  │     Condition: ca_county_1 == ca_county_3
+               │  │  │  ├─ Inner Join Est. ? rows
+               │  │  │  │  │     Condition: ca_county_1 == ca_county_2
+               │  │  │  │  ├─ Filter Est. ? rows
+               │  │  │  │  │  │     Condition: (d_year_1 = 2000) AND (d_qoy_1 = 1)
+               │  │  │  │  │  └─ CTERef[0] Est. ? rows
+               │  │  │  │  └─ Filter Est. ? rows
+               │  │  │  │     │     Condition: (d_year_2 = 2000) AND (d_qoy_2 = 2)
+               │  │  │  │     └─ CTERef[0] Est. ? rows
+               │  │  │  └─ Filter Est. ? rows
+               │  │  │     │     Condition: (d_qoy_3 = 3) AND (d_year_3 = 2000)
+               │  │  │     └─ CTERef[0] Est. ? rows
+               │  │  └─ Filter Est. ? rows
+               │  │     │     Condition: (d_qoy_5 = 1) AND (d_year_5 = 2000)
+               │  │     └─ CTERef[1] Est. ? rows
+               │  └─ Filter Est. ? rows
+               │     │     Condition: (d_qoy_6 = 2) AND (d_year_6 = 2000)
+               │     └─ CTERef[1] Est. ? rows
+               └─ Filter Est. ? rows
+                  │     Condition: (d_year_7 = 2000) AND (d_qoy_7 = 3)
+                  └─ CTERef[1] Est. ? rows
+CTEDef [1]
+   Repartition Exchange Est. ? rows
+   │     Partition by: {ca_county_4}
+   └─ MergingAggregated Est. ? rows
+      └─ Repartition Exchange Est. ? rows
+         │     Partition by: {ca_county_4, d_qoy_4, d_year_4}
+         └─ Aggregating Est. ? rows
+            │     Group by: {ca_county_4, d_qoy_4, d_year_4}
+            │     Aggregates: expr#sum(ws_ext_sales_price):=AggNull(sum)(ws_ext_sales_price)
+            └─ Inner Join Est. ? rows
+               │     Condition: ws_bill_addr_sk == ca_address_sk_1
+               ├─ Repartition Exchange Est. ? rows
+               │  │     Partition by: {ws_bill_addr_sk}
+               │  └─ Inner Join Est. ? rows
+               │     │     Condition: ws_sold_date_sk == d_date_sk_1
+               │     ├─ Repartition Exchange Est. ? rows
+               │     │  │     Partition by: {ws_sold_date_sk}
+               │     │  └─ TableScan tpcds.web_sales Est. ? rows
+               │     │           Outputs: [ws_bill_addr_sk, ws_ext_sales_price, ws_sold_date_sk]
+               │     └─ Repartition Exchange Est. ? rows
+               │        │     Partition by: {d_date_sk_1}
+               │        └─ Filter Est. ? rows
+               │           │     Condition: (d_year_4 = 2000) AND (d_qoy_4 IN (1, 2, 3)) AND (((d_qoy_4 = 1) AND (d_year_4 = 2000)) OR ((d_qoy_4 = 2) AND (d_year_4 = 2000)) OR ((d_year_4 = 2000) AND (d_qoy_4 = 3)))
+               │           └─ TableScan tpcds.date_dim Est. ? rows
+               │                    Condition : (d_year = 2000) AND (d_qoy IN (1, 2, 3)) AND (((d_qoy = 1) AND (d_year = 2000)) OR ((d_qoy = 2) AND (d_year = 2000)) OR ((d_year = 2000) AND (d_qoy = 3))).
+               │                    Outputs: d_date_sk_1:=d_date_sk, d_qoy_4:=d_qoy, d_year_4:=d_year
+               └─ Repartition Exchange Est. ? rows
+                  │     Partition by: {ca_address_sk_1}
+                  └─ TableScan tpcds.customer_address Est. ? rows
+                           Outputs: ca_address_sk_1:=ca_address_sk, ca_county_4:=ca_county
+CTEDef [0]
+   Repartition Exchange Est. ? rows
+   │     Partition by: {ca_county}
+   └─ MergingAggregated Est. ? rows
+      └─ Repartition Exchange Est. ? rows
+         │     Partition by: {ca_county, d_qoy, d_year}
+         └─ Aggregating Est. ? rows
+            │     Group by: {ca_county, d_qoy, d_year}
+            │     Aggregates: expr#sum(ss_ext_sales_price):=AggNull(sum)(ss_ext_sales_price)
+            └─ Inner Join Est. ? rows
+               │     Condition: ss_addr_sk == ca_address_sk
+               ├─ Repartition Exchange Est. ? rows
+               │  │     Partition by: {ss_addr_sk}
+               │  └─ Inner Join Est. ? rows
+               │     │     Condition: ss_sold_date_sk == d_date_sk
+               │     ├─ Repartition Exchange Est. ? rows
+               │     │  │     Partition by: {ss_sold_date_sk}
+               │     │  └─ TableScan tpcds.store_sales Est. ? rows
+               │     │           Outputs: [ss_addr_sk, ss_ext_sales_price, ss_sold_date_sk]
+               │     └─ Repartition Exchange Est. ? rows
+               │        │     Partition by: {d_date_sk}
+               │        └─ Filter Est. ? rows
+               │           │     Condition: (d_year = 2000) AND (d_qoy IN (1, 2, 3)) AND (((d_year = 2000) AND (d_qoy = 1)) OR ((d_year = 2000) AND (d_qoy = 2)) OR ((d_qoy = 3) AND (d_year = 2000)))
+               │           └─ TableScan tpcds.date_dim Est. ? rows
+               │                    Condition : (d_year = 2000) AND (d_qoy IN (1, 2, 3)) AND (((d_year = 2000) AND (d_qoy = 1)) OR ((d_year = 2000) AND (d_qoy = 2)) OR ((d_qoy = 3) AND (d_year = 2000))).
+               │                    Outputs: [d_date_sk, d_qoy, d_year]
+               └─ Repartition Exchange Est. ? rows
+                  │     Partition by: {ca_address_sk}
+                  └─ TableScan tpcds.customer_address Est. ? rows
+                           Outputs: [ca_address_sk, ca_county]
+note: CTE(Common Table Expression) is applied for 6 times.

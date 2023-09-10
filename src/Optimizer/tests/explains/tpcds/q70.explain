@@ -1,0 +1,77 @@
+Projection Est. 100 rows
+│     Expressions: [s_county, s_state], lochierarchy:=`expr#plus(grouping(s_state), grouping(s_county))`, rank_within_parent:=`expr#rank() OVER (PARTITION BY grouping(s_state) + grouping(s_county), multiIf(grouping(s_county) = 0, s_state, NULL) ORDER BY sum(ss_net_profit) DESC)`, total_sum:=`expr#sum(ss_net_profit)_1`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {expr#plus(grouping(s_state), grouping(s_county)) desc nulls_last, expr#multiIf(equals(plus(grouping(s_state), grouping(s_county)), 0), s_state, NULL) asc, expr#rank() OVER (PARTITION BY grouping(s_state) + grouping(s_county), multiIf(grouping(s_county) = 0, s_state, NULL) ORDER BY sum(ss_net_profit) DESC) asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 468 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {expr#plus(grouping(s_state), grouping(s_county)) desc nulls_last, expr#multiIf(equals(plus(grouping(s_state), grouping(s_county)), 0), s_state, NULL) asc, expr#rank() OVER (PARTITION BY grouping(s_state) + grouping(s_county), multiIf(grouping(s_county) = 0, s_state, NULL) ORDER BY sum(ss_net_profit) DESC) asc}
+            │     Limit: 100
+            └─ Projection Est. 468 rows
+               │     Expressions: [expr#plus(grouping(s_state), grouping(s_county)), expr#rank() OVER (PARTITION BY grouping(s_state) + grouping(s_county), multiIf(grouping(s_county) = 0, s_state, NULL) ORDER BY sum(ss_net_profit) DESC), expr#sum(ss_net_profit)_1, s_county, s_state], expr#multiIf(equals(plus(grouping(s_state), grouping(s_county)), 0), s_state, NULL):=multiIf(`expr#plus(grouping(s_state), grouping(s_county))` = 0, s_state, NULL)
+               └─ Window Est. 468 rows
+                  └─ Repartition Exchange Est. 468 rows
+                     │     Partition by: {expr#multiIf(equals(grouping(s_county), 0), s_state, NULL), expr#plus(grouping(s_state), grouping(s_county))}
+                     └─ Projection Est. 468 rows
+                        │     Expressions: [expr#sum(ss_net_profit)_1, s_county, s_state], expr#multiIf(equals(grouping(s_county), 0), s_state, NULL):=multiIf(`expr#grouping(s_county)` = 0, s_state, NULL), expr#plus(grouping(s_state), grouping(s_county)):=`expr#grouping(s_state)` + `expr#grouping(s_county)`
+                        └─ MergingAggregated Est. 468 rows
+                           └─ Repartition Exchange Est. 468 rows
+                              │     Partition by: {__grouping_set, s_county, s_state}
+                              └─ Aggregating Est. 468 rows
+                                 │     Group by: {s_county, s_state}
+                                 │     Aggregates: expr#sum(ss_net_profit)_1:=AggNull(sum)(ss_net_profit)
+                                 └─ Inner Join Est. 223384111 rows
+                                    │     Condition: ss_store_sk == s_store_sk
+                                    ├─ Inner Join Est. 260614797 rows
+                                    │  │     Condition: ss_sold_date_sk == d_date_sk
+                                    │  ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                                    │  │        Outputs: [ss_net_profit, ss_sold_date_sk, ss_store_sk]
+                                    │  └─ Broadcast Exchange Est. 335 rows
+                                    │     └─ Filter Est. 335 rows
+                                    │        │     Condition: (d_month_seq >= 1200) AND (d_month_seq <= 1211)
+                                    │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                                    │                 Condition : (d_month_seq >= 1200) AND (d_month_seq <= 1211).
+                                    │                 Outputs: [d_date_sk, d_month_seq]
+                                    └─ Broadcast Exchange Est. 854 rows
+                                       └─ Inner Join Est. 854 rows
+                                          │     Condition: s_state == s_state_1
+                                          ├─ Repartition Exchange Est. 997 rows
+                                          │  │     Partition by: {s_state}
+                                          │  └─ Filter Est. 997 rows
+                                          │     │     Condition: isNotNull(s_state)
+                                          │     └─ TableScan tpcds.store Est. 1002 rows
+                                          │              Condition : isNotNull(s_state).
+                                          │              Outputs: [s_county, s_state, s_store_sk]
+                                          └─ Aggregating Est. 18 rows
+                                             │     Group by: {s_state_1}
+                                             └─ Projection Est. 18 rows
+                                                │     Expressions: [s_state_1]
+                                                └─ Filter Est. 18 rows
+                                                   │     Condition: `expr#rank() OVER (PARTITION BY s_state ORDER BY sum(ss_net_profit) DESC)` <= 5
+                                                   └─ Window Est. 21 rows
+                                                      └─ MergingAggregated Est. 21 rows
+                                                         └─ Repartition Exchange Est. 21 rows
+                                                            │     Partition by: {s_state_1}
+                                                            └─ Aggregating Est. 21 rows
+                                                               │     Group by: {s_state_1}
+                                                               │     Aggregates: expr#sum(ss_net_profit):=AggNull(sum)(ss_net_profit_1)
+                                                               └─ Inner Join Est. 260614797 rows
+                                                                  │     Condition: ss_store_sk_1 == s_store_sk_1
+                                                                  ├─ Inner Join Est. 260614797 rows
+                                                                  │  │     Condition: ss_sold_date_sk_1 == d_date_sk_1
+                                                                  │  ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                                                                  │  │        Outputs: ss_net_profit_1:=ss_net_profit, ss_sold_date_sk_1:=ss_sold_date_sk, ss_store_sk_1:=ss_store_sk
+                                                                  │  └─ Broadcast Exchange Est. 335 rows
+                                                                  │     └─ Filter Est. 335 rows
+                                                                  │        │     Condition: (d_month_seq_1 >= 1200) AND (d_month_seq_1 <= 1211)
+                                                                  │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                                                                  │                 Condition : (d_month_seq >= 1200) AND (d_month_seq <= 1211).
+                                                                  │                 Outputs: d_date_sk_1:=d_date_sk, d_month_seq_1:=d_month_seq
+                                                                  └─ Broadcast Exchange Est. 997 rows
+                                                                     └─ Filter Est. 997 rows
+                                                                        │     Condition: isNotNull(s_state_1)
+                                                                        └─ TableScan tpcds.store Est. 1002 rows
+                                                                                 Condition : isNotNull(s_state).
+                                                                                 Outputs: s_state_1:=s_state, s_store_sk_1:=s_store_sk

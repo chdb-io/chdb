@@ -1,0 +1,53 @@
+Projection Est. 100 rows
+│     Expressions: [i_item_id, w_warehouse_name], inv_after:=`expr#sum(multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))`, inv_before:=`expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {w_warehouse_name asc, i_item_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. ? rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {w_warehouse_name asc, i_item_id asc}
+            │     Limit: 100
+            └─ Filter Est. ? rows
+               │     Condition: (multiIf(`expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))` > 0, `expr#sum(multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))` / `expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))`, NULL) >= '0.666666') AND (multiIf(`expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))` > 0, `expr#sum(multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))` / `expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))`, NULL) <= '1.500000')
+               └─ MergingAggregated Est. ? rows
+                  └─ Repartition Exchange Est. ? rows
+                     │     Partition by: {i_item_id, w_warehouse_name}
+                     └─ Aggregating Est. ? rows
+                        │     Group by: {i_item_id, w_warehouse_name}
+                        │     Aggregates: expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0)):=AggNull(sum)(expr#multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0)), expr#sum(multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0)):=AggNull(sum)(expr#multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0))
+                        └─ Projection Est. ? rows
+                           │     Expressions: [i_item_id, w_warehouse_name], expr#multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0):=multiIf(CAST(d_date, 'date') >= cast(11027, 'Date'), inv_quantity_on_hand, 0), expr#multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), inv_quantity_on_hand, 0):=multiIf(CAST(d_date, 'date') < cast(11027, 'Date'), inv_quantity_on_hand, 0)
+                           └─ Inner Join Est. ? rows
+                              │     Condition: inv_date_sk == d_date_sk
+                              ├─ Repartition Exchange Est. ? rows
+                              │  │     Partition by: {inv_date_sk}
+                              │  └─ Inner Join Est. ? rows
+                              │     │     Condition: inv_item_sk == i_item_sk
+                              │     ├─ Repartition Exchange Est. ? rows
+                              │     │  │     Partition by: {inv_item_sk}
+                              │     │  └─ Inner Join Est. ? rows
+                              │     │     │     Condition: inv_warehouse_sk == w_warehouse_sk
+                              │     │     ├─ Repartition Exchange Est. ? rows
+                              │     │     │  │     Partition by: {inv_warehouse_sk}
+                              │     │     │  └─ TableScan tpcds.inventory Est. ? rows
+                              │     │     │           Outputs: [inv_date_sk, inv_item_sk, inv_quantity_on_hand, inv_warehouse_sk]
+                              │     │     └─ Repartition Exchange Est. ? rows
+                              │     │        │     Partition by: {w_warehouse_sk}
+                              │     │        └─ TableScan tpcds.warehouse Est. ? rows
+                              │     │                 Outputs: [w_warehouse_name, w_warehouse_sk]
+                              │     └─ Repartition Exchange Est. ? rows
+                              │        │     Partition by: {i_item_sk}
+                              │        └─ Filter Est. ? rows
+                              │           │     Condition: (i_current_price >= 0.99) AND (i_current_price <= 1.49)
+                              │           └─ TableScan tpcds.item Est. ? rows
+                              │                    Condition : (i_current_price >= 0.99) AND (i_current_price <= 1.49).
+                              │                    Outputs: [i_current_price, i_item_id, i_item_sk]
+                              └─ Repartition Exchange Est. ? rows
+                                 │     Partition by: {d_date_sk}
+                                 └─ Filter Est. ? rows
+                                    │     Condition: (d_date >= cast(10997, 'Date')) AND (d_date <= cast(11057, 'Date'))
+                                    └─ TableScan tpcds.date_dim Est. ? rows
+                                             Condition : (d_date >= cast(10997, 'Date')) AND (d_date <= cast(11057, 'Date')).
+                                             Outputs: [d_date, d_date_sk]

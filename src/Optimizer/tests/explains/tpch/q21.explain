@@ -1,0 +1,85 @@
+Projection Est. 100 rows
+│     Expressions: [s_name], numwait:=`expr#count()`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {expr#count() desc nulls_last, s_name asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 8005 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {expr#count() desc nulls_last, s_name asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 8005 rows
+               └─ Repartition Exchange Est. 8005 rows
+                  │     Partition by: {s_name}
+                  └─ Aggregating Est. 8005 rows
+                     │     Group by: {s_name}
+                     │     Aggregates: expr#count():=AggNull(count)()
+                     └─ Projection Est. 1507776 rows
+                        │     Expressions: [s_name]
+                        └─ Filter Est. 1507776 rows
+                           │     Condition: count_non_null_value_1 <= 0
+                           └─ Aggregating Est. 1675307 rows
+                              │     Group by: {_exists_subquery, assign_unique_id_symbol, assign_unique_id_symbol_1, l_commitdate, l_orderkey, l_receiptdate, l_suppkey, n_name, n_nationkey, o_orderkey, o_orderstatus, s_name, s_nationkey, s_suppkey}
+                              │     Aggregates: count_non_null_value_1:=AggNull(countIf)(build_side_non_null_symbol_1)
+                              └─ Projection Est. 1675307 rows
+                                 │     Expressions: [_exists_subquery, assign_unique_id_symbol, assign_unique_id_symbol_1, l_commitdate, l_orderkey, l_receiptdate, l_suppkey, n_name, n_nationkey, o_orderkey, o_orderstatus, s_name, s_nationkey, s_suppkey], build_side_non_null_symbol_1:=cast(multiIf(if((l_suppkey_2 != l_suppkey) AND (build_side_non_null_symbol_1 = 1), 1, NULL) = 1, 1, if((l_suppkey_2 != l_suppkey) AND (build_side_non_null_symbol_1 = 1), 1, NULL) = NULL, 0, 0), 'UInt8')
+                                 └─ Left Join Est. 1675307 rows
+                                    │     Condition: l_orderkey == l_orderkey_2
+                                    ├─ AssignUniqueId Est. 419264 rows
+                                    │  └─ Projection Est. 419264 rows
+                                    │     │     Expressions: [assign_unique_id_symbol, l_commitdate, l_orderkey, l_receiptdate, l_suppkey, n_name, n_nationkey, o_orderkey, o_orderstatus, s_name, s_nationkey, s_suppkey], _exists_subquery:=count_non_null_value > 0
+                                    │     └─ Filter Est. 419264 rows
+                                    │        │     Condition: count_non_null_value > 0
+                                    │        └─ Aggregating Est. 465849 rows
+                                    │           │     Group by: {assign_unique_id_symbol, l_commitdate, l_orderkey, l_receiptdate, l_suppkey, n_name, n_nationkey, o_orderkey, o_orderstatus, s_name, s_nationkey, s_suppkey}
+                                    │           │     Aggregates: count_non_null_value:=AggNull(countIf)(build_side_non_null_symbol)
+                                    │           └─ Projection Est. 465849 rows
+                                    │              │     Expressions: [assign_unique_id_symbol, l_commitdate, l_orderkey, l_receiptdate, l_suppkey, n_name, n_nationkey, o_orderkey, o_orderstatus, s_name, s_nationkey, s_suppkey], build_side_non_null_symbol:=cast(multiIf(if((l_suppkey_1 != l_suppkey) AND (build_side_non_null_symbol = 1), 1, NULL) = 1, 1, if((l_suppkey_1 != l_suppkey) AND (build_side_non_null_symbol = 1), 1, NULL) = NULL, 0, 0), 'UInt8')
+                                    │              └─ Left Join Est. 465849 rows
+                                    │                 │     Condition: l_orderkey == l_orderkey_1
+                                    │                 ├─ AssignUniqueId Est. 116584 rows
+                                    │                 │  └─ Inner Join Est. 116584 rows
+                                    │                 │     │     Condition: o_orderkey == l_orderkey
+                                    │                 │     ├─ Repartition Exchange Est. 729413 rows
+                                    │                 │     │  │     Partition by: {o_orderkey}
+                                    │                 │     │  └─ Filter Est. 729413 rows
+                                    │                 │     │     │     Condition: o_orderstatus = 'F'
+                                    │                 │     │     └─ TableScan tpch.orders Est. 1500000 rows
+                                    │                 │     │              Condition : o_orderstatus = 'F'.
+                                    │                 │     │              Outputs: [o_orderkey, o_orderstatus]
+                                    │                 │     └─ Repartition Exchange Est. 240048 rows
+                                    │                 │        │     Partition by: {l_orderkey}
+                                    │                 │        └─ Inner Join Est. 240048 rows
+                                    │                 │           │     Condition: l_suppkey == s_suppkey
+                                    │                 │           ├─ Filter Est. 6001215 rows
+                                    │                 │           │  │     Condition: l_receiptdate > l_commitdate
+                                    │                 │           │  └─ TableScan tpch.lineitem Est. 6001215 rows
+                                    │                 │           │           Condition : l_receiptdate > l_commitdate.
+                                    │                 │           │           Outputs: [l_commitdate, l_orderkey, l_receiptdate, l_suppkey]
+                                    │                 │           └─ Broadcast Exchange Est. 200 rows
+                                    │                 │              └─ Inner Join Est. 200 rows
+                                    │                 │                 │     Condition: s_nationkey == n_nationkey
+                                    │                 │                 ├─ TableScan tpch.supplier Est. 10000 rows
+                                    │                 │                 │        Outputs: [s_name, s_nationkey, s_suppkey]
+                                    │                 │                 └─ Broadcast Exchange Est. 1 rows
+                                    │                 │                    └─ Filter Est. 1 rows
+                                    │                 │                       │     Condition: n_name = 'SAUDI ARABIA'
+                                    │                 │                       └─ TableScan tpch.nation Est. 25 rows
+                                    │                 │                                Condition : n_name = 'SAUDI ARABIA'.
+                                    │                 │                                Outputs: [n_name, n_nationkey]
+                                    │                 └─ Repartition Exchange Est. 6001215 rows
+                                    │                    │     Partition by: {l_orderkey_1}
+                                    │                    └─ Projection Est. 6001215 rows
+                                    │                       │     Expressions: [l_orderkey_1, l_suppkey_1], build_side_non_null_symbol:=1
+                                    │                       └─ TableScan tpch.lineitem Est. 6001215 rows
+                                    │                                Outputs: l_orderkey_1:=l_orderkey, l_suppkey_1:=l_suppkey
+                                    └─ Repartition Exchange Est. 6001215 rows
+                                       │     Partition by: {l_orderkey_2}
+                                       └─ Projection Est. 6001215 rows
+                                          │     Expressions: [l_orderkey_2, l_suppkey_2], build_side_non_null_symbol_1:=1
+                                          └─ Filter Est. 6001215 rows
+                                             │     Condition: l_receiptdate_2 > l_commitdate_2
+                                             └─ TableScan tpch.lineitem Est. 6001215 rows
+                                                      Condition : l_receiptdate > l_commitdate.
+                                                      Outputs: l_commitdate_2:=l_commitdate, l_orderkey_2:=l_orderkey, l_receiptdate_2:=l_receiptdate, l_suppkey_2:=l_suppkey

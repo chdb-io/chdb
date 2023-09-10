@@ -1,0 +1,44 @@
+Projection Est. 100 rows
+│     Expressions: [ca_zip], sum(cs_sales_price):=`expr#sum(cs_sales_price)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {ca_zip asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 9393 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {ca_zip asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 9393 rows
+               └─ Repartition Exchange Est. 9393 rows
+                  │     Partition by: {ca_zip}
+                  └─ Aggregating Est. 9393 rows
+                     │     Group by: {ca_zip}
+                     │     Aggregates: expr#sum(cs_sales_price):=AggNull(sum)(cs_sales_price)
+                     └─ Inner Join Est. 68613054 rows
+                        │     Condition: cs_bill_customer_sk == c_customer_sk
+                        │     Filter: (substring(ca_zip, 1, 5) IN ('85669', '86197', '88274', '83405', '86475', '85392', '85460', '80348', '81792')) OR (ca_state IN ('CA', 'WA', 'GA')) OR (cs_sales_price > 500)
+                        ├─ Repartition Exchange Est. 34782135 rows
+                        │  │     Partition by: {cs_bill_customer_sk}
+                        │  └─ Inner Join Est. 34782135 rows
+                        │     │     Condition: cs_sold_date_sk == d_date_sk
+                        │     ├─ TableScan tpcds.catalog_sales Est. 1439980416 rows
+                        │     │        Outputs: [cs_bill_customer_sk, cs_sales_price, cs_sold_date_sk]
+                        │     └─ Broadcast Exchange Est. 90 rows
+                        │        └─ Filter Est. 90 rows
+                        │           │     Condition: (d_qoy = 2) AND (d_year = 2001)
+                        │           └─ TableScan tpcds.date_dim Est. 73049 rows
+                        │                    Condition : (d_qoy = 2) AND (d_year = 2001).
+                        │                    Outputs: [d_date_sk, d_qoy, d_year]
+                        └─ Repartition Exchange Est. 12000000 rows
+                           │     Partition by: {c_customer_sk}
+                           └─ Inner Join Est. 12000000 rows
+                              │     Condition: c_current_addr_sk == ca_address_sk
+                              ├─ Repartition Exchange Est. 12000000 rows
+                              │  │     Partition by: {c_current_addr_sk}
+                              │  └─ TableScan tpcds.customer Est. 12000000 rows
+                              │           Outputs: [c_current_addr_sk, c_customer_sk]
+                              └─ Repartition Exchange Est. 6000000 rows
+                                 │     Partition by: {ca_address_sk}
+                                 └─ TableScan tpcds.customer_address Est. 6000000 rows
+                                          Outputs: [ca_address_sk, ca_state, ca_zip]

@@ -1,0 +1,43 @@
+Projection Est. 10 rows
+│     Expressions: [l_orderkey, o_orderdate, o_shippriority], revenue:=`expr#sum(multiply(l_extendedprice, minus(1, l_discount)))`
+└─ Limit Est. 10 rows
+   │     Limit: 10
+   └─ Sorting Est. 10 rows
+      │     Order by: {expr#sum(multiply(l_extendedprice, minus(1, l_discount))) desc nulls_last, o_orderdate asc}
+      │     Limit: 10
+      └─ Gather Exchange Est. 1761954 rows
+         └─ Sorting Est. 10 rows
+            │     Order by: {expr#sum(multiply(l_extendedprice, minus(1, l_discount))) desc nulls_last, o_orderdate asc}
+            │     Limit: 10
+            └─ Aggregating Est. 1761954 rows
+               │     Group by: {l_orderkey, o_orderdate, o_shippriority}
+               │     Aggregates: expr#sum(multiply(l_extendedprice, minus(1, l_discount))):=AggNull(sum)(expr#multiply(l_extendedprice, minus(1, l_discount)))
+               └─ Projection Est. 1761954 rows
+                  │     Expressions: [l_orderkey, o_orderdate, o_shippriority], expr#multiply(l_extendedprice, minus(1, l_discount)):=l_extendedprice * (1 - l_discount)
+                  └─ Inner Join Est. 1761954 rows
+                     │     Condition: l_orderkey == o_orderkey
+                     ├─ Repartition Exchange Est. 3244320 rows
+                     │  │     Partition by: {l_orderkey}
+                     │  └─ Filter Est. 3244320 rows
+                     │     │     Condition: l_shipdate > cast(9204, 'Date')
+                     │     └─ TableScan tpch.lineitem Est. 6001215 rows
+                     │              Condition : l_shipdate > cast(9204, 'Date').
+                     │              Outputs: [l_discount, l_extendedprice, l_orderkey, l_shipdate]
+                     └─ Repartition Exchange Est. 440948 rows
+                        │     Partition by: {o_orderkey}
+                        └─ Inner Join Est. 440948 rows
+                           │     Condition: o_custkey == c_custkey
+                           ├─ Repartition Exchange Est. 727297 rows
+                           │  │     Partition by: {o_custkey}
+                           │  └─ Filter Est. 727297 rows
+                           │     │     Condition: o_orderdate < cast(9204, 'Date')
+                           │     └─ TableScan tpch.orders Est. 1500000 rows
+                           │              Condition : o_orderdate < cast(9204, 'Date').
+                           │              Outputs: [o_custkey, o_orderdate, o_orderkey, o_shippriority]
+                           └─ Repartition Exchange Est. 30142 rows
+                              │     Partition by: {c_custkey}
+                              └─ Filter Est. 30142 rows
+                                 │     Condition: c_mktsegment = 'BUILDING'
+                                 └─ TableScan tpch.customer Est. 150000 rows
+                                          Condition : c_mktsegment = 'BUILDING'.
+                                          Outputs: [c_custkey, c_mktsegment]

@@ -1,0 +1,18 @@
+Gather Exchange Est. ? rows
+└─ Projection Est. ? rows
+   │     Expressions: [a, a_1, a_2, b, c, d]
+   └─ Inner Join Est. ? rows
+      │     Condition: a == a_2
+      ├─ Repartition Exchange Est. ? rows
+      │  │     Partition by: {a}
+      │  └─ Inner Join Est. ? rows
+      │     │     Condition: a_1 == a
+      │     ├─ TableScan correctness.q6_t2 Est. ? rows
+      │     │        Outputs: [c], a_1:=a
+      │     └─ Broadcast Exchange Est. ? rows
+      │        └─ TableScan correctness.q6_t1 Est. ? rows
+      │                 Outputs: [a, b]
+      └─ Repartition Exchange Est. ? rows
+         │     Partition by: {a_2}
+         └─ TableScan correctness.q6_t3 Est. ? rows
+                  Outputs: [d], a_2:=a
