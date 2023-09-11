@@ -53,50 +53,6 @@
 #include <base/argsToConfig.h>
 #include <filesystem>
 
-//#include <iostream>
-//#include <string>
-//#include <stdio.h>
-//#include <time.h>
-//
-//// Get current date/time, format is YYYY-MM-DD.HH:mm:ss
-//const std::string currentDateTime() {
-//    time_t     now = time(nullptr);
-//    struct tm  tstruct;
-//    char       buf[80];
-//    tstruct = *localtime(&now);
-//    // Visit http://en.cppreference.com/w/cpp/chrono/c/strftime
-//    // for more information about date/time format
-//    strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-//
-//    return buf;
-//}
-
-#include <chrono>
-#include <ctime>
-#include <string>
-#include <iomanip>
-#include <sstream>
-#include <thread>
-
-const std::string currentDateTime() {
-    // Get the current time with high resolution
-    auto now = std::chrono::system_clock::now();
-    auto now_ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now);
-    auto epoch = now_ms.time_since_epoch();
-    auto value = std::chrono::duration_cast<std::chrono::milliseconds>(epoch);
-    long ms = value.count() % 1000;  // Extract milliseconds part
-
-    std::time_t tt = std::chrono::system_clock::to_time_t(now);
-    std::tm tstruct = *std::localtime(&tt);
-    char buf[80];
-    strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-
-    std::ostringstream datetime_stream;
-    datetime_stream << buf << "." << std::setfill('0') << std::setw(3) << ms;
-
-    return datetime_stream.str();
-}
-
 #if defined(FUZZING_MODE)
     #include <Functions/getFuzzerData.h>
 #endif
@@ -457,7 +413,6 @@ void LocalServer::connect()
 
 
 int LocalServer::main(const std::vector<std::string> & /*args*/)
-//try
 {
     UseSSL use_ssl;
     thread_status.emplace();
@@ -558,38 +513,8 @@ int LocalServer::main(const std::vector<std::string> & /*args*/)
     if (!initial_query.empty())
         processQueryText(initial_query);
 
-//    if (is_interactive && !delayed_interactive)
-//    {
-//        runInteractive();
-//    }
-//    else
-//    {
-//    runNonInteractive();
-
-//        if (delayed_interactive)
-//            runInteractive();
-//    }
-
-#ifndef FUZZING_MODE
-//    cleanup();
-#endif
     return Application::EXIT_OK;
 }
-//catch (const DB::Exception & e)
-//{
-//    cleanup();
-//
-//    bool need_print_stack_trace = config().getBool("stacktrace", false);
-//    std::cerr << getExceptionMessage(e, need_print_stack_trace, true) << std::endl;
-//    return e.code() ? e.code() : -1;
-//}
-//catch (...)
-//{
-//    cleanup();
-//
-//    std::cerr << getCurrentExceptionMessage(false) << std::endl;
-//    return getCurrentExceptionCode();
-//}
 
 void LocalServer::updateLoggerLevel(const String & logs_level)
 {
