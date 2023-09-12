@@ -397,7 +397,7 @@ namespace
         GraphvizPrinter::printAST(query, context, std::to_string(graphviz_index++) + "-AST-normalize-name-and-alias");
     }
 
-    void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, const String & database, const Settings & settings)
+    void rewriteMultipleJoins(ASTPtr & query, const TablesWithColumns & tables, const String & database)
     {
         ASTSelectQuery & select = query->as<ASTSelectQuery &>();
 
@@ -410,7 +410,7 @@ namespace
         cross_to_inner.cross_to_inner_join_rewrite = false;
         CrossToInnerJoinVisitor(cross_to_inner).visit(query);
 
-        JoinToSubqueryTransformVisitor::Data join_to_subs_data{tables, settings.dialect, aliases};
+        JoinToSubqueryTransformVisitor::Data join_to_subs_data{tables, aliases};
         JoinToSubqueryTransformVisitor(join_to_subs_data).visit(query);
     }
 
@@ -423,7 +423,7 @@ namespace
         // 1. Rewrite join
         if (joined_tables.resolveTables() && joined_tables.tablesCount() > 1)
         {
-            rewriteMultipleJoins(node, joined_tables.tablesWithColumns(), context->getCurrentDatabase(), context->getSettingsRef());
+            rewriteMultipleJoins(node, joined_tables.tablesWithColumns(), context->getCurrentDatabase());
 
             joined_tables.reset(node->as<ASTSelectQuery &>());
             joined_tables.resolveTables();
@@ -448,7 +448,8 @@ namespace
         }
 
         StoragePtr storage = joined_tables.getLeftTableStorage();
-        TreeRewriterResult result{source_columns, storage, storage ? storage->getInMemoryMetadataPtr() : nullptr};
+        auto storage_snapshot = std::make_shared<StorageSnapshot>(*storage, storage->getInMemoryMetadataPtr());
+        TreeRewriterResult result{source_columns, storage, storage ? storage_snapshot : nullptr};
 
         if (tables_with_columns.size() > 1)
         {
@@ -458,9 +459,8 @@ namespace
             /// query can use materialized or aliased columns from right joined table,
             /// we want to request it for right table
             cols_from_joined.insert(cols_from_joined.end(), right_table.hidden_columns.begin(), right_table.hidden_columns.end());
-            result.analyzed_join->setColumnsFromJoinedTable(cols_from_joined);
-
-            result.analyzed_join->deduplicateAndQualifyColumnNames(result.source_columns_set, right_table.table.getQualifiedNamePrefix());
+            result.analyzed_join->setColumnsFromJoinedTable(
+                cols_from_joined, result.source_columns_set, right_table.table.getQualifiedNamePrefix());
         }
 
         // 2. Rewrite qualified names
@@ -471,7 +471,8 @@ namespace
         }
 
         // 3. Optimizes logical expressions.
-        LogicalExpressionsOptimizer(&select_query, settings.optimize_min_equality_disjunction_chain_length.value).perform();
+        LogicalExpressionsOptimizer(&select_query, tables_with_columns, settings.optimize_min_equality_disjunction_chain_length.value)
+            .perform();
 
         // 4. Normalize
         {
@@ -483,12 +484,11 @@ namespace
                 for (const auto & col : result.analyzed_join->columnsFromJoinedTable())
                     all_source_columns_set.insert(col.name);
             }
-            normalizeNameAndAliases(
-                node, result.aliases, all_source_columns_set, settings, context, result.storage, result.metadata_snapshot, graphviz_index);
+            normalizeNameAndAliases(node, result.aliases, all_source_columns_set, settings, context, result.storage, graphviz_index);
         }
 
         // 5. Call `TreeOptimizer` since some optimizations will change the query result
-        TreeOptimizer::apply(node, result, tables_with_columns, context, false);
+        TreeOptimizer::apply(node, result, tables_with_columns, context);
 
         // 6. Execute subquery in prewhere
         if (select_query.prewhere())
