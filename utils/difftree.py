@@ -35,6 +35,13 @@ def compare_folders(folder1, folder2):
     # Use filecmp module's dircmp function to compare two folders
     dir_cmp = filecmp.dircmp(folder1, folder2)
 
+    # Iterate over subfolders that exist in both folders
+    for subfolder in dir_cmp.common_dirs:
+        subfolder1 = os.path.join(folder1, subfolder)
+        subfolder2 = os.path.join(folder2, subfolder)
+        # Recursively compare subfolders
+        diff_count += compare_folders(subfolder1, subfolder2)
+
     # Iterate over files that exist in both folders
     for file in dir_cmp.common_files:
         file1 = os.path.join(folder1, file)
