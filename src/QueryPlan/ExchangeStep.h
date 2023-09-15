@@ -17,7 +17,7 @@
 
 #include <Interpreters/DistributedStages/ExchangeMode.h>
 #include <Optimizer/Property/Property.h>
-#include <QueryPlan/IQueryPlanStep.h>
+#include <Processors/QueryPlan/IQueryPlanStep.h>
 
 namespace DB
 {
