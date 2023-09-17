@@ -26,10 +26,10 @@
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/IAST_fwd.h>
-// #include <QueryPlan/ExchangeStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/UnionStep.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
 #include <Storages/StorageDistributed.h>
 
 namespace DB

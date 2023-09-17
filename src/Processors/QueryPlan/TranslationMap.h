@@ -18,7 +18,7 @@
 #include <Analyzers/Scope.h>
 #include <Analyzers/Analysis.h>
 #include <Analyzers/ScopeAwareEquals.h>
-#include <QueryPlan/planning_models.h>
+#include <Processors/QueryPlan/planning_models.h>
 
 #include <unordered_map>
 #include <memory>

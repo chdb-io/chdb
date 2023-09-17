@@ -16,7 +16,7 @@
 #include <Optimizer/Rewriter/RemoveUnusedCTE.h>
 
 #include <Optimizer/PlanNodeSearcher.h>
-#include <QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
 
 namespace DB
 {

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
 #include <Optimizer/tests/gtest_base_tpch_plan_test.h>
 
 #include <gtest/gtest.h>

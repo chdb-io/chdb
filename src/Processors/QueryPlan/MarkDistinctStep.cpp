@@ -1,4 +1,4 @@
-#include <QueryPlan/MarkDistinctStep.h>
+#include <Processors/QueryPlan/MarkDistinctStep.h>
 
 #include <DataTypes/DataTypeHelper.h>
 #include <IO/Operators.h>

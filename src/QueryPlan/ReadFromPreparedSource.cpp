@@ -13,8 +13,8 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ReadFromPreparedSource.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/ReadFromPreparedSource.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Storages/IStorage.h>
 #include <Interpreters/Context.h>

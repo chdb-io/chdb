@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

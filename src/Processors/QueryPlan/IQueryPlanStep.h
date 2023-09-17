@@ -5,8 +5,8 @@
 #include <Parsers/IAST_fwd.h>
 #include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
 #include <QueryPipeline/QueryPipeline.h>
-#include <QueryPlan/Hints/IPlanHint.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/Hints/IPlanHint.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 
 
 namespace DB

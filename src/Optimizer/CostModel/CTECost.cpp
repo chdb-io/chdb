@@ -16,7 +16,7 @@
 #include <Optimizer/CostModel/CTECost.h>
 
 #include <Optimizer/CostModel/CostCalculator.h>
-#include <QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
 
 namespace DB
 {

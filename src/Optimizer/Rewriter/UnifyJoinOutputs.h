@@ -18,7 +18,7 @@
 #include <Interpreters/Context.h>
 #include <Optimizer/Rewriter/Rewriter.h>
 #include <Optimizer/Equivalences.h>
-#include <QueryPlan/SimplePlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanVisitor.h>
 
 namespace DB
 {

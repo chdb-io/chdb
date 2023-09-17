@@ -41,7 +41,7 @@
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Parsers/ASTVisitor.h>
 #include <Parsers/queryToString.h>
-#include <QueryPlan/Void.h>
+#include <Processors/QueryPlan/Void.h>
 #include <Storages/IStorage.h>
 #include <Storages/StorageDistributed.h>
 // #include <Storages/StorageCnchHive.h>

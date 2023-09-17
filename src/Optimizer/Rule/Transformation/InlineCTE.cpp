@@ -20,7 +20,7 @@
 #include <Optimizer/Rewriter/PredicatePushdown.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Rule/Rules.h>
-#include <QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
 
 namespace DB
 {

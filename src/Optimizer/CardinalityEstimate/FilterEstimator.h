@@ -17,7 +17,7 @@
 #include <Analyzers/TypeAnalyzer.h>
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
 #include <Optimizer/ExpressionInterpreter.h>
-#include <QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
 
 namespace DB
 {

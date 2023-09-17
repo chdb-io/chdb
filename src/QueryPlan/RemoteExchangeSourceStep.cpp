@@ -35,9 +35,9 @@
 #include <Processors/Exchange/ExchangeSource.h>
 #include <Processors/Exchange/ExchangeUtils.h>
 #include <QueryPipeline/QueryPipeline.h>
-#include <QueryPlan/BuildQueryPipelineSettings.h>
+#include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
 #include <Processors/QueryPlan/ISourceStep.h>
-#include <QueryPlan/RemoteExchangeSourceStep.h>
+#include <Processors/QueryPlan/RemoteExchangeSourceStep.h>
 #include <brpc/controller.h>
 #include <butil/endpoint.h>
 #include <Common/getFQDNOrHostName.h>

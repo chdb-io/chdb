@@ -1,4 +1,4 @@
-#include <QueryPlan/Hints/PlanHintFactory.h>
+#include <Processors/QueryPlan/Hints/PlanHintFactory.h>
 #include <Common/IFactoryWithAliases.h>
 
 #include <functional>

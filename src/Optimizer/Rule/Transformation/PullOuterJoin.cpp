@@ -17,8 +17,8 @@
 
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

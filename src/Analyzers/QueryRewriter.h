@@ -18,7 +18,7 @@
 #include <Interpreters/Context.h>
 #include <Interpreters/DatabaseAndTableWithAlias.h>
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
 
 namespace DB
 {

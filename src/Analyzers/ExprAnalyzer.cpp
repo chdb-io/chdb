@@ -35,7 +35,7 @@
 #include <Interpreters/convertFieldToType.h>
 #include <Interpreters/misc.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/Void.h>
+#include <Processors/QueryPlan/Void.h>
 #include <Common/StringUtils/StringUtils.h>
 
 #include <Poco/String.h>

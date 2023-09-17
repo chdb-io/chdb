@@ -1,9 +1,9 @@
 #pragma once
-#include <QueryPlan/Hints/IPlanHint.h>
-#include <QueryPlan/Hints/PlanHintFactory.h>
+#include <Processors/QueryPlan/Hints/IPlanHint.h>
+#include <Processors/QueryPlan/Hints/PlanHintFactory.h>
 #include <Parsers/IAST.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/Hints/DistributionTypeHint.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/Hints/DistributionTypeHint.h>
 
 
 namespace DB

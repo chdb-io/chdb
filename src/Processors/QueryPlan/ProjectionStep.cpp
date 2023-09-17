@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 #include <DataTypes/DataTypeHelper.h>
 #include <IO/Operators.h>

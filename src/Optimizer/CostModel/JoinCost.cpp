@@ -16,7 +16,7 @@
 #include <Optimizer/CostModel/JoinCost.h>
 
 #include <Optimizer/CostModel/CostCalculator.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 
 namespace DB
 {

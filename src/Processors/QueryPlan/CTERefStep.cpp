@@ -13,17 +13,17 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
 
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTSerDerHelper.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/PlanCopier.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/PlanSerDerHelper.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/PlanCopier.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <IO/ReadHelpers.h>
 #include <IO/VarInt.h>
 

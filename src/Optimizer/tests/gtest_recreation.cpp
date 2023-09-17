@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
 #include <gtest/gtest.h>
 #include <Optimizer/tests/gtest_base_dump_plan_test.h>
 static constexpr bool WITH_STATISTICS = true;

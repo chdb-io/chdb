@@ -14,7 +14,7 @@
  */
 
 
-#include <QueryPlan/SubstitutionStep.h>
+#include <Processors/QueryPlan/SubstitutionStep.h>
 #include <DataStreams/materializeBlock.h>
 #include <Processors/Transforms/SubstitutionTransform.h>
 #include <QueryPipeline/QueryPipeline.h>

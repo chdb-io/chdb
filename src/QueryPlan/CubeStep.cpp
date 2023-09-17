@@ -13,11 +13,11 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/CubeStep.h>
+#include <Processors/QueryPlan/CubeStep.h>
 #include <Processors/Transforms/CubeTransform.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
-#include <QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
 #include <DataTypes/DataTypesNumber.h>
 
 namespace DB

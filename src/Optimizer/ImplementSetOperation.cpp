@@ -17,8 +17,8 @@
 
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 #include <Interpreters/ExpressionActions.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
 
 namespace DB
 {

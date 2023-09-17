@@ -28,10 +28,10 @@
 #include <Optimizer/CardinalityEstimate/UnionEstimator.h>
 #include <Optimizer/CardinalityEstimate/WindowEstimator.h>
 #include <Optimizer/PredicateUtils.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 #include <Functions/InternalFunctionsDynamicFilter.h>
 
 

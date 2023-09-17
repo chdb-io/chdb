@@ -15,7 +15,7 @@
 
 #pragma once
 #include <Optimizer/CostModel/PlanNodeCost.h>
-// #include <QueryPlan/ExchangeStep.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
 
 namespace DB
 {

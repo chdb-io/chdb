@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/MergingAggregatedStep.h>
+#include <Processors/QueryPlan/MergingAggregatedStep.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/AggregatingTransform.h>

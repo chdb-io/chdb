@@ -17,8 +17,8 @@
 
 #include <Optimizer/Rule/Pattern.h>
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

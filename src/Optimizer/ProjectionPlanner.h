@@ -1,6 +1,6 @@
 #pragma once
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <Analyzers/TypeAnalyzer.h>
 
 namespace DB

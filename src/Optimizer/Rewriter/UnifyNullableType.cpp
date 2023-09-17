@@ -24,13 +24,13 @@
 #include <DataTypes/DataTypeNullable.h>
 #include <Interpreters/join_common.h>
 #include <Optimizer/SymbolsExtractor.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 
 namespace DB

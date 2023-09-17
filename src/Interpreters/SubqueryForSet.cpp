@@ -21,7 +21,7 @@
 
 #include <Interpreters/PreparedSets.h>
 #include <Interpreters/SubqueryForSet.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
 
 #include <Interpreters/ExpressionActions.h>
 #include <Parsers/ASTExpressionList.h>
@@ -21,7 +21,7 @@
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Transforms/ExpressionTransform.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 
 namespace DB
 {

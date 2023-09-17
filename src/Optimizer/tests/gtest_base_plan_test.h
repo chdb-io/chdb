@@ -18,7 +18,7 @@
 #include <Interpreters/Context.h>
 // #include <Interpreters/DistributedStages/PlanSegment.h>
 #include <Optimizer/tests/test_config.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 #include <boost/asio.hpp>
 

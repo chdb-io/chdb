@@ -18,8 +18,8 @@
 #include <QueryPipeline/SizeLimits.h>
 #include <Disks/IVolume.h>
 #include <Processors/Transforms/PartitionTopNTransform.h>
-#include <QueryPlan/ITransformingStep.h>
-#include <QueryPlan/TopNModel.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/TopNModel.h>
 
 namespace DB
 {

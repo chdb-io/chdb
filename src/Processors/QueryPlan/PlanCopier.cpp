@@ -13,18 +13,18 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanCopier.h>
+#include <Processors/QueryPlan/PlanCopier.h>
 
 #include <Parsers/ASTIdentifier.h>
 #include <Interpreters/Context_fwd.h>
-#include <QueryPlan/AssignUniqueIdStep.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/CubeStep.h>
-#include <QueryPlan/FinishSortingStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/QueryPlan.h>
-// #include <QueryPlan/RemoteExchangeSourceStep.h>
+#include <Processors/QueryPlan/AssignUniqueIdStep.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/CubeStep.h>
+#include <Processors/QueryPlan/FinishSortingStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+// #include <Processors/QueryPlan/RemoteExchangeSourceStep.h>
 
 namespace DB
 {

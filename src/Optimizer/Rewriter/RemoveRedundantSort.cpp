@@ -15,16 +15,16 @@
 
 #include <Optimizer/Rewriter/RemoveRedundantSort.h>
 
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/SortingStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SymbolAllocator.h>
-#include <QueryPlan/Void.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
+#include <Processors/QueryPlan/Void.h>
 #include <Parsers/ASTFunction.h>
 #include <Functions/FunctionFactory.h>
 

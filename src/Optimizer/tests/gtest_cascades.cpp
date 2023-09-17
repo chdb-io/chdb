@@ -27,8 +27,8 @@
 #include <Parsers/ParserSelectQuery.h>
 #include <Parsers/formatAST.h>
 #include <Parsers/parseQuery.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <Storages/System/StorageSystemNumbers.h>
 #include <Storages/System/StorageSystemOne.h>
 #include <Common/tests/gtest_global_context.h>

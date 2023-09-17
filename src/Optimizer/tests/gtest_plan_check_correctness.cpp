@@ -14,7 +14,7 @@
  */
 
 #include <Optimizer/tests/gtest_base_correctness_plan_test.h>
-#include <QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
 
 #include <gtest/gtest.h>
 

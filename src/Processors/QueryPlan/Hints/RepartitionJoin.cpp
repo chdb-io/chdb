@@ -1,5 +1,5 @@
-#include <QueryPlan/Hints/RepartitionJoin.h>
-#include <QueryPlan/Hints/PlanHintFactory.h>
+#include <Processors/QueryPlan/Hints/RepartitionJoin.h>
+#include <Processors/QueryPlan/Hints/PlanHintFactory.h>
 
 
 namespace DB

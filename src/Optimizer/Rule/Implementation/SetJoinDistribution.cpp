@@ -18,8 +18,8 @@
 
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 
 namespace DB
 {

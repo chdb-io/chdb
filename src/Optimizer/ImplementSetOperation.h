@@ -19,8 +19,8 @@
 #include <Interpreters/Context.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTLiteral.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

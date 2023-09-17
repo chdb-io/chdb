@@ -17,8 +17,8 @@
 
 #include <Core/Names.h>
 #include <Interpreters/Context_fwd.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/PlanNodeIdAllocator.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
 #include <Poco/Logger.h>
 
 #include <list>

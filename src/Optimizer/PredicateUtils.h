@@ -17,7 +17,7 @@
 
 #include <Parsers/ASTVisitor.h>
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 namespace DB
 {

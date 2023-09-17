@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include <QueryPlan/Assignment.h>
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 #include <Optimizer/DynamicFilters.h>
 #include <Core/NameToType.h>
 

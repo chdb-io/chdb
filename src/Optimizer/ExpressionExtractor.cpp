@@ -16,10 +16,10 @@
 #include <Optimizer/ExpressionExtractor.h>
 
 #include <Optimizer/PredicateUtils.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

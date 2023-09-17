@@ -15,7 +15,7 @@
 
 #include <utility>
 #include <Optimizer/PlanNodeSearcher.h>
-#include <QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
 #include <Databases/DatabaseMemory.h>
 #include <gtest/gtest.h>
 #include "gtest_base_tpcds_plan_test.h"

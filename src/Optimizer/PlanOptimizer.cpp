@@ -32,16 +32,16 @@
 #include <Optimizer/Rewriter/UnifyNullableType.h>
 #include <Optimizer/Rewriter/UseSortingProperty.h>
 #include <Optimizer/Rule/Rules.h>
-#include <QueryPlan/GraphvizPrinter.h>
-#include <QueryPlan/Hints/HintsPropagator.h>
-#include <QueryPlan/Hints/ImplementJoinOperationHints.h>
-#include <QueryPlan/Hints/ImplementJoinOrderHints.h>
-#include <QueryPlan/PlanPattern.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/Hints/HintsPropagator.h>
+#include <Processors/QueryPlan/Hints/ImplementJoinOperationHints.h>
+#include <Processors/QueryPlan/Hints/ImplementJoinOrderHints.h>
+#include <Processors/QueryPlan/PlanPattern.h>
 #include <Common/logger_useful.h>
 #include <Common/Stopwatch.h>
-#include <QueryPlan/Hints/HintsPropagator.h>
-#include <QueryPlan/Hints/ImplementJoinOperationHints.h>
-#include <QueryPlan/Hints/ImplementJoinOrderHints.h>
+#include <Processors/QueryPlan/Hints/HintsPropagator.h>
+#include <Processors/QueryPlan/Hints/ImplementJoinOperationHints.h>
+#include <Processors/QueryPlan/Hints/ImplementJoinOrderHints.h>
 
 namespace DB
 {

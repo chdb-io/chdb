@@ -1,6 +1,6 @@
-#include <QueryPlan/Hints/ImplementJoinOperationHints.h>
-#include <QueryPlan/Hints/BroadcastJoin.h>
-#include <QueryPlan/Hints/RepartitionJoin.h>
+#include <Processors/QueryPlan/Hints/ImplementJoinOperationHints.h>
+#include <Processors/QueryPlan/Hints/BroadcastJoin.h>
+#include <Processors/QueryPlan/Hints/RepartitionJoin.h>
 #include <Optimizer/CostModel/CostCalculator.h>
 #include <Optimizer/Rule/Implementation/SetJoinDistribution.h>
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>

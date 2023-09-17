@@ -15,7 +15,7 @@
 
 #pragma once
 #include <Optimizer/CostModel/PlanNodeCost.h>
-#include <QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
 
 namespace DB
 {

@@ -54,7 +54,7 @@
 #include <Parsers/ASTWatchQuery.h>
 #include <Parsers/ASTWindowDefinition.h>
 #include <Parsers/IAST.h>
-#include <QueryPlan/Void.h>
+#include <Processors/QueryPlan/Void.h>
 
 namespace DB
 {

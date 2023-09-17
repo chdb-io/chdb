@@ -16,10 +16,10 @@
 #pragma once
 
 #include <Interpreters/Context.h>
-#include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/CTEVisitHelper.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

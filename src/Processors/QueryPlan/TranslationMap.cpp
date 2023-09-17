@@ -18,9 +18,9 @@
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTLiteral.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/TranslationMap.h>
-#include <QueryPlan/Void.h>
-#include <QueryPlan/planning_common.h>
+#include <Processors/QueryPlan/TranslationMap.h>
+#include <Processors/QueryPlan/Void.h>
+#include <Processors/QueryPlan/planning_common.h>
 
 namespace DB
 {

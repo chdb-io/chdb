@@ -18,11 +18,11 @@
 #include <Optimizer/Rewriter/Rewriter.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTLiteral.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
 
 namespace DB
 {

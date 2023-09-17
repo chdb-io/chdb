@@ -1,10 +1,10 @@
-#include <QueryPlan/Hints/HintsPropagator.h>
+#include <Processors/QueryPlan/Hints/HintsPropagator.h>
 
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/Hints/Leading.h>
-#include <QueryPlan/Hints/IPlanHint.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/Hints/Leading.h>
+#include <Processors/QueryPlan/Hints/IPlanHint.h>
 
 namespace DB
 {

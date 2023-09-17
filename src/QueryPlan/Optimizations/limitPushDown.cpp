@@ -1,11 +1,11 @@
-#include <QueryPlan/Optimizations/Optimizations.h>
-#include <QueryPlan/ITransformingStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/TotalsHavingStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/FinishSortingStep.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/Optimizations/Optimizations.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/TotalsHavingStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/FinishSortingStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
 #include <Common/typeid_cast.h>
 
 namespace DB::QueryPlanOptimizations

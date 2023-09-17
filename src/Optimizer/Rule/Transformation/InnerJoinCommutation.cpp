@@ -16,7 +16,7 @@
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Rule/Transformation/InnerJoinCommutation.h>
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 
 namespace DB
 {

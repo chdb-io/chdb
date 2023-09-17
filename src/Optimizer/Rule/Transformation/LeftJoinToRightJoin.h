@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Optimizer/Rule/Rule.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 
 namespace DB
 {

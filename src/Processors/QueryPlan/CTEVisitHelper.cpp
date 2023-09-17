@@ -13,4 +13,4 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>

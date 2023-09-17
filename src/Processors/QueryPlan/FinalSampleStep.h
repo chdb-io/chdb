@@ -20,7 +20,7 @@
 #include <Processors/Transforms/FinalSampleTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <QueryPipeline/SizeLimits.h>
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 #include <Common/JSONBuilder.h>
 
 namespace DB

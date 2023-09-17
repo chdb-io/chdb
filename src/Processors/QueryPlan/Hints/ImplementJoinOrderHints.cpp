@@ -1,11 +1,11 @@
-#include <QueryPlan/Hints/ImplementJoinOrderHints.h>
+#include <Processors/QueryPlan/Hints/ImplementJoinOrderHints.h>
 
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/SymbolUtils.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/PlanPattern.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/PlanPattern.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <Optimizer/Rewriter/SimpleReorderJoin.h>
 
 

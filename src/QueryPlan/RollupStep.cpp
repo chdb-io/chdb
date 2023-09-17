@@ -13,10 +13,10 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/RollupStep.h>
+#include <Processors/QueryPlan/RollupStep.h>
 #include <Processors/Transforms/RollupTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
-#include <QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
 
 namespace DB
 {

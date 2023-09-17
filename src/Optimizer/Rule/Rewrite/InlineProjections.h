@@ -14,8 +14,8 @@
  */
 
 #pragma once
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/Assignment.h>
 #include <Optimizer/Rule/Rule.h>
 
 namespace DB

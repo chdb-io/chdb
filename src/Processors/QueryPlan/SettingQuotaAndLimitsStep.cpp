@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-// #include <QueryPlan/SettingQuotaAndLimitsStep.h>
+// #include <Processors/QueryPlan/SettingQuotaAndLimitsStep.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Storages/IStorage.h>
 #include <Interpreters/Context.h>

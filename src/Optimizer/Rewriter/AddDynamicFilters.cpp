@@ -19,7 +19,7 @@
 #include <Optimizer/DynamicFilters.h>
 #include <Optimizer/Rewriter/PredicatePushdown.h>
 #include <Optimizer/Rewriter/UnifyNullableType.h>
-#include <QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
 
 namespace DB
 {

@@ -1,7 +1,7 @@
 #pragma once
 #include <Core/SortDescription.h>
-#include <QueryPlan/ITransformingStep.h>
-#include <QueryPlan/TopNModel.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/TopNModel.h>
 
 namespace DB
 {

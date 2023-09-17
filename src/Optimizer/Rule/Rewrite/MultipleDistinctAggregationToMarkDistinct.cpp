@@ -1,8 +1,8 @@
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Rule/Rewrite/MultipleDistinctAggregationToMarkDistinct.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/MarkDistinctStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/MarkDistinctStep.h>
 
 namespace DB
 {

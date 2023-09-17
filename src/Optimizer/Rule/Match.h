@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 #include <any>
 #include <atomic>

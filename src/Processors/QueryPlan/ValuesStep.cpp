@@ -13,12 +13,12 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/ValuesStep.h>
 
 #include <DataStreams/OneBlockInputStream.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Sources/SourceFromSingleChunk.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 
 namespace DB
 {
@@ -26,7 +26,7 @@ ValuesStep::ValuesStep(Block header, Fields fields_, size_t rows_) : ISourceStep
 {
 }
 
-void ValuesStep::initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void ValuesStep::initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     Block block;
 

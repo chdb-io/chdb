@@ -17,8 +17,8 @@
 #include <Optimizer/Rule/Rewrite/SwapAdjacenRules.h>
 #include <Optimizer/Rule/Rule.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/PlanNodeIdAllocator.h>
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
+#include <Processors/QueryPlan/WindowStep.h>
 
 namespace DB
 {

@@ -20,11 +20,11 @@
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>
 #include <Optimizer/Dump/Json2Pb.h>
 #include <Parsers/IAST.h>
-#include <QueryPlan/CTEVisitHelper.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/PlanPrinter.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 #include <Statistics/StatisticsBase.h>
 #include <Poco/Zip/Compress.h>
 #include <Poco/Zip/Decompress.h>

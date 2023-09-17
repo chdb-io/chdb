@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/BuildQueryPipelineSettings.h>
+#include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
 #include <Core/Settings.h>
 #include <Interpreters/ExpressionActions.h>
 #include <Interpreters/Context.h>

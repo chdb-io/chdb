@@ -16,10 +16,10 @@
 #pragma once
 
 #include <Analyzers/Analysis.h>
-#include <QueryPlan/PlanBuilder.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/planning_models.h>
-#include <QueryPlan/TranslationMap.h>
+#include <Processors/QueryPlan/PlanBuilder.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/planning_models.h>
+#include <Processors/QueryPlan/TranslationMap.h>
 
 namespace DB
 {

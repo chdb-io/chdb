@@ -18,8 +18,8 @@
 #include <Analyzers/TypeAnalyzer.h>
 #include <Interpreters/Context.h>
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
 
 namespace DB
 {

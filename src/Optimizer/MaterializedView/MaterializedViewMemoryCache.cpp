@@ -23,7 +23,7 @@
 #include <Optimizer/PlanOptimizer.h>
 #include <Optimizer/Rewriter/PredicatePushdown.h>
 #include <Optimizer/Rule/Rules.h>
-#include <QueryPlan/QueryPlanner.h>
+#include <Processors/QueryPlan/QueryPlanner.h>
 #include <Storages/StorageMaterializedView.h>
 #include <Storages/StorageDistributed.h>
 

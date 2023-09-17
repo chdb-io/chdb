@@ -32,9 +32,9 @@
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTTableColumnReference.h>
-#include <QueryPlan/SimplePlanRewriter.h>
-#include <QueryPlan/SimplePlanVisitor.h>
-#include <QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/SimplePlanVisitor.h>
+#include <Processors/QueryPlan/TableScanStep.h>
 #include <Storages/IStorage.h>
 #include <Storages/SelectQueryInfo.h>
 #include <Storages/StorageDistributed.h>

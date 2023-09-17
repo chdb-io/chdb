@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ExpressionStep.h>
+#include <Processors/QueryPlan/ExpressionStep.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/JoiningTransform.h>

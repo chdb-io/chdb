@@ -18,7 +18,7 @@
 #include <Parsers/ASTVisitor.h>
 #include <Parsers/IAST_fwd.h>
 #include <Optimizer/SimpleExpressionRewriter.h>
-#include <QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/Assignment.h>
 #include <unordered_map>
 
 namespace DB

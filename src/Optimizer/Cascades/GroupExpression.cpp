@@ -19,7 +19,7 @@
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 #include <Optimizer/Cascades/Memo.h>
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Common/Exception.h>
 

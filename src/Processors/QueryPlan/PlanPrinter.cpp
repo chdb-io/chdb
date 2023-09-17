@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
 
 #include <Analyzers/ASTEquals.h>
 #include <Optimizer/PlanNodeSearcher.h>
@@ -24,8 +24,8 @@
 #include <AggregateFunctions/AggregateFunctionNull.h>
 #include <Poco/JSON/Object.h>
 #include <Parsers/formatAST.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
 #include <Interpreters/convertFieldToType.h>
 
 #include <utility>

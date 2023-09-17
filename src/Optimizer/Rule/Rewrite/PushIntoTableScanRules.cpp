@@ -19,9 +19,9 @@
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/SymbolsExtractor.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/TableScanStep.h>
-#include <QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
 
 namespace DB
 {

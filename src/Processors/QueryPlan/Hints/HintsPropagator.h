@@ -1,7 +1,7 @@
 #pragma once
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 #include <Optimizer/Rewriter/Rewriter.h>
-#include <QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
 
 
 namespace DB

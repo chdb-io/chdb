@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
 
 #include <AggregateFunctions/AggregateFunctionNull.h>
 #include <DataTypes/FieldToDataType.h>
@@ -24,33 +24,33 @@
 #include <Parsers/formatAST.h>
 #include <Processors/Transforms/AggregatingTransform.h>
 #include <Processors/printPipeline.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/DistinctStep.h>
-// #include <QueryPlan/ExchangeStep.h>
-#include <QueryPlan/ExplainAnalyzeStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/GraphvizPrinter.h>
-#include <QueryPlan/Hints/Leading.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
+#include <Processors/QueryPlan/ExplainAnalyzeStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/Hints/Leading.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitByStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingAggregatedStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/PartitionTopNStep.h>
-#include <QueryPlan/PlanPrinter.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/SortingStep.h>
-#include <QueryPlan/UnionStep.h>
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/LimitByStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/MergingAggregatedStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/PartitionTopNStep.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
 #include <Storages/StorageDistributed.h>
 #include <boost/algorithm/string/replace.hpp>
-#include <QueryPlan/Hints/Leading.h>
+#include <Processors/QueryPlan/Hints/Leading.h>
 
 #include <filesystem>
 #include <iostream>

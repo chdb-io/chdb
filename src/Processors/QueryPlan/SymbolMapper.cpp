@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
 
 #include <Core/SortDescription.h>
 #include <Interpreters/Aggregator.h>
@@ -22,19 +22,19 @@
 #include <Optimizer/Property/Property.h>
 #include <Optimizer/SimpleExpressionRewriter.h>
 #include <Processors/Transforms/AggregatingTransform.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/Assignment.h>
-#include <QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/PlanSegmentSourceStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/ReadNothingStep.h>
-// #include <QueryPlan/RemoteExchangeSourceStep.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/TotalsHavingStep.h>
-#include <QueryPlan/ValuesStep.h>
-#include <QueryPlan/WindowStep.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/PlanSegmentSourceStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/ReadNothingStep.h>
+// #include <Processors/QueryPlan/RemoteExchangeSourceStep.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/TotalsHavingStep.h>
+#include <Processors/QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 
 namespace DB
 {

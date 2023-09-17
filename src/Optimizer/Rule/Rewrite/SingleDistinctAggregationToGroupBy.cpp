@@ -1,7 +1,7 @@
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Rule/Rewrite/SingleDistinctAggregationToGroupBy.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 
 namespace DB

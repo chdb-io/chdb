@@ -26,12 +26,12 @@
 #include <Optimizer/Rule/Transformation/MagicSetForAggregation.h>
 #include <Optimizer/Rule/Transformation/MagicSetPushDown.h>
 #include <Optimizer/Rule/Transformation/PullOuterJoin.h>
-#include <QueryPlan/AnyStep.h>
-#include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/GraphvizPrinter.h>
-#include <QueryPlan/PlanPattern.h>
-#include <QueryPlan/ReadNothingStep.h>
-#include <QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/PlanPattern.h>
+#include <Processors/QueryPlan/ReadNothingStep.h>
+#include <Processors/QueryPlan/ValuesStep.h>
 #include <Storages/StorageDistributed.h>
 
 namespace DB

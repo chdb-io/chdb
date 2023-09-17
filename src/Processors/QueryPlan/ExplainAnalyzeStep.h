@@ -1,8 +1,8 @@
 #pragma once
 
 #include <Parsers/ASTExplainQuery.h>
-#include <QueryPlan/ITransformingStep.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

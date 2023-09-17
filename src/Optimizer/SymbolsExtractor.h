@@ -16,7 +16,7 @@
 #pragma once
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

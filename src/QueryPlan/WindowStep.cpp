@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
 
 #include <IO/Operators.h>
 #include <Interpreters/ExpressionActions.h>
@@ -26,9 +26,9 @@
 #include <Processors/Transforms/MergeSortingTransform.h>
 #include <Processors/Transforms/PartialSortingTransform.h>
 #include <Processors/Transforms/WindowTransform.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
 #include <Common/JSONBuilder.h>
 
 namespace DB

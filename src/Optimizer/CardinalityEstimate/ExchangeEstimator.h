@@ -15,7 +15,7 @@
 
 #pragma once
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-// #include <QueryPlan/ExchangeStep.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
 
 namespace DB
 {

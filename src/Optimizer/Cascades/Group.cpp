@@ -19,8 +19,8 @@
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 #include <Optimizer/Cascades/GroupExpression.h>
 #include <Optimizer/Rule/Transformation/JoinEnumOnGraph.h>
-#include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 
 namespace DB
 {

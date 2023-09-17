@@ -18,7 +18,7 @@
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/DistinctTransform.h>
 #include <Processors/Transforms/TotalsHavingTransform.h>
-#include <QueryPlan/TotalsHavingStep.h>
+#include <Processors/QueryPlan/TotalsHavingStep.h>
 #include <Common/JSONBuilder.h>
 
 namespace DB

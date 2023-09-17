@@ -1,7 +1,7 @@
-#include <QueryPlan/Hints/Leading.h>
-#include <QueryPlan/Hints/PlanHintFactory.h>
+#include <Processors/QueryPlan/Hints/Leading.h>
+#include <Processors/QueryPlan/Hints/PlanHintFactory.h>
 #include <Parsers/IAST.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 
 namespace DB

@@ -20,9 +20,9 @@
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Utils.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
 
 namespace DB
 {

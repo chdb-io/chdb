@@ -1,5 +1,5 @@
-#include <QueryPlan/Hints/registerHints.h>
-#include <QueryPlan/Hints/PlanHintFactory.h>
+#include <Processors/QueryPlan/Hints/registerHints.h>
+#include <Processors/QueryPlan/Hints/PlanHintFactory.h>
 
 
 namespace DB

@@ -7,12 +7,12 @@
 #include <Optimizer/Rule/Pattern.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/WindowStep.h>
 
 namespace DB
 {

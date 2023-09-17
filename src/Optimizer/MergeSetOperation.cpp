@@ -17,9 +17,9 @@
 #include <Optimizer/MergeSetOperation.h>
 
 #include <Interpreters/predicateExpressionsUtils.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
 
 
 namespace DB

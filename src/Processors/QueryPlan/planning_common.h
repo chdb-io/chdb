@@ -20,9 +20,9 @@
 #include <Core/Block.h>
 #include <Parsers/IAST_fwd.h>
 #include <Analyzers/ScopeAwareEquals.h>
-#include <QueryPlan/Assignment.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/planning_models.h>
+#include <Processors/QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/planning_models.h>
 #include <Optimizer/Utils.h>
 
 namespace DB

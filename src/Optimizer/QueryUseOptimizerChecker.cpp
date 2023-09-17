@@ -26,7 +26,7 @@
 #include <Parsers/ASTExplainQuery.h>
 #include <Parsers/ASTSelectIntersectExceptQuery.h>
 #include <Parsers/ASTWithElement.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 #include <Storages/StorageCnchHive.h>
 #include <Storages/StorageDistributed.h>
 #include <Storages/StorageView.h>

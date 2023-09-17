@@ -23,7 +23,7 @@
 #include <Optimizer/Property/PropertyEnforcer.h>
 #include <Optimizer/Property/PropertyMatcher.h>
 #include <Optimizer/Rule/Rule.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 
 namespace DB
 {

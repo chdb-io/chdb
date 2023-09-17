@@ -18,7 +18,7 @@
 #include <Parsers/ASTVisitor.h>
 #include <Analyzers/function_utils.h>
 #include <Analyzers/Analysis.h>
-#include <QueryPlan/Void.h>
+#include <Processors/QueryPlan/Void.h>
 
 namespace DB
 {

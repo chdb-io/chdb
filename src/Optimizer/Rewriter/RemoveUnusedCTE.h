@@ -16,8 +16,8 @@
 #pragma once
 
 #include <Optimizer/Rewriter/Rewriter.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/CTERefStep.h>
 
 namespace DB
 {

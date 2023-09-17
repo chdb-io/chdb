@@ -15,11 +15,11 @@
 
 #include <Optimizer/DistinctOutputUtil.h>
 
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/ValuesStep.h>
 
 namespace DB
 {

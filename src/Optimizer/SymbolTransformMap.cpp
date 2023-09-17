@@ -18,7 +18,7 @@
 #include <Optimizer/SimpleExpressionRewriter.h>
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTTableColumnReference.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 #include <Interpreters/InDepthNodeVisitor.h>
 
 namespace DB

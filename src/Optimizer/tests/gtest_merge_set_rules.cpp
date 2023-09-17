@@ -15,8 +15,8 @@
 
 #include <Optimizer/Rule/Rewrite/MergeSetOperationRules.h>
 #include <Optimizer/tests/gtest_optimizer_test_utils.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
 #include <Common/tests/gtest_global_context.h>
 
 #include <gtest/gtest.h>

@@ -17,7 +17,7 @@
 
 #include <Core/ColumnNumbers.h>
 #include <Processors/IProcessor.h>
-#include <QueryPlan/TopNModel.h>
+#include <Processors/QueryPlan/TopNModel.h>
 #include <Common/AlignedBuffer.h>
 #include <Common/WeakHash.h>
 

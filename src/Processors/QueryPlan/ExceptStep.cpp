@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
 
 #include <Core/Block.h>
 #include <Interpreters/Context.h>

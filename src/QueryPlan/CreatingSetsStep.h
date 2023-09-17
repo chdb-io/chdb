@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 #include <QueryPipeline/SizeLimits.h>
 #include <Interpreters/SubqueryForSet.h>
 #include <Interpreters/Context_fwd.h>

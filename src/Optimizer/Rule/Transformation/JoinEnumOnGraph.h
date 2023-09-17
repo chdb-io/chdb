@@ -18,7 +18,7 @@
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/Rule/Rule.h>
 #include <Optimizer/Equivalences.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 #include <boost/dynamic_bitset.hpp>
 
 #include <unordered_set>

@@ -4,10 +4,10 @@
 #include <Optimizer/Property/PropertyDeriver.h>
 #include <Optimizer/Property/PropertyMatcher.h>
 #include <Optimizer/SymbolsExtractor.h>
-#include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/TableScanStep.h>
 
 namespace DB
 {

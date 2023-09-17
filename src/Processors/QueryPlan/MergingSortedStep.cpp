@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Merges/MergingSortedTransform.h>
 #include <IO/Operators.h>

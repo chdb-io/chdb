@@ -3,9 +3,9 @@
 #include <Optimizer/Property/Property.h>
 #include <Optimizer/Property/PropertyDeriver.h>
 #include <Optimizer/Property/PropertyMatcher.h>
-#include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
 
 namespace DB
 {

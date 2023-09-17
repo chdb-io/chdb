@@ -17,8 +17,8 @@
 
 #include <Interpreters/Context.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
 
 namespace DB
 {

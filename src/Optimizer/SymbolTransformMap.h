@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 #include <unordered_map>
 #include <optional>

@@ -15,8 +15,8 @@
 
 #pragma once
 
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 #include <unordered_set>
 

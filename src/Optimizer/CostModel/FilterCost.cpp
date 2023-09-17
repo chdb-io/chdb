@@ -16,7 +16,7 @@
 #include <Optimizer/CostModel/FilterCost.h>
 
 #include <Optimizer/CostModel/CostCalculator.h>
-#include <QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
 
 namespace DB
 {

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/TableScanStep.h>
 
 #include <Formats/FormatSettings.h>
 #include <Functions/FunctionsInBloomFilter.h>
@@ -36,9 +36,9 @@
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Transforms/ExpressionTransform.h>
-#include <QueryPlan/PlanSerDerHelper.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Storages/IStorage_fwd.h>
 #include <Storages/MergeTree/MergeTreeWhereOptimizer.h>
 #include <Storages/VirtualColumnUtils.h>
@@ -977,7 +977,7 @@ void TableScanStep::rewriteInForBucketTable(ContextPtr context) const
     LOG_TRACE(log, "After rewriteInForBucketTable:\n: {}", query->dumpTree());
 }
 
-void TableScanStep::initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & build_context)
+void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & build_context)
 {
     Stopwatch stage_watch, total_watch;
     total_watch.start();

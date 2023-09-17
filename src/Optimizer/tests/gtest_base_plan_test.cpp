@@ -31,8 +31,8 @@
 #include <Optimizer/PlanOptimizer.h>
 #include <Parsers/ParserQuery.h>
 #include <Parsers/parseQuery.h>
-#include <QueryPlan/PlanPrinter.h>
-#include <QueryPlan/QueryPlanner.h>
+#include <Processors/QueryPlan/PlanPrinter.h>
+#include <Processors/QueryPlan/QueryPlanner.h>
 #include <Statistics/CacheManager.h>
 #include <Statistics/CatalogAdaptor.h>
 #include <Poco/NumberParser.h>

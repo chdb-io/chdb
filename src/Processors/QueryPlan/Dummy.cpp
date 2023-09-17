@@ -13,8 +13,8 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ValuesStep.h>
-#include <QueryPlan/Dummy.h>
+#include <Processors/QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/Dummy.h>
 #include <Core/NamesAndTypes.h>
 
 namespace DB

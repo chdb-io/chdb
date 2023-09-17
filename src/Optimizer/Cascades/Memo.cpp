@@ -16,7 +16,7 @@
 #include <Optimizer/Cascades/Memo.h>
 
 #include <Optimizer/Cascades/CascadesOptimizer.h>
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 
 namespace DB
 {

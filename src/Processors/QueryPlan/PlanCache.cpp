@@ -1,5 +1,5 @@
 #include <memory>
-#include <QueryPlan/PlanCache.h>
+#include <Processors/QueryPlan/PlanCache.h>
 #include <Parsers/ASTSerDerHelper.h>
 #include <Parsers/IAST_fwd.h>
 

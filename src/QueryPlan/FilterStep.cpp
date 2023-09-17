@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
 
 #include <IO/Operators.h>
 #include <IO/ReadBuffer.h>

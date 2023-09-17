@@ -18,8 +18,8 @@
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 #include <Core/SortDescription.h>
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
 
 namespace DB
 {

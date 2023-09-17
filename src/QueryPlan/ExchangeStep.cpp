@@ -14,7 +14,7 @@
  */
 
 #include <Optimizer/Property/Property.h>
-#include <QueryPlan/ExchangeStep.h>
+#include <Processors/QueryPlan/ExchangeStep.h>
 
 
 namespace DB

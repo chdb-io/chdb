@@ -15,12 +15,12 @@
 
 #include <Optimizer/Rule/Rewrite/PushThroughExchangeRules.h>
 
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 #include <Optimizer/Rule/Pattern.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/Utils.h>
-// #include <QueryPlan/ExchangeStep.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
 
 namespace DB
 {

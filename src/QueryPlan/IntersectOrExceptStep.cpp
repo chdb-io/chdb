@@ -1,4 +1,4 @@
-#include <QueryPlan/IntersectOrExceptStep.h>
+#include <Processors/QueryPlan/IntersectOrExceptStep.h>
 
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionActions.h>

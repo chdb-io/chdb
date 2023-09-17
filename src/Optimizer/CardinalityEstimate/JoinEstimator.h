@@ -16,7 +16,7 @@
 #pragma once
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
 #include <Parsers/ASTLiteral.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 #include <Parsers/IAST_fwd.h>
 
 namespace DB

@@ -16,9 +16,9 @@
 #include <Optimizer/Rewriter/UnifyJoinOutputs.h>
 
 #include <Optimizer/SymbolsExtractor.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/CTERefStep.h>
 
 namespace DB
 {

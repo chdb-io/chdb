@@ -19,8 +19,8 @@
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
 #include <Optimizer/CostModel/CostModel.h>
 #include <Optimizer/CostModel/PlanNodeCost.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/QueryPlanner.h>
+#include <Processors/QueryPlan/QueryPlanner.h>
 
 #include <Analyzers/ExpressionVisitor.h>
 #include <Analyzers/analyze_common.h>
@@ -33,28 +33,28 @@
 #include <Optimizer/SymbolsExtractor.h>
 #include <Optimizer/Utils.h>
 #include <Optimizer/makeCastFunction.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/EnforceSingleRowStep.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/ExtremesStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/GraphvizPrinter.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitByStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/PlanBuilder.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SortingStep.h>
-#include <QueryPlan/TableScanStep.h>
-#include <QueryPlan/UnionStep.h>
-#include <QueryPlan/WindowStep.h>
-#include <QueryPlan/planning_common.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/EnforceSingleRowStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/ExtremesStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/LimitByStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/PlanBuilder.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/planning_common.h>
 #include <Common/FieldVisitors.h>
 
 #include <algorithm>

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/EnforceSingleRowStep.h>
+#include <Processors/QueryPlan/EnforceSingleRowStep.h>
 
 #include <Processors/Transforms/EnforceSingleRowTransform.h>
 #include <QueryPipeline/QueryPipeline.h>

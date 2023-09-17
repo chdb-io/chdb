@@ -1,9 +1,9 @@
 #pragma once
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
 
 namespace DB
 {

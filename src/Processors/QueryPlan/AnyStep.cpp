@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 
 namespace DB
 {

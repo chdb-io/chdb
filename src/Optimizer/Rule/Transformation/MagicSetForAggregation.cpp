@@ -19,11 +19,11 @@
 #include <Optimizer/Cascades/CascadesOptimizer.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Parsers/ASTFunction.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/AnyStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

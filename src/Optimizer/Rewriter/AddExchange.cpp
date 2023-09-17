@@ -20,9 +20,9 @@
 #include <Optimizer/Property/PropertyEnforcer.h>
 #include <Optimizer/Property/PropertyMatcher.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

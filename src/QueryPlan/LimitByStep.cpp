@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/LimitByStep.h>
+#include <Processors/QueryPlan/LimitByStep.h>
 #include <Processors/Transforms/LimitByTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>

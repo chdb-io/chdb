@@ -21,7 +21,7 @@
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/SymbolsExtractor.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

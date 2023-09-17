@@ -17,7 +17,7 @@
 #include <Core/SortDescription.h>
 #include <QueryPipeline/SizeLimits.h>
 #include <Disks/IVolume.h>
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 
 namespace DB
 {

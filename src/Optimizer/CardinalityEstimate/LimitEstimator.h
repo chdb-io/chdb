@@ -15,8 +15,8 @@
 
 #pragma once
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-#include <QueryPlan/LimitByStep.h>
-#include <QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/LimitByStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
 
 namespace DB
 {

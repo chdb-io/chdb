@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/SymbolAllocator.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
 
 #include <Poco/NumberParser.h>
 

@@ -16,8 +16,8 @@
 #pragma once
 
 #include <Processors/QueryPlan/ISourceStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
 
 #include <memory>
 

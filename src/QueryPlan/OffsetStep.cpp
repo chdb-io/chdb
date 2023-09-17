@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/OffsetStep.h>
+#include <Processors/QueryPlan/OffsetStep.h>
 #include <Processors/OffsetTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>

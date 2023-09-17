@@ -1,4 +1,4 @@
-#include <QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
+#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Core/Settings.h>
 #include <Interpreters/Context.h>
 

@@ -1,7 +1,7 @@
-#include <QueryPlan/Optimizations/Optimizations.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/ExpressionStep.h>
-#include <QueryPlan/ArrayJoinStep.h>
+#include <Processors/QueryPlan/Optimizations/Optimizations.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/ExpressionStep.h>
+#include <Processors/QueryPlan/ArrayJoinStep.h>
 #include <Interpreters/ActionsDAG.h>
 #include <Interpreters/ArrayJoinAction.h>
 

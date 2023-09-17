@@ -14,7 +14,7 @@
  */
 
 #include <memory>
-#include <QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
 
 #include <AggregateFunctions/AggregateFunctionFactory.h>
 #include <Core/ColumnWithTypeAndName.h>
@@ -40,7 +40,7 @@
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/RollupTransform.h>
 #include <Processors/Transforms/RollupWithGroupingTransform.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 #include <Common/logger_useful.h>
 #include "Core/SettingsEnums.h"
 #include <DataStreams/IBlockInputStream.h>

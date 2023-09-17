@@ -22,9 +22,9 @@
 #include <Optimizer/CardinalityEstimate/SymbolStatistics.h>
 #include <Optimizer/DynamicFilters.h>
 #include <Optimizer/Rewriter/Rewriter.h>
-#include <QueryPlan/SimplePlanVisitor.h>
-#include <QueryPlan/SimplePlanRewriter.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

@@ -18,7 +18,7 @@
 #include <Interpreters/Context.h>
 #include <Optimizer/Property/Property.h>
 #include <Optimizer/Rewriter/Rewriter.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 #include <utility>
 

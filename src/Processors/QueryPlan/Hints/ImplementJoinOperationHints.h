@@ -1,11 +1,11 @@
 #pragma once
 #include <Optimizer/Rewriter/Rewriter.h>
-#include <QueryPlan/Assignment.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/JoinStep.h>
 #include <Optimizer/PredicateUtils.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
 
 
 namespace DB

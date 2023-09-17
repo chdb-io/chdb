@@ -16,9 +16,9 @@
 #include <Optimizer/PlanNodeSearcher.h>
 #include <Optimizer/tests/gtest_base_plan_test.h>
 #include <Parsers/ASTSetQuery.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 #include <gtest/gtest.h>
 

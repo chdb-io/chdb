@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 
 #include <DataStreams/NativeBlockInputStream.h>
 #include <DataStreams/NativeBlockOutputStream.h>
@@ -24,55 +24,55 @@
 #include <Interpreters/TableJoin.h>
 #include <Parsers/queryToString.h>
 #include <Processors/Transforms/AggregatingTransform.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/ArrayJoinStep.h>
-#include <QueryPlan/AssignUniqueIdStep.h>
-#include <QueryPlan/CTERefStep.h>
-#include <QueryPlan/CreatingSetsStep.h>
-#include <QueryPlan/CubeStep.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/EnforceSingleRowStep.h>
-#include <QueryPlan/ExceptStep.h>
-// #include <QueryPlan/ExchangeStep.h>
-#include <QueryPlan/ExpressionStep.h>
-#include <QueryPlan/ExtremesStep.h>
-#include <QueryPlan/ExplainAnalyzeStep.h>
-#include <QueryPlan/FillingStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/FinalSampleStep.h>
-#include <QueryPlan/FinishSortingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/ArrayJoinStep.h>
+#include <Processors/QueryPlan/AssignUniqueIdStep.h>
+#include <Processors/QueryPlan/CTERefStep.h>
+#include <Processors/QueryPlan/CreatingSetsStep.h>
+#include <Processors/QueryPlan/CubeStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/EnforceSingleRowStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
+#include <Processors/QueryPlan/ExpressionStep.h>
+#include <Processors/QueryPlan/ExtremesStep.h>
+#include <Processors/QueryPlan/ExplainAnalyzeStep.h>
+#include <Processors/QueryPlan/FillingStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/FinalSampleStep.h>
+#include <Processors/QueryPlan/FinishSortingStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Processors/QueryPlan/ISourceStep.h>
-#include <QueryPlan/ITransformingStep.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/IntersectOrExceptStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/LimitByStep.h>
-#include <QueryPlan/LimitStep.h>
-#include <QueryPlan/SortingStep.h>
-#include <QueryPlan/MarkDistinctStep.h>
-#include <QueryPlan/MergeSortingStep.h>
-#include <QueryPlan/MergingAggregatedStep.h>
-#include <QueryPlan/MergingSortedStep.h>
-#include <QueryPlan/OffsetStep.h>
-#include <QueryPlan/PartialSortingStep.h>
-#include <QueryPlan/PartitionTopNStep.h>
-#include <QueryPlan/PlanSegmentSourceStep.h>
-#include <QueryPlan/ProjectionStep.h>
-// #include <QueryPlan/QueryCacheStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/IntersectOrExceptStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/LimitByStep.h>
+#include <Processors/QueryPlan/LimitStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/MarkDistinctStep.h>
+#include <Processors/QueryPlan/MergeSortingStep.h>
+#include <Processors/QueryPlan/MergingAggregatedStep.h>
+#include <Processors/QueryPlan/MergingSortedStep.h>
+#include <Processors/QueryPlan/OffsetStep.h>
+#include <Processors/QueryPlan/PartialSortingStep.h>
+#include <Processors/QueryPlan/PartitionTopNStep.h>
+#include <Processors/QueryPlan/PlanSegmentSourceStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+// #include <Processors/QueryPlan/QueryCacheStep.h>
 #include <Processors/QueryPlan/ReadFromMergeTree.h>
-#include <QueryPlan/ReadFromPreparedSource.h>
-#include <QueryPlan/ReadNothingStep.h>
-// #include <QueryPlan/RemoteExchangeSourceStep.h>
-#include <QueryPlan/RollupStep.h>
-// #include <QueryPlan/SettingQuotaAndLimitsStep.h>
-#include <QueryPlan/TableScanStep.h>
-#include <QueryPlan/TotalsHavingStep.h>
-#include <QueryPlan/UnionStep.h>
-#include <QueryPlan/ValuesStep.h>
-#include <QueryPlan/WindowStep.h>
-#include <QueryPlan/TopNFilteringStep.h>
+#include <Processors/QueryPlan/ReadFromPreparedSource.h>
+#include <Processors/QueryPlan/ReadNothingStep.h>
+// #include <Processors/QueryPlan/RemoteExchangeSourceStep.h>
+#include <Processors/QueryPlan/RollupStep.h>
+// #include <Processors/QueryPlan/SettingQuotaAndLimitsStep.h>
+#include <Processors/QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/TotalsHavingStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/TopNFilteringStep.h>
 #include <Common/ClickHouseRevision.h>
 
 namespace DB

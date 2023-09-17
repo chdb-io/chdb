@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ReadNothingStep.h>
+#include <Processors/QueryPlan/ReadNothingStep.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Sources/NullSource.h>
 

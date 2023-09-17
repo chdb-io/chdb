@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/ExtremesStep.h>
+#include <Processors/QueryPlan/ExtremesStep.h>
 #include <QueryPipeline/QueryPipeline.h>
 
 namespace DB

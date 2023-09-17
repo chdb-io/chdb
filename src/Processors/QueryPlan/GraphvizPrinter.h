@@ -25,8 +25,8 @@
 #include <Optimizer/CostModel/CostCalculator.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Parsers/IAST.h>
-#include <QueryPlan/CTEVisitHelper.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

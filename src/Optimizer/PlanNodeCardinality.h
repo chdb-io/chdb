@@ -14,7 +14,7 @@
  */
 
 #pragma once
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

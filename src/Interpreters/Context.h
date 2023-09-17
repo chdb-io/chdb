@@ -13,8 +13,8 @@
 #include <Optimizer/OptimizerMetrics.h>
 #include <Optimizer/OptimizerProfile.h>
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/PlanNodeIdAllocator.h>
-#include <QueryPlan/SymbolAllocator.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
 #include <Server/HTTP/HTTPContext.h>
 #include <Statistics/StatisticsBase.h>
 #include <Statistics/StatisticsMemoryStore.h>

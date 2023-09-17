@@ -20,8 +20,8 @@
 #include <Optimizer/Property/Property.h>
 #include <Optimizer/Rewriter/Rewriter.h>
 #include <Optimizer/Rule/Rule.h>
-#include <QueryPlan/CTEVisitHelper.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 #include <stack>
 

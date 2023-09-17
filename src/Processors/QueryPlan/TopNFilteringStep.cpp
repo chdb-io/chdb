@@ -1,4 +1,4 @@
-#include <QueryPlan/TopNFilteringStep.h>
+#include <Processors/QueryPlan/TopNFilteringStep.h>
 #include <IO/Operators.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/TopNFilteringTransform.h>

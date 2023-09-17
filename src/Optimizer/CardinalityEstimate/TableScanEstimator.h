@@ -16,7 +16,7 @@
 #pragma once
 #include <Interpreters/Context.h>
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-#include <QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/TableScanStep.h>
 
 namespace DB
 {

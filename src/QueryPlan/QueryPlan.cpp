@@ -14,7 +14,7 @@
  */
 
 #include <stack>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 #include <IO/Operators.h>
 #include <IO/ReadHelpers.h>
@@ -25,13 +25,13 @@
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/Optimizations/Optimizations.h>
-#include <QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/PlanNodeIdAllocator.h>
-#include <QueryPlan/PlanSerDerHelper.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/Optimizations/Optimizations.h>
+#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/TableScanStep.h>
 #include <Common/logger_useful.h>
 #include <Common/JSONBuilder.h>
 #include <Common/Stopwatch.h>

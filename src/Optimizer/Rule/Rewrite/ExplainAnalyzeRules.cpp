@@ -3,7 +3,7 @@
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/SymbolsExtractor.h>
-#include <QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
 #include <Storages/MergeTree/MergeTreeData.h>
 #include <Storages/MergeTree/MergeTreeWhereOptimizer.h>
 

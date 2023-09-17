@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/CTEInfo.h>
 
-#include <QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
 
 namespace DB
 {

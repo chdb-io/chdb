@@ -23,8 +23,8 @@
 #include <Optimizer/LiteralEncoder.h>
 #include <Optimizer/Utils.h>
 #include <Parsers/formatAST.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 
 namespace DB
 {

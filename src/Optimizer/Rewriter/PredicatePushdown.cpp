@@ -35,11 +35,11 @@
 #include <Optimizer/makeCastFunction.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Parsers/formatAST.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/UnionStep.h>
 #include <Common/FieldVisitorConvertToNumber.h>
 
 namespace DB

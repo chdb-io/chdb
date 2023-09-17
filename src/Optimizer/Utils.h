@@ -24,7 +24,7 @@
 #include <Parsers/ASTOrderByElement.h>
 #include <Parsers/ASTSubquery.h>
 #include <Parsers/ASTWindowDefinition.h>
-#include <QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/Assignment.h>
 
 #include <unordered_map>
 

@@ -24,10 +24,10 @@
 #include <Interpreters/join_common.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
-#include <QueryPlan/Assignment.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

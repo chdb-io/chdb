@@ -19,7 +19,7 @@
 #include <Optimizer/PushProjectionThroughJoin.h>
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
 
 namespace DB
 {

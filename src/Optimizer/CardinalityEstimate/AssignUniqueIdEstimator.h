@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-#include <QueryPlan/AssignUniqueIdStep.h>
+#include <Processors/QueryPlan/AssignUniqueIdStep.h>
 
 namespace DB
 {

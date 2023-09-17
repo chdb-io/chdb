@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Parsers/IAST.h>
-#include <QueryPlan/TableScanStep.h>
+#include <Processors/QueryPlan/TableScanStep.h>
 #include <Storages/IStorage_fwd.h>
 
 namespace DB

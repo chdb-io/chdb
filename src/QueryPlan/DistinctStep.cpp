@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
 #include <Processors/Transforms/DistinctTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>

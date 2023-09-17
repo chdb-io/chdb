@@ -18,7 +18,7 @@
 #include <Optimizer/PredicateConst.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 
 namespace DB
 {

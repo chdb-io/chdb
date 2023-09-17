@@ -19,9 +19,9 @@
 #include <IO/WriteBufferFromString.h>
 #include <Interpreters/executeQuery.h>
 #include <Optimizer/tests/gtest_optimizer_test_utils.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/IntersectStep.h>
-#include <QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
 #include <Common/tests/gtest_global_register.h>
 
 #include <gtest/gtest.h>

@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/QueryCacheStep.h>
+#include <Processors/QueryPlan/QueryCacheStep.h>
 #include <QueryPipeline/QueryPipeline.h>
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 #include <Processors/Sources//SourceFromQueryCache.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
@@ -165,7 +165,7 @@ void QueryCacheStep::transformPipeline(QueryPipeline & pipeline, const BuildQuer
                                 });
 }
 
-void QueryCacheStep::initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void QueryCacheStep::initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.init(Pipe(std::make_shared<SourceFromQueryCache>(getOutputStream().header, query_result)));
 }

@@ -1,4 +1,4 @@
-#include <QueryPlan/ReadFromMergeTree.h>
+#include <Processors/QueryPlan/ReadFromMergeTree.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/ConcatProcessor.h>
 #include <Processors/Transforms/ReverseTransform.h>

@@ -17,8 +17,8 @@
 
 #include <Optimizer/Rule/Transformation/JoinEnumOnGraph.h>
 #include <Parsers/IAST_fwd.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 #include <utility>
 

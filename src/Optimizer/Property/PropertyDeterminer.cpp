@@ -16,11 +16,11 @@
 #include <Optimizer/Property/PropertyDeterminer.h>
 
 #include <Optimizer/Utils.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/UnionStep.h>
-#include <QueryPlan/WindowStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/WindowStep.h>
 
 namespace DB
 {

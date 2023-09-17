@@ -17,7 +17,7 @@
 
 #include <Analyzers/ASTEquals.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 #include <Optimizer/Utils.h>
 #include <Optimizer/EqualityASTMap.h>
 

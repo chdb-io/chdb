@@ -17,8 +17,8 @@
 #include <Common/Stopwatch.h>
 #include <Interpreters/IInterpreter.h>
 #include <Interpreters/SelectQueryOptions.h>
-#include <QueryPlan/CTEVisitHelper.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/CTEVisitHelper.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 // #include <Interpreters/DistributedStages/PlanSegmentSplitter.h>
 #include <Interpreters/QueryLog.h>
 #include <Poco/Logger.h>

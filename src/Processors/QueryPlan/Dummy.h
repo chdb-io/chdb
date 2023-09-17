@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 namespace DB
 {
 std::pair<String, PlanNodePtr> createDummyPlanNode(ContextMutablePtr context);

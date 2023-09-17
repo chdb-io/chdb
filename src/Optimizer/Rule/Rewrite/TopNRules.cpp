@@ -1,10 +1,10 @@
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Rule/Rewrite/TopNRules.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SortingStep.h>
-#include <QueryPlan/TopNFilteringStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/TopNFilteringStep.h>
 
 namespace DB
 {

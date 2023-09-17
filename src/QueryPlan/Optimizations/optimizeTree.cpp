@@ -1,5 +1,5 @@
-#include <QueryPlan/Optimizations/Optimizations.h>
-#include <QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
+#include <Processors/QueryPlan/Optimizations/Optimizations.h>
+#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <Common/Exception.h>
 #include <stack>
 

@@ -19,11 +19,11 @@
 #include <Optimizer/CardinalityEstimate/JoinEstimator.h>
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/SymbolUtils.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/PlanNodeIdAllocator.h>
-#include <QueryPlan/PlanPattern.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
+#include <Processors/QueryPlan/PlanPattern.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 
 namespace DB

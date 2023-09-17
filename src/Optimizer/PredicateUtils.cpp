@@ -22,8 +22,8 @@
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTFunction.h>
 #include <Parsers/ASTLiteral.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <Optimizer/EqualityASTMap.h>
 
 #include <Common/arithmeticOverflow.h>

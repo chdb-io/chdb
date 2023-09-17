@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/MergeSortingTransform.h>
 #include <Processors/Transforms/PartialSortingTransform.h>

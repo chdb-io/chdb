@@ -15,7 +15,7 @@
 
 #include <Columns/ColumnConst.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/SetOperationStep.h>
+#include <Processors/QueryPlan/SetOperationStep.h>
 #include <DataTypes/Serializations/ISerialization.h>
 
 namespace DB

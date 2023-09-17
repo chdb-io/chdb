@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 #include <Optimizer/CostModel/PlanNodeCost.h>
 // #include <Interpreters/DistributedStages/PlanSegment.h>
 #include <Interpreters/ProcessorProfile.h>

@@ -16,7 +16,7 @@
 #include <Optimizer/PlanNodeCardinality.h>
 
 #include <Optimizer/ExpressionDeterminism.h>
-#include <QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
 
 namespace DB
 {

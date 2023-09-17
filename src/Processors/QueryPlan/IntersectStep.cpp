@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
 
 #include <Core/Block.h>
 #include <Interpreters/Context.h>

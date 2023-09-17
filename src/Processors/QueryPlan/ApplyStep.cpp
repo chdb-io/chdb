@@ -14,7 +14,7 @@
  */
 
 #include <type_traits>
-#include <QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
 
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeNullable.h>

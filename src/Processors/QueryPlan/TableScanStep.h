@@ -17,9 +17,9 @@
 #include <Core/QueryProcessingStage.h>
 #include <Core/SortDescription.h>
 #include <Processors/QueryPlan/ISourceStep.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <Interpreters/SelectQueryOptions.h>
 #include <Storages/IStorage.h>
 #include <Storages/SelectQueryInfo.h>

@@ -22,10 +22,10 @@
 #include <Optimizer/JoinOrderUtils.h>
 #include <Optimizer/PlanNodeSearcher.h>
 #include <Optimizer/PlanOptimizer.h>
-#include <QueryPlan/GraphvizPrinter.h>
-#include <QueryPlan/PlanCache.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/QueryPlanner.h>
+#include <Processors/QueryPlan/GraphvizPrinter.h>
+#include <Processors/QueryPlan/PlanCache.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlanner.h>
 #include <Storages/StorageCnchMergeTree.h>
 #include <Storages/StorageCnchHive.h>
 #include <Storages/StorageDistributed.h>

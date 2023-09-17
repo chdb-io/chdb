@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/AssignUniqueIdStep.h>
+#include <Processors/QueryPlan/AssignUniqueIdStep.h>
 
 #include <DataTypes/DataTypesNumber.h>
 #include <QueryPipeline/QueryPipeline.h>

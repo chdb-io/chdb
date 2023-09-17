@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/QueryIdHolder.h>
+#include <Processors/QueryPlan/QueryIdHolder.h>
 #include <Storages/MergeTree/MergeTreeData.h>
 
 namespace DB

@@ -23,9 +23,9 @@
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/SymbolsExtractor.h>
 #include <Processors/Transforms/AggregatingTransform.h>
-// #include <QueryPlan/ExchangeStep.h>
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/SymbolMapper.h>
+// #include <Processors/QueryPlan/ExchangeStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
 
 namespace DB
 {

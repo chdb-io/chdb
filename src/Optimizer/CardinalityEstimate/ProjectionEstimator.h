@@ -16,7 +16,7 @@
 #pragma once
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

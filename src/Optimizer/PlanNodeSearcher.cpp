@@ -16,7 +16,7 @@
 #include <Optimizer/PlanNodeSearcher.h>
 
 #include <Optimizer/Utils.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 namespace DB
 {

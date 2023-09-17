@@ -14,7 +14,7 @@
  */
 
 #pragma once
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 namespace DB
 {
 

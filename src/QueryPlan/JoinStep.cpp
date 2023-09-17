@@ -27,7 +27,7 @@
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Transforms/FilterTransform.h>
 #include <Processors/Transforms/JoiningTransform.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 #include <Interpreters/ConcurrentHashJoin.h>
 #include <Core/SettingsEnums.h>
 

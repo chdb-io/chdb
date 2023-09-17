@@ -16,15 +16,15 @@
 #pragma once
 
 #include <Core/Names.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/SymbolAllocator.h>
-#include <QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/Context_fwd.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
 
 #include <memory>
 

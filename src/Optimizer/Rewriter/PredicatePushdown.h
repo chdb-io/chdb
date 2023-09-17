@@ -18,7 +18,7 @@
 #include <Interpreters/Context.h>
 #include <Optimizer/EqualityInference.h>
 #include <Optimizer/Rewriter/Rewriter.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 namespace DB
 {

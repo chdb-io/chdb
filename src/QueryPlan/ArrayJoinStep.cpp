@@ -1,4 +1,4 @@
-#include <QueryPlan/ArrayJoinStep.h>
+#include <Processors/QueryPlan/ArrayJoinStep.h>
 #include <Processors/Transforms/ArrayJoinTransform.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <QueryPipeline/QueryPipeline.h>

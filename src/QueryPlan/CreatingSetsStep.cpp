@@ -1,4 +1,4 @@
-#include <QueryPlan/CreatingSetsStep.h>
+#include <Processors/QueryPlan/CreatingSetsStep.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/CreatingSetsTransform.h>
 #include <IO/Operators.h>

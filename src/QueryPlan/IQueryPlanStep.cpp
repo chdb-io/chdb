@@ -25,7 +25,7 @@
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 #include <Processors/Exchange/ExchangeSource.h>
-#include <QueryPlan/Hints/PlanHintFactory.h>
+#include <Processors/QueryPlan/Hints/PlanHintFactory.h>
 
 namespace DB
 {

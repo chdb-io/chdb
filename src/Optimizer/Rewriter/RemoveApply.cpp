@@ -21,14 +21,14 @@
 #include <Optimizer/PredicateUtils.h>
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/ApplyStep.h>
-#include <QueryPlan/AssignUniqueIdStep.h>
-#include <QueryPlan/Assignment.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/SymbolAllocator.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ApplyStep.h>
+#include <Processors/QueryPlan/AssignUniqueIdStep.h>
+#include <Processors/QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
 #include <Interpreters/InterpreterSelectQueryUseOptimizer.h>
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>
 

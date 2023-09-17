@@ -16,7 +16,7 @@
 #include <Optimizer/CostModel/AggregatingCost.h>
 
 #include <Optimizer/CostModel/CostCalculator.h>
-#include <QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
 
 namespace DB
 {

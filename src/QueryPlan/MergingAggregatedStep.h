@@ -14,8 +14,8 @@
  */
 
 #pragma once
-#include <QueryPlan/ITransformingStep.h>
-#include <QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
 #include <QueryPipeline/SizeLimits.h>
 #include <Processors/Transforms/AggregatingTransform.h>
 

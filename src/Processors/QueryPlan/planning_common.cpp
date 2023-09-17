@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/planning_common.h>
+#include <Processors/QueryPlan/planning_common.h>
 
 namespace DB
 {

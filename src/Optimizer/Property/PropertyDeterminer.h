@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Optimizer/Property/Property.h>
-#include <QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
 
 #include <utility>
 

@@ -13,10 +13,10 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanPattern.h>
+#include <Processors/QueryPlan/PlanPattern.h>
 
 #include <Optimizer/JoinGraph.h>
-#include <QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
 
 namespace DB
 {

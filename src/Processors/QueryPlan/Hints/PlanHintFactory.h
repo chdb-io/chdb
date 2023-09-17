@@ -3,7 +3,7 @@
 #include <Common/IFactoryWithAliases.h>
 #include <Interpreters/Context.h>
 #include <Parsers/IAST.h>
-#include <QueryPlan/Hints/IPlanHint.h>
+#include <Processors/QueryPlan/Hints/IPlanHint.h>
 
 namespace DB
 {

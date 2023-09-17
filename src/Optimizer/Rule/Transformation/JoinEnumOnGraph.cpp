@@ -20,7 +20,7 @@
 #include <Optimizer/Rule/Pattern.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/AnyStep.h>
+#include <Processors/QueryPlan/AnyStep.h>
 
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>

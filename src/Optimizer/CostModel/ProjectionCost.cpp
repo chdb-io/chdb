@@ -16,7 +16,7 @@
 #include <Optimizer/CostModel/ProjectionCost.h>
 
 #include <Optimizer/CostModel/CostCalculator.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 
 namespace DB
 {

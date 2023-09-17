@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Interpreters/Context_fwd.h>
-#include <QueryPlan/ITransformingStep.h>
+#include <Processors/QueryPlan/ITransformingStep.h>
 #include <Storages/TableLockHolder.h>
 #include <DataStreams/StreamLocalLimits.h>
 

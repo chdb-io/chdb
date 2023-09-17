@@ -19,8 +19,8 @@
 #include <Optimizer/JoinGraph.h>
 #include <Optimizer/SymbolTransformMap.h>
 #include <Optimizer/Utils.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 #include <Storages/StorageMaterializedView.h>
 #include <Optimizer/EqualityASTMap.h>
 

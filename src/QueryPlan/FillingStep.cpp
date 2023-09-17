@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/FillingStep.h>
+#include <Processors/QueryPlan/FillingStep.h>
 #include <Processors/Transforms/FillingTransform.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <IO/Operators.h>

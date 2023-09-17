@@ -16,8 +16,8 @@
 #pragma once
 
 #include <Optimizer/ExpressionDeterminism.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

@@ -16,9 +16,9 @@
 #pragma once
 
 #include <Optimizer/CardinalityEstimate/PlanNodeStatistics.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/DistinctStep.h>
-#include <QueryPlan/MergingAggregatedStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/DistinctStep.h>
+#include <Processors/QueryPlan/MergingAggregatedStep.h>
 
 namespace DB
 {

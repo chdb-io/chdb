@@ -22,7 +22,7 @@
 #include <Optimizer/SymbolTransformMap.h>
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTTableColumnReference.h>
-#include <QueryPlan/Assignment.h>
+#include <Processors/QueryPlan/Assignment.h>
 
 namespace DB
 {

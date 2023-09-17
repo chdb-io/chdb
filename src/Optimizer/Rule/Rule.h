@@ -16,8 +16,8 @@
 #pragma once
 #include <Interpreters/Context.h>
 #include <Optimizer/Rule/Pattern.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 #include <utility>
 

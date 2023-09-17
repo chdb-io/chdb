@@ -4,9 +4,9 @@
 #include <Optimizer/JoinGraph.h>
 #include <Optimizer/Rewriter/Rewriter.h>
 #include <Parsers/ASTVisitor.h>
-#include <QueryPlan/PlanVisitor.h>
-#include <QueryPlan/SimplePlanRewriter.h>
-#include <QueryPlan/Hints/Leading.h>
+#include <Processors/QueryPlan/PlanVisitor.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/Hints/Leading.h>
 
 #include <utility>
 

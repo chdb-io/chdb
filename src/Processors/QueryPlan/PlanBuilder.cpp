@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanBuilder.h>
-#include <QueryPlan/planning_common.h>
-#include <QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/PlanBuilder.h>
+#include <Processors/QueryPlan/planning_common.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
 #include <Optimizer/makeCastFunction.h>
 
 namespace DB

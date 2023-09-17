@@ -1,5 +1,5 @@
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/SortingStep.h>
+#include <Processors/QueryPlan/SortingStep.h>
 
 namespace DB::Patterns
 {

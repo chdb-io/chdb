@@ -16,9 +16,9 @@
 #pragma once
 
 #include <Analyzers/Analysis.h>
-#include <QueryPlan/PlanNode.h>
-#include <QueryPlan/SymbolAllocator.h>
-#include <QueryPlan/TranslationMap.h>
+#include <Processors/QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
+#include <Processors/QueryPlan/TranslationMap.h>
 
 namespace DB
 {

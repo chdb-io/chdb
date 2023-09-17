@@ -13,9 +13,9 @@
  * limitations under the License.
  */
 
-#include <QueryPlan/PlanSegmentSourceStep.h>
-#include <QueryPlan/ReadFromPreparedSource.h>
-#include <QueryPlan/PlanSerDerHelper.h>
+#include <Processors/QueryPlan/PlanSegmentSourceStep.h>
+#include <Processors/QueryPlan/ReadFromPreparedSource.h>
+#include <Processors/QueryPlan/PlanSerDerHelper.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <QueryPipeline/Pipe.h>
 #include <Processors/Sources/NullSource.h>
@@ -52,7 +52,7 @@ PlanSegmentSourceStep::PlanSegmentSourceStep(Block header_,
     // std::cout<<" PlanSegmentSourceStep processed_stage: " << QueryProcessingStage::toString(processed_stage) << std::endl;
 }
 
-void PlanSegmentSourceStep::initializePipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings)
+void PlanSegmentSourceStep::initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     auto step = generateStep();
     if (auto * source = dynamic_cast<ISourceStep *>(step.get()))

@@ -1,6 +1,6 @@
 #pragma once
-#include <QueryPlan/QueryPlan.h>
-#include <QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
+#include <Processors/QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/Optimizations/QueryPlanOptimizationSettings.h>
 #include <array>
 
 namespace DB

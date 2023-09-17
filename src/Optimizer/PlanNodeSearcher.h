@@ -15,7 +15,7 @@
 
 #pragma once
 
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

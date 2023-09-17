@@ -23,10 +23,10 @@
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/Rule/Patterns.h>
 #include <Parsers/ASTIdentifier.h>
-#include <QueryPlan/AggregatingStep.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/ValuesStep.h>
+#include <Processors/QueryPlan/AggregatingStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/ValuesStep.h>
 
 namespace DB
 {

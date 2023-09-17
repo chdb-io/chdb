@@ -16,10 +16,10 @@
 #include <Optimizer/Rule/Transformation/PushJoinThroughUnion.h>
 
 #include <Optimizer/Rule/Patterns.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/PlanCopier.h>
-#include <QueryPlan/SymbolMapper.h>
-#include <QueryPlan/UnionStep.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/PlanCopier.h>
+#include <Processors/QueryPlan/SymbolMapper.h>
+#include <Processors/QueryPlan/UnionStep.h>
 
 namespace DB
 {

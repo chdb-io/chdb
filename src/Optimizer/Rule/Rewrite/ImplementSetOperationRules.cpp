@@ -20,9 +20,9 @@
 #include <Optimizer/Rule/Rewrite/ImplementSetOperationRules.h>
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTFunction.h>
-#include <QueryPlan/ExceptStep.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/IntersectStep.h>
+#include <Processors/QueryPlan/ExceptStep.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/IntersectStep.h>
 
 namespace DB
 {

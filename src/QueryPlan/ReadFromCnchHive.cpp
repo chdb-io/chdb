@@ -14,7 +14,7 @@
  */
 
 #include <Processors/Sources/NullSource.h>
-#include <QueryPlan/ReadFromCnchHive.h>
+#include <Processors/QueryPlan/ReadFromCnchHive.h>
 #include <Storages/Hive/HiveDataSelectExecutor.h>
 #include <Storages/MergeTree/CnchHiveReadPool.h>
 #include <Storages/MergeTree/CnchHiveThreadSelectBlockInputProcessor.h>

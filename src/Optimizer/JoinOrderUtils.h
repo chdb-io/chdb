@@ -2,9 +2,9 @@
 
 #include <Core/SortDescription.h>
 #include <Interpreters/Context.h>
-#include <QueryPlan/CTEInfo.h>
-#include <QueryPlan/SimplePlanRewriter.h>
-#include <QueryPlan/SimplePlanVisitor.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/SimplePlanRewriter.h>
+#include <Processors/QueryPlan/SimplePlanVisitor.h>
 
 namespace DB
 {

@@ -19,9 +19,9 @@
 #include <Optimizer/Rule/Rewrite/InlineProjections.h>
 #include <Optimizer/SymbolUtils.h>
 #include <Optimizer/SymbolsExtractor.h>
-#include <QueryPlan/JoinStep.h>
-#include <QueryPlan/ProjectionStep.h>
-#include <QueryPlan/QueryPlan.h>
+#include <Processors/QueryPlan/JoinStep.h>
+#include <Processors/QueryPlan/ProjectionStep.h>
+#include <Processors/QueryPlan/QueryPlan.h>
 
 namespace DB
 {

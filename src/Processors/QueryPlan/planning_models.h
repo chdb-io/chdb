@@ -18,7 +18,7 @@
 #include <Core/Types.h>
 #include <Analyzers/Analysis.h>
 #include <Analyzers/SubColumnID.h>
-#include <QueryPlan/PlanNode.h>
+#include <Processors/QueryPlan/PlanNode.h>
 
 namespace DB
 {

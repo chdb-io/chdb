@@ -1,6 +1,6 @@
-#include <QueryPlan/Optimizations/Optimizations.h>
-#include <QueryPlan/FilterStep.h>
-#include <QueryPlan/ExpressionStep.h>
+#include <Processors/QueryPlan/Optimizations/Optimizations.h>
+#include <Processors/QueryPlan/FilterStep.h>
+#include <Processors/QueryPlan/ExpressionStep.h>
 #include <Interpreters/ActionsDAG.h>
 
 namespace DB::QueryPlanOptimizations

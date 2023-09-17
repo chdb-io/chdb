@@ -1,4 +1,4 @@
-#include <QueryPlan/ExplainAnalyzeStep.h>
+#include <Processors/QueryPlan/ExplainAnalyzeStep.h>
 #include <DataTypes/DataTypeString.h>
 #include <QueryPipeline/QueryPipeline.h>
 #include <Processors/Transforms/ExplainAnalyzeTransform.h>
