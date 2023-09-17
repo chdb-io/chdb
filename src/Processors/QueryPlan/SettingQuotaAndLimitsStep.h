@@ -49,7 +49,7 @@ public:
 
     Type getType() const override { return Type::SettingQuotaAndLimits; }
 
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void serialize(WriteBuffer & buf) const override;
 

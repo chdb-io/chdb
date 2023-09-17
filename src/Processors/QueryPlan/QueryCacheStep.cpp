@@ -154,7 +154,7 @@ QueryPipelinePtr QueryCacheStep::updatePipeline(QueryPipelineBuilders pipelines,
     return std::move(pipelines.front());
 }
 
-void QueryCacheStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void QueryCacheStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.addSimpleTransform([&](const Block & header, QueryPipeline::StreamType stream_type) -> ProcessorPtr
                                 {

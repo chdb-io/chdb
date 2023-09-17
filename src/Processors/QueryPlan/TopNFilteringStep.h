@@ -22,7 +22,7 @@ public:
     Type getType() const override { return Type::TopNFiltering; }
 
     void setInputStreams(const DataStreams & input_streams_) override;
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;
     void serialize(WriteBuffer &) const override;

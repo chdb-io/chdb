@@ -68,7 +68,7 @@ void PartialSortingStep::updateLimit(size_t limit_)
     }
 }
 
-void PartialSortingStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings)
+void PartialSortingStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     if (size_limits.max_rows == 0)
     {

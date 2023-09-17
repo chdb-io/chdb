@@ -53,7 +53,7 @@ public:
     size_t getMaxBytesBeforeExternalSort() const { return max_bytes_before_external_sort; }
     VolumePtr getVolumPtr() const { return tmp_volume; }
     size_t getMinFreeDiskSpace() const { return min_free_disk_space; }
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;

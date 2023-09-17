@@ -27,7 +27,7 @@ public:
     Type getType() const override { return IQueryPlanStep::Type::AssignUniqueId; }
 
     void setInputStreams(const DataStreams & input_streams_) override;
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
     void serialize(WriteBuffer & buffer) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr context);
 

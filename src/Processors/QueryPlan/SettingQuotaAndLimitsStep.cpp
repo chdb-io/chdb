@@ -61,7 +61,7 @@ void SettingQuotaAndLimitsStep::setInputStreams(const DataStreams & input_stream
     output_stream->header = input_streams_[0].header;
 }
 
-void SettingQuotaAndLimitsStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void SettingQuotaAndLimitsStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     /// Table lock is stored inside pipeline here.
     pipeline.setLimits(limits);

@@ -17,6 +17,7 @@
 
 #include <Processors/QueryPlan/ISourceStep.h>
 #include <Processors/QueryPlan/ProjectionStep.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/QueryPlan/SymbolMapper.h>
 
 #include <memory>

@@ -26,7 +26,7 @@ public:
     String getName() const override { return "EnforceSingleRow"; }
     Type getType() const override { return Type::EnforceSingleRow; }
 
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings) override;
     void serialize(WriteBuffer & buffer) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr context);
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override;

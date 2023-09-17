@@ -36,7 +36,7 @@ void PartitionTopNStep::setInputStreams(const DataStreams & input_streams_)
 }
 
 
-void PartitionTopNStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & context)
+void PartitionTopNStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & context)
 {
     auto input_header = pipeline.getHeader();
     pipeline.resize(context.context->getSettingsRef().max_threads);

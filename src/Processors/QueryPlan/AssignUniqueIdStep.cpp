@@ -35,7 +35,7 @@ void AssignUniqueIdStep::setInputStreams(const DataStreams & input_streams_)
     output_stream->header.insert(ColumnWithTypeAndName{std::make_shared<DataTypeUInt64>(), unique_id});
 }
 
-void AssignUniqueIdStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void AssignUniqueIdStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.addSimpleTransform([&](const Block & header) { return std::make_shared<AssignUniqueIdTransform>(header, unique_id); });
 }

@@ -79,7 +79,7 @@ void MergeSortingStep::updateLimit(size_t limit_)
     }
 }
 
-void MergeSortingStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings)
+void MergeSortingStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     max_merged_block_size = settings.context->getSettingsRef().max_block_size;
     max_bytes_before_remerge = settings.context->getSettingsRef().max_bytes_before_remerge_sort;

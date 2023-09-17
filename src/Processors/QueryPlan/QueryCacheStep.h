@@ -37,7 +37,7 @@ public:
     Type getType() const override { return Type::QueryCache; }
 
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings) override;
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &);
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &);
     void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &);
 
     void checkDeterministic(const ASTPtr & node);

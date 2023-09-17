@@ -21,7 +21,7 @@ void MarkDistinctStep::setInputStreams(const DataStreams & input_streams_)
     output_stream->header.insert(ColumnWithTypeAndName{std::make_shared<DataTypeUInt8>(), marker_symbol});
 }
 
-void MarkDistinctStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings)
+void MarkDistinctStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     // TODO Add Local Exchange
     pipeline.resize(1);

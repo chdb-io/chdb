@@ -52,7 +52,7 @@ void ProjectionStep::setInputStreams(const DataStreams & input_streams_)
     input_streams = input_streams_;
 }
 
-void ProjectionStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings)
+void ProjectionStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     auto actions = createActions(settings.context);
     auto expression = std::make_shared<ExpressionActions>(actions, settings.getActionsSettings());

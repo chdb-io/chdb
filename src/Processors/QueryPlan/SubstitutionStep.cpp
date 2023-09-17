@@ -37,7 +37,7 @@ void SubstitutionStep::setInputStreams(const DataStreams & input_streams_)
     output_stream->header = SubstitutionTransform::transformHeader(input_streams_[0].header, name_substitution_info);
 }
 
-void SubstitutionStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & /*settings*/)
+void SubstitutionStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & /*settings*/)
 {
     pipeline.addSimpleTransform([&](const Block & header, QueryPipeline::StreamType /*stream_type*/)
     {

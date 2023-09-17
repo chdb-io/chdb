@@ -31,7 +31,7 @@ public:
         const std::unordered_map<String, String> & name_substitution_info_);
 
     String getName() const override { return "Substitution"; }
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & settings) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;

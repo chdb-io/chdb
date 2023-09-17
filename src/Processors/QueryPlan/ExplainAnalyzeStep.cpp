@@ -22,7 +22,7 @@ ExplainAnalyzeStep::ExplainAnalyzeStep(
 {
 }
 
-void ExplainAnalyzeStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings & )
+void ExplainAnalyzeStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & )
 {
     if (!query_plan_ptr)
         throw Exception("QueryPlan is not set", ErrorCodes::LOGICAL_ERROR);

@@ -42,7 +42,7 @@ public:
 
     Type getType() const override { return Type::FinalSample; }
 
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override
     {
         auto transform
             = std::make_shared<FinalSampleTransform>(pipeline.getHeader(), sample_size, max_chunk_size, pipeline.getNumStreams());

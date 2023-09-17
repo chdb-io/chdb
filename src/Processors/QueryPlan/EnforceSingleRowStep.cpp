@@ -25,7 +25,7 @@ EnforceSingleRowStep::EnforceSingleRowStep(const DB::DataStream & input_stream_)
 {
 }
 
-void EnforceSingleRowStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void EnforceSingleRowStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.resize(1);
     pipeline.addSimpleTransform([&](const Block & header) { return std::make_shared<EnforceSingleRowTransform>(header); });

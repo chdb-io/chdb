@@ -21,7 +21,7 @@ public:
     bool hasPlan() const { return query_plan_ptr != nullptr; }
     //    void setQueryPlan(QueryPlanPtr query_plan_ptr_) { query_plan = query_plan_ptr_; }
 
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
     void serialize(WriteBuffer &) const override;
     static QueryPlanStepPtr deserialize(ReadBuffer &, ContextPtr context_ = nullptr);
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;

@@ -34,7 +34,7 @@ public:
     UInt64 getLimit() const { return limit; }
     const SizeLimits & getSizeLimits() const { return size_limits; }
 
-    void transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &) override;
+    void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;

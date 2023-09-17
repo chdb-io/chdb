@@ -22,7 +22,7 @@ void TopNFilteringStep::setInputStreams(const DataStreams & input_streams_)
     output_stream->header = input_streams_[0].header;
 }
 
-void TopNFilteringStep::transformPipeline(QueryPipeline & pipeline, const BuildQueryPipelineSettings &)
+void TopNFilteringStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.addSimpleTransform(
         [&](const Block & header) { return std::make_shared<TopNFilteringTransform>(header, sort_description, size, model); });
