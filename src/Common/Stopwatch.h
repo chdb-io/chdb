@@ -68,6 +68,11 @@ public:
     UInt64 elapsedNanoseconds() const  { return is_running ? nanoseconds() - start_ns : stop_ns - start_ns; }
     UInt64 elapsedMicroseconds() const { return elapsedNanoseconds() / 1000U; }
     UInt64 elapsedMilliseconds() const { return elapsedNanoseconds() / 1000000UL; }
+    double elapsedMillisecondsAsDouble() const
+    {
+        return static_cast<double>(elapsedNanoseconds()) / 1000000UL;
+    }
+
     double elapsedSeconds() const      { return static_cast<double>(elapsedNanoseconds()) / 1000000000ULL; }
 
     UInt64 getStart() const { return start_ns; }
