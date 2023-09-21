@@ -33,6 +33,12 @@ CubeStep::CubeStep(const DataStream & input_stream_, Aggregator::Params params_,
 {
 }
 
+void CubeStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = appendGroupingSetColumn(params->getHeader());
+}
+
 ProcessorPtr addGroupingSetForTotals(const Block & header, const Names & keys, bool use_nulls, const BuildQueryPipelineSettings & settings, UInt64 grouping_set_number)
 {
     auto dag = std::make_shared<ActionsDAG>(header.getColumnsWithTypeAndName());
@@ -86,4 +92,10 @@ void CubeStep::updateOutputStream()
     output_stream = createOutputStream(
         input_streams.front(), generateOutputHeader(params.getHeader(input_streams.front().header, final), params.keys, use_nulls), getDataStreamTraits());
 }
+
+std::shared_ptr<IQueryPlanStep> CubeStep::copy(ContextPtr) const
+{
+    return std::make_shared<CubeStep>(input_streams[0], params);
+}
+
 }

@@ -72,7 +72,11 @@ public:
 
     void convertToFinishSorting(SortDescription prefix_description);
 
-    Type getType() const { return type; }
+    Type getSortType() const { return type; }
+    DB::IQueryPlanStep::Type getType() const override { return DB::IQueryPlanStep::Type::Sorting; }
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
+
     const Settings & getSettings() const { return sort_settings; }
 
     static void fullSortStreams(

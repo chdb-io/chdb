@@ -21,10 +21,13 @@ public:
 
     String getName() const override { return "CreatingSet"; }
 
+    Type getType() const override { return Type::CreatingSet; }
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;
@@ -42,9 +45,13 @@ public:
 
     String getName() const override { return "CreatingSets"; }
 
+    Type getType() const override { return Type::CreatingSets; }
+
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
     void describePipeline(FormatSettings & settings) const override;
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 };
 
 /// This is a temporary step which is converted to CreatingSetStep after plan optimization.
@@ -56,6 +63,8 @@ public:
 
     String getName() const override { return "DelayedCreatingSets"; }
 
+    Type getType() const override { return Type::DelayedCreatingSets; }
+
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &) override;
 
     static std::vector<std::unique_ptr<QueryPlan>> makePlansForSets(DelayedCreatingSetsStep && step);
@@ -63,6 +72,8 @@ public:
     ContextPtr getContext() const { return context; }
     PreparedSets::Subqueries detachSets() { return std::move(subqueries); }
 
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 private:
     PreparedSets::Subqueries subqueries;
     ContextPtr context;

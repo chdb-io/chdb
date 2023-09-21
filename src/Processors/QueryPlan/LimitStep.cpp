@@ -35,6 +35,12 @@ LimitStep::LimitStep(
 {
 }
 
+void LimitStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
+
 void LimitStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     auto transform = std::make_shared<LimitTransform>(
@@ -75,6 +81,11 @@ void LimitStep::describeActions(JSONBuilder::JSONMap & map) const
     map.add("Offset", offset);
     map.add("With Ties", with_ties);
     map.add("Reads All Data", always_read_till_end);
+}
+
+std::shared_ptr<IQueryPlanStep> LimitStep::copy(ContextPtr) const
+{
+    return std::make_shared<LimitStep>(input_streams[0], limit, offset, always_read_till_end, with_ties, description, partial);
 }
 
 }

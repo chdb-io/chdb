@@ -59,7 +59,7 @@
 #include <Processors/QueryPlan/ValuesStep.h>
 #include <Processors/QueryPlan/WindowStep.h>
 #include "Interpreters/Context_fwd.h"
-#include "QueryPlan/ReadNothingStep.h"
+#include "Processors/QueryPlan/ReadNothingStep.h"
 
 
 namespace DB

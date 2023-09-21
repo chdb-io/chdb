@@ -18,6 +18,9 @@ public:
         bool remove_filter_column_);
 
     String getName() const override { return "Filter"; }
+
+    Type getType() const override { return Type::Filter; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
@@ -26,6 +29,9 @@ public:
     const ActionsDAGPtr & getExpression() const { return actions_dag; }
     const String & getFilterColumnName() const { return filter_column_name; }
     bool removesFilterColumn() const { return remove_filter_column; }
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

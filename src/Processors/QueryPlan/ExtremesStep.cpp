@@ -24,9 +24,18 @@ ExtremesStep::ExtremesStep(const DataStream & input_stream_)
 {
 }
 
+void ExtremesStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
+
 void ExtremesStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.addExtremesTransform();
 }
-
+std::shared_ptr<IQueryPlanStep> ExtremesStep::copy(ContextPtr) const
+{
+    return std::make_shared<ExtremesStep>(input_streams[0]);
+}
 }

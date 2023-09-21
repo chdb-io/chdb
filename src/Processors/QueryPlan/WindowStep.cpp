@@ -58,6 +58,12 @@ WindowStep::WindowStep(
 
 }
 
+void WindowStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    updateOutputStream();
+}
+
 void WindowStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     // This resize is needed for cases such as `over ()` when we don't have a
@@ -132,6 +138,11 @@ void WindowStep::describeActions(JSONBuilder::JSONMap & map) const
         functions_array->add(func.column_name);
 
     map.add("Functions", std::move(functions_array));
+}
+
+std::shared_ptr<IQueryPlanStep> WindowStep::copy(ContextPtr) const
+{
+    return std::make_shared<WindowStep>(input_streams[0], window_description, window_functions);
 }
 
 void WindowStep::updateOutputStream()

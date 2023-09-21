@@ -20,12 +20,17 @@ public:
 
     String getName() const override { return "Window"; }
 
+    Type getType() const override { return Type::Window; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;
 
     const WindowDescription & getWindowDescription() const;
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
+
 
 private:
     void updateOutputStream() override;

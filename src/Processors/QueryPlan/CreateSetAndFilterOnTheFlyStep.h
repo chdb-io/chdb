@@ -28,6 +28,7 @@ public:
         JoinTableSide position_);
 
     String getName() const override { return "CreateSetAndFilterOnTheFlyStep"; }
+    Type getType() const override { return Type::CreateSetAndFilterOnTheFly; }
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
@@ -37,6 +38,9 @@ public:
 
     /// Set for another stream.
     void setFiltering(SetWithStatePtr filtering_set_) { filtering_set = filtering_set_; }
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

@@ -17,9 +17,15 @@ public:
 
     String getName() const override { return "Cube"; }
 
+    Type getType() const override { return Type::Cube; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     const Aggregator::Params & getParams() const;
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
+
 private:
     void updateOutputStream() override;
 

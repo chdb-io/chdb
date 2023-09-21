@@ -16,6 +16,12 @@ public:
 
     String getName() const override { return "IntersectOrExcept"; }
 
+    Type getType() const override { return Type::IntersectOrExcept; }
+
+    void setInputStreams(const DataStreams & input_streams_) override { input_streams = input_streams_; }
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override { return std::make_shared<IntersectOrExceptStep>(input_streams, current_operator, max_threads); }
+
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & settings) override;
 
     void describePipeline(FormatSettings & settings) const override;

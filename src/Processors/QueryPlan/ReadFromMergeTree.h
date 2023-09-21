@@ -147,6 +147,8 @@ public:
     static constexpr auto name = "ReadFromMergeTree";
     String getName() const override { return name; }
 
+    Type getType() const override { return Type::ReadFromMergeTree; }
+
     void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(FormatSettings & format_settings) const override;

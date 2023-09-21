@@ -18,4 +18,14 @@ void ReadFromPreparedSource::initializePipeline(QueryPipelineBuilder & pipeline,
     pipeline.init(std::move(pipe));
 }
 
+std::shared_ptr<IQueryPlanStep> ReadFromPreparedSource::copy(ContextPtr) const
+{
+    throw Exception("ReadFromPreparedSource can not copy", ErrorCodes::NOT_IMPLEMENTED);
+}
+
+std::shared_ptr<IQueryPlanStep> ReadFromStorageStep::copy(ContextPtr) const
+{
+    throw Exception("ReadFromStorageStep can not copy", ErrorCodes::NOT_IMPLEMENTED);
+}
+
 }

@@ -114,6 +114,11 @@ public:
         output_stream->header = input_streams_[0].header;
     }
 
+    void updateOutputStream() override
+    {
+        output_stream->header = input_streams[0].header;
+    }
+
 private:
     size_t sample_size;
     size_t max_chunk_size;

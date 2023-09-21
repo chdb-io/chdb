@@ -13,7 +13,10 @@ public:
 
     String getName() const override { return "ReadFromPreparedSource"; }
 
+    Type getType() const override { return Type::ReadFromPreparedSource; }
+
     void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
 
 protected:
     Pipe pipe;
@@ -33,6 +36,10 @@ public:
     }
 
     String getName() const override { return "ReadFromStorage"; }
+
+    Type getType() const override { return Type::ReadFromStorage; }
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override;
 
 private:
     std::shared_ptr<const StorageLimitsList> storage_limits;

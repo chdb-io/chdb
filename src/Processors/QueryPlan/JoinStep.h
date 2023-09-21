@@ -23,6 +23,8 @@ public:
 
     String getName() const override { return "Join"; }
 
+    Type getType() const override { return Type::Join; }
+
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
     void describePipeline(FormatSettings & settings) const override;
@@ -31,6 +33,8 @@ public:
     bool allowPushDownToRight() const;
 
     void updateInputStream(const DataStream & new_input_stream_, size_t idx);
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     JoinPtr join;
@@ -47,9 +51,16 @@ public:
     FilledJoinStep(const DataStream & input_stream_, JoinPtr join_, size_t max_block_size_);
 
     String getName() const override { return "FilledJoin"; }
+
+    Type getType() const override { return Type::FilledJoin; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     const JoinPtr & getJoin() const { return join; }
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
+
 
 private:
     void updateOutputStream() override;

@@ -18,6 +18,8 @@ public:
         bool optimize_distinct_in_order_);
 
     String getName() const override { return "Distinct"; }
+
+    Type getType() const override { return Type::Distinct; }
     const Names & getColumnNames() const { return columns; }
 
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
@@ -28,6 +30,8 @@ public:
     bool isPreliminary() const { return pre_distinct; }
 
     UInt64 getLimitHint() const { return limit_hint; }
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

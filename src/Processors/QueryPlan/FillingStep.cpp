@@ -43,6 +43,12 @@ FillingStep::FillingStep(
         throw Exception(ErrorCodes::LOGICAL_ERROR, "FillingStep expects single input");
 }
 
+void FillingStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = FillingTransform::transformHeader(input_streams_[0].header, sort_description);
+}
+
 void FillingStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     pipeline.addSimpleTransform([&](const Block & header, QueryPipelineBuilder::StreamType stream_type) -> ProcessorPtr
@@ -75,4 +81,10 @@ void FillingStep::updateOutputStream()
     output_stream = createOutputStream(
         input_streams.front(), FillingTransform::transformHeader(input_streams.front().header, sort_description), getDataStreamTraits());
 }
+
+std::shared_ptr<IQueryPlanStep> FillingStep::copy(ContextPtr) const
+{
+    return std::make_shared<FillingStep>(input_streams[0], sort_description);
+}
+
 }

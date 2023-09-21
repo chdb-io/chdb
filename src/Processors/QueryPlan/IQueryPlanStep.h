@@ -95,10 +95,12 @@ public:
     M(Apply) \
     M(ArrayJoin) \
     M(AssignUniqueId) \
+    M(CreateSetAndFilterOnTheFly) \
     M(CreatingSet) \
     M(CreatingSets) \
     M(Cube) \
     M(Distinct) \
+    M(DelayedCreatingSets) \
     M(EnforceSingleRow) \
     M(Expression) \
     M(Extremes) \
@@ -173,7 +175,10 @@ public:
     static void aliases(QueryPipeline & pipeline, const Block & target, const BuildQueryPipelineSettings & settings);
 
     const DataStreams & getInputStreams() const { return input_streams; }
-    virtual void setInputStreams(const DataStreams & input_streams_) = 0;
+    virtual void setInputStreams(const DataStreams & input_streams_ __attribute__((unused)))
+    {
+        throw Exception("Not supported setInputStreams.", ErrorCodes::NOT_IMPLEMENTED);
+    }
 
     void addHints(SqlHints & sql_hints, ContextMutablePtr & context);
 
@@ -221,7 +226,7 @@ public:
     virtual bool isPhysical() const { return true; }
     virtual bool isLogical() const { return true; }
 
-    virtual std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const = 0;
+    virtual std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const { throw Exception("Not supported copy.", ErrorCodes::NOT_IMPLEMENTED); }
 
     size_t hash() const;
 

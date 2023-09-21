@@ -30,6 +30,12 @@ RollupStep::RollupStep(const DataStream & input_stream_, Aggregator::Params para
 {
 }
 
+void RollupStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = appendGroupingSetColumn(params->getHeader());
+}
+
 ProcessorPtr addGroupingSetForTotals(const Block & header, const Names & keys, bool use_nulls, const BuildQueryPipelineSettings & settings, UInt64 grouping_set_number);
 
 void RollupStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
@@ -54,5 +60,8 @@ void RollupStep::updateOutputStream()
         getDataStreamTraits());
 }
 
-
+std::shared_ptr<IQueryPlanStep> RollupStep::copy(ContextPtr) const
+{
+    return std::make_shared<RollupStep>(input_streams[0], params);
+}
 }

@@ -18,13 +18,20 @@ public:
     explicit ExpressionStep(const DataStream & input_stream_, const ActionsDAGPtr & actions_dag_);
     String getName() const override { return "Expression"; }
 
+    Type getType() const override { return Type::Expression; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings) override;
+
+    void updateInputStream(DataStream input_stream, bool keep_header);
 
     void describeActions(FormatSettings & settings) const override;
 
     const ActionsDAGPtr & getExpression() const { return actions_dag; }
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

@@ -52,6 +52,12 @@ FilterStep::FilterStep(
 {
 }
 
+void FilterStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
+
 void FilterStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     auto expression = std::make_shared<ExpressionActions>(actions_dag, settings.getActionsSettings());
@@ -119,6 +125,11 @@ void FilterStep::updateOutputStream()
         if (alias_node)
             output_stream->sort_description[i].column_name = alias_node->result_name;
     }
+}
+
+std::shared_ptr<IQueryPlanStep> FilterStep::copy(ContextPtr) const
+{
+    return std::make_shared<FilterStep>(input_streams[0], filter, remove_filter_column);
 }
 
 }

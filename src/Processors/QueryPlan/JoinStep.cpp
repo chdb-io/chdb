@@ -28,6 +28,11 @@ JoinStep::JoinStep(
     };
 }
 
+void JoinStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+}
+
 QueryPipelineBuilderPtr JoinStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &)
 {
     if (pipelines.size() != 2)
@@ -105,6 +110,12 @@ FilledJoinStep::FilledJoinStep(const DataStream & input_stream_, JoinPtr join_, 
         throw Exception(ErrorCodes::LOGICAL_ERROR, "FilledJoinStep expects Join to be filled");
 }
 
+void FilledJoinStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = JoiningTransform::transformHeader(input_streams_[0].header, join);
+}
+
 void FilledJoinStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     bool default_totals = false;
@@ -128,6 +139,22 @@ void FilledJoinStep::updateOutputStream()
 {
     output_stream = createOutputStream(
         input_streams.front(), JoiningTransform::transformHeader(input_streams.front().header, join), getDataStreamTraits());
+}
+
+std::shared_ptr<IQueryPlanStep> JoinStep::copy(ContextPtr) const
+{
+    return std::make_shared<JoinStep>(
+        input_streams[0],
+        input_streams[1],
+        join,
+        max_block_size,
+        max_streams,
+        keep_left_read_in_order);
+}
+
+std::shared_ptr<IQueryPlanStep> FilledJoinStep::copy(ContextPtr) const
+{
+    return std::make_shared<FilledJoinStep>(input_streams[0], join, max_block_size);
 }
 
 }

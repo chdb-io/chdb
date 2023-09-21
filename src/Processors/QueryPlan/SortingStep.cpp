@@ -113,6 +113,12 @@ SortingStep::SortingStep(
     output_stream->sort_scope = DataStream::SortScope::Global;
 }
 
+void SortingStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
+
 void SortingStep::updateOutputStream()
 {
     output_stream = createOutputStream(input_streams.front(), input_streams.front().header, getDataStreamTraits());
@@ -375,6 +381,16 @@ void SortingStep::describeActions(JSONBuilder::JSONMap & map) const
 
     if (limit)
         map.add("Limit", limit);
+}
+
+std::shared_ptr<IQueryPlanStep> SortingStep::copy(ContextPtr) const
+{
+    return std::make_shared<SortingStep>(
+        input_streams[0], 
+        result_description, 
+        limit, 
+        sort_settings, 
+        optimize_sorting_by_input_stream_properties);
 }
 
 }

@@ -18,7 +18,7 @@
 #include <Processors/QueryPlan/PlanVisitor.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/SimplePlanVisitor.h>
-#include "QueryPlan/PlanNode.h"
+#include "Processors/QueryPlan/PlanNode.h"
 
 namespace DB
 {
