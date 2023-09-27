@@ -21,7 +21,7 @@
 #include <Interpreters/RuntimeFilter/BuildRuntimeFilterTransform.h>
 #include <Parsers/ASTExpressionList.h>
 #include <Parsers/ASTSerDerHelper.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Transforms/ExpressionTransform.h>
 
 namespace DB

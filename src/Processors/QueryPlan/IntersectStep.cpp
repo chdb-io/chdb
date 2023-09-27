@@ -18,7 +18,7 @@
 #include <Core/Block.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/ExpressionActions.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/ResizeProcessor.h>
 #include <Processors/Sources/NullSource.h>
 #include <Processors/Transforms/ExpressionTransform.h>
@@ -35,7 +35,7 @@ IntersectStep::IntersectStep(
 {
 }
 
-QueryPipelinePtr IntersectStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings & context)
+QueryPipelineBuilderPtr IntersectStep::updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &)
 {
     throw Exception("intersect step is not implemented", ErrorCodes::NOT_IMPLEMENTED);
     // auto pipeline = std::make_unique<QueryPipeline>();

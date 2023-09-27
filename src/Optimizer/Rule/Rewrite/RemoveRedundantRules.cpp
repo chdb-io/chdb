@@ -30,9 +30,9 @@
 #include <Processors/QueryPlan/UnionStep.h>
 #include "Parsers/ASTFunction.h"
 #include "Parsers/IAST_fwd.h"
-#include "QueryPlan/CTERefStep.h"
-#include "QueryPlan/IQueryPlanStep.h"
-#include "QueryPlan/PlanNode.h"
+#include "Processors/QueryPlan/CTERefStep.h"
+#include "Processors/QueryPlan/IQueryPlanStep.h"
+#include "Processors/QueryPlan/PlanNode.h"
 
 namespace DB
 {

@@ -90,7 +90,7 @@ protected:
     TransformTraits transform_traits;
 
 private:
-    virtual void updateOutputStream() = 0;
+    virtual void updateOutputStream() { throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Not implemented"); }
 
     /// If we should collect processors got after pipeline transformation.
     bool collect_processors;

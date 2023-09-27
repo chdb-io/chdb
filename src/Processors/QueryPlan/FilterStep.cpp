@@ -129,7 +129,7 @@ void FilterStep::updateOutputStream()
 
 std::shared_ptr<IQueryPlanStep> FilterStep::copy(ContextPtr) const
 {
-    return std::make_shared<FilterStep>(input_streams[0], filter, remove_filter_column);
+    return std::make_shared<FilterStep>(input_streams[0], actions_dag, filter_column_name, remove_filter_column);
 }
 
 }

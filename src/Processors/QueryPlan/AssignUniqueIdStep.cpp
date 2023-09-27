@@ -16,7 +16,7 @@
 #include <Processors/QueryPlan/AssignUniqueIdStep.h>
 
 #include <DataTypes/DataTypesNumber.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Transforms/AssignUniqueIdTransform.h>
 
 

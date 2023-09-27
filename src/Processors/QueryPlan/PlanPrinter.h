@@ -39,13 +39,13 @@ public:
         PlanCostMap costs = {},
         const StepAggregatedOperatorProfiles & profiles = {});
     static String jsonLogicalPlan(QueryPlan & plan, bool print_stats, bool verbose, const PlanNodeCost & plan_cost = {});
-    static String textDistributedPlan(
-        PlanSegmentDescriptions & segments_desc,
-        bool print_stats,
-        bool verbose,
-        const std::unordered_map<PlanNodeId, double> & costs = {},
-        const StepAggregatedOperatorProfiles & profiles = {},
-        const QueryPlan & query_plan = {});
+    // static String textDistributedPlan(
+    //     PlanSegmentDescriptions & segments_desc,
+    //     bool print_stats,
+    //     bool verbose,
+    //     const std::unordered_map<PlanNodeId, double> & costs = {},
+    //     const StepAggregatedOperatorProfiles & profiles = {},
+    //     const QueryPlan & query_plan = {});
     static void getPlanNodes(const PlanNodePtr & parent, std::unordered_map<PlanNodeId, PlanNodePtr> & id_to_node);
     static std::unordered_map<PlanNodeId, PlanNodePtr>  getPlanNodeMap(const QueryPlan & query_plan);
     static void getRemoteSegmentId(const QueryPlan::Node * node, std::unordered_map<PlanNodeId, size_t> & exchange_to_segment);

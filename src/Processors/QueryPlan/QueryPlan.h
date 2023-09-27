@@ -49,7 +49,12 @@ public:
     QueryPlan();
     ~QueryPlan();
     QueryPlan(QueryPlan &&) noexcept;
+    QueryPlan(PlanNodePtr root, PlanNodeIdAllocatorPtr idAllocator);
+    QueryPlan(PlanNodePtr root_, CTEInfo cte_info, PlanNodeIdAllocatorPtr id_allocator_);
+
     QueryPlan & operator=(QueryPlan &&) noexcept;
+    PlanNodeIdAllocatorPtr & getIdAllocator() { return id_allocator; }
+    void update(PlanNodePtr plan) { plan_node = std::move(plan); }
 
     void unitePlans(QueryPlanStepPtr step, std::vector<QueryPlanPtr> plans);
     void addStep(QueryPlanStepPtr step);

@@ -17,7 +17,7 @@
 
 namespace DB
 {
-QueryPipelinePtr AnyStep::updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &)
+QueryPipelineBuilderPtr AnyStep::updatePipeline(QueryPipelineBuilders, const BuildQueryPipelineSettings &)
 {
     throw Exception("AnyStep is a fake step", ErrorCodes::NOT_IMPLEMENTED);
 }

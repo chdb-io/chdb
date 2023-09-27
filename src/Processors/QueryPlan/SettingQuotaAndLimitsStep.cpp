@@ -14,7 +14,7 @@
  */
 
 // #include <Processors/QueryPlan/SettingQuotaAndLimitsStep.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Storages/IStorage.h>
 #include <Interpreters/Context.h>
 

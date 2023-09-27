@@ -94,4 +94,9 @@ void ArrayJoinStep::describeActions(JSONBuilder::JSONMap & map) const
     map.add("Columns", std::move(columns_array));
 }
 
+std::shared_ptr<IQueryPlanStep> ArrayJoinStep::copy(ContextPtr) const
+{
+    return std::make_shared<ArrayJoinStep>(input_streams[0], array_join);
+}
+
 }

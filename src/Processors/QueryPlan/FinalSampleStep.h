@@ -18,7 +18,7 @@
 #include <IO/ReadBuffer.h>
 #include <IO/WriteBuffer.h>
 #include <Processors/Transforms/FinalSampleTransform.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <QueryPipeline/SizeLimits.h>
 #include <Processors/QueryPlan/ITransformingStep.h>
 #include <Common/JSONBuilder.h>

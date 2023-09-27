@@ -138,133 +138,133 @@ String PlanPrinter::jsonLogicalPlan(QueryPlan & plan, bool print_stats, bool, co
     return os.str();
 }
 
-String PlanPrinter::textDistributedPlan(
-    PlanSegmentDescriptions & segments_desc,
-    bool print_stats,
-    bool verbose,
-    const std::unordered_map<PlanNodeId, double> & costs,
-    const StepAggregatedOperatorProfiles & profiles,
-    const QueryPlan & query_plan
-)
-{
-    auto id_to_node = getPlanNodeMap(query_plan);
-    for (auto & segment_desc : segments_desc)
-    {
-        if (segment_desc->segment_id == 0)
-        {
-            segment_desc->plan_node = query_plan.getPlanNodeRoot();
-            continue;
-        }
+// String PlanPrinter::textDistributedPlan(
+//     PlanSegmentDescriptions & segments_desc,
+//     bool print_stats,
+//     bool verbose,
+//     const std::unordered_map<PlanNodeId, double> & costs,
+//     const StepAggregatedOperatorProfiles & profiles,
+//     const QueryPlan & query_plan
+// )
+// {
+//     auto id_to_node = getPlanNodeMap(query_plan);
+//     for (auto & segment_desc : segments_desc)
+//     {
+//         if (segment_desc->segment_id == 0)
+//         {
+//             segment_desc->plan_node = query_plan.getPlanNodeRoot();
+//             continue;
+//         }
 
-        if (segment_desc->root_id == 0)
-            continue;
+//         if (segment_desc->root_id == 0)
+//             continue;
 
-        PlanNodePtr plan_node;
-        if (id_to_node.contains(segment_desc->root_id))
-            plan_node = id_to_node.at(segment_desc->root_id);
-        else if (segment_desc->root_child_id != 0)
-            plan_node = id_to_node.at(segment_desc->root_child_id);
-        else
-            continue;
+//         PlanNodePtr plan_node;
+//         if (id_to_node.contains(segment_desc->root_id))
+//             plan_node = id_to_node.at(segment_desc->root_id);
+//         else if (segment_desc->root_child_id != 0)
+//             plan_node = id_to_node.at(segment_desc->root_child_id);
+//         else
+//             continue;
 
-        segment_desc->plan_node = plan_node;
-    }
+//         segment_desc->plan_node = plan_node;
+//     }
 
-    auto f = [](ExchangeMode mode) {
-        switch (mode)
-        {
-            case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
-                return "LOCAL_NO_NEED_REPARTITION";
-            case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
-                return "LOCAL_MAY_NEED_REPARTITION";
-            case ExchangeMode::BROADCAST:
-                return "BROADCAST";
-            case ExchangeMode::REPARTITION:
-                return "REPARTITION";
-            case ExchangeMode::GATHER:
-                return "GATHER";
-            default:
-                return "UNKNOWN";
-        }
-    };
+//     auto f = [](ExchangeMode mode) {
+//         switch (mode)
+//         {
+//             case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
+//                 return "LOCAL_NO_NEED_REPARTITION";
+//             case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
+//                 return "LOCAL_MAY_NEED_REPARTITION";
+//             case ExchangeMode::BROADCAST:
+//                 return "BROADCAST";
+//             case ExchangeMode::REPARTITION:
+//                 return "REPARTITION";
+//             case ExchangeMode::GATHER:
+//                 return "GATHER";
+//             default:
+//                 return "UNKNOWN";
+//         }
+//     };
 
-    std::ostringstream os;
+//     std::ostringstream os;
 
-    auto cmp = [](const PlanSegmentDescriptionPtr & s1, const PlanSegmentDescriptionPtr & s2) { return s1->segment_id < s2->segment_id; };
-    std::sort(segments_desc.begin(), segments_desc.end(), cmp);
+//     auto cmp = [](const PlanSegmentDescriptionPtr & s1, const PlanSegmentDescriptionPtr & s2) { return s1->segment_id < s2->segment_id; };
+//     std::sort(segments_desc.begin(), segments_desc.end(), cmp);
 
-    for (auto & segment_ptr : segments_desc)
-    {
-        String state_partition;
-        if (segment_ptr->segment_id == 0)
-            state_partition = "SINGLE";
-        else if (segment_ptr->is_source)
-            state_partition = "SOURCE";
-        else
-            state_partition = "HASH";
+//     for (auto & segment_ptr : segments_desc)
+//     {
+//         String state_partition;
+//         if (segment_ptr->segment_id == 0)
+//             state_partition = "SINGLE";
+//         else if (segment_ptr->is_source)
+//             state_partition = "SOURCE";
+//         else
+//             state_partition = "HASH";
 
-        size_t segment_id = segment_ptr->segment_id;
-        os << "Segment[" << segment_id << "] ["<< state_partition << "]\n";
+//         size_t segment_id = segment_ptr->segment_id;
+//         os << "Segment[" << segment_id << "] ["<< state_partition << "]\n";
 
-        ExchangeMode mode = segment_ptr->mode;
-        String exchange = (segment_id == 0) ? "Output" : f(mode);
-        os << "   Output Exchange: " << exchange;
-        if (exchange == "REPARTITION") // print shuffle keys
-        {
-            os << "[";
-            bool first = true;
-            for (auto & key : segment_ptr->shuffle_keys)
-            {
-                if (first)
-                {
-                    os << key;
-                }
-                os << ", " << key;
-            }
-            os << "]";
-        }
-        os << "\n";
+//         ExchangeMode mode = segment_ptr->mode;
+//         String exchange = (segment_id == 0) ? "Output" : f(mode);
+//         os << "   Output Exchange: " << exchange;
+//         if (exchange == "REPARTITION") // print shuffle keys
+//         {
+//             os << "[";
+//             bool first = true;
+//             for (auto & key : segment_ptr->shuffle_keys)
+//             {
+//                 if (first)
+//                 {
+//                     os << key;
+//                 }
+//                 os << ", " << key;
+//             }
+//             os << "]";
+//         }
+//         os << "\n";
 
-        os << "   Parallel Size: " << segment_ptr->parallel;
-        os << ", Cluster Name: " << (segment_ptr->cluster_name.empty() ?"server" : segment_ptr->cluster_name);
-        os << ", Exchange Parallel Size: " << segment_ptr->exchange_parallel_size;
-        os << ", Exchange Output Parallel Size: " << segment_ptr->exchange_parallel_size << "\n";
+//         os << "   Parallel Size: " << segment_ptr->parallel;
+//         os << ", Cluster Name: " << (segment_ptr->cluster_name.empty() ?"server" : segment_ptr->cluster_name);
+//         os << ", Exchange Parallel Size: " << segment_ptr->exchange_parallel_size;
+//         os << ", Exchange Output Parallel Size: " << segment_ptr->exchange_parallel_size << "\n";
 
-        if (!segment_ptr->plan_node)
-            continue;
+//         if (!segment_ptr->plan_node)
+//             continue;
 
-        auto analyze_node = PlanNodeSearcher::searchFrom(segment_ptr->plan_node)
-                                .where([](auto & node) { return node.getStep()->getType() == IQueryPlanStep::Type::ExplainAnalyze; })
-                                .findFirst();
-        if (analyze_node)
-        {
-            os << TextPrinter::printOutputColumns(*analyze_node.value()->getChildren()[0], TextPrinterIntent{3, false});
-            TextPrinter printer{print_stats, verbose, costs, true, segment_ptr->exchange_to_segment};
-            bool has_children = !analyze_node.value()->getChildren().empty();
-            if ((analyze_node.value()->getStep()->getType() == IQueryPlanStep::Type::CTERef || analyze_node.value()->getStep()->getType() == IQueryPlanStep::Type::Exchange))
-                has_children = false;
+//         auto analyze_node = PlanNodeSearcher::searchFrom(segment_ptr->plan_node)
+//                                 .where([](auto & node) { return node.getStep()->getType() == IQueryPlanStep::Type::ExplainAnalyze; })
+//                                 .findFirst();
+//         if (analyze_node)
+//         {
+//             os << TextPrinter::printOutputColumns(*analyze_node.value()->getChildren()[0], TextPrinterIntent{3, false});
+//             TextPrinter printer{print_stats, verbose, costs, true, segment_ptr->exchange_to_segment};
+//             bool has_children = !analyze_node.value()->getChildren().empty();
+//             if ((analyze_node.value()->getStep()->getType() == IQueryPlanStep::Type::CTERef || analyze_node.value()->getStep()->getType() == IQueryPlanStep::Type::Exchange))
+//                 has_children = false;
 
-            auto output = printer.printLogicalPlan(*analyze_node.value(), TextPrinterIntent{6, has_children}, profiles);
-            os << output;
-        }
-        else
-        {
-            auto plan_root = segment_ptr->plan_node;
-            os << TextPrinter::printOutputColumns(*segment_ptr->plan_node, TextPrinterIntent{3, false});
-            TextPrinter printer{print_stats, verbose, costs, true, segment_ptr->exchange_to_segment};
-            bool has_children = !plan_root->getChildren().empty();
-            if ((plan_root->getStep()->getType() == IQueryPlanStep::Type::CTERef || plan_root->getStep()->getType() == IQueryPlanStep::Type::Exchange))
-                has_children = false;
+//             auto output = printer.printLogicalPlan(*analyze_node.value(), TextPrinterIntent{6, has_children}, profiles);
+//             os << output;
+//         }
+//         else
+//         {
+//             auto plan_root = segment_ptr->plan_node;
+//             os << TextPrinter::printOutputColumns(*segment_ptr->plan_node, TextPrinterIntent{3, false});
+//             TextPrinter printer{print_stats, verbose, costs, true, segment_ptr->exchange_to_segment};
+//             bool has_children = !plan_root->getChildren().empty();
+//             if ((plan_root->getStep()->getType() == IQueryPlanStep::Type::CTERef || plan_root->getStep()->getType() == IQueryPlanStep::Type::Exchange))
+//                 has_children = false;
 
-            auto output = printer.printLogicalPlan(*segment_ptr->plan_node, TextPrinterIntent{6, has_children}, profiles);
-            os << output;
-        }
+//             auto output = printer.printLogicalPlan(*segment_ptr->plan_node, TextPrinterIntent{6, has_children}, profiles);
+//             os << output;
+//         }
 
-        os << "\n";
-    }
+//         os << "\n";
+//     }
 
-    return os.str();
-}
+//     return os.str();
+// }
 
 void PlanPrinter::getRemoteSegmentId(const QueryPlan::Node * node, std::unordered_map<PlanNodeId, size_t> & exchange_to_segment)
 {

@@ -4,8 +4,8 @@
 #include <Core/SortDescription.h>
 #include <Parsers/IAST_fwd.h>
 #include <Processors/QueryPlan/BuildQueryPipelineSettings.h>
-#include <QueryPipeline/QueryPipeline.h>
 #include <Processors/QueryPlan/Hints/IPlanHint.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/QueryPlan/PlanSerDerHelper.h>
 
 
@@ -85,6 +85,8 @@ class Context;
 using ContextPtr = std::shared_ptr<const Context>;
 
 using PlanHints = std::vector<PlanHintPtr>;
+
+using QueryPlanStepPtr = std::shared_ptr<IQueryPlanStep>;
 
 /// Single step of query plan.
 class IQueryPlanStep
@@ -230,7 +232,8 @@ public:
 
     size_t hash() const;
 
-    bool operator==(const IQueryPlanStep & r) const { return serializeToString() == r.serializeToString(); }
+    // bool operator==(const IQueryPlanStep & r) const { return serializeToString() == r.serializeToString(); }
+    bool operator==(const IQueryPlanStep &) const { throw Exception("Not supported operator==.", ErrorCodes::NOT_IMPLEMENTED); }
     static String toString(Type type);
 
 protected:
@@ -247,13 +250,11 @@ protected:
     static void describePipeline(const Processors & processors, FormatSettings & settings);
 
 private:
-    virtual String serializeToString() const
-    {
-        WriteBufferFromOwnString buffer;
-        serialize(buffer);
-        return buffer.str();
-    }
+    // virtual String serializeToString() const
+    // {
+    //     WriteBufferFromOwnString buffer;
+    //     serialize(buffer);
+    //     return buffer.str();
+    // }
 };
-
-using QueryPlanStepPtr = std::shared_ptr<IQueryPlanStep>;
 }

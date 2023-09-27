@@ -14,7 +14,7 @@
  */
 
 #include <Processors/QueryPlan/MergeSortingStep.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Transforms/MergeSortingTransform.h>
 #include <IO/Operators.h>
 #include <Common/JSONBuilder.h>

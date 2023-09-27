@@ -21,6 +21,7 @@
 #include <Parsers/ASTIdentifier.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Optimizer/PredicateUtils.h>
+#include <Optimizer/PredicateConst.h>
 
 namespace DB
 {
@@ -93,7 +94,7 @@ std::vector<ASTPtr> expressionToCnf(const ASTPtr & node)
     return members;
 }
 
-ASTPtr cnfToExpression(const std::vector<ASTPtr> & cnf)
+ASTPtr cnfToExpression(const ASTs & cnf)
 {
     if (cnf.empty())
         return PredicateConst::TRUE_VALUE;

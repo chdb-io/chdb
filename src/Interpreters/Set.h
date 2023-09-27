@@ -49,6 +49,9 @@ public:
     bool insertFromColumns(const Columns & columns);
     bool insertFromBlock(const ColumnsWithTypeAndName & columns);
 
+    /// Returns distinct set
+    ColumnUInt8::MutablePtr markDistinctBlock(const Block & block);
+
     void fillSetElements();
     bool insertFromColumns(const Columns & columns, SetKeyColumns & holder);
     void appendSetElements(SetKeyColumns & holder);

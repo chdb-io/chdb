@@ -1,7 +1,7 @@
-#include <Processors/QueryPlan/ExplainAnalyzeStep.h>
 #include <DataTypes/DataTypeString.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <Processors/QueryPlan/ExplainAnalyzeStep.h>
 #include <Processors/Transforms/ExplainAnalyzeTransform.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 
 #include <utility>
 
@@ -27,7 +27,7 @@ void ExplainAnalyzeStep::transformPipeline(QueryPipelineBuilder & pipeline, cons
     if (!query_plan_ptr)
         throw Exception("QueryPlan is not set", ErrorCodes::LOGICAL_ERROR);
     pipeline.resize(1);
-    pipeline.addSimpleTransform([&](const Block & header) { return std::make_shared<ExplainAnalyzeTransform>(header, kind, query_plan_ptr, context, segment_descriptions); });
+    pipeline.addSimpleTransform([&](const Block & header) { return std::make_shared<ExplainAnalyzeTransform>(header, kind, query_plan_ptr, context); });
 }
 
 void ExplainAnalyzeStep::setInputStreams(const DataStreams & input_streams_)

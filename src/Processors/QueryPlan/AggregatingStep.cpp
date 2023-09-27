@@ -676,3 +676,5 @@ std::shared_ptr<IQueryPlanStep> AggregatingStep::copy(ContextPtr) const
     aggregating_step->skip_merging = skip_merging;
     return aggregating_step;
 }
+
+}

@@ -583,6 +583,8 @@ QueryPipeline InterpreterExplainQuery::executeImpl()
 
             break;
         }
+        default:
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unknown EXPLAIN kind {}", ast.getKind());
     }
     if (insert_buf)
     {

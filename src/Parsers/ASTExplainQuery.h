@@ -157,6 +157,7 @@ public:
     }
 
     ASTPtr & getExplainedQuery() { return query; }
+    const ASTPtr & getExplainedQuery() const { return query; }
     const ASTPtr & getSettings() const { return ast_settings; }
     const ASTPtr & getTableFunction() const { return table_function; }
     const ASTPtr & getTableOverride() const { return table_override; }

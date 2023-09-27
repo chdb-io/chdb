@@ -1,3 +1,4 @@
+#include <queue>
 #include <Interpreters/ProcessorProfile.h>
 
 namespace DB

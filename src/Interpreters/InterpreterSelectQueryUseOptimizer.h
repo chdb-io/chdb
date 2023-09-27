@@ -46,13 +46,13 @@ public:
     }
 
     QueryPlanPtr buildQueryPlan();
-    PlanSegmentTreePtr getPlanSegment();
+    // PlanSegmentTreePtr getPlanSegment();
 
-    BlockIO execute() override;
+    // BlockIO execute() override;
 
     void extendQueryLogElemImpl(QueryLogElement & elem, const ASTPtr &, ContextPtr) const override
     {
-        elem.query_kind = "Select";
+        elem.query_kind = IAST::QueryKind::Select;
     }
 
 private:
@@ -79,22 +79,22 @@ private:
     QueryPlan & plan;
 };
 
-struct ClusterInfoContext
-{
-    QueryPlan & query_plan;
-    ContextMutablePtr context;
-    PlanSegmentTreePtr & plan_segment_tree;
-};
+// struct ClusterInfoContext
+// {
+//     QueryPlan & query_plan;
+//     ContextMutablePtr context;
+//     PlanSegmentTreePtr & plan_segment_tree;
+// };
 
-class ClusterInfoFinder : public PlanNodeVisitor<std::optional<PlanSegmentContext>, ClusterInfoContext>
-{
-public:
-    static PlanSegmentContext find(QueryPlan & plan, ClusterInfoContext & cluster_info_context);
-    explicit ClusterInfoFinder(CTEInfo & cte_info_) : cte_helper(cte_info_) { }
-    std::optional<PlanSegmentContext> visitPlanNode(PlanNodeBase & node, ClusterInfoContext & cluster_info_context) override;
-    std::optional<PlanSegmentContext> visitTableScanNode(TableScanNode & node, ClusterInfoContext & cluster_info_context) override;
-    std::optional<PlanSegmentContext> visitCTERefNode(CTERefNode & node, ClusterInfoContext & cluster_info_context) override;
-private:
-    SimpleCTEVisitHelper<std::optional<PlanSegmentContext>> cte_helper;
-};
+// class ClusterInfoFinder : public PlanNodeVisitor<std::optional<PlanSegmentContext>, ClusterInfoContext>
+// {
+// public:
+//     static PlanSegmentContext find(QueryPlan & plan, ClusterInfoContext & cluster_info_context);
+//     explicit ClusterInfoFinder(CTEInfo & cte_info_) : cte_helper(cte_info_) { }
+//     std::optional<PlanSegmentContext> visitPlanNode(PlanNodeBase & node, ClusterInfoContext & cluster_info_context) override;
+//     std::optional<PlanSegmentContext> visitTableScanNode(TableScanNode & node, ClusterInfoContext & cluster_info_context) override;
+//     std::optional<PlanSegmentContext> visitCTERefNode(CTERefNode & node, ClusterInfoContext & cluster_info_context) override;
+// private:
+//     SimpleCTEVisitHelper<std::optional<PlanSegmentContext>> cte_helper;
+// };
 }

@@ -3,8 +3,8 @@
 #include <DataTypes/DataTypeHelper.h>
 #include <IO/Operators.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Interpreters/RuntimeFilter/BuildRuntimeFilterTransform.h>
-#include <QueryPipeline/QueryPipeline.h>
+// #include <Interpreters/RuntimeFilter/BuildRuntimeFilterTransform.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Transforms/MarkDistinctTransform.h>
 
 namespace DB
@@ -21,7 +21,7 @@ void MarkDistinctStep::setInputStreams(const DataStreams & input_streams_)
     output_stream->header.insert(ColumnWithTypeAndName{std::make_shared<DataTypeUInt8>(), marker_symbol});
 }
 
-void MarkDistinctStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
+void MarkDistinctStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     // TODO Add Local Exchange
     pipeline.resize(1);

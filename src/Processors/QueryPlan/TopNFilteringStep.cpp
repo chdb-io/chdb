@@ -1,6 +1,6 @@
 #include <Processors/QueryPlan/TopNFilteringStep.h>
 #include <IO/Operators.h>
-#include <QueryPipeline/QueryPipeline.h>
+#include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Transforms/TopNFilteringTransform.h>
 
 namespace DB
@@ -36,36 +36,36 @@ void TopNFilteringStep::describeActions(JSONBuilder::JSONMap &) const
 {
 }
 
-void TopNFilteringStep::serialize(WriteBuffer & buffer) const
-{
-    IQueryPlanStep::serializeImpl(buffer);
-    serializeSortDescription(sort_description, buffer);
-    writeBinary(size, buffer);
-    serializeEnum(model, buffer);
-}
+// void TopNFilteringStep::serialize(WriteBuffer & buffer) const
+// {
+//     IQueryPlanStep::serializeImpl(buffer);
+//     serializeSortDescription(sort_description, buffer);
+//     writeBinary(size, buffer);
+//     serializeEnum(model, buffer);
+// }
 
-QueryPlanStepPtr TopNFilteringStep::deserialize(ReadBuffer & buffer, ContextPtr)
-{
-    String step_description;
-    readBinary(step_description, buffer);
+// QueryPlanStepPtr TopNFilteringStep::deserialize(ReadBuffer & buffer, ContextPtr)
+// {
+//     String step_description;
+//     readBinary(step_description, buffer);
 
-    DataStream input_stream;
-    input_stream = deserializeDataStream(buffer);
+//     DataStream input_stream;
+//     input_stream = deserializeDataStream(buffer);
 
-    SortDescription sort_description;
-    deserializeSortDescription(sort_description, buffer);
+//     SortDescription sort_description;
+//     deserializeSortDescription(sort_description, buffer);
 
-    UInt64 size;
-    readBinary(size, buffer);
+//     UInt64 size;
+//     readBinary(size, buffer);
 
-    TopNModel model;
-    deserializeEnum(model, buffer);
+//     TopNModel model;
+//     deserializeEnum(model, buffer);
 
-    auto step = std::make_shared<TopNFilteringStep>(input_stream, std::move(sort_description), size, model);
+//     auto step = std::make_shared<TopNFilteringStep>(input_stream, std::move(sort_description), size, model);
 
-    step->setStepDescription(step_description);
-    return step;
-}
+//     step->setStepDescription(step_description);
+//     return step;
+// }
 
 std::shared_ptr<IQueryPlanStep> TopNFilteringStep::copy(ContextPtr) const
 {

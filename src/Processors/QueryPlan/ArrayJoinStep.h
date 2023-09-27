@@ -20,6 +20,8 @@ public:
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;
 
+    void updateInputStream(DataStream input_stream, Block result_header);
+
     const ArrayJoinActionPtr & arrayJoin() const { return array_join; }
 
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
@@ -29,6 +31,7 @@ private:
     void updateOutputStream() override;
 
     ArrayJoinActionPtr array_join;
+    Block res_header;
 };
 
 }

@@ -85,7 +85,7 @@ void LimitStep::describeActions(JSONBuilder::JSONMap & map) const
 
 std::shared_ptr<IQueryPlanStep> LimitStep::copy(ContextPtr) const
 {
-    return std::make_shared<LimitStep>(input_streams[0], limit, offset, always_read_till_end, with_ties, description, partial);
+    return std::make_shared<LimitStep>(input_streams[0], limit, offset, always_read_till_end, with_ties, description);
 }
 
 }
