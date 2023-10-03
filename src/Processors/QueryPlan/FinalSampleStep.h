@@ -70,24 +70,24 @@ public:
         writeBinary(max_chunk_size, buffer);
     }
 
-    static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr /*context_*/)
-    {
-        String step_description;
-        readBinary(step_description, buffer);
+    // static QueryPlanStepPtr deserialize(ReadBuffer & buffer, ContextPtr /*context_*/)
+    // {
+    //     String step_description;
+    //     readBinary(step_description, buffer);
 
-        DataStream input_stream;
-        input_stream = deserializeDataStream(buffer);
+    //     DataStream input_stream;
+    //     input_stream = deserializeDataStream(buffer);
 
-        size_t sample_size_;
-        size_t max_chunk_size_;
-        readBinary(sample_size_, buffer);
-        readBinary(max_chunk_size_, buffer);
+    //     size_t sample_size_;
+    //     size_t max_chunk_size_;
+    //     readBinary(sample_size_, buffer);
+    //     readBinary(max_chunk_size_, buffer);
 
-        auto step = std::make_unique<FinalSampleStep>(input_stream, sample_size_, max_chunk_size_);
+    //     auto step = std::make_unique<FinalSampleStep>(input_stream, sample_size_, max_chunk_size_);
 
-        step->setStepDescription(step_description);
-        return std::move(step);
-    }
+    //     step->setStepDescription(step_description);
+    //     return std::move(step);
+    // }
 
     std::shared_ptr<IQueryPlanStep> copy(ContextPtr) const override
     {

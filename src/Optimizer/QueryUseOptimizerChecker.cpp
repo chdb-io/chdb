@@ -17,7 +17,7 @@
 
 #include <Analyzers/QueryAnalyzer.h>
 #include <Analyzers/QueryRewriter.h>
-#include <Interpreters/SegmentScheduler.h>
+// #include <Interpreters/SegmentScheduler.h>
 #include <Interpreters/SelectQueryOptions.h>
 #include <Interpreters/getTableExpressions.h>
 #include <Interpreters/misc.h>

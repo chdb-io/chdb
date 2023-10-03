@@ -30,11 +30,13 @@ JoiningTransform::JoiningTransform(
     size_t max_block_size_,
     bool on_totals_,
     bool default_totals_,
+    bool join_parallel_left_right_,
     FinishCounterPtr finish_counter_)
     : IProcessor({input_header}, {output_header})
     , join(std::move(join_))
     , on_totals(on_totals_)
     , default_totals(default_totals_)
+    , join_parallel_left_right(join_parallel_left_right_)
     , finish_counter(std::move(finish_counter_))
     , max_block_size(max_block_size_)
 {
@@ -84,12 +86,19 @@ IProcessor::Status JoiningTransform::prepare()
     if (inputs.size() > 1)
     {
         auto & last_in = inputs.back();
+        auto & left_in = inputs.front();
         if (!last_in.isFinished())
         {
             last_in.setNeeded();
             if (last_in.hasData())
                 throw Exception(ErrorCodes::LOGICAL_ERROR, "No data is expected from second JoiningTransform port");
 
+            // parallel run for left input.
+            // join.prepare -> left_in.setNeeded() -> left_in.to.prepare().
+            if (join_parallel_left_right && !left_in.hasData())
+            {
+                left_in.setNeeded();
+            }
             return Status::NeedData;
         }
     }

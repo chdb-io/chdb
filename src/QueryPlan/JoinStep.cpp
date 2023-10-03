@@ -132,11 +132,20 @@ JoinPtr JoinStep::makeJoin(ContextPtr context)
     return std::make_shared<JoinSwitcher>(table_join, sample_block);
 }
 
-JoinStep::JoinStep(const DataStream & left_stream_, const DataStream & right_stream_, JoinPtr join_, size_t max_block_size_, size_t max_streams_, bool keep_left_read_in_order_, bool is_ordered_, PlanHints hints_)
+JoinStep::JoinStep(
+    const DataStream & left_stream_,
+    const DataStream & right_stream_,
+    JoinPtr join_,
+    size_t max_block_size_,
+    size_t max_streams_, 
+    bool keep_left_read_in_order_,
+    bool is_ordered_,
+    PlanHints hints_)
     : join(std::move(join_)), max_block_size(max_block_size_), max_streams(max_streams_), keep_left_read_in_order(keep_left_read_in_order_), is_ordered(is_ordered_)
 {
     input_streams = {left_stream_, right_stream_};
-    output_stream = DataStream{
+    output_stream = DataStream
+    {
         .header = JoiningTransform::transformHeader(left_stream_.header, join),
     };
     hints = std::move(hints_);

@@ -15,7 +15,7 @@
 
 
 #include <Processors/QueryPlan/SubstitutionStep.h>
-#include <DataStreams/materializeBlock.h>
+#include <Core/Block.h>
 #include <Processors/Transforms/SubstitutionTransform.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
 #include <IO/Operators.h>
@@ -39,7 +39,7 @@ void SubstitutionStep::setInputStreams(const DataStreams & input_streams_)
 
 void SubstitutionStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & /*settings*/)
 {
-    pipeline.addSimpleTransform([&](const Block & header, QueryPipeline::StreamType /*stream_type*/)
+    pipeline.addSimpleTransform([&](const Block & header, QueryPipelineBuilder::StreamType /*stream_type*/)
     {
         return std::make_shared<SubstitutionTransform>(header, name_substitution_info);
     });

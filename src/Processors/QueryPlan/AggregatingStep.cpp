@@ -139,8 +139,10 @@ AggregatingStep::AggregatingStep(
 void AggregatingStep::setInputStreams(const DataStreams & input_streams_)
 {
     input_streams = input_streams_;
-    // TODO: what if input_streams and params->getHeader() are inconsistent?
-    output_stream->header = appendGroupingColumns(params.getHeader(final), grouping_sets_params, groupings, final);
+    // // TODO: what if input_streams and params->getHeader() are inconsistent?
+    // output_stream->header
+    //     = appendGroupingColumns(params.getHeader(input_streams.front().header, final), grouping_sets_params, groupings, final);
+    updateOutputStream();
 }
 
 void AggregatingStep::applyOrder(SortDescription sort_description_for_merging_, SortDescription group_by_sort_description_)

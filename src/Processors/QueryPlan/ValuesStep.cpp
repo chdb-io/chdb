@@ -15,7 +15,7 @@
 
 #include <Processors/QueryPlan/ValuesStep.h>
 
-#include <DataStreams/OneBlockInputStream.h>
+// #include <DataStreams/OneBlockInputStream.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Processors/Sources/SourceFromSingleChunk.h>
 #include <Processors/QueryPlan/PlanSerDerHelper.h>
@@ -41,40 +41,45 @@ void ValuesStep::initializePipeline(QueryPipelineBuilder & pipeline, const Build
     }
 
     pipeline.init(Pipe(std::make_shared<SourceFromSingleChunk>(getOutputStream().header, Chunk(block.getColumns(), block.rows()))));
-    for (const auto & processor : pipeline.getProcessors())
+    QueryPlanResourceHolder resources;
+    auto pipe = QueryPipelineBuilder::getPipe(std::move(pipeline), resources);
+
+    for (const auto & processor : pipe.getProcessors())
         processors.emplace_back(processor);
 }
 
-void ValuesStep::serialize(WriteBuffer & buffer) const
+void ValuesStep::serialize(WriteBuffer &) const
 {
-    serializeDataStream(output_stream.value(), buffer);
-    writeVarUInt(fields.size(), buffer);
-    for (auto & item : fields)
-    {
-        writeFieldBinary(item, buffer);
-    }
-    writeVarUInt(rows, buffer);
-    writeVarInt(unique_id, buffer);
+    throw Exception("ValuesStep::serialize is not implemented", ErrorCodes::NOT_IMPLEMENTED);
+    // serializeDataStream(output_stream.value(), buffer);
+    // writeVarUInt(fields.size(), buffer);
+    // for (auto & item : fields)
+    // {
+    //     writeFieldBinary(item, buffer);
+    // }
+    // writeVarUInt(rows, buffer);
+    // writeVarInt(unique_id, buffer);
 }
 
-QueryPlanStepPtr ValuesStep::deserialize(ReadBuffer & buffer, ContextPtr)
+QueryPlanStepPtr ValuesStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    DataStream input_stream = deserializeDataStream(buffer);
-    size_t size;
-    readVarUInt(size, buffer);
-    Fields fields;
-    for (size_t i = 0; i < size; ++i)
-    {
-        Field field;
-        readFieldBinary(field, buffer);
-        fields.emplace_back(field);
-    }
+    throw Exception("ValuesStep::deserialize is not implemented", ErrorCodes::NOT_IMPLEMENTED);
+    // DataStream input_stream = deserializeDataStream(buffer);
+    // size_t size;
+    // readVarUInt(size, buffer);
+    // Fields fields;
+    // for (size_t i = 0; i < size; ++i)
+    // {
+    //     Field field;
+    //     readFieldBinary(field, buffer);
+    //     fields.emplace_back(field);
+    // }
 
-    size_t rows;
-    readVarUInt(rows, buffer);
-    Int32 unique_id;
-    readVarInt(unique_id, buffer);
-    return std::make_shared<ValuesStep>(input_stream.header, fields, rows);
+    // size_t rows;
+    // readVarUInt(rows, buffer);
+    // Int32 unique_id;
+    // readVarInt(unique_id, buffer);
+    // return std::make_shared<ValuesStep>(input_stream.header, fields, rows);
 }
 
 std::shared_ptr<IQueryPlanStep> ValuesStep::copy(ContextPtr) const

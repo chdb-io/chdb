@@ -412,8 +412,11 @@ PlanNodePtr UnCorrelatedScalarSubqueryVisitor::visitApplyNode(ApplyNode & node, 
         context->setCurrentQueryId(query_id);
         context->setRuleId(rule_id);
         
-        BlockInputStreamPtr sub_query_block_stream = sub_query_result.getInputStream();
-        Block block = sub_query_block_stream->read();
+        // BlockInputStreamPtr sub_query_block_stream = sub_query_result.getInputStream();
+        // Block block = sub_query_block_stream->read();
+        PullingPipelineExecutor executor(sub_query_result.pipeline);
+        Block block;
+        executor.pull(block);
 
         size_t rows = block.rows();
         Utils::checkArgument(rows == 1, "Scalar sub-query must return single row");

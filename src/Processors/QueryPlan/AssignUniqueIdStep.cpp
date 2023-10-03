@@ -46,15 +46,16 @@ void AssignUniqueIdStep::serialize(WriteBuffer & buf) const
     writeStringBinary(unique_id, buf);
 }
 
-QueryPlanStepPtr AssignUniqueIdStep::deserialize(ReadBuffer & buf, ContextPtr)
+QueryPlanStepPtr AssignUniqueIdStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    readBinary(step_description, buf);
+    throw Exception("AssignUniqueIdStep is not supported.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buf);
 
-    DataStream input_stream = deserializeDataStream(buf);
-    String unique_id;
-    readStringBinary(unique_id, buf);
-    return std::make_unique<AssignUniqueIdStep>(input_stream, unique_id);
+    // DataStream input_stream = deserializeDataStream(buf);
+    // String unique_id;
+    // readStringBinary(unique_id, buf);
+    // return std::make_unique<AssignUniqueIdStep>(input_stream, unique_id);
 }
 
 std::shared_ptr<IQueryPlanStep> AssignUniqueIdStep::copy(ContextPtr) const

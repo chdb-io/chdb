@@ -135,6 +135,7 @@ public:
     );
 
     String getName() const override { return "AggregatingProjection"; }
+    Type getType() const override { return Type::AggregatingProjection; }
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
 private:

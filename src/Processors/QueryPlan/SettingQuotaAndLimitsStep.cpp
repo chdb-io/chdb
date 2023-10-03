@@ -116,47 +116,48 @@ void SettingQuotaAndLimitsStep::serialize(WriteBuffer & buf) const
         writeBinary(false, buf);
 }
 
-QueryPlanStepPtr SettingQuotaAndLimitsStep::deserialize(ReadBuffer & buf, ContextPtr context)
+QueryPlanStepPtr SettingQuotaAndLimitsStep::deserialize(ReadBuffer &, ContextPtr context)
 {
-    String step_description;
-    readBinary(step_description, buf);
+    throw Exception("SettingQuotaAndLimitsStep is not serializable.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buf);
 
-    auto input_stream = deserializeDataStream(buf);
+    // auto input_stream = deserializeDataStream(buf);
 
-    bool has_storage;
-    readBinary(has_storage, buf);
-    StoragePtr storage;
-    if (has_storage)
-        storage = IStorage::deserialize(buf, context);
+    // bool has_storage;
+    // readBinary(has_storage, buf);
+    // StoragePtr storage;
+    // if (has_storage)
+    //     storage = IStorage::deserialize(buf, context);
 
-    bool has_table_lock;
-    readBinary(has_table_lock, buf);
-    TableLockHolder table_lock;
-    if (has_table_lock)
-        table_lock = storage->lockForShare(context->getInitialQueryId(), context->getSettingsRef().lock_acquire_timeout);
+    // bool has_table_lock;
+    // readBinary(has_table_lock, buf);
+    // TableLockHolder table_lock;
+    // if (has_table_lock)
+    //     table_lock = storage->lockForShare(context->getInitialQueryId(), context->getSettingsRef().lock_acquire_timeout);
 
-    StreamLocalLimits limits;
-    SizeLimits leaf_limits;
-    std::shared_ptr<const EnabledQuota> quota;
+    // StreamLocalLimits limits;
+    // SizeLimits leaf_limits;
+    // std::shared_ptr<const EnabledQuota> quota;
 
-    limits.deserialize(buf);
-    leaf_limits.deserialize(buf);
+    // limits.deserialize(buf);
+    // leaf_limits.deserialize(buf);
 
-    bool has_quota;
-    readBinary(has_quota, buf);
-    if (has_quota)
-        quota = context->getQuota();
+    // bool has_quota;
+    // readBinary(has_quota, buf);
+    // if (has_quota)
+    //     quota = context->getQuota();
 
-    auto step = std::make_unique<SettingQuotaAndLimitsStep>(input_stream,
-                                                       storage,
-                                                       std::move(table_lock),
-                                                       limits,
-                                                       leaf_limits,
-                                                       quota,
-                                                       context);
+    // auto step = std::make_unique<SettingQuotaAndLimitsStep>(input_stream,
+    //                                                    storage,
+    //                                                    std::move(table_lock),
+    //                                                    limits,
+    //                                                    leaf_limits,
+    //                                                    quota,
+    //                                                    context);
 
-    step->setStepDescription(step_description);
-    return step;
+    // step->setStepDescription(step_description);
+    // return step;
 }
 
 std::shared_ptr<IQueryPlanStep> SettingQuotaAndLimitsStep::copy(ContextPtr) const

@@ -84,7 +84,7 @@ void FillingStep::updateOutputStream()
 
 std::shared_ptr<IQueryPlanStep> FillingStep::copy(ContextPtr) const
 {
-    return std::make_shared<FillingStep>(input_streams[0], sort_description);
+    return std::make_shared<FillingStep>(input_streams[0], sort_description, fill_description, interpolate_description, use_with_fill_by_sorting_prefix);
 }
 
 }

@@ -17,6 +17,8 @@ public:
 
     static Block getSampleBlock(ASTExplainQuery::ExplainKind kind);
 
+    static void fillColumn(IColumn & column, const std::string & str);
+
     bool supportsTransactions() const override { return true; }
 
 private:

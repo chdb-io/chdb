@@ -35,18 +35,19 @@ void MarkDistinctStep::serialize(WriteBuffer & buf) const
     writeBinary(distinct_symbols, buf);
 }
 
-QueryPlanStepPtr MarkDistinctStep::deserialize(ReadBuffer & buf, ContextPtr)
+QueryPlanStepPtr MarkDistinctStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    readBinary(step_description, buf);
+    throw Exception("MarkDistinctStep is not supported.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buf);
 
-    DataStream input_stream = deserializeDataStream(buf);
-    String marker_symbol;
-    readBinary(marker_symbol, buf);
+    // DataStream input_stream = deserializeDataStream(buf);
+    // String marker_symbol;
+    // readBinary(marker_symbol, buf);
 
-    std::vector<String> distinct_symbols;
-    readBinary(distinct_symbols, buf);
-    return std::make_shared<MarkDistinctStep>(input_stream, marker_symbol, distinct_symbols);
+    // std::vector<String> distinct_symbols;
+    // readBinary(distinct_symbols, buf);
+    // return std::make_shared<MarkDistinctStep>(input_stream, marker_symbol, distinct_symbols);
 }
 
 std::shared_ptr<IQueryPlanStep> MarkDistinctStep::copy(ContextPtr) const

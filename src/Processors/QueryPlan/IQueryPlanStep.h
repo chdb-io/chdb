@@ -94,6 +94,7 @@ class IQueryPlanStep
 public:
 #define APPLY_STEP_TYPES(M) \
     M(Aggregating) \
+    M(AggregatingProjection) \
     M(Apply) \
     M(ArrayJoin) \
     M(AssignUniqueId) \

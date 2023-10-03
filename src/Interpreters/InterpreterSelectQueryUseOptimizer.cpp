@@ -18,12 +18,12 @@
 #include <Interpreters/Context.h>
 // #include <Interpreters/DistributedStages/MPPQueryCoordinator.h>
 #include <Interpreters/InterpreterSelectQueryUseOptimizer.h>
-#include <Interpreters/SegmentScheduler.h>
+// #include <Interpreters/SegmentScheduler.h>
 #include <Optimizer/JoinOrderUtils.h>
 // #include <Optimizer/PlanNodeSearcher.h>
 #include <Optimizer/PlanOptimizer.h>
 #include <Processors/QueryPlan/GraphvizPrinter.h>
-#include <Processors/QueryPlan/PlanCache.h>
+// #include <Processors/QueryPlan/PlanCache.h>
 #include <Processors/QueryPlan/QueryPlan.h>
 #include <Processors/QueryPlan/QueryPlanner.h>
 // #include <Storages/StorageCnchMergeTree.h>

@@ -74,30 +74,31 @@ void PartitionTopNStep::serialize(WriteBuffer & buffer) const
     serializeEnum(model, buffer);
 }
 
-QueryPlanStepPtr PartitionTopNStep::deserialize(ReadBuffer & buffer, ContextPtr)
+QueryPlanStepPtr PartitionTopNStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    readBinary(step_description, buffer);
+    throw Exception("PartitionTopNStep is not serializable.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buffer);
 
-    DataStream input_stream;
-    input_stream = deserializeDataStream(buffer);
+    // DataStream input_stream;
+    // input_stream = deserializeDataStream(buffer);
 
-    Names partition;
-    readBinary(partition, buffer);
+    // Names partition;
+    // readBinary(partition, buffer);
 
-    Names order_by;
-    readBinary(order_by, buffer);
+    // Names order_by;
+    // readBinary(order_by, buffer);
 
-    UInt64 limit;
-    readBinary(limit, buffer);
+    // UInt64 limit;
+    // readBinary(limit, buffer);
 
-    TopNModel model;
-    deserializeEnum(model, buffer);
+    // TopNModel model;
+    // deserializeEnum(model, buffer);
 
-    auto step = std::make_unique<PartitionTopNStep>(input_stream, partition, order_by, limit, model);
+    // auto step = std::make_unique<PartitionTopNStep>(input_stream, partition, order_by, limit, model);
 
-    step->setStepDescription(step_description);
-    return step;
+    // step->setStepDescription(step_description);
+    // return step;
 }
 
 std::shared_ptr<IQueryPlanStep> PartitionTopNStep::copy(ContextPtr) const

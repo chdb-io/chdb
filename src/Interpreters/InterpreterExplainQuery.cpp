@@ -122,7 +122,7 @@ Block InterpreterExplainQuery::getSampleBlock(const ASTExplainQuery::ExplainKind
 }
 
 /// Split str by line feed and write as separate row to ColumnString.
-static void fillColumn(IColumn & column, const std::string & str)
+void InterpreterExplainQuery::fillColumn(IColumn & column, const std::string & str)
 {
     size_t start = 0;
     size_t end = 0;

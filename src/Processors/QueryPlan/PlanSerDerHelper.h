@@ -98,19 +98,19 @@ std::vector<T> deserializeItemVector(ReadBuffer & buf)
     return itemVec;
 }
 
-void serializeBlock(const Block & block, WriteBuffer & buf);
-void serializeBlockWithData(const Block & block, WriteBuffer & buf);
-Block deserializeBlock(ReadBuffer & buf);
+// void serializeBlock(const Block & block, WriteBuffer & buf);
+// void serializeBlockWithData(const Block & block, WriteBuffer & buf);
+// Block deserializeBlock(ReadBuffer & buf);
 
-void serializeColumn(const ColumnPtr & column, const DataTypePtr & data_type, WriteBuffer & buf);
-ColumnPtr deserializeColumn(ReadBuffer & buf);
+// void serializeColumn(const ColumnPtr & column, const DataTypePtr & data_type, WriteBuffer & buf);
+// ColumnPtr deserializeColumn(ReadBuffer & buf);
 
-void serializeDataStream(const DataStream & stream, WriteBuffer & buf);
-void serializeDataStreamFromDataStreams(const std::vector<DataStream> & stream, WriteBuffer & buf);
-DataStream deserializeDataStream(ReadBuffer & buf);
+// void serializeDataStream(const DataStream & stream, WriteBuffer & buf);
+// void serializeDataStreamFromDataStreams(const std::vector<DataStream> & stream, WriteBuffer & buf);
+// DataStream deserializeDataStream(ReadBuffer & buf);
 
-void serializeAggregatingTransformParams(const AggregatingTransformParamsPtr & params, WriteBuffer & buf);
-AggregatingTransformParamsPtr deserializeAggregatingTransformParams(ReadBuffer & buf, ContextPtr context);
+// void serializeAggregatingTransformParams(const AggregatingTransformParamsPtr & params, WriteBuffer & buf);
+// AggregatingTransformParamsPtr deserializeAggregatingTransformParams(ReadBuffer & buf, ContextPtr context);
 
 void serializeArrayJoinAction(const ArrayJoinActionPtr & array_join, WriteBuffer & buf);
 ArrayJoinActionPtr deserializeArrayJoinAction(ReadBuffer & buf, ContextPtr context);

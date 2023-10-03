@@ -1,7 +1,7 @@
 #include <Processors/Transforms/ExplainAnalyzeTransform.h>
 #include <DataTypes/DataTypeString.h>
 #include <Interpreters/InterpreterExplainQuery.h>
-#include <Interpreters/SegmentScheduler.h>
+// #include <Interpreters/SegmentScheduler.h>
 #include <Processors/QueryPlan/PlanPrinter.h>
 #include <Optimizer/CardinalityEstimate/CardinalityEstimator.h>
 #include <Optimizer/CostModel/CostCalculator.h>
@@ -87,43 +87,43 @@ ISimpleTransform::Status ExplainAnalyzeTransform::prepare()
     return ISimpleTransform::prepare();
 }
 
-void ExplainAnalyzeTransform::getRemoteProcessorProfiles(std::unordered_map<size_t, std::unordered_map<String, ProcessorProfiles>> & segment_profiles)
-{
-    // Get operator profile of other segments
-    UInt64 time_out = context->getSettingsRef().cascades_optimizer_timeout;
-    auto time_start = std::chrono::system_clock::now();
+// void ExplainAnalyzeTransform::getRemoteProcessorProfiles(std::unordered_map<size_t, std::unordered_map<String, ProcessorProfiles>> & segment_profiles)
+// {
+//     // Get operator profile of other segments
+//     UInt64 time_out = context->getSettingsRef().cascades_optimizer_timeout;
+//     auto time_start = std::chrono::system_clock::now();
 
-    auto consumer = context->getProcessorProfileElementConsumer();
-    while (!consumer->isFinish())
-    {
-        auto now = std::chrono::system_clock::now();
-        UInt64 elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - time_start).count();
-        if (elapsed >= time_out)
-        {
-            consumer->stop();
-            break;
-        }
-    }
+//     auto consumer = context->getProcessorProfileElementConsumer();
+//     while (!consumer->isFinish())
+//     {
+//         auto now = std::chrono::system_clock::now();
+//         UInt64 elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - time_start).count();
+//         if (elapsed >= time_out)
+//         {
+//             consumer->stop();
+//             break;
+//         }
+//     }
 
-    auto remote_profiles = dynamic_pointer_cast<ExplainConsumer>(consumer)->getStoreResult();
-    for (auto & profile_log : remote_profiles)
-    {
-        ProcessorProfilePtr profile = std::make_shared<ProcessorProfile>();
-        profile->processor_name = profile_log.processor_name;
-        profile->id = profile_log.id;
-        profile->parent_ids = profile_log.parent_ids;
-        profile->step_id = profile_log.step_id;
-        profile->segment_id = (profile_log.plan_group << 32) >> 48;
-        profile->elapsed_us = profile_log.elapsed_us;
-        profile->input_wait_elapsed_us = profile_log.input_wait_elapsed_us;
-        profile->output_wait_elapsed_us = profile_log.output_wait_elapsed_us;
-        profile->input_rows = profile_log.input_rows;
-        profile->input_bytes = profile_log.input_bytes;
-        profile->output_rows = profile_log.output_rows;
-        profile->output_bytes = profile_log.output_bytes;
-        segment_profiles[profile->segment_id][profile_log.worker_address].push_back(profile);
-    }
-}
+//     auto remote_profiles = dynamic_pointer_cast<ExplainConsumer>(consumer)->getStoreResult();
+//     for (auto & profile_log : remote_profiles)
+//     {
+//         ProcessorProfilePtr profile = std::make_shared<ProcessorProfile>();
+//         profile->processor_name = profile_log.processor_name;
+//         profile->id = profile_log.id;
+//         profile->parent_ids = profile_log.parent_ids;
+//         profile->step_id = profile_log.step_id;
+//         profile->segment_id = (profile_log.plan_group << 32) >> 48;
+//         profile->elapsed_us = profile_log.elapsed_us;
+//         profile->input_wait_elapsed_us = profile_log.input_wait_elapsed_us;
+//         profile->output_wait_elapsed_us = profile_log.output_wait_elapsed_us;
+//         profile->input_rows = profile_log.input_rows;
+//         profile->input_bytes = profile_log.input_bytes;
+//         profile->output_rows = profile_log.output_rows;
+//         profile->output_bytes = profile_log.output_bytes;
+//         segment_profiles[profile->segment_id][profile_log.worker_address].push_back(profile);
+//     }
+// }
 
 void ExplainAnalyzeTransform::getProcessorProfiles(ProcessorsSet & processors_set, ProcessorProfiles & profiles, const IProcessor * processor)
 {

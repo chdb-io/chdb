@@ -138,63 +138,64 @@ void ProjectionStep::serialize(WriteBuffer & buf) const
     }
 }
 
-QueryPlanStepPtr ProjectionStep::deserialize(ReadBuffer & buf, ContextPtr)
+QueryPlanStepPtr ProjectionStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    readBinary(step_description, buf);
+    throw Exception("ProjectionStep::deserialize is not implemented", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buf);
 
-    DataStream input_stream = deserializeDataStream(buf);
-    size_t size;
-    readVarUInt(size, buf);
-    Assignments assignments;
-    for (size_t index = 0; index < size; ++index)
-    {
-        String name;
-        readStringBinary(name, buf);
-        auto ast = deserializeAST(buf);
-        assignments.emplace_back(name, ast);
-    }
+    // DataStream input_stream = deserializeDataStream(buf);
+    // size_t size;
+    // readVarUInt(size, buf);
+    // Assignments assignments;
+    // for (size_t index = 0; index < size; ++index)
+    // {
+    //     String name;
+    //     readStringBinary(name, buf);
+    //     auto ast = deserializeAST(buf);
+    //     assignments.emplace_back(name, ast);
+    // }
 
-    readVarUInt(size, buf);
-    NameToType name_to_type;
-    for (size_t index = 0; index < size; ++index)
-    {
-        String name;
-        readStringBinary(name, buf);
-        auto data_type = deserializeDataType(buf);
-        name_to_type[name] = data_type;
-    }
+    // readVarUInt(size, buf);
+    // NameToType name_to_type;
+    // for (size_t index = 0; index < size; ++index)
+    // {
+    //     String name;
+    //     readStringBinary(name, buf);
+    //     auto data_type = deserializeDataType(buf);
+    //     name_to_type[name] = data_type;
+    // }
 
-    bool final_project;
-    readBinary(final_project, buf);
+    // bool final_project;
+    // readBinary(final_project, buf);
 
-    size_t dynamic_filters_size;
-    readVarUInt(dynamic_filters_size, buf);
-    std::unordered_map<String, DynamicFilterBuildInfo> dynamic_filters;
-    for (size_t i = 0; i < dynamic_filters_size; i++)
-    {
-        String symbol;
-        readBinary(symbol, buf);
+    // size_t dynamic_filters_size;
+    // readVarUInt(dynamic_filters_size, buf);
+    // std::unordered_map<String, DynamicFilterBuildInfo> dynamic_filters;
+    // for (size_t i = 0; i < dynamic_filters_size; i++)
+    // {
+    //     String symbol;
+    //     readBinary(symbol, buf);
 
-        DynamicFilterId id;
-        readBinary(id, buf);
+    //     DynamicFilterId id;
+    //     readBinary(id, buf);
 
-        String original_symbol;
-        readBinary(original_symbol, buf);
+    //     String original_symbol;
+    //     readBinary(original_symbol, buf);
 
-        DynamicFilterTypes types;
-        size_t dynamic_filter_types_size;
-        readVarUInt(dynamic_filter_types_size, buf);
-        for (size_t j = 0; j < dynamic_filter_types_size; j++)
-        {
-            UInt8 type;
-            readBinary(type, buf);
-            types.emplace(static_cast<DynamicFilterType>(type));
-        }
-        dynamic_filters.emplace(symbol, DynamicFilterBuildInfo{id, original_symbol, types});
-    }
+    //     DynamicFilterTypes types;
+    //     size_t dynamic_filter_types_size;
+    //     readVarUInt(dynamic_filter_types_size, buf);
+    //     for (size_t j = 0; j < dynamic_filter_types_size; j++)
+    //     {
+    //         UInt8 type;
+    //         readBinary(type, buf);
+    //         types.emplace(static_cast<DynamicFilterType>(type));
+    //     }
+    //     dynamic_filters.emplace(symbol, DynamicFilterBuildInfo{id, original_symbol, types});
+    // }
 
-    return std::make_shared<ProjectionStep>(input_stream, assignments, name_to_type, final_project, dynamic_filters);
+    // return std::make_shared<ProjectionStep>(input_stream, assignments, name_to_type, final_project, dynamic_filters);
 }
 
 std::shared_ptr<IQueryPlanStep> ProjectionStep::copy(ContextPtr) const

@@ -141,30 +141,31 @@ void FinishSortingStep::serialize(WriteBuffer & buffer) const
     writeBinary(limit, buffer);
 }
 
-QueryPlanStepPtr FinishSortingStep::deserialize(ReadBuffer & buffer, ContextPtr )
+QueryPlanStepPtr FinishSortingStep::deserialize(ReadBuffer &, ContextPtr )
 {
-    String step_description;
-    readBinary(step_description, buffer);
+    throw Exception("FinishSortingStep is not supported.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buffer);
 
-    DataStream input_stream;
-    input_stream = deserializeDataStream(buffer);
+    // DataStream input_stream;
+    // input_stream = deserializeDataStream(buffer);
 
-    SortDescription prefix_description;
-    prefix_description = deserializeItemVector<SortColumnDescription>(buffer);
+    // SortDescription prefix_description;
+    // prefix_description = deserializeItemVector<SortColumnDescription>(buffer);
 
-    SortDescription result_description;
-    result_description = deserializeItemVector<SortColumnDescription>(buffer);
+    // SortDescription result_description;
+    // result_description = deserializeItemVector<SortColumnDescription>(buffer);
 
-    size_t max_block_size;
-    readBinary(max_block_size, buffer);
+    // size_t max_block_size;
+    // readBinary(max_block_size, buffer);
 
-    UInt64 limit;
-    readBinary(limit, buffer);
+    // UInt64 limit;
+    // readBinary(limit, buffer);
 
-    auto step = std::make_unique<FinishSortingStep>(input_stream, prefix_description, result_description, max_block_size, limit);
+    // auto step = std::make_unique<FinishSortingStep>(input_stream, prefix_description, result_description, max_block_size, limit);
 
-    step->setStepDescription(step_description);
-    return step;
+    // step->setStepDescription(step_description);
+    // return step;
 }
 
 std::shared_ptr<IQueryPlanStep> FinishSortingStep::copy(ContextPtr) const

@@ -41,13 +41,14 @@ void EnforceSingleRowStep::serialize(WriteBuffer & buf) const
     IQueryPlanStep::serializeImpl(buf);
 }
 
-QueryPlanStepPtr EnforceSingleRowStep::deserialize(ReadBuffer & buf, ContextPtr)
+QueryPlanStepPtr EnforceSingleRowStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    readBinary(step_description, buf);
+    throw Exception("EnforceSingleRowStep is not supported.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buf);
 
-    DataStream input_stream = deserializeDataStream(buf);
-    return std::make_unique<EnforceSingleRowStep>(input_stream);
+    // DataStream input_stream = deserializeDataStream(buf);
+    // return std::make_unique<EnforceSingleRowStep>(input_stream);
 }
 
 std::shared_ptr<IQueryPlanStep> EnforceSingleRowStep::copy(ContextPtr) const

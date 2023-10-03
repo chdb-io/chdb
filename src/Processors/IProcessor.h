@@ -310,6 +310,8 @@ public:
     uint64_t getElapsedUs() const { return elapsed_us; }
     uint64_t getInputWaitElapsedUs() const { return input_wait_elapsed_us; }
     uint64_t getOutputWaitElapsedUs() const { return output_wait_elapsed_us; }
+    int64_t getStepId() const { return step_id; }
+    void setStepId(int64_t step_id_) { step_id = step_id_; }
 
     struct ProcessorDataStats
     {
@@ -388,6 +390,7 @@ private:
     Stopwatch output_wait_watch;
     uint64_t output_wait_elapsed_us = 0;
 
+    int64_t step_id = -1;
     size_t stream_number = NO_STREAM;
 
     IQueryPlanStep * query_plan_step = nullptr;

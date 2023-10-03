@@ -88,7 +88,7 @@ Void CrossJoinPlanPatternVisitor::visitJoinNode(JoinNode & node, Void & context)
 
     const auto & join_step = *node.getStep();
 
-    if (join_step.isCrossJoin())
+    if (join_step.getKind() == JoinKind::Cross)
         has_cross_join = true;
 
     return Void{};

@@ -50,7 +50,7 @@ PartialSortingStep::PartialSortingStep(
     , size_limits(size_limits_)
 {
     output_stream->sort_description = sort_description;
-    output_stream->sort_mode = DataStream::SortScope::Chunk;
+    output_stream->sort_scope = DataStream::SortScope::Chunk;
 }
 
 void PartialSortingStep::setInputStreams(const DataStreams & input_streams_)
@@ -103,7 +103,7 @@ void PartialSortingStep::describeActions(FormatSettings & settings) const
 {
     String prefix(settings.offset, ' ');
     settings.out << prefix << "Sort description: ";
-    dumpSortDescription(sort_description, input_streams.front().header, settings.out);
+    dumpSortDescription(sort_description, settings.out);
     settings.out << '\n';
 
     if (limit)
@@ -112,41 +112,43 @@ void PartialSortingStep::describeActions(FormatSettings & settings) const
 
 void PartialSortingStep::describeActions(JSONBuilder::JSONMap & map) const
 {
-    map.add("Sort Description", explainSortDescription(sort_description, input_streams.front().header));
+    map.add("Sort Description", explainSortDescription(sort_description));
 
     if (limit)
         map.add("Limit", limit);
 }
 
-void PartialSortingStep::serialize(WriteBuffer & buffer) const
+void PartialSortingStep::serialize(WriteBuffer &) const
 {
-    IQueryPlanStep::serializeImpl(buffer);
-    serializeItemVector<SortColumnDescription>(sort_description, buffer);
-    writeBinary(limit, buffer);
-    size_limits.serialize(buffer);
+    throw Exception("PartialSortingStep can not serialize", ErrorCodes::NOT_IMPLEMENTED);
+    // IQueryPlanStep::serializeImpl(buffer);
+    // serializeItemVector<SortColumnDescription>(sort_description, buffer);
+    // writeBinary(limit, buffer);
+    // size_limits.serialize(buffer);
 }
 
-QueryPlanStepPtr PartialSortingStep::deserialize(ReadBuffer & buffer, ContextPtr )
+QueryPlanStepPtr PartialSortingStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    readBinary(step_description, buffer);
+    throw Exception("PartialSortingStep can not deserialize", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buffer);
 
-    DataStream input_stream;
-    input_stream = deserializeDataStream(buffer);
+    // DataStream input_stream;
+    // input_stream = deserializeDataStream(buffer);
 
-    SortDescription sort_description;
-    sort_description = deserializeItemVector<SortColumnDescription>(buffer);
+    // SortDescription sort_description;
+    // sort_description = deserializeItemVector<SortColumnDescription>(buffer);
 
-    UInt64 limit;
-    readBinary(limit, buffer);
+    // UInt64 limit;
+    // readBinary(limit, buffer);
 
-    SizeLimits size_limits;
-    size_limits.deserialize(buffer);
+    // SizeLimits size_limits;
+    // size_limits.deserialize(buffer);
 
-    auto step = std::make_unique<PartialSortingStep>(input_stream, sort_description, limit, size_limits);
+    // auto step = std::make_unique<PartialSortingStep>(input_stream, sort_description, limit, size_limits);
 
-    step->setStepDescription(step_description);
-    return step;
+    // step->setStepDescription(step_description);
+    // return step;
 }
 
 std::shared_ptr<IQueryPlanStep> PartialSortingStep::copy(ContextPtr) const

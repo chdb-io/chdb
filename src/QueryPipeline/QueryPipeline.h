@@ -144,6 +144,8 @@ public:
 
     void reset();
 
+    using StreamType = Pipe::StreamType;
+
 private:
     QueryPlanResourceHolder resources;
 

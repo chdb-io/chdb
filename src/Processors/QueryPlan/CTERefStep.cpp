@@ -41,44 +41,46 @@ std::shared_ptr<IQueryPlanStep> CTERefStep::copy(ContextPtr) const
     return std::make_shared<CTERefStep>(output_stream.value(), id, output_columns, has_filter);
 }
 
-void CTERefStep::serialize(WriteBuffer & buffer) const
+void CTERefStep::serialize(WriteBuffer &) const
 {
-    serializeDataStream(output_stream.value(), buffer);
-    writeBinary(id, buffer);
+    throw Exception("CTERefStep is not supported.", ErrorCodes::NOT_IMPLEMENTED);
+    // serializeDataStream(output_stream.value(), buffer);
+    // writeBinary(id, buffer);
 
-    writeVarUInt(output_columns.size(), buffer);
-    for (const auto & item : output_columns)
-    {
-        writeStringBinary(item.first, buffer);
-        writeStringBinary(item.second, buffer);
-    }
+    // writeVarUInt(output_columns.size(), buffer);
+    // for (const auto & item : output_columns)
+    // {
+    //     writeStringBinary(item.first, buffer);
+    //     writeStringBinary(item.second, buffer);
+    // }
 
-    writeBinary(has_filter, buffer);
+    // writeBinary(has_filter, buffer);
 }
 
-QueryPlanStepPtr CTERefStep::deserialize(ReadBuffer & buffer, ContextPtr)
+QueryPlanStepPtr CTERefStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    DataStream output_tmp = deserializeDataStream(buffer);
+    throw Exception("CTERefStep is not supported.", ErrorCodes::NOT_IMPLEMENTED);
+    // DataStream output_tmp = deserializeDataStream(buffer);
     
-    CTEId id_tmp;
-    readBinary(id_tmp, buffer);
+    // CTEId id_tmp;
+    // readBinary(id_tmp, buffer);
 
-    UInt64 output_columns_num;
-    readVarUInt(output_columns_num, buffer);
+    // UInt64 output_columns_num;
+    // readVarUInt(output_columns_num, buffer);
     
-    std::unordered_map<String, String> output_columns_tmp;
-    for (size_t i = 0 ; i < output_columns_num ; ++i)
-    {
-        String elem1, elem2;
-        readStringBinary(elem1, buffer);
-        readStringBinary(elem2, buffer);
-        output_columns_tmp[elem1] = elem2;
-    }
+    // std::unordered_map<String, String> output_columns_tmp;
+    // for (size_t i = 0 ; i < output_columns_num ; ++i)
+    // {
+    //     String elem1, elem2;
+    //     readStringBinary(elem1, buffer);
+    //     readStringBinary(elem2, buffer);
+    //     output_columns_tmp[elem1] = elem2;
+    // }
 
-    bool has_filter;
-    readBinary(has_filter, buffer);
+    // bool has_filter;
+    // readBinary(has_filter, buffer);
 
-    return std::make_shared<CTERefStep>(output_tmp, id_tmp, output_columns_tmp, has_filter);
+    // return std::make_shared<CTERefStep>(output_tmp, id_tmp, output_columns_tmp, has_filter);
 }
 
 

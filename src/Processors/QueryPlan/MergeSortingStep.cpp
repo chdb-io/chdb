@@ -134,44 +134,45 @@ void MergeSortingStep::serialize(WriteBuffer & buffer) const
     writeBinary(remerge_lowered_memory_bytes_ratio, buffer);
 }
 
-QueryPlanStepPtr MergeSortingStep::deserialize(ReadBuffer & buffer, ContextPtr context)
+QueryPlanStepPtr MergeSortingStep::deserialize(ReadBuffer &, ContextPtr context)
 {
-    String step_description;
-    readBinary(step_description, buffer);
+    throw Exception("MergeSortingStep is not serializable.", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // readBinary(step_description, buffer);
 
-    DataStream input_stream;
-    input_stream = deserializeDataStream(buffer);
+    // DataStream input_stream;
+    // input_stream = deserializeDataStream(buffer);
 
-    SortDescription sort_description;
-    sort_description = deserializeItemVector<SortColumnDescription>(buffer);
+    // SortDescription sort_description;
+    // sort_description = deserializeItemVector<SortColumnDescription>(buffer);
 
-    size_t max_merged_block_size, max_bytes_before_remerge, max_bytes_before_external_sort, min_free_disk_space;
-    readBinary(max_merged_block_size, buffer);
-    readBinary(max_bytes_before_remerge, buffer);
-    readBinary(max_bytes_before_external_sort, buffer);
-    readBinary(min_free_disk_space, buffer);
+    // size_t max_merged_block_size, max_bytes_before_remerge, max_bytes_before_external_sort, min_free_disk_space;
+    // readBinary(max_merged_block_size, buffer);
+    // readBinary(max_bytes_before_remerge, buffer);
+    // readBinary(max_bytes_before_external_sort, buffer);
+    // readBinary(min_free_disk_space, buffer);
 
-    UInt64 limit;
-    readBinary(limit, buffer);
+    // UInt64 limit;
+    // readBinary(limit, buffer);
 
-    double remerge_lowered_memory_bytes_ratio;
-    readBinary(remerge_lowered_memory_bytes_ratio, buffer);
+    // double remerge_lowered_memory_bytes_ratio;
+    // readBinary(remerge_lowered_memory_bytes_ratio, buffer);
 
-    VolumePtr tmp_volume = context ? context->getTemporaryVolume() : nullptr;
+    // VolumePtr tmp_volume = context ? context->getTemporaryVolume() : nullptr;
 
-    auto step =  std::make_unique<MergeSortingStep>(
-        input_stream,
-        sort_description,
-        max_merged_block_size,
-        limit,
-        max_bytes_before_remerge,
-        remerge_lowered_memory_bytes_ratio,
-        max_bytes_before_external_sort,
-        tmp_volume,
-        max_bytes_before_external_sort);
+    // auto step =  std::make_unique<MergeSortingStep>(
+    //     input_stream,
+    //     sort_description,
+    //     max_merged_block_size,
+    //     limit,
+    //     max_bytes_before_remerge,
+    //     remerge_lowered_memory_bytes_ratio,
+    //     max_bytes_before_external_sort,
+    //     tmp_volume,
+    //     max_bytes_before_external_sort);
 
-    step->setStepDescription(step_description);
-    return step;
+    // step->setStepDescription(step_description);
+    // return step;
 }
 
 std::shared_ptr<IQueryPlanStep> MergeSortingStep::copy(ContextPtr) const

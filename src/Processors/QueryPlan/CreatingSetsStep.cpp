@@ -221,7 +221,7 @@ std::shared_ptr<IQueryPlanStep> DelayedCreatingSetsStep::copy(ContextPtr) const
     return std::make_shared<DelayedCreatingSetsStep>(input_streams.front(), subqueries, context);
 }
 
-void DelayedCreatingSetsStep::setInputStreams(const DataStreams & input_streams_)
+void DelayedCreatingSetsStep::setInputStreams(const DataStreams &)
 {
     throw Exception(
         ErrorCodes::LOGICAL_ERROR,

@@ -39,6 +39,7 @@ public:
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName & data_); /// NOLINT
     Block(ColumnsWithTypeAndName && data_); /// NOLINT
+    Block(const NamesAndTypes & data_);
 
     /// insert the column at the specified position
     void insert(size_t position, ColumnWithTypeAndName elem);
@@ -208,6 +209,8 @@ void convertToFullIfSparse(Block & block);
 /// Converts columns-constants to full columns ("materializes" them).
 Block materializeBlock(const Block & block);
 void materializeBlockInplace(Block & block);
+
+void substituteBlock(Block & block, const std::unordered_map<String, String> & name_substitution_info);
 
 Block concatenateBlocks(const std::vector<Block> & blocks);
 

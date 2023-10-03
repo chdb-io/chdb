@@ -207,7 +207,7 @@ void CreateSetAndFilterOnTheFlyStep::setInputStreams(const DataStreams & input_s
     updateOutputStream();
 }
 
-std::shared_ptr<IQueryPlanStep> CreateSetAndFilterOnTheFlyStep::copy(ContextPtr ptr) const 
+std::shared_ptr<IQueryPlanStep> CreateSetAndFilterOnTheFlyStep::copy(ContextPtr) const
 {
     return std::make_shared<CreateSetAndFilterOnTheFlyStep>(input_streams[0], column_names, max_rows_in_set, crosswise_connection, position);
 }

@@ -18,7 +18,7 @@
 #include <Analyzers/QueryAnalyzer.h>
 #include <Analyzers/QueryRewriter.h>
 #include <Interpreters/InterpreterSelectQueryUseOptimizer.h>
-#include <Interpreters/SegmentScheduler.h>
+// #include <Interpreters/SegmentScheduler.h>
 #include <Optimizer/Iterative/IterativeRewriter.h>
 #include <Optimizer/PlanOptimizer.h>
 #include <Optimizer/Rewriter/PredicatePushdown.h>
