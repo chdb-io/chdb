@@ -659,6 +659,16 @@ Names Block::getNames() const
     return res;
 }
 
+NameSet Block::getNameSet() const
+{
+    NameSet res;
+    res.reserve(columns());
+
+    for (const auto & elem : data)
+        res.insert(elem.name);
+
+    return res;
+}
 
 DataTypes Block::getDataTypes() const
 {

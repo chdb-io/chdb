@@ -173,7 +173,7 @@ private:
     //   if require_right_keys = TRUE, it outputs: [1], [NULL] (currently QueryPlanner does not generate this case)
     std::optional<std::vector<bool>> require_right_keys;
 
-    ASOF::Inequality asof_inequality;
+    ASOFJoinInequality asof_inequality;
 
     DistributionType distribution_type = DistributionType::UNKNOWN;
     JoinAlgorithm join_algorithm = JoinAlgorithm::AUTO;

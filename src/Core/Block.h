@@ -94,6 +94,7 @@ public:
     NamesAndTypes getNamesAndTypes() const;
     NameToType getNamesToTypes() const;
     Names getNames() const;
+    NameSet getNameSet() const;
     DataTypes getDataTypes() const;
     Names getDataTypeNames() const;
 
