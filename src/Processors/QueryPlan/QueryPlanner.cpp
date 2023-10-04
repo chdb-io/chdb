@@ -686,7 +686,7 @@ void QueryPlannerVisitor::planJoinOn(ASTTableJoin & table_join, PlanBuilder & le
     }
 
     // 4. join inequality
-    ASOF::Inequality asof_inequality = ASOF::Inequality::GreaterOrEquals;
+    ASOFJoinInequality asof_inequality = ASOFJoinInequality::GreaterOrEquals;
 
     if (isAsofJoin(table_join))
         asof_inequality = analysis.getJoinOnAnalysis(table_join).getAsofInequality();

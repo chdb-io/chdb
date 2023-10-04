@@ -52,7 +52,7 @@ PlanNodePtr InnerJoinCommutation::swap(JoinNode & node, RuleContext & rule_conte
         step.getFilter(),
         step.isHasUsing(),
         step.getRequireRightKeys(),
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN,
         JoinAlgorithm::AUTO,
         false,

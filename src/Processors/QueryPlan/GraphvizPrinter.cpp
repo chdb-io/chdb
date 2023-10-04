@@ -1160,18 +1160,18 @@ String StepPrinter::printJoinStep(const JoinStep & step)
         }
     };
 
-    auto inequality = [](ASOF::Inequality v) {
+    auto inequality = [](ASOFJoinInequality v) {
         switch (v)
         {
-            case ASOF::Inequality::None:
+            case ASOFJoinInequality::None:
                 return "None";
-            case ASOF::Inequality::Less:
+            case ASOFJoinInequality::Less:
                 return "Less";
-            case ASOF::Inequality::Greater:
+            case ASOFJoinInequality::Greater:
                 return "Greater";
-            case ASOF::Inequality::LessOrEquals:
+            case ASOFJoinInequality::LessOrEquals:
                 return "LessOrEquals";
-            case ASOF::Inequality::GreaterOrEquals:
+            case ASOFJoinInequality::GreaterOrEquals:
                 return "GreaterOrEquals";
         }
     };

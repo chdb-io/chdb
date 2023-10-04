@@ -78,11 +78,11 @@ struct JoinInequalityCondition
 {
     ASTPtr left_ast;
     ASTPtr right_ast;
-    ASOF::Inequality inequality;
+    ASOFJoinInequality inequality;
     DataTypePtr left_coercion;
     DataTypePtr right_coercion;
 
-    JoinInequalityCondition(ASTPtr left_ast_, ASTPtr right_ast_, ASOF::Inequality inequality_, DataTypePtr left_coercion_, DataTypePtr right_coercion_)
+    JoinInequalityCondition(ASTPtr left_ast_, ASTPtr right_ast_, ASOFJoinInequality inequality_, DataTypePtr left_coercion_, DataTypePtr right_coercion_)
         : left_ast(std::move(left_ast_))
         , right_ast(std::move(right_ast_))
         , inequality(inequality_)
@@ -104,7 +104,7 @@ struct JoinOnAnalysis
     std::vector<JoinInequalityCondition> inequality_conditions;
     std::vector<ASTPtr> complex_expressions;
 
-    ASOF::Inequality getAsofInequality()
+    ASOFJoinInequality getAsofInequality()
     {
         return inequality_conditions.front().inequality;
     }

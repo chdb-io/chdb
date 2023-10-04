@@ -31,7 +31,7 @@ bool isNormalInnerJoin(const ASTTableJoin & join);
 bool isCrossJoin(const ASTTableJoin & join);
 bool isSemiOrAntiJoin(const ASTTableJoin & join);
 bool isAsofJoin(const ASTTableJoin & join);
-String getFunctionForInequality(ASOF::Inequality inequality);
+String getFunctionForInequality(ASOFJoinInequality inequality);
 
 /// expressions
 std::vector<ASTPtr> expressionToCnf(const ASTPtr & node);

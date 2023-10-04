@@ -131,7 +131,7 @@ static PlanNodePtr createJoinNode(
         filter,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
 
     return PlanNodeBase::createPlanNode(context->nextNodeId(), std::move(join_step), {left, right});

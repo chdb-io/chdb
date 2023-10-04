@@ -63,15 +63,15 @@ bool isAsofJoin(const ASTTableJoin & join)
     return isAsof(join.strictness);
 }
 
-String getFunctionForInequality(ASOF::Inequality inequality)
+String getFunctionForInequality(ASOFJoinInequality inequality)
 {
-    if (inequality == ASOF::Inequality::Less)
+    if (inequality == ASOFJoinInequality::Less)
         return "less";
-    else if (inequality == ASOF::Inequality::Greater)
+    else if (inequality == ASOFJoinInequality::Greater)
         return "greater";
-    else if (inequality == ASOF::Inequality::LessOrEquals)
+    else if (inequality == ASOFJoinInequality::LessOrEquals)
         return "lessOrEquals";
-    else if (inequality == ASOF::Inequality::GreaterOrEquals)
+    else if (inequality == ASOFJoinInequality::GreaterOrEquals)
         return "greaterOrEquals";
     throw Exception("Unknown inequality", ErrorCodes::LOGICAL_ERROR);
 }

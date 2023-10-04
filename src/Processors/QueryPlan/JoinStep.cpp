@@ -143,7 +143,7 @@ JoinStep::JoinStep(
     ConstASTPtr filter_,
     bool has_using_,
     std::optional<std::vector<bool>> require_right_keys_,
-    ASOF::Inequality asof_inequality_,
+    ASOFJoinInequality asof_inequality_,
     DistributionType distribution_type_,
     JoinAlgorithm join_algorithm_,
     bool is_magic_,

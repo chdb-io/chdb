@@ -139,7 +139,7 @@ PlanNodePtr CorrelatedScalarSubqueryVisitor::visitApplyNode(ApplyNode & node, Vo
             PredicateConst::TRUE_VALUE,
             false,
             std::nullopt,
-            ASOF::Inequality::GreaterOrEquals,
+            ASOFJoinInequality::GreaterOrEquals,
             DistributionType::UNKNOWN);
         PlanNodePtr join_node
             = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{unique_id_node, join_right});
@@ -268,7 +268,7 @@ PlanNodePtr CorrelatedScalarSubqueryVisitor::visitApplyNode(ApplyNode & node, Vo
         PredicateConst::TRUE_VALUE,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
     PlanNodePtr join_node
         = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{unique_id_node, non_null_node});
@@ -493,7 +493,7 @@ PlanNodePtr UnCorrelatedScalarSubqueryVisitor::visitApplyNode(ApplyNode & node, 
         PredicateConst::TRUE_VALUE,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
 
     return std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{input_ptr, subquery_ptr});
@@ -699,7 +699,7 @@ PlanNodePtr CorrelatedInSubqueryVisitor::visitApplyNode(ApplyNode & node, Void &
         combine_filter,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
     PlanNodePtr join_node = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{join_left, join_right});
 
@@ -907,7 +907,7 @@ PlanNodePtr UnCorrelatedInSubqueryVisitor::visitApplyNode(ApplyNode & node, Void
         PredicateConst::TRUE_VALUE,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
 
     PlanNodePtr join_node = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{input_ptr, expression_node});
@@ -1113,7 +1113,7 @@ PlanNodePtr CorrelatedExistsSubqueryVisitor::visitApplyNode(ApplyNode & node, Vo
             PredicateConst::TRUE_VALUE,
             false,
             std::nullopt,
-            ASOF::Inequality::GreaterOrEquals,
+            ASOFJoinInequality::GreaterOrEquals,
             DistributionType::UNKNOWN);
         PlanNodePtr join_node = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{join_left, join_right});
 
@@ -1201,7 +1201,7 @@ PlanNodePtr CorrelatedExistsSubqueryVisitor::visitApplyNode(ApplyNode & node, Vo
         PredicateConst::TRUE_VALUE,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
     PlanNodePtr join_node = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{join_left, join_right});
 
@@ -1460,7 +1460,7 @@ PlanNodePtr UnCorrelatedExistsSubqueryVisitor::visitApplyNode(ApplyNode & node, 
         PredicateConst::TRUE_VALUE,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
 
     // Exists function has been rewritten into "exists" symbols
@@ -1545,7 +1545,7 @@ PlanNodePtr UnCorrelatedQuantifiedComparisonSubqueryVisitor::visitApplyNode(Appl
         PredicateConst::TRUE_VALUE,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
     PlanNodePtr join_node
         = std::make_shared<JoinNode>(context->nextNodeId(), std::move(join_step), PlanNodes{input_ptr, agg_node});
@@ -1710,7 +1710,7 @@ PlanNodePtr CorrelatedQuantifiedComparisonSubqueryVisitor::visitApplyNode(ApplyN
         join_filter,
         false,
         std::nullopt,
-        ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality::GreaterOrEquals,
         DistributionType::UNKNOWN);
     PlanNodePtr join_node = std::make_shared<JoinNode>(context-> nextNodeId(), std::move(join_step), PlanNodes{join_left, join_right});
 

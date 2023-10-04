@@ -44,7 +44,7 @@ public:
         ConstASTPtr filter_ = PredicateConst::TRUE_VALUE,
         bool has_using_ = false,
         std::optional<std::vector<bool>> require_right_keys_ = std::nullopt,
-        ASOF::Inequality asof_inequality_ = ASOF::Inequality::GreaterOrEquals,
+        ASOFJoinInequality asof_inequality_ = ASOFJoinInequality::GreaterOrEquals,
         DistributionType distribution_type_ = DistributionType::UNKNOWN,
         JoinAlgorithm join_algorithm = JoinAlgorithm::AUTO,
         bool magic_set_ = false,
@@ -78,7 +78,7 @@ public:
     const ConstASTPtr & getFilter() const { return filter; }
     bool isHasUsing() const { return has_using; }
     std::optional<std::vector<bool>> getRequireRightKeys() const { return require_right_keys; }
-    ASOF::Inequality getAsofInequality() const { return asof_inequality; }
+    ASOFJoinInequality getAsofInequality() const { return asof_inequality; }
     DistributionType getDistributionType() const { return distribution_type; }
     void setDistributionType(DistributionType distribution_type_) { distribution_type = distribution_type_; }
 
