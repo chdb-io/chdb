@@ -14,10 +14,6 @@ namespace DB
 class ASTIdentifier;
 class TableJoin;
 
-namespace ASOF
-{
-    enum class Inequality;
-}
 
 namespace ErrorCodes
 {

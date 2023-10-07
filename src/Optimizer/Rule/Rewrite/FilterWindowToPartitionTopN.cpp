@@ -39,13 +39,13 @@ TransformResult FilterWindowToPartitionTopN::transformImpl(PlanNodePtr node, con
     auto * window_node = dynamic_cast<WindowNode *>(node->getChildren()[0].get());
     const auto & window_step = *window_node->getStep();
 
-    auto * exchange_node = dynamic_cast<ExchangeNode *>(window_node->getChildren()[0].get());
-    const auto & exchange_step = *exchange_node->getStep();
+    // auto * exchange_node = dynamic_cast<ExchangeNode *>(window_node->getChildren()[0].get());
+    // const auto & exchange_step = *exchange_node->getStep();
 
-    if (dynamic_cast<PartitionTopNNode *>(exchange_node->getChildren()[0].get()))
-    {
-        return {};
-    }
+    // if (dynamic_cast<PartitionTopNNode *>(exchange_node->getChildren()[0].get()))
+    // {
+    //     return {};
+    // }
 
 
     if (const auto * func = predicate->as<ASTFunction>())

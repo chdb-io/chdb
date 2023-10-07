@@ -57,7 +57,7 @@ private:
     PlanNodePtr visitExceptNode(ExceptNode & node, NameSet & require) override;
     PlanNodePtr visitIntersectNode(IntersectNode & node, NameSet & require) override;
     PlanNodePtr visitAssignUniqueIdNode(AssignUniqueIdNode & node, NameSet & require) override;
-    PlanNodePtr visitExchangeNode(ExchangeNode & node, NameSet & require) override;
+    // PlanNodePtr visitExchangeNode(ExchangeNode & node, NameSet & require) override;
     PlanNodePtr visitCTERefNode(CTERefNode & node, NameSet & require) override;
     PlanNodePtr visitExplainAnalyzeNode(ExplainAnalyzeNode & node, NameSet & require) override;
     PlanNodePtr visitTopNFilteringNode(TopNFilteringNode & node, NameSet & require) override;

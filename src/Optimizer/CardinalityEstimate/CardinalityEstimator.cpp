@@ -163,16 +163,16 @@ PlanNodeStatisticsPtr CardinalityVisitor::visitExceptStep(const ExceptStep &, Ca
     return child_stats;
 }
 
-PlanNodeStatisticsPtr CardinalityVisitor::visitExchangeStep(const ExchangeStep & step, CardinalityContext & context)
-{
-    PlanNodeStatisticsPtr stats = ExchangeEstimator::estimate(context.children_stats, step);
-    return stats;
-}
+// PlanNodeStatisticsPtr CardinalityVisitor::visitExchangeStep(const ExchangeStep & step, CardinalityContext & context)
+// {
+//     PlanNodeStatisticsPtr stats = ExchangeEstimator::estimate(context.children_stats, step);
+//     return stats;
+// }
 
-PlanNodeStatisticsPtr CardinalityVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep &, CardinalityContext &)
-{
-    throw Exception("RemoteExchangeSourceNode should not run here", ErrorCodes::NOT_IMPLEMENTED);
-}
+// PlanNodeStatisticsPtr CardinalityVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep &, CardinalityContext &)
+// {
+//     throw Exception("RemoteExchangeSourceNode should not run here", ErrorCodes::NOT_IMPLEMENTED);
+// }
 
 PlanNodeStatisticsPtr CardinalityVisitor::visitTableScanStep(const TableScanStep & step, CardinalityContext & card_context)
 {

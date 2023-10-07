@@ -68,7 +68,7 @@ protected:
     DynamicFilterWithScanRows visitPlanNode(PlanNodeBase & node, ContextMutablePtr & dynamic_filters) override;
     DynamicFilterWithScanRows visitProjectionNode(ProjectionNode & node, ContextMutablePtr & dynamic_filters) override;
     DynamicFilterWithScanRows visitJoinNode(JoinNode & node, ContextMutablePtr & dynamic_filters) override;
-    DynamicFilterWithScanRows visitExchangeNode(ExchangeNode & node, ContextMutablePtr & context) override;
+    // DynamicFilterWithScanRows visitExchangeNode(ExchangeNode & node, ContextMutablePtr & context) override;
     DynamicFilterWithScanRows visitTableScanNode(TableScanNode & node, ContextMutablePtr & context) override;
     DynamicFilterWithScanRows visitCTERefNode(CTERefNode & node, ContextMutablePtr & context) override;
 
@@ -117,7 +117,7 @@ protected:
     PlanWithScanRows visitPlanNode(PlanNodeBase & plan, AllowedDynamicFilters & context) override;
     PlanWithScanRows visitFilterNode(FilterNode & node, AllowedDynamicFilters & context) override;
     PlanWithScanRows visitAggregatingNode(AggregatingNode & node, AllowedDynamicFilters &) override;
-    PlanWithScanRows visitExchangeNode(ExchangeNode & node, AllowedDynamicFilters &) override;
+    // PlanWithScanRows visitExchangeNode(ExchangeNode & node, AllowedDynamicFilters &) override;
     PlanWithScanRows visitJoinNode(JoinNode & node, AllowedDynamicFilters & context) override;
     PlanWithScanRows visitTableScanNode(TableScanNode & node, AllowedDynamicFilters & context) override;
     PlanWithScanRows visitCTERefNode(CTERefNode & node, AllowedDynamicFilters & context) override;
@@ -159,9 +159,9 @@ public:
     static PlanNodePtr rewrite(const PlanNodePtr & node, ContextMutablePtr context, CTEInfo & cte_info);
 
 protected:
-    explicit AddExchange(ContextMutablePtr context_, CTEInfo & cte_info_) : SimplePlanRewriter(context_, cte_info_) {}
+    // explicit AddExchange(ContextMutablePtr context_, CTEInfo & cte_info_) : SimplePlanRewriter(context_, cte_info_) {}
     PlanNodePtr visitPlanNode(PlanNodeBase & node, bool &) override;
-    PlanNodePtr visitExchangeNode(ExchangeNode & node, bool &) override;
+    // PlanNodePtr visitExchangeNode(ExchangeNode & node, bool &) override;
     PlanNodePtr visitFilterNode(FilterNode & node, bool & context) override;
 };
 

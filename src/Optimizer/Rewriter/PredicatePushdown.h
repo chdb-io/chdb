@@ -64,7 +64,7 @@ public:
     PlanNodePtr visitFilterNode(FilterNode &, PredicateContext &) override;
     PlanNodePtr visitAggregatingNode(AggregatingNode &, PredicateContext &) override;
     PlanNodePtr visitJoinNode(JoinNode &, PredicateContext &) override;
-    PlanNodePtr visitExchangeNode(ExchangeNode & node, PredicateContext & predicate_context) override;
+    // PlanNodePtr visitExchangeNode(ExchangeNode & node, PredicateContext & predicate_context) override;
     PlanNodePtr visitWindowNode(WindowNode &, PredicateContext &) override;
     PlanNodePtr visitMergeSortingNode(MergeSortingNode &, PredicateContext &) override;
     PlanNodePtr visitPartialSortingNode(PartialSortingNode &, PredicateContext &) override;
@@ -159,7 +159,7 @@ public:
     ASTPtr visitFilterNode(FilterNode &, ContextMutablePtr &) override;
     ASTPtr visitAggregatingNode(AggregatingNode &, ContextMutablePtr &) override;
     ASTPtr visitJoinNode(JoinNode &, ContextMutablePtr &) override;
-    ASTPtr visitExchangeNode(ExchangeNode &, ContextMutablePtr &) override;
+    // ASTPtr visitExchangeNode(ExchangeNode &, ContextMutablePtr &) override;
     ASTPtr visitWindowNode(WindowNode &, ContextMutablePtr &) override;
     ASTPtr visitMergeSortingNode(MergeSortingNode &, ContextMutablePtr &) override;
     ASTPtr visitUnionNode(UnionNode &, ContextMutablePtr &) override;

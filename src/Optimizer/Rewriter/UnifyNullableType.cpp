@@ -279,25 +279,25 @@ PlanNodePtr UnifyNullableVisitor::visitUnionNode(UnionNode & node, Void & v)
     return rewritten_node;
 }
 
-PlanNodePtr UnifyNullableVisitor::visitExchangeNode(ExchangeNode & node, Void & v)
-{
-    const auto & step = *node.getStep();
+// PlanNodePtr UnifyNullableVisitor::visitExchangeNode(ExchangeNode & node, Void & v)
+// {
+//     const auto & step = *node.getStep();
 
-    PlanNodes children;
-    DataStreams inputs;
-    for (auto & item : node.getChildren())
-    {
-        PlanNodePtr child = VisitorUtil::accept(*item, *this, v);
-        children.emplace_back(child);
-        inputs.emplace_back(child->getStep()->getOutputStream());
-    }
+//     PlanNodes children;
+//     DataStreams inputs;
+//     for (auto & item : node.getChildren())
+//     {
+//         PlanNodePtr child = VisitorUtil::accept(*item, *this, v);
+//         children.emplace_back(child);
+//         inputs.emplace_back(child->getStep()->getOutputStream());
+//     }
 
-    // update it's input/output stream types.
-    auto exchange_step_set_null = std::make_unique<ExchangeStep>(inputs, step.getExchangeMode(), step.getSchema(), step.needKeepOrder());
-    auto exchange_node_set_null
-        = ExchangeNode::createPlanNode(context->nextNodeId(), std::move(exchange_step_set_null), children, node.getStatistics());
-    return exchange_node_set_null;
-}
+//     // update it's input/output stream types.
+//     auto exchange_step_set_null = std::make_unique<ExchangeStep>(inputs, step.getExchangeMode(), step.getSchema(), step.needKeepOrder());
+//     auto exchange_node_set_null
+//         = ExchangeNode::createPlanNode(context->nextNodeId(), std::move(exchange_step_set_null), children, node.getStatistics());
+//     return exchange_node_set_null;
+// }
 
 PlanNodePtr UnifyNullableVisitor::visitPartialSortingNode(PartialSortingNode & node, Void & v)
 {

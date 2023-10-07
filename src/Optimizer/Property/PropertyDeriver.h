@@ -59,8 +59,8 @@ public:
     Property visitUnionStep(const UnionStep & step, DeriverContext & context) override;
     Property visitExceptStep(const ExceptStep &, DeriverContext & context) override;
     Property visitIntersectStep(const IntersectStep &, DeriverContext & context) override;
-    Property visitExchangeStep(const ExchangeStep & step, DeriverContext & context) override;
-    Property visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep &, DeriverContext & context) override;
+    // Property visitExchangeStep(const ExchangeStep & step, DeriverContext & context) override;
+    // Property visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep &, DeriverContext & context) override;
     Property visitTableScanStep(const TableScanStep &, DeriverContext &) override;
     Property visitReadNothingStep(const ReadNothingStep &, DeriverContext &) override;
     Property visitValuesStep(const ValuesStep &, DeriverContext &) override;

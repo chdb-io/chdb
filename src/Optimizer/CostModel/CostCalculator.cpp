@@ -119,16 +119,16 @@ PlanNodeCost CostVisitor::visitExceptStep(const ExceptStep & step, CostContext &
     return visitStep(step, context);
 }
 
-PlanNodeCost CostVisitor::visitExchangeStep(const ExchangeStep & step, CostContext & cost_context)
-{
-    return ExchangeCost::calculate(step, cost_context);
-}
+// PlanNodeCost CostVisitor::visitExchangeStep(const ExchangeStep & step, CostContext & cost_context)
+// {
+//     return ExchangeCost::calculate(step, cost_context);
+// }
 
 
-PlanNodeCost CostVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step, CostContext & context)
-{
-    return visitStep(step, context);
-}
+// PlanNodeCost CostVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step, CostContext & context)
+// {
+//     return visitStep(step, context);
+// }
 
 PlanNodeCost CostVisitor::visitTableScanStep(const TableScanStep & step, CostContext & context)
 {

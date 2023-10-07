@@ -80,7 +80,7 @@ public:
     PlanNodePtr visitExpressionNode(ExpressionNode &, Void &) override;
     PlanNodePtr visitExceptNode(ExceptNode &, Void &) override;
     PlanNodePtr visitExtremesNode(ExtremesNode &, Void &) override;
-    PlanNodePtr visitExchangeNode(ExchangeNode &, Void &) override;
+    // PlanNodePtr visitExchangeNode(ExchangeNode &, Void &) override;
     PlanNodePtr visitFillingNode(FillingNode &, Void &) override;
     PlanNodePtr visitFinalSampleNode(FinalSampleNode &, Void &) override;
     PlanNodePtr visitFinishSortingNode(FinishSortingNode &, Void &) override;
@@ -96,7 +96,7 @@ public:
     PlanNodePtr visitPartitionTopNNode(PartitionTopNNode &, Void &) override;
     PlanNodePtr visitPartialSortingNode(PartialSortingNode &, Void &) override;
     PlanNodePtr visitReadNothingNode(ReadNothingNode &, Void &) override;
-    PlanNodePtr visitRemoteExchangeSourceNode(RemoteExchangeSourceNode &, Void &) override;
+    // PlanNodePtr visitRemoteExchangeSourceNode(RemoteExchangeSourceNode &, Void &) override;
     PlanNodePtr visitTotalsHavingNode(TotalsHavingNode &, Void &) override;
     PlanNodePtr visitUnionNode(UnionNode &, Void &) override;
     PlanNodePtr visitValuesNode(ValuesNode &, Void &) override;

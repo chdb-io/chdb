@@ -174,7 +174,7 @@ public:
         ContextPtr context, const NamesAndTypesList & source, const Names & output, const ASTPtr & ast, bool add_project = true);
     static ActionsDAGPtr createExpressionActions(
         ContextPtr context, const NamesAndTypesList & source, const NamesWithAliases & output, const ASTPtr & ast, bool add_project = true);
-    static void projection(QueryPipeline & pipeline, const Block & target, const BuildQueryPipelineSettings & settings);
+    static void projection(QueryPipelineBuilder & pipeline, const Block & target, const BuildQueryPipelineSettings & settings);
     static void aliases(QueryPipeline & pipeline, const Block & target, const BuildQueryPipelineSettings & settings);
 
     const DataStreams & getInputStreams() const { return input_streams; }

@@ -1,5 +1,5 @@
 #pragma once
-#include <Interpreters/asof.h>
+#include <Core/Joins.h>
 #include <Optimizer/PredicateConst.h>
 #include <Parsers/ASTTablesInSelectQuery.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>

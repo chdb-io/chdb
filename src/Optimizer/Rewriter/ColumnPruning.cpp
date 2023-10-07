@@ -640,27 +640,27 @@ PlanNodePtr ColumnPruningVisitor::visitAssignUniqueIdNode(AssignUniqueIdNode & n
     return visitPlanNode(node, require);
 }
 
-PlanNodePtr ColumnPruningVisitor::visitExchangeNode(ExchangeNode & node, NameSet & require)
-{
-    const auto * step = node.getStep().get();
+// PlanNodePtr ColumnPruningVisitor::visitExchangeNode(ExchangeNode & node, NameSet & require)
+// {
+//     const auto * step = node.getStep().get();
 
-    if (require.empty())
-    {
-        require.insert(step->getOutputStream().header.getByPosition(0).name);
-    }
+//     if (require.empty())
+//     {
+//         require.insert(step->getOutputStream().header.getByPosition(0).name);
+//     }
 
-    PlanNodes children;
-    DataStreams input_streams;
-    for (auto & item : node.getChildren())
-    {
-        auto child = VisitorUtil::accept(item, *this, require);
-        children.emplace_back(child);
-        input_streams.emplace_back(child->getStep()->getOutputStream());
-    }
+//     PlanNodes children;
+//     DataStreams input_streams;
+//     for (auto & item : node.getChildren())
+//     {
+//         auto child = VisitorUtil::accept(item, *this, require);
+//         children.emplace_back(child);
+//         input_streams.emplace_back(child->getStep()->getOutputStream());
+//     }
 
-    auto exchange_step = std::make_shared<ExchangeStep>(std::move(input_streams), step->getExchangeMode(), step->getSchema(), step->needKeepOrder());
-    return ExchangeNode::createPlanNode(context->nextNodeId(), std::move(exchange_step), children, node.getStatistics());
-}
+//     auto exchange_step = std::make_shared<ExchangeStep>(std::move(input_streams), step->getExchangeMode(), step->getSchema(), step->needKeepOrder());
+//     return ExchangeNode::createPlanNode(context->nextNodeId(), std::move(exchange_step), children, node.getStatistics());
+// }
 
 PlanNodePtr ColumnPruningVisitor::visitCTERefNode(CTERefNode & node, NameSet & require)
 {

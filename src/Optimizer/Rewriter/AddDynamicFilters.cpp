@@ -79,10 +79,10 @@ DynamicFilterWithScanRows AddDynamicFilters::DynamicFilterExtractor::visitPlanNo
     return DynamicFilterWithScanRows{std::unordered_map<std::string, DynamicFilterId>{}, total_rows};
 }
 
-DynamicFilterWithScanRows AddDynamicFilters::DynamicFilterExtractor::visitExchangeNode(ExchangeNode & node, ContextMutablePtr & context)
-{
-    return VisitorUtil::accept(node.getChildren()[0], *this, context);
-}
+// DynamicFilterWithScanRows AddDynamicFilters::DynamicFilterExtractor::visitExchangeNode(ExchangeNode & node, ContextMutablePtr & context)
+// {
+//     return VisitorUtil::accept(node.getChildren()[0], *this, context);
+// }
 
 DynamicFilterWithScanRows AddDynamicFilters::DynamicFilterExtractor::visitProjectionNode(ProjectionNode & node, ContextMutablePtr & context)
 {
@@ -329,17 +329,17 @@ AddDynamicFilters::DynamicFilterPredicatesRewriter::visitAggregatingNode(Aggrega
     return visitPlanNode(node, context);
 }
 
-PlanWithScanRows AddDynamicFilters::DynamicFilterPredicatesRewriter::visitExchangeNode(
-    ExchangeNode & node, AllowedDynamicFilters & context)
-{
-    const auto * exchange = dynamic_cast<const ExchangeStep *>(node.getStep().get());
-    if (exchange->getExchangeMode() != ExchangeMode::UNKNOWN && exchange->getExchangeMode() != ExchangeMode::LOCAL_NO_NEED_REPARTITION
-        && exchange->getExchangeMode() != ExchangeMode::LOCAL_MAY_NEED_REPARTITION)
-    {
-        context.effective_dynamic_filters.insert(context.allowed_dynamic_filters.begin(), context.allowed_dynamic_filters.end());
-    }
-    return visitPlanNode(node, context);
-}
+// PlanWithScanRows AddDynamicFilters::DynamicFilterPredicatesRewriter::visitExchangeNode(
+//     ExchangeNode & node, AllowedDynamicFilters & context)
+// {
+//     const auto * exchange = dynamic_cast<const ExchangeStep *>(node.getStep().get());
+//     if (exchange->getExchangeMode() != ExchangeMode::UNKNOWN && exchange->getExchangeMode() != ExchangeMode::LOCAL_NO_NEED_REPARTITION
+//         && exchange->getExchangeMode() != ExchangeMode::LOCAL_MAY_NEED_REPARTITION)
+//     {
+//         context.effective_dynamic_filters.insert(context.allowed_dynamic_filters.begin(), context.allowed_dynamic_filters.end());
+//     }
+//     return visitPlanNode(node, context);
+// }
 
 PlanWithScanRows AddDynamicFilters::DynamicFilterPredicatesRewriter::visitJoinNode(JoinNode & plan, AllowedDynamicFilters & context)
 {
@@ -488,11 +488,11 @@ PlanNodePtr AddDynamicFilters::AddExchange::visitPlanNode(PlanNodeBase & node, b
     return SimplePlanRewriter::visitPlanNode(node, has_exchange);
 }
 
-PlanNodePtr AddDynamicFilters::AddExchange::visitExchangeNode(ExchangeNode & node, bool &)
-{
-    bool has_exchange = true;
-    return SimplePlanRewriter::visitPlanNode(node, has_exchange);
-}
+// PlanNodePtr AddDynamicFilters::AddExchange::visitExchangeNode(ExchangeNode & node, bool &)
+// {
+//     bool has_exchange = true;
+//     return SimplePlanRewriter::visitPlanNode(node, has_exchange);
+// }
 
 PlanNodePtr AddDynamicFilters::AddExchange::visitFilterNode(FilterNode & node, bool & has_exchange)
 {

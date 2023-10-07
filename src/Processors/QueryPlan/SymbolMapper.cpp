@@ -606,12 +606,12 @@ std::shared_ptr<ReadNothingStep> SymbolMapper::map(const ReadNothingStep & read_
         map(read_nothing.getOutputStream()).header);
 }
 
-std::shared_ptr<RemoteExchangeSourceStep> SymbolMapper::map(const RemoteExchangeSourceStep & remote_exchange)
-{
-    return std::make_shared<RemoteExchangeSourceStep>(
-        remote_exchange.getInput(),
-        map(remote_exchange.getInputStreams()[0]));
-}
+// std::shared_ptr<RemoteExchangeSourceStep> SymbolMapper::map(const RemoteExchangeSourceStep & remote_exchange)
+// {
+//     return std::make_shared<RemoteExchangeSourceStep>(
+//         remote_exchange.getInput(),
+//         map(remote_exchange.getInputStreams()[0]));
+// }
 
 
 std::shared_ptr<SortingStep> SymbolMapper::map(const SortingStep & sorting)

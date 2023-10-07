@@ -200,7 +200,7 @@ ActionsDAGPtr IQueryPlanStep::createExpressionActions(
     return createExpressionActions(context, source, names_with_aliases, ast, add_project);
 }
 
-void IQueryPlanStep::projection(QueryPipeline & pipeline, const Block & target, const BuildQueryPipelineSettings & settings)
+void IQueryPlanStep::projection(QueryPipelineBuilder & pipeline, const Block & target, const BuildQueryPipelineSettings & settings)
 {
     if (!blocksHaveEqualStructure(pipeline.getHeader(), target))
     {

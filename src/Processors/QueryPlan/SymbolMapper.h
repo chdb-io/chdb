@@ -64,6 +64,10 @@
 
 namespace DB
 {
+
+class JoinStep;
+class FilledJoinStep;
+
 using ASTPtr = std::shared_ptr<IAST>;
 
 // todo@kaixi: implement for all plan nodes

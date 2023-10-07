@@ -1,9 +1,19 @@
+#include <Interpreters/ConcurrentHashJoin.h>
+#include <Interpreters/GraceHashJoin.h>
+#include <Interpreters/HashJoin.h>
 #include <Interpreters/IJoin.h>
+#include <Interpreters/JoinSwitcher.h>
+#include <Interpreters/MergeJoin.h>
+// #include <Interpreters/NestedLoopJoin.h>
 #include <Interpreters/TableJoin.h>
+#include <Optimizer/PredicateUtils.h>
 #include <Processors/QueryPlan/JoinStep.h>
 #include <Processors/Transforms/JoiningTransform.h>
+#include <Processors/Transforms/FilterTransform.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
+#include <Common/logger_useful.h>
 #include <Common/typeid_cast.h>
+#include <Core/Joins.h>
 
 namespace DB
 {
@@ -16,7 +26,7 @@ namespace ErrorCodes
 JoinPtr JoinStep::makeJoin(ContextPtr context)
 {
     const auto & settings = context->getSettingsRef();
-    auto table_join = std::make_shared<TableJoin>(settings, context->getTempDataOnDisk());
+    auto table_join = std::make_shared<TableJoin>(settings, context->getTempDataOnDisk()->getVolume());
 
     // todo support storage join
     //    if (table_to_join.database_and_table_name)
@@ -83,7 +93,7 @@ JoinPtr JoinStep::makeJoin(ContextPtr context)
         table_join->table_join.kind = isCrossJoin() ? JoinKind::Inner : kind;
     }
 
-    bool allow_merge_join = table_join->allowMergeJoin();
+    bool allow_merge_join = MergeJoin::isSupported(table_join);
 
     /// HashJoin with Dictionary optimisation
     auto l_sample_block = input_streams[1].header;
@@ -91,13 +101,14 @@ JoinPtr JoinStep::makeJoin(ContextPtr context)
     String dict_name;
     String key_name;
     if (table_join->forceNestedLoopJoin())
-        return std::make_shared<NestedLoopJoin>(table_join, sample_block, context);
+        // return std::make_shared<NestedLoopJoin>(table_join, sample_block, context);
+        throw Exception("NestedLoopJoin is not supported", ErrorCodes::NOT_IMPLEMENTED);
     else if (table_join->forceHashJoin() || (table_join->preferMergeJoin() && !allow_merge_join))
     {
         if (table_join->allowParallelHashJoin() && join_algorithm == JoinAlgorithm::PARALLEL_HASH)
         {
             LOG_TRACE(&Poco::Logger::get("JoinStep::makeJoin"), "will use ConcurrentHashJoin");
-            return std::make_shared<ConcurrentHashJoin>(table_join, context->getSettings().max_threads, sample_block);
+            return std::make_shared<ConcurrentHashJoin>(context, table_join, context->getSettings().max_threads, sample_block);
         }
         return std::make_shared<HashJoin>(table_join, sample_block);
     }
@@ -207,7 +218,7 @@ QueryPipelineBuilderPtr JoinStep::updatePipeline(QueryPipelineBuilders pipelines
     }
 
     // if NestLoopJoin is choose, no need to add filter stream.
-    if (filter && !PredicateUtils::isTruePredicate(filter) && join->getType() != JoinType::NestedLoop)
+    if (filter && !PredicateUtils::isTruePredicate(filter) && join->getType() != JoinAlgorithm::NESTED_LOOP_JOIN)
     {
         Names output;
         auto header = pipeline->getHeader();
@@ -325,7 +336,7 @@ void FilledJoinStep::setInputStreams(const DataStreams & input_streams_)
     output_stream->header = JoiningTransform::transformHeader(input_streams_[0].header, join);
 }
 
-void FilledJoinStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
+void FilledJoinStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     bool default_totals = false;
     if (!pipeline.hasTotals() && join->getTotals())
@@ -341,7 +352,7 @@ void FilledJoinStep::transformPipeline(QueryPipelineBuilder & pipeline, const Bu
         bool on_totals = stream_type == QueryPipelineBuilder::StreamType::Totals;
         auto counter = on_totals ? nullptr : finish_counter;
         return std::make_shared<JoiningTransform>(
-            header, output_stream->header, join, max_block_size, on_totals, default_totals, join_parallel_left_right, counter);
+            header, output_stream->header, join, max_block_size, on_totals, default_totals, settings.context->getSettingsRef().join_parallel_left_right, counter);
     });
 }
 

@@ -25,7 +25,7 @@
 #include <Statistics/TypeUtils.h>
 #include <boost/noncopyable.hpp>
 #include <fmt/format.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 
 namespace DB::Statistics
 {

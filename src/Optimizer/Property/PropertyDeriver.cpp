@@ -422,10 +422,10 @@ Property DeriverVisitor::visitExchangeStep(const ExchangeStep & step, DeriverCon
     return context.getInput()[0].clearSorting();
 }
 
-Property DeriverVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep &, DeriverContext & context)
-{
-    return context.getInput()[0].clearSorting();
-}
+// Property DeriverVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep &, DeriverContext & context)
+// {
+//     return context.getInput()[0].clearSorting();
+// }
 
 Property DeriverVisitor::visitTableScanStep(const TableScanStep & step, DeriverContext & context)
 {

@@ -60,10 +60,10 @@ public:
             return Range{0, std::numeric_limits<size_t>::max()};
     }
 
-    Range visitExchangeNode(ExchangeNode & node, Void & context) override
-    {
-        return VisitorUtil::accept(node.getChildren()[0], *this, context);
-    }
+    // Range visitExchangeNode(ExchangeNode & node, Void & context) override
+    // {
+    //     return VisitorUtil::accept(node.getChildren()[0], *this, context);
+    // }
 
     Range visitFilterNode(FilterNode & node, Void & context) override
     {

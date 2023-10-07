@@ -57,8 +57,8 @@ public:
     PropertySets visitUnionStep(const UnionStep & step, DeterminerContext & context) override;
     PropertySets visitIntersectStep(const IntersectStep & node, DeterminerContext & context) override;
     PropertySets visitExceptStep(const ExceptStep & node, DeterminerContext & context) override;
-    PropertySets visitExchangeStep(const ExchangeStep & node, DeterminerContext & context) override;
-    PropertySets visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & node, DeterminerContext & context) override;
+    // PropertySets visitExchangeStep(const ExchangeStep & node, DeterminerContext & context) override;
+    // PropertySets visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & node, DeterminerContext & context) override;
     PropertySets visitTableScanStep(const TableScanStep &, DeterminerContext &) override;
     PropertySets visitReadNothingStep(const ReadNothingStep &, DeterminerContext &) override;
     PropertySets visitValuesStep(const ValuesStep &, DeterminerContext &) override;

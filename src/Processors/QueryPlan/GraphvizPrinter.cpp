@@ -23,7 +23,7 @@
 #include <Interpreters/convertFieldToType.h>
 #include <Parsers/formatAST.h>
 #include <Processors/Transforms/AggregatingTransform.h>
-#include <Processors/printPipeline.h>
+#include <QueryPipeline/printPipeline.h>
 #include <Processors/QueryPlan/AggregatingStep.h>
 #include <Processors/QueryPlan/ApplyStep.h>
 #include <Processors/QueryPlan/DistinctStep.h>
@@ -77,8 +77,8 @@ static std::unordered_map<IQueryPlanStep::Type, std::string> NODE_COLORS = {
     {IQueryPlanStep::Type::Union, "turquoise4"},
     {IQueryPlanStep::Type::Intersect, "turquoise4"},
     {IQueryPlanStep::Type::Except, "turquoise4"},
-    {IQueryPlanStep::Type::Exchange, "gold"},
-    {IQueryPlanStep::Type::RemoteExchangeSource, "gold"},
+    // {IQueryPlanStep::Type::Exchange, "gold"},
+    // {IQueryPlanStep::Type::RemoteExchangeSource, "gold"},
     {IQueryPlanStep::Type::TableScan, "deepskyblue"},
     {IQueryPlanStep::Type::ReadNothing, "deepskyblue"},
     {IQueryPlanStep::Type::Values, "deepskyblue"},
@@ -240,23 +240,23 @@ Void PlanNodePrinter::visitExceptNode(ExceptNode & node, PrinterContext & contex
     return visitChildren(node, context);
 }
 
-Void PlanNodePrinter::visitExchangeNode(ExchangeNode & node, PrinterContext & context)
-{
-    String label{"ExchangeNode"};
-    auto step = *node.getStep();
-    String color{NODE_COLORS[step.getType()]};
-    printNode(node, label, StepPrinter::printExchangeStep(step), color, context);
-    return visitChildren(node, context);
-}
+// Void PlanNodePrinter::visitExchangeNode(ExchangeNode & node, PrinterContext & context)
+// {
+//     String label{"ExchangeNode"};
+//     auto step = *node.getStep();
+//     String color{NODE_COLORS[step.getType()]};
+//     printNode(node, label, StepPrinter::printExchangeStep(step), color, context);
+//     return visitChildren(node, context);
+// }
 
-Void PlanNodePrinter::visitRemoteExchangeSourceNode(RemoteExchangeSourceNode & node, PrinterContext & context)
-{
-    auto step = *node.getStep();
-    String color{NODE_COLORS[step.getType()]};
-    String label{"RemoteExchangeSourceNode"};
-    printNode(node, label, StepPrinter::printRemoteExchangeSourceStep(step), color, context);
-    return visitChildren(node, context);
-}
+// Void PlanNodePrinter::visitRemoteExchangeSourceNode(RemoteExchangeSourceNode & node, PrinterContext & context)
+// {
+//     auto step = *node.getStep();
+//     String color{NODE_COLORS[step.getType()]};
+//     String label{"RemoteExchangeSourceNode"};
+//     printNode(node, label, StepPrinter::printRemoteExchangeSourceStep(step), color, context);
+//     return visitChildren(node, context);
+// }
 
 Void PlanNodePrinter::visitTableScanNode(TableScanNode & node, PrinterContext & context)
 {
@@ -709,25 +709,25 @@ Void PlanSegmentNodePrinter::visitExceptNode(QueryPlan::Node * node, PrinterCont
     return visitChildren(node, context);
 }
 
-Void PlanSegmentNodePrinter::visitExchangeNode(QueryPlan::Node * node, PrinterContext & context)
-{
-    auto & stepPtr = node->step;
-    String label{"ExchangeNode"};
-    auto & step = dynamic_cast<const ExchangeStep &>(*stepPtr);
-    String color{NODE_COLORS[stepPtr->getType()]};
-    printNode(node, label, StepPrinter::printExchangeStep(step), color, context);
-    return visitChildren(node, context);
-}
+// Void PlanSegmentNodePrinter::visitExchangeNode(QueryPlan::Node * node, PrinterContext & context)
+// {
+//     auto & stepPtr = node->step;
+//     String label{"ExchangeNode"};
+//     auto & step = dynamic_cast<const ExchangeStep &>(*stepPtr);
+//     String color{NODE_COLORS[stepPtr->getType()]};
+//     printNode(node, label, StepPrinter::printExchangeStep(step), color, context);
+//     return visitChildren(node, context);
+// }
 
-Void PlanSegmentNodePrinter::visitRemoteExchangeSourceNode(QueryPlan::Node * node, PrinterContext & context)
-{
-    auto & step_ptr = node->step;
-    auto & step = dynamic_cast<const RemoteExchangeSourceStep &>(*step_ptr);
-    String label{"RemoteExchangeSourceNode"};
-    String color{NODE_COLORS[step_ptr->getType()]};
-    printNode(node, label, StepPrinter::printRemoteExchangeSourceStep(step), color, context);
-    return visitChildren(node, context);
-}
+// Void PlanSegmentNodePrinter::visitRemoteExchangeSourceNode(QueryPlan::Node * node, PrinterContext & context)
+// {
+//     auto & step_ptr = node->step;
+//     auto & step = dynamic_cast<const RemoteExchangeSourceStep &>(*step_ptr);
+//     String label{"RemoteExchangeSourceNode"};
+//     String color{NODE_COLORS[step_ptr->getType()]};
+//     printNode(node, label, StepPrinter::printRemoteExchangeSourceStep(step), color, context);
+//     return visitChildren(node, context);
+// }
 
 Void PlanSegmentNodePrinter::visitTableScanNode(QueryPlan::Node * node, PrinterContext & context)
 {
@@ -994,17 +994,17 @@ Void PlanSegmentEdgePrinter::visitNode(QueryPlan::Node * node, std::unordered_ma
     return Void{};
 }
 
-Void PlanSegmentEdgePrinter::visitRemoteExchangeSourceNode(QueryPlan::Node * node, std::unordered_map<size_t, PlanSegmentPtr &> & context)
-{
-    auto * step = dynamic_cast<RemoteExchangeSourceStep *>(node->step.get());
-    for (const auto & input : step->getInput())
-    {
-        const size_t segment_id = input->getPlanSegmentId();
-        auto & plan_segment_ptr = context.at(segment_id);
-        printEdge(plan_segment_ptr->getQueryPlan().getRoot(), node);
-    }
-    return Void{};
-}
+// Void PlanSegmentEdgePrinter::visitRemoteExchangeSourceNode(QueryPlan::Node * node, std::unordered_map<size_t, PlanSegmentPtr &> & context)
+// {
+//     auto * step = dynamic_cast<RemoteExchangeSourceStep *>(node->step.get());
+//     for (const auto & input : step->getInput())
+//     {
+//         const size_t segment_id = input->getPlanSegmentId();
+//         auto & plan_segment_ptr = context.at(segment_id);
+//         printEdge(plan_segment_ptr->getQueryPlan().getRoot(), node);
+//     }
+//     return Void{};
+// }
 
 void PlanSegmentEdgePrinter::printEdge(QueryPlan::Node * from, QueryPlan::Node * to)
 {
@@ -1479,74 +1479,74 @@ String StepPrinter::printExceptStep(const ExceptStep & step)
     return details.str();
 }
 
-String StepPrinter::printExchangeStep(const ExchangeStep & step)
-{
-    std::stringstream details;
-    auto f = [](ExchangeMode mode) {
-        switch (mode)
-        {
-            case ExchangeMode::UNKNOWN:
-                return "UNKNOWN";
-            case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
-                return "LOCAL_NO_NEED_REPARTITION";
-            case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
-                return "LOCAL_MAY_NEED_REPARTITION";
-            case ExchangeMode::BROADCAST:
-                return "BROADCAST";
-            case ExchangeMode::REPARTITION:
-                return "REPARTITION";
-            case ExchangeMode::GATHER:
-                return "GATHER";
-        }
-    };
-    details << "ExchangeNode " << f(step.getExchangeMode());
-    if (step.needKeepOrder())
-    {
-        details << "|";
-        details << "Keep Order\\n";
-    }
-    details << "|";
-    details << "Shuffle Keys \\n";
-    for (const auto & column : step.getSchema().getPartitioningColumns())
-    {
-        details << column << " ";
-    }
-    details << "|";
-    details << "Output \\n";
-    for (const auto & column : step.getOutputStream().header)
-    {
-        details << column.name << ":";
-        details << column.type->getName() << "\\n";
-    }
-    return details.str();
-}
-String StepPrinter::printRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step)
-{
-    std::stringstream details;
-    details << "Input Segments:[ ";
-    auto inputs = step.getInput();
-    for (const auto & input : inputs)
-    {
-        const size_t segment_id = input->getPlanSegmentId();
-        details << segment_id << ":";
+// String StepPrinter::printExchangeStep(const ExchangeStep & step)
+// {
+//     std::stringstream details;
+//     auto f = [](ExchangeMode mode) {
+//         switch (mode)
+//         {
+//             case ExchangeMode::UNKNOWN:
+//                 return "UNKNOWN";
+//             case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
+//                 return "LOCAL_NO_NEED_REPARTITION";
+//             case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
+//                 return "LOCAL_MAY_NEED_REPARTITION";
+//             case ExchangeMode::BROADCAST:
+//                 return "BROADCAST";
+//             case ExchangeMode::REPARTITION:
+//                 return "REPARTITION";
+//             case ExchangeMode::GATHER:
+//                 return "GATHER";
+//         }
+//     };
+//     details << "ExchangeNode " << f(step.getExchangeMode());
+//     if (step.needKeepOrder())
+//     {
+//         details << "|";
+//         details << "Keep Order\\n";
+//     }
+//     details << "|";
+//     details << "Shuffle Keys \\n";
+//     for (const auto & column : step.getSchema().getPartitioningColumns())
+//     {
+//         details << column << " ";
+//     }
+//     details << "|";
+//     details << "Output \\n";
+//     for (const auto & column : step.getOutputStream().header)
+//     {
+//         details << column.name << ":";
+//         details << column.type->getName() << "\\n";
+//     }
+//     return details.str();
+// }
+// String StepPrinter::printRemoteExchangeSourceStep(const RemoteExchangeSourceStep & step)
+// {
+//     std::stringstream details;
+//     details << "Input Segments:[ ";
+//     auto inputs = step.getInput();
+//     for (const auto & input : inputs)
+//     {
+//         const size_t segment_id = input->getPlanSegmentId();
+//         details << segment_id << ":";
 
-        for (const auto & column : input->getHeader())
-        {
-            details << column.name << " ";
-        }
-        details << "\\n";
-    }
-    details << "]";
+//         for (const auto & column : input->getHeader())
+//         {
+//             details << column.name << " ";
+//         }
+//         details << "\\n";
+//     }
+//     details << "]";
 
-    details << "|";
-    details << "Output \\n";
-    for (const auto & column : step.getOutputStream().header)
-    {
-        details << column.name << ":";
-        details << column.type->getName() << "\\n";
-    }
-    return details.str();
-}
+//     details << "|";
+//     details << "Output \\n";
+//     for (const auto & column : step.getOutputStream().header)
+//     {
+//         details << column.name << ":";
+//         details << column.type->getName() << "\\n";
+//     }
+//     return details.str();
+// }
 
 String StepPrinter::printTableScanStep(const TableScanStep & step)
 {
@@ -3242,15 +3242,15 @@ String GraphvizPrinter::printGroup(const Group & group)
             // winner
             out << "<TD>";
 
-            if (winner->getRemoteExchange())
-            {
-                if (auto exchange_step = dynamic_cast<const ExchangeStep *>(winner->getRemoteExchange()->getStep().get()))
-                {
-                    out << "enforce: ";
-                    out << partition_str(exchange_step->getSchema());
-                    out << "<BR/>";
-                }
-            }
+            // if (winner->getRemoteExchange())
+            // {
+            //     if (auto exchange_step = dynamic_cast<const ExchangeStep *>(winner->getRemoteExchange()->getStep().get()))
+            //     {
+            //         out << "enforce: ";
+            //         out << partition_str(exchange_step->getSchema());
+            //         out << "<BR/>";
+            //     }
+            // }
             out << "actual: ";
             out << property_str(winner->getActual());
             out << "<BR/>";

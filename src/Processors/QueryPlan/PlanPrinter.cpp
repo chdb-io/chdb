@@ -266,15 +266,15 @@ String PlanPrinter::jsonLogicalPlan(QueryPlan & plan, bool print_stats, bool, co
 //     return os.str();
 // }
 
-void PlanPrinter::getRemoteSegmentId(const QueryPlan::Node * node, std::unordered_map<PlanNodeId, size_t> & exchange_to_segment)
-{
-    auto * step = dynamic_cast<RemoteExchangeSourceStep *>(node->step.get());
-    if (step)
-        exchange_to_segment[node->id] = step->getInput()[0]->getPlanSegmentId();
+// void PlanPrinter::getRemoteSegmentId(const QueryPlan::Node * node, std::unordered_map<PlanNodeId, size_t> & exchange_to_segment)
+// {
+//     auto * step = dynamic_cast<RemoteExchangeSourceStep *>(node->step.get());
+//     if (step)
+//         exchange_to_segment[node->id] = step->getInput()[0]->getPlanSegmentId();
 
-    for (const auto & child : node->children)
-        getRemoteSegmentId(child, exchange_to_segment);
-}
+//     for (const auto & child : node->children)
+//         getRemoteSegmentId(child, exchange_to_segment);
+// }
 
 std::unordered_map<PlanNodeId, PlanNodePtr> PlanPrinter::getPlanNodeMap(const QueryPlan & query_plan)
 {
@@ -384,7 +384,8 @@ String PlanPrinter::TextPrinter::printLogicalPlan(PlanNodeBase & plan, const Tex
             << printDetail(plan.getStep(), intent) << "\n";
     }
 
-    if ((step->getType() == IQueryPlanStep::Type::CTERef || step->getType() == IQueryPlanStep::Type::Exchange) && is_distributed)
+    // if ((step->getType() == IQueryPlanStep::Type::CTERef || step->getType() == IQueryPlanStep::Type::Exchange) && is_distributed)
+    if (step->getType() == IQueryPlanStep::Type::CTERef && is_distributed)
         return out.str();
 
     for (auto it = plan.getChildren().begin(); it != plan.getChildren().end();)
@@ -392,7 +393,8 @@ String PlanPrinter::TextPrinter::printLogicalPlan(PlanNodeBase & plan, const Tex
         auto child = *it++;
         bool last = it == plan.getChildren().end();
         bool has_children = !child->getChildren().empty();
-        if ((child->getStep()->getType() == IQueryPlanStep::Type::CTERef || child->getStep()->getType() == IQueryPlanStep::Type::Exchange) && is_distributed)
+        // if ((child->getStep()->getType() == IQueryPlanStep::Type::CTERef || child->getStep()->getType() == IQueryPlanStep::Type::Exchange) && is_distributed)
+        if (child->getStep()->getType() == IQueryPlanStep::Type::CTERef && is_distributed)
             has_children = false;
 
         out << printLogicalPlan(*child, intent.forChild(last, has_children), profiles);
@@ -575,27 +577,27 @@ String PlanPrinter::TextPrinter::printQError(PlanNodeBase & plan, const TextPrin
 
 String PlanPrinter::TextPrinter::printPrefix(PlanNodeBase & plan)
 {
-    if (plan.getStep()->getType() == IQueryPlanStep::Type::Exchange)
-    {
-        const auto * exchange = dynamic_cast<const ExchangeStep *>(plan.getStep().get());
-        auto f = [](ExchangeMode mode) {
-            switch (mode)
-            {
-                case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
-                case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
-                    return "Local ";
-                case ExchangeMode::BROADCAST:
-                    return "Broadcast ";
-                case ExchangeMode::REPARTITION:
-                    return "Repartition ";
-                case ExchangeMode::GATHER:
-                    return "Gather ";
-                default:
-                    return "";
-            }
-        };
-        return f(exchange->getExchangeMode());
-    }
+    // if (plan.getStep()->getType() == IQueryPlanStep::Type::Exchange)
+    // {
+    //     const auto * exchange = dynamic_cast<const ExchangeStep *>(plan.getStep().get());
+    //     auto f = [](ExchangeMode mode) {
+    //         switch (mode)
+    //         {
+    //             case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
+    //             case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
+    //                 return "Local ";
+    //             case ExchangeMode::BROADCAST:
+    //                 return "Broadcast ";
+    //             case ExchangeMode::REPARTITION:
+    //                 return "Repartition ";
+    //             case ExchangeMode::GATHER:
+    //                 return "Gather ";
+    //             default:
+    //                 return "";
+    //         }
+    //     };
+    //     return f(exchange->getExchangeMode());
+    // }
 
     if (plan.getStep()->getType() == IQueryPlanStep::Type::Join)
     {
@@ -635,10 +637,10 @@ String PlanPrinter::TextPrinter::printSuffix(PlanNodeBase & plan)
         const auto * table_scan = dynamic_cast<const TableScanStep *>(plan.getStep().get());
         out << " " << table_scan->getDatabase() << "." << table_scan->getOriginalTable();
     }
-    else if (plan.getStep()->getType() == IQueryPlanStep::Type::Exchange && segment_id != -1)
-    {
-        out << " segment[" << exchange_to_segment.at(plan.getId()) << "]";
-    }
+    // else if (plan.getStep()->getType() == IQueryPlanStep::Type::Exchange && segment_id != -1)
+    // {
+    //     out << " segment[" << exchange_to_segment.at(plan.getId()) << "]";
+    // }
     else if (plan.getStep()->getType() == IQueryPlanStep::Type::CTERef)
     {
         const auto *cte = dynamic_cast<const CTERefStep *>(plan.getStep().get());
@@ -713,16 +715,16 @@ String PlanPrinter::TextPrinter::printDetail(QueryPlanStepPtr plan, const TextPr
             out << intent.detailIntent() << "Aggregates: " << join(aggregates, ", ");
     }
 
-    if (verbose && plan->getType() == IQueryPlanStep::Type::Exchange)
-    {
-        const auto * exchange = dynamic_cast<const ExchangeStep *>(plan.get());
-        if (exchange->getExchangeMode() == ExchangeMode::REPARTITION)
-        {
-            auto keys = exchange->getSchema().getPartitioningColumns();
-            std::sort(keys.begin(), keys.end());
-            out << intent.detailIntent() << "Partition by: " << join(keys, ", ", "{", "}");
-        }
-    }
+    // if (verbose && plan->getType() == IQueryPlanStep::Type::Exchange)
+    // {
+    //     const auto * exchange = dynamic_cast<const ExchangeStep *>(plan.get());
+    //     if (exchange->getExchangeMode() == ExchangeMode::REPARTITION)
+    //     {
+    //         auto keys = exchange->getSchema().getPartitioningColumns();
+    //         std::sort(keys.begin(), keys.end());
+    //         out << intent.detailIntent() << "Partition by: " << join(keys, ", ", "{", "}");
+    //     }
+    // }
 
     if (verbose && plan->getType() == IQueryPlanStep::Type::Filter)
     {
@@ -939,32 +941,32 @@ void PlanPrinter::JsonPrinter::detail(Poco::JSON::Object::Ptr & json, QueryPlanS
         json->set("groupKeys", keys);
     }
 
-    if (plan->getType() == IQueryPlanStep::Type::Exchange)
-    {
-        const auto * exchange = dynamic_cast<const ExchangeStep *>(plan.get());
-        Poco::JSON::Array keys;
-        for (const auto & item : (exchange->getSchema().getPartitioningColumns()))
-            keys.add(item);
-        json->set("partitionKeys", keys);
+    // if (plan->getType() == IQueryPlanStep::Type::Exchange)
+    // {
+    //     const auto * exchange = dynamic_cast<const ExchangeStep *>(plan.get());
+    //     Poco::JSON::Array keys;
+    //     for (const auto & item : (exchange->getSchema().getPartitioningColumns()))
+    //         keys.add(item);
+    //     json->set("partitionKeys", keys);
 
-        auto f = [](ExchangeMode mode) {
-            switch (mode)
-            {
-                case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
-                case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
-                    return "local";
-                case ExchangeMode::BROADCAST:
-                    return "broadcast";
-                case ExchangeMode::REPARTITION:
-                    return "repartition";
-                case ExchangeMode::GATHER:
-                    return "gather";
-                default:
-                    return "";
-            }
-        };
-        json->set("mode", f(exchange->getExchangeMode()));
-    }
+    //     auto f = [](ExchangeMode mode) {
+    //         switch (mode)
+    //         {
+    //             case ExchangeMode::LOCAL_NO_NEED_REPARTITION:
+    //             case ExchangeMode::LOCAL_MAY_NEED_REPARTITION:
+    //                 return "local";
+    //             case ExchangeMode::BROADCAST:
+    //                 return "broadcast";
+    //             case ExchangeMode::REPARTITION:
+    //                 return "repartition";
+    //             case ExchangeMode::GATHER:
+    //                 return "gather";
+    //             default:
+    //                 return "";
+    //         }
+    //     };
+    //     json->set("mode", f(exchange->getExchangeMode()));
+    // }
 
     if (plan->getType() == IQueryPlanStep::Type::Filter)
     {

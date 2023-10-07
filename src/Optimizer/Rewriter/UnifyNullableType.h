@@ -53,7 +53,7 @@ public:
     PlanNodePtr visitAggregatingNode(AggregatingNode &, Void &) override;
     PlanNodePtr visitWindowNode(WindowNode &, Void &) override;
     PlanNodePtr visitUnionNode(UnionNode &, Void &) override;
-    PlanNodePtr visitExchangeNode(ExchangeNode &, Void &) override;
+    // PlanNodePtr visitExchangeNode(ExchangeNode &, Void &) override;
     PlanNodePtr visitPartialSortingNode(PartialSortingNode &, Void &) override;
     PlanNodePtr visitMergeSortingNode(MergeSortingNode &, Void &) override;
     PlanNodePtr visitLimitNode(LimitNode &, Void &) override;

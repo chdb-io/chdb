@@ -24,7 +24,7 @@
 #include <Statistics/CatalogAdaptor.h>
 #include <Statistics/CollectorSettings.h>
 #include <Statistics/StatisticsCollectorObjects.h>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 
 namespace DB::Statistics
 {

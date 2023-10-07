@@ -112,8 +112,8 @@ inline PatternBuilder mergingAggregated() { return typeOf(IQueryPlanStep::Type::
 inline PatternBuilder unionn() { return typeOf(IQueryPlanStep::Type::Union); }
 inline PatternBuilder intersect() { return typeOf(IQueryPlanStep::Type::Intersect); }
 inline PatternBuilder except() { return typeOf(IQueryPlanStep::Type::Except); }
-inline PatternBuilder exchange() { return typeOf(IQueryPlanStep::Type::Exchange); }
-inline PatternBuilder remoteSource() { return typeOf(IQueryPlanStep::Type::RemoteExchangeSource); }
+// inline PatternBuilder exchange() { return typeOf(IQueryPlanStep::Type::Exchange); }
+// inline PatternBuilder remoteSource() { return typeOf(IQueryPlanStep::Type::RemoteExchangeSource); }
 inline PatternBuilder tableScan() { return typeOf(IQueryPlanStep::Type::TableScan); }
 inline PatternBuilder readNothing() { return typeOf(IQueryPlanStep::Type::ReadNothing); }
 inline PatternBuilder limit() { return typeOf(IQueryPlanStep::Type::Limit); }

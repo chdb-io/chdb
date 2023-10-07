@@ -1014,9 +1014,9 @@ ScopePtr QueryAnalyzerVisitor::analyzeJoinOn(
                 size_t table_for_left = choose_table_for_dependencies(left_dependencies);
                 size_t table_for_right = choose_table_for_dependencies(right_dependencies);
 
-                using namespace ASOF;
+                // using namespace ASOF;
 
-                auto add_join_exprs = [&](const ASTPtr & left_ast, const ASTPtr & right_ast, Inequality inequality)
+                auto add_join_exprs = [&](const ASTPtr & left_ast, const ASTPtr & right_ast, ASOFJoinInequality inequality)
                 {
                     DataTypePtr left_coercion = nullptr;
                     DataTypePtr right_coercion = nullptr;
@@ -1066,9 +1066,9 @@ ScopePtr QueryAnalyzerVisitor::analyzeJoinOn(
                 };
 
                 if (table_for_left == 1 && table_for_right == 2)
-                    add_join_exprs(left_arg, right_arg, getInequality(func->name));
+                    add_join_exprs(left_arg, right_arg, getASOFJoinInequality(func->name));
                 else if (table_for_left == 2 && table_for_right == 1)
-                    add_join_exprs(right_arg, left_arg, reverseInequality(getInequality(func->name)));
+                    add_join_exprs(right_arg, left_arg, reverseASOFJoinInequality(getASOFJoinInequality(func->name)));
             }
 
             if (!is_join_expr)

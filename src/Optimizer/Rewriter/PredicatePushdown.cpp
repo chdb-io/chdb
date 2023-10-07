@@ -747,10 +747,10 @@ PredicateVisitor::DynamicFilterResult PredicateVisitor::createDynamicFilters(con
     return DynamicFilterResult{dynamic_filters, executors};
 }
 
-PlanNodePtr PredicateVisitor::visitExchangeNode(ExchangeNode & node, PredicateContext & predicate_context)
-{
-    return processChild(node, predicate_context);
-}
+// PlanNodePtr PredicateVisitor::visitExchangeNode(ExchangeNode & node, PredicateContext & predicate_context)
+// {
+//     return processChild(node, predicate_context);
+// }
 
 PlanNodePtr PredicateVisitor::visitWindowNode(WindowNode & node, PredicateContext & predicate_context)
 {
@@ -1499,10 +1499,10 @@ ASTPtr EffectivePredicateVisitor::visitJoinNode(JoinNode &, ContextMutablePtr &)
     return PredicateConst::TRUE_VALUE;
 }
 
-ASTPtr EffectivePredicateVisitor::visitExchangeNode(ExchangeNode &, ContextMutablePtr &)
-{
-    return PredicateConst::TRUE_VALUE;
-}
+// ASTPtr EffectivePredicateVisitor::visitExchangeNode(ExchangeNode &, ContextMutablePtr &)
+// {
+//     return PredicateConst::TRUE_VALUE;
+// }
 
 ASTPtr EffectivePredicateVisitor::visitWindowNode(WindowNode & node, ContextMutablePtr & context)
 {

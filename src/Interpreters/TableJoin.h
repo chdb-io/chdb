@@ -235,7 +235,20 @@ public:
         return join_algorithm.isSet(val);
     }
 
+    bool allowMergeJoin() const;
+    // bool allowDictJoin(const String & dict_key, const Block & sample_block, Names &, NamesAndTypesList &) const;
+    void setJoinAlgorithm(JoinAlgorithm join_algorithm_) { join_algorithm.set(join_algorithm_); }
+    bool preferMergeJoin() const { return join_algorithm.isSet(JoinAlgorithm::PREFER_PARTIAL_MERGE); }
+    bool forceMergeJoin() const { return join_algorithm.isSet(JoinAlgorithm::PARTIAL_MERGE); }
+    bool forceNestedLoopJoin() const { return join_algorithm.isSet(JoinAlgorithm::NESTED_LOOP_JOIN); }
     bool allowParallelHashJoin() const;
+    bool forceGraceHashLoopJoin() const { return join_algorithm.isSet(JoinAlgorithm::GRACE_HASH); }
+    bool forceHashJoin() const
+    {
+        /// HashJoin always used for DictJoin
+        // return dictionary_reader || join_algorithm.isSet(JoinAlgorithm::HASH) || join_algorithm.isSet(JoinAlgorithm::PARALLEL_HASH);
+        return join_algorithm.isSet(JoinAlgorithm::HASH) || join_algorithm.isSet(JoinAlgorithm::PARALLEL_HASH);
+    }
 
     bool joinUseNulls() const { return join_use_nulls; }
 

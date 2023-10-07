@@ -27,7 +27,7 @@
 #include <Statistics/SubqueryHelper.h>
 #include <Statistics/TypeUtils.h>
 #include <boost/algorithm/string/join.hpp>
-#include <common/logger_useful.h>
+#include <Common/logger_useful.h>
 
 namespace DB::Statistics
 {

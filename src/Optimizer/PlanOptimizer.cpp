@@ -19,7 +19,7 @@
 #include <Optimizer/Iterative/IterativeRewriter.h>
 #include <Optimizer/PlanCheck.h>
 #include <Optimizer/Rewriter/AddDynamicFilters.h>
-#include <Optimizer/Rewriter/AddExchange.h>
+// #include <Optimizer/Rewriter/AddExchange.h>
 #include <Optimizer/Rewriter/ColumnPruning.h>
 #include <Optimizer/Rewriter/MaterializedViewRewriter.h>
 #include <Optimizer/Rewriter/PredicatePushdown.h>

@@ -234,15 +234,15 @@ PropertySets DeterminerVisitor::visitExceptStep(const ExceptStep & node, Determi
     return visitStep(node, context);
 }
 
-PropertySets DeterminerVisitor::visitExchangeStep(const ExchangeStep & node, DeterminerContext & context)
-{
-    return visitStep(node, context);
-}
+// PropertySets DeterminerVisitor::visitExchangeStep(const ExchangeStep & node, DeterminerContext & context)
+// {
+//     return visitStep(node, context);
+// }
 
-PropertySets DeterminerVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & node, DeterminerContext & context)
-{
-    return visitStep(node, context);
-}
+// PropertySets DeterminerVisitor::visitRemoteExchangeSourceStep(const RemoteExchangeSourceStep & node, DeterminerContext & context)
+// {
+//     return visitStep(node, context);
+// }
 
 PropertySets DeterminerVisitor::visitTableScanStep(const TableScanStep &, DeterminerContext &)
 {

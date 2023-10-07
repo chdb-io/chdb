@@ -20,7 +20,7 @@
 #include <Analyzers/SubColumnID.h>
 #include <Analyzers/ResolvedWindow.h>
 #include <AggregateFunctions/IAggregateFunction.h>
-#include <Interpreters/asof.h>
+#include <Core/Joins.h>
 #include <Optimizer/Utils.h>
 #include <Parsers/ASTSubquery.h>
 #include <Parsers/ASTFunction.h>

@@ -68,7 +68,7 @@ public:
     const PropertySet & getRequireChildren() const { return require_children; }
     const Property & getActualProperty() const { return actual; }
 
-    const GroupExprPtr & getRemoteExchange() const { return remote_exchange; }
+    // const GroupExprPtr & getRemoteExchange() const { return remote_exchange; }
     const GroupExprPtr & getLocalExchange() const { return local_exchange; }
     const Property & getActual() const { return actual; }
 

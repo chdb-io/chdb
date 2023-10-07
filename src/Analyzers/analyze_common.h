@@ -16,7 +16,7 @@
 #pragma once
 
 #include <Analyzers/Analysis.h>
-#include <Interpreters/asof.h>
+#include <Core/Joins.h>
 #include <Parsers/ASTSelectQuery.h>
 #include <Parsers/ASTFunction.h>
 #include <Parsers/ASTLiteral.h>

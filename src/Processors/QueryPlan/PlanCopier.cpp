@@ -178,10 +178,10 @@ PlanNodePtr PlanCopierVisitor::visitExpressionNode(ExpressionNode & node, Void &
     return ExpressionNode::createPlanNode(id_allocator->nextId(), step);
 }
 
-PlanNodePtr PlanCopierVisitor::visitExchangeNode(ExchangeNode & node, Void &) {
-    auto step = symbol_mapper.map(*node.getStep());
-    return ExchangeNode::createPlanNode(id_allocator->nextId(), step);
-}
+// PlanNodePtr PlanCopierVisitor::visitExchangeNode(ExchangeNode & node, Void &) {
+//     auto step = symbol_mapper.map(*node.getStep());
+//     return ExchangeNode::createPlanNode(id_allocator->nextId(), step);
+// }
 
 PlanNodePtr PlanCopierVisitor::visitExceptNode(ExceptNode & node, Void &)
 {
@@ -261,11 +261,11 @@ PlanNodePtr PlanCopierVisitor::visitPartialSortingNode(PartialSortingNode & node
     return PartialSortingNode::createPlanNode(id_allocator->nextId(), step);
 } 
 
-PlanNodePtr PlanCopierVisitor::visitRemoteExchangeSourceNode(RemoteExchangeSourceNode & node, Void &) 
-{
-    auto step = symbol_mapper.map(*node.getStep());
-    return RemoteExchangeSourceNode::createPlanNode(id_allocator->nextId(), step);
-} 
+// PlanNodePtr PlanCopierVisitor::visitRemoteExchangeSourceNode(RemoteExchangeSourceNode & node, Void &) 
+// {
+//     auto step = symbol_mapper.map(*node.getStep());
+//     return RemoteExchangeSourceNode::createPlanNode(id_allocator->nextId(), step);
+// } 
 
 PlanNodePtr PlanCopierVisitor::visitReadNothingNode(ReadNothingNode & node, Void &)
 {
