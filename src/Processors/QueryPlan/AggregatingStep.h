@@ -67,6 +67,8 @@ public:
     void describePipeline(FormatSettings & settings) const override;
 
     const Aggregator::Params & getParams() const { return params; }
+    const AggregateDescriptions & getAggregates() const { return params.aggregates; }
+    const Names & getKeys() const { return params.keys; }
 
     const auto & getGroupingSetsParamsList() const { return grouping_sets_params; }
 

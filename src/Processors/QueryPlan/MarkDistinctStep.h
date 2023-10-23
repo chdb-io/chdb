@@ -1,7 +1,7 @@
 #pragma once
 
 #include <Core/NameToType.h>
-#include <Optimizer/DynamicFilters.h>
+// #include <Optimizer/DynamicFilters.h>
 #include <Processors/QueryPlan/Assignment.h>
 #include <Processors/QueryPlan/ITransformingStep.h>
 

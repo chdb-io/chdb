@@ -16,7 +16,7 @@
 #pragma once
 #include <string_view>
 #include <Core/Types.h>
-#include <common/StringRef.h>
+#include <Common/StringRef.h>
 
 namespace DB::Statistics
 {

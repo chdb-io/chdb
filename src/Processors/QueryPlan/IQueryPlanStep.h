@@ -113,7 +113,6 @@ public:
     M(FilledJoin) \
     M(Filter) \
     M(FinalSample) \
-    M(FinishSorting) \
     M(ISource) \
     M(ITransforming) \
     M(Intersect) \

@@ -16,15 +16,15 @@
 #include <Processors/QueryPlan/TableScanStep.h>
 
 #include <Formats/FormatSettings.h>
-#include <Functions/FunctionsInBloomFilter.h>
+// #include <Functions/FunctionsInBloomFilter.h>
 #include <Interpreters/ActionsVisitor.h>
 #include <Interpreters/InterpreterSelectQuery.h>
 #include <Interpreters/TableJoin.h>
 #include <Interpreters/convertFieldToType.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Interpreters/misc.h>
-#include <MergeTreeCommon/CnchBucketTableCommon.h>
-#include <Optimizer/DynamicFilters.h>
+// #include <MergeTreeCommon/CnchBucketTableCommon.h>
+// #include <Optimizer/DynamicFilters.h>
 #include <Optimizer/PredicateUtils.h>
 #include <Optimizer/SymbolTransformMap.h>
 #include <Optimizer/Rule/Rewrite/PushIntoTableScanRules.h>
@@ -42,9 +42,9 @@
 #include <Storages/IStorage_fwd.h>
 #include <Storages/MergeTree/MergeTreeWhereOptimizer.h>
 #include <Storages/VirtualColumnUtils.h>
-#include <Storages/StorageCloudMergeTree.h>
-#include <Storages/StorageCnchMergeTree.h>
-#include <Storages/StorageCnchHive.h>
+// #include <Storages/StorageCloudMergeTree.h>
+// #include <Storages/StorageCnchMergeTree.h>
+// #include <Storages/StorageCnchHive.h>
 #include <Storages/StorageDistributed.h>
 #include <Storages/StorageReplicatedMergeTree.h>
 #include <Storages/VirtualColumnUtils.h>
@@ -216,11 +216,18 @@ namespace _scan_execute_impl
             if (!data_part_columns.contains(column.name))
                 missing_columns.push_back(column);
 
-        for (size_t i = 0; i < projection_desc.column_names.size(); ++i)
+        // for (size_t i = 0; i < projection_desc.column_names.size(); ++i)
+        // {
+        //     // clone AST first since `addTranslation` will modify the AST
+        //     column_translation.addTranslation(projection_desc.column_asts[i]->clone(), projection_desc.column_names[i]);
+        //     column_types.emplace(projection_desc.column_names[i], projection_desc.data_types[i]);
+        // }
+        size_t i = 0;
+        for (const auto & column : projection_desc.metadata->getColumns())
         {
-            // clone AST first since `addTranslation` will modify the AST
-            column_translation.addTranslation(projection_desc.column_asts[i]->clone(), projection_desc.column_names[i]);
-            column_types.emplace(projection_desc.column_names[i], projection_desc.data_types[i]);
+            column_translation.addTranslation(projection_desc.column_asts[i]->clone(), column.name);
+            column_types.emplace(column.name, column.type);
+            ++i;
         }
     }
 
@@ -246,19 +253,20 @@ namespace _scan_execute_impl
 
         if (query_info.prewhere_info)
         {
-            auto & prewhere_info = query_info.prewhere_info;
-            prewhere_actions = prewhere_info->prewhere_actions->clone();
-            prewhere_actions->foldActionsByProjection(
-                required_column_set, projection_desc.sample_block_for_keys, prewhere_info->prewhere_column_name, false);
+            throw Exception(ErrorCodes::ILLEGAL_PREWHERE, "Prewhere is not supported in projection selection");
+            // auto & prewhere_info = query_info.prewhere_info;
+            // prewhere_actions = prewhere_info->prewhere_actions->clone();
+            // prewhere_actions->foldActionsByProjection(
+            //     required_column_set, projection_desc.sample_block_for_keys, prewhere_info->prewhere_column_name, false);
 
-            // This is hacky. Since `query_info.query` is not the original query, `prewhere_actions` may prune off
-            // columns mistakenly. Here, we add used required columns back.
-            // For example. projection desc: SELECT toDate(at), count() GROUP BY toDate(at)
-            // query: SELECT toDate(at), count() PREWHERE toDate(at) = '2022-01-01' GROUP BY toDate(at)
-            auto & index = prewhere_actions->getIndex();
-            for (const auto & input: prewhere_actions->getInputs())
-                if (std::find(index.begin(), index.end(), input) == index.end())
-                    index.emplace_back(input);
+            // // This is hacky. Since `query_info.query` is not the original query, `prewhere_actions` may prune off
+            // // columns mistakenly. Here, we add used required columns back.
+            // // For example. projection desc: SELECT toDate(at), count() GROUP BY toDate(at)
+            // // query: SELECT toDate(at), count() PREWHERE toDate(at) = '2022-01-01' GROUP BY toDate(at)
+            // auto & index = prewhere_actions->getIndex();
+            // for (const auto & input: prewhere_actions->getInputs())
+            //     if (std::find(index.begin(), index.end(), input) == index.end())
+            //         index.emplace_back(input);
         }
 
         return ExecutePlanElement {
@@ -342,7 +350,7 @@ private:
 
     StoragePtr storage;
     StorageMetadataPtr storage_metadata;
-    const MergeTreeMetaBase & merge_tree_data;
+    const MergeTreeData & merge_tree_data;
     MergeTreeDataSelectExecutor merge_tree_reader;
     const SelectQueryInfo & select_query_info;
     ContextPtr context;
@@ -361,7 +369,8 @@ private:
 TableScanExecutor::TableScanExecutor(TableScanStep & step, ContextPtr context_)
     : storage(step.getStorage())
     , storage_metadata(storage->getInMemoryMetadataPtr())
-    , merge_tree_data(dynamic_cast<const MergeTreeMetaBase &>(*storage))
+    // , merge_tree_data(dynamic_cast<const MergeTreeMetaBase &>(*storage))
+    , merge_tree_data(dynamic_cast<const MergeTreeData &>(*storage))
     , merge_tree_reader(merge_tree_data)
     , select_query_info(step.getQueryInfo())
     , context(std::move(context_))
@@ -433,7 +442,8 @@ ExecutePlan TableScanExecutor::buildExecutePlan()
 
     PartGroups part_groups;
     {
-        auto parts = merge_tree_data.getDataPartsVector();
+        MergeTreeData::DataPartStateVector out_states{MergeTreeData::DataPartState::Active};
+        auto parts = merge_tree_data.getAllDataPartsVector(&out_states);
         parts.erase(std::remove_if(parts.begin(), parts.end(), [](auto & part) { return part->info.isFakeDropRangePart(); }), parts.end());
 
         LOG_DEBUG(log, "Num of parts before part pruning: {}", std::to_string(parts.size()));
@@ -526,7 +536,7 @@ ExecutePlan TableScanExecutor::buildExecutePlan()
             "data input pipeline with projection(summary): total {} parts, total {} marks, "
             "{} normal parts, {} projection parts, {} marks of normal parts, {} marks of projection parts",
             total_parts, total_marks, normal_parts, projection_parts, marks_of_normal_parts, marks_of_projection_parts);
-        LOG_DEBUG(log, str);
+        LOG_DEBUG(log, "{}", str);
 
         str = "data input pipeline with projection(detail): ";
         for (const auto & e: execute_plan)
@@ -534,7 +544,7 @@ ExecutePlan TableScanExecutor::buildExecutePlan()
             str.push_back('\n');
             str.append(e.toString());
         }
-        LOG_DEBUG(log, str);
+        LOG_DEBUG(log, "{}", str);
     }
 
     return execute_plan;
@@ -626,10 +636,12 @@ bool TableScanExecutor::match(ProjectionMatchContext & candidate) const
 MergeTreeDataSelectAnalysisResultPtr TableScanExecutor::estimateReadMarks(const PartGroup & part_group) const
 {
     return merge_tree_reader.estimateNumMarksToRead(part_group.parts,
+                                                    select_query_info.prewhere_info,
                                                     query_required_columns,
                                                     storage_metadata,
                                                     storage_metadata,
                                                     select_query_info,
+                                                    ActionDAGNodes{},
                                                     context,
                                                     context->getSettingsRef().max_threads,
                                                     max_added_blocks);
@@ -649,10 +661,12 @@ void TableScanExecutor::estimateReadMarksForProjection(const PartGroup & part_gr
     }
 
     candidate.read_analysis = merge_tree_reader.estimateNumMarksToRead(projection_parts,
+                                                                       select_query_info.prewhere_info,
                                                                        candidate.requiredColumns(),
                                                                        storage_metadata,
                                                                        candidate.projection_desc.metadata,
                                                                        select_query_info,
+                                                                       ActionDAGNodes{},
                                                                        context,
                                                                        context->getSettingsRef().max_threads,
                                                                        max_added_blocks);
@@ -1001,17 +1015,17 @@ void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const Bu
         }
     }
 
-    bool use_optimizer_projection_selection =
-        build_context.context->getSettingsRef().optimizer_projection_support &&
-        dynamic_cast<MergeTreeMetaBase *>(storage.get()) &&
-        (!pushdown_projection || !getPushdownProjectionCast()->hasDynamicFilters());
+    bool use_optimizer_projection_selection = build_context.context->getSettingsRef().optimizer_projection_support && storage.get()
+        && (!pushdown_projection || !getPushdownProjectionCast()->hasDynamicFilters());
 
     rewriteInForBucketTable(build_context.context);
     auto * query = query_info.query->as<ASTSelectQuery>();
     if (auto where = query->getWhere())
-        query->setExpression(ASTSelectQuery::Expression::WHERE, rewriteDynamicFilter(where, pipeline, build_context));
+        // query->setExpression(ASTSelectQuery::Expression::WHERE, rewriteDynamicFilter(where, pipeline, build_context));
+        query->setExpression(ASTSelectQuery::Expression::WHERE, std::move(where));
     if (auto prewhere = query->getPrewhere())
-        query->setExpression(ASTSelectQuery::Expression::PREWHERE, rewriteDynamicFilter(prewhere, pipeline, build_context));
+        // query->setExpression(ASTSelectQuery::Expression::PREWHERE, rewriteDynamicFilter(prewhere, pipeline, build_context));
+        query->setExpression(ASTSelectQuery::Expression::PREWHERE, std::move(prewhere));
 
     // todo support _shard_num rewrite
     // if ()
@@ -1207,7 +1221,7 @@ void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const Bu
         //
         //
 
-        setQuotaAndLimits(pipeline, options, build_context);
+        // setQuotaAndLimits(pipeline, options, build_context);
 
         //
         //    NameToNameMap name_to_name_map;
@@ -1240,8 +1254,8 @@ void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const Bu
         return;
     }
 
-    auto & merge_tree_data = dynamic_cast<MergeTreeMetaBase &>(*storage);
-    MergeTreeDataSelectExecutor merge_tree_reader{merge_tree_data};
+    // auto & merge_tree_data = dynamic_cast<MergeTreeMetaBase &>(*storage);
+    MergeTreeDataSelectExecutor merge_tree_reader{*storage};
     auto metadata_snapshot = storage->getInMemoryMetadataPtr();
     auto context = build_context.context;
     Pipes pipes;
@@ -1291,28 +1305,28 @@ void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const Bu
         }
         else
         {
-            MergeTreeMetaBase::DeleteBitmapGetter delete_bitmap_getter;
-            if (metadata_snapshot->hasUniqueKey())
-            {
-                /// get a consistent snapshot of delete bitmaps for query,
-                /// otherwise concurrent upserts that modify part's delete bitmap will cause incorrect query result
-                auto delete_bitmap_snapshot = merge_tree_data.getLatestDeleteSnapshot(plan_element.parts);
-                /// move delete_bitmap_snapshot into the closure because delete_bitmap_getter will be used after this function returns
-                delete_bitmap_getter = [snapshot = std::move(delete_bitmap_snapshot)](const auto & part) -> ImmutableDeleteBitmapPtr
-                {
-                    if (auto it = snapshot.find(part); it != snapshot.end())
-                        return it->second;
-                    throw Exception(ErrorCodes::LOGICAL_ERROR, "Not found delete bitmap for part " + part->name);
-                };
-            }
-            else
-            {
-                delete_bitmap_getter = [](const auto & part) { return part->getDeleteBitmap(); };
-            }
-
+            // MergeTreeMetaBase::DeleteBitmapGetter delete_bitmap_getter;
+            // if (metadata_snapshot->hasUniqueKey())
+            // {
+            //     /// get a consistent snapshot of delete bitmaps for query,
+            //     /// otherwise concurrent upserts that modify part's delete bitmap will cause incorrect query result
+            //     auto delete_bitmap_snapshot = merge_tree_data.getLatestDeleteSnapshot(plan_element.parts);
+            //     /// move delete_bitmap_snapshot into the closure because delete_bitmap_getter will be used after this function returns
+            //     delete_bitmap_getter = [snapshot = std::move(delete_bitmap_snapshot)](const auto & part) -> ImmutableDeleteBitmapPtr
+            //     {
+            //         if (auto it = snapshot.find(part); it != snapshot.end())
+            //             return it->second;
+            //         throw Exception(ErrorCodes::LOGICAL_ERROR, "Not found delete bitmap for part " + part->name);
+            //     };
+            // }
+            // else
+            // {
+            //     delete_bitmap_getter = [](const auto & part) { return part->getDeleteBitmap(); };
+            // }
+            MergeTreeData::DeleteBitmapGetter null_getter = [](auto & /*part*/) { return nullptr; };
             auto read_plan = merge_tree_reader.readFromParts(
                 {},
-                delete_bitmap_getter,
+                null_getter,
                 column_names,
                 metadata_snapshot,
                 metadata_snapshot,
@@ -1456,7 +1470,7 @@ void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const Bu
     auto step = std::make_unique<ReadFromStorageStep>(std::move(pipe), "ExecutePlanStep");
     step->initializePipeline(pipeline, build_context);
 
-    setQuotaAndLimits(pipeline, options, build_context);
+    // setQuotaAndLimits(pipeline, options, build_context);
 
     std::ostringstream step_desc;
     bool first = true;
@@ -1477,67 +1491,69 @@ void TableScanStep::initializePipeline(QueryPipelineBuilder & pipeline, const Bu
     LOG_DEBUG(log, "init pipeline total run time: {} ms, table scan descriptiion: {}", total_watch.elapsedMillisecondsAsDouble(), step_desc.str());
 }
 
-void TableScanStep::serialize(WriteBuffer & buffer) const
+void TableScanStep::serialize(WriteBuffer &) const
 {
-    writeBinary(step_description, buffer);
-    serializeBlock(output_stream->header, buffer);
+    throw Exception("TableScanStep::serialize is not implemented", ErrorCodes::NOT_IMPLEMENTED);
+    // writeBinary(step_description, buffer);
+    // serializeBlock(output_stream->header, buffer);
 
-    storage_id.serialize(buffer);
-    query_info.serialize(buffer);
-    serializeStrings(column_names, buffer);
-    writeBinary(column_alias, buffer);
-    writeBinary(max_block_size, buffer);
+    // storage_id.serialize(buffer);
+    // query_info.serialize(buffer);
+    // serializeStrings(column_names, buffer);
+    // writeBinary(column_alias, buffer);
+    // writeBinary(max_block_size, buffer);
 
-    writeBinary(pushdown_aggregation != nullptr, buffer);
-    if (pushdown_aggregation != nullptr)
-        serializePlanStep(pushdown_aggregation, buffer);
+    // writeBinary(pushdown_aggregation != nullptr, buffer);
+    // if (pushdown_aggregation != nullptr)
+    //     serializePlanStep(pushdown_aggregation, buffer);
 
-    writeBinary(pushdown_projection != nullptr, buffer);
-    if (pushdown_projection != nullptr)
-        serializePlanStep(pushdown_projection, buffer);
+    // writeBinary(pushdown_projection != nullptr, buffer);
+    // if (pushdown_projection != nullptr)
+    //     serializePlanStep(pushdown_projection, buffer);
 
-    writeBinary(pushdown_filter != nullptr, buffer);
-    if (pushdown_filter != nullptr)
-        serializePlanStep(pushdown_filter, buffer);
+    // writeBinary(pushdown_filter != nullptr, buffer);
+    // if (pushdown_filter != nullptr)
+    //     serializePlanStep(pushdown_filter, buffer);
 }
 
-QueryPlanStepPtr TableScanStep::deserialize(ReadBuffer & buffer, ContextPtr context)
+QueryPlanStepPtr TableScanStep::deserialize(ReadBuffer &, ContextPtr)
 {
-    String step_description;
-    SelectQueryInfo query_info;
+    throw Exception("TableScanStep::deserialize is not implemented", ErrorCodes::NOT_IMPLEMENTED);
+    // String step_description;
+    // SelectQueryInfo query_info;
 
-    readBinary(step_description, buffer);
-    auto header = deserializeBlock(buffer);
-    StorageID storage_id = StorageID::deserialize(buffer, context);
-    query_info.deserialize(buffer);
+    // readBinary(step_description, buffer);
+    // auto header = deserializeBlock(buffer);
+    // StorageID storage_id = StorageID::deserialize(buffer, context);
+    // query_info.deserialize(buffer);
 
-    size_t max_block_size;
+    // size_t max_block_size;
 
-    Names column_names = deserializeStrings(buffer);
-    NamesWithAliases columns;
-    readBinary(columns, buffer);
-    readBinary(max_block_size, buffer);
+    // Names column_names = deserializeStrings(buffer);
+    // NamesWithAliases columns;
+    // readBinary(columns, buffer);
+    // readBinary(max_block_size, buffer);
 
-    bool has_aggregation;
-    readBinary(has_aggregation, buffer);
-    QueryPlanStepPtr aggregation;
-    if (has_aggregation)
-        aggregation = deserializePlanStep(buffer, context);
+    // bool has_aggregation;
+    // readBinary(has_aggregation, buffer);
+    // QueryPlanStepPtr aggregation;
+    // if (has_aggregation)
+    //     aggregation = deserializePlanStep(buffer, context);
 
-    bool has_projection;
-    readBinary(has_projection, buffer);
-    QueryPlanStepPtr projection;
-    if (has_projection)
-        projection = deserializePlanStep(buffer, context);
+    // bool has_projection;
+    // readBinary(has_projection, buffer);
+    // QueryPlanStepPtr projection;
+    // if (has_projection)
+    //     projection = deserializePlanStep(buffer, context);
 
-    bool has_filter;
-    readBinary(has_filter, buffer);
-    QueryPlanStepPtr filter;
-    if (has_filter)
-        filter = deserializePlanStep(buffer, context);
+    // bool has_filter;
+    // readBinary(has_filter, buffer);
+    // QueryPlanStepPtr filter;
+    // if (has_filter)
+    //     filter = deserializePlanStep(buffer, context);
 
-    return std::make_unique<TableScanStep>(context, storage_id, columns, query_info, max_block_size,
-                                           String{}/*alias*/, PlanHints{}, aggregation, projection, filter);
+    // return std::make_unique<TableScanStep>(context, storage_id, columns, query_info, max_block_size,
+    //                                        String{}/*alias*/, PlanHints{}, aggregation, projection, filter);
 }
 
 std::shared_ptr<IQueryPlanStep> TableScanStep::copy(ContextPtr /*context*/) const
@@ -1568,56 +1584,56 @@ std::shared_ptr<IStorage> TableScanStep::getStorage() const
     return storage;
 }
 
-void TableScanStep::allocate(ContextPtr context)
+void TableScanStep::allocate(ContextPtr)
 {
-    original_table = storage_id.table_name;
-    auto * cnch_merge_tree = dynamic_cast<StorageCnchMergeTree *>(storage.get());
-    auto * cnch_hive = dynamic_cast<StorageCnchHive *>(storage.get());
+    return;
+    // original_table = storage_id.table_name;
+    // auto * cnch_merge_tree = dynamic_cast<StorageCnchMergeTree *>(storage.get());
+    // auto * cnch_hive = dynamic_cast<StorageCnchHive *>(storage.get());
 
-    if (!cnch_merge_tree && !cnch_hive)
-        return;
+    // if (!cnch_merge_tree && !cnch_hive)
+    //     return;
 
-    if (cnch_merge_tree)
-    {
-        storage_id.database_name = cnch_merge_tree->getDatabaseName();
-        auto prepare_res = cnch_merge_tree->prepareReadContext(column_names, cnch_merge_tree->getInMemoryMetadataPtr(),query_info, context);
-        storage_id.table_name = prepare_res.local_table_name;
-    }
-    else if (cnch_hive)
-    {
-        size_t max_streams = context->getSettingsRef().max_threads;
-        if (max_block_size < context->getSettingsRef().max_block_size)
-            max_streams = 1; // single block single stream.
+    // if (cnch_merge_tree)
+    // {
+    //     storage_id.database_name = cnch_merge_tree->getDatabaseName();
+    //     auto prepare_res = cnch_merge_tree->prepareReadContext(column_names, cnch_merge_tree->getInMemoryMetadataPtr(),query_info, context);
+    //     storage_id.table_name = prepare_res.local_table_name;
+    // }
+    // else if (cnch_hive)
+    // {
+    //     size_t max_streams = context->getSettingsRef().max_threads;
+    //     if (max_block_size < context->getSettingsRef().max_block_size)
+    //         max_streams = 1; // single block single stream.
 
-        if (max_streams > 1 && !storage->isRemote())
-            max_streams *= context->getSettingsRef().max_streams_to_max_threads_ratio;
+    //     if (max_streams > 1 && !storage->isRemote())
+    //         max_streams *= context->getSettingsRef().max_streams_to_max_threads_ratio;
 
-        storage_id.database_name = cnch_hive->getDatabaseName();
-        auto prepare_res = cnch_hive->prepareReadContext(column_names, cnch_hive->getInMemoryMetadataPtr(),query_info, context, max_streams);
-        storage_id.table_name = prepare_res.local_table_name;
-    }
-    storage_id.uuid = UUIDHelpers::Nil;
-    if (query_info.query)
-    {
-        query_info = fillQueryInfo(context);
-        /// trigger preallocate tables
-        // if (!cnch->isOnDemandMode())
-        // cnch->read(column_names, query_info, context, processed_stage, max_block_size, 1);
-        // cnch->genPlanSegmentQueryAndAllocate(column_names, query_info, context);
-        auto db_table = getDatabaseAndTable(query_info.query->as<ASTSelectQuery &>(), 0);
-        if (!db_table->table.empty())
-        {
-            if (db_table->table != storage_id.table_name)
-            {
-                if (query_info.query)
-                {
-                    ASTSelectQuery & select_query = query_info.query->as<ASTSelectQuery &>();
-                    select_query.replaceDatabaseAndTable(storage_id.database_name, storage_id.table_name);
-                }
-            }
-        }
-    }
-
+    //     storage_id.database_name = cnch_hive->getDatabaseName();
+    //     auto prepare_res = cnch_hive->prepareReadContext(column_names, cnch_hive->getInMemoryMetadataPtr(),query_info, context, max_streams);
+    //     storage_id.table_name = prepare_res.local_table_name;
+    // }
+    // storage_id.uuid = UUIDHelpers::Nil;
+    // if (query_info.query)
+    // {
+    //     query_info = fillQueryInfo(context);
+    //     /// trigger preallocate tables
+    //     // if (!cnch->isOnDemandMode())
+    //     // cnch->read(column_names, query_info, context, processed_stage, max_block_size, 1);
+    //     // cnch->genPlanSegmentQueryAndAllocate(column_names, query_info, context);
+    //     auto db_table = getDatabaseAndTable(query_info.query->as<ASTSelectQuery &>(), 0);
+    //     if (!db_table->table.empty())
+    //     {
+    //         if (db_table->table != storage_id.table_name)
+    //         {
+    //             if (query_info.query)
+    //             {
+    //                 ASTSelectQuery & select_query = query_info.query->as<ASTSelectQuery &>();
+    //                 select_query.replaceDatabaseAndTable(storage_id.database_name, storage_id.table_name);
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 bool TableScanStep::setQueryInfoFilter(const std::vector<ConstASTPtr> & filters) const
@@ -1700,40 +1716,40 @@ size_t TableScanStep::getMaxBlockSize() const
     return max_block_size;
 }
 
-ASTPtr
-TableScanStep::rewriteDynamicFilter(const ASTPtr & filter, QueryPipeline & pipeline, const BuildQueryPipelineSettings & build_context)
-{
-    if (!filter)
-        return nullptr;
+// ASTPtr
+// TableScanStep::rewriteDynamicFilter(const ASTPtr & filter, QueryPipeline & pipeline, const BuildQueryPipelineSettings & build_context)
+// {
+//     if (!filter)
+//         return nullptr;
 
-    auto filters = DynamicFilters::extractDynamicFilters(filter);
-    if (filters.first.empty())
-        return filter;
+//     auto filters = DynamicFilters::extractDynamicFilters(filter);
+//     if (filters.first.empty())
+//         return filter;
 
-    std::vector<ConstASTPtr> predicates = std::move(filters.second);
-    for (auto & dynamic_filter : filters.first)
-    {
-        auto description = DynamicFilters::extractDescription(dynamic_filter).value();
-        pipeline.addRuntimeFilterHolder(RuntimeFilterHolder{
-            build_context.distributed_settings.query_id, build_context.distributed_settings.plan_segment_id, description.id});
+//     std::vector<ConstASTPtr> predicates = std::move(filters.second);
+//     for (auto & dynamic_filter : filters.first)
+//     {
+//         auto description = DynamicFilters::extractDescription(dynamic_filter).value();
+//         pipeline.addRuntimeFilterHolder(RuntimeFilterHolder{
+//             build_context.distributed_settings.query_id, build_context.distributed_settings.plan_segment_id, description.id});
 
-        if (description.type == DynamicFilterType::Range)
-        {
-            auto dynamic_filters = DynamicFilters::createDynamicFilterRuntime(
-                description,
-                build_context.context->getInitialQueryId(),
-                build_context.distributed_settings.plan_segment_id,
-                build_context.context->getSettingsRef().wait_runtime_filter_timeout,
-                RuntimeFilterManager::getInstance(),
-                "TableScan");
-            predicates.insert(predicates.end(), dynamic_filters.begin(), dynamic_filters.end());
-        }
-    }
+//         if (description.type == DynamicFilterType::Range)
+//         {
+//             auto dynamic_filters = DynamicFilters::createDynamicFilterRuntime(
+//                 description,
+//                 build_context.context->getInitialQueryId(),
+//                 build_context.distributed_settings.plan_segment_id,
+//                 build_context.context->getSettingsRef().wait_runtime_filter_timeout,
+//                 RuntimeFilterManager::getInstance(),
+//                 "TableScan");
+//             predicates.insert(predicates.end(), dynamic_filters.begin(), dynamic_filters.end());
+//         }
+//     }
 
-    return PredicateUtils::combineConjuncts(predicates);
-}
+//     return PredicateUtils::combineConjuncts(predicates);
+// }
 
-void TableScanStep::aliasColumns(QueryPipeline & pipeline, const BuildQueryPipelineSettings & build_context)
+void TableScanStep::aliasColumns(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & build_context)
 {
     // simple fix, remove this.
     if (!blocksHaveEqualStructure(pipeline.getHeader(), table_output_stream.header))
@@ -1751,57 +1767,57 @@ void TableScanStep::aliasColumns(QueryPipeline & pipeline, const BuildQueryPipel
     }
 }
 
-void TableScanStep::setQuotaAndLimits(QueryPipeline & pipeline, const SelectQueryOptions & options, const BuildQueryPipelineSettings & build_context)
-{
-    auto context = build_context.context;
-    const auto & settings = context->getSettingsRef();
+// void TableScanStep::setQuotaAndLimits(QueryPipeline & pipeline, const SelectQueryOptions & options, const BuildQueryPipelineSettings & build_context)
+// {
+//     auto context = build_context.context;
+//     const auto & settings = context->getSettingsRef();
 
-    StreamLocalLimits limits;
-    SizeLimits leaf_limits;
-    std::shared_ptr<const EnabledQuota> quota;
+//     StreamLocalLimits limits;
+//     SizeLimits leaf_limits;
+//     std::shared_ptr<const EnabledQuota> quota;
 
-    /// Set the limits and quota for reading data, the speed and time of the query.
-    if (!options.ignore_limits)
-    {
-        limits = getLimitsForStorage(settings, options);
-        leaf_limits = SizeLimits(settings.max_rows_to_read_leaf, settings.max_bytes_to_read_leaf, settings.read_overflow_mode_leaf);
-    }
+//     /// Set the limits and quota for reading data, the speed and time of the query.
+//     if (!options.ignore_limits)
+//     {
+//         limits = getLimitsForStorage(settings, options);
+//         leaf_limits = SizeLimits(settings.max_rows_to_read_leaf, settings.max_bytes_to_read_leaf, settings.read_overflow_mode_leaf);
+//     }
 
-    if (!options.ignore_quota && (options.to_stage == QueryProcessingStage::Complete))
-        quota = context->getQuota();
+//     if (!options.ignore_quota && (options.to_stage == QueryProcessingStage::Complete))
+//         quota = context->getQuota();
 
-    auto table_lock = storage->lockForShare(context->getInitialQueryId(), context->getSettingsRef().lock_acquire_timeout);
+//     auto table_lock = storage->lockForShare(context->getInitialQueryId(), context->getSettingsRef().lock_acquire_timeout);
 
 
-    /// Table lock is stored inside pipeline here.
-    pipeline.setLimits(limits);
+//     /// Table lock is stored inside pipeline here.
+//     pipeline.setLimits(limits);
 
-    /**
-      * Leaf size limits should be applied only for local processing of distributed queries.
-      * Such limits allow to control the read stage on leaf nodes and exclude the merging stage.
-      * Consider the case when distributed query needs to read from multiple shards. Then leaf
-      * limits will be applied on the shards only (including the root node) but will be ignored
-      * on the results merging stage.
-      */
-    if (!storage->isRemote())
-        pipeline.setLeafLimits(leaf_limits);
+//     /**
+//       * Leaf size limits should be applied only for local processing of distributed queries.
+//       * Such limits allow to control the read stage on leaf nodes and exclude the merging stage.
+//       * Consider the case when distributed query needs to read from multiple shards. Then leaf
+//       * limits will be applied on the shards only (including the root node) but will be ignored
+//       * on the results merging stage.
+//       */
+//     if (!storage->isRemote())
+//         pipeline.setLeafLimits(leaf_limits);
 
-    if (quota)
-        pipeline.setQuota(quota);
+//     if (quota)
+//         pipeline.setQuota(quota);
 
-    /// Order of resources below is important.
-    if (context)
-        pipeline.addInterpreterContext(std::move(context));
+//     /// Order of resources below is important.
+//     if (context)
+//         pipeline.addInterpreterContext(std::move(context));
 
-    if (storage)
-        pipeline.addStorageHolder(storage);
+//     if (storage)
+//         pipeline.addStorageHolder(storage);
 
-    if (table_lock)
-        pipeline.addTableLock(std::move(table_lock));
+//     if (table_lock)
+//         pipeline.addTableLock(std::move(table_lock));
 
-    for (const auto & processor : pipeline.getProcessors())
-        processors.emplace_back(processor);
-}
+//     for (const auto & processor : pipeline.getProcessors())
+//         processors.emplace_back(processor);
+// }
 
 void TableScanStep::setReadOrder(SortDescription read_order)
 {

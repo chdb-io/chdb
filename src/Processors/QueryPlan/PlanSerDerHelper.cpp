@@ -42,7 +42,7 @@
 #include <Processors/QueryPlan/FillingStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/FinalSampleStep.h>
-#include <Processors/QueryPlan/FinishSortingStep.h>
+// #include <Processors/QueryPlan/FinishSortingStep.h>
 #include <Processors/QueryPlan/IQueryPlanStep.h>
 #include <Processors/QueryPlan/ISourceStep.h>
 #include <Processors/QueryPlan/ITransformingStep.h>

@@ -441,15 +441,15 @@ std::shared_ptr<FinalSampleStep> SymbolMapper::map(const FinalSampleStep & final
             final_sample.getMaxChunkSize());
 }
 
-std::shared_ptr<FinishSortingStep> SymbolMapper::map(const FinishSortingStep & finish_sorting)
-{
-    return std::make_shared<FinishSortingStep>(
-            map(finish_sorting.getInputStreams()[0]),
-            SortDescription{map(finish_sorting.getPrefixDescription())},
-            SortDescription{map(finish_sorting.getResultDescription())},
-            finish_sorting.getMaxBlockSize(),
-            finish_sorting.getLimit());
-}
+// std::shared_ptr<FinishSortingStep> SymbolMapper::map(const FinishSortingStep & finish_sorting)
+// {
+//     return std::make_shared<FinishSortingStep>(
+//             map(finish_sorting.getInputStreams()[0]),
+//             SortDescription{map(finish_sorting.getPrefixDescription())},
+//             SortDescription{map(finish_sorting.getResultDescription())},
+//             finish_sorting.getMaxBlockSize(),
+//             finish_sorting.getLimit());
+// }
 
 std::shared_ptr<IntersectStep> SymbolMapper::map(const IntersectStep & intersect)
 {

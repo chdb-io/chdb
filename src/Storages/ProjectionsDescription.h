@@ -47,6 +47,9 @@ struct ProjectionDescription
 
     Names getRequiredColumns() const { return required_columns; }
 
+    /// origin asts of projection columns
+    ASTs column_asts;
+    
     /// Sample block with projection columns. (NOTE: columns in block are empty, but not nullptr)
     Block sample_block;
 

@@ -20,7 +20,7 @@
 #include <Processors/QueryPlan/AssignUniqueIdStep.h>
 #include <Processors/QueryPlan/CTEInfo.h>
 #include <Processors/QueryPlan/CubeStep.h>
-#include <Processors/QueryPlan/FinishSortingStep.h>
+// #include <Processors/QueryPlan/FinishSortingStep.h>
 #include <Processors/QueryPlan/PartialSortingStep.h>
 #include <Processors/QueryPlan/PlanNode.h>
 #include <Processors/QueryPlan/QueryPlan.h>

@@ -35,7 +35,7 @@
 #include <Processors/QueryPlan/FillingStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/FinalSampleStep.h>
-#include <Processors/QueryPlan/FinishSortingStep.h>
+// #include <Processors/QueryPlan/FinishSortingStep.h>
 #include <Processors/QueryPlan/IntersectStep.h>
 #include <Processors/QueryPlan/JoinStep.h>
 #include <Processors/QueryPlan/LimitByStep.h>
@@ -134,7 +134,7 @@ public:
     // std::shared_ptr<ExchangeStep> map(const ExchangeStep & exchange);
     std::shared_ptr<FillingStep> map(const FillingStep & filling);
     std::shared_ptr<FinalSampleStep> map(const FinalSampleStep & final_sample);
-    std::shared_ptr<FinishSortingStep> map(const FinishSortingStep & finish_sorting);
+    // std::shared_ptr<FinishSortingStep> map(const FinishSortingStep & finish_sorting);
     std::shared_ptr<FilterStep> map(const FilterStep & filter);
     std::shared_ptr<IntersectStep> map(const IntersectStep & intersect);
     std::shared_ptr<JoinStep> map(const JoinStep & join);

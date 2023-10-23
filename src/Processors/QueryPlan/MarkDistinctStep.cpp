@@ -1,6 +1,7 @@
 #include <Processors/QueryPlan/MarkDistinctStep.h>
 
 #include <DataTypes/DataTypeHelper.h>
+#include <DataTypes/DataTypesNumber.h>
 #include <IO/Operators.h>
 #include <Interpreters/ExpressionActions.h>
 // #include <Interpreters/RuntimeFilter/BuildRuntimeFilterTransform.h>

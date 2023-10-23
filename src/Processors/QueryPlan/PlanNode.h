@@ -37,7 +37,7 @@
 #include <Processors/QueryPlan/FillingStep.h>
 #include <Processors/QueryPlan/FilterStep.h>
 #include <Processors/QueryPlan/FinalSampleStep.h>
-#include <Processors/QueryPlan/FinishSortingStep.h>
+// #include <Processors/QueryPlan/FinishSortingStep.h>
 #include <Processors/QueryPlan/IntersectOrExceptStep.h>
 #include <Processors/QueryPlan/IntersectStep.h>
 #include <Processors/QueryPlan/JoinStep.h>
