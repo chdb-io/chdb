@@ -7,7 +7,7 @@
 [![构建状态](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml/badge.svg?branch=main)](https://github.com/auxten/chdb/actions/workflows/build_wheels.yml)
 [![PyPI](https://img.shields.io/pypi/v/chdb.svg)](https://pypi.org/project/chdb/)
 [![Downloads](https://static.pepy.tech/badge/chdb)](https://pepy.tech/project/chdb)
-[![Discord](https://img.shields.io/discord/1098133460310294528?logo=Discord)](https://discord.gg/Njw5YXSPPc)
+[![Discord](https://img.shields.io/discord/1098133460310294528?logo=Discord)](https://discord.gg/D2Daa2fM5K)
 [![Twitter](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter)](https://twitter.com/auxten)
 </div>
 
@@ -207,6 +207,6 @@ chDB 主要基于 [ClickHouse](https://github.com/ClickHouse/ClickHouse)。由�
 
 ## 联系方式
 - 知乎: [@auxten](https://www.zhihu.com/people/auxten)
-- Discord：https://discord.gg/nqSkfJRR
+- Discord：[https://discord.gg/D2Daa2fM5K](https://discord.gg/D2Daa2fM5K)
 - 电子邮件：auxtenwpc@gmail.com
 - Twitter：[@auxten](https://twitter.com/auxten)
