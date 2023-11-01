@@ -8,6 +8,8 @@ on:
         required: true
   release:
     types: [created]
+  pull_request:
+    types: [opened, reopened]
 
 jobs:
   build_wheels_linux:
