@@ -27,6 +27,8 @@ public:
         bool memory_bound_merging_of_aggregation_results_enabled_);
 
     String getName() const override { return "MergingAggregated"; }
+    Type getType() const override { return Type::MergingAggregated; }
+
     const Aggregator::Params & getParams() const { return params; }
 
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
@@ -37,6 +39,9 @@ public:
     void applyOrder(SortDescription input_sort_description, DataStream::SortScope sort_scope);
 
     bool memoryBoundMergingWillBeUsed() const;
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

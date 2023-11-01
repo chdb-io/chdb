@@ -174,4 +174,6 @@ struct NullPresence
 NullPresence getNullPresense(const ColumnsWithTypeAndName & args);
 
 bool isDecimalOrNullableDecimal(const DataTypePtr & type);
+
+String getFunctionResultName(const String & function_name, const Strings & arg_result_names);
 }

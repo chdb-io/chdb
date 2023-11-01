@@ -13,6 +13,8 @@ public:
 
     String getName() const override { return "Union"; }
 
+    Type getType() const override { return Type::Union; }
+
     QueryPipelineBuilderPtr updatePipeline(QueryPipelineBuilders pipelines, const BuildQueryPipelineSettings &) override;
 
     void describePipeline(FormatSettings & settings) const override;
@@ -20,6 +22,7 @@ public:
     size_t getMaxThreads() const { return max_threads; }
 
     void updateOutputSortDescription();
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
 
 private:
     Block header;

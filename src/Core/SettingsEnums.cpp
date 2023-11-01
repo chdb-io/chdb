@@ -31,16 +31,19 @@ IMPLEMENT_SETTING_ENUM(JoinStrictness, ErrorCodes::UNKNOWN_JOIN,
      {"ANY", JoinStrictness::Any}})
 
 
-IMPLEMENT_SETTING_MULTI_ENUM(JoinAlgorithm, ErrorCodes::UNKNOWN_JOIN,
-    {{"default",              JoinAlgorithm::DEFAULT},
-     {"auto",                 JoinAlgorithm::AUTO},
-     {"hash",                 JoinAlgorithm::HASH},
-     {"partial_merge",        JoinAlgorithm::PARTIAL_MERGE},
+IMPLEMENT_SETTING_MULTI_ENUM(
+    JoinAlgorithm,
+    ErrorCodes::UNKNOWN_JOIN,
+    {{"default", JoinAlgorithm::DEFAULT},
+     {"auto", JoinAlgorithm::AUTO},
+     {"hash", JoinAlgorithm::HASH},
+     {"partial_merge", JoinAlgorithm::PARTIAL_MERGE},
      {"prefer_partial_merge", JoinAlgorithm::PREFER_PARTIAL_MERGE},
-     {"parallel_hash",        JoinAlgorithm::PARALLEL_HASH},
-     {"direct",               JoinAlgorithm::DIRECT},
-     {"full_sorting_merge",   JoinAlgorithm::FULL_SORTING_MERGE},
-     {"grace_hash",           JoinAlgorithm::GRACE_HASH}})
+     {"parallel_hash", JoinAlgorithm::PARALLEL_HASH},
+     {"direct", JoinAlgorithm::DIRECT},
+     {"full_sorting_merge", JoinAlgorithm::FULL_SORTING_MERGE},
+     {"grace_hash", JoinAlgorithm::GRACE_HASH},
+     {"nested_loop", JoinAlgorithm::NESTED_LOOP_JOIN}})
 
 
 IMPLEMENT_SETTING_ENUM(TotalsMode, ErrorCodes::UNKNOWN_TOTALS_MODE,
@@ -110,6 +113,34 @@ IMPLEMENT_SETTING_ENUM(HandleKafkaErrorMode, ErrorCodes::BAD_ARGUMENTS,
     {{"default",      HandleKafkaErrorMode::DEFAULT},
      {"stream",       HandleKafkaErrorMode::STREAM}})
 
+IMPLEMENT_SETTING_ENUM(
+    CTEMode, ErrorCodes::BAD_ARGUMENTS, {{"INLINED", CTEMode::INLINED}, {"SHARED", CTEMode::SHARED}, {"AUTO", CTEMode::AUTO}})
+
+IMPLEMENT_SETTING_ENUM(
+    StatisticsAccurateSampleNdvMode,
+    ErrorCodes::BAD_ARGUMENTS,
+    {{"NEVER", StatisticsAccurateSampleNdvMode::NEVER},
+     {"AUTO", StatisticsAccurateSampleNdvMode::AUTO},
+     {"ALWAYS", StatisticsAccurateSampleNdvMode::ALWAYS}})
+
+IMPLEMENT_SETTING_ENUM(
+    DiskCacheMode,
+    ErrorCodes::BAD_ARGUMENTS,
+    {{"AUTO", DiskCacheMode::AUTO},
+     {"USE_DISK_CACHE", DiskCacheMode::USE_DISK_CACHE},
+     {"SKIP_DISK_CACHE", DiskCacheMode::SKIP_DISK_CACHE},
+     {"FORCE_CHECKSUMS_DISK_CACHE", DiskCacheMode::FORCE_CHECKSUMS_DISK_CACHE}})
+
+IMPLEMENT_SETTING_ENUM(
+    StatisticsCachePolicy,
+    ErrorCodes::BAD_ARGUMENTS,
+    {{"default", StatisticsCachePolicy::Default}, {"cache", StatisticsCachePolicy::Cache}, {"catalog", StatisticsCachePolicy::Catalog}})
+
+IMPLEMENT_SETTING_ENUM(
+    MaterializedViewConsistencyCheckMethod,
+    ErrorCodes::BAD_ARGUMENTS,
+    {{"NONE", MaterializedViewConsistencyCheckMethod::NONE}, {"PARTITION", MaterializedViewConsistencyCheckMethod::PARTITION}})
+
 IMPLEMENT_SETTING_ENUM(ShortCircuitFunctionEvaluation, ErrorCodes::BAD_ARGUMENTS,
     {{"enable",          ShortCircuitFunctionEvaluation::ENABLE},
      {"force_enable",    ShortCircuitFunctionEvaluation::FORCE_ENABLE},
@@ -134,7 +165,10 @@ IMPLEMENT_SETTING_ENUM(MsgPackUUIDRepresentation, ErrorCodes::BAD_ARGUMENTS,
 
 IMPLEMENT_SETTING_ENUM(Dialect, ErrorCodes::BAD_ARGUMENTS,
     {{"clickhouse", Dialect::clickhouse},
-     {"kusto", Dialect::kusto}})
+     {"kusto", Dialect::kusto},
+     {"ANSI", Dialect::ansi},
+     {"MYSQL", Dialect::mysql}})
+
     // FIXME: do not add 'kusto_auto' to the list. Maybe remove it from code completely?
 
 IMPLEMENT_SETTING_ENUM(ParallelReplicasCustomKeyFilterType, ErrorCodes::BAD_ARGUMENTS,

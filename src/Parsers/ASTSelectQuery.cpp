@@ -478,6 +478,16 @@ void ASTSelectQuery::setFinal() // NOLINT method can be made const
     tables_element.table_expression->as<ASTTableExpression &>().final = true;
 }
 
+std::vector<ASTSelectQuery::Expression> ASTSelectQuery::getExpressionTypes() const
+{
+    std::vector<Expression> expression_types(positions.size());
+
+    for (const auto & [type, index]: positions)
+        expression_types[index] = type;
+
+    return expression_types;
+}
+
 bool ASTSelectQuery::hasQueryParameters() const
 {
     if (!has_query_parameters.has_value())

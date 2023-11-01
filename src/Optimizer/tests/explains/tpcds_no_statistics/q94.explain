@@ -1,0 +1,80 @@
+Projection Est. 100 rows
+│     Expressions: order count:=`expr#uniqExact(ws_order_number)`, total net profit:=`expr#sum(ws_net_profit)`, total shipping cost:=`expr#sum(ws_ext_ship_cost)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {expr#uniqExact(ws_order_number) asc}
+      │     Limit: 100
+      └─ MergingAggregated Est. ? rows
+         └─ Gather Exchange Est. ? rows
+            └─ Aggregating Est. ? rows
+               │     Group by: {}
+               │     Aggregates: expr#uniqExact(ws_order_number):=AggNull(uniqExact)(ws_order_number), expr#sum(ws_ext_ship_cost):=AggNull(sum)(ws_ext_ship_cost), expr#sum(ws_net_profit):=AggNull(sum)(ws_net_profit)
+               └─ Projection Est. ? rows
+                  │     Expressions: [ws_ext_ship_cost, ws_net_profit, ws_order_number]
+                  └─ Filter Est. ? rows
+                     │     Condition: NOT cast(coalesce(build_side_non_null_symbol_1, 0), 'UInt8')
+                     └─ Left Join Est. ? rows
+                        │     Condition: ws_order_number == wr_order_number
+                        ├─ Filter Est. ? rows
+                        │  │     Condition: count_non_null_value > 0
+                        │  └─ Aggregating Est. ? rows
+                        │     │     Group by: {assign_unique_id_symbol, ca_address_sk, ca_state, d_date, d_date_sk, web_company_name, web_site_sk, ws_ext_ship_cost, ws_net_profit, ws_order_number, ws_ship_addr_sk, ws_ship_date_sk, ws_warehouse_sk, ws_web_site_sk}
+                        │     │     Aggregates: count_non_null_value:=AggNull(countIf)(build_side_non_null_symbol)
+                        │     └─ Projection Est. ? rows
+                        │        │     Expressions: [assign_unique_id_symbol, ca_address_sk, ca_state, d_date, d_date_sk, web_company_name, web_site_sk, ws_ext_ship_cost, ws_net_profit, ws_order_number, ws_ship_addr_sk, ws_ship_date_sk, ws_warehouse_sk, ws_web_site_sk], build_side_non_null_symbol:=cast(multiIf(if((ws_warehouse_sk != ws_warehouse_sk_1) AND (build_side_non_null_symbol = 1), 1, NULL) = 1, 1, if((ws_warehouse_sk != ws_warehouse_sk_1) AND (build_side_non_null_symbol = 1), 1, NULL) = NULL, 0, 0), 'UInt8')
+                        │        └─ Left Join Est. ? rows
+                        │           │     Condition: ws_order_number == ws_order_number_1
+                        │           ├─ AssignUniqueId Est. ? rows
+                        │           │  └─ Repartition Exchange Est. ? rows
+                        │           │     │     Partition by: {ws_order_number}
+                        │           │     └─ Inner Join Est. ? rows
+                        │           │        │     Condition: ws_web_site_sk == web_site_sk
+                        │           │        ├─ Repartition Exchange Est. ? rows
+                        │           │        │  │     Partition by: {ws_web_site_sk}
+                        │           │        │  └─ Inner Join Est. ? rows
+                        │           │        │     │     Condition: ws_ship_addr_sk == ca_address_sk
+                        │           │        │     ├─ Repartition Exchange Est. ? rows
+                        │           │        │     │  │     Partition by: {ws_ship_addr_sk}
+                        │           │        │     │  └─ Inner Join Est. ? rows
+                        │           │        │     │     │     Condition: ws_ship_date_sk == d_date_sk
+                        │           │        │     │     ├─ Repartition Exchange Est. ? rows
+                        │           │        │     │     │  │     Partition by: {ws_ship_date_sk}
+                        │           │        │     │     │  └─ TableScan tpcds.web_sales Est. ? rows
+                        │           │        │     │     │           Outputs: [ws_ext_ship_cost, ws_net_profit, ws_order_number, ws_ship_addr_sk, ws_ship_date_sk, ws_warehouse_sk, ws_web_site_sk]
+                        │           │        │     │     └─ Repartition Exchange Est. ? rows
+                        │           │        │     │        │     Partition by: {d_date_sk}
+                        │           │        │     │        └─ Filter Est. ? rows
+                        │           │        │     │           │     Condition: (d_date >= cast(10623, 'Date')) AND (d_date <= cast(10683, 'Date'))
+                        │           │        │     │           └─ TableScan tpcds.date_dim Est. ? rows
+                        │           │        │     │                    Condition : (d_date >= cast(10623, 'Date')) AND (d_date <= cast(10683, 'Date')).
+                        │           │        │     │                    Outputs: [d_date, d_date_sk]
+                        │           │        │     └─ Repartition Exchange Est. ? rows
+                        │           │        │        │     Partition by: {ca_address_sk}
+                        │           │        │        └─ Filter Est. ? rows
+                        │           │        │           │     Condition: ca_state = 'IL'
+                        │           │        │           └─ TableScan tpcds.customer_address Est. ? rows
+                        │           │        │                    Condition : ca_state = 'IL'.
+                        │           │        │                    Outputs: [ca_address_sk, ca_state]
+                        │           │        └─ Repartition Exchange Est. ? rows
+                        │           │           │     Partition by: {web_site_sk}
+                        │           │           └─ Filter Est. ? rows
+                        │           │              │     Condition: web_company_name = 'pri'
+                        │           │              └─ TableScan tpcds.web_site Est. ? rows
+                        │           │                       Condition : web_company_name = 'pri'.
+                        │           │                       Outputs: [web_company_name, web_site_sk]
+                        │           └─ Repartition Exchange Est. ? rows
+                        │              │     Partition by: {ws_order_number_1}
+                        │              └─ Projection Est. ? rows
+                        │                 │     Expressions: [ws_order_number_1, ws_warehouse_sk_1], build_side_non_null_symbol:=1
+                        │                 └─ TableScan tpcds.web_sales Est. ? rows
+                        │                          Outputs: ws_order_number_1:=ws_order_number, ws_warehouse_sk_1:=ws_warehouse_sk
+                        └─ Projection Est. ? rows
+                           │     Expressions: [wr_order_number], build_side_non_null_symbol_1:=1
+                           └─ MergingAggregated Est. ? rows
+                              └─ Repartition Exchange Est. ? rows
+                                 │     Partition by: {wr_order_number}
+                                 └─ Aggregating Est. ? rows
+                                    │     Group by: {wr_order_number}
+                                    └─ TableScan tpcds.web_returns Est. ? rows
+                                             Outputs: [wr_order_number]

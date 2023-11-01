@@ -22,6 +22,8 @@ inline constexpr bool isLeft(JoinKind kind)         { return kind == JoinKind::L
 inline constexpr bool isRight(JoinKind kind)        { return kind == JoinKind::Right; }
 inline constexpr bool isInner(JoinKind kind)        { return kind == JoinKind::Inner; }
 inline constexpr bool isFull(JoinKind kind)         { return kind == JoinKind::Full; }
+inline constexpr bool isComma(JoinKind kind)        { return kind == JoinKind::Comma; }
+inline constexpr bool isCross(JoinKind kind)        { return kind == JoinKind::Cross; }
 inline constexpr bool isCrossOrComma(JoinKind kind) { return kind == JoinKind::Comma || kind == JoinKind::Cross; }
 inline constexpr bool isRightOrFull(JoinKind kind)  { return kind == JoinKind::Right || kind == JoinKind::Full; }
 inline constexpr bool isLeftOrFull(JoinKind kind)   { return kind == JoinKind::Left  || kind == JoinKind::Full; }
@@ -39,6 +41,10 @@ enum class JoinStrictness
     Semi, /// LEFT or RIGHT. SEMI LEFT JOIN filters left table by values exists in right table. SEMI RIGHT - otherwise.
     Anti, /// LEFT or RIGHT. Same as SEMI JOIN but filter values that are NOT exists in other table.
 };
+
+inline constexpr bool isSemi(JoinStrictness strictness) { return strictness == JoinStrictness::Semi; }
+inline constexpr bool isAnti(JoinStrictness strictness) { return strictness == JoinStrictness::Anti; }
+inline constexpr bool isAsof(JoinStrictness strictness) { return strictness == JoinStrictness::Asof; }
 
 const char * toString(JoinStrictness strictness);
 
@@ -105,6 +111,7 @@ enum class JoinAlgorithm
     GRACE_HASH,
     DIRECT,
     FULL_SORTING_MERGE,
+    NESTED_LOOP_JOIN,
 };
 
 const char * toString(JoinAlgorithm join_algorithm);

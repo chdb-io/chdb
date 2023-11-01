@@ -1,0 +1,128 @@
+Projection Est. 400 rows
+│     Expressions: [s_address, s_name]
+└─ Sorting Est. 400 rows
+   │     Order by: {s_name asc}
+   └─ Gather Exchange Est. 400 rows
+      └─ Sorting Est. 400 rows
+         │     Order by: {s_name asc}
+         └─ Inner Join Est. 400 rows
+            │     Condition: s_suppkey == ps_suppkey
+            ├─ Repartition Exchange Est. 400 rows
+            │  │     Partition by: {s_suppkey}
+            │  └─ Inner Join Est. 400 rows
+            │     │     Condition: s_nationkey == n_nationkey
+            │     ├─ Filter Est. 10000 rows
+            │     │  │     Condition: isNotNull(s_suppkey)
+            │     │  └─ TableScan tpch.supplier Est. 10000 rows
+            │     │           Condition : isNotNull(s_suppkey).
+            │     │           Outputs: [s_address, s_name, s_nationkey, s_suppkey]
+            │     └─ Broadcast Exchange Est. 1 rows
+            │        └─ Filter Est. 1 rows
+            │           │     Condition: n_name = 'CANADA'
+            │           └─ TableScan tpch.nation Est. 25 rows
+            │                    Condition : n_name = 'CANADA'.
+            │                    Outputs: [n_name, n_nationkey]
+            └─ Repartition Exchange Est. 399 rows
+               │     Partition by: {ps_suppkey}
+               └─ MergingAggregated Est. 399 rows
+                  └─ Repartition Exchange Est. 399 rows
+                     │     Partition by: {ps_suppkey}
+                     └─ Aggregating Est. 399 rows
+                        │     Group by: {ps_suppkey}
+                        └─ Inner Join Est. 950452 rows
+                           │     Condition: l_partkey == p_partkey
+                           ├─ Repartition Exchange Est. 954368 rows
+                           │  │     Partition by: {l_partkey}
+                           │  └─ Inner Join Est. 954368 rows
+                           │     │     Condition: l_partkey == ps_partkey, l_suppkey == ps_suppkey
+                           │     │     Filter: ps_availqty > ('0.5' * `expr#sum(l_quantity)`)
+                           │     ├─ MergingAggregated Est. 36374 rows
+                           │     │  └─ Repartition Exchange Est. 36374 rows
+                           │     │     │     Partition by: {l_partkey, l_suppkey}
+                           │     │     └─ Aggregating Est. 36374 rows
+                           │     │        │     Group by: {l_partkey, l_suppkey}
+                           │     │        │     Aggregates: expr#sum(l_quantity):=AggNull(sumIf)(l_quantity,build_side_non_null_symbol_2)
+                           │     │        └─ Projection Est. 36374 rows
+                           │     │           │     Expressions: [l_partkey, l_quantity, l_suppkey], build_side_non_null_symbol_2:=1
+                           │     │           └─ Inner Join Est. 36374 rows
+                           │     │              │     Condition: l_suppkey == s_suppkey_1
+                           │     │              ├─ Filter Est. 909643 rows
+                           │     │              │  │     Condition: (l_shipdate >= cast(8766, 'Date')) AND (l_shipdate < cast(9131, 'Date')) AND isNotNull(l_partkey) AND isNotNull(l_suppkey)
+                           │     │              │  └─ TableScan tpch.lineitem Est. 6001215 rows
+                           │     │              │           Condition : (l_shipdate >= cast(8766, 'Date')) AND (l_shipdate < cast(9131, 'Date')) AND isNotNull(l_partkey) AND isNotNull(l_suppkey).
+                           │     │              │           Outputs: [l_partkey, l_quantity, l_shipdate, l_suppkey]
+                           │     │              └─ Broadcast Exchange Est. 399 rows
+                           │     │                 └─ MergingAggregated Est. 399 rows
+                           │     │                    └─ Repartition Exchange Est. 399 rows
+                           │     │                       │     Partition by: {s_suppkey_1}
+                           │     │                       └─ Aggregating Est. 399 rows
+                           │     │                          │     Group by: {s_suppkey_1}
+                           │     │                          └─ Projection Est. 400 rows
+                           │     │                             │     Expressions: s_suppkey_1:=s_suppkey
+                           │     │                             └─ Inner Join Est. 400 rows
+                           │     │                                │     Condition: s_nationkey == n_nationkey
+                           │     │                                ├─ Filter Est. 10000 rows
+                           │     │                                │  │     Condition: isNotNull(s_suppkey)
+                           │     │                                │  └─ TableScan tpch.supplier Est. 10000 rows
+                           │     │                                │           Condition : isNotNull(s_suppkey).
+                           │     │                                │           Outputs: [s_nationkey, s_suppkey]
+                           │     │                                └─ Broadcast Exchange Est. 1 rows
+                           │     │                                   └─ Filter Est. 1 rows
+                           │     │                                      │     Condition: n_name = 'CANADA'
+                           │     │                                      └─ TableScan tpch.nation Est. 25 rows
+                           │     │                                               Condition : n_name = 'CANADA'.
+                           │     │                                               Outputs: [n_name, n_nationkey]
+                           │     └─ Repartition Exchange Est. 31990 rows
+                           │        │     Partition by: {ps_partkey, ps_suppkey}
+                           │        └─ Inner Join Est. 31990 rows
+                           │           │     Condition: ps_suppkey == s_suppkey_1
+                           │           ├─ Local Exchange Est. 800000 rows
+                           │           │  └─ Filter Est. 800000 rows
+                           │           │     │     Condition: isNotNull(ps_partkey) AND isNotNull(ps_suppkey)
+                           │           │     │     Dynamic Filters: {ps_suppkey:bloomfilter,ps_suppkey:range}
+                           │           │     └─ TableScan tpch.partsupp Est. 800000 rows
+                           │           │              Condition : isNotNull(ps_partkey) AND isNotNull(ps_suppkey).Dynamic Filters : {ps_suppkey:range}.
+                           │           │              Outputs: [ps_availqty, ps_partkey, ps_suppkey]
+                           │           └─ Broadcast Exchange Est. 399 rows
+                           │              └─ Projection Est. 399 rows
+                           │                 │     Expressions: [s_suppkey_1]
+                           │                 │     Dynamic Filters Builder: {s_suppkey_1}
+                           │                 └─ MergingAggregated Est. 399 rows
+                           │                    └─ Repartition Exchange Est. 399 rows
+                           │                       │     Partition by: {s_suppkey_1}
+                           │                       └─ Aggregating Est. 399 rows
+                           │                          │     Group by: {s_suppkey_1}
+                           │                          └─ Projection Est. 400 rows
+                           │                             │     Expressions: s_suppkey_1:=s_suppkey
+                           │                             └─ Inner Join Est. 400 rows
+                           │                                │     Condition: s_nationkey == n_nationkey
+                           │                                ├─ Local Exchange Est. 10000 rows
+                           │                                │  └─ Filter Est. 10000 rows
+                           │                                │     │     Condition: isNotNull(s_suppkey)
+                           │                                │     │     Dynamic Filters: {s_nationkey:bloomfilter,s_nationkey:range}
+                           │                                │     └─ TableScan tpch.supplier Est. 10000 rows
+                           │                                │              Condition : isNotNull(s_suppkey).Dynamic Filters : {s_nationkey:range}.
+                           │                                │              Outputs: [s_nationkey, s_suppkey]
+                           │                                └─ Broadcast Exchange Est. 1 rows
+                           │                                   └─ Projection Est. 1 rows
+                           │                                      │     Expressions: [n_name, n_nationkey]
+                           │                                      │     Dynamic Filters Builder: {n_nationkey}
+                           │                                      └─ Filter Est. 1 rows
+                           │                                         │     Condition: n_name = 'CANADA'
+                           │                                         └─ TableScan tpch.nation Est. 25 rows
+                           │                                                  Condition : n_name = 'CANADA'.
+                           │                                                  Outputs: [n_name, n_nationkey]
+                           └─ MergingAggregated Est. 180000 rows
+                              └─ Repartition Exchange Est. 180000 rows
+                                 │     Partition by: {p_partkey}
+                                 └─ Aggregating Est. 180000 rows
+                                    │     Group by: {p_partkey}
+                                    └─ Projection Est. 180000 rows
+                                       │     Expressions: [p_partkey]
+                                       └─ Filter Est. 180000 rows
+                                          │     Condition: isNotNull(p_partkey) AND (p_name LIKE 'forest%')
+                                          └─ TableScan tpch.part Est. 200000 rows
+                                                   Condition : isNotNull(p_partkey) AND (p_name LIKE 'forest%').
+                                                   Outputs: [p_name, p_partkey]
+note: Magic Set is applied for 2 parts.
+note: Dynamic Filter is applied for 4 times.

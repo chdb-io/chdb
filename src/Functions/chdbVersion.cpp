@@ -22,14 +22,13 @@ namespace
     
 REGISTER_FUNCTION(ChdbVersion)
 {
-    factory.registerFunction<FunctionChdbVersion>(FunctionDocumentation
-        {
-          .description=R"(
+    factory.registerFunction<FunctionChdbVersion>(
+        FunctionDocumentation{
+            .description = R"(
 Returns the version of chDB.  The result type is String.
-)",
-          .examples{{"chdb", "SELECT chdb();", ""}},
-          .categories{"String"}
-        },
+        )",
+            .examples{{"chdb", "SELECT chdb()", "0.15.0"}},
+            .categories{"String"}},
         FunctionFactory::CaseInsensitive);
 }
 }

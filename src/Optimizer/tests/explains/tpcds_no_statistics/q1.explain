@@ -1,0 +1,66 @@
+Projection Est. 100 rows
+│     Expressions: [c_customer_id]
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {c_customer_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. ? rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {c_customer_id asc}
+            │     Limit: 100
+            └─ Inner Join Est. ? rows
+               │     Condition: s_store_sk == sr_store_sk_2
+               │     Filter: `expr#sum(sr_return_amt)_1` > (`expr#avg(ctr_total_return)` * '1.2')
+               ├─ Repartition Exchange Est. ? rows
+               │  │     Partition by: {s_store_sk}
+               │  └─ Inner Join Est. ? rows
+               │     │     Condition: sr_customer_sk_1 == c_customer_sk
+               │     ├─ Repartition Exchange Est. ? rows
+               │     │  │     Partition by: {sr_customer_sk_1}
+               │     │  └─ Inner Join Est. ? rows
+               │     │     │     Condition: sr_store_sk_1 == s_store_sk
+               │     │     ├─ Repartition Exchange Est. ? rows
+               │     │     │  │     Partition by: {sr_store_sk_1}
+               │     │     │  └─ CTERef[0] Est. ? rows
+               │     │     └─ Repartition Exchange Est. ? rows
+               │     │        │     Partition by: {s_store_sk}
+               │     │        └─ Filter Est. ? rows
+               │     │           │     Condition: s_state = 'TN'
+               │     │           └─ TableScan tpcds.store Est. ? rows
+               │     │                    Condition : s_state = 'TN'.
+               │     │                    Outputs: [s_state, s_store_sk]
+               │     └─ Repartition Exchange Est. ? rows
+               │        │     Partition by: {c_customer_sk}
+               │        └─ TableScan tpcds.customer Est. ? rows
+               │                 Outputs: [c_customer_id, c_customer_sk]
+               └─ MergingAggregated Est. ? rows
+                  └─ Repartition Exchange Est. ? rows
+                     │     Partition by: {sr_store_sk_2}
+                     └─ Aggregating Est. ? rows
+                        │     Group by: {sr_store_sk_2}
+                        │     Aggregates: expr#avg(ctr_total_return):=AggNull(avgIf)(expr#sum(sr_return_amt)_2,build_side_non_null_symbol)
+                        └─ Projection Est. ? rows
+                           │     Expressions: [expr#sum(sr_return_amt)_2, sr_store_sk_2], build_side_non_null_symbol:=1
+                           └─ CTERef[0] Est. ? rows
+CTEDef [0]
+   MergingAggregated Est. ? rows
+   └─ Repartition Exchange Est. ? rows
+      │     Partition by: {sr_customer_sk, sr_store_sk}
+      └─ Aggregating Est. ? rows
+         │     Group by: {sr_customer_sk, sr_store_sk}
+         │     Aggregates: expr#sum(sr_return_amt):=AggNull(sum)(sr_return_amt)
+         └─ Inner Join Est. ? rows
+            │     Condition: sr_returned_date_sk == d_date_sk
+            ├─ Repartition Exchange Est. ? rows
+            │  │     Partition by: {sr_returned_date_sk}
+            │  └─ TableScan tpcds.store_returns Est. ? rows
+            │           Outputs: [sr_customer_sk, sr_return_amt, sr_returned_date_sk, sr_store_sk]
+            └─ Repartition Exchange Est. ? rows
+               │     Partition by: {d_date_sk}
+               └─ Filter Est. ? rows
+                  │     Condition: d_year = 2000
+                  └─ TableScan tpcds.date_dim Est. ? rows
+                           Condition : d_year = 2000.
+                           Outputs: [d_date_sk, d_year]
+note: CTE(Common Table Expression) is applied for 2 times.

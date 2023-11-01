@@ -1,0 +1,14 @@
+Projection Est. 1 rows
+│     Expressions: revenue:=`expr#sum(multiply(LO_EXTENDEDPRICE, LO_DISCOUNT))`
+└─ MergingAggregated Est. 1 rows
+   └─ Gather Exchange Est. 1 rows
+      └─ Aggregating Est. 1 rows
+         │     Group by: {}
+         │     Aggregates: expr#sum(multiply(LO_EXTENDEDPRICE, LO_DISCOUNT)):=AggNull(sum)(expr#multiply(LO_EXTENDEDPRICE, LO_DISCOUNT))
+         └─ Projection Est. 818180238 rows
+            │     Expressions: expr#multiply(LO_EXTENDEDPRICE, LO_DISCOUNT):=LO_EXTENDEDPRICE * LO_DISCOUNT
+            └─ Filter Est. 818180238 rows
+               │     Condition: (LO_DISCOUNT >= 1) AND (LO_DISCOUNT <= 3) AND (LO_QUANTITY < 25) AND (toYear(LO_ORDERDATE) = 1993)
+               └─ TableScan ssb.lineorder Est. 5999989813 rows
+                        Condition : (LO_DISCOUNT >= 1) AND (LO_DISCOUNT <= 3) AND (LO_QUANTITY < 25) AND (toYear(LO_ORDERDATE) = 1993).
+                        Outputs: [LO_DISCOUNT, LO_EXTENDEDPRICE, LO_ORDERDATE, LO_QUANTITY]

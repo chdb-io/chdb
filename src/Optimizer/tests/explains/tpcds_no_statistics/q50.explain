@@ -1,0 +1,56 @@
+Projection Est. 100 rows
+│     Expressions: [s_city, s_company_id, s_county, s_state, s_store_name, s_street_name, s_street_number, s_street_type, s_suite_number, s_zip], 30 days:=`expr#sum(multiIf(lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 30), 1, 0))`, 31-60 days:=`expr#sum(multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 30), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 60)), 1, 0))`, 61-90 days:=`expr#sum(multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 60), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 90)), 1, 0))`, 91-120 days:=`expr#sum(multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 90), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 120)), 1, 0))`, >120 days:=`expr#sum(multiIf(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 120), 1, 0))`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {s_store_name asc, s_company_id asc, s_street_number asc, s_street_name asc, s_street_type asc, s_suite_number asc, s_city asc, s_county asc, s_state asc, s_zip asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. ? rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {s_store_name asc, s_company_id asc, s_street_number asc, s_street_name asc, s_street_type asc, s_suite_number asc, s_city asc, s_county asc, s_state asc, s_zip asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. ? rows
+               └─ Repartition Exchange Est. ? rows
+                  │     Partition by: {s_city, s_company_id, s_county, s_state, s_store_name, s_street_name, s_street_number, s_street_type, s_suite_number, s_zip}
+                  └─ Aggregating Est. ? rows
+                     │     Group by: {s_city, s_company_id, s_county, s_state, s_store_name, s_street_name, s_street_number, s_street_type, s_suite_number, s_zip}
+                     │     Aggregates: expr#sum(multiIf(lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 30), 1, 0)):=AggNull(sum)(expr#multiIf(lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 30), 1, 0)), expr#sum(multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 30), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 60)), 1, 0)):=AggNull(sum)(expr#multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 30), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 60)), 1, 0)), expr#sum(multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 60), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 90)), 1, 0)):=AggNull(sum)(expr#multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 60), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 90)), 1, 0)), expr#sum(multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 90), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 120)), 1, 0)):=AggNull(sum)(expr#multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 90), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 120)), 1, 0)), expr#sum(multiIf(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 120), 1, 0)):=AggNull(sum)(expr#multiIf(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 120), 1, 0))
+                     └─ Projection Est. ? rows
+                        │     Expressions: [s_city, s_company_id, s_county, s_state, s_store_name, s_street_name, s_street_number, s_street_type, s_suite_number, s_zip], expr#multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 30), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 60)), 1, 0):=multiIf(((sr_returned_date_sk - ss_sold_date_sk) > 30) AND ((sr_returned_date_sk - ss_sold_date_sk) <= 60), 1, 0), expr#multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 60), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 90)), 1, 0):=multiIf(((sr_returned_date_sk - ss_sold_date_sk) > 60) AND ((sr_returned_date_sk - ss_sold_date_sk) <= 90), 1, 0), expr#multiIf(and(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 90), lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 120)), 1, 0):=multiIf(((sr_returned_date_sk - ss_sold_date_sk) > 90) AND ((sr_returned_date_sk - ss_sold_date_sk) <= 120), 1, 0), expr#multiIf(greater(minus(sr_returned_date_sk, ss_sold_date_sk), 120), 1, 0):=multiIf((sr_returned_date_sk - ss_sold_date_sk) > 120, 1, 0), expr#multiIf(lessOrEquals(minus(sr_returned_date_sk, ss_sold_date_sk), 30), 1, 0):=multiIf((sr_returned_date_sk - ss_sold_date_sk) <= 30, 1, 0)
+                        └─ Inner Join Est. ? rows
+                           │     Condition: sr_returned_date_sk == d_date_sk_1
+                           ├─ Repartition Exchange Est. ? rows
+                           │  │     Partition by: {sr_returned_date_sk}
+                           │  └─ Inner Join Est. ? rows
+                           │     │     Condition: ss_sold_date_sk == d_date_sk
+                           │     ├─ Repartition Exchange Est. ? rows
+                           │     │  │     Partition by: {ss_sold_date_sk}
+                           │     │  └─ Inner Join Est. ? rows
+                           │     │     │     Condition: ss_store_sk == s_store_sk
+                           │     │     ├─ Repartition Exchange Est. ? rows
+                           │     │     │  │     Partition by: {ss_store_sk}
+                           │     │     │  └─ Inner Join Est. ? rows
+                           │     │     │     │     Condition: ss_customer_sk == sr_customer_sk, ss_item_sk == sr_item_sk, ss_ticket_number == sr_ticket_number
+                           │     │     │     ├─ Repartition Exchange Est. ? rows
+                           │     │     │     │  │     Partition by: {ss_customer_sk, ss_item_sk, ss_ticket_number}
+                           │     │     │     │  └─ TableScan tpcds.store_sales Est. ? rows
+                           │     │     │     │           Outputs: [ss_customer_sk, ss_item_sk, ss_sold_date_sk, ss_store_sk, ss_ticket_number]
+                           │     │     │     └─ Repartition Exchange Est. ? rows
+                           │     │     │        │     Partition by: {sr_customer_sk, sr_item_sk, sr_ticket_number}
+                           │     │     │        └─ TableScan tpcds.store_returns Est. ? rows
+                           │     │     │                 Outputs: [sr_customer_sk, sr_item_sk, sr_returned_date_sk, sr_ticket_number]
+                           │     │     └─ Repartition Exchange Est. ? rows
+                           │     │        │     Partition by: {s_store_sk}
+                           │     │        └─ TableScan tpcds.store Est. ? rows
+                           │     │                 Outputs: [s_city, s_company_id, s_county, s_state, s_store_name, s_store_sk, s_street_name, s_street_number, s_street_type, s_suite_number, s_zip]
+                           │     └─ Repartition Exchange Est. ? rows
+                           │        │     Partition by: {d_date_sk}
+                           │        └─ TableScan tpcds.date_dim Est. ? rows
+                           │                 Outputs: [d_date_sk]
+                           └─ Repartition Exchange Est. ? rows
+                              │     Partition by: {d_date_sk_1}
+                              └─ Filter Est. ? rows
+                                 │     Condition: (d_moy = 8) AND (d_year = 2001)
+                                 └─ TableScan tpcds.date_dim Est. ? rows
+                                          Condition : (d_moy = 8) AND (d_year = 2001).
+                                          Outputs: [d_moy, d_year], d_date_sk_1:=d_date_sk

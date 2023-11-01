@@ -52,8 +52,53 @@ FilterStep::FilterStep(
 {
 }
 
+FilterStep::FilterStep(const DataStream & input_stream_, const ConstASTPtr & filter_, bool remove_filter_column_)
+    : ITransformingStep(input_stream_, input_stream_.header, {})
+    , filter(filter_)
+    , filter_column_name(filter->getColumnName())
+    , remove_filter_column(remove_filter_column_)
+{
+}
+
+void FilterStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
+
+void FilterStep::updateInputStream(DataStream input_stream, bool keep_header)
+{
+    Block out_header = std::move(output_stream->header);
+    if (keep_header)
+        out_header = FilterTransform::transformHeader(input_stream.header, actions_dag.get(), filter_column_name, remove_filter_column);
+
+    output_stream = createOutputStream(input_stream, std::move(out_header), getDataStreamTraits());
+
+    input_streams.clear();
+    input_streams.emplace_back(std::move(input_stream));
+}
+
+ActionsDAGPtr FilterStep::createActions(ContextPtr context, ConstASTPtr rewrite_filter) const
+{
+    Names output;
+    for (const auto & item : input_streams[0].header)
+        output.emplace_back(item.name);
+    output.push_back(rewrite_filter->getColumnName());
+
+    return createExpressionActions(context, input_streams[0].header.getNamesAndTypesList(), output, const_pointer_cast<DB::IAST>(rewrite_filter));
+}
+
+
 void FilterStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
+    // ConstASTPtr rewrite_filter = filter;
+    if (!actions_dag)
+    {
+        // rewrite_filter = rewriteDynamicFilter(filter, pipeline, settings);
+        // actions_dag = createActions(settings.context, rewrite_filter->clone());
+        actions_dag = createActions(settings.context, std::move(filter));
+        filter_column_name = filter->getColumnName();
+    }
     auto expression = std::make_shared<ExpressionActions>(actions_dag, settings.getActionsSettings());
 
     pipeline.addSimpleTransform([&](const Block & header, QueryPipelineBuilder::StreamType stream_type)
@@ -119,6 +164,11 @@ void FilterStep::updateOutputStream()
         if (alias_node)
             output_stream->sort_description[i].column_name = alias_node->result_name;
     }
+}
+
+std::shared_ptr<IQueryPlanStep> FilterStep::copy(ContextPtr) const
+{
+    return std::make_shared<FilterStep>(input_streams[0], actions_dag, filter_column_name, remove_filter_column);
 }
 
 }

@@ -4,6 +4,9 @@
 #include <Interpreters/Context_fwd.h>
 #include <Columns/IColumn.h>
 #include <QueryPipeline/QueryPlanResourceHolder.h>
+#include <Processors/QueryPlan/CTEInfo.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
+
 
 #include <list>
 #include <memory>
@@ -16,7 +19,7 @@ namespace DB
 class DataStream;
 
 class IQueryPlanStep;
-using QueryPlanStepPtr = std::unique_ptr<IQueryPlanStep>;
+using QueryPlanStepPtr = std::shared_ptr<IQueryPlanStep>;
 
 class QueryPipelineBuilder;
 using QueryPipelineBuilderPtr = std::unique_ptr<QueryPipelineBuilder>;
@@ -46,7 +49,12 @@ public:
     QueryPlan();
     ~QueryPlan();
     QueryPlan(QueryPlan &&) noexcept;
+    QueryPlan(PlanNodePtr root, PlanNodeIdAllocatorPtr idAllocator);
+    QueryPlan(PlanNodePtr root_, CTEInfo cte_info, PlanNodeIdAllocatorPtr id_allocator_);
+
     QueryPlan & operator=(QueryPlan &&) noexcept;
+    PlanNodeIdAllocatorPtr & getIdAllocator() { return id_allocator; }
+    void update(PlanNodePtr plan) { plan_node = std::move(plan); }
 
     void unitePlans(QueryPlanStepPtr step, std::vector<QueryPlanPtr> plans);
     void addStep(QueryPlanStepPtr step);
@@ -106,6 +114,36 @@ public:
     };
 
     using Nodes = std::list<Node>;
+    using CTEId = UInt32;
+    using CTENodes = std::unordered_map<CTEId, Node *>;
+
+    Nodes & getNodes() { return nodes; }
+
+    Node * getRoot() { return root; }
+    const Node * getRoot() const { return root; }
+    PlanNodePtr getPlanNodeRoot() const { return plan_node; }
+    void setRoot(Node * root_) { root = root_; }
+    void setPlanNodeRoot(PlanNodePtr plan_node_) { plan_node = plan_node_; }
+    CTENodes & getCTENodes() { return cte_nodes; }
+
+    Node * getLastNode() { return &nodes.back(); }
+
+    void addNode(QueryPlan::Node && node_);
+
+    void addRoot(QueryPlan::Node && node_);
+    UInt32 newPlanNodeId() { return (*max_node_id)++; }
+    PlanNodePtr & getPlanNode() { return plan_node; }
+    CTEInfo & getCTEInfo() { return cte_info; }
+    PlanNodePtr getPlanNodeById(PlanNodeId node_id) const;
+    const CTEInfo & getCTEInfo() const { return cte_info; }
+
+    QueryPlan getSubPlan(QueryPlan::Node * node_);
+
+    void freshPlan();
+
+    size_t getSize() const { return nodes.size(); }
+
+    void setResetStepId(bool reset_id) { reset_step_id = reset_id; }
 
     Node * getRootNode() const { return root; }
     static Nodes detachNodes(QueryPlan && plan);
@@ -113,13 +151,22 @@ public:
 private:
     QueryPlanResourceHolder resources;
     Nodes nodes;
+    CTENodes cte_nodes;
+
     Node * root = nullptr;
+    PlanNodePtr plan_node = nullptr;
+    CTEInfo cte_info;
+    PlanNodeIdAllocatorPtr id_allocator;
 
     void checkInitialized() const;
     void checkNotCompleted() const;
 
     /// Those fields are passed to QueryPipeline.
     size_t max_threads = 0;
+    std::vector<std::shared_ptr<Context>> interpreter_context;
+    std::shared_ptr<UInt32> max_node_id;
+    //Whether reset step id in serialize()，use for explain analyze.
+    bool reset_step_id = true;
 };
 
 std::string debugExplainStep(const IQueryPlanStep & step);

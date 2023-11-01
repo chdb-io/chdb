@@ -106,4 +106,9 @@ void UnionStep::describePipeline(FormatSettings & settings) const
     IQueryPlanStep::describePipeline(processors, settings);
 }
 
+std::shared_ptr<IQueryPlanStep> UnionStep::copy(ContextPtr) const
+{
+    return std::make_shared<UnionStep>(input_streams, max_threads);
+}
+    
 }

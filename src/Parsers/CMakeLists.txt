@@ -10,6 +10,10 @@ if (TARGET ch_contrib::jemalloc)
     target_link_libraries(clickhouse_parsers PRIVATE ch_contrib::jemalloc)
 endif ()
 
+if (TARGET ch_contrib::llvm)
+    target_link_libraries(clickhouse_parsers PUBLIC ch_contrib::llvm)
+endif ()
+
 if (USE_DEBUG_HELPERS)
     # CMake generator expression will do insane quoting when it encounters special character like quotes, spaces, etc.
     # Prefixing "SHELL:" will force it to use the original text.

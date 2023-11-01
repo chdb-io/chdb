@@ -1,0 +1,22 @@
+Projection Est. 1 rows
+│     Expressions: promo_revenue:=('100.00' * `expr#sum(multiIf(like(p_type, 'PROMO%'), multiply(l_extendedprice, minus(1, l_discount)), 0))`) / `expr#sum(multiply(l_extendedprice, minus(1, l_discount)))`
+└─ MergingAggregated Est. 1 rows
+   └─ Gather Exchange Est. 1 rows
+      └─ Aggregating Est. 1 rows
+         │     Group by: {}
+         │     Aggregates: expr#sum(multiIf(like(p_type, 'PROMO%'), multiply(l_extendedprice, minus(1, l_discount)), 0)):=AggNull(sum)(expr#multiIf(like(p_type, 'PROMO%'), multiply(l_extendedprice, minus(1, l_discount)), 0)), expr#sum(multiply(l_extendedprice, minus(1, l_discount))):=AggNull(sum)(expr#multiply(l_extendedprice, minus(1, l_discount)))
+         └─ Projection Est. 75824 rows
+            │     Expressions: expr#multiIf(like(p_type, 'PROMO%'), multiply(l_extendedprice, minus(1, l_discount)), 0):=multiIf(p_type LIKE 'PROMO%', l_extendedprice * (1 - l_discount), 0), expr#multiply(l_extendedprice, minus(1, l_discount)):=l_extendedprice * (1 - l_discount)
+            └─ Inner Join Est. 75824 rows
+               │     Condition: p_partkey == l_partkey
+               ├─ Repartition Exchange Est. 200000 rows
+               │  │     Partition by: {p_partkey}
+               │  └─ TableScan tpch.part Est. 200000 rows
+               │           Outputs: [p_partkey, p_type]
+               └─ Repartition Exchange Est. 75824 rows
+                  │     Partition by: {l_partkey}
+                  └─ Filter Est. 75824 rows
+                     │     Condition: (l_shipdate >= cast(9374, 'Date')) AND (l_shipdate < cast(9404, 'Date'))
+                     └─ TableScan tpch.lineitem Est. 6001215 rows
+                              Condition : (l_shipdate >= cast(9374, 'Date')) AND (l_shipdate < cast(9404, 'Date')).
+                              Outputs: [l_discount, l_extendedprice, l_partkey, l_shipdate]

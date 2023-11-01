@@ -1,0 +1,43 @@
+Projection Est. 100 rows
+│     Expressions: [s_store_id, s_store_name], fri_sales:=`expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))`, mon_sales:=`expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))`, sat_sales:=`expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))`, sun_sales:=`expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))`, thu_sales:=`expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))`, tue_sales:=`expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))`, wed_sales:=`expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {s_store_name asc, s_store_id asc, expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)) asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. ? rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {s_store_name asc, s_store_id asc, expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)) asc, expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)) asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. ? rows
+               └─ Repartition Exchange Est. ? rows
+                  │     Partition by: {s_store_id, s_store_name}
+                  └─ Aggregating Est. ? rows
+                     │     Group by: {s_store_id, s_store_name}
+                     │     Aggregates: expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)), expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)), expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)), expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)), expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)), expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)), expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)):=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))
+                     └─ Projection Est. ? rows
+                        │     Expressions: [s_store_id, s_store_name], expr#multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Friday', ss_sales_price, NULL), expr#multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Monday', ss_sales_price, NULL), expr#multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Saturday', ss_sales_price, NULL), expr#multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Sunday', ss_sales_price, NULL), expr#multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Thursday', ss_sales_price, NULL), expr#multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Tuesday', ss_sales_price, NULL), expr#multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL):=multiIf(d_day_name = 'Wednesday', ss_sales_price, NULL)
+                        └─ Inner Join Est. ? rows
+                           │     Condition: ss_store_sk == s_store_sk
+                           ├─ Repartition Exchange Est. ? rows
+                           │  │     Partition by: {ss_store_sk}
+                           │  └─ Inner Join Est. ? rows
+                           │     │     Condition: d_date_sk == ss_sold_date_sk
+                           │     ├─ Repartition Exchange Est. ? rows
+                           │     │  │     Partition by: {d_date_sk}
+                           │     │  └─ Filter Est. ? rows
+                           │     │     │     Condition: d_year = 2000
+                           │     │     └─ TableScan tpcds.date_dim Est. ? rows
+                           │     │              Condition : d_year = 2000.
+                           │     │              Outputs: [d_date_sk, d_day_name, d_year]
+                           │     └─ Repartition Exchange Est. ? rows
+                           │        │     Partition by: {ss_sold_date_sk}
+                           │        └─ TableScan tpcds.store_sales Est. ? rows
+                           │                 Outputs: [ss_sales_price, ss_sold_date_sk, ss_store_sk]
+                           └─ Repartition Exchange Est. ? rows
+                              │     Partition by: {s_store_sk}
+                              └─ Filter Est. ? rows
+                                 │     Condition: s_gmt_offset = -5.
+                                 └─ TableScan tpcds.store Est. ? rows
+                                          Condition : s_gmt_offset = -5..
+                                          Outputs: [s_gmt_offset, s_store_id, s_store_name, s_store_sk]

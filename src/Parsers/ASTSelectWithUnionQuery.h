@@ -19,6 +19,8 @@ public:
 
     QueryKind getQueryKind() const override { return QueryKind::Select; }
 
+    using Mode = SelectUnionMode;
+    
     SelectUnionMode union_mode;
 
     SelectUnionModes list_of_modes;

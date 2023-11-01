@@ -1,0 +1,47 @@
+Projection Est. 1 rows
+│     Expressions: [i_manager_id], avg_monthly_sales:=`expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id)`, sum_sales:=`expr#sum(ss_sales_price)`
+└─ Limit Est. 1 rows
+   │     Limit: 100
+   └─ Projection Est. 1 rows
+      │     Expressions: [expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id), expr#sum(ss_sales_price), i_manager_id]
+      └─ Sorting Est. 1 rows
+         │     Order by: {i_manager_id asc, expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id) asc, expr#sum(ss_sales_price) asc}
+         │     Limit: 100
+         └─ Gather Exchange Est. 1 rows
+            └─ Sorting Est. 1 rows
+               │     Order by: {i_manager_id asc, expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id) asc, expr#sum(ss_sales_price) asc}
+               │     Limit: 100
+               └─ Filter Est. 1 rows
+                  │     Condition: multiIf(`expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id)` > 0, abs(`expr#sum(ss_sales_price)` - `expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id)`) / `expr#avg(sum(ss_sales_price)) OVER (PARTITION BY i_manager_id)`, NULL) > '0.1'
+                  └─ Window Est. 1 rows
+                     └─ Repartition Exchange Est. 1 rows
+                        │     Partition by: {i_manager_id}
+                        └─ MergingAggregated Est. 1 rows
+                           └─ Repartition Exchange Est. 1 rows
+                              │     Partition by: {d_moy, i_manager_id}
+                              └─ Aggregating Est. 1 rows
+                                 │     Group by: {d_moy, i_manager_id}
+                                 │     Aggregates: expr#sum(ss_sales_price):=AggNull(sum)(ss_sales_price)
+                                 └─ Inner Join Est. 431478 rows
+                                    │     Condition: ss_store_sk == s_store_sk
+                                    ├─ Inner Join Est. 431478 rows
+                                    │  │     Condition: ss_sold_date_sk == d_date_sk
+                                    │  ├─ Inner Join Est. 2182151 rows
+                                    │  │  │     Condition: ss_item_sk == i_item_sk
+                                    │  │  ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                                    │  │  │        Outputs: [ss_item_sk, ss_sales_price, ss_sold_date_sk, ss_store_sk]
+                                    │  │  └─ Broadcast Exchange Est. 455 rows
+                                    │  │     └─ Filter Est. 455 rows
+                                    │  │        │     Condition: ((i_category IN ('Books', 'Children', 'Electronics')) AND (i_class IN ('personal', 'portable', 'reference', 'self-help')) AND (i_brand IN ('scholaramalgamalg #14', 'scholaramalgamalg #7', 'exportiunivamalg #9', 'scholaramalgamalg #9'))) OR ((i_category IN ('Women', 'Music', 'Men')) AND (i_class IN ('accessories', 'classical', 'fragrances', 'pants')) AND (i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'importoamalg #1')))
+                                    │  │        └─ TableScan tpcds.item Est. 300000 rows
+                                    │  │                 Condition : ((i_category IN ('Books', 'Children', 'Electronics')) AND (i_class IN ('personal', 'portable', 'reference', 'self-help')) AND (i_brand IN ('scholaramalgamalg #14', 'scholaramalgamalg #7', 'exportiunivamalg #9', 'scholaramalgamalg #9'))) OR ((i_category IN ('Women', 'Music', 'Men')) AND (i_class IN ('accessories', 'classical', 'fragrances', 'pants')) AND (i_brand IN ('amalgimporto #1', 'edu packscholar #1', 'exportiimporto #1', 'importoamalg #1'))).
+                                    │  │                 Outputs: [i_brand, i_category, i_class, i_item_sk, i_manager_id]
+                                    │  └─ Broadcast Exchange Est. 366 rows
+                                    │     └─ Filter Est. 366 rows
+                                    │        │     Condition: d_month_seq IN (1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211)
+                                    │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                                    │                 Condition : d_month_seq IN (1200, 1201, 1202, 1203, 1204, 1205, 1206, 1207, 1208, 1209, 1210, 1211).
+                                    │                 Outputs: [d_date_sk, d_month_seq, d_moy]
+                                    └─ Broadcast Exchange Est. 1002 rows
+                                       └─ TableScan tpcds.store Est. 1002 rows
+                                                Outputs: [s_store_sk]

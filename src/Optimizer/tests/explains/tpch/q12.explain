@@ -1,0 +1,28 @@
+Projection Est. 2 rows
+│     Expressions: [l_shipmode], high_line_count:=`expr#sum(multiIf(or(equals(o_orderpriority, '1-URGENT'), equals(o_orderpriority, '2-HIGH')), 1, 0))`, low_line_count:=`expr#sum(multiIf(and(notEquals(o_orderpriority, '1-URGENT'), notEquals(o_orderpriority, '2-HIGH')), 1, 0))`
+└─ Sorting Est. 2 rows
+   │     Order by: {l_shipmode asc}
+   └─ Gather Exchange Est. 2 rows
+      └─ Sorting Est. 2 rows
+         │     Order by: {l_shipmode asc}
+         └─ MergingAggregated Est. 2 rows
+            └─ Repartition Exchange Est. 2 rows
+               │     Partition by: {l_shipmode}
+               └─ Aggregating Est. 2 rows
+                  │     Group by: {l_shipmode}
+                  │     Aggregates: expr#sum(multiIf(or(equals(o_orderpriority, '1-URGENT'), equals(o_orderpriority, '2-HIGH')), 1, 0)):=AggNull(sum)(expr#multiIf(or(equals(o_orderpriority, '1-URGENT'), equals(o_orderpriority, '2-HIGH')), 1, 0)), expr#sum(multiIf(and(notEquals(o_orderpriority, '1-URGENT'), notEquals(o_orderpriority, '2-HIGH')), 1, 0)):=AggNull(sum)(expr#multiIf(and(notEquals(o_orderpriority, '1-URGENT'), notEquals(o_orderpriority, '2-HIGH')), 1, 0))
+                  └─ Projection Est. 260008 rows
+                     │     Expressions: [l_shipmode], expr#multiIf(and(notEquals(o_orderpriority, '1-URGENT'), notEquals(o_orderpriority, '2-HIGH')), 1, 0):=multiIf((o_orderpriority != '1-URGENT') AND (o_orderpriority != '2-HIGH'), 1, 0), expr#multiIf(or(equals(o_orderpriority, '1-URGENT'), equals(o_orderpriority, '2-HIGH')), 1, 0):=multiIf((o_orderpriority = '1-URGENT') OR (o_orderpriority = '2-HIGH'), 1, 0)
+                     └─ Inner Join Est. 260008 rows
+                        │     Condition: o_orderkey == l_orderkey
+                        ├─ Repartition Exchange Est. 1500000 rows
+                        │  │     Partition by: {o_orderkey}
+                        │  └─ TableScan tpch.orders Est. 1500000 rows
+                        │           Outputs: [o_orderkey, o_orderpriority]
+                        └─ Repartition Exchange Est. 260008 rows
+                           │     Partition by: {l_orderkey}
+                           └─ Filter Est. 260008 rows
+                              │     Condition: (l_shipmode IN ('MAIL', 'SHIP')) AND (l_receiptdate >= cast(8766, 'Date')) AND (l_receiptdate < cast(9131, 'Date')) AND (l_commitdate < l_receiptdate) AND (l_shipdate < l_commitdate)
+                              └─ TableScan tpch.lineitem Est. 6001215 rows
+                                       Condition : (l_shipmode IN ('MAIL', 'SHIP')) AND (l_receiptdate >= cast(8766, 'Date')) AND (l_receiptdate < cast(9131, 'Date')) AND (l_commitdate < l_receiptdate) AND (l_shipdate < l_commitdate).
+                                       Outputs: [l_commitdate, l_orderkey, l_receiptdate, l_shipdate, l_shipmode]

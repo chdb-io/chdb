@@ -15,4 +15,9 @@ void ReadNothingStep::initializePipeline(QueryPipelineBuilder & pipeline, const 
     pipeline.init(Pipe(std::make_shared<NullSource>(getOutputStream().header)));
 }
 
+std::shared_ptr<IQueryPlanStep> ReadNothingStep::copy(ContextPtr) const
+{
+    return std::make_shared<ReadNothingStep>(output_stream->header);
+}
+
 }

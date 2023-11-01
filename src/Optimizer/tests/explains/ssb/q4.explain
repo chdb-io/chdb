@@ -1,0 +1,36 @@
+Projection Est. 94419 rows
+│     Expressions: [P_BRAND], d_year:=`expr#toYear(LO_ORDERDATE)`, sum(LO_REVENUE):=`expr#sum(LO_REVENUE)`
+└─ Sorting Est. 94419 rows
+   │     Order by: {expr#toYear(LO_ORDERDATE) asc, P_BRAND asc}
+   └─ Gather Exchange Est. 94419 rows
+      └─ Sorting Est. 94419 rows
+         │     Order by: {expr#toYear(LO_ORDERDATE) asc, P_BRAND asc}
+         └─ MergingAggregated Est. 94419 rows
+            └─ Repartition Exchange Est. 94419 rows
+               │     Partition by: {P_BRAND, expr#toYear(LO_ORDERDATE)}
+               └─ Aggregating Est. 94419 rows
+                  │     Group by: {P_BRAND, expr#toYear(LO_ORDERDATE)}
+                  │     Aggregates: expr#sum(LO_REVENUE):=AggNull(sum)(LO_REVENUE)
+                  └─ Projection Est. 34070204 rows
+                     │     Expressions: [LO_REVENUE, P_BRAND], expr#toYear(LO_ORDERDATE):=toYear(LO_ORDERDATE)
+                     └─ Inner Join Est. 34070204 rows
+                        │     Condition: LO_SUPPKEY == S_SUPPKEY
+                        ├─ Repartition Exchange Est. 170371030 rows
+                        │  │     Partition by: {LO_SUPPKEY}
+                        │  └─ Inner Join Est. 170371030 rows
+                        │     │     Condition: LO_PARTKEY == P_PARTKEY
+                        │     ├─ TableScan ssb.lineorder Est. 5999989813 rows
+                        │     │        Outputs: [LO_ORDERDATE, LO_PARTKEY, LO_REVENUE, LO_SUPPKEY]
+                        │     └─ Broadcast Exchange Est. 79584 rows
+                        │        └─ Filter Est. 79584 rows
+                        │           │     Condition: P_CATEGORY = 'MFGR#12'
+                        │           └─ TableScan ssb.part Est. 2000000 rows
+                        │                    Condition : P_CATEGORY = 'MFGR#12'.
+                        │                    Outputs: [P_BRAND, P_CATEGORY, P_PARTKEY]
+                        └─ Repartition Exchange Est. 399954 rows
+                           │     Partition by: {S_SUPPKEY}
+                           └─ Filter Est. 399954 rows
+                              │     Condition: S_REGION = 'AMERICA'
+                              └─ TableScan ssb.supplier Est. 2000000 rows
+                                       Condition : S_REGION = 'AMERICA'.
+                                       Outputs: [S_REGION, S_SUPPKEY]

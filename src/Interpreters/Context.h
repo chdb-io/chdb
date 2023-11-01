@@ -1,25 +1,31 @@
 #pragma once
 
-#include <base/types.h>
-#include <Common/isLocalAddress.h>
-#include <Common/MultiVersion.h>
-#include <Common/RemoteHostFilter.h>
-#include <Common/ThreadPool_fwd.h>
-#include <Common/Throttler_fwd.h>
 #include <Core/NamesAndTypes.h>
 #include <Core/Settings.h>
 #include <Core/UUID.h>
-#include <IO/AsyncReadCounters.h>
 #include <Disks/IO/getThreadPoolReader.h>
+#include <IO/AsyncReadCounters.h>
+#include <IO/IResourceManager.h>
 #include <Interpreters/ClientInfo.h>
 #include <Interpreters/Context_fwd.h>
 #include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/MergeTreeTransactionHolder.h>
-#include <IO/IResourceManager.h>
+#include <Optimizer/OptimizerMetrics.h>
+#include <Optimizer/OptimizerProfile.h>
 #include <Parsers/IAST_fwd.h>
+#include <Processors/QueryPlan/PlanNodeIdAllocator.h>
+#include <Processors/QueryPlan/SymbolAllocator.h>
 #include <Server/HTTP/HTTPContext.h>
+#include <Statistics/StatisticsBase.h>
+#include <Statistics/StatisticsMemoryStore.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage_fwd.h>
+#include <base/types.h>
+#include <Common/MultiVersion.h>
+#include <Common/RemoteHostFilter.h>
+#include <Common/ThreadPool_fwd.h>
+#include <Common/Throttler_fwd.h>
+#include <Common/isLocalAddress.h>
 
 #include "config.h"
 
@@ -197,6 +203,12 @@ using MergeTreeMetadataCachePtr = std::shared_ptr<MergeTreeMetadataCache>;
 
 class PreparedSetsCache;
 using PreparedSetsCachePtr = std::shared_ptr<PreparedSetsCache>;
+
+class OptimizerMetrics;
+using OptimizerMetricsPtr = std::shared_ptr<OptimizerMetrics>;
+
+using ExcludedRules = std::unordered_set<UInt32>;
+using ExcludedRulesMap = std::unordered_map<PlanNodeId, ExcludedRules>;
 
 /// An empty interface for an arbitrary object that may be attached by a shared pointer
 /// to query context, when using ClickHouse as a library.
@@ -417,6 +429,16 @@ private:
 
     /// A flag, used to distinguish between user query and internal query to a database engine (MaterializedPostgreSQL).
     bool is_internal_query = false;
+
+    PlanNodeIdAllocatorPtr id_allocator = nullptr;
+    std::shared_ptr<SymbolAllocator> symbol_allocator = nullptr;
+    std::shared_ptr<Statistics::StatisticsMemoryStore> stats_memory_store = nullptr;
+    std::shared_ptr<OptimizerMetrics> optimizer_metrics = nullptr;
+    ExcludedRulesMap exclude_rules_map;
+
+    std::unordered_map<std::string, bool> function_deterministic;
+
+    std::shared_ptr<OptimizerProfile> optimizer_profile = nullptr;
 
     inline static ContextPtr global_context_instance;
 
@@ -1093,6 +1115,65 @@ public:
     /// Removes context of current distributed DDL.
     void resetZooKeeperMetadataTransaction();
 
+    PlanNodeIdAllocatorPtr & getPlanNodeIdAllocator() { return id_allocator; }
+    UInt32 nextNodeId() { return id_allocator->nextId(); }
+    void createPlanNodeIdAllocator();
+
+    int step_id = 2000;
+    int getStepId() const { return step_id; }
+    void setStepId(int step_id_) { step_id = step_id_; }
+    int getAndIncStepId() { return ++step_id; }
+
+    int rule_id = 3000;
+    int getRuleId() const { return rule_id; }
+    void setRuleId(int rule_id_) { rule_id = rule_id_; }
+    void incRuleId() { ++rule_id; }
+
+    String graphviz_sub_query_path;
+    void setExecuteSubQueryPath(String path) { graphviz_sub_query_path = std::move(path); }
+    String getExecuteSubQueryPath() const
+    {
+        return graphviz_sub_query_path;
+    }
+    void removeExecuteSubQueryPath()
+    {
+        graphviz_sub_query_path = "";
+    }
+
+    int sub_query_id = 0;
+    int incAndGetSubQueryId() { return ++sub_query_id; }
+
+    SymbolAllocatorPtr & getSymbolAllocator() { return symbol_allocator; }
+    ExcludedRulesMap & getExcludedRulesMap() { return exclude_rules_map; }
+
+    void createSymbolAllocator();
+    std::shared_ptr<Statistics::StatisticsMemoryStore> getStatisticsMemoryStore();
+
+    void createOptimizerMetrics();
+    OptimizerMetricsPtr & getOptimizerMetrics() { return optimizer_metrics; }
+
+    void setFunctionDeterministic(const std::string & fun_name, bool deterministic)
+    {
+        function_deterministic[fun_name] = deterministic;
+    }
+
+    bool isFunctionDeterministic(const std::string & fun_name) const
+    {
+        if (function_deterministic.contains(fun_name))
+        {
+            return function_deterministic.at(fun_name);
+        }
+        return true;
+    }
+
+    void initOptimizerProfile() { optimizer_profile = std::make_unique<OptimizerProfile>(); }
+
+    String getOptimizerProfile(bool print_rule = false);
+
+    void clearOptimizerProfile();
+
+    void logOptimizerProfile(Poco::Logger * log, String prefix, String name, String time, bool is_rule = false);
+    
     void checkTransactionsAreAllowed(bool explicit_tcl_query = false) const;
     void initCurrentTransaction(MergeTreeTransactionPtr txn);
     void setCurrentTransaction(MergeTreeTransactionPtr txn);

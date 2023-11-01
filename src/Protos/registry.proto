@@ -1,0 +1,20 @@
+syntax = "proto2";
+package DB.Protos;
+
+option cc_generic_services = true;
+
+message RegistryRequest {
+  optional string query_id = 1;
+  optional uint64 exchange_id = 2;
+  optional uint64 parallel_id = 3;
+  optional string coordinator_address = 4;
+  optional uint32 wait_timeout_ms = 5;
+};
+
+message RegistryResponse {
+  optional string message = 1;
+};
+
+service RegistryService {
+  rpc registry(RegistryRequest) returns (RegistryResponse);
+};

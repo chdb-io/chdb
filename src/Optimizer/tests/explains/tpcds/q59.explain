@@ -1,0 +1,116 @@
+Projection Est. 100 rows
+│     Expressions: d_week_seq1:=d_week_seq_1, divide(fri_sales1, fri_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_2`, divide(mon_sales1, mon_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_2`, divide(sat_sales1, sat_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_2`, divide(sun_sales1, sun_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_2`, divide(thu_sales1, thu_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_2`, divide(tue_sales1, tue_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_2`, divide(wed_sales1, wed_sales2):=`expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_1` / `expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_2`, s_store_id1:=s_store_id, s_store_name1:=s_store_name
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {s_store_name asc, s_store_id asc, d_week_seq_1 asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 55656896 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {s_store_name asc, s_store_id asc, d_week_seq_1 asc}
+            │     Limit: 100
+            └─ Inner Join Est. 55656896 rows
+               │     Condition: minus(d_week_seq_3, 52) == d_week_seq_1, s_store_id_1 == s_store_id
+               ├─ Repartition Exchange Est. 168483 rows
+               │  │     Partition by: {minus(d_week_seq_3, 52), s_store_id_1}
+               │  └─ Projection Est. 168483 rows
+               │     │     Expressions: [expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_2, expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_2, expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_2, expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_2, expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_2, expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_2, expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_2, s_store_id_1], minus(d_week_seq_3, 52):=d_week_seq_3 - 52
+               │     └─ Inner Join Est. 168483 rows
+               │        │     Condition: ss_store_sk_2 == s_store_sk_1
+               │        ├─ Inner Join Est. 168483 rows
+               │        │  │     Condition: d_week_seq_3 == d_week_seq_4
+               │        │  ├─ Repartition Exchange Est. 23808 rows
+               │        │  │  │     Partition by: {d_week_seq_3}
+               │        │  │  └─ Projection Est. 23808 rows
+               │        │  │     │     Expressions: d_week_seq_3:=d_week_seq_7, expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_4`, expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_4`, expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_4`, expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_4`, expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_4`, expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_4`, expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_2:=`expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_4`, ss_store_sk_2:=ss_store_sk_4
+               │        │  │     └─ MergingAggregated Est. 23808 rows
+               │        │  │        └─ Repartition Exchange Est. 23808 rows
+               │        │  │           │     Partition by: {d_week_seq_7, ss_store_sk_4}
+               │        │  │           └─ Aggregating Est. 23808 rows
+               │        │  │              │     Group by: {d_week_seq_7, ss_store_sk_4}
+               │        │  │              │     Aggregates: expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)_2), expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)_2), expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)_2), expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)_2), expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)_2), expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)_2), expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_4:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)_2)
+               │        │  │              └─ Projection Est. 13280759 rows
+               │        │  │                 │     Expressions: [d_week_seq_7, ss_store_sk_4], expr#multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Friday', ss_sales_price_2, NULL), expr#multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Monday', ss_sales_price_2, NULL), expr#multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Saturday', ss_sales_price_2, NULL), expr#multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Sunday', ss_sales_price_2, NULL), expr#multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Thursday', ss_sales_price_2, NULL), expr#multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Tuesday', ss_sales_price_2, NULL), expr#multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)_2:=multiIf(d_day_name_2 = 'Wednesday', ss_sales_price_2, NULL)
+               │        │  │                 └─ Inner Join Est. 13280759 rows
+               │        │  │                    │     Condition: ss_sold_date_sk_2 == d_date_sk_2
+               │        │  │                    ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+               │        │  │                    │        Outputs: ss_sales_price_2:=ss_sales_price, ss_sold_date_sk_2:=ss_sold_date_sk, ss_store_sk_4:=ss_store_sk
+               │        │  │                    └─ Broadcast Exchange Est. 336 rows
+               │        │  │                       └─ Inner Join Est. 336 rows
+               │        │  │                          │     Condition: d_week_seq_7 == d_week_seq_8
+               │        │  │                          ├─ TableScan tpcds.date_dim Est. 73049 rows
+               │        │  │                          │        Outputs: d_date_sk_2:=d_date_sk, d_day_name_2:=d_day_name, d_week_seq_7:=d_week_seq
+               │        │  │                          └─ Broadcast Exchange Est. 48 rows
+               │        │  │                             └─ MergingAggregated Est. 48 rows
+               │        │  │                                └─ Repartition Exchange Est. 48 rows
+               │        │  │                                   │     Partition by: {d_week_seq_8}
+               │        │  │                                   └─ Aggregating Est. 48 rows
+               │        │  │                                      │     Group by: {d_week_seq_8}
+               │        │  │                                      └─ Projection Est. 339 rows
+               │        │  │                                         │     Expressions: d_week_seq_8:=d_week_seq_4
+               │        │  │                                         └─ Filter Est. 339 rows
+               │        │  │                                            │     Condition: (d_month_seq_1 >= 1224) AND (d_month_seq_1 <= 1235)
+               │        │  │                                            └─ TableScan tpcds.date_dim Est. 73049 rows
+               │        │  │                                                     Condition : (d_month_seq >= 1224) AND (d_month_seq <= 1235).
+               │        │  │                                                     Outputs: d_month_seq_1:=d_month_seq, d_week_seq_4:=d_week_seq
+               │        │  └─ Repartition Exchange Est. 339 rows
+               │        │     │     Partition by: {d_week_seq_4}
+               │        │     └─ Filter Est. 339 rows
+               │        │        │     Condition: (d_month_seq_1 >= 1224) AND (d_month_seq_1 <= 1235)
+               │        │        └─ TableScan tpcds.date_dim Est. 73049 rows
+               │        │                 Condition : (d_month_seq >= 1224) AND (d_month_seq <= 1235).
+               │        │                 Outputs: d_month_seq_1:=d_month_seq, d_week_seq_4:=d_week_seq
+               │        └─ Broadcast Exchange Est. 1002 rows
+               │           └─ TableScan tpcds.store Est. 1002 rows
+               │                    Outputs: s_store_id_1:=s_store_id, s_store_sk_1:=s_store_sk
+               └─ Repartition Exchange Est. 165501 rows
+                  │     Partition by: {d_week_seq_1, s_store_id}
+                  └─ Inner Join Est. 165501 rows
+                     │     Condition: ss_store_sk_1 == s_store_sk
+                     ├─ Inner Join Est. 165501 rows
+                     │  │     Condition: d_week_seq_1 == d_week_seq_2
+                     │  ├─ Repartition Exchange Est. 23312 rows
+                     │  │  │     Partition by: {d_week_seq_1}
+                     │  │  └─ Projection Est. 23312 rows
+                     │  │     │     Expressions: d_week_seq_1:=d_week_seq_5, expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_3`, expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_3`, expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_3`, expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_3`, expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_3`, expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_3`, expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_1:=`expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_3`, ss_store_sk_1:=ss_store_sk_3
+                     │  │     └─ MergingAggregated Est. 23312 rows
+                     │  │        └─ Repartition Exchange Est. 23312 rows
+                     │  │           │     Partition by: {d_week_seq_5, ss_store_sk_3}
+                     │  │           └─ Aggregating Est. 23312 rows
+                     │  │              │     Group by: {d_week_seq_5, ss_store_sk_3}
+                     │  │              │     Aggregates: expr#sum(multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)_1), expr#sum(multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)_1), expr#sum(multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)_1), expr#sum(multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)_1), expr#sum(multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)_1), expr#sum(multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)_1), expr#sum(multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL))_3:=AggNull(sum)(expr#multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)_1)
+                     │  │              └─ Projection Est. 13004076 rows
+                     │  │                 │     Expressions: [d_week_seq_5, ss_store_sk_3], expr#multiIf(equals(d_day_name, 'Friday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Friday', ss_sales_price_1, NULL), expr#multiIf(equals(d_day_name, 'Monday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Monday', ss_sales_price_1, NULL), expr#multiIf(equals(d_day_name, 'Saturday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Saturday', ss_sales_price_1, NULL), expr#multiIf(equals(d_day_name, 'Sunday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Sunday', ss_sales_price_1, NULL), expr#multiIf(equals(d_day_name, 'Thursday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Thursday', ss_sales_price_1, NULL), expr#multiIf(equals(d_day_name, 'Tuesday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Tuesday', ss_sales_price_1, NULL), expr#multiIf(equals(d_day_name, 'Wednesday'), ss_sales_price, NULL)_1:=multiIf(d_day_name_1 = 'Wednesday', ss_sales_price_1, NULL)
+                     │  │                 └─ Inner Join Est. 13004076 rows
+                     │  │                    │     Condition: ss_sold_date_sk_1 == d_date_sk_1
+                     │  │                    ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                     │  │                    │        Outputs: ss_sales_price_1:=ss_sales_price, ss_sold_date_sk_1:=ss_sold_date_sk, ss_store_sk_3:=ss_store_sk
+                     │  │                    └─ Broadcast Exchange Est. 329 rows
+                     │  │                       └─ Inner Join Est. 329 rows
+                     │  │                          │     Condition: d_week_seq_5 == d_week_seq_6
+                     │  │                          ├─ TableScan tpcds.date_dim Est. 73049 rows
+                     │  │                          │        Outputs: d_date_sk_1:=d_date_sk, d_day_name_1:=d_day_name, d_week_seq_5:=d_week_seq
+                     │  │                          └─ Broadcast Exchange Est. 47 rows
+                     │  │                             └─ MergingAggregated Est. 47 rows
+                     │  │                                └─ Repartition Exchange Est. 47 rows
+                     │  │                                   │     Partition by: {d_week_seq_6}
+                     │  │                                   └─ Aggregating Est. 47 rows
+                     │  │                                      │     Group by: {d_week_seq_6}
+                     │  │                                      └─ Projection Est. 333 rows
+                     │  │                                         │     Expressions: d_week_seq_6:=d_week_seq_2
+                     │  │                                         └─ Filter Est. 333 rows
+                     │  │                                            │     Condition: (d_month_seq >= 1212) AND (d_month_seq <= 1223)
+                     │  │                                            └─ TableScan tpcds.date_dim Est. 73049 rows
+                     │  │                                                     Condition : (d_month_seq >= 1212) AND (d_month_seq <= 1223).
+                     │  │                                                     Outputs: [d_month_seq], d_week_seq_2:=d_week_seq
+                     │  └─ Repartition Exchange Est. 333 rows
+                     │     │     Partition by: {d_week_seq_2}
+                     │     └─ Filter Est. 333 rows
+                     │        │     Condition: (d_month_seq >= 1212) AND (d_month_seq <= 1223)
+                     │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                     │                 Condition : (d_month_seq >= 1212) AND (d_month_seq <= 1223).
+                     │                 Outputs: [d_month_seq], d_week_seq_2:=d_week_seq
+                     └─ Broadcast Exchange Est. 1002 rows
+                        └─ TableScan tpcds.store Est. 1002 rows
+                                 Outputs: [s_store_id, s_store_name, s_store_sk]
+note: Magic Set is applied for 2 parts.

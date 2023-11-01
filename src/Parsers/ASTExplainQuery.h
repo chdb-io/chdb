@@ -25,6 +25,16 @@ public:
         QueryEstimates, /// 'EXPLAIN ESTIMATE ...'
         TableOverride, /// 'EXPLAIN TABLE OVERRIDE ...'
         CurrentTransaction, /// 'EXPLAIN CURRENT TRANSACTION'
+        MaterializedView, /// 'EXPLAIN VIEW SELECT ...'
+        QueryElement, /// 'EXPLAIN ELEMENT ...'
+        PlanSegment, /// 'EXPLAIN PLANSEGMENT ...'
+        OptimizerPlan, /// 'EXPLAIN OPT_PLAN ...'
+        PreWhereEffect, /// 'EXPLAIN PREWHERE_EFFECT ...'
+        DistributedAnalyze, /// 'EXPLAIN ANALYZE DISTRIBUTED SELECT...'
+        Distributed, /// 'EXPLAIN DISTRIBUTED SELECT...'
+        LogicalAnalyze, /// 'EXPLAIN ANALYZE SELECT...'
+        TraceOptimizer, /// 'EXPLAIN TRACE_OPT SELECT...'
+        TraceOptimizerRule, /// 'EXPLAIN TRACE_OPT RULE SELECT...'
     };
 
     static String toString(ExplainKind kind)
@@ -39,6 +49,26 @@ public:
             case QueryEstimates: return "EXPLAIN ESTIMATE";
             case TableOverride: return "EXPLAIN TABLE OVERRIDE";
             case CurrentTransaction: return "EXPLAIN CURRENT TRANSACTION";
+            case MaterializedView:
+                return "EXPLAIN VIEW";
+            case QueryElement:
+                return "EXPLAIN ELEMENT";
+            case PlanSegment:
+                return "EXPLAIN PLANSEGMENT";
+            case OptimizerPlan:
+                return "EXPLAIN OPT_PLAN";
+            case PreWhereEffect:
+                return "EXPLAIN PREWHERE_EFFECT";
+            case DistributedAnalyze:
+                return "EXPLAIN ANALYZE DISTRIBUTED";
+            case LogicalAnalyze:
+                return "EXPLAIN ANALYZE";
+            case Distributed:
+                return "EXPLAIN DISTRIBUTED";
+            case TraceOptimizer:
+                return "EXPLAIN TRACE_OPT";
+            case TraceOptimizerRule:
+                return "EXPLAIN TRACE_OPT RULE";
         }
 
         UNREACHABLE();
@@ -62,6 +92,26 @@ public:
             return TableOverride;
         if (str == "EXPLAIN CURRENT TRANSACTION")
             return CurrentTransaction;
+        if (str == "EXPLAIN VIEW")
+            return MaterializedView;
+        if (str == "EXPLAIN ELEMENT")
+            return QueryElement;
+        if (str == "EXPLAIN PLANSEGMENT")
+            return PlanSegment;
+        if (str == "EXPLAIN OPT_PLAN")
+            return OptimizerPlan;
+        if (str == "EXPLAIN PREWHERE_EFFECT")
+            return PreWhereEffect;
+        if (str == "EXPLAIN ANALYZE DISTRIBUTED")
+            return DistributedAnalyze;
+        if (str == "EXPLAIN ANALYZE")
+            return LogicalAnalyze;
+        if (str == "EXPLAIN DISTRIBUTED")
+            return Distributed;
+        if (str == "EXPLAIN TRACE_OPT")
+            return TraceOptimizer;
+        if (str == "EXPLAIN TRACE_OPT RULE")
+            return TraceOptimizerRule;
 
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unknown explain kind '{}'", str);
     }
@@ -106,6 +156,7 @@ public:
         table_override = std::move(table_override_);
     }
 
+    ASTPtr & getExplainedQuery() { return query; }
     const ASTPtr & getExplainedQuery() const { return query; }
     const ASTPtr & getSettings() const { return ast_settings; }
     const ASTPtr & getTableFunction() const { return table_function; }

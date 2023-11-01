@@ -1,0 +1,66 @@
+Projection Est. 49392 rows
+│     Expressions: Call_Center:=cc_call_center_id, Call_Center_Name:=cc_name, Manager:=cc_manager, Returns_Loss:=`expr#sum(cr_net_loss)`
+└─ Sorting Est. 49392 rows
+   │     Order by: {expr#sum(cr_net_loss) desc nulls_last}
+   └─ Gather Exchange Est. 49392 rows
+      └─ Sorting Est. 49392 rows
+         │     Order by: {expr#sum(cr_net_loss) desc nulls_last}
+         └─ MergingAggregated Est. 49392 rows
+            └─ Repartition Exchange Est. 49392 rows
+               │     Partition by: {cc_call_center_id, cc_manager, cc_name, cd_education_status, cd_marital_status}
+               └─ Aggregating Est. 49392 rows
+                  │     Group by: {cc_call_center_id, cc_manager, cc_name, cd_education_status, cd_marital_status}
+                  │     Aggregates: expr#sum(cr_net_loss):=AggNull(sum)(cr_net_loss)
+                  └─ Inner Join Est. 338420 rows
+                     │     Condition: cr_call_center_sk == cc_call_center_sk
+                     ├─ Inner Join Est. 338420 rows
+                     │  │     Condition: c_current_hdemo_sk == hd_demo_sk
+                     │  ├─ Repartition Exchange Est. 377119 rows
+                     │  │  │     Partition by: {c_current_hdemo_sk}
+                     │  │  └─ Inner Join Est. 377119 rows
+                     │  │     │     Condition: cr_returning_customer_sk == c_customer_sk
+                     │  │     ├─ Repartition Exchange Est. 986279 rows
+                     │  │     │  │     Partition by: {cr_returning_customer_sk}
+                     │  │     │  └─ Inner Join Est. 986279 rows
+                     │  │     │     │     Condition: cr_returned_date_sk == d_date_sk
+                     │  │     │     ├─ TableScan tpcds.catalog_returns Est. 143996756 rows
+                     │  │     │     │        Outputs: [cr_call_center_sk, cr_net_loss, cr_returned_date_sk, cr_returning_customer_sk]
+                     │  │     │     └─ Broadcast Exchange Est. 29 rows
+                     │  │     │        └─ Filter Est. 29 rows
+                     │  │     │           │     Condition: (d_moy = 11) AND (d_year = 1998)
+                     │  │     │           └─ TableScan tpcds.date_dim Est. 73049 rows
+                     │  │     │                    Condition : (d_moy = 11) AND (d_year = 1998).
+                     │  │     │                    Outputs: [d_date_sk, d_moy, d_year]
+                     │  │     └─ Repartition Exchange Est. 377119 rows
+                     │  │        │     Partition by: {c_customer_sk}
+                     │  │        └─ Inner Join Est. 377119 rows
+                     │  │           │     Condition: ca_address_sk == c_current_addr_sk
+                     │  │           ├─ Repartition Exchange Est. 672604 rows
+                     │  │           │  │     Partition by: {ca_address_sk}
+                     │  │           │  └─ Filter Est. 672604 rows
+                     │  │           │     │     Condition: ca_gmt_offset = -7.
+                     │  │           │     └─ TableScan tpcds.customer_address Est. 6000000 rows
+                     │  │           │              Condition : ca_gmt_offset = -7..
+                     │  │           │              Outputs: [ca_address_sk, ca_gmt_offset]
+                     │  │           └─ Repartition Exchange Est. 187563 rows
+                     │  │              │     Partition by: {c_current_addr_sk}
+                     │  │              └─ Inner Join Est. 187563 rows
+                     │  │                 │     Condition: c_current_cdemo_sk == cd_demo_sk
+                     │  │                 ├─ TableScan tpcds.customer Est. 12000000 rows
+                     │  │                 │        Outputs: [c_current_addr_sk, c_current_cdemo_sk, c_current_hdemo_sk, c_customer_sk]
+                     │  │                 └─ Broadcast Exchange Est. 59903 rows
+                     │  │                    └─ Filter Est. 59903 rows
+                     │  │                       │     Condition: ((cd_marital_status = 'M') OR (cd_marital_status = 'W')) AND ((cd_education_status = 'Unknown') OR (cd_marital_status = 'W')) AND ((cd_marital_status = 'M') OR (cd_education_status = 'Advanced Degree')) AND ((cd_education_status = 'Unknown') OR (cd_education_status = 'Advanced Degree'))
+                     │  │                       └─ TableScan tpcds.customer_demographics Est. 1920800 rows
+                     │  │                                Condition : ((cd_marital_status = 'M') OR (cd_marital_status = 'W')) AND ((cd_education_status = 'Unknown') OR (cd_marital_status = 'W')) AND ((cd_marital_status = 'M') OR (cd_education_status = 'Advanced Degree')) AND ((cd_education_status = 'Unknown') OR (cd_education_status = 'Advanced Degree')).
+                     │  │                                Outputs: [cd_demo_sk, cd_education_status, cd_marital_status]
+                     │  └─ Repartition Exchange Est. 6480 rows
+                     │     │     Partition by: {hd_demo_sk}
+                     │     └─ Filter Est. 6480 rows
+                     │        │     Condition: hd_buy_potential LIKE 'Unknown%'
+                     │        └─ TableScan tpcds.household_demographics Est. 7200 rows
+                     │                 Condition : hd_buy_potential LIKE 'Unknown%'.
+                     │                 Outputs: [hd_buy_potential, hd_demo_sk]
+                     └─ Broadcast Exchange Est. 42 rows
+                        └─ TableScan tpcds.call_center Est. 42 rows
+                                 Outputs: [cc_call_center_id, cc_call_center_sk, cc_manager, cc_name]

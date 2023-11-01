@@ -136,6 +136,15 @@ AggregatingStep::AggregatingStep(
     }
 }
 
+void AggregatingStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    // // TODO: what if input_streams and params->getHeader() are inconsistent?
+    // output_stream->header
+    //     = appendGroupingColumns(params.getHeader(input_streams.front().header, final), grouping_sets_params, groupings, final);
+    updateOutputStream();
+}
+
 void AggregatingStep::applyOrder(SortDescription sort_description_for_merging_, SortDescription group_by_sort_description_)
 {
     sort_description_for_merging = std::move(sort_description_for_merging_);
@@ -646,6 +655,28 @@ QueryPipelineBuilderPtr AggregatingProjectionStep::updatePipeline(
     *pipeline = QueryPipelineBuilder::unitePipelines(std::move(pipelines), 0, &processors);
     pipeline->resize(1);
     return pipeline;
+}
+
+std::shared_ptr<IQueryPlanStep> AggregatingStep::copy(ContextPtr) const
+{
+    auto aggregating_step = std::make_shared<AggregatingStep>(
+        input_streams.front(),
+        params,
+        grouping_sets_params,
+        final,
+        max_block_size,
+        aggregation_in_order_max_block_bytes,
+        merge_threads,
+        temporary_data_merge_threads,
+        storage_has_evenly_distributed_read,
+        group_by_use_nulls,
+        sort_description_for_merging,
+        group_by_sort_description,
+        should_produce_results_in_order_of_bucket_number,
+        memory_bound_merging_of_aggregation_results_enabled,
+        explicit_sorting_required_for_aggregation_in_order);
+    aggregating_step->skip_merging = skip_merging;
+    return aggregating_step;
 }
 
 }

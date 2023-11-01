@@ -303,6 +303,251 @@ void writeFieldText(const Field & x, WriteBuffer & buf)
     buf.write(res.data(), res.size());
 }
 
+void readFieldBinary(Field & field, ReadBuffer & buf)
+{
+    UInt8 read_type = 0;
+    readBinary(read_type, buf);
+    auto type = Field::Types::Which(read_type);
+
+    switch (type)
+    {
+        case Field::Types::Null:
+        {
+            field = Field();
+            return;
+        }
+        case Field::Types::UInt64:
+        {
+            UInt64 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Int64:
+        {
+            Int64 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Float64:
+        {
+            Float64 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::UInt128:
+        {
+            UInt128 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Int128:
+        {
+            Int128 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::UInt256:
+        {
+            UInt256 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Int256:
+        {
+            Int256 value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::String:
+        {
+            String value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Array:
+        {
+            Array value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Tuple:
+        {
+            Tuple value;
+            readBinary(value, buf);
+            field = value;
+            return;
+        }
+        case Field::Types::Decimal32:
+        {
+            Decimal32 value;
+            UInt32 scale;
+            readBinary(value, buf);
+            readBinary(scale, buf);
+            field = DecimalField<Decimal32>(value, scale);
+            return;
+        }
+        case Field::Types::Decimal64:
+        {
+            Decimal64 value;
+            UInt32 scale;
+            readBinary(value, buf);
+            readBinary(scale, buf);
+            field = DecimalField<Decimal64>(value, scale);
+            return;
+        }
+        case Field::Types::Decimal128:
+        {
+            Decimal128 value;
+            UInt32 scale;
+            readBinary(value, buf);
+            readBinary(scale, buf);
+            field = DecimalField<Decimal128>(value, scale);
+            return;
+        }
+        case Field::Types::Decimal256:
+        {
+            Decimal256 value;
+            UInt32 scale;
+            readBinary(value, buf);
+            readBinary(scale, buf);
+            field = DecimalField<Decimal256>(value, scale);
+            return;
+        }
+        case Field::Types::AggregateFunctionState:
+        {
+            AggregateFunctionStateData value;
+            DB::readStringBinary(value.name, buf);
+            DB::readStringBinary(value.data, buf);
+            field = value;
+            return;
+        }
+        default:
+            throw Exception("Bad type of Field when serializing.", ErrorCodes::BAD_TYPE_OF_FIELD);
+    }
+}
+
+void writeFieldBinary(const Field & field, WriteBuffer & buf)
+{
+    auto type = field.getType();
+    switch (type)
+    {
+        case Field::Types::Null:
+        {
+            writeBinary(UInt8(type), buf);
+            return;
+        }
+        case Field::Types::UInt64:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<UInt64>(), buf);
+            return;
+        }
+        case Field::Types::Int64:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<Int64>(), buf);
+            return;
+        }
+        case Field::Types::Float64:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<Float64>(), buf);
+            return;
+        }
+        case Field::Types::UInt128:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<UInt128>(), buf);
+            return;
+        }
+        case Field::Types::Int128:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<Int128>(), buf);
+            return;
+        }
+        case Field::Types::UInt256:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<UInt256>(), buf);
+            return;
+        }
+        case Field::Types::Int256:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<Int256>(), buf);
+            return;
+        }
+        case Field::Types::String:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<String>(), buf);
+            return;
+        }
+        case Field::Types::Array:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<Array>(), buf);
+            return;
+        }
+        case Field::Types::Tuple:
+        {
+            writeBinary(UInt8(type), buf);
+            writeBinary(field.get<Tuple>(), buf);
+            return;
+        }
+        case Field::Types::Decimal32:
+        {
+            writeBinary(UInt8(type), buf);
+            auto df = field.get<DecimalField<Decimal32>>();
+            writeBinary(df.getValue(), buf);
+            writeBinary(df.getScale(), buf);
+            return;
+        }
+        case Field::Types::Decimal64:
+        {
+            writeBinary(UInt8(type), buf);
+            auto df = field.get<DecimalField<Decimal64>>();
+            writeBinary(df.getValue(), buf);
+            writeBinary(df.getScale(), buf);
+            return;
+        }
+        case Field::Types::Decimal128:
+        {
+            writeBinary(UInt8(type), buf);
+            auto df = field.get<DecimalField<Decimal128>>();
+            writeBinary(df.getValue(), buf);
+            writeBinary(df.getScale(), buf);
+            return;
+        }
+        case Field::Types::Decimal256:
+        {
+            writeBinary(UInt8(type), buf);
+            auto df = field.get<DecimalField<Decimal256>>();
+            writeBinary(df.getValue(), buf);
+            writeBinary(df.getScale(), buf);
+            return;
+        }
+        case Field::Types::AggregateFunctionState:
+        {
+            writeBinary(UInt8(type), buf);
+            writeStringBinary(field.get<AggregateFunctionStateData>().name, buf);
+            writeStringBinary(field.get<AggregateFunctionStateData>().data, buf);
+            return;
+        }
+        default:
+            throw Exception("Bad type of Field when serializing.", ErrorCodes::BAD_TYPE_OF_FIELD);
+    }
+}
 
 String Field::dump() const
 {

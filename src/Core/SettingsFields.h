@@ -402,6 +402,52 @@ constexpr auto getEnumValues()
     IMPLEMENT_SETTING_ENUM_IMPL(NEW_NAME, ERROR_CODE_FOR_UNEXPECTED_NAME, EnumValuePairs, __VA_ARGS__)
 
 /// NOLINTNEXTLINE
+#define IMPLEMENT_SETTING_ENUM2(ENUM_TYPE, ERROR_CODE_FOR_UNEXPECTED_NAME, ...) \
+    IMPLEMENT_SETTING_ENUM_WITH_RENAME(ENUM_TYPE, ERROR_CODE_FOR_UNEXPECTED_NAME, __VA_ARGS__)
+
+#define IMPLEMENT_SETTING_ENUM_WITH_RENAME(NEW_NAME, ERROR_CODE_FOR_UNEXPECTED_NAME, ...) \
+    const String & SettingField##NEW_NAME##Traits::toString(typename SettingField##NEW_NAME::EnumType value) \
+    { \
+        static const std::unordered_map<EnumType, String> map = [] { \
+            std::unordered_map<EnumType, String> res; \
+            constexpr std::pair<const char *, EnumType> pairs[] = __VA_ARGS__; \
+            for (const auto & [name, val] : pairs) \
+                res.emplace(val, name); \
+            return res; \
+        }(); \
+        auto it = map.find(value); \
+        if (it != map.end()) \
+            return it->second; \
+        throw Exception( \
+            "Unexpected value of " #NEW_NAME ":" + std::to_string(std::underlying_type<EnumType>::type(value)), \
+            ERROR_CODE_FOR_UNEXPECTED_NAME); \
+    } \
+    \
+    typename SettingField##NEW_NAME::EnumType SettingField##NEW_NAME##Traits::fromString(const std::string_view & str) \
+    { \
+        static const std::unordered_map<std::string_view, EnumType> map = [] { \
+            std::unordered_map<std::string_view, EnumType> res; \
+            constexpr std::pair<const char *, EnumType> pairs[] = __VA_ARGS__; \
+            for (const auto & [name, val] : pairs) \
+                res.emplace(name, val); \
+            return res; \
+        }(); \
+        auto it = map.find(str); \
+        if (it != map.end()) \
+            return it->second; \
+        String msg = "Unexpected value of " #NEW_NAME ": '" + String{str} + "'. Must be one of ["; \
+        bool need_comma = false; \
+        for (auto & name : map | boost::adaptors::map_keys) \
+        { \
+            if (std::exchange(need_comma, true)) \
+                msg += ", "; \
+            msg += "'" + String{name} + "'"; \
+        } \
+        msg += "]"; \
+        throw Exception(msg, ERROR_CODE_FOR_UNEXPECTED_NAME); \
+    }
+
+/// NOLINTNEXTLINE
 #define IMPLEMENT_SETTING_AUTO_ENUM(NEW_NAME, ERROR_CODE_FOR_UNEXPECTED_NAME) \
     IMPLEMENT_SETTING_ENUM_IMPL(NEW_NAME, ERROR_CODE_FOR_UNEXPECTED_NAME, , getEnumValues<EnumType>())
 
@@ -423,7 +469,7 @@ constexpr auto getEnumValues()
             ERROR_CODE_FOR_UNEXPECTED_NAME); \
     } \
     \
-    typename SettingField##NEW_NAME::EnumType SettingField##NEW_NAME##Traits::fromString(std::string_view str) \
+    typename SettingField##NEW_NAME::EnumType SettingField##NEW_NAME##Traits::fromString(const std::string_view str) \
     { \
         static const std::unordered_map<std::string_view, EnumType> map = [] { \
             std::unordered_map<std::string_view, EnumType> res; \

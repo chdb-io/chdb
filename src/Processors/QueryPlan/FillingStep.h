@@ -19,12 +19,17 @@ public:
 
     String getName() const override { return "Filling"; }
 
+    Type getType() const override { return Type::Filling; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeActions(FormatSettings & settings) const override;
 
     const SortDescription & getSortDescription() const { return sort_description; }
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

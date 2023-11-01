@@ -55,6 +55,18 @@ TotalsHavingStep::TotalsHavingStep(
 {
 }
 
+void TotalsHavingStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = TotalsHavingTransform::transformHeader(
+        input_streams_[0].header,
+        actions_dag.get(),
+        filter_column_name,
+        remove_filter,
+        final,
+        getAggregatesMask(input_streams_[0].header, aggregates));
+}
+
 void TotalsHavingStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     auto expression_actions = actions_dag ? std::make_shared<ExpressionActions>(actions_dag, settings.getActionsSettings()) : nullptr;
@@ -138,5 +150,18 @@ void TotalsHavingStep::updateOutputStream()
         getDataStreamTraits());
 }
 
+std::shared_ptr<IQueryPlanStep> TotalsHavingStep::copy(ContextPtr) const
+{
+    return std::make_shared<TotalsHavingStep>(
+        input_streams[0],
+        aggregates,
+        overflow_row,
+        actions_dag,
+        filter_column_name,
+        remove_filter,
+        totals_mode,
+        auto_include_threshold,
+        final);
+}
 
 }

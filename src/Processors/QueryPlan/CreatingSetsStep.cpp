@@ -24,6 +24,7 @@ static ITransformingStep::Traits getTraits()
     return ITransformingStep::Traits
     {
         {
+            .preserves_distinct_columns = true,
             .returns_single_stream = false,
             .preserves_number_of_streams = true,
             .preserves_sorting = true,
@@ -46,6 +47,11 @@ CreatingSetStep::CreatingSetStep(
     , network_transfer_limits(std::move(network_transfer_limits_))
     , context(std::move(context_))
 {
+}
+
+void CreatingSetStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
 }
 
 void CreatingSetStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
@@ -122,6 +128,11 @@ QueryPipelineBuilderPtr CreatingSetsStep::updatePipeline(QueryPipelineBuilders p
 void CreatingSetsStep::describePipeline(FormatSettings & settings) const
 {
     IQueryPlanStep::describePipeline(processors, settings);
+}
+
+std::shared_ptr<IQueryPlanStep> CreatingSetsStep::copy(ContextPtr) const
+{
+    return std::make_shared<CreatingSetsStep>(input_streams);
 }
 
 void addCreatingSetsStep(QueryPlan & query_plan, PreparedSets::Subqueries subqueries, ContextPtr context)
@@ -203,6 +214,18 @@ QueryPipelineBuilderPtr DelayedCreatingSetsStep::updatePipeline(QueryPipelineBui
     throw Exception(
         ErrorCodes::LOGICAL_ERROR,
         "Cannot build pipeline in DelayedCreatingSets. This step should be optimized out.");
+}
+
+std::shared_ptr<IQueryPlanStep> DelayedCreatingSetsStep::copy(ContextPtr) const
+{
+    return std::make_shared<DelayedCreatingSetsStep>(input_streams.front(), subqueries, context);
+}
+
+void DelayedCreatingSetsStep::setInputStreams(const DataStreams &)
+{
+    throw Exception(
+        ErrorCodes::LOGICAL_ERROR,
+        "Cannot set input streams in DelayedCreatingSets. This step should be optimized out.");
 }
 
 }

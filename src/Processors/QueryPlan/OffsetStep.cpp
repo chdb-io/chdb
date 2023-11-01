@@ -28,6 +28,12 @@ OffsetStep::OffsetStep(const DataStream & input_stream_, size_t offset_)
 {
 }
 
+void OffsetStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
+
 void OffsetStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     auto transform = std::make_shared<OffsetTransform>(
@@ -44,6 +50,11 @@ void OffsetStep::describeActions(FormatSettings & settings) const
 void OffsetStep::describeActions(JSONBuilder::JSONMap & map) const
 {
     map.add("Offset", offset);
+}
+
+std::shared_ptr<IQueryPlanStep> OffsetStep::copy(ContextPtr) const
+{
+    return std::make_shared<OffsetStep>(input_streams[0], offset);
 }
 
 }

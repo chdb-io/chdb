@@ -18,6 +18,11 @@ public:
     /// They are specified in constructor and cannot be changed.
     struct DataStreamTraits
     {
+        /// Keep distinct_columns unchanged.
+        /// Examples: true for LimitStep, false for ExpressionStep with ARRAY JOIN
+        /// It some columns may be removed from result header, call updateDistinctColumns
+        bool preserves_distinct_columns;
+
         /// True if pipeline has single output port after this step.
         /// Examples: MergeSortingStep, AggregatingStep
         bool returns_single_stream;
@@ -85,7 +90,7 @@ protected:
     TransformTraits transform_traits;
 
 private:
-    virtual void updateOutputStream() = 0;
+    virtual void updateOutputStream() { throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Not implemented"); }
 
     /// If we should collect processors got after pipeline transformation.
     bool collect_processors;

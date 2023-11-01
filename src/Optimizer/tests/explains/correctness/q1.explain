@@ -1,0 +1,17 @@
+Projection Est. 2 rows
+│     Expressions: a:=a_2, b:=b_2
+└─ Union Est. 2 rows
+   ├─ Gather Exchange Est. ? rows
+   │  └─ TableScan correctness.q1_t1 Est. ? rows
+   │           Outputs: [a, b]
+   └─ Limit Est. 2 rows
+      │     Limit: 2
+      └─ Sorting Est. 2 rows
+         │     Order by: {a_1 asc}
+         │     Limit: 2
+         └─ Gather Exchange Est. 2 rows
+            └─ Sorting Est. 2 rows
+               │     Order by: {a_1 asc}
+               │     Limit: 2
+               └─ TableScan correctness.q1_t1 Est. ? rows
+                        Outputs: a_1:=a, b_1:=b

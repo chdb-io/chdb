@@ -38,6 +38,11 @@ struct DataTypeWithConstInfo
 
 using DataTypesWithConstInfo = std::vector<DataTypeWithConstInfo>;
 
+#define TYPE_MAP_KV_STORE_FLAG 0x01
+#define TYPE_SECURITY_FLAG 0x04 /// unused
+#define TYPE_ENCRYPT_FLAG 0x08 /// unused
+#define TYPE_COMPRESSION_FLAG 0x20
+
 /** Properties of data type.
   *
   * Contains methods for getting serialization instances.
@@ -299,6 +304,19 @@ public:
     /// Updates avg_value_size_hint for newly read column. Uses to optimize deserialization. Zero expected for first column.
     static void updateAvgValueSizeHint(const IColumn & column, double & avg_value_size_hint);
 
+    /// If this is map type
+    virtual bool isMap() const { return false; }
+    bool isMapKVStore() const { return flags & TYPE_MAP_KV_STORE_FLAG; }
+    bool isCompression() const { return flags & TYPE_COMPRESSION_FLAG; }
+
+    UInt8 getFlags() const { return flags; }
+    void setFlags(UInt8 flag) const { flags |= flag; }
+    void resetFlags(UInt8 flag) const
+    {
+      if (flags & flag)
+          flags ^= flag;
+    }
+
 protected:
     friend class DataTypeFactory;
     friend class AggregateFunctionSimpleState;
@@ -306,6 +324,7 @@ protected:
     /// Customize this DataType
     void setCustomization(DataTypeCustomDescPtr custom_desc_) const;
 
+    mutable UInt8 flags = 0;
     /// This is mutable to allow setting custom name and serialization on `const IDataType` post construction.
     mutable DataTypeCustomNamePtr custom_name;
     mutable SerializationPtr custom_serialization;

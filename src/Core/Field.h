@@ -1003,6 +1003,10 @@ void readQuoted(DecimalField<T> & x, ReadBuffer & buf);
 
 void writeFieldText(const Field & x, WriteBuffer & buf);
 
+void readFieldBinary(Field & field, ReadBuffer & buf);
+
+void writeFieldBinary(const Field & field, WriteBuffer & buf);
+
 String toString(const Field & x);
 
 String fieldTypeToString(Field::Types::Which type);

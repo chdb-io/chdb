@@ -47,6 +47,7 @@ public:
         size_t max_block_size_,
         bool on_totals_ = false,
         bool default_totals_ = false,
+        bool join_parallel_left_right_ = true,
         FinishCounterPtr finish_counter_ = nullptr);
 
     ~JoiningTransform() override;
@@ -77,6 +78,10 @@ private:
     /// It may happen in case if joined subquery has totals, but out string doesn't.
     /// We need to join default values with subquery totals if we have them, or return empty chunk is haven't.
     bool default_totals;
+
+    // should we parallel execute left input and right input
+    bool join_parallel_left_right;
+
     bool initialized = false;
 
     ExtraBlockPtr not_processed;

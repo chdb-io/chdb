@@ -1,0 +1,48 @@
+Projection Est. 1 rows
+│     Expressions: avg_yearly:=`expr#sum(l_extendedprice)` / '7.0'
+└─ MergingAggregated Est. 1 rows
+   └─ Gather Exchange Est. 1 rows
+      └─ Aggregating Est. 1 rows
+         │     Group by: {}
+         │     Aggregates: expr#sum(l_extendedprice):=AggNull(sum)(l_extendedprice)
+         └─ Inner Join Est. 5945 rows
+            │     Condition: l_partkey == l_partkey_1
+            │     Filter: l_quantity < ('0.2' * `expr#avg(l_quantity)`)
+            ├─ TableScan tpch.lineitem Est. 6001215 rows
+            │        Outputs: [l_extendedprice, l_partkey, l_quantity]
+            └─ Broadcast Exchange Est. 198 rows
+               └─ Inner Join Est. 198 rows
+                  │     Condition: p_partkey == l_partkey_1
+                  ├─ Repartition Exchange Est. 198 rows
+                  │  │     Partition by: {p_partkey}
+                  │  └─ Filter Est. 198 rows
+                  │     │     Condition: (p_brand = 'Brand#23') AND (p_container = 'MED BOX')
+                  │     └─ TableScan tpch.part Est. 200000 rows
+                  │              Condition : (p_brand = 'Brand#23') AND (p_container = 'MED BOX').
+                  │              Outputs: [p_brand, p_container, p_partkey]
+                  └─ MergingAggregated Est. 197 rows
+                     └─ Repartition Exchange Est. 197 rows
+                        │     Partition by: {l_partkey_1}
+                        └─ Aggregating Est. 197 rows
+                           │     Group by: {l_partkey_1}
+                           │     Aggregates: expr#avg(l_quantity):=AggNull(avgIf)(l_quantity_1,build_side_non_null_symbol)
+                           └─ Projection Est. 2972 rows
+                              │     Expressions: [l_partkey_1, l_quantity_1], build_side_non_null_symbol:=1
+                              └─ Inner Join Est. 2972 rows
+                                 │     Condition: l_partkey_1 == p_partkey_1
+                                 ├─ TableScan tpch.lineitem Est. 6001215 rows
+                                 │        Outputs: l_partkey_1:=l_partkey, l_quantity_1:=l_quantity
+                                 └─ Broadcast Exchange Est. 197 rows
+                                    └─ MergingAggregated Est. 197 rows
+                                       └─ Repartition Exchange Est. 197 rows
+                                          │     Partition by: {p_partkey_1}
+                                          └─ Aggregating Est. 197 rows
+                                             │     Group by: {p_partkey_1}
+                                             └─ Projection Est. 198 rows
+                                                │     Expressions: p_partkey_1:=p_partkey
+                                                └─ Filter Est. 198 rows
+                                                   │     Condition: (p_brand = 'Brand#23') AND (p_container = 'MED BOX')
+                                                   └─ TableScan tpch.part Est. 200000 rows
+                                                            Condition : (p_brand = 'Brand#23') AND (p_container = 'MED BOX').
+                                                            Outputs: [p_brand, p_container, p_partkey]
+note: Magic Set is applied for 1 parts.

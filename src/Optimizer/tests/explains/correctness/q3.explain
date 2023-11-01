@@ -1,0 +1,8 @@
+Projection Est. ? rows
+│     Expressions: [q3_date, q3_id]
+└─ Gather Exchange Est. ? rows
+   └─ Filter Est. ? rows
+      │     Condition: q3_id > 600
+      └─ TableScan correctness.q3_t1 Est. ? rows
+               Condition : q3_id > 600.
+               Outputs: [q3_date, q3_id]

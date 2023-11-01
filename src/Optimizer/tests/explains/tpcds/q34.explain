@@ -1,0 +1,49 @@
+Projection Est. 5986797 rows
+│     Expressions: [c_first_name, c_last_name, c_preferred_cust_flag, c_salutation, ss_ticket_number], cnt:=`expr#count()`
+└─ Sorting Est. 5986797 rows
+   │     Order by: {c_last_name asc, c_first_name asc, c_salutation asc, c_preferred_cust_flag desc nulls_last, ss_ticket_number asc}
+   └─ Gather Exchange Est. 5986797 rows
+      └─ Sorting Est. 5986797 rows
+         │     Order by: {c_last_name asc, c_first_name asc, c_salutation asc, c_preferred_cust_flag desc nulls_last, ss_ticket_number asc}
+         └─ Inner Join Est. 5986797 rows
+            │     Condition: c_customer_sk == ss_customer_sk
+            ├─ Repartition Exchange Est. 12000000 rows
+            │  │     Partition by: {c_customer_sk}
+            │  └─ TableScan tpcds.customer Est. 12000000 rows
+            │           Outputs: [c_customer_sk, c_first_name, c_last_name, c_preferred_cust_flag, c_salutation]
+            └─ Repartition Exchange Est. 3113402 rows
+               │     Partition by: {ss_customer_sk}
+               └─ Filter Est. 3113402 rows
+                  │     Condition: (`expr#count()` >= 15) AND (`expr#count()` <= 20)
+                  └─ MergingAggregated Est. 3459336 rows
+                     └─ Repartition Exchange Est. 3459336 rows
+                        │     Partition by: {ss_customer_sk, ss_ticket_number}
+                        └─ Aggregating Est. 3459336 rows
+                           │     Group by: {ss_customer_sk, ss_ticket_number}
+                           │     Aggregates: expr#count():=AggNull(count)()
+                           └─ Inner Join Est. 3459336 rows
+                              │     Condition: ss_hdemo_sk == hd_demo_sk
+                              ├─ Inner Join Est. 15612419 rows
+                              │  │     Condition: ss_sold_date_sk == d_date_sk
+                              │  ├─ Inner Join Est. 121934975 rows
+                              │  │  │     Condition: ss_store_sk == s_store_sk
+                              │  │  ├─ TableScan tpcds.store_sales Est. 2879987999 rows
+                              │  │  │        Outputs: [ss_customer_sk, ss_hdemo_sk, ss_sold_date_sk, ss_store_sk, ss_ticket_number]
+                              │  │  └─ Broadcast Exchange Est. 42 rows
+                              │  │     └─ Filter Est. 42 rows
+                              │  │        │     Condition: s_county = 'Williamson County'
+                              │  │        └─ TableScan tpcds.store Est. 1002 rows
+                              │  │                 Condition : s_county = 'Williamson County'.
+                              │  │                 Outputs: [s_county, s_store_sk]
+                              │  └─ Broadcast Exchange Est. 237 rows
+                              │     └─ Filter Est. 237 rows
+                              │        │     Condition: (((d_dom >= 1) AND (d_dom <= 3)) OR ((d_dom >= 25) AND (d_dom <= 28))) AND (d_year IN (1999, 2000, 2001))
+                              │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                              │                 Condition : (((d_dom >= 1) AND (d_dom <= 3)) OR ((d_dom >= 25) AND (d_dom <= 28))) AND (d_year IN (1999, 2000, 2001)).
+                              │                 Outputs: [d_date_sk, d_dom, d_year]
+                              └─ Broadcast Exchange Est. 1600 rows
+                                 └─ Filter Est. 1600 rows
+                                    │     Condition: (hd_buy_potential IN ('>10000', 'Unknown')) AND (hd_vehicle_count > 0) AND (multiIf(hd_vehicle_count > 0, hd_dep_count / hd_vehicle_count, NULL) > '1.2')
+                                    └─ TableScan tpcds.household_demographics Est. 7200 rows
+                                             Condition : (hd_buy_potential IN ('>10000', 'Unknown')) AND (hd_vehicle_count > 0) AND (multiIf(hd_vehicle_count > 0, hd_dep_count / hd_vehicle_count, NULL) > '1.2').
+                                             Outputs: [hd_buy_potential, hd_demo_sk, hd_dep_count, hd_vehicle_count]

@@ -147,6 +147,8 @@ public:
     static constexpr auto name = "ReadFromMergeTree";
     String getName() const override { return name; }
 
+    Type getType() const override { return Type::ReadFromMergeTree; }
+
     void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     void describeActions(FormatSettings & format_settings) const override;
@@ -155,6 +157,8 @@ public:
     void describeActions(JSONBuilder::JSONMap & map) const override;
     void describeIndexes(JSONBuilder::JSONMap & map) const override;
 
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    
     const Names & getRealColumnNames() const { return real_column_names; }
     const Names & getVirtualColumnNames() const { return virt_column_names; }
 

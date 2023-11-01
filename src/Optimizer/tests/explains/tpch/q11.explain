@@ -1,0 +1,58 @@
+Projection Est. 32000 rows
+│     Expressions: [ps_partkey], value:=`expr#sum(multiply(ps_supplycost, ps_availqty))`
+└─ Sorting Est. 32000 rows
+   │     Order by: {expr#sum(multiply(ps_supplycost, ps_availqty)) desc nulls_last}
+   └─ Gather Exchange Est. 32000 rows
+      └─ Sorting Est. 32000 rows
+         │     Order by: {expr#sum(multiply(ps_supplycost, ps_availqty)) desc nulls_last}
+         └─ Inner Join Est. 32000 rows
+            │     Condition: 
+            │     Filter: `expr#sum(multiply(ps_supplycost, ps_availqty))` > `expr#multiply(sum(multiply(ps_supplycost, ps_availqty)), '0.0001')`
+            ├─ MergingAggregated Est. 32000 rows
+            │  └─ Repartition Exchange Est. 32000 rows
+            │     │     Partition by: {ps_partkey}
+            │     └─ Aggregating Est. 32000 rows
+            │        │     Group by: {ps_partkey}
+            │        │     Aggregates: expr#sum(multiply(ps_supplycost, ps_availqty)):=AggNull(sum)(expr#multiply(ps_supplycost, ps_availqty))
+            │        └─ Projection Est. 32000 rows
+            │           │     Expressions: [ps_partkey], expr#multiply(ps_supplycost, ps_availqty):=ps_supplycost * ps_availqty
+            │           └─ Inner Join Est. 32000 rows
+            │              │     Condition: ps_suppkey == s_suppkey
+            │              ├─ TableScan tpch.partsupp Est. 800000 rows
+            │              │        Outputs: [ps_availqty, ps_partkey, ps_suppkey, ps_supplycost]
+            │              └─ Broadcast Exchange Est. 200 rows
+            │                 └─ Inner Join Est. 200 rows
+            │                    │     Condition: s_nationkey == n_nationkey
+            │                    ├─ TableScan tpch.supplier Est. 10000 rows
+            │                    │        Outputs: [s_nationkey, s_suppkey]
+            │                    └─ Broadcast Exchange Est. 1 rows
+            │                       └─ Filter Est. 1 rows
+            │                          │     Condition: n_name = 'GERMANY'
+            │                          └─ TableScan tpch.nation Est. 25 rows
+            │                                   Condition : n_name = 'GERMANY'.
+            │                                   Outputs: [n_name, n_nationkey]
+            └─ Broadcast Exchange Est. 1 rows
+               └─ Projection Est. 1 rows
+                  │     Expressions: expr#multiply(sum(multiply(ps_supplycost, ps_availqty)), '0.0001'):=`expr#sum(multiply(ps_supplycost, ps_availqty))_1` * '0.0001'
+                  └─ MergingAggregated Est. 1 rows
+                     └─ Gather Exchange Est. 1 rows
+                        └─ Aggregating Est. 1 rows
+                           │     Group by: {}
+                           │     Aggregates: expr#sum(multiply(ps_supplycost, ps_availqty))_1:=AggNull(sum)(expr#multiply(ps_supplycost, ps_availqty)_1)
+                           └─ Projection Est. 32000 rows
+                              │     Expressions: expr#multiply(ps_supplycost, ps_availqty)_1:=ps_supplycost_1 * ps_availqty_1
+                              └─ Inner Join Est. 32000 rows
+                                 │     Condition: ps_suppkey_1 == s_suppkey_1
+                                 ├─ TableScan tpch.partsupp Est. 800000 rows
+                                 │        Outputs: ps_availqty_1:=ps_availqty, ps_suppkey_1:=ps_suppkey, ps_supplycost_1:=ps_supplycost
+                                 └─ Broadcast Exchange Est. 200 rows
+                                    └─ Inner Join Est. 200 rows
+                                       │     Condition: s_nationkey_1 == n_nationkey_1
+                                       ├─ TableScan tpch.supplier Est. 10000 rows
+                                       │        Outputs: s_nationkey_1:=s_nationkey, s_suppkey_1:=s_suppkey
+                                       └─ Broadcast Exchange Est. 1 rows
+                                          └─ Filter Est. 1 rows
+                                             │     Condition: n_name_1 = 'GERMANY'
+                                             └─ TableScan tpch.nation Est. 25 rows
+                                                      Condition : n_name = 'GERMANY'.
+                                                      Outputs: n_name_1:=n_name, n_nationkey_1:=n_nationkey

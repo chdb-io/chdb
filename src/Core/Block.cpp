@@ -3,6 +3,11 @@
 
 #include <Core/Block.h>
 
+#include <AggregateFunctions/AggregateFunctionFactory.h>
+#include <AggregateFunctions/AggregateFunctionMerge.h>
+#include <AggregateFunctions/AggregateFunctionNull.h>
+#include <DataTypes/DataTypeAggregateFunction.h>
+
 #include <IO/WriteBufferFromString.h>
 #include <IO/Operators.h>
 
@@ -150,6 +155,14 @@ Block::Block(ColumnsWithTypeAndName && data_) : data{std::move(data_)}
     initializeIndexByName();
 }
 
+Block::Block(const NamesAndTypes & data_)
+{
+    for (const auto & item : data_)
+    {
+        data.emplace_back(item.type, item.name);
+    }
+    initializeIndexByName();
+}
 
 void Block::initializeIndexByName()
 {
@@ -625,6 +638,16 @@ NamesAndTypes Block::getNamesAndTypes() const
     return res;
 }
 
+NameToType Block::getNamesToTypes() const
+{
+    NameToType res;
+
+    for (const auto & elem : data)
+        res.emplace(elem.name, elem.type);
+
+    return res;
+}
+
 Names Block::getNames() const
 {
     Names res;
@@ -636,6 +659,16 @@ Names Block::getNames() const
     return res;
 }
 
+NameSet Block::getNameSet() const
+{
+    NameSet res;
+    res.reserve(columns());
+
+    for (const auto & elem : data)
+        res.insert(elem.name);
+
+    return res;
+}
 
 DataTypes Block::getDataTypes() const
 {
@@ -848,4 +881,75 @@ Block concatenateBlocks(const std::vector<Block> & blocks)
     return out;
 }
 
+void substituteBlock(Block & block, const std::unordered_map<String, String> & name_substitution_info)
+{
+    Block new_block;
+    new_block.info = block.info;
+
+    for (auto it = block.begin(); it != block.end(); ++it)
+    {
+        /// Substitute the column's name
+        const auto & substitution_name = name_substitution_info.at(it->name);
+        if (!substitution_name.empty())
+            it->name = substitution_name;
+
+        if (const auto * data_type = typeid_cast<const DataTypeAggregateFunction *>(it->type.get()))
+        {
+            /// We can just use the `nested_func` to change the column info,
+            /// because this stream is only called after AggregatingBlockInputStream, so the block is already aggregated,
+            /// we only need to merge the aggregate functions' states and
+            /// won't call the `AggregateFunctionMerge::add` again (only this function is not directly call it's nested function's add method).
+            /// So strip the outer merge aggregate function is fine.
+            if (const auto * merge_agg_func = typeid_cast<const AggregateFunctionMerge *>(data_type->getFunction().get()))
+            {
+                auto nested_func = merge_agg_func->getNestedFunction();
+                it->type = std::make_shared<DataTypeAggregateFunction>(
+                    nested_func, nested_func->getArgumentTypes(), nested_func->getParameters());
+                if (it->column)
+                {
+                    auto * aggr_column
+                        = const_cast<ColumnAggregateFunction *>(typeid_cast<const ColumnAggregateFunction *>(it->column.get()));
+                    aggr_column->set(nested_func, 0);
+                }
+            }
+            else
+            {
+                /// The merge aggregate function maybe inside a null aggregate function
+                const auto * null_true_agg_func
+                    = typeid_cast<const AggregateFunctionNullUnary<true, true> *>(data_type->getFunction().get());
+                const auto * null_false_agg_func
+                    = typeid_cast<const AggregateFunctionNullUnary<false, true> *>(data_type->getFunction().get());
+                if (null_true_agg_func || null_false_agg_func)
+                {
+                    if (const auto * nested_merge_agg_func = typeid_cast<const AggregateFunctionMerge *>(
+                            null_true_agg_func ? null_true_agg_func->getNestedFunction().get()
+                                               : null_false_agg_func->getNestedFunction().get()))
+                    {
+                        const auto & merge_func_arg_type
+                            = typeid_cast<const DataTypeAggregateFunction &>(*(nested_merge_agg_func->getArgumentTypes()[0]));
+                        auto nested_func = nested_merge_agg_func->getNestedFunction();
+
+                        /// Since this merge aggregate function inside a null aggregate function, we generate a new aggregate function
+                        /// that can handle nullable arguments instead of using the nested function directly.
+                        AggregateFunctionProperties properties;
+                        auto function = AggregateFunctionFactory::instance().get(
+                            nested_func->getName(), merge_func_arg_type.getArgumentsDataTypes(), nested_func->getParameters(), properties);
+                        it->type = std::make_shared<DataTypeAggregateFunction>(
+                            function, function->getArgumentTypes(), function->getParameters());
+                        if (it->column)
+                        {
+                            auto * aggr_column
+                                = const_cast<ColumnAggregateFunction *>(typeid_cast<const ColumnAggregateFunction *>(it->column.get()));
+                            aggr_column->set(function, 0);
+                        }
+                    }
+                }
+            }
+        }
+
+        new_block.insert(std::move(*it));
+    }
+
+    block.swap(new_block);
+}
 }

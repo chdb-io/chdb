@@ -1,0 +1,8 @@
+Projection Est. ? rows
+│     Expressions: [a, b]
+└─ Gather Exchange Est. ? rows
+   └─ Filter Est. ? rows
+      │     Condition: isNotNull(a)
+      └─ TableScan correctness.q5_t1 Est. ? rows
+               Condition : isNotNull(a).
+               Outputs: [a, b]

@@ -11,6 +11,8 @@
 # auto generated files
 *.logrt
 
+*.byconity/
+*.bc
 /python_pkg/
 /tmps
 /bak

@@ -3,9 +3,10 @@
 #include <memory>
 #include <vector>
 
-#include <Core/Names.h>
-#include <Core/Block.h>
 #include <Columns/IColumn.h>
+#include <Core/Block.h>
+#include <Core/Joins.h>
+#include <Core/Names.h>
 #include <Common/Exception.h>
 
 namespace DB
@@ -49,6 +50,8 @@ public:
     virtual ~IJoin() = default;
 
     virtual const TableJoin & getTableJoin() const = 0;
+
+    virtual JoinAlgorithm getType() const { throw Exception("Virtual Method getType should not be called", ErrorCodes::NOT_IMPLEMENTED); }
 
     /// Add block of data from right hand of JOIN.
     /// @returns false, if some limit was exceeded and you should not insert more data.

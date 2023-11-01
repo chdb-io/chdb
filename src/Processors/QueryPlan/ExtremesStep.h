@@ -11,7 +11,12 @@ public:
 
     String getName() const override { return "Extremes"; }
 
+    Type getType() const override { return Type::Extremes; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override

@@ -1,0 +1,50 @@
+Projection Est. 100 rows
+│     Expressions: [i_item_id, w_state], sales_after:=`expr#sum(multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0))`, sales_before:=`expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0))`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {w_state asc, i_item_id asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 124553 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {w_state asc, i_item_id asc}
+            │     Limit: 100
+            └─ MergingAggregated Est. 124553 rows
+               └─ Repartition Exchange Est. 124553 rows
+                  │     Partition by: {i_item_id, w_state}
+                  └─ Aggregating Est. 124553 rows
+                     │     Group by: {i_item_id, w_state}
+                     │     Aggregates: expr#sum(multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0)):=AggNull(sum)(expr#multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0)), expr#sum(multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0)):=AggNull(sum)(expr#multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0))
+                     └─ Projection Est. 3026286 rows
+                        │     Expressions: [i_item_id, w_state], expr#multiIf(greaterOrEquals(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0):=multiIf(CAST(d_date, 'date') >= cast(11027, 'Date'), cs_sales_price - coalesce(cr_refunded_cash, 0), 0), expr#multiIf(less(CAST(d_date, 'date'), CAST('2000-03-11', 'date')), minus(cs_sales_price, coalesce(cr_refunded_cash, 0)), 0):=multiIf(CAST(d_date, 'date') < cast(11027, 'Date'), cs_sales_price - coalesce(cr_refunded_cash, 0), 0)
+                        └─ Inner Join Est. 3026286 rows
+                           │     Condition: cs_warehouse_sk == w_warehouse_sk
+                           ├─ Left Join Est. 3026286 rows
+                           │  │     Condition: cs_order_number == cr_order_number, cs_item_sk == cr_item_sk
+                           │  ├─ Repartition Exchange Est. 1513143 rows
+                           │  │  │     Partition by: {cs_item_sk, cs_order_number}
+                           │  │  └─ Inner Join Est. 1513143 rows
+                           │  │     │     Condition: cs_item_sk == i_item_sk
+                           │  │     ├─ Inner Join Est. 23188090 rows
+                           │  │     │  │     Condition: cs_sold_date_sk == d_date_sk
+                           │  │     │  ├─ TableScan tpcds.catalog_sales Est. 1439980416 rows
+                           │  │     │  │        Outputs: [cs_item_sk, cs_order_number, cs_sales_price, cs_sold_date_sk, cs_warehouse_sk]
+                           │  │     │  └─ Broadcast Exchange Est. 60 rows
+                           │  │     │     └─ Filter Est. 60 rows
+                           │  │     │        │     Condition: (d_date >= cast(10997, 'Date')) AND (d_date <= cast(11057, 'Date'))
+                           │  │     │        └─ TableScan tpcds.date_dim Est. 73049 rows
+                           │  │     │                 Condition : (d_date >= cast(10997, 'Date')) AND (d_date <= cast(11057, 'Date')).
+                           │  │     │                 Outputs: [d_date, d_date_sk]
+                           │  │     └─ Broadcast Exchange Est. 19576 rows
+                           │  │        └─ Filter Est. 19576 rows
+                           │  │           │     Condition: (i_current_price >= 0.99) AND (i_current_price <= 1.49)
+                           │  │           └─ TableScan tpcds.item Est. 300000 rows
+                           │  │                    Condition : (i_current_price >= 0.99) AND (i_current_price <= 1.49).
+                           │  │                    Outputs: [i_current_price, i_item_id, i_item_sk]
+                           │  └─ Repartition Exchange Est. 143996756 rows
+                           │     │     Partition by: {cr_item_sk, cr_order_number}
+                           │     └─ TableScan tpcds.catalog_returns Est. 143996756 rows
+                           │              Outputs: [cr_item_sk, cr_order_number, cr_refunded_cash]
+                           └─ Broadcast Exchange Est. 20 rows
+                              └─ TableScan tpcds.warehouse Est. 20 rows
+                                       Outputs: [w_state, w_warehouse_sk]

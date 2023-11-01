@@ -57,6 +57,12 @@ DistinctStep::DistinctStep(
 {
 }
 
+void DistinctStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams[0].header;
+}
+
 void DistinctStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
     if (!pre_distinct)
@@ -173,6 +179,12 @@ void DistinctStep::updateOutputStream()
         input_streams.front(),
         input_streams.front().header,
         getTraits(pre_distinct).data_stream_traits);
+}
+
+std::shared_ptr<IQueryPlanStep> DistinctStep::copy(ContextPtr) const
+{
+    return std::make_shared<DistinctStep>(
+        input_streams[0], set_size_limits, limit_hint, columns, pre_distinct, optimize_distinct_in_order);
 }
 
 }

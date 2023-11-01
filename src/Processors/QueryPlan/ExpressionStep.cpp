@@ -34,6 +34,25 @@ ExpressionStep::ExpressionStep(const DataStream & input_stream_, const ActionsDA
 {
 }
 
+void ExpressionStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = ExpressionTransform::transformHeader(input_streams_[0].header, *actions_dag);
+}
+
+void ExpressionStep::updateInputStream(DataStream input_stream, bool keep_header)
+{
+    Block out_header = keep_header ? std::move(output_stream->header)
+                                   : ExpressionTransform::transformHeader(input_stream.header, *actions_dag);
+    output_stream = createOutputStream(
+            input_stream,
+            std::move(out_header),
+            getDataStreamTraits());
+
+    input_streams.clear();
+    input_streams.emplace_back(std::move(input_stream));
+}
+
 void ExpressionStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings & settings)
 {
     auto expression = std::make_shared<ExpressionActions>(actions_dag, settings.getActionsSettings());
@@ -89,6 +108,11 @@ void ExpressionStep::updateOutputStream()
         if (alias_node)
             output_stream->sort_description[i].column_name = alias_node->result_name;
     }
+}
+
+std::shared_ptr<IQueryPlanStep> ExpressionStep::copy(ContextPtr) const
+{
+    return std::make_shared<ExpressionStep>(input_streams[0], actions_dag);
 }
 
 }

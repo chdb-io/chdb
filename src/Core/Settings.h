@@ -279,6 +279,7 @@ class IColumn;
     M(Bool, fsync_metadata, true, "Do fsync after changing metadata for tables and databases (.sql files). Could be disabled in case of poor latency on server with high load of DDL queries and high load of disk subsystem.", 0) \
     \
     M(Bool, join_use_nulls, false, "Use NULLs for non-joined rows of outer JOINs for types that can be inside Nullable. If false, use default value of corresponding columns data type.", IMPORTANT) \
+    M(Bool, join_using_null_safe, 0, "Force null safe equal comparison for USING keys except the last key of ASOF join", 0) \
     \
     M(JoinStrictness, join_default_strictness, JoinStrictness::All, "Set default strictness in JOIN query. Possible values: empty string, 'ANY', 'ALL'. If empty, query without strictness will throw exception.", 0) \
     M(Bool, any_join_distinct_right_table_keys, false, "Enable old ANY JOIN logic with many-to-one left-to-right table keys mapping for all ANY JOINs. It leads to confusing not equal results for 't1 ANY LEFT JOIN t2' and 't2 ANY RIGHT JOIN t1'. ANY RIGHT JOIN needs one-to-many keys mapping to be consistent with LEFT one.", IMPORTANT) \
@@ -401,6 +402,7 @@ class IColumn;
     M(OverflowMode, join_overflow_mode, OverflowMode::THROW, "What to do when the limit is exceeded.", 0) \
     M(Bool, join_any_take_last_row, false, "When disabled (default) ANY JOIN will take the first found row for a key. When enabled, it will take the last row seen if there are multiple rows for the same key.", IMPORTANT) \
     M(JoinAlgorithm, join_algorithm, JoinAlgorithm::DEFAULT, "Specify join algorithm.", 0) \
+    M(Bool, join_parallel_left_right, true, "Enable joinTransform parallel for left input and right input", 0) \
     M(UInt64, default_max_bytes_in_join, 1000000000, "Maximum size of right-side table if limit is required but max_bytes_in_join is not set.", 0) \
     M(UInt64, partial_merge_join_left_table_buffer_bytes, 0, "If not 0 group left table blocks in bigger ones for left-side table in partial merge join. It uses up to 2x of specified memory per joining thread.", 0) \
     M(UInt64, partial_merge_join_rows_in_right_blocks, 65536, "Split right-hand joining data in blocks of specified size. It's a portion of data indexed by min-max values and possibly unloaded on disk.", 0) \
@@ -771,6 +773,224 @@ class IColumn;
     M(Bool, keeper_map_strict_mode, false, "Enforce additional checks during operations on KeeperMap. E.g. throw an exception on an insert for already existing key", 0) \
     M(UInt64, extract_kvp_max_pairs_per_row, 1000, "Max number pairs that can be produced by extractKeyValuePairs function. Used to safeguard against consuming too much memory.", 0) \
     M(Timezone, session_timezone, "", "The default timezone for current session or query. The server default timezone if empty.", 0) \
+    /** Optimizer relative settings */ \
+    M(Bool, enable_optimizer, false, "Whether enable query optimizer", 0) \
+    M(Bool, enable_optimizer_white_list, true, "Whether enable query optimizer whilte list inorder to only support join and agg", 0) \
+    M(Bool, log_optimizer_run_time, false, "Whether Log optimizer runtime", 0) \
+    M(UInt64, query_queue_size, 100, "Max query queue size", 0) \
+    M(Bool, enable_query_queue, false, "Whether enable query queue", 0) \
+    M(UInt64, query_queue_timeout_ms, 100000, "Max queue pending time in ms", 0) \
+    M(Bool, enable_optimizer_fallback, true, "Whether enable query optimizer fallback to clickhouse origin when failed", 0) \
+    M(Bool, enable_plan_cache, false, "Whether enable plan cache", 0) \
+    M(Bool, enable_concurrency_control, false, "Whether enable concurrency control", 0) \
+    M(Bool, explain_print_stats, true, "Whether print stats when explain sql", 0) \
+    M(Bool, enable_histogram, true, "Whether enable plan cache", 0) \
+    M(UInt64, max_plan_mem_size, 1024 * 16 * 16, "The max plan size (byte)", 0) \
+    M(Bool, enable_memory_catalog, false, "Enable memory catalog for unittest", 0) \
+    M(UInt64, memory_catalog_worker_size, 8, "Memory catalog work size for unittest", 0) \
+    M(Bool, enable_optimizer_explain, false, "Enable query return explain for unittest", 0) \
+    M(UInt64, statistics_collect_debug_level, 0, "Debug level for statistics collector", 0) \
+    M(Bool, create_stats_time_output, true, "Enable time output in create stats, should be disabled at regression test", 0) \
+    M(Bool, rewrite_like_function, true, "Rewrite simple pattern like function", 0) \
+    M(Bool, statistics_collect_histogram, true, "Enable histogram collection", 0) \
+    M(Bool, statistics_collect_floating_histogram, true, "Collect histogram for float/double/Decimal columns", 0) \
+    M(Bool, statistics_collect_floating_histogram_ndv, true, "Collect histogram ndv for float/double/Decimal columns", 0) \
+    M(UInt64, \
+      statistics_collect_string_size_limit_for_histogram, \
+      64, \
+      "Collect string histogram only for avg_size <= string_size_limit, since it's unnecessary to collect stats for text", \
+      0) \
+    M(Bool, statistics_enable_sample, false, "Use sampling for statistics", 0) \
+    M(UInt64, statistics_sample_row_count, 40'000'000, "Minimal row count for sampling", 0) \
+    M(Float, statistics_sample_ratio, 0.1, "Ratio for sampling", 0) \
+    M(StatisticsAccurateSampleNdvMode, \
+      statistics_accurate_sample_ndv, \
+      StatisticsAccurateSampleNdvMode::AUTO, \
+      "Mode of accurate sample ndv to estimate full ndv", \
+      0) \
+    M(UInt64, statistics_batch_max_columns, 30, "Max column size in a batch when collecting stats", 0) \
+    M(Bool, statistics_simplify_histogram, false, "Reduce buckets of histogram with simplifying", 0) \
+    M(Float, statistics_simplify_histogram_ndv_density_threshold, 0.2, "Histogram simplifying threshold for ndv", 0) \
+    M(Float, statistics_simplify_histogram_range_density_threshold, 0.2, "Histogram simplifying threshold for range", 0) \
+    M(StatisticsCachePolicy, \
+      statistics_cache_policy, \
+      StatisticsCachePolicy::Default, \
+      "Cache policy for stats command and SQLs: (default|cache|catalog)", \
+      0) \
+    M(Float, cost_calculator_table_scan_weight, 1, "Table scan cost weight for cost calculator", 0) \
+    M(Float, cost_calculator_aggregating_weight, 7, "Aggregate output weight for cost calculator", 0) \
+    M(Float, cost_calculator_join_probe_weight, 0.5, "Join probe side weight for cost calculator", 0) \
+    M(Float, cost_calculator_join_build_weight, 2, "Join build side weight for cost calculator", 0) \
+    M(Float, cost_calculator_join_output_weight, 0.5, "Join output weight for cost calculator", 0) \
+    M(Float, cost_calculator_cte_weight, 1, "CTE output weight for cost calculator", 0) \
+    M(Float, cost_calculator_cte_weight_for_join_build_side, 2.0, "Join build side weight for cost calculator", 0) \
+    M(Float, cost_calculator_projection_weight, 0.1, "CTE output weight for cost calculator", 0) \
+    M(Float, stats_estimator_join_filter_selectivity, 1, "Join filter selectivity", 0) \
+    M(Bool, print_graphviz, false, "Whether print graphviz", 0) \
+    M(String, graphviz_path, "/tmp/plan/", "The path of graphviz plan", 0) \
+    M(Bool, eliminate_cross_joins, true, "Whether eliminate cross joins", 0) \
+    M(UInt64, iterative_optimizer_timeout, 10000, "Max running time of a single iterative optimizer in ms", 0) \
+    M(UInt64, cascades_optimizer_timeout, 10000, "Max running time of a single cascades optimizer in ms", 0) \
+    M(UInt64, operator_profile_receive_timeout, 3000, "Max waiting time for operator profile in ms", 0) \
+    M(UInt64, plan_optimizer_timeout, 600000, "Max running time of a plan rewriter optimizer in ms", 0) \
+    M(Bool, enable_nested_loop_join, true, "Whether enable nest loop join for outer join with filter", 0) \
+    M(Bool, enable_cbo, true, "Whether enable CBO", 0) \
+    M(Bool, enable_cascades_pruning, false, "Whether enable cascades pruning", 0) \
+    M(Bool, enum_replicate, true, "Enum replicate join", 0) \
+    M(Bool, enum_repartition, true, "Enum repartition join", 0) \
+    M(UInt64, max_replicate_build_size, 200000, "Max join build size, when enum replicate", 0) \
+    M(UInt64, max_replicate_shuffle_size, 50000000, "Max join build size, when enum replicate", 0) \
+    M(UInt64, parallel_join_threshold, 2000000, "Parallel join right source rows threshold", 0) \
+    M(Bool, add_parallel_before_agg, false, "Add parallel before agg", 0) \
+    M(Bool, add_parallel_after_join, false, "Add parallel after join", 0) \
+    M(Bool, enforce_round_robin, false, "Whether add round robin exchange node", 0) \
+    M(Bool, enable_pk_fk, true, "Whether enable PK-FK join estimation", 0) \
+    M(Bool, enable_left_join_to_right_join, true, "Whether enable convert left join to right join", 0) \
+    M(Bool, enable_shuffle_with_order, false, "Whether enable keep data order when shuffle", 0) \
+    M(Bool, enable_distinct_to_aggregate, true, "Whether enable convert distinct to group by", 0) \
+    M(Bool, enable_single_distinct_to_group_by, true, "Whether enable convert single count distinct to group by", 0) \
+    M(Bool, enable_magic_set, true, "Whether enable magic set rewriting for join aggregation", 0) \
+    M(Bool, enable_dynamic_filter, true, "Whether enable dynamic filter for join", 0) \
+    M(UInt64, dynamic_filter_min_filter_rows, 10000, "Set minimum row to enable dynamic filter", 0) \
+    M(Float, dynamic_filter_max_filter_factor, 0.7, "Set maximal filter factor to enable dynamic filter", 0) \
+    M(Bool, enable_dynamic_filter_for_bloom_filter, true, "Whether enable dynamic filter for bloom filter", 0) \
+    M(Bool, enable_dynamic_filter_for_join, true, "Whether enable dynamic filter for join", 0) \
+    M(UInt64, dynamic_filter_default_bytes, 1024 * 256, "Whether enable dynamic filter for join", 0) \
+    M(UInt64, dynamic_filter_default_hashes, 4, "Whether enable dynamic filter for join", 0) \
+    M(CTEMode, cte_mode, CTEMode::INLINED, "CTE mode: SHARED|INLINED|AUTO", 0) \
+    M(Bool, enable_cte_property_enum, false, "Whether enumerate all possible properties for cte", 0) \
+    M(Bool, enable_cte_common_property, true, "Whether search common property for cte", 0) \
+    M(UInt64, max_graph_reorder_size, 4, "Max tables join order enum on graph", 0) \
+    M(Bool, enable_join_graph_support_filter, true, "Whether enable join graph support filter", 0) \
+    M(Float, enable_partial_aggregate_ratio, 0.9, "Enable partial aggregate ratio : group by keys ndv / total row count", 0) \
+    M(Bool, enable_simplify_expression, true, "Whether enable simplify predicates", 0) \
+    M(Bool, enable_unwarp_cast_in, true, "Whether enable unwrap cast function", 0) \
+    M(Bool, enable_common_predicate_rewrite, true, "Whether enable common predicate rewrite", 0) \
+    M(Bool, enable_windows_reorder, true, "Reorder adjacent windows to decrease exchange", 0) \
+    M(Bool, enable_swap_predicate_rewrite, true, "Whether enable swap predicate rewrite", 0) \
+    M(Bool, enable_equivalences, true, "Whether enable using equivalences when property match", 0) \
+    M(Bool, enable_replace_group_by_literal_to_symbol, false, "Replace group by literal to symbol", 0) \
+    M(Bool, enable_replace_order_by_literal_to_symbol, false, "Replace order by literal to symbol", 0) \
+    M(Bool, enable_push_partial_agg, true, "Whether enable push partial agg", 0) \
+    M(Bool, enforce_all_join_to_any_join, false, "Whether enforce all join to any join", 0) \
+    M(Bool, enable_implicit_type_conversion, true, "Whether enable implicit type conversion for JOIN, Set operation, IN subquery", 0) \
+    M(Bool, enable_adaptive_scheduler, false, "Whether enable adaptive scheduler", 0) \
+    M(Bool, enable_redundant_sort_removal, true, "Whether enable ignore redundant sort in subquery", 0) \
+    M(Bool, enable_materialized_view_rewrite, false, "Whether enable materialized view based rewriter for query", 0) \
+    M(Bool, enable_materialized_view_ast_rewrite, false, "Whether enable materialized view based rewriter for query", 0) \
+    M(Bool, enable_materialized_view_rewrite_verbose_log, false, "Whether enable materialized view based rewriter for query", 0) \
+    M(Bool, \
+      enable_materialized_view_join_rewriting, \
+      false, \
+      "Whether enable materialized view based rewriter for query using join materialized views", \
+      0) \
+    M(MaterializedViewConsistencyCheckMethod, \
+      materialized_view_consistency_check_method, \
+      MaterializedViewConsistencyCheckMethod::NONE, \
+      "The method to check whether a materialized view is consistent with the base table for a query", \
+      0) \
+    M(Bool, enable_sharding_optimize, false, "Whether enable sharding optimization, eg. local join", 0) \
+    M(Bool, enable_filter_window_to_partition_topn, true, "Filter window to partition topn", 0) \
+    M(Bool, enable_optimizer_support_window, true, "Optimizer support window", 0) \
+    M(Bool, optimizer_projection_support, false, "Use projection in optimizer mode", 0) \
+    M(Bool, enable_topn_filtering_optimization, false, "Whether enable TopNFilterting optimization", 0) \
+    M(Bool, enable_mark_distinct_optimzation, false, "Whether enable Mark distinct optimization", 0) \
+    M(Bool, enable_setoperation_to_agg, true, "Whether enable rewrite set operation to aggregation", 0) \
+    M(Bool, enable_execute_uncorrelated_subquery, false, "Whether enable execute uncorrelated subquery", 0) \
+    M(UInt64, execute_uncorrelated_in_subquery_size, 10000, "Size of execute uncorrelated in subquery", 0) \
+    M(Bool, enable_subcolumn_optimization_through_union, true, "Whether enable sub column optimization through set operation.", 0) \
+    M(Float, pk_selectivity, 0.5, "PK selectivity for join estimation", 0) \
+    /** Exchange settings */ \
+    M(Bool, exchange_enable_multipath_reciever, true, "Whether enable exchange new mode ", 0) \
+    M(UInt64, exchange_parallel_size, 1, "Exchange parallel size", 0) \
+    M(UInt64, \
+      exchange_source_pipeline_threads, \
+      16, \
+      "Recommend number of threads for pipeline which reading data from exchange, ingoned if exchange need keep data order", \
+      0) \
+    M(UInt64, exchange_timeout_ms, 100000, "Exchange request timeout ms", 0) \
+    M(UInt64, exchange_wait_accept_max_timeout_ms, 10000, "Exchange receiver wait accept max timeout ms", 0) \
+    M(UInt64, exchange_local_receiver_queue_size, 300, "Queue size for local exchange receiver", 0) \
+    M(UInt64, exchange_remote_receiver_queue_size, 100, "Queue size for remote exchange receiver", 0) \
+    M(UInt64, exchange_multi_path_receiver_queue_size, 200, "Queue size for multi path exchange receiver", 0) \
+    M(Bool, exchange_enable_block_compress, false, "Whether enable exchange block compress ", 0) \
+    M(UInt64, exchange_stream_max_buf_size, 209715200, "Default 200M, -1 means no limit", 0) \
+    M(UInt64, exchange_buffer_send_threshold_in_bytes, 1000000, "The minimum bytes when exchange will flush send buffer ", 0) \
+    M(UInt64, exchange_buffer_send_threshold_in_row, 65505, "The minimum row num when exchange will flush send buffer", 0) \
+    M(UInt64, \
+      exchange_unordered_output_parallel_size, \
+      8, \
+      "The num of exchange sink for unorder exchange, ingoned if exchange need keep data order ", \
+      0) \
+    M(Bool, exchange_enable_keep_order_parallel_shuffle, false, "Whether enable parallel shuffle when exchange need keep order", 0) \
+    M(Bool, exchange_enable_force_remote_mode, false, "Force exchange data transfer through network", 0) \
+    M(Bool, exchange_enable_force_keep_order, false, "Force exchange keep data order", 0) \
+    M(Bool, exchange_force_use_buffer, false, "Force exchange use buffer as possible", 0) \
+    M(UInt64, distributed_query_wait_exception_ms, 1000, "Wait final planSegment exception from segmentScheduler.", 0) \
+    M(UInt64, distributed_max_parallel_size, false, "Max distributed execution parallel size", 0) \
+\
+    /** Dynamic Filter settings */ \
+    M(UInt64, wait_runtime_filter_timeout, 1000, "Execute filter wait for runtime filter timeout ms", 0) \
+    M(UInt64, wait_runtime_filter_timeout_for_filter, 0, "Execute filter wait for runtime filter timeout ms", 0) \
+    M(Bool, runtime_filter_dynamic_mode, false, "Whether enable bloom runtime filter", 0) \
+\
+    /** ip2geo settings */ \
+    M(String, ip2geo_local_path, "/data01/clickhouse/data/geo_db/", "Local path for IP Database files", 0) \
+    M(String, ip2geo_local_path_oversea, "/data01/clickhouse/data/geo_db/oversea/", "Local path for IP Database files for oversea", 0) \
+    M(Bool, ip2geo_update_from_hdfs, 0, "Whether to update db file from hdfs", 0) \
+    M(String, ipv4_file, "ipv4_pro", "IPDB file for ipv4", 0) \
+    M(String, ipv6_file, "ipv6_pro", "IPDB file for ipv6", 0) \
+    M(String, geoip_city_file, "GeoIP2-City", "GeoIP DB file for city", 0) \
+    M(String, geoip_isp_file, "GeoIP2-ISP", "GeoIP DB file for ISP", 0) \
+    M(String, geoip_asn_file, "GeoLite2-ASN", "GeoIP DB file for ASN", 0) \
+\
+    /** Sample setttings */ \
+    M(Bool, enable_sample_by_range, false, "Sample by range if it is true", 0) \
+    M(Bool, enable_deterministic_sample_by_range, false, "Deterministic sample by range if it is true", 0) \
+    M(Bool, enable_final_sample, false, "Sample from result rows if it is true", 0) \
+    M(Bool, uniform_sample_by_range, false, "Sample by range with uniform mode", 0) \
+    M(Bool, uniform_final_sample, false, "Final sample with uniform mode", 0) \
+\
+    /** clone strategy **/ \
+    M(Bool, stop_clone_in_utc_time, false, "Enable stop executing clone log in utc time", 0) \
+    M(UInt64, utc_time_to_stop_clone, 2, "The hour of UTC time, if current time is greater than it, clone is stopepd", 0) \
+    M(UInt64, utc_time_to_start_clone, 12, "The hour of UTC time, if current time is greater than it, clone is started", 0) \
+    M(String, utc_time_interval_allow_clone, "", "A list of UTC time, every two elements consist an interval which can execute clone", 0) \
+    M(String, utc_time_interval_stop_clone, "", "A list of UTC time, every two elements consist an interval which stop clone", 0) \
+    M(Bool, remote_query_memory_table, false, "Query remote memory table", 0) \
+\
+    /* Transaction and catalog */ \
+    M(Bool, ignore_duplicate_insertion_label, true, "Throw an exception if false", 0) \
+    M(Bool, ignore_array_join_check_in_join_on_condition, false, "Ignore array-join function check in join on condition", 0) \
+    M(Bool, bypass_ddl_db_lock, true, "Bypass locking database while creating tables", 0) \
+    M(Bool, prefer_cnch_catalog, false, "Force using cnch catalog to get table first when resolving database and table", 0) \
+    M(Bool, enable_interactive_transaction, true, "Enable interactive transaction", 0) \
+    M(Bool, force_clean_transaction_by_dm, false, "Force clean transaction by dm, can be used for testing purpose", 0) \
+    M(Bool, cnch_atomic_attach_part, true, "Whether to ATTACH PARTITION/PARTS in atomic way", 0) \
+    M(Bool, cnch_atomic_attach_part_preemtive_lock_acquire, false, "Whether to acquire lock preemptively during atomic attach part", 0) \
+    M(Bool, allow_full_scan_txn_records, false, "Whether to allow full scan of all transaction records on catalog", 0) \
+    \
+    /* Outfile related Settings */ \
+    M(UInt64, outfile_buffer_size_in_mb, 1, "Out file buffer size in 'OUT FILE'", 0) \
+    M(String, tos_access_key, "", "The access_key set by user when accessing ve tos.", 0) \
+    M(String, tos_secret_key, "", "The secret_key set by user when accessing ve tos.", 0) \
+    M(String, tos_region, "", "The region set by user when accessing ve tos.", 0) \
+    M(String, tos_security_token, "", "The security_key set by user when accessing ve tos with assume role.", 0) \
+    M(String, lasfs_session_token, "", "the session_token set by user when accessing lasfs", 0) \
+    M(String, lasfs_identity_id, "", "the identity_id set by user when accessing lasfs", 0) \
+    M(String, lasfs_identity_type, "", "the identity_type set by user when accessing lasfs", 0) \
+    M(String, lasfs_access_key, "", "the access_key set by user when accessing lasfs", 0) \
+    M(String, lasfs_secret_key, "", "the secret_key set by user when accessing lasfs", 0) \
+    M(String, lasfs_service_name, "", "the service_name set by user when accessing lasfs", 0) \
+    M(String, lasfs_endpoint, "", "the endpoint set by user when accessing lasfs", 0) \
+    M(String, lasfs_region, "", "the region set by user when accessing lasfs", 0) \
+    M(String, lasfs_overwrite, "false" ,"pass true if user want to overwrite when the file exists", 0) \
+    M(Bool, \
+      allow_extended_type_conversion, \
+      false, \
+      "When enabled, implicit type conversion is allowed for more input types(e.g. UInt64 & Ints, Decimal & Float, Float & Int64)", \
+      0) \
+    /** The section above is for obsolete settings. Do not add anything there. */
     // End of COMMON_SETTINGS
     // Please add settings related to formats into the FORMAT_FACTORY_SETTINGS and move obsolete settings to OBSOLETE_SETTINGS.
 
@@ -983,7 +1203,7 @@ class IColumn;
     M(UInt64, cross_to_inner_join_rewrite, 1, "Use inner join instead of comma/cross join if there're joining expressions in the WHERE section. Values: 0 - no rewrite, 1 - apply if possible for comma/cross, 2 - force rewrite all comma joins, cross - if possible", 0) \
     \
     M(Bool, output_format_arrow_low_cardinality_as_dictionary, false, "Enable output LowCardinality type as Dictionary Arrow type", 0) \
-    M(Bool, output_format_arrow_string_as_string, true, "Use Arrow String type instead of Binary for String columns", 0) \
+    M(Bool, output_format_arrow_string_as_string, false, "Use Arrow String type instead of Binary for String columns", 0) \
     M(Bool, output_format_arrow_fixed_string_as_fixed_byte_array, true, "Use Arrow FIXED_SIZE_BINARY type instead of Binary for FixedString columns.", 0) \
     M(ArrowCompression, output_format_arrow_compression_method, "lz4_frame", "Compression method for Arrow output format. Supported codecs: lz4_frame, zstd, none (uncompressed)", 0) \
     \

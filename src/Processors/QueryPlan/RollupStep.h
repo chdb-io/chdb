@@ -17,9 +17,13 @@ public:
 
     String getName() const override { return "Rollup"; }
 
+    Type getType() const override { return Type::Rollup; }
+
     void transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
 
     const Aggregator::Params & getParams() const { return params; }
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
+    void setInputStreams(const DataStreams & input_streams_) override;
 
 private:
     void updateOutputStream() override;

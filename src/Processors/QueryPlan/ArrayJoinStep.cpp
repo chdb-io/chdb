@@ -33,6 +33,23 @@ ArrayJoinStep::ArrayJoinStep(const DataStream & input_stream_, ArrayJoinActionPt
 {
 }
 
+void ArrayJoinStep::updateInputStream(DataStream input_stream, Block result_header)
+{
+    output_stream = createOutputStream(
+            input_stream,
+            ArrayJoinTransform::transformHeader(input_stream.header, array_join),
+            getDataStreamTraits());
+
+    input_streams.clear();
+    input_streams.emplace_back(std::move(input_stream));
+    res_header = std::move(result_header);
+}
+
+void ArrayJoinStep::setInputStreams(const DataStreams & input_streams_)
+{
+    updateInputStream(input_streams_[0], res_header);
+}
+
 void ArrayJoinStep::updateOutputStream()
 {
     output_stream = createOutputStream(
@@ -75,6 +92,11 @@ void ArrayJoinStep::describeActions(JSONBuilder::JSONMap & map) const
         columns_array->add(column);
 
     map.add("Columns", std::move(columns_array));
+}
+
+std::shared_ptr<IQueryPlanStep> ArrayJoinStep::copy(ContextPtr) const
+{
+    return std::make_shared<ArrayJoinStep>(input_streams[0], array_join);
 }
 
 }

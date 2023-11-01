@@ -1,0 +1,66 @@
+Projection Est. 1 rows
+│     Expressions: excess discount amount:=`expr#sum(cs_ext_discount_amt)`
+└─ Limit Est. 1 rows
+   │     Limit: 100
+   └─ MergingAggregated Est. 1 rows
+      └─ Gather Exchange Est. 1 rows
+         └─ Aggregating Est. 1 rows
+            │     Group by: {}
+            │     Aggregates: expr#sum(cs_ext_discount_amt):=AggNull(sum)(cs_ext_discount_amt)
+            └─ Inner Join Est. 19272 rows
+               │     Condition: cs_sold_date_sk == d_date_sk
+               ├─ Inner Join Est. 398935 rows
+               │  │     Condition: cs_item_sk == cs_item_sk_1
+               │  │     Filter: cs_ext_discount_amt > ('1.3' * `expr#avg(cs_ext_discount_amt)`)
+               │  ├─ TableScan tpcds.catalog_sales Est. 1439980416 rows
+               │  │        Outputs: [cs_ext_discount_amt, cs_item_sk, cs_sold_date_sk]
+               │  └─ Broadcast Exchange Est. 224 rows
+               │     └─ Inner Join Est. 224 rows
+               │        │     Condition: i_item_sk == cs_item_sk_1
+               │        ├─ Repartition Exchange Est. 83 rows
+               │        │  │     Partition by: {i_item_sk}
+               │        │  └─ Filter Est. 83 rows
+               │        │     │     Condition: i_manufact_id = 977
+               │        │     └─ TableScan tpcds.item Est. 300000 rows
+               │        │              Condition : i_manufact_id = 977.
+               │        │              Outputs: [i_item_sk, i_manufact_id]
+               │        └─ MergingAggregated Est. 83 rows
+               │           └─ Repartition Exchange Est. 83 rows
+               │              │     Partition by: {cs_item_sk_1}
+               │              └─ Aggregating Est. 83 rows
+               │                 │     Group by: {cs_item_sk_1}
+               │                 │     Aggregates: expr#avg(cs_ext_discount_amt):=AggNull(avgIf)(cs_ext_discount_amt_1,build_side_non_null_symbol)
+               │                 └─ Projection Est. 9636 rows
+               │                    │     Expressions: [cs_ext_discount_amt_1, cs_item_sk_1], build_side_non_null_symbol:=1
+               │                    └─ Inner Join Est. 9636 rows
+               │                       │     Condition: cs_sold_date_sk_1 == d_date_sk_1
+               │                       ├─ Inner Join Est. 199467 rows
+               │                       │  │     Condition: cs_item_sk_1 == i_item_sk_1
+               │                       │  ├─ TableScan tpcds.catalog_sales Est. 1439980416 rows
+               │                       │  │        Outputs: cs_ext_discount_amt_1:=cs_ext_discount_amt, cs_item_sk_1:=cs_item_sk, cs_sold_date_sk_1:=cs_sold_date_sk
+               │                       │  └─ Broadcast Exchange Est. 83 rows
+               │                       │     └─ MergingAggregated Est. 83 rows
+               │                       │        └─ Repartition Exchange Est. 83 rows
+               │                       │           │     Partition by: {i_item_sk_1}
+               │                       │           └─ Aggregating Est. 83 rows
+               │                       │              │     Group by: {i_item_sk_1}
+               │                       │              └─ Projection Est. 83 rows
+               │                       │                 │     Expressions: i_item_sk_1:=i_item_sk
+               │                       │                 └─ Filter Est. 83 rows
+               │                       │                    │     Condition: i_manufact_id = 977
+               │                       │                    └─ TableScan tpcds.item Est. 300000 rows
+               │                       │                             Condition : i_manufact_id = 977.
+               │                       │                             Outputs: [i_item_sk, i_manufact_id]
+               │                       └─ Broadcast Exchange Est. 90 rows
+               │                          └─ Filter Est. 90 rows
+               │                             │     Condition: (d_date_1 >= cast(10983, 'Date')) AND (d_date_1 <= cast(11073, 'Date'))
+               │                             └─ TableScan tpcds.date_dim Est. 73049 rows
+               │                                      Condition : (d_date >= cast(10983, 'Date')) AND (d_date <= cast(11073, 'Date')).
+               │                                      Outputs: d_date_1:=d_date, d_date_sk_1:=d_date_sk
+               └─ Broadcast Exchange Est. 90 rows
+                  └─ Filter Est. 90 rows
+                     │     Condition: (d_date >= cast(10983, 'Date')) AND (d_date <= cast(11073, 'Date'))
+                     └─ TableScan tpcds.date_dim Est. 73049 rows
+                              Condition : (d_date >= cast(10983, 'Date')) AND (d_date <= cast(11073, 'Date')).
+                              Outputs: [d_date, d_date_sk]
+note: Magic Set is applied for 1 parts.

@@ -1,0 +1,50 @@
+Projection Est. 2646 rows
+│     Expressions: [p_brand, p_size, p_type], supplier_cnt:=`expr#uniqExact(ps_suppkey)`
+└─ Sorting Est. 2646 rows
+   │     Order by: {expr#uniqExact(ps_suppkey) desc nulls_last, p_brand asc, p_type asc, p_size asc}
+   └─ Gather Exchange Est. 2646 rows
+      └─ Sorting Est. 2646 rows
+         │     Order by: {expr#uniqExact(ps_suppkey) desc nulls_last, p_brand asc, p_type asc, p_size asc}
+         └─ MergingAggregated Est. 2646 rows
+            └─ Repartition Exchange Est. 2646 rows
+               │     Partition by: {p_brand, p_size, p_type}
+               └─ Aggregating Est. 2646 rows
+                  │     Group by: {p_brand, p_size, p_type}
+                  │     Aggregates: expr#uniqExact(ps_suppkey):=AggNull(count)(ps_suppkey)
+                  └─ Aggregating Est. 49499 rows
+                     │     Group by: {p_brand, p_size, p_type, ps_suppkey}
+                     └─ Projection Est. 49499 rows
+                        │     Expressions: [p_brand, p_size, p_type, ps_suppkey]
+                        └─ Filter Est. 49499 rows
+                           │     Condition: if(isNull(ps_suppkey), NULL, NOT cast(multiIf(build_side_non_null_symbol = 1, 1, 0), 'UInt8'))
+                           └─ Left Join Est. 54999 rows
+                              │     Condition: ps_suppkey == s_suppkey
+                              ├─ Repartition Exchange Est. 54999 rows
+                              │  │     Partition by: {ps_suppkey}
+                              │  └─ Inner Join Est. 54999 rows
+                              │     │     Condition: ps_partkey == p_partkey
+                              │     ├─ Repartition Exchange Est. 800000 rows
+                              │     │  │     Partition by: {ps_partkey}
+                              │     │  └─ TableScan tpch.partsupp Est. 800000 rows
+                              │     │           Outputs: [ps_partkey, ps_suppkey]
+                              │     └─ Repartition Exchange Est. 27500 rows
+                              │        │     Partition by: {p_partkey}
+                              │        └─ Filter Est. 27500 rows
+                              │           │     Condition: (p_brand != 'Brand#45') AND (p_size IN (3, 9, 14, 19, 23, 36, 45, 49)) AND (p_type NOT LIKE 'MEDIUM POLISHED%')
+                              │           └─ TableScan tpch.part Est. 200000 rows
+                              │                    Condition : (p_brand != 'Brand#45') AND (p_size IN (3, 9, 14, 19, 23, 36, 45, 49)) AND (p_type NOT LIKE 'MEDIUM POLISHED%').
+                              │                    Outputs: [p_brand, p_partkey, p_size, p_type]
+                              └─ Projection Est. 8980 rows
+                                 │     Expressions: [s_suppkey], build_side_non_null_symbol:=1
+                                 └─ MergingAggregated Est. 8980 rows
+                                    └─ Repartition Exchange Est. 8980 rows
+                                       │     Partition by: {s_suppkey}
+                                       └─ Aggregating Est. 8980 rows
+                                          │     Group by: {s_suppkey}
+                                          └─ Projection Est. 9000 rows
+                                             │     Expressions: [s_suppkey]
+                                             └─ Filter Est. 9000 rows
+                                                │     Condition: s_comment LIKE '%Customer%Complaints%'
+                                                └─ TableScan tpch.supplier Est. 10000 rows
+                                                         Condition : s_comment LIKE '%Customer%Complaints%'.
+                                                         Outputs: [s_comment, s_suppkey]

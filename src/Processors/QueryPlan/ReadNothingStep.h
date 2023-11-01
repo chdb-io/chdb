@@ -12,7 +12,11 @@ public:
 
     String getName() const override { return "ReadNothing"; }
 
+    Type getType() const override { return Type::ReadNothing; }
+
     void initializePipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &) override;
+
+    std::shared_ptr<IQueryPlanStep> copy(ContextPtr ptr) const override;
 };
 
 }

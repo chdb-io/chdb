@@ -98,6 +98,11 @@ const String & ASTIdentifier::name() const
     return full_name;
 }
 
+const std::vector<String> & ASTIdentifier::nameParts() const
+{
+    return name_parts;
+}
+
 void ASTIdentifier::formatImplWithoutAlias(const FormatSettings & settings, FormatState & state, FormatStateStacked frame) const
 {
     auto format_element = [&](const String & elem_name)

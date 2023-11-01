@@ -1,0 +1,50 @@
+Projection Est. 12105 rows
+│     Expressions: [C_NATION], d_year:=`expr#toYear(LO_ORDERDATE)`, profit:=`expr#sum(minus(LO_REVENUE, LO_SUPPLYCOST))`
+└─ Sorting Est. 12105 rows
+   │     Order by: {expr#toYear(LO_ORDERDATE) asc, C_NATION asc}
+   └─ Gather Exchange Est. 12105 rows
+      └─ Sorting Est. 12105 rows
+         │     Order by: {expr#toYear(LO_ORDERDATE) asc, C_NATION asc}
+         └─ MergingAggregated Est. 12105 rows
+            └─ Repartition Exchange Est. 12105 rows
+               │     Partition by: {C_NATION, expr#toYear(LO_ORDERDATE)}
+               └─ Aggregating Est. 12105 rows
+                  │     Group by: {C_NATION, expr#toYear(LO_ORDERDATE)}
+                  │     Aggregates: expr#sum(minus(LO_REVENUE, LO_SUPPLYCOST)):=AggNull(sum)(expr#minus(LO_REVENUE, LO_SUPPLYCOST))
+                  └─ Projection Est. 100275643 rows
+                     │     Expressions: [C_NATION], expr#minus(LO_REVENUE, LO_SUPPLYCOST):=LO_REVENUE - LO_SUPPLYCOST, expr#toYear(LO_ORDERDATE):=toYear(LO_ORDERDATE)
+                     └─ Inner Join Est. 100275643 rows
+                        │     Condition: LO_PARTKEY == P_PARTKEY
+                        ├─ Repartition Exchange Est. 175770964 rows
+                        │  │     Partition by: {LO_PARTKEY}
+                        │  └─ Inner Join Est. 175770964 rows
+                        │     │     Condition: LO_CUSTKEY == C_CUSTKEY
+                        │     ├─ Repartition Exchange Est. 599928512 rows
+                        │     │  │     Partition by: {LO_CUSTKEY}
+                        │     │  └─ Inner Join Est. 599928512 rows
+                        │     │     │     Condition: LO_SUPPKEY == S_SUPPKEY
+                        │     │     ├─ Repartition Exchange Est. 5999989813 rows
+                        │     │     │  │     Partition by: {LO_SUPPKEY}
+                        │     │     │  └─ TableScan ssb.lineorder Est. 5999989813 rows
+                        │     │     │           Outputs: [LO_CUSTKEY, LO_ORDERDATE, LO_PARTKEY, LO_REVENUE, LO_SUPPKEY, LO_SUPPLYCOST]
+                        │     │     └─ Repartition Exchange Est. 399954 rows
+                        │     │        │     Partition by: {S_SUPPKEY}
+                        │     │        └─ Filter Est. 399954 rows
+                        │     │           │     Condition: S_REGION = 'AMERICA'
+                        │     │           └─ TableScan ssb.supplier Est. 2000000 rows
+                        │     │                    Condition : S_REGION = 'AMERICA'.
+                        │     │                    Outputs: [S_REGION, S_SUPPKEY]
+                        │     └─ Repartition Exchange Est. 6000975 rows
+                        │        │     Partition by: {C_CUSTKEY}
+                        │        └─ Filter Est. 6000975 rows
+                        │           │     Condition: C_REGION = 'AMERICA'
+                        │           └─ TableScan ssb.customer Est. 30000000 rows
+                        │                    Condition : C_REGION = 'AMERICA'.
+                        │                    Outputs: [C_CUSTKEY, C_NATION, C_REGION]
+                        └─ Repartition Exchange Est. 799457 rows
+                           │     Partition by: {P_PARTKEY}
+                           └─ Filter Est. 799457 rows
+                              │     Condition: P_MFGR IN ('MFGR#1', 'MFGR#2')
+                              └─ TableScan ssb.part Est. 2000000 rows
+                                       Condition : P_MFGR IN ('MFGR#1', 'MFGR#2').
+                                       Outputs: [P_MFGR, P_PARTKEY]

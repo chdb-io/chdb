@@ -32,6 +32,11 @@ LimitByStep::LimitByStep(
 {
 }
 
+void LimitByStep::setInputStreams(const DataStreams & input_streams_)
+{
+    input_streams = input_streams_;
+    output_stream->header = input_streams_[0].header;
+}
 
 void LimitByStep::transformPipeline(QueryPipelineBuilder & pipeline, const BuildQueryPipelineSettings &)
 {
@@ -81,6 +86,11 @@ void LimitByStep::describeActions(JSONBuilder::JSONMap & map) const
     map.add("Columns", std::move(columns_array));
     map.add("Length", group_length);
     map.add("Offset", group_offset);
+}
+
+std::shared_ptr<IQueryPlanStep> LimitByStep::copy(ContextPtr) const
+{
+    return std::make_shared<LimitByStep>(input_streams[0], group_length, group_offset, columns);
 }
 
 }

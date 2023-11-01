@@ -100,6 +100,13 @@ public:
     size_t getNumThreads() const { return num_threads; }
     void setNumThreads(size_t num_threads_) { num_threads = num_threads_; }
 
+    size_t getNumStreams() const
+    {
+        //chdb-todo: it sames the number of streams is limited to 1
+        // see QueryPipeline(Pipe pipe);
+        return 1;
+    }
+
     void setProcessListElement(QueryStatusPtr elem);
     void setProgressCallback(const ProgressCallback & callback);
     void setLimitsAndQuota(const StreamLocalLimits & limits, std::shared_ptr<const EnabledQuota> quota_);
@@ -136,6 +143,8 @@ public:
     void convertStructureTo(const ColumnsWithTypeAndName & columns);
 
     void reset();
+
+    using StreamType = Pipe::StreamType;
 
 private:
     QueryPlanResourceHolder resources;

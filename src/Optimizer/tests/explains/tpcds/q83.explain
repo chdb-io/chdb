@@ -1,0 +1,171 @@
+Projection Est. 100 rows
+│     Expressions: average:=((`expr#sum(sr_return_quantity)` + `expr#sum(cr_return_quantity)`) + `expr#sum(wr_return_quantity)`) / '3.0', cr_dev:=((`expr#sum(cr_return_quantity)` / ((`expr#sum(sr_return_quantity)` + `expr#sum(cr_return_quantity)`) + `expr#sum(wr_return_quantity)`)) / '3.0') * 100, cr_item_qty:=`expr#sum(cr_return_quantity)`, item_id:=i_item_id, sr_dev:=((`expr#sum(sr_return_quantity)` / ((`expr#sum(sr_return_quantity)` + `expr#sum(cr_return_quantity)`) + `expr#sum(wr_return_quantity)`)) / '3.0') * 100, sr_item_qty:=`expr#sum(sr_return_quantity)`, wr_dev:=((`expr#sum(wr_return_quantity)` / ((`expr#sum(sr_return_quantity)` + `expr#sum(cr_return_quantity)`) + `expr#sum(wr_return_quantity)`)) / '3.0') * 100, wr_item_qty:=`expr#sum(wr_return_quantity)`
+└─ Limit Est. 100 rows
+   │     Limit: 100
+   └─ Sorting Est. 100 rows
+      │     Order by: {i_item_id asc, expr#sum(sr_return_quantity) asc}
+      │     Limit: 100
+      └─ Gather Exchange Est. 31132 rows
+         └─ Sorting Est. 100 rows
+            │     Order by: {i_item_id asc, expr#sum(sr_return_quantity) asc}
+            │     Limit: 100
+            └─ Inner Join Est. 31132 rows
+               │     Condition: i_item_id_1 == i_item_id
+               ├─ MergingAggregated Est. 62265 rows
+               │  └─ Repartition Exchange Est. 62265 rows
+               │     │     Partition by: {i_item_id_1}
+               │     └─ Aggregating Est. 62265 rows
+               │        │     Group by: {i_item_id_1}
+               │        │     Aggregates: expr#sum(cr_return_quantity):=AggNull(sum)(cr_return_quantity)
+               │        └─ Inner Join Est. 62265 rows
+               │           │     Condition: i_item_sk_1 == cr_item_sk
+               │           ├─ Repartition Exchange Est. 300000 rows
+               │           │  │     Partition by: {i_item_sk_1}
+               │           │  └─ TableScan tpcds.item Est. 300000 rows
+               │           │           Outputs: i_item_id_1:=i_item_id, i_item_sk_1:=i_item_sk
+               │           └─ Repartition Exchange Est. 31132 rows
+               │              │     Partition by: {cr_item_sk}
+               │              └─ Inner Join Est. 31132 rows
+               │                 │     Condition: cr_returned_date_sk == d_date_sk_1
+               │                 ├─ TableScan tpcds.catalog_returns Est. 143996756 rows
+               │                 │        Outputs: [cr_item_sk, cr_return_quantity, cr_returned_date_sk]
+               │                 └─ Broadcast Exchange Est. 31 rows
+               │                    └─ Inner Join Est. 31 rows
+               │                       │     Condition: d_date_3 == d_date_4
+               │                       ├─ Filter Est. 73049 rows
+               │                       │  │     Condition: isNotNull(d_date_3)
+               │                       │  └─ TableScan tpcds.date_dim Est. 73049 rows
+               │                       │           Condition : isNotNull(d_date).
+               │                       │           Outputs: d_date_3:=d_date, d_date_sk_1:=d_date_sk
+               │                       └─ Broadcast Exchange Est. 21 rows
+               │                          └─ MergingAggregated Est. 21 rows
+               │                             └─ Repartition Exchange Est. 21 rows
+               │                                │     Partition by: {d_date_4}
+               │                                └─ Aggregating Est. 21 rows
+               │                                   │     Group by: {d_date_4}
+               │                                   └─ Inner Join Est. 21 rows
+               │                                      │     Condition: d_week_seq_2 == d_week_seq_3
+               │                                      ├─ Filter Est. 73049 rows
+               │                                      │  │     Condition: isNotNull(d_week_seq_2) AND isNotNull(d_date_4)
+               │                                      │  └─ TableScan tpcds.date_dim Est. 73049 rows
+               │                                      │           Condition : isNotNull(d_week_seq) AND isNotNull(d_date).
+               │                                      │           Outputs: d_date_4:=d_date, d_week_seq_2:=d_week_seq
+               │                                      └─ Broadcast Exchange Est. 3 rows
+               │                                         └─ MergingAggregated Est. 3 rows
+               │                                            └─ Repartition Exchange Est. 3 rows
+               │                                               │     Partition by: {d_week_seq_3}
+               │                                               └─ Aggregating Est. 3 rows
+               │                                                  │     Group by: {d_week_seq_3}
+               │                                                  └─ Projection Est. 3 rows
+               │                                                     │     Expressions: [d_week_seq_3]
+               │                                                     └─ Filter Est. 3 rows
+               │                                                        │     Condition: (d_date_5 IN (cast(11138, 'Date'), cast(11227, 'Date'), cast(11278, 'Date'))) AND isNotNull(d_week_seq_3)
+               │                                                        └─ TableScan tpcds.date_dim Est. 73049 rows
+               │                                                                 Condition : (d_date IN (cast(11138, 'Date'), cast(11227, 'Date'), cast(11278, 'Date'))) AND isNotNull(d_week_seq).
+               │                                                                 Outputs: d_date_5:=d_date, d_week_seq_3:=d_week_seq
+               └─ Inner Join Est. 31132 rows
+                  │     Condition: i_item_id == i_item_id_2
+                  ├─ MergingAggregated Est. 124534 rows
+                  │  └─ Repartition Exchange Est. 124534 rows
+                  │     │     Partition by: {i_item_id}
+                  │     └─ Aggregating Est. 124534 rows
+                  │        │     Group by: {i_item_id}
+                  │        │     Aggregates: expr#sum(sr_return_quantity):=AggNull(sum)(sr_return_quantity)
+                  │        └─ Inner Join Est. 124534 rows
+                  │           │     Condition: i_item_sk == sr_item_sk
+                  │           ├─ Repartition Exchange Est. 300000 rows
+                  │           │  │     Partition by: {i_item_sk}
+                  │           │  └─ TableScan tpcds.item Est. 300000 rows
+                  │           │           Outputs: [i_item_id, i_item_sk]
+                  │           └─ Repartition Exchange Est. 62267 rows
+                  │              │     Partition by: {sr_item_sk}
+                  │              └─ Inner Join Est. 62267 rows
+                  │                 │     Condition: sr_returned_date_sk == d_date_sk
+                  │                 ├─ TableScan tpcds.store_returns Est. 287999764 rows
+                  │                 │        Outputs: [sr_item_sk, sr_return_quantity, sr_returned_date_sk]
+                  │                 └─ Broadcast Exchange Est. 31 rows
+                  │                    └─ Inner Join Est. 31 rows
+                  │                       │     Condition: d_date == d_date_1
+                  │                       ├─ Filter Est. 73049 rows
+                  │                       │  │     Condition: isNotNull(d_date)
+                  │                       │  └─ TableScan tpcds.date_dim Est. 73049 rows
+                  │                       │           Condition : isNotNull(d_date).
+                  │                       │           Outputs: [d_date, d_date_sk]
+                  │                       └─ Broadcast Exchange Est. 21 rows
+                  │                          └─ MergingAggregated Est. 21 rows
+                  │                             └─ Repartition Exchange Est. 21 rows
+                  │                                │     Partition by: {d_date_1}
+                  │                                └─ Aggregating Est. 21 rows
+                  │                                   │     Group by: {d_date_1}
+                  │                                   └─ Inner Join Est. 21 rows
+                  │                                      │     Condition: d_week_seq == d_week_seq_1
+                  │                                      ├─ Filter Est. 73049 rows
+                  │                                      │  │     Condition: isNotNull(d_week_seq) AND isNotNull(d_date_1)
+                  │                                      │  └─ TableScan tpcds.date_dim Est. 73049 rows
+                  │                                      │           Condition : isNotNull(d_week_seq) AND isNotNull(d_date).
+                  │                                      │           Outputs: [d_week_seq], d_date_1:=d_date
+                  │                                      └─ Broadcast Exchange Est. 3 rows
+                  │                                         └─ MergingAggregated Est. 3 rows
+                  │                                            └─ Repartition Exchange Est. 3 rows
+                  │                                               │     Partition by: {d_week_seq_1}
+                  │                                               └─ Aggregating Est. 3 rows
+                  │                                                  │     Group by: {d_week_seq_1}
+                  │                                                  └─ Projection Est. 3 rows
+                  │                                                     │     Expressions: [d_week_seq_1]
+                  │                                                     └─ Filter Est. 3 rows
+                  │                                                        │     Condition: (d_date_2 IN (cast(11138, 'Date'), cast(11227, 'Date'), cast(11278, 'Date'))) AND isNotNull(d_week_seq_1)
+                  │                                                        └─ TableScan tpcds.date_dim Est. 73049 rows
+                  │                                                                 Condition : (d_date IN (cast(11138, 'Date'), cast(11227, 'Date'), cast(11278, 'Date'))) AND isNotNull(d_week_seq).
+                  │                                                                 Outputs: d_date_2:=d_date, d_week_seq_1:=d_week_seq
+                  └─ MergingAggregated Est. 31132 rows
+                     └─ Repartition Exchange Est. 31132 rows
+                        │     Partition by: {i_item_id_2}
+                        └─ Aggregating Est. 31132 rows
+                           │     Group by: {i_item_id_2}
+                           │     Aggregates: expr#sum(wr_return_quantity):=AggNull(sum)(wr_return_quantity)
+                           └─ Inner Join Est. 31132 rows
+                              │     Condition: i_item_sk_2 == wr_item_sk
+                              ├─ Repartition Exchange Est. 300000 rows
+                              │  │     Partition by: {i_item_sk_2}
+                              │  └─ TableScan tpcds.item Est. 300000 rows
+                              │           Outputs: i_item_id_2:=i_item_id, i_item_sk_2:=i_item_sk
+                              └─ Repartition Exchange Est. 15566 rows
+                                 │     Partition by: {wr_item_sk}
+                                 └─ Inner Join Est. 15566 rows
+                                    │     Condition: wr_returned_date_sk == d_date_sk_2
+                                    ├─ TableScan tpcds.web_returns Est. 71997522 rows
+                                    │        Outputs: [wr_item_sk, wr_return_quantity, wr_returned_date_sk]
+                                    └─ Broadcast Exchange Est. 31 rows
+                                       └─ Inner Join Est. 31 rows
+                                          │     Condition: d_date_6 == d_date_7
+                                          ├─ Filter Est. 73049 rows
+                                          │  │     Condition: isNotNull(d_date_6)
+                                          │  └─ TableScan tpcds.date_dim Est. 73049 rows
+                                          │           Condition : isNotNull(d_date).
+                                          │           Outputs: d_date_6:=d_date, d_date_sk_2:=d_date_sk
+                                          └─ Broadcast Exchange Est. 21 rows
+                                             └─ MergingAggregated Est. 21 rows
+                                                └─ Repartition Exchange Est. 21 rows
+                                                   │     Partition by: {d_date_7}
+                                                   └─ Aggregating Est. 21 rows
+                                                      │     Group by: {d_date_7}
+                                                      └─ Inner Join Est. 21 rows
+                                                         │     Condition: d_week_seq_4 == d_week_seq_5
+                                                         ├─ Filter Est. 73049 rows
+                                                         │  │     Condition: isNotNull(d_week_seq_4) AND isNotNull(d_date_7)
+                                                         │  └─ TableScan tpcds.date_dim Est. 73049 rows
+                                                         │           Condition : isNotNull(d_week_seq) AND isNotNull(d_date).
+                                                         │           Outputs: d_date_7:=d_date, d_week_seq_4:=d_week_seq
+                                                         └─ Broadcast Exchange Est. 3 rows
+                                                            └─ MergingAggregated Est. 3 rows
+                                                               └─ Repartition Exchange Est. 3 rows
+                                                                  │     Partition by: {d_week_seq_5}
+                                                                  └─ Aggregating Est. 3 rows
+                                                                     │     Group by: {d_week_seq_5}
+                                                                     └─ Projection Est. 3 rows
+                                                                        │     Expressions: [d_week_seq_5]
+                                                                        └─ Filter Est. 3 rows
+                                                                           │     Condition: (d_date_8 IN (cast(11138, 'Date'), cast(11227, 'Date'), cast(11278, 'Date'))) AND isNotNull(d_week_seq_5)
+                                                                           └─ TableScan tpcds.date_dim Est. 73049 rows
+                                                                                    Condition : (d_date IN (cast(11138, 'Date'), cast(11227, 'Date'), cast(11278, 'Date'))) AND isNotNull(d_week_seq).
+                                                                                    Outputs: d_date_8:=d_date, d_week_seq_5:=d_week_seq
