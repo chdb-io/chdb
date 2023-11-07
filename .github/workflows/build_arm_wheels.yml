@@ -34,9 +34,9 @@ jobs:
           uname -a
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 15
-          which clang++-15
-          clang++-15 --version
+          sudo ./llvm.sh 17
+          which clang++-17
+          clang++-17 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
           ccache -s
       - name: Update git
@@ -75,13 +75,13 @@ jobs:
           key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: true
-      - name: remove old clang and link clang-15 to clang
+      - name: remove old clang and link clang-17 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
           sudo rm /usr/bin/clang
-          sudo ln -s /usr/bin/clang-15 /usr/bin/clang
+          sudo ln -s /usr/bin/clang-17 /usr/bin/clang
           sudo rm /usr/bin/clang++
-          sudo ln -s /usr/bin/clang++-15 /usr/bin/clang++
+          sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
           which clang++
           clang++ --version
       - name: Make linux-arm64
