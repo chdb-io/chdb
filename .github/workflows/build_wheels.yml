@@ -36,9 +36,9 @@ jobs:
           uname -a
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 15
-          which clang++-15
-          clang++-15 --version
+          sudo ./llvm.sh 17
+          which clang++-17
+          clang++-17 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
           ccache -s
       - name: Update git
@@ -76,13 +76,13 @@ jobs:
           key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: true
-      - name: remove old clang and link clang-15 to clang
+      - name: remove old clang and link clang-17 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
           sudo rm /usr/bin/clang
-          sudo ln -s /usr/bin/clang-15 /usr/bin/clang
+          sudo ln -s /usr/bin/clang-17 /usr/bin/clang
           sudo rm /usr/bin/clang++
-          sudo ln -s /usr/bin/clang++-15 /usr/bin/clang++
+          sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
           which clang++
           clang++ --version
       - name: Run chdb/build.sh
@@ -167,8 +167,8 @@ jobs:
           uname -a
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew update
-          brew install git ccache ninja libtool gettext llvm@15 gcc binutils grep findutils zstd
-          export PATH=$(brew --prefix llvm@15)/bin:$PATH
+          brew install git ccache ninja libtool gettext llvm@17 gcc binutils grep findutils zstd
+          export PATH=$(brew --prefix llvm@17)/bin:$PATH
           which clang++
           clang++ --version
           ccache -s
@@ -205,9 +205,9 @@ jobs:
         timeout-minutes: 300
         run: |
           python3 -m pip install pybind11
-          export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++
+          export PATH=$(brew --prefix llvm@17)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@17)/bin/clang
+          export CXX=$(brew --prefix llvm@17)/bin/clang++
           bash gen_manifest.sh
           bash ./chdb/build.sh
           python3 -m pip install pandas pyarrow
@@ -227,15 +227,15 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@17)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@17)/bin/clang CXX=$(brew --prefix llvm@17)/bin/clang++"
       - name: Install dependencies for building wheels
         run: |
           python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
       - name: Build wheels
         run: |
-          export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++
+          export PATH=$(brew --prefix llvm@17)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@17)/bin/clang
+          export CXX=$(brew --prefix llvm@17)/bin/clang++
           make wheel
       - name: Fix wheel platform tag
         run: |
@@ -282,8 +282,8 @@ jobs:
           uname -a
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew update
-          brew install git ccache ninja libtool gettext llvm@15 gcc binutils grep findutils zstd
-          export PATH=$(brew --prefix llvm@15)/bin:$PATH
+          brew install git ccache ninja libtool gettext llvm@17 gcc binutils grep findutils zstd
+          export PATH=$(brew --prefix llvm@17)/bin:$PATH
           which clang++
           clang++ --version
           ccache -s
@@ -311,9 +311,9 @@ jobs:
       - name: Prepare chdb/build.sh
         run: |
           python3 -m pip install pybind11
-          export PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@15)/bin/clang
-          export CXX=$(brew --prefix llvm@15)/bin/clang++ 
+          export PATH=$(brew --prefix llvm@17)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@17)/bin/clang
+          export CXX=$(brew --prefix llvm@17)/bin/clang++ 
         continue-on-error: false
       - name: Check ccache statistics
         run: |
@@ -321,7 +321,7 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@17)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@17)/bin/clang CXX=$(brew --prefix llvm@17)/bin/clang++"
       - name: Remove /usr/local/bin/python3
         run: |
           sudo rm -f /usr/local/bin/python3
@@ -333,7 +333,7 @@ jobs:
         run: python3 -m cibuildwheel --output-dir wheelhouse
         timeout-minutes: 300
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@15)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@15)/bin/clang CXX=$(brew --prefix llvm@15)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@17)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@17)/bin/clang CXX=$(brew --prefix llvm@17)/bin/clang++"
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
