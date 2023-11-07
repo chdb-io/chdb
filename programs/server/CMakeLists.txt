@@ -23,7 +23,7 @@ set(CLICKHOUSE_SERVER_SOURCES
 #         daemon
 # )
 
-set (LINK_RESOURCE_LIB INTERFACE "-Wl,${WHOLE_ARCHIVE} $<TARGET_FILE:clickhouse_server_configs> -Wl,${NO_WHOLE_ARCHIVE}")
+# set (LINK_RESOURCE_LIB INTERFACE "-Wl,${WHOLE_ARCHIVE} $<TARGET_FILE:clickhouse_server_configs> -Wl,${NO_WHOLE_ARCHIVE}")
 
 set (CLICKHOUSE_SERVER_LINK
     PRIVATE
