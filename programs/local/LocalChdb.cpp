@@ -12,7 +12,7 @@ local_result * queryToBuffer(
     const std::string & path = {},
     const std::string & udfPath = {})
 {
-    std::vector<std::string> argv = {"clickhouse", "--", "--multiquery"};
+    std::vector<std::string> argv = {"clickhouse", "--multiquery"};
 
     // If format is "Debug" or "debug", then we will add `--verbose` and `--log-level=trace` to argv
     if (output_format == "Debug" || output_format == "debug")
@@ -28,14 +28,6 @@ local_result * queryToBuffer(
         argv.push_back("--output-format=" + output_format);
     }
 
-    // If udfPath is not empty, then we will add `--user_scripts_path` and `--user_defined_executable_functions_config` to argv
-    // the path should be a one time thing, so the caller should take care of the temporary files deletion
-    if (!udfPath.empty())
-    {
-        argv.push_back("--user_scripts_path=" + udfPath);
-        argv.push_back("--user_defined_executable_functions_config=" + udfPath + "/*.xml");
-    }
-
     // If path is not empty, then we will add `--path` to argv. This is used for chdb.Session to support stateful query
     if (!path.empty())
     {
@@ -44,6 +36,15 @@ local_result * queryToBuffer(
     }
     // Add query string
     argv.push_back("--query=" + queryStr);
+
+    // If udfPath is not empty, then we will add `--user_scripts_path` and `--user_defined_executable_functions_config` to argv
+    // the path should be a one time thing, so the caller should take care of the temporary files deletion
+    if (!udfPath.empty())
+    {
+        argv.push_back("--");
+        argv.push_back("--user_scripts_path=" + udfPath);
+        argv.push_back("--user_defined_executable_functions_config=" + udfPath + "/*.xml");
+    }
 
     // Convert std::string to char*
     std::vector<char *> argv_char;
