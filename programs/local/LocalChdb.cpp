@@ -10,6 +10,8 @@ local_result * queryToBuffer(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
+    const std::string & input_format = {},
+    const std::string & data_path = {},
     const std::string & udfPath = {})
 {
     std::vector<std::string> argv = {"clickhouse", "--multiquery"};
@@ -34,6 +36,21 @@ local_result * queryToBuffer(
         // Add path string
         argv.push_back("--path=" + path);
     }
+
+    // If data_path is not empty, then we will add `--file` to argv. This is used for passing data into chdb functions.
+    if (!data_path.empty())
+    {
+        // Add path string
+        argv.push_back("--file=" + data_path);
+    }
+    
+    // If input_format is not empty, then we will add `--input_format` to argv. This is used for passing data into chdb functions.
+    if (!input_format.empty())
+    {
+        // Add path string
+        argv.push_back("--input_format=" + input_format);
+    }
+    
     // Add query string
     argv.push_back("--query=" + queryStr);
 
