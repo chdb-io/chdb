@@ -10,9 +10,9 @@ local_result * queryToBuffer(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
+    const std::string & udfPath = {},
     const std::string & input_format = {},
-    const std::string & data_path = {},
-    const std::string & udfPath = {})
+    const std::string & data_path = {})
 {
     std::vector<std::string> argv = {"clickhouse", "--multiquery"};
 
@@ -77,9 +77,11 @@ query_result * query(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
-    const std::string & udfPath = {})
+    const std::string & udfPath = {},
+    const std::string & input_format = {},
+    const std::string & data_path = {})
 {
-    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath));
+    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath, input_format, data_path));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
