@@ -24,6 +24,11 @@ class Session:
             self._cleanup = False
             self._path = path
 
+        if input_format is None:
+            self._input_format = "TSV"
+        else:
+            self._input_format = input_format
+
     def __del__(self):
         if self._cleanup:
             self.cleanup()
@@ -44,4 +49,7 @@ class Session:
         """
         Execute a query.
         """
-        return query(sql, fmt, path=self._path)
+        if data_path is None:
+            return query(sql, fmt, path=self._path)
+        else:
+            return query(sql, fmt, path=self._path, data_path, input_format=self._input_format)
