@@ -9,20 +9,23 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 BUILD_DIR=${PROJ_DIR}/buildlib
 
 HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
+MYSQL="-DENABLE_MYSQL=1"
 # check current os type
 if [ "$(uname)" == "Darwin" ]; then
+    export CXX=/usr/local/opt/llvm/bin/clang++
+    export CC=/usr/local/opt/llvm/bin/clang
+    export PATH=/usr/local/opt/llvm/bin:$PATH
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
     JEMALLOC="-DENABLE_JEMALLOC=0"
     PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
     HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
+    MYSQL="-DENABLE_MYSQL=0"
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DENABLE_SIMDJSON=0"
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=0"
-        export CXX=/usr/local/opt/llvm/bin/clang++
-        export CC=/usr/local/opt/llvm/bin/clang
     else
         EMBEDDED_COMPILER="-DENABLE_EMBEDDED_COMPILER=1"
         # disable AVX on Darwin for macos11
@@ -70,9 +73,10 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_AZURE_BLOB_STORAGE=0 -DENABLE_CLICKHOUSE_COPIER=0 -DENABLE_CLICKHOUSE_DISKS=0 -DENABLE_CLICKHOUSE_FORMAT=0 -DENABLE_CLICKHOUSE_GIT_IMPORT=0 \
     -DENABLE_AWS_S3=1 -DENABLE_HIVE=0 -DENABLE_AVRO=1 \
     -DENABLE_CLICKHOUSE_OBFUSCATOR=0 -DENABLE_CLICKHOUSE_ODBC_BRIDGE=0 -DENABLE_CLICKHOUSE_STATIC_FILES_DISK_UPLOADER=0 \
-    -DENABLE_KAFKA=1 -DENABLE_MYSQL=1 -DENABLE_LIBPQXX=1 -DENABLE_NATS=0 -DENABLE_AMQPCPP=0 -DENABLE_NURAFT=0 \
+    -DENABLE_KAFKA=1 -DENABLE_LIBPQXX=1 -DENABLE_NATS=0 -DENABLE_AMQPCPP=0 -DENABLE_NURAFT=0 \
     -DENABLE_CASSANDRA=0 -DENABLE_ODBC=0 -DENABLE_NLP=0 \
     -DENABLE_LDAP=0 \
+    ${MYSQL} \
     ${HDFS} \
     -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
     ${GLIBC_COMPATIBILITY} \
@@ -106,7 +110,7 @@ ninja -v > build.log
 # extract the command to generate CHDB_PY_MODULE
 
 LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
+    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
     | sed 's/ -Xlinker --no-undefined//g' \
