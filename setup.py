@@ -67,8 +67,8 @@ def fix_version_init(version):
     with open(init_file, "r+") as f:
         init_content = f.read()
         # regex replace the version string `chdb_version = (0, 1, 0)`
-        regPattern = r"chdb_version = \(\d+, \d+, \d+\)"
-        init_content = re.sub(regPattern, f"chdb_version = ({p1}, {p2}, {p3})", init_content)
+        regPattern = r"chdb_version = \(\'\d+\', \'\d+\', \'\d+\'\)"
+        init_content = re.sub(regPattern, f"chdb_version = ('{p1}', '{p2}', '{p3}')", init_content)
         f.seek(0)
         f.write(init_content)
         f.truncate()
