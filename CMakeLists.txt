@@ -491,6 +491,8 @@ endif ()
 add_subdirectory (contrib EXCLUDE_FROM_ALL)
 
 if (NOT ENABLE_JEMALLOC)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_JEMALLOC=0 -DARROW_JEMALLOC=0")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DUSE_JEMALLOC=0 -DARROW_JEMALLOC=0")
     message (WARNING "Non default allocator is disabled. This is not recommended for production builds.")
 else ()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DUSE_JEMALLOC=1 -DJEMALLOC_NO_RENAME=1 -DARROW_JEMALLOC=1")
