@@ -138,7 +138,11 @@ class BuildExt(build_ext):
 
         #exec chdb/build.sh and print the output if it fails
         # Run the build script and capture its output
-        completed_process = subprocess.run(["bash", "chdb/build.sh"], capture_output=True, text=True)
+        # if macOS and arch is arm64, run with arch -arm64 /bin/bash
+        if sys.platform == 'darwin' and os.uname().machine == 'arm64':
+            completed_process = subprocess.run(["arch", "-arm64", "/bin/bash", "chdb/build.sh"], capture_output=True, text=True)
+        else:
+            completed_process = subprocess.run(["bash", "chdb/build.sh"], capture_output=True, text=True)
         # If it failed, print the output
         print(completed_process.stdout)
         print(completed_process.stderr)
