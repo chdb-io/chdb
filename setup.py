@@ -58,15 +58,15 @@ def get_latest_git_tag(minor_ver_auto=False):
         print(e)
         raise
 
-# replace the version in chdb/__init__.py, which is `chdb_version = (0, 1, 0)` by default
-# regex replace the version string `chdb_version = (0, 1, 0)` with version parts
+# replace the version in chdb/__init__.py, which is `chdb_version = ('0', '1', '0')` by default
+# regex replace the version string `chdb_version = ('0', '1', '0')` with version parts
 def fix_version_init(version):
     # split version string into parts
     p1, p2, p3 = version.split('.')
     init_file = os.path.join(script_dir, "chdb", "__init__.py")
     with open(init_file, "r+") as f:
         init_content = f.read()
-        # regex replace the version string `chdb_version = (0, 1, 0)`
+        # regex replace the version string `chdb_version = ('0', '1', '0')`
         regPattern = r"chdb_version = \(\'\d+\', \'\d+\', \'\d+\'\)"
         init_content = re.sub(regPattern, f"chdb_version = ('{p1}', '{p2}', '{p3}')", init_content)
         f.seek(0)
