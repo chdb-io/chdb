@@ -170,6 +170,7 @@ jobs:
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@16
           brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
+          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@16 llvm
           export PATH=$(brew --prefix llvm@16)/bin:$PATH
           which clang++
           clang++ --version
@@ -287,6 +288,7 @@ jobs:
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@16
           brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
+          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@16 llvm
           export PATH=$(brew --prefix llvm@16)/bin:$PATH
           which clang++
           clang++ --version
