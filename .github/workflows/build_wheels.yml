@@ -278,6 +278,14 @@ jobs:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
+      - name: Install Offical Python 3.11
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Check Python version
+        run: |
+          python3 -VV
+          python3-config --includes
       - name: Install clang++ for macOS
         if: matrix.os == 'macos-11' || matrix.os == 'macos-12'
         run: |
@@ -328,9 +336,9 @@ jobs:
           df -h
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
-      - name: Remove /usr/local/bin/python3
-        run: |
-          sudo rm -f /usr/local/bin/python3
+      # - name: Remove /usr/local/bin/python3
+      #   run: |
+      #     sudo rm -f /usr/local/bin/python3
       - name: Install dependencies for building wheels
         run: |
           python3 -m pip install -U pip tox pybind11 twine setuptools wheel
