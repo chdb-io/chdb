@@ -322,12 +322,17 @@ jobs:
           key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: true
-      - name: Prepare chdb/build.sh
+      - name: Run chdb/build.sh
+        timeout-minutes: 300
         run: |
           python3 -m pip install pybind11
           export PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@16)/bin/clang
-          export CXX=$(brew --prefix llvm@16)/bin/clang++ 
+          export CXX=$(brew --prefix llvm@16)/bin/clang++
+          bash gen_manifest.sh
+          bash ./chdb/build.sh
+          python3 -m pip install pandas pyarrow
+          bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Check ccache statistics
         run: |
@@ -336,24 +341,6 @@ jobs:
           df -h
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
-      - name: Remove /usr/local/bin/python3
-        run: |
-          sudo rm -f /usr/local/bin/python3
-      - name: Install dependencies for building wheels
-        run: |
-          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
-          python3 -m pip install cibuildwheel==2.16.2
-      - name: Build wheels
-        run: python3 -m cibuildwheel --output-dir wheelhouse
-        timeout-minutes: 300
-        env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
-          CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "which python3 && pip install -U pip tox pybind11 && python3 -m pybind11 --includes && bash -x gen_manifest.sh && bash chdb/build.sh"
-          CIBW_BUILD_VERBOSITY: 3
-          # CIBW_BUILD: "cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
-          CIBW_TEST_REQUIRES: "pyarrow pandas psutil"
-          CIBW_TEST_COMMAND: "cd {project} && make test"
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
@@ -362,17 +349,37 @@ jobs:
             killall ccache; \
             sleep 10; \
           done
+      - name: Install dependencies for building wheels
+        run: |
+          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
+      - name: Build wheels
+        timeout-minutes: 300
+        run: |
+          export PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@16)/bin/clang
+          export CXX=$(brew --prefix llvm@16)/bin/clang++
+          make wheel
+      - name: Fix wheel platform tag
+        run: |
+          python3 -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+      - name: Run tests
+        run: |
+          python3 -m pip install dist/*.whl
+          python3 -m pip install pandas pyarrow psutil
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
+          make test
+        continue-on-error: false
       - name: Show files
-        run: ls -lh wheelhouse
+        run: ls -lh dist
         shell: bash
       - uses: actions/upload-artifact@v3
         with:
-          path: ./wheelhouse/*.whl
+          path: ./dist/*.whl
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           python3 -m pip install twine
-          python3 -m twine upload wheelhouse/*.whl
+          python3 -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
