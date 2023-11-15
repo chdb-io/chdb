@@ -273,12 +273,12 @@ jobs:
       matrix:
         os: [ macos-11 ]
         # python-version: [ "3.8", "3.9", "3.10"]
-        python-version: [ "3.11" ]
+        python-version: [ "3.8" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
-      - name: Install Offical Python 3.11
+      - name: Install Offical Python 3.8
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
@@ -287,7 +287,7 @@ jobs:
           python3 -VV
           python3-config --includes
       - name: Install clang++ for macOS
-        if: matrix.os == 'macos-11' || matrix.os == 'macos-12'
+        if: matrix.os == 'macos-11'
         run: |
           pwd
           uname -a
