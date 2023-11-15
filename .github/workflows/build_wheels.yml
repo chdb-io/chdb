@@ -278,7 +278,7 @@ jobs:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
-      - name: Install Offical Python 3.8
+      - name: Install Offical Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
@@ -351,7 +351,7 @@ jobs:
           CIBW_DEBUG: 1
           CIBW_BEFORE_BUILD: "which python3 && pip install -U pip tox pybind11 && python3 -m pybind11 --includes && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
-          CIBW_BUILD: "cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
+          # CIBW_BUILD: "cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
           CIBW_TEST_REQUIRES: "pyarrow pandas psutil"
           CIBW_TEST_COMMAND: "cd {project} && make test"
       - name: Keep killall ccache and wait for ccache to finish
