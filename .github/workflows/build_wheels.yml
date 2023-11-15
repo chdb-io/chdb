@@ -273,13 +273,13 @@ jobs:
       matrix:
         os: [ macos-11 ]
         # python-version: [ "3.8", "3.9", "3.10"]
-        python-version: [ "3.8" ]
+        python-version: [ "3.8", "3.9", "3.10" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - name: Install Offical Python 3.8
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
       - name: Check Python version
@@ -336,20 +336,20 @@ jobs:
           df -h
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
-      # - name: Remove /usr/local/bin/python3
-      #   run: |
-      #     sudo rm -f /usr/local/bin/python3
+      - name: Remove /usr/local/bin/python3
+        run: |
+          sudo rm -f /usr/local/bin/python3
       - name: Install dependencies for building wheels
         run: |
           python3 -m pip install -U pip tox pybind11 twine setuptools wheel
-          python3 -m pip install cibuildwheel==2.12.1
+          python3 -m pip install cibuildwheel==2.16.2
       - name: Build wheels
         run: python3 -m cibuildwheel --output-dir wheelhouse
         timeout-minutes: 300
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
           CIBW_DEBUG: 1
-          CIBW_BEFORE_BUILD: "pip install -U pip tox pybind11 && bash -x gen_manifest.sh && bash chdb/build.sh"
+          CIBW_BEFORE_BUILD: "which python3 && pip install -U pip tox pybind11 && python3 -m pybind11 --includes && bash -x gen_manifest.sh && bash chdb/build.sh"
           CIBW_BUILD_VERBOSITY: 3
           CIBW_BUILD: "cp38-macosx_x86_64 cp39-macosx_x86_64 cp310-macosx_x86_64"
           CIBW_TEST_REQUIRES: "pyarrow pandas psutil"
