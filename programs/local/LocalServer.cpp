@@ -58,6 +58,7 @@
 #include <boost/program_options/options_description.hpp>
 #include <base/argsToConfig.h>
 #include <filesystem>
+#include <fstream>
 
 #include "config.h"
 
@@ -801,6 +802,42 @@ void LocalServer::processConfig()
         global_context->getUserDefinedSQLObjectsLoader().loadObjects();
 
         LOG_DEBUG(log, "Loaded metadata.");
+
+        /** Set default database if it is specified in default_database file.
+          * NOTE: We do it after loading metadata to let the '_local' and 'system' database initialization
+          * to be done correctly.
+          * I have tried to set default database during parsing '--database' option, but it leads to
+          *   "Code: 82. DB::Exception: Database db_xxx already exists.: while loading database `db_xxx` 
+          *      from path .state_tmp_auxten_usedb_/metadata/db_xxx. (DATABASE_ALREADY_EXISTS)"
+          * This will also happen if we call:
+          *   `clickhouse local --database=db_xxx --path=.state_tmp_auxten_usedb_ --query="select * FROM log_table_xxx"`
+          * with existing `db_xxx` database in the '.state_tmp_auxten_usedb_' directory.
+          */
+        auto default_database_path = fs::path(path) / "default_database";
+        if (std::filesystem::exists(default_database_path))
+        {
+            std::ifstream ifs(default_database_path);
+            std::string user_default_database;
+            if (ifs.is_open())
+            {
+                ifs >> user_default_database;
+                // strip default_database
+                user_default_database.erase(
+                    std::remove_if(
+                        user_default_database.begin(), user_default_database.end(), [](unsigned char x) { return std::isspace(x); }),
+                    user_default_database.end());
+                if (!user_default_database.empty())
+                {
+                    global_context->setCurrentDatabase(user_default_database);
+                    LOG_DEBUG(log, "Set default database to {} recorded in {}", user_default_database, default_database_path);
+                }
+                ifs.close();
+            }
+            else
+            {
+                LOG_ERROR(log, "Cannot read default database from {}", default_database_path);
+            }
+        }
     }
     else if (!config().has("no-system-tables"))
     {
