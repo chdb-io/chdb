@@ -266,7 +266,7 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
 
   build_wheels_macos:
-    name:  cbw on ${{ matrix.os }}
+    name:  ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
