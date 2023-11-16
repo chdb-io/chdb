@@ -51,7 +51,7 @@ if [ "${dest}" != "darwin-x86_64" ]; then
 fi
 
 
-for PY_VER in 3.9.13 3.10.11 3.11.3; do
+for PY_VER in 3.9.13 3.10.11 3.11.3 3.12.0; do
     if [ ! -f ${PROJ_DIR}/python_pkg/python-${PY_VER}-macos11.pkg ]; then
         wget https://www.python.org/ftp/python/${PY_VER}/python-${PY_VER}-macos11.pkg -O ${PROJ_DIR}/python_pkg/python-${PY_VER}-macos11.pkg
     fi
