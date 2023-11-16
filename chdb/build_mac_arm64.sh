@@ -73,7 +73,7 @@ for PY_VER in 3.9.13 3.10.11 3.11.3 3.12.0; do
         exit 1
     fi
 
-    python3 -m pip install -U pybind11 wheel build tox psutil
+    python3 -m pip install -U pybind11 wheel build tox psutil setuptools
     rm -rf ${PROJ_DIR}/buildlib
 
     ${PROJ_DIR}/chdb/build.sh

@@ -10,7 +10,7 @@ for PY_VER in ${PYTHON_VERSIONS}; do
     cd ${PROJ_DIR}
     pyenv local "${PY_VER}"
     python3 --version
-    python3 -m pip install pybind11
+    python3 -m pip install pybind11 setuptools
     export CC=/usr/bin/clang
     export CXX=/usr/bin/clang++
     # Install universal2 pkg
