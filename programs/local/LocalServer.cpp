@@ -261,6 +261,7 @@ void LocalServer::tryInitPath()
     }
 
     global_context->setPath(fs::path(path) / "");
+    DatabaseCatalog::instance().fixPath(path);
 
     global_context->setTemporaryStoragePath(fs::path(path) / "tmp" / "", 0);
     global_context->setFlagsPath(fs::path(path) / "flags" / "");
