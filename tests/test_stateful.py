@@ -93,6 +93,26 @@ class TestStateful(unittest.TestCase):
         ret = sess2.query("SELECT chdb_xxx()", "CSV")
         self.assertEqual(str(ret), "")
 
+    def test_two_sessions(self):
+        sess1 = session.Session()
+        sess2 = session.Session()
+        sess1.query("CREATE FUNCTION chdb_xxx AS () -> 'sess1'", "CSV")
+        sess2.query("CREATE FUNCTION chdb_xxx AS () -> 'sess2'", "CSV")
+        sess1.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic", "CSV")
+        sess2.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic", "CSV")
+        sess1.query("CREATE TABLE IF NOT EXISTS db_xxx.tbl1 (x UInt8) ENGINE = Log;")
+        sess2.query("CREATE TABLE IF NOT EXISTS db_xxx.tbl2 (x UInt8) ENGINE = Log;")
+        sess1.query("INSERT INTO db_xxx.tbl1 VALUES (1), (2), (3), (4);")
+        sess2.query("INSERT INTO db_xxx.tbl2 VALUES (5), (6), (7), (8);")
+        ret = sess1.query("SELECT chdb_xxx()", "CSV")
+        self.assertEqual(str(ret), '"sess1"\n')
+        ret = sess2.query("SELECT chdb_xxx()", "CSV")
+        self.assertEqual(str(ret), '"sess2"\n')
+        ret = sess1.query("SELECT * FROM db_xxx.tbl1", "CSV")
+        self.assertEqual(str(ret), "1\n2\n3\n4\n")
+        ret = sess2.query("SELECT * FROM db_xxx.tbl2", "CSV")
+        self.assertEqual(str(ret), "5\n6\n7\n8\n")
+
     def test_context_mgr(self):
         with session.Session() as sess:
             sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
