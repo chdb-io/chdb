@@ -268,6 +268,7 @@ void LocalServer::tryInitPath()
     fs::create_directories(fs::path(path) / "metadata_dropped/");
 
     global_context->setPath(path);
+    DatabaseCatalog::instance().fixPath(path);
 
     global_context->setTemporaryStoragePath(path + "tmp/", 0);
     global_context->setFlagsPath(path + "flags");

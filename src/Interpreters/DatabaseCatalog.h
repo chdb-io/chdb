@@ -250,6 +250,7 @@ public:
 
     String getPathForDroppedMetadata(const StorageID & table_id) const;
     String getPathForMetadata(const StorageID & table_id) const;
+    void fixPath(const String & path);
     void enqueueDroppedTableCleanup(StorageID table_id, StoragePtr table, String dropped_metadata_path, bool ignore_delay = false);
     void dequeueDroppedTableCleanup(StorageID table_id);
 
