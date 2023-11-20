@@ -1046,6 +1046,12 @@ String DatabaseCatalog::getPathForMetadata(const StorageID & table_id) const
            escapeForFileName(table_id.getTableName()) + ".sql";
 }
 
+//chdb session query need to fix the path
+void DatabaseCatalog::fixPath(const String & path)
+{
+    getContext()->setPath(path);
+}
+
 void DatabaseCatalog::enqueueDroppedTableCleanup(StorageID table_id, StoragePtr table, String dropped_metadata_path, bool ignore_delay)
 {
     assert(table_id.hasUUID());
