@@ -27,10 +27,17 @@
 * Input&Output support Parquet, CSV, JSON, Arrow, ORC and 60+[more](https://clickhouse.com/docs/en/interfaces/formats) formats, [samples](tests/format_output.py)
 * Support Python DB API 2.0, [example](examples/dbapi.py)
 
+
+
 ## Arch
 <div align="center">
   <img src="docs/_static/arch-chdb2.png" width="450">
 </div>
+
+## Get Started
+Get started with **chdb** using our [Installation and Usage Examples](https://doc.chdb.io)
+
+<br>
 
 ## Installation
 Currently, chDB supports Python 3.8+ on macOS and Linux (x86_64 and ARM64).
