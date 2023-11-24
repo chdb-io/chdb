@@ -234,7 +234,7 @@ struct SharedPtrContextHolder
 {
     ~SharedPtrContextHolder();
     SharedPtrContextHolder();
-    SharedPtrContextHolder(ContextSharedPart *);
+    explicit SharedPtrContextHolder(ContextSharedPart *);
     SharedPtrContextHolder(SharedPtrContextHolder &&) noexcept;
 
     SharedPtrContextHolder & operator=(SharedPtrContextHolder &&) noexcept;
