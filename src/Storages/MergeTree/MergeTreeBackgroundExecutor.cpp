@@ -49,7 +49,7 @@ MergeTreeBackgroundExecutor<Queue>::MergeTreeBackgroundExecutor(
     active.set_capacity(max_tasks_count);
 
     pool->setMaxThreads(std::max(1UL, threads_count));
-    pool->setMaxFreeThreads(std::max(1UL, threads_count));
+    pool->setMaxFreeThreads(0);
     pool->setQueueSize(std::max(1UL, threads_count));
 
     for (size_t number = 0; number < threads_count; ++number)
