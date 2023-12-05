@@ -225,7 +225,7 @@ for trade mark and other reasons, I named it chDB.
 ## Contact
 - Discord: [https://discord.gg/D2Daa2fM5K](https://discord.gg/D2Daa2fM5K)
 - Email: auxtenwpc@gmail.com
-- Twitter: [@auxten](https://twitter.com/auxten)
+- Twitter: [@chdb](https://twitter.com/chdb_io)
 
 
 <br>
