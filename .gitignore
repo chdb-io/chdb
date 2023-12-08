@@ -14,7 +14,7 @@
 /python_pkg/
 /tmps
 /bak
-state_tmp_l3jfk
+*state_tmp_*
 /chdb-0.*/
 *.strings
 /arrow1100
@@ -22,6 +22,7 @@ test_main
 /build*
 /bench
 /tests/venv
+/tests/data
 /obj-x86_64-linux-gnu/
 
 # logs
