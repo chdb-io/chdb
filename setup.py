@@ -33,7 +33,16 @@ libdir = os.path.join(script_dir, "chdb")
 
 def get_latest_git_tag(minor_ver_auto=False):
     try:
-        completed_process = subprocess.run(['git', 'describe', '--tags', '--abbrev=0', '--match', 'v*'], capture_output=True, text=True)
+        # get latest tag commit
+        completed_process = subprocess.run(['git', 'rev-list', '--tags', '--max-count=1'], capture_output=True, text=True)
+        if completed_process.returncode != 0:
+            print(completed_process.stdout)
+            print(completed_process.stderr)
+            # get git version
+            raise RuntimeError("Failed to get git latest tag commit ")
+        output = completed_process.stdout.strip()
+        # get latest tag name by commit
+        completed_process = subprocess.run(['git', 'describe', '--tags', f"{output}"], capture_output=True, text=True)
         if completed_process.returncode != 0:
             print(completed_process.stdout)
             print(completed_process.stderr)
