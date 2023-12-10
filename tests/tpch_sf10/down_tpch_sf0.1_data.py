@@ -2,8 +2,11 @@
 
 import os
 import gdown
-from paths import small_data_dir
 
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Set the path to the TPCH data directory
+small_data_dir = os.path.join(current_dir, "../data/tpchsf-small/")
 
 # Check if data_dir exists
 if not os.path.exists(small_data_dir):
