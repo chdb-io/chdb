@@ -4,7 +4,13 @@ import os
 import sys
 import pyarrow.parquet as pq
 import gdown
-from paths import raw_data_dir, data_dir
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Set the path to the TPCH data directory
+sf10_data_dir = os.path.join(current_dir, "../data/tpch-sf10/")
+raw_data_dir = os.path.join(current_dir, "../data/tpch-sf10-raw/")
+data_dir = sf10_data_dir
 
 
 def convert_column_names_to_lowercase(input_file, output_file):
@@ -41,6 +47,17 @@ gdown.download_folder(
 if not os.path.exists(data_dir):
     os.makedirs(data_dir)
 
-for tbl in ["lineitem", "customer", "nation", "orders", "part", "partsupp", "region", "supplier"]:
+for tbl in [
+    "lineitem",
+    "customer",
+    "nation",
+    "orders",
+    "part",
+    "partsupp",
+    "region",
+    "supplier",
+]:
     if not os.path.exists(data_dir + tbl + ".parquet"):
-        convert_column_names_to_lowercase(raw_data_dir + tbl + ".parquet", data_dir + tbl + ".parquet")
+        convert_column_names_to_lowercase(
+            raw_data_dir + tbl + ".parquet", data_dir + tbl + ".parquet"
+        )
