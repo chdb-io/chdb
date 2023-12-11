@@ -148,8 +148,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-12 ]
-        # python-version: [ "3.8", "3.9", "3.10", "3.11"]
-        python-version: [ "3.11", "3.12" ]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -265,125 +264,6 @@ jobs:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
 
-  build_wheels_macos:
-    name:  ${{ matrix.os }} py${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ macos-11 ]
-        # python-version: [ "3.8", "3.9", "3.10"]
-        python-version: [ "3.8", "3.9", "3.10" ]
-    env:
-      RUNNER_OS: ${{ matrix.os }}
-      PYTHON_VERSION: ${{ matrix.python-version }}
-    steps:
-      - name: Install Offical Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Check Python version
-        run: |
-          python3 -VV
-          python3-config --includes
-      - name: Install clang++ for macOS
-        if: matrix.os == 'macos-11'
-        run: |
-          pwd
-          uname -a
-          export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-          brew update
-          brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
-          brew install --ignore-dependencies llvm@16
-          brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
-          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@16 llvm
-          export PATH=$(brew --prefix llvm@16)/bin:$PATH
-          which clang++
-          clang++ --version
-          ccache -s
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Restore submodules cache
-        uses: actions/cache/restore@v3
-        id: cache
-        with:
-          path: |
-            contrib/**
-          key: |
-            submodule-${{ hashFiles('.gitmodules') }}
-      - name: Update submodules if cache miss
-        if: steps.cache.outputs.cache-hit != 'true'
-        run: |
-          git submodule update --init --recursive --jobs 4
-      - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ matrix.os }}
-          max-size: 5G
-          append-timestamp: true
-      - name: Run chdb/build.sh
-        timeout-minutes: 300
-        run: |
-          python3 -m pip install pybind11
-          export PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@16)/bin/clang
-          export CXX=$(brew --prefix llvm@16)/bin/clang++
-          bash gen_manifest.sh
-          bash ./chdb/build.sh
-          python3 -m pip install pandas pyarrow
-          bash -x ./chdb/test_smoke.sh
-        continue-on-error: false
-      - name: Check ccache statistics
-        run: |
-          ccache -s
-          ls -lh chdb
-          df -h
-        env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
-      - name: Keep killall ccache and wait for ccache to finish
-        if: always()
-        run: |
-          sleep 60
-          while ps -ef | grep ccache | grep -v grep; do \
-            killall ccache; \
-            sleep 10; \
-          done
-      - name: Install dependencies for building wheels
-        run: |
-          python3 -m pip install -U pip tox pybind11 twine setuptools wheel
-      - name: Build wheels
-        timeout-minutes: 300
-        run: |
-          export PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@16)/bin/clang
-          export CXX=$(brew --prefix llvm@16)/bin/clang++
-          make wheel
-      - name: Fix wheel platform tag
-        run: |
-          python3 -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
-      - name: Run tests
-        run: |
-          python3 -m pip install dist/*.whl
-          python3 -m pip install pandas pyarrow psutil
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
-          make test
-        continue-on-error: false
-      - name: Show files
-        run: ls -lh dist
-        shell: bash
-      - uses: actions/upload-artifact@v3
-        with:
-          path: ./dist/*.whl
-      - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          python3 -m pip install twine
-          python3 -m twine upload dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-
   # #build for macos12 arm64(Apple Silicon)
   # build_wheels_macos_arm64:
   
@@ -395,7 +275,7 @@ jobs:
     name: Retry Expired Builds
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && cancelled()
-    needs: [ build_wheels_linux, build_wheels_macos, build_wheels_macos_12 ]
+    needs: [ build_wheels_linux, build_wheels_macos_12 ]
     steps:
     - name: Sleep for 20 seconds
       run: sleep 20s
