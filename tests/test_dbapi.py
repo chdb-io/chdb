@@ -6,13 +6,10 @@ from chdb import dbapi
 # version should be string split by '.'
 # eg. '0.12.0' or '0.12.0rc1' or '0.12.0beta1' or '0.12.0alpha1' or '0.12.0a1'
 expected_version_pattern = r'^\d+\.\d+\.\d+(.*)?$'
+expected_clickhouse_version_pattern = r'^\d+\.\d+\.\d+.\d+$'
 
 
 class TestDBAPI(unittest.TestCase):
-    def test_get_client_info(self):
-        driver_version = dbapi.get_client_info()
-        self.assertRegex(driver_version, expected_version_pattern)
-
     def test_select_version(self):
         conn = dbapi.connect()
         cur = conn.cursor()
@@ -25,7 +22,7 @@ class TestDBAPI(unittest.TestCase):
         # Add your assertions here to validate the description and data
         print(description)
         print(data)
-        self.assertRegex(data[0], expected_version_pattern)
+        self.assertRegex(data[0], expected_clickhouse_version_pattern)
 
     def test_select_chdb_version(self):
         ver = dbapi.get_client_info()  # chDB version liek '0.12.0'
