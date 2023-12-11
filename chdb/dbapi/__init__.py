@@ -8,9 +8,9 @@ from . import connections as _orig_conn
 from .. import chdb_version
 
 if len(chdb_version) > 3 and chdb_version[3] is not None:
-    VERSION_STRING = "%d.%d.%d_%s" % chdb_version
+    VERSION_STRING = "%s.%s.%s_%s" % chdb_version
 else:
-    VERSION_STRING = "%d.%d.%d" % chdb_version[:3]
+    VERSION_STRING = "%s.%s.%s" % chdb_version[:3]
 
 threadsafety = 1
 apilevel = "2.0"
