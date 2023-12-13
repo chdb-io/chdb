@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+
+import time
+import unittest
+import random
+from chdb import session
+
+
+# make it global for easy testing
+chs = session.Session()
+
+
+class TestInsertArray(unittest.TestCase):
+    def setUp(self) -> None:
+        def generate_embedding():
+            embedding = [random.uniform(-10, 10) for _ in range(16)]
+            return "\"[" + ",".join(str(e) for e in embedding) + "]\""  # format: "[1.0 2.0 3.0 ...]"
+
+        with open("data.csv", "w") as file:
+            for movieId in range(1, 100001):
+                embedding = generate_embedding()
+                line = f"{movieId},{embedding}\n"
+                file.write(line)
+        return super().setUp()
+
+    def test_01_insert_array(self):
+        chs.query("CREATE DATABASE IF NOT EXISTS movie_embeddings ENGINE = Atomic")
+        chs.query("USE movie_embeddings")
+        chs.query('DROP TABLE IF EXISTS embeddings')
+        chs.query('DROP TABLE IF EXISTS embeddings_with_title')
+
+        chs.query("""CREATE TABLE embeddings (
+            movieId UInt32 NOT NULL,
+            embedding Array(Float32) NOT NULL
+        ) ENGINE = MergeTree()
+        ORDER BY movieId""")
+
+        print("Inserting movie embeddings into the database")
+        t0 = time.time()
+        print(chs.query("INSERT INTO embeddings FROM INFILE 'data.csv' FORMAT CSV"))
+        rows = chs.query("SELECT count(*) FROM embeddings")
+        print(f"Inserted {rows} rows in {time.time() - t0} seconds")
+
+        print("Select result:", chs.query('SELECT * FROM embeddings LIMIT 5'))
+
+
+if __name__ == '__main__':
+    unittest.main()
