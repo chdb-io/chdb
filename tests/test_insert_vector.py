@@ -43,6 +43,23 @@ class TestInsertArray(unittest.TestCase):
 
         print("Select result:", chs.query('SELECT * FROM embeddings LIMIT 5'))
 
+    def test_02_query_order_by_cosine_distance(self):
+        topN = chs.query("""
+                  WITH
+                    100 AS theMovieId,
+                    (SELECT embedding FROM embeddings WHERE movieId = theMovieId LIMIT 1) AS targetEmbedding
+                  SELECT
+                    movieId,
+                    cosineDistance(embedding, targetEmbedding) AS distance
+                    FROM embeddings
+                  WHERE movieId != theMovieId
+                    ORDER BY distance ASC
+                    LIMIT 5
+                  """)
+        print(f"Scaned {topN.rows_read()} rows, "
+              f"Top 5 similar movies to movieId 100 in {topN.elapsed()}")
+        print(topN)
+
 
 if __name__ == '__main__':
     unittest.main()
