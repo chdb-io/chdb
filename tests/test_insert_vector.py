@@ -44,6 +44,12 @@ class TestInsertArray(unittest.TestCase):
         print("Select result:", chs.query('SELECT * FROM embeddings LIMIT 5'))
 
     def test_02_query_order_by_cosine_distance(self):
+        # You can change the 100 to any movieId you want, but that is just an example
+        # If you want to see a real world example, please check the
+        # `examples/chDB_vector_search.ipynb`
+        # the example is based on the MovieLens dataset and embeddings are generated
+        # by the Word2Vec algorithm just extract the movie similarity info from
+        # users' movie ratings without any extra data.
         topN = chs.query("""
                   WITH
                     100 AS theMovieId,
