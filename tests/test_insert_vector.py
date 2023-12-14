@@ -13,10 +13,10 @@ chs = session.Session()
 class TestInsertArray(unittest.TestCase):
     def setUp(self) -> None:
         def generate_embedding():
-            embedding = [random.uniform(-10, 10) for _ in range(16)]
-            return "\"[" + ",".join(str(e) for e in embedding) + "]\""  # format: "[1.0 2.0 3.0 ...]"
+            embedding = [random.uniform(-1, 1) for _ in range(16)]
+            return f'"{",".join(str(e) for e in embedding)}"'  # format: "[1.0,2.0,3.0,...]"
 
-        with open("data.csv", "w") as file:
+        with open("data.csv", "w", encoding="utf-8") as file:
             for movieId in range(1, 100001):
                 embedding = generate_embedding()
                 line = f"{movieId},{embedding}\n"
