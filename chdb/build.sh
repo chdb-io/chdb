@@ -68,31 +68,31 @@ if [ ! -d $BUILD_DIR ]; then
 fi
 
 cd ${BUILD_DIR}
-cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
-    -DENABLE_CLICKHOUSE_KEEPER=0 -DENABLE_CLICKHOUSE_KEEPER_CONVERTER=0 -DENABLE_CLICKHOUSE_LOCAL=1 -DENABLE_CLICKHOUSE_SU=0 -DENABLE_CLICKHOUSE_BENCHMARK=0 \
-    -DENABLE_AZURE_BLOB_STORAGE=0 -DENABLE_CLICKHOUSE_COPIER=0 -DENABLE_CLICKHOUSE_DISKS=0 -DENABLE_CLICKHOUSE_FORMAT=0 -DENABLE_CLICKHOUSE_GIT_IMPORT=0 \
-    -DENABLE_AWS_S3=1 -DENABLE_HIVE=0 -DENABLE_AVRO=1 \
-    -DENABLE_CLICKHOUSE_OBFUSCATOR=0 -DENABLE_CLICKHOUSE_ODBC_BRIDGE=0 -DENABLE_CLICKHOUSE_STATIC_FILES_DISK_UPLOADER=0 \
-    -DENABLE_KAFKA=1 -DENABLE_LIBPQXX=1 -DENABLE_NATS=0 -DENABLE_AMQPCPP=0 -DENABLE_NURAFT=0 \
-    -DENABLE_CASSANDRA=0 -DENABLE_ODBC=0 -DENABLE_NLP=0 \
-    -DENABLE_LDAP=0 \
-    ${MYSQL} \
-    ${HDFS} \
-    -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
-    ${GLIBC_COMPATIBILITY} \
-    -DENABLE_UTILS=0 ${LLVM} ${UNWIND} \
-    -DENABLE_ICU=0 ${JEMALLOC} \
-    -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
-    -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
-    -DENABLE_RAPIDJSON=1 \
-    -DENABLE_BROTLI=1 \
-    -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
-    ${CPU_FEATURES} \
-    ${CMAKE_TOOLCHAIN_FILE} \
-    -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
-    -DCHDB_VERSION=${CHDB_VERSION} \
-    ..
-ninja
+# cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
+#     -DENABLE_CLICKHOUSE_KEEPER=0 -DENABLE_CLICKHOUSE_KEEPER_CONVERTER=0 -DENABLE_CLICKHOUSE_LOCAL=1 -DENABLE_CLICKHOUSE_SU=0 -DENABLE_CLICKHOUSE_BENCHMARK=0 \
+#     -DENABLE_AZURE_BLOB_STORAGE=0 -DENABLE_CLICKHOUSE_COPIER=0 -DENABLE_CLICKHOUSE_DISKS=0 -DENABLE_CLICKHOUSE_FORMAT=0 -DENABLE_CLICKHOUSE_GIT_IMPORT=0 \
+#     -DENABLE_AWS_S3=1 -DENABLE_HIVE=0 -DENABLE_AVRO=1 \
+#     -DENABLE_CLICKHOUSE_OBFUSCATOR=0 -DENABLE_CLICKHOUSE_ODBC_BRIDGE=0 -DENABLE_CLICKHOUSE_STATIC_FILES_DISK_UPLOADER=0 \
+#     -DENABLE_KAFKA=1 -DENABLE_LIBPQXX=1 -DENABLE_NATS=0 -DENABLE_AMQPCPP=0 -DENABLE_NURAFT=0 \
+#     -DENABLE_CASSANDRA=0 -DENABLE_ODBC=0 -DENABLE_NLP=0 \
+#     -DENABLE_LDAP=0 \
+#     ${MYSQL} \
+#     ${HDFS} \
+#     -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
+#     ${GLIBC_COMPATIBILITY} \
+#     -DENABLE_UTILS=0 ${LLVM} ${UNWIND} \
+#     -DENABLE_ICU=0 ${JEMALLOC} \
+#     -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
+#     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
+#     -DENABLE_RAPIDJSON=1 \
+#     -DENABLE_BROTLI=1 \
+#     -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
+#     ${CPU_FEATURES} \
+#     ${CMAKE_TOOLCHAIN_FILE} \
+#     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
+#     -DCHDB_VERSION=${CHDB_VERSION} \
+#     ..
+# ninja
 
 BINARY=${BUILD_DIR}/programs/clickhouse
 echo -e "\nBINARY: ${BINARY}"
@@ -108,7 +108,7 @@ ninja -v > build.log
 
 # extract the command to generate CHDB_PY_MODULE
 
-LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
+PYCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
     | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
@@ -117,10 +117,39 @@ LIBCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
 
 if [ "$(uname)" == "Linux" ]; then
     # remove src/CMakeFiles/clickhouse_malloc.dir/Common/stubFree.c.o
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g')
+    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g')
     # put -Wl,-wrap,malloc ... after -DUSE_JEMALLOC=1
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g')
+    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g')
 fi
+
+# save the command to a file for debug
+echo ${PYCHDB_CMD} > pychdb_cmd.sh
+
+${PYCHDB_CMD}
+
+
+# generate libchdb.so linkage command:
+#   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-libd.a
+#       `ar d programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o`
+#   2. Change the entry point from `PyInit_chdb` to `query_stable`
+#       `-Wl,-ePyInit_chdb` to `-Wl,-equery_stable`
+#   3. Change the output file name from `_chdb.cpython-xx-x86_64-linux-gnu.s` to `libchdb.so`
+#       `-o _chdb.cpython-39-x86_64-linux-gnu.so` to `-o libchdb.so`
+#   4. Write the command to a file for debug
+#   5. Run the command to generate libchdb.so
+
+# Backup the libclickhouse-local-libd.a and restore it after ar d
+LIBCHDB_SO="libchdb.so"
+CLEAN_CHDB_A="libclickhouse-local-chdb.a"
+cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a.bak
+ar d ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o
+ls -l ${BUILD_DIR}/programs/local/libclickhouse-local-libd.*
+mv ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
+mv ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a
+
+LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-libd.a/'${CLEAN_CHDB_A}'/g')
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -Wl,-ePyInit__chdb/ -Wl,-equery_stable/g')
 
 # save the command to a file for debug
 echo ${LIBCHDB_CMD} > libchdb_cmd.sh
@@ -128,24 +157,33 @@ echo ${LIBCHDB_CMD} > libchdb_cmd.sh
 ${LIBCHDB_CMD}
 
 LIBCHDB_DIR=${BUILD_DIR}/
-LIBCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
+
+PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
+LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
+echo -e "\nPYCHDB: ${PYCHDB}"
+ls -lh ${PYCHDB}
 echo -e "\nLIBCHDB: ${LIBCHDB}"
 ls -lh ${LIBCHDB}
+echo -e "\nldd ${PYCHDB}"
+${LDD} ${PYCHDB}
+echo -e "\nfile info of ${PYCHDB}"
+file ${PYCHDB}
 echo -e "\nldd ${LIBCHDB}"
 ${LDD} ${LIBCHDB}
 echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
 rm -f ${CHDB_DIR}/*.so
-mv ${LIBCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
+mv ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
+mv ${LIBCHDB} ${CHDB_DIR}/${LIBCHDB_SO}
 
 # strip the binary (no debug info at all)
 # strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
 
 # echo -e "\nAfter strip:"
-# echo -e "\nLIBCHDB: ${LIBCHDB}"
+# echo -e "\nLIBCHDB: ${PYCHDB}"
 # ls -lh ${CHDB_DIR}
-# echo -e "\nfile info of ${LIBCHDB}"
+# echo -e "\nfile info of ${PYCHDB}"
 # file ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 ccache -s || true
