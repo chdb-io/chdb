@@ -1,6 +1,6 @@
 #pragma once
 #include <cstdint>
-#include <stddef.h>
+#include <cstddef>
 
 extern "C" {
 struct local_result
