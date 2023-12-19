@@ -36,13 +36,13 @@ int main()
     {
         char path_arg[100];
         sprintf(path_arg, "--path=%s", path);
-        argv[argc++] = strdup(path_arg); // Memory allocated by strdup needs to be freed
+        argv[argc++] = path_arg;
     }
 
     // Add query string
     char query_arg[1000]; // Adjust size to fit actual query string length
     sprintf(query_arg, "--query=%s", queryStr);
-    argv[argc++] = strdup(query_arg); // Memory allocated by strdup needs to be freed
+    argv[argc++] = query_arg;
 
     // If udfPath is not empty, add corresponding parameters
     if (udfPath && *udfPath)
@@ -50,11 +50,11 @@ int main()
         argv[argc++] = "--";
         char udfPath_arg1[200]; // Adjust size to fit actual query string length
         sprintf(udfPath_arg1, "--user_scripts_path=%s", udfPath);
-        argv[argc++] = strdup(udfPath_arg1); // Memory allocated by strdup needs to be freed
+        argv[argc++] = udfPath_arg1; // Memory allocated by strdup needs to be freed
 
         char udfPath_arg2[200]; // Adjust size to fit actual query string length
         sprintf(udfPath_arg2, "--user_defined_executable_functions_config=%s/*.xml", udfPath);
-        argv[argc++] = strdup(udfPath_arg2); // Memory allocated by strdup needs to be freed
+        argv[argc++] = udfPath_arg2; // Memory allocated by strdup needs to be freed
     }
 
     // Call the query_stable function
@@ -71,10 +71,6 @@ int main()
         // Free the result
         free_result(result);
     }
-
-    // // Free allocated memory
-    // for (int i = 0; i < argc; ++i)
-    //     free(argv[i]);
 
     return 0;
 }
