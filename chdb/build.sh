@@ -128,7 +128,7 @@ echo ${PYCHDB_CMD} > pychdb_cmd.sh
 ${PYCHDB_CMD}
 
 
-# generate libchdb.so linkage command:
+# Generate libchdb.so linkage command:
 #   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-libd.a
 #       `ar d programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o`
 #   2. Change the entry point from `PyInit_chdb` to `query_stable`
@@ -138,7 +138,8 @@ ${PYCHDB_CMD}
 #   4. Write the command to a file for debug
 #   5. Run the command to generate libchdb.so
 
-# Backup the libclickhouse-local-libd.a and restore it after ar d
+# Step 1:
+#   Backup the libclickhouse-local-libd.a and restore it after ar d
 LIBCHDB_SO="libchdb.so"
 CLEAN_CHDB_A="libclickhouse-local-chdb.a"
 cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a.bak
@@ -147,13 +148,17 @@ ls -l ${BUILD_DIR}/programs/local/libclickhouse-local-libd.*
 mv ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
 mv ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a
 
+# Step 2, 3:
+#   generate the command to generate libchdb.so
 LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-libd.a/'${CLEAN_CHDB_A}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -Wl,-ePyInit__chdb/ -Wl,-equery_stable/g')
 
-# save the command to a file for debug
+# Step 4:
+#   save the command to a file for debug
 echo ${LIBCHDB_CMD} > libchdb_cmd.sh
 
+# Step 5:
 ${LIBCHDB_CMD}
 
 LIBCHDB_DIR=${BUILD_DIR}/
