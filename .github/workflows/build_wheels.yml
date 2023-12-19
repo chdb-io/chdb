@@ -94,6 +94,9 @@ jobs:
           python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
+      - name: Run libchdb stub in examples dir
+        run: |
+          bash -x ./examples/runStub.sh
       - name: Check ccache statistics
         run: |
           ccache -s
@@ -215,6 +218,9 @@ jobs:
           python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
+      - name: Run libchdb stub in examples dir
+        run: |
+          bash -x ./examples/runStub.sh
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
