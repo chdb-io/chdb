@@ -233,6 +233,7 @@ jobs:
         continue-on-error: false
       - name: Run libchdb stub in examples dir
         run: |
+          nm libchdb.so | grep query_result
           bash -x ./examples/runStub.sh
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
