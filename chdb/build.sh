@@ -129,8 +129,8 @@ ${PYCHDB_CMD}
 
 
 # Generate libchdb.so linkage command:
-#   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-libd.a
-#       `ar d programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o`
+#   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-lib.a
+#       `ar d programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o`
 #   2. Change the entry point from `PyInit_chdb` to `query_stable`
 #       `-Wl,-ePyInit_chdb` to `-Wl,-equery_stable`
 #   3. Change the output file name from `_chdb.cpython-xx-x86_64-linux-gnu.s` to `libchdb.so`
@@ -139,18 +139,18 @@ ${PYCHDB_CMD}
 #   5. Run the command to generate libchdb.so
 
 # Step 1:
-#   Backup the libclickhouse-local-libd.a and restore it after ar d
+#   Backup the libclickhouse-local-lib.a and restore it after ar d
 LIBCHDB_SO="libchdb.so"
 CLEAN_CHDB_A="libclickhouse-local-chdb.a"
-cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a.bak
-ar d ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o
-mv ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
-mv ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a
+cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak
+ar d ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
+mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
+mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a
 ls -l ${BUILD_DIR}/programs/local/
 
 # Step 2, 3:
 #   generate the command to generate libchdb.so
-LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-libd.a/'${CLEAN_CHDB_A}'/g')
+LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-lib.a/'${CLEAN_CHDB_A}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -Wl,-ePyInit__chdb/ -Wl,-equery_stable/g')
 
