@@ -142,8 +142,8 @@ jobs:
       - name: Upload libchdb.so to release
         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
         run: |
-          tar -czvf linux-libchdb.tar.gz libchdb.so
-          gh release upload ${{ github.ref_name }} linux-libchdb.tar.gz --clobber
+          tar -czvf linux-x86_64-libchdb.tar.gz libchdb.so
+          gh release upload ${{ github.ref_name }} linux-x86_64-libchdb.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v3
@@ -280,8 +280,8 @@ jobs:
       - name: Upload libchdb.so to release
         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
         run: |
-          tar -czvf macos-libchdb.tar.gz libchdb.so
-          gh release upload ${{ github.ref_name }} macos-libchdb.tar.gz --clobber
+          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so
+          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v3
