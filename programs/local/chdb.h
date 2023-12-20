@@ -9,7 +9,7 @@ extern "C" {
 #    include <stdint.h>
 #endif
 
-struct local_result
+struct __attribute__((visibility("default"))) local_result
 {
     char * buf;
     size_t len;
@@ -19,8 +19,8 @@ struct local_result
     uint64_t bytes_read;
 };
 
-struct local_result * query_stable(int argc, char ** argv);
-void free_result(struct local_result * result);
+__attribute__((visibility("default"))) struct local_result * query_stable(int argc, char ** argv);
+__attribute__((visibility("default"))) void free_result(struct local_result * result);
 
 #ifdef __cplusplus
 }
