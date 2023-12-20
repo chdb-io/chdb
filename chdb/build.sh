@@ -132,7 +132,9 @@ ${PYCHDB_CMD}
 #   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-lib.a
 #       `ar d programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o`
 #   2. Change the entry point from `PyInit_chdb` to `query_stable`
-#       `-Wl,-ePyInit_chdb` to `-Wl,-equery_stable`
+#       `-Wl,-ePyInit_chdb` to `-Wl,-equery_stable` on Linux
+#       `-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}` to 
+#           `-Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result` on Darwin
 #   3. Change the output file name from `_chdb.cpython-xx-x86_64-linux-gnu.s` to `libchdb.so`
 #       `-o _chdb.cpython-39-x86_64-linux-gnu.so` to `-o libchdb.so`
 #   4. Write the command to a file for debug
@@ -152,7 +154,14 @@ ls -l ${BUILD_DIR}/programs/local/
 #   generate the command to generate libchdb.so
 LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-lib.a/'${CLEAN_CHDB_A}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
-LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -Wl,-ePyInit__chdb/ /g')
+
+if [ "$(uname)" == "Linux" ]; then
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
+fi
+
+if [ "$(uname)" == "Darwin" ]; then
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result/g')
+fi
 
 # Step 4:
 #   save the command to a file for debug
