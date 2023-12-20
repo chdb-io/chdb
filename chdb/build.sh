@@ -152,7 +152,7 @@ ls -l ${BUILD_DIR}/programs/local/
 #   generate the command to generate libchdb.so
 LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-lib.a/'${CLEAN_CHDB_A}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
-LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -Wl,-ePyInit__chdb/ -Wl,-equery_stable/g')
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ -Wl,-ePyInit__chdb/ /g')
 
 # Step 4:
 #   save the command to a file for debug
