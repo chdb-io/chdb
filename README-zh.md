@@ -158,34 +158,6 @@ print(query("select sum_udf(12,22)"))
 ## 文档
 - 关于 SQL 语法，请参考 [ClickHouse SQL 参考](https://clickhouse.com/docs/en/sql-reference/syntax)
 
-## 贡献者
-
-<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
-<table>
-  <tbody>
-    <tr>
-      <td align="center" valign="top" width="100px"><a href="https://github.com/auxten"><img src="https://avatars.githubusercontent.com/u/240147?v=4?s=100" width="100px;" alt="auxten"/><br /><sub><b>auxten</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=auxten" title="Code">💻</a></td>
-      <td align="center" valign="top" width="100px"><a href="https://metrico.in"><img src="https://avatars.githubusercontent.com/u/1423657?v=4?s=100" width="100px;" alt="Lorenzo"/><br /><sub><b>Lorenzo</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=lmangani" title="Code">💻</a></td>
-      <td align="center" valign="top" width="100px"><a href="https://github.com/laodouya"><img src="https://avatars.githubusercontent.com/u/4847103?v=4?s=100" width="100px;" alt="laodouya"/><br /><sub><b>laodouya</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=laodouya" title="Code">💻</a></td>
-      <td align="center" valign="top" width="100px"><a href="https://github.com/nmreadelf"><img src="https://avatars.githubusercontent.com/u/7260482?v=4?s=100" width="100px;" alt="nmreadelf"/><br /><sub><b>nmreadelf</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=nmreadelf" title="Code">💻</a></td>
-      <td align="center" valign="top" width="100px"><a href="https://github.com/reema93jain"><img src="https://avatars.githubusercontent.com/u/113460610?v=4?s=100" width="100px;" alt="reema93jain"/><br /><sub><b>reema93jain</b></sub></a><br /><a href="https://github.com/chdb-io/chdb/commits?author=reema93jain" title="Tests">⚠️</a></td>
-    </tr>
-  </tbody>
-</table>
-
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-
-<!-- ALL-CONTRIBUTORS-LIST:END -->
-<!-- prettier-ignore-start -->
-<!-- markdownlint-disable -->
-
-<!-- markdownlint-restore -->
-<!-- prettier-ignore-end -->
-
-<!-- ALL-CONTRIBUTORS-LIST:END -->
 
 ## 贡献
 贡献是使开源社区成为一个学习、激励和创造的绝佳场所的原因。您做出的任何贡献都将受到**高度赞赏**。
