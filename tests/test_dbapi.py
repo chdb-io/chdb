@@ -27,20 +27,22 @@ class TestDBAPI(unittest.TestCase):
     def test_insert_and_read_data(self):
         conn = dbapi.connect()
         cur = conn.cursor()
+        cur.execute("CREATE DATABASE IF NOT EXISTS test_db ENGINE = Atomic")
+        cur.execute("USE test_db")
         cur.execute("""
         CREATE TABLE rate (
             day Date,
             value Int32
-        ) ENGINE = Memory""")
+        ) ENGINE = Log""")
 
         # Insert values
         cur.execute("INSERT INTO rate VALUES ('2024-01-01', 24)")
         cur.execute("INSERT INTO rate VALUES ('2024-01-02', 72)")
 
         # Read values
-        cur.execute("SELECT value FROM rate ORDER BY DAY DESC")
+        cur.execute("SELECT value FROM rate ORDER BY day DESC")
         rows = cur.fetchall()
-        self.assertEqual(rows, [(72,), (24,)])
+        self.assertEqual(rows, ((72,), (24,)))
 
     def test_select_chdb_version(self):
         ver = dbapi.get_client_info()  # chDB version liek '0.12.0'
