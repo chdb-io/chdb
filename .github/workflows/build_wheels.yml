@@ -238,6 +238,7 @@ jobs:
           nm libchdb.so | grep query_result || true
       - name: Run libchdb stub in examples dir
         run: |
+          cp -a libchdb.so ./examples
           bash -x ./examples/runStub.sh
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
