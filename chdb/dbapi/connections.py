@@ -23,6 +23,7 @@ class Connection(object):
     """
 
     _closed = False
+    _session = None
 
     def __init__(self, cursorclass=Cursor):
 
@@ -39,6 +40,8 @@ class Connection(object):
         self.connect()
 
     def connect(self):
+        from chdb import session as chs
+        self._session = chs.Session()
         self._closed = False
         self._execute_command("select 1;")
         self._read_query_result()
@@ -55,6 +58,7 @@ class Connection(object):
         if self._closed:
             raise err.Error("Already closed")
         self._closed = True
+        self._session = None
 
     @property
     def open(self):
@@ -119,8 +123,7 @@ class Connection(object):
         if DEBUG:
             print("DEBUG: query:", sql)
         try:
-            import chdb
-            self._resp = chdb.query(sql, output_format="JSON").data()
+            self._resp = self._session.query(sql, output_format="JSON").data()
         except Exception as error:
             raise err.InterfaceError("query err: %s" % error)
 
@@ -181,6 +184,10 @@ class CHDBResult(object):
         self.has_next = None
 
     def read(self):
+        # Handle empty responses (for instance from CREATE TABLE)
+        if self.connection.resp is None:
+            return
+
         try:
             data = json.loads(self.connection.resp)
         except Exception as error:
