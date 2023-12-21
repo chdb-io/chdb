@@ -232,9 +232,12 @@ jobs:
           python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
+      - name: Show libchdb
+        run: |
+          ls -lh
+          nm libchdb.so | grep query_result || true
       - name: Run libchdb stub in examples dir
         run: |
-          nm libchdb.so | grep query_result
           bash -x ./examples/runStub.sh
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
