@@ -31,7 +31,7 @@ class TestDBAPI(unittest.TestCase):
         CREATE TABLE rate (
             day Date,
             value Int32
-        )""")
+        ) ENGINE = Memory""")
 
         # Insert values
         cur.execute("INSERT INTO rate VALUES ('2024-01-01', 24)")
