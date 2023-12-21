@@ -24,6 +24,24 @@ class TestDBAPI(unittest.TestCase):
         print(data)
         self.assertRegex(data[0], expected_clickhouse_version_pattern)
 
+    def test_insert_and_read_data(self):
+        conn = dbapi.connect()
+        cur = conn.cursor()
+        cur.execute("""
+        CREATE TABLE rate (
+            day Date,
+            value Int32
+        )""")
+
+        # Insert values
+        cur.execute("INSERT INTO rate VALUES ('2024-01-01', 24)")
+        cur.execute("INSERT INTO rate VALUES ('2024-01-02', 72)")
+
+        # Read values
+        cur.execute("SELECT value FROM rate ORDER BY DAY DESC")
+        rows = cur.fetchall()
+        self.assertEqual(rows, [(72,), (24,)])
+
     def test_select_chdb_version(self):
         ver = dbapi.get_client_info()  # chDB version liek '0.12.0'
         ver_tuple = dbapi.chdb_version  # chDB version tuple like ('0', '12', '0')
