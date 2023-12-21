@@ -188,8 +188,18 @@ echo -e "\nfile info of ${LIBCHDB}"
 file ${LIBCHDB}
 
 rm -f ${CHDB_DIR}/*.so
-mv ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
-mv ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
+cp -a ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
+cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
+
+echo -e "\nSymbols:"
+nm ${PYCHDB} | grep PyInit || true
+nm ${LIBCHDB} | grep PyInit || true
+nm ${PYCHDB} | grep query_stable || true
+nm ${LIBCHDB} | grep query_stable || true
+
+echo -e "\nAfter copy:"
+cd ${PROJ_DIR} && pwd
+ls -lh ${PROJ_DIR}
 
 # strip the binary (no debug info at all)
 # strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
