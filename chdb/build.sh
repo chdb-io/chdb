@@ -145,7 +145,7 @@ ${PYCHDB_CMD}
 LIBCHDB_SO="libchdb.so"
 CLEAN_CHDB_A="libclickhouse-local-chdb.a"
 cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak
-ar d ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
+${AR} d ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
 mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
 mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a
 ls -l ${BUILD_DIR}/programs/local/
@@ -192,10 +192,10 @@ cp -a ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
 
 echo -e "\nSymbols:"
-nm ${PYCHDB} | grep PyInit || true
-nm ${LIBCHDB} | grep PyInit || true
-nm ${PYCHDB} | grep query_stable || true
-nm ${LIBCHDB} | grep query_stable || true
+${NM} ${PYCHDB} | grep PyInit || true
+${NM} ${LIBCHDB} | grep PyInit || true
+${NM} ${PYCHDB} | grep query_stable || true
+${NM} ${LIBCHDB} | grep query_stable || true
 
 echo -e "\nAfter copy:"
 cd ${PROJ_DIR} && pwd
