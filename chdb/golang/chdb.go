@@ -4,25 +4,28 @@ package chdb
 #include <chdb.h>
 
 #include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
-local_result * queryHandle(const char* query)
+struct local_result * queryHandle(const char* query)
 {
     char* query_arg = (char *)malloc(strlen(query) + 10);
-    snprintf(query_arg, "--query=%s", query);
+    sprintf(query_arg, "--query=%s", query);
     free(query_arg);
     char* argv[] = {"clickhouse", "--multiquery", "--output-format=Arrow", query_arg};
-    local_result* result = query_stable(argv_char.size(), argv_char.data());
+    struct local_result* result = query_stable(sizeof(argv), argv);
     free(query_arg);
-    return local_result;
+    return result;
 }
 */
+import "C"
 
-import (
-	"C"
-	"database/sql"
-	"database/sql/driver"
-	"unsafe"
-)
+import "context"
+import "database/sql"
+import "database/sql/driver"
+import "unsafe"
+import "fmt"
+import "reflect"
 
 func init() {
 	sql.Register("chdb", Driver{})
@@ -55,7 +58,8 @@ func (d Driver) OpenConnector(dataSourceName string) (driver.Connector, error) {
 type conn struct {
 }
 
-func (c *conn) Close() {
+func (c *conn) Close() error {
+  return nil
 }
 
 func (c *conn) Query(query string, values []driver.Value) (driver.Rows, error) {
@@ -67,8 +71,20 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	defer C.free(unsafe.Pointer(cquery))
 
 	result := C.queryHandle(cquery)
-	defer C.free_result(unsafe.Pointer(result))
+	defer C.free_result(result)
 	return driver.Rows{}
+}
+
+func (c *conn) Begin() (driver.Tx, error) {
+  return nil, fmt.Errorf("does not support Transcation")
+}
+
+func (c *conn) Prepare(query string) (driver.Stmt, error) {
+  return c.PrepareContext(context.Background(), query)
+}
+
+func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
+  return nil, fmt.Errorf("does not support prepare statement")
 }
 
 // todo: func(c *conn) Prepare(query string)
@@ -103,5 +119,5 @@ func (r *rows) ColumnTypePrecisionScale(index int) (precision, scale int64, ok b
 }
 
 func (r *rows) ColumnTypeScanType(index int) reflect.Type {
-  return
+  return reflect.TypeOf(nil)
 }
