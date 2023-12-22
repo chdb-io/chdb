@@ -11,9 +11,8 @@ struct local_result * queryHandle(const char* query)
 {
     char* query_arg = (char *)malloc(strlen(query) + 10);
     sprintf(query_arg, "--query=%s", query);
-    free(query_arg);
     char* argv[] = {"clickhouse", "--multiquery", "--output-format=Arrow", query_arg};
-    struct local_result* result = query_stable(sizeof(argv), argv);
+    struct local_result* result = query_stable(sizeof(argv)/sizeof(argv[0]), argv);
     free(query_arg);
     return result;
 }
