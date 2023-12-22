@@ -89,6 +89,13 @@ jobs:
           #make linux-arm64
           bash -l -e chdb/build_linux_arm64.sh
         continue-on-error: false
+      - name: Show libchdb
+        run: |
+          ls -lh
+          nm libchdb.so | grep query_stable || true
+      - name: Run libchdb stub in examples dir
+        run: |
+          bash -x ./examples/runStub.sh
       - name: Check ccache statistics
         run: |
           ccache -s
