@@ -1,8 +1,7 @@
 package chdb
 
 /*
-#cgo LDFLAG: -lchdb
+#cgo LDFLAGS: -lchdb
 #include <chdb.h>
 */
-
 import "C"
