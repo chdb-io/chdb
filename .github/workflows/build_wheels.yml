@@ -236,6 +236,7 @@ jobs:
         run: |
           ls -lh
           nm libchdb.so | grep query_stable || true
+          nm -g libchdb.so || true
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
