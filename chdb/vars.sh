@@ -12,8 +12,12 @@ popd
 # check current os type, and make ldd command
 if [ "$(uname)" == "Darwin" ]; then
     LDD="otool -L"
+    AR="llvm-ar"
+    NM="llvm-nm"
 elif [ "$(uname)" == "Linux" ]; then
     LDD="ldd"
+    AR="ar"
+    NM="nm"
 else
     echo "OS not supported"
     exit 1
