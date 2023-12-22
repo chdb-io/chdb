@@ -232,11 +232,20 @@ jobs:
           python3 -m pip install pandas pyarrow
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
-      - name: Show libchdb
+      - name: Debug libchdb
         run: |
           ls -lh
           nm libchdb.so | grep query_stable || true
+          echo "Global Symbol in libchdb.so:"
           nm -g libchdb.so || true
+          echo "Global Symbol in libclickhouse-local-chdb.a:"
+          nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
+          echo "Global Symbol in libclickhouse-local-lib.a:"
+          nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
+          echo "pychdb_cmd.sh:"
+          cat buildlib/pychdb_cmd.sh
+          echo "libchdb_cmd.sh:"
+          cat buildlib/libchdb_cmd.sh
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
