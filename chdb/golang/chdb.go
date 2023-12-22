@@ -3,6 +3,8 @@ package chdb
 /*
 #include <chdb.h>
 
+#include <stdlib.h>
+
 local_result * queryHandle(const char* query)
 {
     char* query_arg = (char *)malloc(strlen(query) + 10);
@@ -65,7 +67,7 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 	defer C.free(unsafe.Pointer(cquery))
 
 	result := C.queryHandle(cquery)
-	defer C.free_resilt(unsafe.Pointer(result))
+	defer C.free_result(unsafe.Pointer(result))
 	return driver.Rows{}
 }
 
