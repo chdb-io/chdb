@@ -65,8 +65,8 @@ int main()
     {
         printf("Query Result: %s\n", result->buf);
         printf("Elapsed Time: %fs\n", result->elapsed);
-        printf("Rows Read: %llu\n", result->rows_read);
-        printf("Bytes Read: %llu\n", result->bytes_read);
+        printf("Rows Read: %llu\n", (unsigned long long)result->rows_read);
+        printf("Bytes Read: %llu\n", (unsigned long long)result->bytes_read);
 
         // Free the result
         free_result(result);
