@@ -59,7 +59,7 @@ type conn struct {
 }
 
 func (c *conn) Close() error {
-  return nil
+	return nil
 }
 
 func (c *conn) Query(query string, values []driver.Value) (driver.Rows, error) {
@@ -84,15 +84,15 @@ func (c *conn) QueryContext(ctx context.Context, query string, args []driver.Nam
 }
 
 func (c *conn) Begin() (driver.Tx, error) {
-  return nil, fmt.Errorf("does not support Transcation")
+	return nil, fmt.Errorf("does not support Transcation")
 }
 
 func (c *conn) Prepare(query string) (driver.Stmt, error) {
-  return c.PrepareContext(context.Background(), query)
+	return c.PrepareContext(context.Background(), query)
 }
 
 func (c *conn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-  return nil, fmt.Errorf("does not support prepare statement")
+	return nil, fmt.Errorf("does not support prepare statement")
 }
 
 // todo: func(c *conn) Prepare(query string)
@@ -103,29 +103,29 @@ type rows struct {
 }
 
 func (r *rows) Columns() (out []string) {
-  return
+	return
 }
 
 func (r *rows) Close() error {
-  return nil
+	return nil
 }
 
 func (r *rows) Next(dest []driver.Value) error {
-  return nil
+	return nil
 }
 
 func (r *rows) ColumnTypeDatabaseTypeName(index int) string {
-  return ""
+	return ""
 }
 
 func (r *rows) ColumnTypeNullable(index int) (nullable, ok bool) {
-  return
+	return
 }
 
 func (r *rows) ColumnTypePrecisionScale(index int) (precision, scale int64, ok bool) {
-  return
+	return
 }
 
 func (r *rows) ColumnTypeScanType(index int) reflect.Type {
-  return reflect.TypeOf(nil)
+	return reflect.TypeOf(nil)
 }
