@@ -35,14 +35,15 @@ class TestDBAPI(unittest.TestCase):
             value Int32
         ) ENGINE = Log""")
 
-        # Insert values
-        cur.execute("INSERT INTO rate VALUES ('2024-01-01', 24)")
-        cur.execute("INSERT INTO rate VALUES ('2024-01-02', 72)")
+        # Insert single value
+        cur.execute("INSERT INTO rate VALUES (%s, %s)", ("2021-01-01", 24))
+        # Insert multiple values
+        cur.executemany("INSERT INTO rate VALUES (%s, %s)", [("2021-01-02", 72), ("2021-01-03", 96)])
 
         # Read values
         cur.execute("SELECT value FROM rate ORDER BY day DESC")
         rows = cur.fetchall()
-        self.assertEqual(rows, ((72,), (24,)))
+        assert rows==((96,), (72,), (24,))
 
     def test_select_chdb_version(self):
         ver = dbapi.get_client_info()  # chDB version liek '0.12.0'
