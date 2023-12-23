@@ -33,12 +33,14 @@ class TestDBAPI(unittest.TestCase):
         CREATE TABLE rate (
             day Date,
             value Int32
-        ) ENGINE = Log""")
+        ) ENGINE = ReplacingMergeTree ORDER BY day""")
 
         # Insert single value
         cur.execute("INSERT INTO rate VALUES (%s, %s)", ("2021-01-01", 24))
         # Insert multiple values
-        cur.executemany("INSERT INTO rate VALUES (%s, %s)", [("2021-01-02", 72), ("2021-01-03", 96)])
+        cur.executemany("INSERT INTO rate VALUES (%s, %s)", [("2021-01-02", 128), ("2021-01-03", 256)])
+        # Test executemany outside optimized INSERT/REPLACE path
+        cur.executemany("ALTER TABLE rate UPDATE value = %s WHERE day = %s", [(72, "2021-01-02"), (96, "2021-01-03")])
 
         # Test fetchone
         cur.execute("SELECT value FROM rate ORDER BY day DESC LIMIT 2")
