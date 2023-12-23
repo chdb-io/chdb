@@ -17,6 +17,7 @@ class Connection(object):
     Accepts several arguments:
 
     :param cursorclass: Custom cursor class to use.
+    :param path: Optional folder path to store database files on disk.
 
     See `Connection <https://www.python.org/dev/peps/pep-0249/#connection-objects>`_ in the
     specification.
@@ -25,7 +26,7 @@ class Connection(object):
     _closed = False
     _session = None
 
-    def __init__(self, cursorclass=Cursor):
+    def __init__(self, cursorclass=Cursor, path=None):
 
         self._resp = None
 
@@ -37,7 +38,7 @@ class Connection(object):
         self._result = None
         self._affected_rows = 0
 
-        self.connect()
+        self.connect(path)
 
     def connect(self, path=None):
         from chdb import session as chs
