@@ -25,6 +25,11 @@ test_main
 /tests/data
 /obj-x86_64-linux-gnu/
 
+/examples/chdbStub
+/examples/chdbSimple
+/examples/chdbDlopen
+libchdb.so
+
 # logs
 *.log
 *.debuglog
