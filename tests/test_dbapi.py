@@ -63,6 +63,10 @@ class TestDBAPI(unittest.TestCase):
         rows = cur.fetchall()
         self.assertEqual(rows, ((96,), (72,), (24,)))
 
+        # Clean up
+        cur.close()
+        conn.close()
+
     def test_select_chdb_version(self):
         ver = dbapi.get_client_info()  # chDB version liek '0.12.0'
         ver_tuple = dbapi.chdb_version  # chDB version tuple like ('0', '12', '0')
