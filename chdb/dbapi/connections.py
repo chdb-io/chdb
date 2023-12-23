@@ -39,9 +39,9 @@ class Connection(object):
 
         self.connect()
 
-    def connect(self):
+    def connect(self, path=None):
         from chdb import session as chs
-        self._session = chs.Session()
+        self._session = chs.Session(path)
         self._closed = False
         self._execute_command("select 1;")
         self._read_query_result()
