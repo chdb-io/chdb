@@ -48,6 +48,8 @@ class TestDBAPI(unittest.TestCase):
         self.assertEqual(row1, (96,))
         row2 = cur.fetchone()
         self.assertEqual(row2, (72,))
+        row3 = cur.fetchone()
+        self.assertIsNone(row3)
 
         # Test fetchmany
         cur.execute("SELECT value FROM rate ORDER BY day DESC")
