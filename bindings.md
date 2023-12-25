@@ -17,11 +17,11 @@ Here is a table outlining the current status of language bindings for chDB:
 | PHP | n/a | Contributors Needed |
 | Ruby | n/a | Contributors Needed |
 
-### If 
-you have already developed bindings for a language not listed above, 
+### Need Help?
+If you have already developed bindings for a language not listed above, 
 
 If you are interested in contributing to the development of bindings for a language not listed above, please contact us at:
 
-- Discord: [https://discord.gg/D2Daa2fM5K](https://discord.gg/D2Daa2fM5K)
+- Discord: [bindings](https://discord.gg/uUk6AKf7yM)
 - Email: auxtenwpc@gmail.com
 - Twitter: [@chdb](https://twitter.com/chdb_io)
