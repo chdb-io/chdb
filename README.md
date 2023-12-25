@@ -187,6 +187,10 @@ There are something you can help:
 - [ ] Help improve documentation
 - [ ] Help improve code quality and performance
 
+### Bindings
+
+We welcome bindings for other languages, please refer to [bindings](bindings.md) for more details.
+
 ## License
 Apache 2.0, see [LICENSE](LICENSE.txt) for more information.
 
