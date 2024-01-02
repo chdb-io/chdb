@@ -3,7 +3,7 @@ import chdb
 import os
 
 # chdb API server example with GET/POST support, compatible with play app
-# for a full server example see https://github.com/metrico/chdb-server
+# for a full server example see https://github.com/chdb-io/chdb-playground
 
 app = Flask(__name__, static_folder="", static_url_path="")
 
