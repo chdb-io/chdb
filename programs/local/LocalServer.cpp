@@ -1065,6 +1065,7 @@ local_result * query_stable(int argc, char ** argv)
     local_result * res = new local_result;
     res->len = result->buf_->size();
     res->buf = result->buf_->data();
+    res->_vec = result->buf_;
     res->rows_read = result->rows_;
     res->bytes_read = result->bytes_;
     res->elapsed = result->elapsed_;
