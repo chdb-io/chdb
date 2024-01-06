@@ -83,6 +83,7 @@ public:
     size_t getProcessedRows() const { return processed_rows; }
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }
+    std::string get_error_msg() const { return error_message_oss.str(); }
 
     std::vector<String> getAllRegisteredNames() const override { return cmd_options; }
     static ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements, bool is_interactive, bool ignore_error);
@@ -302,6 +303,7 @@ protected:
     size_t processed_rows = 0; /// How many rows have been read or written.
     size_t processed_bytes = 0; /// How many bytes have been read or written.
     bool print_num_processed_rows = false; /// Whether to print the number of processed rows at
+    std::stringstream error_message_oss; /// error message stringstream
 
     bool print_stack_trace = false;
     /// The last exception that was received from the server. Is used for the

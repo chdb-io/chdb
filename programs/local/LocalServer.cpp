@@ -23,6 +23,7 @@
 #include <Interpreters/loadMetadata.h>
 #include <Interpreters/registerInterpreters.h>
 #include <base/getFQDNOrHostName.h>
+#include <Interpreters/Session.h>
 #include <Access/AccessControl.h>
 #include <Common/PoolId.h>
 #include <Common/Exception.h>
@@ -39,6 +40,7 @@
 #include <Loggers/OwnPatternFormatter.h>
 #include <IO/ReadBufferFromFile.h>
 #include <IO/ReadBufferFromString.h>
+#include <IO/WriteBufferFromFileDescriptor.h>
 #include <IO/UseSSL.h>
 #include <IO/SharedThreadPools.h>
 #include <Parsers/ASTInsertQuery.h>
@@ -56,6 +58,7 @@
 #include <base/argsToConfig.h>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 
 #include "config.h"
 
@@ -544,12 +547,12 @@ try
 catch (const DB::Exception & e)
 {
     bool need_print_stack_trace = config().getBool("stacktrace", false);
-    std::cerr << getExceptionMessage(e, need_print_stack_trace, true) << std::endl;
+    error_message_oss << getExceptionMessage(e, need_print_stack_trace, true);
     return e.code() ? e.code() : -1;
 }
 catch (...)
 {
-    std::cerr << getCurrentExceptionMessage(false) << std::endl;
+    error_message_oss << getCurrentExceptionMessage(false) << std::endl;
     return getCurrentExceptionCode();
 }
 
@@ -998,11 +1001,25 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
 class query_result_
 {
 public:
-    uint64_t rows;
-    uint64_t bytes;
-    double elapsed;
-    std::vector<char> * buf;
+    explicit query_result_(std::vector<char>* buf, uint64_t rows,
+                            uint64_t bytes, double elapsed):
+         rows_(rows), bytes_(bytes), elapsed_(elapsed),
+         buf_(buf) { }
+
+    explicit query_result_(std::string&& error_msg): error_msg_(error_msg) { }
+
+    std::string string()
+    {
+        return std::string(buf_->begin(), buf_->end());
+    }
+
+    uint64_t rows_;
+    uint64_t bytes_;
+    double elapsed_;
+    std::vector<char> * buf_;
+    std::string error_msg_;
 };
+
 
 std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 {
@@ -1013,18 +1030,13 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
         int ret = app.run();
         if (ret == 0)
         {
-            auto result = std::make_unique<query_result_>();
-            result->buf = app.getQueryOutputVector();
-            result->rows = app.getProcessedRows();
-            result->bytes = app.getProcessedBytes();
-            result->elapsed = app.getElapsedTime();
-
-            // std::cerr << std::string(out->begin(), out->end()) << std::endl;
-            return result;
-        }
-        else
-        {
-            return nullptr;
+            return std::make_unique<query_result_>(
+                app.getQueryOutputVector(),
+                app.getProcessedRows(),
+                app.getProcessedBytes(),
+                app.getElapsedTime());
+        } else {
+            return std::make_unique<query_result_>(app.get_error_msg());
         }
     }
     catch (const DB::Exception & e)
@@ -1046,29 +1058,41 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 local_result * query_stable(int argc, char ** argv)
 {
     auto result = pyEntryClickHouseLocal(argc, argv);
-    if (!result || !result->buf)
+    if (!result)
     {
         return nullptr;
     }
     local_result * res = new local_result;
-    res->len = result->buf->size();
-    res->buf = result->buf->data();
-    res->_vec = result->buf;
-    res->rows_read = result->rows;
-    res->bytes_read = result->bytes;
-    res->elapsed = result->elapsed;
+    res->len = result->buf_->size();
+    res->buf = result->buf_->data();
+    res->rows_read = result->rows_;
+    res->bytes_read = result->bytes_;
+    res->elapsed = result->elapsed_;
+    res->error_message = nullptr;
+    if (!result->error_msg_.empty()) {
+        res->error_message = new char[result->error_msg_.size() + 1];
+        memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
+    }
     return res;
 }
 
 void free_result(local_result * result)
 {
-    if (!result || !result->_vec)
+    if (!result)
     {
         return;
     }
-    std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
-    delete vec;
-    result->_vec = nullptr;
+    if (result->_vec)
+    {
+        std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
+        delete vec;
+        result->_vec = nullptr;
+    }
+    if (result->error_message)
+    {
+        delete[] result->error_message;
+        result->error_message = nullptr;
+    }
 }
 
 /**
@@ -1099,7 +1123,7 @@ int mainEntryClickHouseLocal(int argc, char ** argv)
     auto result = pyEntryClickHouseLocal(argc, argv);
     if (result)
     {
-        std::cout << std::string(result->buf->begin(), result->buf->end()) << std::endl;
+        std::cout << result->string() << std::endl;
         return 0;
     }
     else
