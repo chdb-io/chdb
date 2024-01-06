@@ -142,7 +142,9 @@ PYBIND11_MODULE(_chdb, m)
         .def("rows_read", &query_result::rows_read)
         .def("bytes_read", &query_result::bytes_read)
         .def("elapsed", &query_result::elapsed)
-        .def("get_memview", &query_result::get_memview);
+        .def("get_memview", &query_result::get_memview)
+        .def("has_error", &query_result::has_error)
+        .def("error_message", &query_result::error_message);
 
 
     m.def(
