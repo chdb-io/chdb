@@ -21,6 +21,8 @@ def main():
     sql = options.sql[0]
     output_format = options.format
     res = query(sql, output_format)
+    if res.has_error():
+        raise Exception(res.error_message())
     if output_format.lower() in ('dataframe', 'arrowtable'):
         temp = res
     else:
