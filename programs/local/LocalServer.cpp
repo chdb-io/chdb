@@ -1063,12 +1063,11 @@ local_result * query_stable(int argc, char ** argv)
         return nullptr;
     }
     local_result * res = new local_result;
-    res->error_message = nullptr;
-    res->_vec = nullptr;
-    res->buf = nullptr;
     if (!result->error_msg_.empty()) {
         res->error_message = new char[result->error_msg_.size() + 1];
         memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
+        res->_vec = nullptr;
+        res->buf = nullptr;
     } else {
         res->len = result->buf_->size();
         res->buf = result->buf_->data();
@@ -1076,6 +1075,7 @@ local_result * query_stable(int argc, char ** argv)
         res->rows_read = result->rows_;
         res->bytes_read = result->bytes_;
         res->elapsed = result->elapsed_;
+        res->error_message = nullptr;
     }
     return res;
 }
