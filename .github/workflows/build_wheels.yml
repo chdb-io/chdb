@@ -81,9 +81,9 @@ jobs:
       - name: remove old clang and link clang-17 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
-          sudo rm /usr/bin/clang
+          sudo rm -f /usr/bin/clang || true
           sudo ln -s /usr/bin/clang-17 /usr/bin/clang
-          sudo rm /usr/bin/clang++
+          sudo rm -f /usr/bin/clang++ || true
           sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
           which clang++
           clang++ --version
