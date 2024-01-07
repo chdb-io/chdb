@@ -106,7 +106,7 @@ private:
 
 public:
     query_result(local_result * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
-    ~query_result() { };
+    ~query_result() { }
     char * data() { return result_wrapper->data(); }
     py::bytes bytes() { return result_wrapper->bytes(); }
     py::str str() { return result_wrapper->str(); }
