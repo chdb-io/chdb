@@ -27,25 +27,6 @@ jobs:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSIONS: "3.8 3.9 3.10 3.11 3.12"
     steps:
-      - name: Install clang++ for Ubuntu
-        if: matrix.os == 'ubuntu-20.04'
-        run: |
-          pwd
-          uname -a
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 17
-          which clang++-17
-          clang++-17 --version
-          sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
-          ccache -s
-      - name: Update git
-        run: |
-          sudo add-apt-repository ppa:git-core/ppa -y
-          sudo apt-get update
-          sudo apt-get install -y git
-          git --version
-        shell: bash -l {0}
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -78,15 +59,14 @@ jobs:
       - name: remove old clang and link clang-17 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
-          sudo rm /usr/bin/clang
+          sudo rm -f /usr/bin/clang || true
           sudo ln -s /usr/bin/clang-17 /usr/bin/clang
-          sudo rm /usr/bin/clang++
+          sudo rm -f /usr/bin/clang++ || true
           sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
           which clang++
           clang++ --version
       - name: Make linux-arm64
         run: |
-          #make linux-arm64
           bash -l -e chdb/build_linux_arm64.sh
         continue-on-error: false
       - name: Show libchdb
@@ -101,14 +81,6 @@ jobs:
           ccache -s
           ls -lh chdb
           df -h
-      - name: Install patchelf from github
-        run: |
-          pyenv local "${{ matrix.python-version }}"
-          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
-          tar -xvf patchelf.tar.gz
-          sudo cp bin/patchelf /usr/bin/
-          sudo chmod +x /usr/bin/patchelf
-          patchelf --version
       - name: Audit wheels
         run: |
           pyenv local "${{ matrix.python-version }}"
@@ -148,17 +120,5 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      
-  # #build for macos12 arm64(Apple Silicon)
-  # build_wheels_macos_arm64:
 
-  runner_cleanup_arm64:
-    name: Wipe Caches on Self-Hosted Runners
-    needs: [ build_wheels_linux_arm64 ]
-    if: always()
-    runs-on:
-      - self-hosted
-      - ARM64
-    steps:
-      - name: Actions Cache Cleanup
-        run: if [ "$(which action_cleanup)" != "" ]; then action_cleanup; else echo bypass; fi
+
