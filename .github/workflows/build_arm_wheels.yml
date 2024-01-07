@@ -31,31 +31,8 @@ jobs:
         with:
           fetch-depth: 0
       - name: Restore submodules cache
-        uses: actions/cache/restore@v3
-        id: cache
-        with:
-          path: |
-            contrib/**
-          key: |
-            submodule-${{ hashFiles('.gitmodules') }}
-      - name: Update submodules if cache miss
-        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          git submodule update --init --recursive --jobs 4
-      - name: Save submodules cache
-        if: steps.cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v3
-        with:
-          path: |
-            contrib/**
-          key: |
-            submodule-${{ hashFiles('.gitmodules') }}
-      - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: ${{ matrix.os }}
-          max-size: 5G
-          append-timestamp: true
+          cp -a /builder_cache/contrib ./
       - name: remove old clang and link clang-17 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
