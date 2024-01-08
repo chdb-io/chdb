@@ -20,7 +20,7 @@ struct CHDB_EXPORT local_result
     uint64_t bytes_read;
 };
 
-struct CHDB_EXPORT local_resultV2
+struct CHDB_EXPORT local_result_v2
 {
     char * buf;
     size_t len;
@@ -34,8 +34,8 @@ struct CHDB_EXPORT local_resultV2
 CHDB_EXPORT struct local_result * query_stable(int argc, char ** argv);
 CHDB_EXPORT void free_result(struct local_result * result);
 
-CHDB_EXPORT struct local_resultV2 * query_stableV2(int argc, char ** argv);
-CHDB_EXPORT void free_resultV2(struct local_resultV2 * result);
+CHDB_EXPORT struct local_result_v2 * query_stable_v2(int argc, char ** argv);
+CHDB_EXPORT void free_result_v2(struct local_result_v2 * result);
 
 #ifdef __cplusplus
 }
