@@ -15,13 +15,13 @@ class __attribute__((visibility("default"))) query_result;
 class local_result_wrapper
 {
 private:
-    local_result * result;
+    local_resultV2 * result;
 
 public:
-    local_result_wrapper(local_result * result) : result(result) { }
+    local_result_wrapper(local_resultV2 * result) : result(result) { }
     ~local_result_wrapper()
     {
-        free_result(result);
+        free_resultV2(result);
         delete result;
     }
     char * data()
@@ -105,7 +105,7 @@ private:
     std::shared_ptr<local_result_wrapper> result_wrapper;
 
 public:
-    query_result(local_result * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
+    query_result(local_resultV2 * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
     ~query_result() { }
     char * data() { return result_wrapper->data(); }
     py::bytes bytes() { return result_wrapper->bytes(); }
