@@ -123,7 +123,10 @@ class Connection(object):
         if DEBUG:
             print("DEBUG: query:", sql)
         try:
-            self._resp = self._session.query(sql, fmt="JSON").data()
+            res = self._session.query(sql, output_format="JSON")
+            if res.has_error():
+                raise err.DatabaseError(res.error_message())
+            self._resp = res.data()
         except Exception as error:
             raise err.InterfaceError("query err: %s" % error)
 
