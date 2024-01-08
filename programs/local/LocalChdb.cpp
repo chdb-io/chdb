@@ -6,7 +6,7 @@
 extern bool inside_main = true;
 
 
-local_resultV2 * queryToBuffer(
+local_result_v2 * queryToBuffer(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
@@ -51,7 +51,7 @@ local_resultV2 * queryToBuffer(
     for (auto & arg : argv)
         argv_char.push_back(const_cast<char *>(arg.c_str()));
 
-    return query_stableV2(argv_char.size(), argv_char.data());
+    return query_stable_v2(argv_char.size(), argv_char.data());
 }
 
 // Pybind11 will take over the ownership of the `query_result` object
@@ -132,7 +132,7 @@ PYBIND11_MODULE(_chdb, m)
         .def("view", &memoryview_wrapper::view);
 
     py::class_<query_result>(m, "query_result")
-        .def(py::init<local_resultV2 *>(), py::return_value_policy::take_ownership)
+        .def(py::init<local_result_v2 *>(), py::return_value_policy::take_ownership)
         .def("data", &query_result::data)
         .def("bytes", &query_result::bytes)
         .def("__str__", &query_result::str)

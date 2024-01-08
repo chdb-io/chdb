@@ -1086,10 +1086,10 @@ void free_result(local_result * result)
     }
 }
 
-local_resultV2 * query_stableV2(int argc, char ** argv)
+local_result_v2 * query_stable_v2(int argc, char ** argv)
 {
     auto result = pyEntryClickHouseLocal(argc, argv);
-    local_resultV2 * res = new local_resultV2;
+    local_result_v2 * res = new local_result_v2;
     if (!result->error_msg_.empty())
     {
         res->error_message = new char[result->error_msg_.size() + 1];
@@ -1108,7 +1108,7 @@ local_resultV2 * query_stableV2(int argc, char ** argv)
     return res;
 }
 
-void free_resultV2(local_resultV2 * result)
+void free_result_v2(local_result_v2 * result)
 {
     if (!result)
     {
