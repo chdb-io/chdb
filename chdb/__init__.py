@@ -2,6 +2,12 @@ import sys
 import os
 
 
+_arrow_format = set({"dataframe", "arrowtable"})
+_process_result_format_funs = {
+        "dataframe" : lambda x : to_df(x),
+        "arrowtable": lambda x : to_arrowTable(x)
+        }
+
 # If any UDF is defined, the path of the UDF will be set to this variable
 # and the path will be deleted when the process exits
 # UDF config path will be f"{g_udf_path}/udf_config.xml"
@@ -60,9 +66,10 @@ def query(sql, output_format="CSV", path="", udf_path=""):
     if udf_path != "":
         g_udf_path = udf_path
     lower_output_format = output_format.lower()
-    if lower_output_format == "dataframe":
-        return to_df(_chdb.query(sql, "Arrow", path=path, udf_path=g_udf_path))
-    elif lower_output_format == "arrowtable":
-        return to_arrowTable(_chdb.query(sql, "Arrow", path=path, udf_path=g_udf_path))
-    else:
-        return _chdb.query(sql, output_format, path=path, udf_path=g_udf_path)
+    result_func = _process_result_format_funs.get(lower_output_format, lambda x : x)
+    if lower_output_format in _arrow_format:
+        output_format = "Arrow"
+    res = _chdb.query(sql, output_format, path=path, udf_path=g_udf_path)
+    if res.has_error():
+        raise Exception(res.error_message())
+    return result_func(res)
