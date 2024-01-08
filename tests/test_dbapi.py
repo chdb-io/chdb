@@ -32,7 +32,7 @@ class TestDBAPI(unittest.TestCase):
         cur.execute("""
         CREATE TABLE rate (
             day Date,
-            value Int32
+            value Int64
         ) ENGINE = ReplacingMergeTree ORDER BY day""")
 
         # Insert single value
