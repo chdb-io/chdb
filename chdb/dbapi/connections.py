@@ -123,7 +123,7 @@ class Connection(object):
         if DEBUG:
             print("DEBUG: query:", sql)
         try:
-            res = self._session.query(sql, output_format="JSON")
+            res = self._session.query(sql, fmt="JSON")
             if res.has_error():
                 raise err.DatabaseError(res.error_message())
             self._resp = res.data()
