@@ -12,9 +12,8 @@ class TestBasic(unittest.TestCase):
         self.assertEqual(len(res), 2) # "1\n"
         self.assertFalse(res.has_error())
         self.assertTrue(len(res.error_message()) == 0)
-        res = chdb.query("SELECT 1", "csv")
-        self.assertTrue(res.has_error())
-        self.assertTrue(len(res.error_message()) > 0)
+        with self.assertRaises(Exception):
+            res = chdb.query("SELECT 1", "csv")
 class TestOutput(unittest.TestCase):
     def test_output(self):
         for format, output in format_output.items():
