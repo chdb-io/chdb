@@ -36,9 +36,9 @@ jobs:
         run: |
           cd /home/ubuntu/pr_runner/chdb
           git fetch origin
-          git checkout ${{ github.head_ref }}
           git reset --hard origin/${{ github.head_ref }} || true
           git clean -fdx || true
+          git checkout ${{ github.head_ref }}
 
       - name: Set PYTHON_VERSIONS environment variable
         run: echo "PYTHON_VERSIONS=3.11" >> $GITHUB_ENV
