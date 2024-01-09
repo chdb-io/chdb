@@ -1078,7 +1078,7 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 local_result * query_stable(int argc, char ** argv)
 {
     auto result = pyEntryClickHouseLocal(argc, argv);
-    if (result->error_msg_.empty())
+    if (result->error_msg_.empty() || result->buf_ == nullptr)
     {
         return nullptr;
     }
@@ -1104,19 +1104,19 @@ void free_result(local_result * result)
         delete vec;
         result->_vec = nullptr;
     }
+    delete result;
 }
 
 local_result_v2 * query_stable_v2(int argc, char ** argv)
 {
     auto result = pyEntryClickHouseLocal(argc, argv);
+    if (result->buf_ == nullptr) {
+      return nullptr;
+    }
+
     local_result_v2 * res = new local_result_v2;
-    if (!result->error_msg_.empty())
+    if (result->error_msg_.empty())
     {
-        res->error_message = new char[result->error_msg_.size() + 1];
-        memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
-        res->_vec = nullptr;
-        res->buf = nullptr;
-    } else {
         res->len = result->buf_->size();
         res->buf = result->buf_->data();
         res->_vec = result->buf_;
@@ -1124,6 +1124,11 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
         res->bytes_read = result->bytes_;
         res->elapsed = result->elapsed_;
         res->error_message = nullptr;
+    } else {
+        res->error_message = new char[result->error_msg_.size() + 1];
+        memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
+        res->_vec = nullptr;
+        res->buf = nullptr;
     }
     return res;
 }
@@ -1145,6 +1150,7 @@ void free_result_v2(local_result_v2 * result)
         delete[] result->error_message;
         result->error_message = nullptr;
     }
+    delete result;
 }
 
 /**
