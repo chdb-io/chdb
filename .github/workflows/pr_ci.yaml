@@ -40,6 +40,7 @@ jobs:
           git clean -fdx || true
           git checkout -f --progress ${{ github.head_ref }} || true
           git status -v
+        continue-on-error: true
 
       - name: Cleanup dist directory
         run: rm -rf /home/ubuntu/pr_runner/chdb/dist/*
