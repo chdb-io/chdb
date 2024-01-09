@@ -35,11 +35,14 @@ jobs:
       - name: Cleanup and update chdb directory
         run: |
           cd /home/ubuntu/pr_runner/chdb
-          git fetch origin
+          git fetch origin || true
           git reset --hard origin/${{ github.head_ref }} || true
           git clean -fdx || true
           git checkout -f --progress ${{ github.head_ref }} || true
           git status -v
+
+      - name: Cleanup dist directory
+        run: rm -rf /home/ubuntu/pr_runner/chdb/dist/*
 
       - name: Set PYTHON_VERSIONS environment variable
         run: echo "PYTHON_VERSIONS=3.11" >> $GITHUB_ENV
