@@ -22,7 +22,6 @@ public:
     ~local_result_wrapper()
     {
         free_result_v2(result);
-        delete result;
     }
     char * data()
     {

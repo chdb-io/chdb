@@ -29,10 +29,8 @@ class TestQueryStatistics(unittest.TestCase):
         print(f"SQL read {ret.rows_read()} rows, {ret.bytes_read()} bytes, elapsed {ret.elapsed()} seconds")
 
     def test_non_exist_stats(self):
-        ret = chdb.query("SELECT * FROM file('notexist.parquet', Parquet)", "Parquet")
-        self.assertEqual(ret.rows_read(), 0)
-        self.assertEqual(ret.bytes_read(), 0)
-        print(f"SQL read {ret.rows_read()} rows, {ret.bytes_read()} bytes, elapsed {ret.elapsed()} seconds")
+        with self.assertRaises(Exception):
+            ret = chdb.query("SELECT * FROM file('notexist.parquet', Parquet)", "Parquet")
 
 
 if __name__ == "__main__":
