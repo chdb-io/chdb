@@ -18,7 +18,11 @@ jobs:
             mkdir -p /home/ubuntu/pr_runner/
             git clone https://github.com/chdb-io/chdb.git /home/ubuntu/pr_runner/chdb
           fi
-        
+      
+      - name: Check for ccache status
+        run: |
+          ccache -sv
+
       # - name: Code style check
       #   run: |
       #     export PYENV_ROOT="$HOME/.pyenv"
@@ -39,7 +43,7 @@ jobs:
           git reset --hard origin/${{ github.head_ref }} || true
           git clean -fdx || true
           git checkout -f --progress ${{ github.head_ref }} || true
-          git status -v
+          git status -v || true
         continue-on-error: true
 
       - name: Cleanup dist directory
