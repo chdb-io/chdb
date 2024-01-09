@@ -6,6 +6,9 @@ on:
 
 jobs:
   build:
+    env:
+      PYTHON_VERSIONS: "3.11"
+
     runs-on: self-hosted
     steps:
       - name: Check for chdb directory
