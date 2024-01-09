@@ -38,7 +38,8 @@ jobs:
           git fetch origin
           git reset --hard origin/${{ github.head_ref }} || true
           git clean -fdx || true
-          git checkout ${{ github.head_ref }}
+          git checkout -f --progress ${{ github.head_ref }} || true
+          git status -v
 
       - name: Set PYTHON_VERSIONS environment variable
         run: echo "PYTHON_VERSIONS=3.11" >> $GITHUB_ENV
