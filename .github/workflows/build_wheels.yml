@@ -8,10 +8,17 @@ on:
         required: true
   release:
     types: [created]
-  pull_request:
-    types: [opened, reopened]
+  push:
+    branches:
+      - main
     paths-ignore:
-      - '**/.md'
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
 
 jobs:
   build_wheels_linux:
