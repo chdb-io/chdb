@@ -1155,6 +1155,15 @@ void dummy_calls()
     }
 }
 
+void dummy_calls_v2()
+{
+    if (always_false)
+    {
+        struct local_result_v2 * result = query_stable_v2(0, nullptr);
+        free_result_v2(result);
+    }
+}
+
 int mainEntryClickHouseLocal(int argc, char ** argv)
 {
     dummy_calls();
