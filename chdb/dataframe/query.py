@@ -327,7 +327,7 @@ def memfd_create(name: str = None) -> int:
         try:
             fd = os.memfd_create(name, flags=os.MFD_CLOEXEC)
             return fd
-        except:
+        except:  # noqa
             return -1
     return -1
 

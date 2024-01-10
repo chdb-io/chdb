@@ -1,7 +1,7 @@
 import tempfile
 import shutil
 
-from chdb import query, g_udf_path
+from chdb import query
 
 
 class Session:
@@ -37,7 +37,7 @@ class Session:
     def cleanup(self):
         try:
             shutil.rmtree(self._path)
-        except:
+        except:  # noqa
             pass
 
     def query(self, sql, fmt="CSV"):
