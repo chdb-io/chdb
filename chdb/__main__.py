@@ -1,6 +1,6 @@
-import sys
 import argparse
 from .__init__ import query
+
 
 def main():
     prog = 'python -m chdb'
@@ -26,6 +26,7 @@ def main():
     else:
         temp = res.data()
     print(temp, end="")
+
 
 if __name__ == '__main__':
     main()
