@@ -2,6 +2,10 @@ import sys
 import os
 
 
+class ChdbError(Exception):
+    """Base class for exceptions in this module."""
+
+
 _arrow_format = set({"dataframe", "arrowtable"})
 _process_result_format_funs = {
     "dataframe": lambda x: to_df(x),
@@ -71,5 +75,9 @@ def query(sql, output_format="CSV", path="", udf_path=""):
         output_format = "Arrow"
     res = _chdb.query(sql, output_format, path=path, udf_path=g_udf_path)
     if res.has_error():
-        raise Exception(res.error_message())
+        raise ChdbError(res.error_message())
     return result_func(res)
+
+
+__all__ = ["ChdbError", "query", "chdb_version",
+           "engine_version", "to_df", "to_arrowTable"]
