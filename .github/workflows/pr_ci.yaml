@@ -23,16 +23,6 @@ jobs:
         run: |
           ccache -sv
 
-      - name: Code style check
-        run: |
-          export PYENV_ROOT="$HOME/.pyenv"
-          [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv local 3.11
-          python3 -m pip install flake8
-          cd chdb && python3 -m flake8
-        working-directory: /home/ubuntu/pr_runner/chdb
-
       - name: Copy submodules
         run: cp -a /builder_cache/contrib /home/ubuntu/pr_runner/chdb/
 
@@ -45,6 +35,16 @@ jobs:
           git checkout -f --progress ${{ github.head_ref }} || true
           git status -v || true
         continue-on-error: true
+
+      - name: Code style check
+        run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv local 3.11
+          python3 -m pip install flake8
+          cd chdb && python3 -m flake8
+        working-directory: /home/ubuntu/pr_runner/chdb
 
       - name: Cleanup dist directory
         run: rm -rf /home/ubuntu/pr_runner/chdb/dist/*
