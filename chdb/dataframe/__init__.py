@@ -1,7 +1,7 @@
 # try import pyarrow and pandas, if failed, raise ImportError with suggestion
 try:
-    import pyarrow as pa
-    import pandas as pd
+    import pyarrow as pa  # noqa
+    import pandas as pd  # noqa
 except ImportError as e:
     print(f'ImportError: {e}')
     print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
@@ -11,7 +11,7 @@ except ImportError as e:
 if pd.__version__[0] < '2':
     print('Please upgrade pandas to version 2.0.0 or higher to have better performance')
 
-from .query import Table, pandas_read_parquet # noqa: C0413
+from .query import Table, pandas_read_parquet  # noqa: C0413
 
 query = Table.queryStatic
 
