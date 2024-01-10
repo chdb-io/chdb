@@ -295,4 +295,3 @@ class DictCursor(Cursor):
         if row is None:
             return None
         return self.dict_type(zip(self._fields, row))
-
