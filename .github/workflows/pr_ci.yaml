@@ -69,6 +69,7 @@ jobs:
           [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv local 3.11
+          ls -lh dist
           python3 -m pip install auditwheel
-          auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
+          python3 -m auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
         working-directory: /home/ubuntu/pr_runner/chdb
