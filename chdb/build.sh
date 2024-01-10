@@ -160,7 +160,7 @@ if [ "$(uname)" == "Linux" ]; then
 fi
 
 if [ "$(uname)" == "Darwin" ]; then
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result/g')
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
 fi
 
 # Step 4:
