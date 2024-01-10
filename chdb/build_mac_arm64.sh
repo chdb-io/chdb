@@ -94,9 +94,15 @@ for PY_VER in 3.9.13 3.10.11 3.11.3 3.12.0; do
     python3 -m chdb "SELECT 1, 'ab'" arrowtable
 
     python3 -m chdb "SELECT 1, 'ab'" dataframe
-
+    
+    CHDB_VERSION=$(python3 -c "import chdb; print(chdb.__version__)")
     make test
 done
+
+cp programs/local/chdb.h chdb.h
+tar -czvf macos-arm64-libchdb.tar.gz libchdb.so chdb.h
+gh release upload v${CHDB_VERSION} macos-arm64-libchdb.tar.gz --clobber
+
 
 cd ${PROJ_DIR}
 make pub
