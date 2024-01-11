@@ -30,9 +30,10 @@ jobs:
         run: |
           cd /home/ubuntu/pr_runner/chdb
           git fetch origin || true
+          git fetch origin +refs/heads/*:refs/remotes/origin/* +refs/pull/${{ github.event.pull_request.number }}/merge:refs/remotes/pull/${{ github.event.pull_request.number }}/merge || true
           git reset --hard origin/${{ github.head_ref }} || true
           git clean -fdx || true
-          git checkout -f --progress ${{ github.head_ref }} || true
+          git checkout --progress --force refs/remotes/pull/${{ github.event.pull_request.number }}/merge || true
           git status -v || true
         continue-on-error: true
 
