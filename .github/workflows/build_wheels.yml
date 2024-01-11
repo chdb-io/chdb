@@ -311,7 +311,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v3
         with:
-          path: ./dist/*.whl
+          path: |
+            ./dist/*.whl
+            ./macos-x86_64-libchdb.tar.gz
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
