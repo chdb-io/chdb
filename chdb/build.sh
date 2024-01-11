@@ -160,7 +160,7 @@ if [ "$(uname)" == "Linux" ]; then
 fi
 
 if [ "$(uname)" == "Darwin" ]; then
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result/g')
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
 fi
 
 # Step 4:
@@ -192,9 +192,13 @@ cp -a ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
 
 echo -e "\nSymbols:"
+echo -e "\nPyInit in PYCHDB: ${PYCHDB}"
 ${NM} ${PYCHDB} | grep PyInit || true
+echo -e "\nPyInit in LIBCHDB: ${LIBCHDB}"
 ${NM} ${LIBCHDB} | grep PyInit || true
+echo -e "\nquery_stable in PYCHDB: ${PYCHDB}"
 ${NM} ${PYCHDB} | grep query_stable || true
+echo -e "\nquery_stable in LIBCHDB: ${LIBCHDB}"
 ${NM} ${LIBCHDB} | grep query_stable || true
 
 echo -e "\nAfter copy:"
