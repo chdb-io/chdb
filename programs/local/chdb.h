@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
 #define CHDB_EXPORT __attribute__((visibility("default")))
-struct CHDB_EXPORT local_result
+struct local_result
 {
     char * buf;
     size_t len;
@@ -20,7 +20,7 @@ struct CHDB_EXPORT local_result
     uint64_t bytes_read;
 };
 
-struct CHDB_EXPORT local_result_v2
+struct local_result_v2
 {
     char * buf;
     size_t len;
