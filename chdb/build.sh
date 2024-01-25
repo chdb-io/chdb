@@ -168,6 +168,18 @@ fi
 echo ${LIBCHDB_CMD} > libchdb_cmd.sh
 
 # Step 5:
+if [ -n "${BUILD_STATIC}"]; then
+  . ${DIR}/build_static.sh
+fi
+
+echo ${LIBCHDB_CMD} > libchdb_cmd.sh
+
+if [ -n "${BUILD_STATIC}"]; then
+  rm -f libchdb.a || :
+  bash ./libchdb_static.sh
+  bash ./libchdb_combine_static.sh
+fi
+
 ${LIBCHDB_CMD}
 
 LIBCHDB_DIR=${BUILD_DIR}/
