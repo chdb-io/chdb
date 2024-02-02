@@ -1109,26 +1109,56 @@ void free_result(local_result * result)
 
 local_result_v2 * query_stable_v2(int argc, char ** argv)
 {
-    auto result = pyEntryClickHouseLocal(argc, argv);
-    if (result->buf_ == nullptr) {
-      return nullptr;
-    }
-
-    local_result_v2 * res = new local_result_v2;
-    if (result->error_msg_.empty())
+    auto * res = new local_result_v2{};
+    // pyEntryClickHouseLocal may throw some serious exceptions, although it's not likely
+    // to happen in the context of clickhouse-local. we catch them here and return an error
+    try
     {
-        res->len = result->buf_->size();
-        res->buf = result->buf_->data();
-        res->_vec = result->buf_;
+        auto result = pyEntryClickHouseLocal(argc, argv);
+        // Directly assign common fields to reduce code duplication.
         res->rows_read = result->rows_;
         res->bytes_read = result->bytes_;
         res->elapsed = result->elapsed_;
-        res->error_message = nullptr;
-    } else {
-        res->error_message = new char[result->error_msg_.size() + 1];
-        memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
-        res->_vec = nullptr;
+
+        if (!result->error_msg_.empty())
+        {
+            // Handle scenario with an error message
+            res->error_message = new char[result->error_msg_.size() + 1];
+            memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
+            res->len = 0;
+            res->buf = nullptr;
+            res->_vec = nullptr;
+        }
+        else if (result->buf_ == nullptr)
+        {
+            // Handle scenario where result is empty and there's no error
+            res->len = 0;
+            res->buf = nullptr;
+            res->_vec = nullptr;
+        }
+        else
+        {
+            // Handle successful data retrieval scenario
+            res->len = result->buf_->size();
+            res->buf = result->buf_->data();
+            res->_vec = new std::vector<char>(*result->buf_);
+        }
+    }
+    catch (const std::exception & e)
+    {
+        res->error_message = new char[strlen(e.what()) + 1];
+        strcpy(res->error_message, e.what());
+        res->len = 0;
         res->buf = nullptr;
+        res->_vec = nullptr;
+    }
+    catch (...)
+    {
+        res->error_message = new char[20];
+        strcpy(res->error_message, "Unknown exception");
+        res->len = 0;
+        res->buf = nullptr;
+        res->_vec = nullptr;
     }
     return res;
 }
@@ -1136,20 +1166,10 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
 void free_result_v2(local_result_v2 * result)
 {
     if (!result)
-    {
         return;
-    }
-    if (result->_vec)
-    {
-        std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
-        delete vec;
-        result->_vec = nullptr;
-    }
-    if (result->error_message)
-    {
-        delete[] result->error_message;
-        result->error_message = nullptr;
-    }
+
+    delete reinterpret_cast<std::vector<char> *>(result->_vec);
+    delete[] result->error_message;
     delete result;
 }
 
