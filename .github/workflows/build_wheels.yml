@@ -147,7 +147,7 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Packege libchdb.so
         if: matrix.python-version == '3.12'
         run: |
@@ -158,7 +158,7 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} linux-x86_64-libchdb.tar.gz --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v3
         with:
           path: |
@@ -305,7 +305,7 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Packege libchdb.so
         if: matrix.python-version == '3.12'
         run: |
@@ -316,7 +316,7 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v3
         with:
           path: |
