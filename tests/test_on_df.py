@@ -13,7 +13,8 @@ if not os.path.exists(os.path.join(current_dir, "hits_0.parquet")):
     import urllib.request
 
     opener = urllib.request.URLopener()
-    opener.addheader("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+    opener.addheader(
+        "User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
     opener.retrieve("https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_0.parquet",
                     os.path.join(current_dir, "hits_0.parquet"))
 
@@ -43,11 +44,14 @@ class TestRunOnDf(unittest.TestCase):
     def test_run_parquet(self):
         pq_table = Table(parquet_path=hits_0)
         self.assertEqual((1000000, 105), pq_table.to_pandas().shape)
+        pq_table.show()
         t = time.time()
         ret = pq_table.query(sql)
         print("Run on parquet file. Time cost:", time.time() - t, "s", file=output)
         print("size:", len(ret._parquet_memoryview.tobytes()), "bytes", file=output)
+        ret.show()
         ret.flush_to_disk()
+        ret.show()
         print("file path:", ret._temp_parquet_path, file=output)
         print("size:", os.path.getsize(ret._temp_parquet_path), "bytes", file=output)
         # copy temp file to ./
