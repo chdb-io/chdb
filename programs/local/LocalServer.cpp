@@ -1095,50 +1095,41 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
     try
     {
         auto result = pyEntryClickHouseLocal(argc, argv);
-        // Directly assign common fields to reduce code duplication.
-        res->rows_read = result->rows_;
-        res->bytes_read = result->bytes_;
-        res->elapsed = result->elapsed_;
-
         if (!result->error_msg_.empty())
         {
             // Handle scenario with an error message
             res->error_message = new char[result->error_msg_.size() + 1];
-            memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
-            res->len = 0;
-            res->buf = nullptr;
-            res->_vec = nullptr;
+            std::memcpy(res->error_message, result->error_msg_.c_str(), result->error_msg_.size() + 1);
         }
         else if (result->buf_ == nullptr)
         {
             // Handle scenario where result is empty and there's no error
-            res->len = 0;
-            res->buf = nullptr;
-            res->_vec = nullptr;
+            res->rows_read = result->rows_;
+            res->bytes_read = result->bytes_;
+            res->elapsed = result->elapsed_;
         }
         else
         {
             // Handle successful data retrieval scenario
+            res->_vec = new std::vector<char>(*result->buf_);
             res->len = result->buf_->size();
             res->buf = result->buf_->data();
-            res->_vec = new std::vector<char>(*result->buf_);
+            res->rows_read = result->rows_;
+            res->bytes_read = result->bytes_;
+            res->elapsed = result->elapsed_;
         }
     }
     catch (const std::exception & e)
     {
         res->error_message = new char[strlen(e.what()) + 1];
-        strcpy(res->error_message, e.what());
-        res->len = 0;
-        res->buf = nullptr;
-        res->_vec = nullptr;
+        std::strcpy(res->error_message, e.what());
     }
     catch (...)
     {
-        res->error_message = new char[20];
-        strcpy(res->error_message, "Unknown exception");
-        res->len = 0;
-        res->buf = nullptr;
-        res->_vec = nullptr;
+        const char * unknown_exception_msg = "Unknown exception";
+        size_t len = std::strlen(unknown_exception_msg) + 1;
+        res->error_message = new char[len];
+        std::strcpy(res->error_message, unknown_exception_msg);
     }
     return res;
 }
