@@ -22,13 +22,13 @@ struct local_result
 
 struct local_result_v2
 {
-    char * buf;
-    size_t len;
-    void * _vec; // std::vector<char> *, for freeing
-    double elapsed;
-    uint64_t rows_read;
-    uint64_t bytes_read;
-    char * error_message;
+    char * buf = nullptr;
+    size_t len = 0;
+    void * _vec = nullptr; // std::vector<char> *, for freeing
+    double elapsed = 0.0;
+    uint64_t rows_read = 0;
+    uint64_t bytes_read = 0;
+    char * error_message = nullptr;
 };
 
 CHDB_EXPORT struct local_result * query_stable(int argc, char ** argv);
