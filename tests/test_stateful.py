@@ -53,6 +53,7 @@ class TestStateful(unittest.TestCase):
 
         ret = sess.query("SELECT * FROM db_xxx.log_table_xxx", "CSV")
         self.assertEqual(str(ret), "1\n2\n3\n4\n")
+        ret.show()
 
         # reuse session
         sess2 = session.Session(test_state_dir)
