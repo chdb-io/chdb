@@ -1,3 +1,4 @@
+#ifdef MONGODB_PROCESSOR
 #pragma once
 
 #include <Poco/MongoDB/Element.h>
@@ -85,3 +86,4 @@ private:
 };
 
 }
+#endif

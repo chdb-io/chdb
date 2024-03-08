@@ -1,3 +1,4 @@
+#ifdef MONGODB_STORAGE
 #include <Storages/StorageMongoDB.h>
 #include <Storages/StorageMongoDBSocketFactory.h>
 #include <Storages/StorageFactory.h>
@@ -317,3 +318,4 @@ void registerStorageMongoDB(StorageFactory & factory)
 }
 
 }
+#endif

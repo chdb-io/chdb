@@ -1,3 +1,4 @@
+#ifdef MONGODB_DICT
 #include "MongoDBDictionarySource.h"
 #include "DictionarySourceFactory.h"
 #include "DictionaryStructure.h"
@@ -264,3 +265,4 @@ std::string MongoDBDictionarySource::toString() const
 }
 
 }
+#endif

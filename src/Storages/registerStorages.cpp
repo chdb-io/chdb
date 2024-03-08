@@ -57,7 +57,9 @@ void registerStorageJDBC(StorageFactory & factory);
 void registerStorageMySQL(StorageFactory & factory);
 #endif
 
+#ifdef MONGODB
 void registerStorageMongoDB(StorageFactory & factory);
+#endif
 void registerStorageRedis(StorageFactory & factory);
 
 
@@ -157,7 +159,9 @@ void registerStorages()
     registerStorageMySQL(factory);
     #endif
 
+    #ifdef MONGODB
     registerStorageMongoDB(factory);
+    #endif
     registerStorageRedis(factory);
 
     #if USE_RDKAFKA

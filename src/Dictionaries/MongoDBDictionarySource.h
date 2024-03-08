@@ -1,3 +1,4 @@
+#ifdef MONGO_DICT
 #pragma once
 
 #include <Processors/Sources/MongoDBSource.h>
@@ -87,3 +88,4 @@ private:
 };
 
 }
+#endif
