@@ -14,7 +14,9 @@ void registerDictionarySourceClickHouse(DictionarySourceFactory & source_factory
 void registerDictionarySourceMongoDB(DictionarySourceFactory & source_factory);
 #endif
 void registerDictionarySourceCassandra(DictionarySourceFactory & source_factory);
+#ifdef USE_REDIS
 void registerDictionarySourceRedis(DictionarySourceFactory & source_factory);
+#endif
 void registerDictionarySourceXDBC(DictionarySourceFactory & source_factory);
 void registerDictionarySourceJDBC(DictionarySourceFactory & source_factory);
 void registerDictionarySourcePostgreSQL(DictionarySourceFactory & source_factory);
@@ -45,10 +47,12 @@ void registerDictionaries()
         registerDictionarySourceFile(source_factory);
         registerDictionarySourceMysql(source_factory);
         registerDictionarySourceClickHouse(source_factory);
-        #ifdef MONGODB
+#ifdef MONGODB
         registerDictionarySourceMongoDB(source_factory);
-        #endif
+#endif
+#ifdef USE_REDIS
         registerDictionarySourceRedis(source_factory);
+#endif
         registerDictionarySourceCassandra(source_factory);
         registerDictionarySourceXDBC(source_factory);
         registerDictionarySourceJDBC(source_factory);
