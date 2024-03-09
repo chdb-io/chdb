@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #pragma once
 
 #include <Storages/StorageRedis.h>
@@ -32,3 +33,4 @@ private:
 };
 
 }
+#endif

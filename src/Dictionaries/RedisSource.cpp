@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #include "RedisSource.h"
 
 #include <vector>
@@ -216,3 +217,4 @@ namespace DB
         return Chunk(std::move(columns), num_rows);
     }
 }
+#endif

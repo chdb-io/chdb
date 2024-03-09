@@ -36,11 +36,14 @@ target_link_libraries(clickhouse_dictionaries
         clickhouse_common_io
         dbms
         Poco::Data
-        Poco::Redis
         string_utils
 )
 if (ENABLE_MONGODB)
     target_link_libraries(clickhouse_dictionaries PRIVATE Poco::MongoDB)
+endif()
+
+if (ENABLE_REDIS)
+    target_link_libraries(clickhouse_dictionaries PRIVATE Poco::Redis)
 endif()
 
 target_link_libraries(clickhouse_dictionaries PUBLIC ch_contrib::abseil_swiss_tables)
