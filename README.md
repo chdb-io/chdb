@@ -1,4 +1,7 @@
 <div align="center">
+   <a href="https://clickhouse.com/blog/chdb-joins-clickhouse-family">📢 chDB joins the ClickHouse family 🐍+🚀</a>
+</div>
+<div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/_static/snake-chdb-dark.png" height="130">
   <img src="docs/_static/snake-chdb.png" height="130">
