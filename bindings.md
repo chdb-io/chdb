@@ -16,6 +16,8 @@ Here is a table outlining the current status of language bindings for chDB:
 | Java | n/a | Contributors Needed |
 | PHP | n/a | Contributors Needed |
 | Ruby | n/a | Contributors Needed |
+| R | n/a | Contributors Needed |
+
 
 
 ### chDB stable ABI
