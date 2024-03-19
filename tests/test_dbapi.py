@@ -32,17 +32,40 @@ class TestDBAPI(unittest.TestCase):
         cur.execute("""
         CREATE TABLE rate (
             day Date,
-            value Int32
-        ) ENGINE = Log""")
+            value Int64
+        ) ENGINE = ReplacingMergeTree ORDER BY day""")
 
-        # Insert values
-        cur.execute("INSERT INTO rate VALUES ('2024-01-01', 24)")
-        cur.execute("INSERT INTO rate VALUES ('2024-01-02', 72)")
+        # Insert single value
+        cur.execute("INSERT INTO rate VALUES (%s, %s)", ("2021-01-01", 24))
+        # Insert multiple values
+        cur.executemany("INSERT INTO rate VALUES (%s, %s)", [("2021-01-02", 128), ("2021-01-03", 256)])
+        # Test executemany outside optimized INSERT/REPLACE path
+        cur.executemany("ALTER TABLE rate UPDATE value = %s WHERE day = %s", [(72, "2021-01-02"), (96, "2021-01-03")])
 
-        # Read values
+        # Test fetchone
+        cur.execute("SELECT value FROM rate ORDER BY day DESC LIMIT 2")
+        row1 = cur.fetchone()
+        self.assertEqual(row1, (96,))
+        row2 = cur.fetchone()
+        self.assertEqual(row2, (72,))
+        row3 = cur.fetchone()
+        self.assertIsNone(row3)
+
+        # Test fetchmany
+        cur.execute("SELECT value FROM rate ORDER BY day DESC")
+        result_set1 = cur.fetchmany(2)
+        self.assertEqual(result_set1, ((96,), (72,)))
+        result_set2 = cur.fetchmany(1)
+        self.assertEqual(result_set2, ((24,),))
+
+        # Test fetchall
         cur.execute("SELECT value FROM rate ORDER BY day DESC")
         rows = cur.fetchall()
-        self.assertEqual(rows, ((72,), (24,)))
+        self.assertEqual(rows, ((96,), (72,), (24,)))
+
+        # Clean up
+        cur.close()
+        conn.close()
 
     def test_select_chdb_version(self):
         ver = dbapi.get_client_info()  # chDB version liek '0.12.0'

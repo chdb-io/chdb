@@ -2,6 +2,16 @@ import sys
 import os
 
 
+class ChdbError(Exception):
+    """Base class for exceptions in this module."""
+
+
+_arrow_format = set({"dataframe", "arrowtable"})
+_process_result_format_funs = {
+    "dataframe": lambda x: to_df(x),
+    "arrowtable": lambda x: to_arrowTable(x)
+}
+
 # If any UDF is defined, the path of the UDF will be set to this variable
 # and the path will be deleted when the process exits
 # UDF config path will be f"{g_udf_path}/udf_config.xml"
@@ -27,7 +37,7 @@ try:
     # Change here if project is renamed and does not equal the package name
     dist_name = __name__
     __version__ = ".".join(map(str, chdb_version))
-except:  # pragma: no cover
+except:  # noqa
     __version__ = "unknown"
 
 
@@ -36,8 +46,8 @@ def to_arrowTable(res):
     """convert res to arrow table"""
     # try import pyarrow and pandas, if failed, raise ImportError with suggestion
     try:
-        import pyarrow as pa
-        import pandas
+        import pyarrow as pa  # noqa
+        import pandas as pd  # noqa
     except ImportError as e:
         print(f"ImportError: {e}")
         print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
@@ -60,9 +70,14 @@ def query(sql, output_format="CSV", path="", udf_path=""):
     if udf_path != "":
         g_udf_path = udf_path
     lower_output_format = output_format.lower()
-    if lower_output_format == "dataframe":
-        return to_df(_chdb.query(sql, "Arrow", path=path, udf_path=g_udf_path))
-    elif lower_output_format == "arrowtable":
-        return to_arrowTable(_chdb.query(sql, "Arrow", path=path, udf_path=g_udf_path))
-    else:
-        return _chdb.query(sql, output_format, path=path, udf_path=g_udf_path)
+    result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
+    if lower_output_format in _arrow_format:
+        output_format = "Arrow"
+    res = _chdb.query(sql, output_format, path=path, udf_path=g_udf_path)
+    if res.has_error():
+        raise ChdbError(res.error_message())
+    return result_func(res)
+
+
+__all__ = ["ChdbError", "query", "chdb_version",
+           "engine_version", "to_df", "to_arrowTable"]

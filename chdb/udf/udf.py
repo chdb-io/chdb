@@ -82,7 +82,7 @@ def chdb_udf(return_type="String"):
         args = list(sig.parameters.keys())
         src = inspect.getsource(func)
         src = textwrap.dedent(src)
-        udf_body = src.split("\n", 1)[1] # remove the first line "@chdb_udf()"
+        udf_body = src.split("\n", 1)[1]  # remove the first line "@chdb_udf()"
         # create tmp dir and make sure the dir is deleted when the process exits
         if chdb.g_udf_path == "":
             chdb.g_udf_path = tempfile.mkdtemp()
@@ -92,7 +92,7 @@ def chdb_udf(return_type="String"):
         def _cleanup():
             try:
                 shutil.rmtree(chdb.g_udf_path)
-            except:
+            except:  # noqa
                 pass
 
         generate_udf(func_name, args, return_type, udf_body)

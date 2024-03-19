@@ -53,6 +53,7 @@ class TestStateful(unittest.TestCase):
 
         ret = sess.query("SELECT * FROM db_xxx.log_table_xxx", "CSV")
         self.assertEqual(str(ret), "1\n2\n3\n4\n")
+        ret.show()
 
         # reuse session
         sess2 = session.Session(test_state_dir)
@@ -62,8 +63,8 @@ class TestStateful(unittest.TestCase):
 
         # remove session dir
         sess2.cleanup()
-        ret = sess2.query("SELECT chdb_xxx()", "CSV")
-        self.assertEqual(str(ret), "")
+        with self.assertRaises(Exception):
+            ret = sess2.query("SELECT chdb_xxx()", "CSV")
 
     def test_mergetree(self):
         sess = session.Session()
@@ -90,8 +91,8 @@ class TestStateful(unittest.TestCase):
 
         # another session
         sess2 = session.Session()
-        ret = sess2.query("SELECT chdb_xxx()", "CSV")
-        self.assertEqual(str(ret), "")
+        with self.assertRaises(Exception):
+            ret = sess2.query("SELECT chdb_xxx()", "CSV")
 
     def test_two_sessions(self):
         sess1 = session.Session()
@@ -120,8 +121,8 @@ class TestStateful(unittest.TestCase):
             self.assertEqual(str(ret), '"0.12.0"\n')
 
         with session.Session() as sess:
-            ret = sess.query("SELECT chdb_xxx()", "CSV")
-            self.assertEqual(str(ret), "")
+            with self.assertRaises(Exception):
+                ret = sess.query("SELECT chdb_xxx()", "CSV")
 
     def test_zfree_thread_count(self):
         time.sleep(3)

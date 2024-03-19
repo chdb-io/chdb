@@ -8,8 +8,17 @@ on:
         required: true
   release:
     types: [created]
-  pull_request:
-    types: [opened, reopened]
+  # push:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - '**/*.md'
+  # pull_request:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - '**/*.md'
+
 
 jobs:
   build_wheels_linux:
@@ -79,9 +88,9 @@ jobs:
       - name: remove old clang and link clang-17 to clang
         if: matrix.os == 'ubuntu-20.04'
         run: |
-          sudo rm /usr/bin/clang
+          sudo rm -f /usr/bin/clang || true
           sudo ln -s /usr/bin/clang-17 /usr/bin/clang
-          sudo rm /usr/bin/clang++
+          sudo rm -f /usr/bin/clang++ || true
           sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
           which clang++
           clang++ --version
@@ -138,18 +147,23 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Packege libchdb.so
+        if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
           tar -czvf linux-x86_64-libchdb.tar.gz libchdb.so chdb.h
+      - name: Upload libchdb.so to release
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        run: |
           gh release upload ${{ github.ref_name }} linux-x86_64-libchdb.tar.gz --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v3
         with:
-          path: ./dist/*.whl
+          path: |
+            ./dist/*.whl
+            ./linux-x86_64-libchdb.tar.gz
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -291,18 +305,23 @@ jobs:
         run: |
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Packege libchdb.so
+        if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
           tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h
+      - name: Upload libchdb.so to release
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        run: |
           gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v3
         with:
-          path: ./dist/*.whl
+          path: |
+            ./dist/*.whl
+            ./macos-x86_64-libchdb.tar.gz
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

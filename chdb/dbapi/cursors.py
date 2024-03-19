@@ -206,7 +206,7 @@ class Cursor(object):
             prefix = prefix.encode(encoding)
         if isinstance(postfix, str):
             postfix = postfix.encode(encoding)
-        sql = str(prefix)
+        sql = prefix
         args = iter(args)
         v = values % escape(next(args), conn)
         if isinstance(v, str):
@@ -219,9 +219,9 @@ class Cursor(object):
                 v = v.encode(encoding, 'surrogateescape')
             if len(sql) + len(v) + len(postfix) + 1 > max_stmt_length:
                 rows += self.execute(sql + postfix)
-                sql = str(prefix)
+                sql = prefix
             else:
-                sql += ','
+                sql += ','.encode(encoding)
             sql += v
         rows += self.execute(sql + postfix)
         self.rowcount = rows
@@ -295,4 +295,3 @@ class DictCursor(Cursor):
         if row is None:
             return None
         return self.dict_type(zip(self._fields, row))
-

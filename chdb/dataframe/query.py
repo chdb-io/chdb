@@ -134,6 +134,9 @@ class Table:
         else:
             raise ValueError("Table object is not initialized correctly")
 
+    def show(self):
+        print(self.to_pandas())
+
     def _query_on_path(self, path, sql, **kwargs):
         new_sql = sql.replace("__table__", f'file("{path}", Parquet)')
         res = chdb_query(new_sql, "Parquet", **kwargs)
@@ -235,7 +238,8 @@ class Table:
             if isinstance(tbl, pd.DataFrame):
                 tbl = Table(dataframe=tbl)
             elif not isinstance(tbl, Table):
-                raise ValueError(f"Table {tableName} should be an instance of Table or DataFrame")
+                raise ValueError(
+                    f"Table {tableName} should be an instance of Table or DataFrame")
 
             if tbl._parquet_path is not None:
                 return f'file("{tbl._parquet_path}", Parquet)'
@@ -327,7 +331,7 @@ def memfd_create(name: str = None) -> int:
         try:
             fd = os.memfd_create(name, flags=os.MFD_CLOEXEC)
             return fd
-        except:
+        except:  # noqa
             return -1
     return -1
 

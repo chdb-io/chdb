@@ -1,0 +1,76 @@
+name: Pull-CI
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  build:
+    env:
+      PYTHON_VERSIONS: "3.11"
+
+    runs-on: self-hosted
+    steps:
+      - name: Check for chdb directory
+        run: |
+          if [ ! -d "/home/ubuntu/pr_runner/chdb" ]; then
+            echo "chdb directory does not exist. Checkout the repository."
+            mkdir -p /home/ubuntu/pr_runner/
+            git clone https://github.com/chdb-io/chdb.git /home/ubuntu/pr_runner/chdb
+          fi
+      
+      - name: Check for ccache status
+        run: |
+          ccache -sv
+
+      - name: Copy submodules
+        run: cp -a /builder_cache/contrib /home/ubuntu/pr_runner/chdb/
+
+      - name: Cleanup and update chdb directory
+        run: |
+          cd /home/ubuntu/pr_runner/chdb
+          git fetch origin || true
+          git fetch origin +refs/heads/*:refs/remotes/origin/* +refs/pull/${{ github.event.pull_request.number }}/merge:refs/remotes/pull/${{ github.event.pull_request.number }}/merge || true
+          git reset --hard origin/${{ github.head_ref }} || true
+          git clean -fdx || true
+          git checkout --progress --force refs/remotes/pull/${{ github.event.pull_request.number }}/merge || true
+          git status -v || true
+        continue-on-error: true
+
+      - name: Code style check
+        run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv local 3.11
+          python3 -m pip install flake8
+          cd chdb && python3 -m flake8
+        working-directory: /home/ubuntu/pr_runner/chdb
+
+      - name: Cleanup dist directory
+        run: rm -rf /home/ubuntu/pr_runner/chdb/dist/*
+
+      - name: Set PYTHON_VERSIONS environment variable
+        run: echo "PYTHON_VERSIONS=3.11" >> $GITHUB_ENV
+
+      - name: Run build script
+        run: bash -x ./chdb/build_linux_arm64.sh
+        working-directory: /home/ubuntu/pr_runner/chdb
+
+      - name: Check ccache statistics
+        run: |
+          ccache -s
+          ls -lh chdb
+          df -h
+        working-directory: /home/ubuntu/pr_runner/chdb
+
+      - name: Audit wheels
+        run: |
+          export PYENV_ROOT="$HOME/.pyenv"
+          [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv local 3.11
+          ls -lh dist
+          python3 -m pip install auditwheel
+          python3 -m auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
+        working-directory: /home/ubuntu/pr_runner/chdb

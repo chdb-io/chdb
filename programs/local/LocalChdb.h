@@ -15,14 +15,13 @@ class __attribute__((visibility("default"))) query_result;
 class local_result_wrapper
 {
 private:
-    local_result * result;
+    local_result_v2 * result;
 
 public:
-    local_result_wrapper(local_result * result) : result(result) { }
+    local_result_wrapper(local_result_v2 * result) : result(result) { }
     ~local_result_wrapper()
     {
-        free_result(result);
-        delete result;
+        free_result_v2(result);
     }
     char * data()
     {
@@ -81,6 +80,22 @@ public:
         }
         return result->elapsed;
     }
+    bool has_error()
+    {
+        if (result == nullptr)
+        {
+            return false;
+        }
+        return result->error_message != nullptr;
+    }
+    py::str error_message()
+    {
+        if (has_error())
+        {
+            return py::str(result->error_message);
+        }
+        return py::str();
+    }
 };
 
 class query_result
@@ -89,7 +104,7 @@ private:
     std::shared_ptr<local_result_wrapper> result_wrapper;
 
 public:
-    query_result(local_result * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
+    query_result(local_result_v2 * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
     ~query_result() { }
     char * data() { return result_wrapper->data(); }
     py::bytes bytes() { return result_wrapper->bytes(); }
@@ -98,6 +113,8 @@ public:
     size_t rows_read() { return result_wrapper->rows_read(); }
     size_t bytes_read() { return result_wrapper->bytes_read(); }
     double elapsed() { return result_wrapper->elapsed(); }
+    bool has_error() { return result_wrapper->has_error(); }
+    py::str error_message() { return result_wrapper->error_message(); }
     memoryview_wrapper * get_memview();
 };
 
