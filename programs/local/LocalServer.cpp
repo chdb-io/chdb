@@ -795,6 +795,35 @@ void LocalServer::processConfig()
                 LOG_ERROR(log, "Cannot read default database from {}", default_database_path);
             }
         }
+
+        /** Replay SET statements saved from last query() of chDB.
+        * See `InterpreterSetQuery::execute()` for details.
+        */
+        auto set_path = fs::path(path) / "set_statements";
+        if (std::filesystem::exists(set_path))
+        {
+            std::ifstream ifs(set_path);
+            std::string set_statement;
+            while (std::getline(ifs, set_statement))
+            {
+                if (!set_statement.empty())
+                {
+                    // We should not use processQueryText(set_statement) here to avoid the statement to be echoed.
+                    // Just construct AST changes and apply them.
+                    ParserSetQuery parser;
+                    const char * start = set_statement.data();
+                    ASTPtr ast = parseQuery(start, start + set_statement.size(), false);
+                    auto * set_query = typeid_cast<ASTSetQuery *>(ast.get());
+                    if (set_query)
+                    {
+                        // Get the changes from the ASTSetQuery
+                        const auto & changes = set_query->changes;
+                        // Process the changes as needed
+                        global_context->applySettingsChanges(changes);
+                    }
+                }
+            }
+        }
     }
     else if (!config().has("no-system-tables"))
     {
