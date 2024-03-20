@@ -1,3 +1,4 @@
+#ifdef MONGODB_STORAGE
 #include "StorageMongoDBSocketFactory.h"
 
 #include <Common/Exception.h>
@@ -51,3 +52,4 @@ Poco::Net::StreamSocket StorageMongoDBSocketFactory::createSecureSocket(const st
 }
 
 }
+#endif

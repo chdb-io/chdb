@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #include <unordered_set>
 #include <IO/WriteHelpers.h>
 #include <Interpreters/MutationsInterpreter.h>
@@ -584,3 +585,4 @@ void registerStorageRedis(StorageFactory & factory)
 }
 
 }
+#endif

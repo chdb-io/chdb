@@ -1,3 +1,4 @@
+#ifdef MONGODB_TABLE_FUN
 #include <TableFunctions/TableFunctionMongoDB.h>
 
 #include <Common/Exception.h>
@@ -104,3 +105,4 @@ void registerTableFunctionMongoDB(TableFunctionFactory & factory)
 }
 
 }
+#endif

@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #pragma once
 
 #include <Poco/Redis/Redis.h>
@@ -81,3 +82,4 @@ private:
 };
 
 }
+#endif

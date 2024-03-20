@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #include "RedisDictionarySource.h"
 #include "DictionarySourceFactory.h"
 #include "DictionaryStructure.h"
@@ -179,3 +180,4 @@ namespace DB
     }
 
 }
+#endif

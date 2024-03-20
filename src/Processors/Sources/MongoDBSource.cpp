@@ -1,3 +1,4 @@
+#ifdef MONGODB_PROCESSOR
 #include "MongoDBSource.h"
 
 #include <string>
@@ -539,3 +540,4 @@ Chunk MongoDBSource::generate()
 }
 
 }
+#endif

@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #include "RedisCommon.h"
 #include <Common/Exception.h>
 #include <Common/parseAddress.h>
@@ -148,3 +149,4 @@ RedisArrayPtr getRedisHashMapKeys(const RedisConnectionPtr & connection, RedisAr
 }
 
 }
+#endif

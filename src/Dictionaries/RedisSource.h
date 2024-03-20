@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #pragma once
 
 #include <Core/Block.h>
@@ -39,3 +40,4 @@ namespace DB
 
 }
 
+#endif

@@ -71,7 +71,9 @@ add_contrib (murmurhash)
 add_contrib (replxx-cmake replxx)
 add_contrib (unixodbc-cmake unixodbc)
 add_contrib (nanodbc-cmake nanodbc)
-add_contrib (capnproto-cmake capnproto)
+if (ENABLE_CAPNPROTO) # add by chdb
+    add_contrib (capnproto-cmake capnproto)
+endif ()
 add_contrib (yaml-cpp-cmake yaml-cpp)
 add_contrib (re2-cmake re2)
 add_contrib (xz-cmake xz)
@@ -90,8 +92,12 @@ add_contrib (arrow-cmake arrow) # requires: snappy, thrift, double-conversion
 add_contrib (avro-cmake avro) # requires: snappy
 add_contrib (google-protobuf-cmake google-protobuf)
 add_contrib (openldap-cmake openldap)
-add_contrib (grpc-cmake grpc)
-add_contrib (msgpack-c-cmake msgpack-c)
+if (ENABLE_GRPC) # add by chdb
+    add_contrib (grpc-cmake grpc)
+endif ()
+if (ENABLE_MSGPACK)
+    add_contrib (msgpack-c-cmake msgpack-c)
+endif()
 add_contrib (libarchive-cmake libarchive)
 
 add_contrib (corrosion-cmake corrosion)
@@ -105,16 +111,20 @@ add_contrib (cityhash102)
 add_contrib (libfarmhash)
 add_contrib (icu-cmake icu)
 add_contrib (h3-cmake h3)
-add_contrib (mariadb-connector-c-cmake mariadb-connector-c)
+if (ENABLE_MYSQLLIB) # add by chdb
+    add_contrib (mariadb-connector-c-cmake mariadb-connector-c)
+endif ()
 add_contrib (libfiu-cmake libfiu)
 
 if (ENABLE_TESTS)
     add_contrib (googletest-cmake googletest)
 endif()
 
-add_contrib (llvm-project-cmake llvm-project)
-add_contrib (libfuzzer-cmake llvm-project)
-add_contrib (gwpasan-cmake llvm-project)
+if (ENABLE_LLVM) # add by chdb
+    add_contrib (llvm-project-cmake llvm-project)
+    add_contrib (libfuzzer-cmake llvm-project)
+    add_contrib (gwpasan-cmake llvm-project)
+endif ()
 add_contrib (libxml2-cmake libxml2)
 
 add_contrib (aws-cmake
@@ -212,7 +222,7 @@ add_contrib (libbcrypt-cmake libbcrypt)
 add_contrib (google-benchmark-cmake google-benchmark)
 add_contrib (ulid-c-cmake ulid-c)
 
-add_contrib (libssh-cmake libssh)
+  add_contrib (libssh-cmake libssh)
 
 # Put all targets defined here and in subdirectories under "contrib/<immediate-subdir>" folders in GUI-based IDEs.
 # Some of third-party projects may override CMAKE_FOLDER or FOLDER property of their targets, so they would not appear

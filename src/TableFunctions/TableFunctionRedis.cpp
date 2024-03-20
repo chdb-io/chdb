@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #include <TableFunctions/TableFunctionRedis.h>
 
 #include <Common/Exception.h>
@@ -92,3 +93,4 @@ void registerTableFunctionRedis(TableFunctionFactory & factory)
 }
 
 }
+#endif
