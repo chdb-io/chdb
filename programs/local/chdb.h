@@ -20,6 +20,7 @@ struct local_result
     uint64_t bytes_read;
 };
 
+#ifdef __cplusplus
 struct local_result_v2
 {
     char * buf = nullptr;
@@ -30,6 +31,18 @@ struct local_result_v2
     uint64_t bytes_read = 0;
     char * error_message = nullptr;
 };
+#else
+struct local_result_v2
+{
+    char * buf;
+    size_t len;
+    void * _vec; // std::vector<char> *, for freeing
+    double elapsed;
+    uint64_t rows_read;
+    uint64_t bytes_read;
+    char * error_message;
+};
+#endif
 
 CHDB_EXPORT struct local_result * query_stable(int argc, char ** argv);
 CHDB_EXPORT void free_result(struct local_result * result);
