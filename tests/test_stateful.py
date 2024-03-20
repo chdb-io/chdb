@@ -5,6 +5,7 @@ import shutil
 import psutil
 import unittest
 from chdb import session
+import chdb
 
 
 test_state_dir = ".state_tmp_auxten_"
@@ -68,9 +69,7 @@ class TestStateful(unittest.TestCase):
 
     def test_mergetree(self):
         sess = session.Session()
-        sess.query(
-            "CREATE DATABASE IF NOT EXISTS db_xxx_merge ENGINE = Atomic;", "CSV"
-        )
+        sess.query("CREATE DATABASE IF NOT EXISTS db_xxx_merge ENGINE = Atomic;", "CSV")
         sess.query(
             "CREATE TABLE IF NOT EXISTS db_xxx_merge.log_table_xxx (x String, y Int) ENGINE = MergeTree ORDER BY x;"
         )
@@ -113,6 +112,42 @@ class TestStateful(unittest.TestCase):
         self.assertEqual(str(ret), "1\n2\n3\n4\n")
         ret = sess2.query("SELECT * FROM db_xxx.tbl2", "CSV")
         self.assertEqual(str(ret), "5\n6\n7\n8\n")
+        sess1.query(
+            """
+            SET input_format_csv_use_best_effort_in_schema_inference = 0;
+            SET input_format_csv_skip_first_lines = 1;"""
+        )
+        # query level settings should not affect session level settings
+        ret = sess1.query(
+            "SELECT 123 SETTINGS input_format_csv_use_best_effort_in_schema_inference = 1;"
+        )
+        # check sess1 settings
+        ret = sess1.query("""SELECT value, changed FROM system.settings
+            WHERE name = 'input_format_csv_use_best_effort_in_schema_inference';""")
+        self.assertEqual(str(ret), '"0",1\n')
+        ret = sess1.query("""SELECT value, changed FROM system.settings
+            WHERE name = 'input_format_csv_skip_first_lines';""")
+        self.assertEqual(str(ret), '"1",1\n')
+
+        # sess2 should not be affected
+        ret = sess2.query("""SELECT value, changed FROM system.settings
+            WHERE name = 'input_format_csv_use_best_effort_in_schema_inference';""")
+        self.assertEqual(str(ret), '"1",0\n')
+        ret = sess2.query("""SELECT value, changed FROM system.settings
+            WHERE name = 'input_format_csv_skip_first_lines';""")
+        self.assertEqual(str(ret), '"0",0\n')
+
+        # stateless query should not be affected
+        ret = chdb.query(
+            """SELECT value, changed FROM system.settings
+            WHERE name = 'input_format_csv_use_best_effort_in_schema_inference';"""
+        )
+        self.assertEqual(str(ret), '"1",0\n')
+        ret = chdb.query(
+            """SELECT value, changed FROM system.settings
+            WHERE name = 'input_format_csv_skip_first_lines';"""
+        )
+        self.assertEqual(str(ret), '"0",0\n')
 
     def test_context_mgr(self):
         with session.Session() as sess:
