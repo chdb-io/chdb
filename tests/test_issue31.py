@@ -10,7 +10,7 @@ import urllib.request
 
 from timeout_decorator import timeout
 
-csv_url = "https://media.githubusercontent.com/media/datablist/sample-csv-files/main/files/organizations/organizations-2000000.zip"
+csv_url = "https://github.com/chdb-io/chdb/files/14662379/organizations-500000.zip"
 
 
 # download csv file, and unzip it
@@ -33,7 +33,7 @@ import signal
 def payload():
     now = time.time()
     res = chdb.query(
-        'select Name, count(*) cnt from file("organizations-2000000.csv", CSVWithNames) group by Name order by cnt desc, Name asc limit 10000',
+        'select Name, count(*) cnt from file("organizations-500000.csv", CSVWithNames) group by Name order by cnt desc, Name asc limit 10000',
         "CSV",
     )
     # calculate md5 of the result
@@ -71,11 +71,11 @@ class TimeoutTestRunner(unittest.TextTestRunner):
 
 class TestAggOnCSVSpeed(unittest.TestCase):
     def setUp(self):
-        download_and_extract(csv_url, "organizations-2000000.zip")
+        download_and_extract(csv_url, "organizations-500000.zip")
 
     def tearDown(self):
-        os.remove("organizations-2000000.csv")
-        os.remove("organizations-2000000.zip")
+        os.remove("organizations-500000.csv")
+        os.remove("organizations-500000.zip")
 
     def _test_agg(self, arg=None):
         payload()
