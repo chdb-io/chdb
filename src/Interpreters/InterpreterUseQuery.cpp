@@ -26,7 +26,7 @@ BlockIO InterpreterUseQuery::execute()
     // The default_database content is used in the LocalServer::processConfig() method.
     auto default_database_path = fs::path(getContext()->getPath()) / "default_database";
     std::ofstream tmp_path_fs(default_database_path, std::ofstream::out | std::ofstream::trunc);
-    if (tmp_path_fs && tmp_path_fs.is_open())
+    if (tmp_path_fs.is_open())
     {
         tmp_path_fs << new_database;
         tmp_path_fs.close();
