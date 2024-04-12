@@ -4,3 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
 build-frontend = "pip"
+
+[tool.pyright]
+include = ["chdb"]
+exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
+
