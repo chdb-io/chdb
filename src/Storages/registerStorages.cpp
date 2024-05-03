@@ -25,6 +25,8 @@ void registerStorageLiveView(StorageFactory & factory);
 void registerStorageGenerateRandom(StorageFactory & factory);
 void registerStorageExecutable(StorageFactory & factory);
 void registerStorageWindowView(StorageFactory & factory);
+//chdb todo: add a #if USE_PYTHON here
+void registerStoragePython(StorageFactory & factory);
 
 #if USE_AWS_S3
 void registerStorageS3(StorageFactory & factory);
@@ -123,8 +125,9 @@ void registerStorages()
     registerStorageGenerateRandom(factory);
     registerStorageExecutable(factory);
     registerStorageWindowView(factory);
+    registerStoragePython(factory);
 
-    #if USE_AWS_S3
+#if USE_AWS_S3
     registerStorageS3(factory);
     registerStorageCOS(factory);
     registerStorageOSS(factory);
