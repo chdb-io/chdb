@@ -271,7 +271,7 @@ execute_process(COMMAND python3 -m pybind11 --includes
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
-# Extract and set include directories specifically for StoragePython.cpp
+# Extract and set include directories specifically for source using pybind11
 string(REGEX MATCHALL "-I([^ ]+)" INCLUDE_DIRS_MATCHES ${PYBIND11_INCLUDES})
 set(PYTHON_INCLUDE_DIRS "")
 foreach(INCLUDE_DIR_MATCH ${INCLUDE_DIRS_MATCHES})
@@ -280,8 +280,9 @@ foreach(INCLUDE_DIR_MATCH ${INCLUDE_DIRS_MATCHES})
     set(PYTHON_INCLUDE_DIRS "${PYTHON_INCLUDE_DIRS};${INCLUDE_DIR_MATCH}")
 endforeach()
 
-# Apply the include directories to only StoragePython.cpp
+# Apply the include directories to Storages/StoragePython.cpp and Processors/Sources/PythonSource.cpp
 set_source_files_properties(Storages/StoragePython.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
+set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
 
 # get python version, something like python3.x
 execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
@@ -300,13 +301,22 @@ if (OS_LINUX)
         set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS
             "-w -idirafter /usr/include -include crypt.h"
         )
+        set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS
+            "-w -idirafter /usr/include -include crypt.h"
+        )
     else()
         set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS
+            "-w"
+        )
+        set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS
             "-w"
         )
     endif()
 elseif (OS_DARWIN)
     set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS 
+        "-w"
+    )
+    set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS 
         "-w"
     )
 endif()
