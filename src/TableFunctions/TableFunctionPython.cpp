@@ -86,8 +86,7 @@ StoragePtr TableFunctionPython::executeImpl(
 
 ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr /*context*/, bool /*is_insert_query*/) const
 {
-    //chdb todo
-    return ColumnsDescription({{"a", std::make_shared<DataTypeUInt64>()}, {"b", std::make_shared<DataTypeString>()}});
+    return StoragePython::getTableStructureFromData(reader);
 }
 
 void registerTableFunctionPython(TableFunctionFactory & factory)
