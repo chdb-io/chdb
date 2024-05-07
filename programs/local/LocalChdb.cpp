@@ -149,7 +149,8 @@ PYBIND11_MODULE(_chdb, m)
     py::class_<DB::PyReader, DB::PyReaderTrampoline, std::shared_ptr<DB::PyReader>>(m, "PyReader")
         .def(
             py::init<const py::object &>(),
-            "Initialize the reader with data. The exact type and structure of `data` can vary.\n\n"
+            "Initialize the reader with data. The exact type and structure of `data` can vary."
+            "you must hold the data with `self.data` in your inherit class\n\n"
             "Args:\n"
             "    data (Any): The data with which to initialize the reader, format and type are not strictly defined.")
         .def(
@@ -158,7 +159,7 @@ PYBIND11_MODULE(_chdb, m)
             {
                 // GIL is held when called from Python code. Release it to avoid deadlock
                 py::gil_scoped_release release;
-                return self.read(col_names, count);
+                return std::move(self.read(col_names, count));
             },
             "Read a specified number of rows from the given columns and return a list of objects, "
             "where each object is a sequence of values for a column.\n\n"
@@ -166,7 +167,13 @@ PYBIND11_MODULE(_chdb, m)
             "    col_names (List[str]): List of column names to read.\n"
             "    count (int): Maximum number of rows to read.\n\n"
             "Returns:\n"
-            "    List[Any]: List of sequences, one for each column.");
+            "    List[Any]: List of sequences, one for each column.")
+        .def(
+            "get_schema",
+            &DB::PyReader::getSchema,
+            "Return a list of column names and their types.\n\n"
+            "Returns:\n"
+            "    List[str, str]: List of column name and type pairs.");
 
     m.def(
         "query",
