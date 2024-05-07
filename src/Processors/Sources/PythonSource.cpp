@@ -25,6 +25,25 @@ PythonSource::PythonSource(std::shared_ptr<PyReader> reader_, const Block & samp
 }
 
 template <typename T>
+void insert_from_pyobject(py::object obj, const MutableColumnPtr & column)
+{
+    if (py::isinstance<py::list>(obj))
+    {
+        py::list list = obj.cast<py::list>();
+        for (auto && item : list)
+            column->insert(item.cast<T>());
+        list.dec_ref();
+    }
+    else if (py::isinstance<py::array>(obj))
+    {
+        py::array array = obj.cast<py::array>();
+        for (auto && item : array)
+            column->insert(item.cast<T>());
+        array.dec_ref();
+    }
+}
+
+template <typename T>
 ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
 {
     MutableColumnPtr column;
@@ -35,29 +54,36 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
     else
         column = ColumnVector<T>::create();
 
-    if (py::isinstance<py::list>(obj))
+    if (py::isinstance<py::list>(obj) || py::isinstance<py::array>(obj))
     {
-        py::list list = obj.cast<py::list>();
-        for (auto && i : list)
-            column->insert(i.cast<T>());
-        list.dec_ref();
+        insert_from_pyobject<T>(obj, column);
+        return column;
     }
-    else if (py::isinstance<py::array>(obj))
+
+    std::string type_name = obj.attr("__class__").attr("__name__").cast<std::string>();
+    if (type_name == "Series")
     {
-        py::array array = obj.cast<py::array>();
-        for (auto && i : array)
-            column->insert(i.cast<T>());
-        array.dec_ref();
+        py::object values = obj.attr("values");
+        if (py::isinstance<py::array>(values))
+        {
+            insert_from_pyobject<T>(values, column);
+            return column;
+        }
+
+        if (values.attr("__class__").attr("__name__").cast<std::string>() == "ArrowExtensionArray")
+        {
+            py::object array = values.attr("to_pandas")();
+            py::array array_values = array.cast<py::array>();
+            insert_from_pyobject<T>(array_values, column);
+            return column;
+        }
     }
-    else
-    {
-        throw Exception(
-            ErrorCodes::BAD_TYPE_OF_FIELD,
-            "Unsupported type {} for value {}",
-            obj.get_type().attr("__name__").cast<std::string>(),
-            py::str(obj).cast<std::string>());
-    }
-    return column;
+
+    throw Exception(
+        ErrorCodes::BAD_TYPE_OF_FIELD,
+        "Unsupported type {} for value {}",
+        obj.get_type().attr("__name__").cast<std::string>(),
+        py::str(obj).cast<std::string>());
 }
 
 Chunk PythonSource::generate()
