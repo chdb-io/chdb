@@ -21,6 +21,7 @@
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
+#include "pybind11/gil.h"
 
 #include <any>
 
@@ -39,9 +40,9 @@ StoragePython::StoragePython(
     const StorageID & table_id_,
     const ColumnsDescription & columns_,
     const ConstraintsDescription & constraints_,
-    std::shared_ptr<PyReader> reader_,
+    py::object reader_,
     ContextPtr context_)
-    : IStorage(table_id_), reader(std::move(reader_)), WithContext(context_->getGlobalContext())
+    : IStorage(table_id_), reader(reader_), WithContext(context_->getGlobalContext())
 {
     StorageInMemoryMetadata storage_metadata;
     storage_metadata.setColumns(columns_);
@@ -58,6 +59,7 @@ Pipe StoragePython::read(
     size_t max_block_size,
     size_t /*num_streams*/)
 {
+    py::gil_scoped_acquire acquire;
     storage_snapshot->check(column_names);
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
@@ -76,11 +78,12 @@ Block StoragePython::prepareSampleBlock(const Names & column_names, const Storag
     return sample_block;
 }
 
-ColumnsDescription StoragePython::getTableStructureFromData(std::shared_ptr<PyReader> reader)
+ColumnsDescription StoragePython::getTableStructureFromData(py::object reader)
 {
     if (!reader)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Python reader not initialized");
-    auto schema = reader->getSchema();
+    py::gil_scoped_acquire acquire;
+    auto schema = reader.attr("get_schema")().cast<std::vector<std::pair<std::string, std::string>>>();
 
     auto * logger = &Poco::Logger::get("StoragePython");
     if (logger->debug())
@@ -205,7 +208,7 @@ void registerStoragePython(StorageFactory & factory)
             if (args.engine_args.size() != 1)
                 throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python engine requires 1 argument: PyReader object");
 
-            auto reader = std::dynamic_pointer_cast<PyReader>(std::any_cast<std::shared_ptr<PyReader>>(args.engine_args[0]));
+            py::object reader = std::any_cast<py::object>(args.engine_args[0]);
             return std::make_shared<StoragePython>(args.table_id, args.columns, args.constraints, reader, args.getLocalContext());
         },
         {.supports_settings = true, .supports_parallel_insert = false});
