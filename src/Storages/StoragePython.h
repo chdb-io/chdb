@@ -24,11 +24,14 @@ class PyReader
 {
 public:
     explicit PyReader(const py::object & data) : data(data) { }
-    virtual ~PyReader() = default;
+    ~PyReader() = default;
 
     // Read `count` rows from the data, and return a list of columns
     // chdb todo: maybe return py::list is better, but this is just a shallow copy
-    virtual std::vector<py::object> read(const std::vector<std::string> & col_names, int count) = 0;
+    std::vector<py::object> read(const std::vector<std::string> & /*col_names*/, int /*count*/)
+    {
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "read() method is not implemented");
+    }
 
     // Return a vector of column names and their types, as a list of pairs.
     // The order is important, and should match the order of the data.
@@ -116,36 +119,42 @@ protected:
     py::object data;
 };
 
-// Trampoline class
-// see: https://pybind11.readthedocs.io/en/stable/advanced/classes.html#trampolines
-class PyReaderTrampoline : public PyReader
-{
-public:
-    using PyReader::PyReader; // Inherit constructors
+// // Trampoline class
+// // see: https://pybind11.readthedocs.io/en/stable/advanced/classes.html#trampolines
+// class PyReaderTrampoline : public PyReader
+// {
+// public:
+//     using PyReader::PyReader; // Inherit constructors
 
-    // Just forward the virtual function call to Python
-    std::vector<py::object> read(const std::vector<std::string> & col_names, int count) override
-    {
-        PYBIND11_OVERRIDE_PURE(
-            std::vector<py::object>, // Return type List[object]
-            PyReader, // Parent class
-            read, // Name of the function in C++ (must match Python name)
-            col_names, // Argument(s)
-            count);
-    }
-};
+//     // Just forward the virtual function call to Python
+//     std::vector<py::object> read(const std::vector<std::string> & col_names, int count) override
+//     {
+//         PYBIND11_OVERRIDE_PURE(
+//             std::vector<py::object>, // Return type List[object]
+//             PyReader, // Parent class
+//             read, // Name of the function in C++ (must match Python name)
+//             col_names, // Argument(s)
+//             count);
+//     }
+// };
 
 class StoragePython : public IStorage, public WithContext
 {
-    std::shared_ptr<PyReader> reader;
-
 public:
     StoragePython(
         const StorageID & table_id_,
         const ColumnsDescription & columns_,
         const ConstraintsDescription & constraints_,
-        std::shared_ptr<PyReader> reader_,
+        py::object reader_,
         ContextPtr context_);
+
+    ~StoragePython() override
+    {
+        // Destroy the reader with the GIL
+        py::gil_scoped_acquire acquire;
+        reader.dec_ref();
+        reader.release();
+    }
 
     std::string getName() const override { return "Python"; }
 
@@ -160,9 +169,10 @@ public:
 
     Block prepareSampleBlock(const Names & column_names, const StorageSnapshotPtr & storage_snapshot);
 
-    static ColumnsDescription getTableStructureFromData(std::shared_ptr<PyReader> reader);
+    static ColumnsDescription getTableStructureFromData(py::object reader);
 
 private:
+    py::object reader;
     Poco::Logger * logger = &Poco::Logger::get("StoragePython");
 };
 
