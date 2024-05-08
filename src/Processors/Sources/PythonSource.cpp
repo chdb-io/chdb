@@ -18,8 +18,8 @@
 
 namespace DB
 {
-PythonSource::PythonSource(std::shared_ptr<PyReader> reader_, const Block & sample_block_, const UInt64 max_block_size_)
-    : ISource(sample_block_.cloneEmpty()), reader(std::move(reader_)), max_block_size(max_block_size_)
+PythonSource::PythonSource(py::object reader_, const Block & sample_block_, const UInt64 max_block_size_)
+    : ISource(sample_block_.cloneEmpty()), reader(reader_), max_block_size(max_block_size_)
 {
     description.init(sample_block_);
 }
@@ -32,14 +32,14 @@ void insert_from_pyobject(py::object obj, const MutableColumnPtr & column)
         py::list list = obj.cast<py::list>();
         for (auto && item : list)
             column->insert(item.cast<T>());
-        list.dec_ref();
+        // list.dec_ref();
     }
     else if (py::isinstance<py::array>(obj))
     {
         py::array array = obj.cast<py::array>();
         for (auto && item : array)
             column->insert(item.cast<T>());
-        array.dec_ref();
+        // array.dec_ref();
     }
 }
 
@@ -89,18 +89,15 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
 Chunk PythonSource::generate()
 {
     size_t num_rows = 0;
-    std::vector<py::object> data;
+    py::gil_scoped_acquire acquire;
     try
     {
-        // GIL is held when called from Python code. Release it to avoid deadlock
-        py::gil_scoped_release release;
-        data = reader->read(description.sample_block.getNames(), max_block_size);
+        auto names = description.sample_block.getNames();
+        auto data = reader.attr("read")(names, max_block_size).cast<std::vector<py::object>>();
 
         LOG_DEBUG(logger, "Read {} columns", data.size());
         LOG_DEBUG(logger, "Need {} columns", description.sample_block.columns());
         LOG_DEBUG(logger, "Max block size: {}", max_block_size);
-
-        py::gil_scoped_acquire acquire;
 
         // if log level is debug, print all the data
         if (logger->debug())
@@ -188,9 +185,13 @@ Chunk PythonSource::generate()
                     type->getName(),
                     description.sample_block.getByPosition(i).name);
         }
-        // Set data vector to empty to avoid trigger py::object destructor without GIL
-        // Note: we have already manually decremented the reference count of the list or array in `convert_and_insert` function
-        data.clear();
+        // // Set data vector to empty to avoid trigger py::object destructor without GIL
+        // // Note: we have already manually decremented the reference count of the list or array in `convert_and_insert` function
+        // for (auto && col : data)
+        // {
+        //     col.dec_ref();
+        //     col.release();
+        // }
         if (num_rows == 0)
             return {};
 
@@ -198,7 +199,7 @@ Chunk PythonSource::generate()
     }
     catch (const std::exception & e)
     {
-        py::gil_scoped_release release;
+        // py::gil_scoped_release release;
         throw Exception(ErrorCodes::LOGICAL_ERROR, e.what());
     }
 }
