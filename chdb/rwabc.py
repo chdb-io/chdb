@@ -13,16 +13,17 @@ class PyReader(ABC):
         self.data = data
 
     @abstractmethod
-    def read(self, col_names: List[str], count: int) -> bytes:
+    def read(self, col_names: List[str], count: int) -> List[Any]:
         """
-        Read a specified number of rows from the given columns. Must be implemented by subclasses.
+        Read a specified number of rows from the given columns and return a list of objects,
+        where each object is a sequence of values for a column.
 
         Args:
             col_names (List[str]): List of column names to read.
             count (int): Maximum number of rows to read.
 
         Returns:
-            bytes: Serialized data representing the requested rows.
+            List[Any]: List of sequences, one for each column.
         """
         pass
 
