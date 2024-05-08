@@ -1,5 +1,6 @@
 #include "LocalChdb.h"
 #include <Storages/StoragePython.h>
+#include "pybind11/gil.h"
 
 
 extern bool inside_main = true;
@@ -50,6 +51,7 @@ local_result_v2 * queryToBuffer(
     for (auto & arg : argv)
         argv_char.push_back(const_cast<char *>(arg.c_str()));
 
+    py::gil_scoped_release release;
     return query_stable_v2(argv_char.size(), argv_char.data());
 }
 
@@ -146,7 +148,7 @@ PYBIND11_MODULE(_chdb, m)
         .def("has_error", &query_result::has_error)
         .def("error_message", &query_result::error_message);
 
-    py::class_<DB::PyReader, DB::PyReaderTrampoline, std::shared_ptr<DB::PyReader>>(m, "PyReader")
+    py::class_<DB::PyReader, std::shared_ptr<DB::PyReader>>(m, "PyReader")
         .def(
             py::init<const py::object &>(),
             "Initialize the reader with data. The exact type and structure of `data` can vary."
