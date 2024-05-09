@@ -185,13 +185,7 @@ Chunk PythonSource::generate()
                     type->getName(),
                     description.sample_block.getByPosition(i).name);
         }
-        // // Set data vector to empty to avoid trigger py::object destructor without GIL
-        // // Note: we have already manually decremented the reference count of the list or array in `convert_and_insert` function
-        // for (auto && col : data)
-        // {
-        //     col.dec_ref();
-        //     col.release();
-        // }
+
         if (num_rows == 0)
             return {};
 
