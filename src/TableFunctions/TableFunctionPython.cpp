@@ -45,46 +45,46 @@ bool is_or_inherits_from_pyreader(const py::handle & obj, int depth = 3)
     return false;
 }
 
-// Function to find instances of PyReader or classes derived from PyReader, filtered by variable name
-std::vector<py::object> find_instances_of_pyreader(const std::string & var_name)
+// Helper function to check if object is a pandas DataFrame
+bool is_pandas_dataframe(const py::object & obj)
 {
-    std::vector<py::object> instances;
+    auto pd_data_frame_type = py::module_::import("pandas").attr("DataFrame");
+    return py::isinstance(obj, pd_data_frame_type);
+}
 
-    // Access the main module and its global dictionary
-    py::dict globals = py::reinterpret_borrow<py::dict>(py::module_::import("__main__").attr("__dict__"));
+// Helper function to check if object is a PyArrow Table
+bool is_pyarrow_table(const py::object & obj)
+{
+    auto table_type = py::module_::import("pyarrow").attr("Table");
+    return py::isinstance(obj, table_type);
+}
 
-    // Search in global scope
-    if (globals.contains(var_name))
+// Function to find instance of PyReader, pandas DataFrame, or PyArrow Table, filtered by variable name
+py::object find_instances_of_pyreader(const std::string & var_name)
+{
+    py::module inspect = py::module_::import("inspect");
+    py::object current_frame = inspect.attr("currentframe")();
+
+    while (!current_frame.is_none())
     {
-        py::object obj = globals[var_name.data()];
-        if (py::isinstance<py::object>(obj) && py::hasattr(obj, "__class__"))
-        {
-            if (is_or_inherits_from_pyreader(obj))
-                instances.push_back(obj);
-        }
-    }
-    if (!instances.empty())
-        return instances;
+        auto local_dict = py::reinterpret_borrow<py::dict>(current_frame.attr("f_locals"));
+        auto global_dict = py::reinterpret_borrow<py::dict>(current_frame.attr("f_globals"));
 
-    // Check objects in the garbage collector if nothing found, filtering by var_name
-    // typically used to find objects that are not in the global scope, like in functions
-    LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "Searching for PyReader objects in the garbage collector");
-    py::module_ gc = py::module_::import("gc");
-    py::list all_objects = gc.attr("get_objects")();
-
-    for (auto obj : all_objects)
-    {
-        if (py::isinstance<py::object>(obj) && py::hasattr(obj, "__class__"))
+        for (const auto & dict : {local_dict, global_dict})
         {
-            if (is_or_inherits_from_pyreader(obj) && py::str(obj.attr("__class__").attr("__name__")).cast<std::string>() == var_name)
+            if (dict.contains(var_name))
             {
-                if (std::find(instances.begin(), instances.end(), obj) == instances.end())
-                    instances.push_back(obj.cast<py::object>());
+                py::object obj = dict[var_name.data()];
+                if (is_or_inherits_from_pyreader(obj) || is_pandas_dataframe(obj) || is_pyarrow_table(obj))
+                    return obj;
             }
         }
+
+        current_frame = current_frame.attr("f_back");
     }
 
-    return instances;
+    // not found
+    return py::none();
 }
 
 void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr context)
@@ -104,33 +104,29 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
 
     try
     {
-        // py::dict global_vars = py::globals();
-        // LOG_DEBUG(logger, "Globals content: {}", String(py::str(global_vars)));
-        // py::dict main_vars = py::reinterpret_borrow<py::dict>(py::module_::import("__main__").attr("__dict__").ptr());
-        // LOG_DEBUG(logger, "Main content: {}", String(py::str(main_vars)));
-
         // get the py_reader_arg without quotes
         auto py_reader_arg_str = py_reader_arg->as<ASTLiteral &>().value.safeGet<String>();
-        LOG_DEBUG(logger, "PyReader object name: {}", py_reader_arg_str);
+        LOG_DEBUG(logger, "Python object name: {}", py_reader_arg_str);
 
         // strip all quotes like '"` if any. eg. 'PyReader' -> PyReader, "PyReader" -> PyReader
         py_reader_arg_str.erase(
             std::remove_if(py_reader_arg_str.begin(), py_reader_arg_str.end(), [](char c) { return c == '\'' || c == '\"' || c == '`'; }),
             py_reader_arg_str.end());
 
-        auto instances = find_instances_of_pyreader(py_reader_arg_str);
-        if (instances.empty())
-            throw Exception(ErrorCodes::PY_OBJECT_NOT_FOUND, "PyReader object not found in the Python environment");
-        if (instances.size() > 1)
-            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Multiple PyReader objects found in the Python environment");
+        auto instance = find_instances_of_pyreader(py_reader_arg_str);
+        if (instance.is_none())
+            throw Exception(
+                ErrorCodes::PY_OBJECT_NOT_FOUND,
+                "Python object not found in the Python environment\n"
+                "Ensure that the object is type of PyReader, pandas DataFrame, or PyArrow Table and is in the global or local scope");
 
         LOG_DEBUG(
             logger,
-            "PyReader object found in Python environment with name: {} type: {}",
+            "Python object found in Python environment with name: {} type: {}",
             py_reader_arg_str,
-            py::str(instances[0].attr("__class__")).cast<std::string>());
+            py::str(instance.attr("__class__")).cast<std::string>());
 
-        reader = instances[0];
+        reader = instance;
     }
     catch (py::error_already_set & e)
     {
