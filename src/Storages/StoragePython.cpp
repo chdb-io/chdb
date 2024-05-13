@@ -13,6 +13,7 @@
 #include <Storages/StoragePython.h>
 #include <base/types.h>
 #include <pybind11/functional.h>
+#include <pybind11/gil.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
@@ -21,7 +22,6 @@
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
-#include "pybind11/gil.h"
 
 #include <any>
 
@@ -107,7 +107,8 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object reader)
     RE2 pattern_time32(R"(\btime32\b)");
     RE2 pattern_time64_us(R"(\btime64\[us\]\b)");
     RE2 pattern_time64_ns(R"(\btime64\[ns\]\b)");
-    RE2 pattern_string_binary(R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|dtype\[object_\]|dtype\('O'\))");
+    RE2 pattern_string_binary(
+        R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|binary\[pyarrow\]|dtype\[object_\]|dtype\('O'\))");
 
     // Iterate through each pair of name and type string in the schema
     for (const auto & [name, typeStr] : schema)
