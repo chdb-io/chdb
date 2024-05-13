@@ -40,6 +40,14 @@ public:
                    reinterpret_cast<char *>(this) + sizeof(*this))
             ->push_back_raw(ptr);
     }
+
+    template <size_t ELEMENT_SIZE>
+    void appendRawData(const char * ptr, size_t count)
+    {
+        return reinterpret_cast<PODArrayBase<ELEMENT_SIZE, 4096, Allocator<false>, PADDING_FOR_SIMD - 1, PADDING_FOR_SIMD> *>(
+                   reinterpret_cast<char *>(this) + sizeof(*this))
+            ->append_raw(ptr, count);
+    }
 };
 
 }
