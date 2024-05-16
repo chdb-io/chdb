@@ -1,6 +1,6 @@
 #include "LocalChdb.h"
 #include <Storages/StoragePython.h>
-#include "pybind11/gil.h"
+#include <pybind11/gil.h>
 
 
 extern bool inside_main = true;

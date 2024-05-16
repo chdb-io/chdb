@@ -1,20 +1,23 @@
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
+#include <Columns/ColumnVectorHelper.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDecimalBase.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/IDataType.h>
+#include <Interpreters/ExpressionActions.h>
 #include <Processors/Sources/PythonSource.h>
 #include <Storages/StoragePython.h>
 #include <base/Decimal.h>
-#include <pybind11/gil.h>
-#include <pybind11/pytypes.h>
-#include <Common/Exception.h>
-#include <Common/logger_useful.h>
 #include <base/Decimal_fwd.h>
 #include <base/types.h>
+#include <pybind11/gil.h>
+#include <pybind11/pytypes.h>
+#include <Poco/Logger.h>
+#include <Common/Exception.h>
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -32,14 +35,34 @@ void insert_from_pyobject(py::object obj, const MutableColumnPtr & column)
         py::list list = obj.cast<py::list>();
         for (auto && item : list)
             column->insert(item.cast<T>());
-        // list.dec_ref();
+        return;
     }
-    else if (py::isinstance<py::array>(obj))
+
+    if (py::isinstance<py::array>(obj))
     {
+        // if column type is ColumnString, we need to handle it like list
+        if constexpr (std::is_same_v<T, String>)
+        {
+            py::array array = obj.cast<py::array>();
+            for (auto && item : array)
+                column->insert(item.cast<std::string>());
+            return;
+        }
         py::array array = obj.cast<py::array>();
-        for (auto && item : array)
-            column->insert(item.cast<T>());
-        // array.dec_ref();
+        column->reserve(size_t(array.size()));
+        // get the raw data from the array and memcpy it into the column
+        ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
+        helper->appendRawData<sizeof(T)>(static_cast<const char *>(array.data()), array.size());
+        LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "Read {} bytes", array.size() * array.itemsize());
+        return;
+    }
+    else
+    {
+        throw Exception(
+            ErrorCodes::BAD_TYPE_OF_FIELD,
+            "Unsupported type {} for value {}",
+            obj.get_type().attr("__name__").cast<std::string>(),
+            py::str(obj).cast<std::string>());
     }
 }
 
@@ -70,11 +93,25 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
             return column;
         }
 
-        if (values.attr("__class__").attr("__name__").cast<std::string>() == "ArrowExtensionArray")
+        // Handle ArrowExtensionArray and similar structures with to_numpy method
+        // this will introduce about 25% overhead for the case when the data is already in numpy array:
+        // See:
+        //      Read parquet file into memory. Time cost: 0.6645004749298096 s
+        //      Parquet file size: 1395695970 bytes
+        //      Read parquet file as old pandas dataframe. Time cost: 9.46176028251648 s
+        //      Dataframe size: 4700000128 bytes
+        //      Read parquet file as pandas dataframe(arrow). Time cost: 1.6119577884674072 s
+        //      Dataframe size: 7025418615 bytes
+        //      Convert old dataframe to numpy array. Time cost: 2.574920654296875e-05 s
+        //      Convert dataframe(arrow) to numpy array. Time cost: 0.017014503479003906 s
+        //      Run duckdb on dataframe. Time cost: 0.10320639610290527 s
+        //      Run with new chDB on dataframe. Time cost: 0.09642386436462402 s
+        //      Run with new chDB on dataframe(arrow). Time cost: 0.11595273017883301 s
+        // chdb todo: maybe we can use the ArrowExtensionArray directly
+        if (py::hasattr(values, "to_numpy"))
         {
-            py::object array = values.attr("to_pandas")();
-            py::array array_values = array.cast<py::array>();
-            insert_from_pyobject<T>(array_values, column);
+            py::array numpy_array = values.attr("to_numpy")();
+            insert_from_pyobject<T>(numpy_array, column);
             return column;
         }
     }
