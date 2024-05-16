@@ -106,7 +106,7 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object reader)
     RE2 pattern_date64(R"(\bdate64\b)");
     RE2 pattern_time32(R"(\btime32\b)");
     RE2 pattern_time64_us(R"(\btime64\[us\]\b)");
-    RE2 pattern_time64_ns(R"(\btime64\[ns\]\b)");
+    RE2 pattern_time64_ns(R"(\btime64\[ns\]\b|<M8\[ns\])");
     RE2 pattern_string_binary(
         R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|binary\[pyarrow\]|dtype\[object_\]|dtype\('O'\))");
 
