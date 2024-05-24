@@ -283,6 +283,7 @@ endforeach()
 # Apply the include directories to Storages/StoragePython.cpp and Processors/Sources/PythonSource.cpp
 set_source_files_properties(Storages/StoragePython.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
 set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
+set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
 
 # get python version, something like python3.x
 execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
@@ -304,11 +305,17 @@ if (OS_LINUX)
         set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS
             "-w -idirafter /usr/include -include crypt.h"
         )
+        set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES COMPILE_FLAGS
+            "-w -idirafter /usr/include -include crypt.h"
+        )
     else()
         set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS
             "-w"
         )
         set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS
+            "-w"
+        )
+        set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES COMPILE_FLAGS
             "-w"
         )
     endif()
@@ -317,6 +324,9 @@ elseif (OS_DARWIN)
         "-w"
     )
     set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS 
+        "-w"
+    )
+    set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES COMPILE_FLAGS 
         "-w"
     )
 endif()
