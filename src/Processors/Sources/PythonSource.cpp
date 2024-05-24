@@ -1,4 +1,7 @@
+#include <cstddef>
+#include <memory>
 #include <Columns/ColumnDecimal.h>
+// #include <Columns/ColumnPyObject.h>
 #include <Columns/ColumnString.h>
 #include <Columns/ColumnVectorHelper.h>
 #include <Columns/IColumn.h>
@@ -16,11 +19,15 @@
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
+#include <Common/COW.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
 
 namespace DB
 {
+
+using namespace pybind11::literals;
+
 PythonSource::PythonSource(py::object reader_, const Block & sample_block_, const UInt64 max_block_size_)
     : ISource(sample_block_.cloneEmpty()), reader(reader_), max_block_size(max_block_size_)
 {
@@ -43,9 +50,26 @@ void insert_from_pyobject(py::object obj, const MutableColumnPtr & column)
         // if column type is ColumnString, we need to handle it like list
         if constexpr (std::is_same_v<T, String>)
         {
+            // Typically numpy string array is a array of pointers, convert it to ColumnString:
+            // 1. get the total size of the strings
+            // 2. reserve the size in the column
+            // 3. copy the strings into the column
             py::array array = obj.cast<py::array>();
             for (auto && item : array)
-                column->insert(item.cast<std::string>());
+            {
+                UInt64 str_len;
+                // auto kind = PyUnicode_KIND(item.ptr());
+                // LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "PyObjects Kind: {}", kind);
+                const char * ptr = PythonSource::getPyUtf8StrData(item, str_len);
+                column->insertData(ptr, str_len);
+            }
+            // if (py::isinstance<py::str>(obj.attr("__getitem__")(0)))
+            // {
+            //     py::array array = obj.cast<py::array>();
+            //     ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
+            //     helper->appendRawData<sizeof(T)>(static_cast<const char *>(array.data()), array.size());
+            //     LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "PyObjects Read {} bytes", array.size() * array.itemsize());
+            // }
             return;
         }
         py::array array = obj.cast<py::array>();
@@ -79,6 +103,8 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
 
     if (py::isinstance<py::list>(obj) || py::isinstance<py::array>(obj))
     {
+        //reserve the size of the column
+        column->reserve(py::len(obj));
         insert_from_pyobject<T>(obj, column);
         return column;
     }
@@ -89,6 +115,24 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
         py::object values = obj.attr("values");
         if (py::isinstance<py::array>(values))
         {
+            // if constexpr (std::is_same_v<T, String>)
+            // {
+            //     // call obj.memory_usage(deep=True) if possible
+            //     if (py::hasattr(obj, "memory_usage"))
+            //     {
+            //         size_t mem_usage = obj.attr("memory_usage")("deep"_a = true).cast<size_t>();
+            //         LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "Memory usage: {}", mem_usage);
+            //         //reserve the size of the column
+            //         auto col = ColumnString::create();
+            //         col->getOffsets().reserve(py::len(values));
+            //         col->getChars().reserve(mem_usage);
+            //         column = std::move(col);
+            //     }
+
+            //     // // If the values first element is a Python str object
+            //     // if (py::isinstance<py::str>(values.attr("__getitem__")(0)))
+            //     //     column = ColumnPyObject::create();
+            // }
             insert_from_pyobject<T>(values, column);
             return column;
         }
@@ -111,6 +155,7 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
         if (py::hasattr(values, "to_numpy"))
         {
             py::array numpy_array = values.attr("to_numpy")();
+            column->reserve(numpy_array.size());
             insert_from_pyobject<T>(numpy_array, column);
             return column;
         }
