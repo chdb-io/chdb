@@ -75,7 +75,7 @@ Pipe StoragePython::read(
         }
     }
 
-    num_streams = 10; // for testing
+    // num_streams = 10; // for testing
 
     // Converting Python str to ClickHouse String type will cost a lot of time.
     // so if string column involved, return multiple streams.

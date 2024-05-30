@@ -105,6 +105,11 @@ inline std::vector<T> castToVector(const py::object & obj)
     return execWithGIL([&]() { return obj.cast<std::vector<T>>(); });
 }
 
+inline std::vector<py::handle> castToPyHandleVector(const py::handle obj)
+{
+    return execWithGIL([&]() { return obj.cast<std::vector<py::handle>>(); });
+}
+
 template <typename T>
 inline std::shared_ptr<std::vector<T>> castToSharedPtrVector(const py::object & obj)
 {
@@ -167,4 +172,7 @@ inline std::vector<py::object> readData(const py::object & data_source, const st
 {
     return execWithGIL([&]() { return data_source.attr("read")(names, cursor, count).cast<std::vector<py::object>>(); });
 }
-}
+
+const void * tryGetPyArray(const py::object & obj, py::handle & result, std::string & type_name, size_t & row_count);
+
+} // namespace DB
