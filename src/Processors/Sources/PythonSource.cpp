@@ -1,3 +1,4 @@
+#include "pybind11/numpy.h"
 #define PYBIND11_NO_ASSERT_GIL_HELD_INCREF_DECREF
 
 #include <cstddef>
@@ -57,47 +58,33 @@ PythonSource::PythonSource(
 }
 
 template <typename T>
-void insert_from_pyobject(const py::object & obj, const MutableColumnPtr & column)
+void insert_from_list(const py::list & obj, const MutableColumnPtr & column)
 {
-    auto type_name = getPyType(obj);
-    if (type_name == "list")
-    {
-        py::list list = castToPyList(obj);
-        {
-            py::gil_scoped_acquire acquire;
-            for (auto && item : list)
-                column->insert(item.cast<T>());
-        }
-        return;
-    }
+    py::gil_scoped_acquire acquire;
+    for (auto && item : obj)
+        column->insert(item.cast<T>());
+}
 
-    if (type_name == "ndarray")
+void insert_string_from_array(const py::handle obj, const MutableColumnPtr & column)
+{
+    auto array = castToPyHandleVector(obj);
+    for (auto && item : array)
     {
-        // if column type is ColumnString, we need to handle it like list
-        if constexpr (std::is_same_v<T, String>)
-        {
-            py::array array = castToPyArray(obj);
-            py::gil_scoped_acquire acquire;
-            for (auto && item : array)
-            {
-                size_t str_len;
-                const char * ptr = GetPyUtf8StrData(item, str_len);
-                column->insertData(ptr, str_len);
-            }
-            return;
-        }
-        py::array array = castToPyArray(obj);
-        column->reserve(size_t(array.size()));
-        // get the raw data from the array and memcpy it into the column
-        ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
-        helper->appendRawData<sizeof(T)>(static_cast<const char *>(array.data()), array.size());
-        return;
-    }
-    else
-    {
-        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for value {}", getPyType(obj), castToStr(obj));
+        size_t str_len;
+        const char * ptr = GetPyUtf8StrData(item, str_len);
+        column->insertData(ptr, str_len);
     }
 }
+
+template <typename T>
+void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const size_t row_count)
+{
+    column->reserve(row_count);
+    // get the raw data from the array and memcpy it into the column
+    ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
+    helper->appendRawData<sizeof(T)>(static_cast<const char *>(ptr), row_count);
+}
+
 
 template <typename T>
 ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0)
@@ -110,51 +97,25 @@ ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0)
     else
         column = ColumnVector<T>::create();
 
-    std::string type_name = getPyType(obj);
-    // if (isInstanceOf<py::list>(obj) || isInstanceOf<py::array>(obj))
-    if (type_name == "list" || type_name == "ndarray")
+    std::string type_name;
+    size_t row_count;
+    py::handle py_array;
+    const void * data = tryGetPyArray(obj, py_array, type_name, row_count);
+    if (!py_array.is_none())
     {
-        //reserve the size of the column
-        column->reserve(getObjectLength(obj));
-        insert_from_pyobject<T>(obj, column);
+        if constexpr (std::is_same_v<T, String>)
+            insert_string_from_array(py_array, column);
+        else
+            insert_from_ptr<T>(data, column, row_count);
         return column;
     }
 
-    if (type_name == "Series")
+    if (type_name == "list")
     {
-        py::object values;
-        {
-            py::gil_scoped_acquire acquire;
-            values = obj.attr("values");
-        }
-        if (isInstanceOf<py::array>(values))
-        {
-            insert_from_pyobject<T>(values, column);
-            return column;
-        }
-
-        // Handle ArrowExtensionArray and similar structures with to_numpy method
-        // this will introduce about 25% overhead for the case when the data is already in numpy array:
-        // See:
-        //      Read parquet file into memory. Time cost: 0.6645004749298096 s
-        //      Parquet file size: 1395695970 bytes
-        //      Read parquet file as old pandas dataframe. Time cost: 9.46176028251648 s
-        //      Dataframe size: 4700000128 bytes
-        //      Read parquet file as pandas dataframe(arrow). Time cost: 1.6119577884674072 s
-        //      Dataframe size: 7025418615 bytes
-        //      Convert old dataframe to numpy array. Time cost: 2.574920654296875e-05 s
-        //      Convert dataframe(arrow) to numpy array. Time cost: 0.017014503479003906 s
-        //      Run duckdb on dataframe. Time cost: 0.10320639610290527 s
-        //      Run with new chDB on dataframe. Time cost: 0.09642386436462402 s
-        //      Run with new chDB on dataframe(arrow). Time cost: 0.11595273017883301 s
-        // chdb todo: maybe we can use the ArrowExtensionArray directly
-        if (hasAttribute(values, "to_numpy"))
-        {
-            py::array numpy_array = callMethod(values, "to_numpy");
-            column->reserve(numpy_array.size());
-            insert_from_pyobject<T>(numpy_array, column);
-            return column;
-        }
+        //reserve the size of the column
+        column->reserve(row_count);
+        insert_from_list<T>(obj, column);
+        return column;
     }
 
     throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for value {}", getPyType(obj), castToStr(obj));

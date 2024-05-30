@@ -1,6 +1,9 @@
+#include <cstddef>
 #include <unicode/bytestream.h>
 #include "Common/logger_useful.h"
 #include <Common/PythonUtils.h>
+#include "pybind11/gil.h"
+#include "pybind11/pytypes.h"
 
 namespace DB
 {
@@ -152,5 +155,38 @@ bool _isInheritsFromPyReader(const py::handle & obj)
             return true;
 
     return false;
+}
+
+// Will try to get the ref of py::array from pandas Series, or PyArrow Table
+// without import numpy or pyarrow. Just from class name for now.
+const void * tryGetPyArray(const py::object & obj, py::handle & result, std::string & type_name, size_t & row_count)
+{
+    py::gil_scoped_acquire acquire;
+    type_name = py::str(obj.attr("__class__").attr("__name__")).cast<std::string>();
+    if (type_name == "ndarray")
+    {
+        // Return the handle of py::array directly
+        row_count = py::len(obj);
+        result = obj;
+        return obj.cast<py::array>().data();
+    }
+    else if (type_name == "Series")
+    {
+        // Try to get the handle of py::array from pandas Series
+        py::array array = obj.attr("values");
+        row_count = py::len(obj);
+        result = array;
+        return array.data();
+    }
+    else if (type_name == "Table")
+    {
+        // Try to get the handle of py::array from PyArrow Table
+        py::array array = obj.attr("to_pandas")();
+        row_count = py::len(obj);
+        result = array;
+        return array.data();
+    }
+
+    return nullptr;
 }
 }
