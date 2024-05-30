@@ -1,5 +1,8 @@
+#define PYBIND11_NO_ASSERT_GIL_HELD_INCREF_DECREF
+
 #include <cstddef>
 #include <memory>
+#include <vector>
 #include <Columns/ColumnDecimal.h>
 // #include <Columns/ColumnPyObject.h>
 #include <Columns/ColumnString.h>
@@ -17,81 +20,87 @@
 #include <base/Decimal_fwd.h>
 #include <base/types.h>
 #include <pybind11/gil.h>
+#include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 #include <Common/COW.h>
 #include <Common/Exception.h>
+#include <Common/PythonUtils.h>
 #include <Common/logger_useful.h>
+
 
 namespace DB
 {
 
-using namespace pybind11::literals;
+namespace py = pybind11;
 
-PythonSource::PythonSource(py::object reader_, const Block & sample_block_, const UInt64 max_block_size_)
-    : ISource(sample_block_.cloneEmpty()), reader(reader_), max_block_size(max_block_size_)
+namespace ErrorCodes
+{
+extern const int PY_OBJECT_NOT_FOUND;
+extern const int PY_EXCEPTION_OCCURED;
+}
+
+PythonSource::PythonSource(
+    py::object & data_source_,
+    const Block & sample_block_,
+    const UInt64 max_block_size_,
+    const size_t stream_index,
+    const size_t num_streams)
+    : ISource(sample_block_.cloneEmpty())
+    , data_source(data_source_)
+    , max_block_size(max_block_size_)
+    , stream_index(stream_index)
+    , num_streams(num_streams)
+    , cursor(0)
 {
     description.init(sample_block_);
 }
 
 template <typename T>
-void insert_from_pyobject(py::object obj, const MutableColumnPtr & column)
+void insert_from_pyobject(const py::object & obj, const MutableColumnPtr & column)
 {
-    if (py::isinstance<py::list>(obj))
+    auto type_name = getPyType(obj);
+    if (type_name == "list")
     {
-        py::list list = obj.cast<py::list>();
-        for (auto && item : list)
-            column->insert(item.cast<T>());
+        py::list list = castToPyList(obj);
+        {
+            py::gil_scoped_acquire acquire;
+            for (auto && item : list)
+                column->insert(item.cast<T>());
+        }
         return;
     }
 
-    if (py::isinstance<py::array>(obj))
+    if (type_name == "ndarray")
     {
         // if column type is ColumnString, we need to handle it like list
         if constexpr (std::is_same_v<T, String>)
         {
-            // Typically numpy string array is a array of pointers, convert it to ColumnString:
-            // 1. get the total size of the strings
-            // 2. reserve the size in the column
-            // 3. copy the strings into the column
-            py::array array = obj.cast<py::array>();
+            py::array array = castToPyArray(obj);
+            py::gil_scoped_acquire acquire;
             for (auto && item : array)
             {
-                UInt64 str_len;
-                // auto kind = PyUnicode_KIND(item.ptr());
-                // LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "PyObjects Kind: {}", kind);
-                const char * ptr = PythonSource::getPyUtf8StrData(item, str_len);
+                size_t str_len;
+                const char * ptr = GetPyUtf8StrData(item, str_len);
                 column->insertData(ptr, str_len);
             }
-            // if (py::isinstance<py::str>(obj.attr("__getitem__")(0)))
-            // {
-            //     py::array array = obj.cast<py::array>();
-            //     ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
-            //     helper->appendRawData<sizeof(T)>(static_cast<const char *>(array.data()), array.size());
-            //     LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "PyObjects Read {} bytes", array.size() * array.itemsize());
-            // }
             return;
         }
-        py::array array = obj.cast<py::array>();
+        py::array array = castToPyArray(obj);
         column->reserve(size_t(array.size()));
         // get the raw data from the array and memcpy it into the column
         ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
         helper->appendRawData<sizeof(T)>(static_cast<const char *>(array.data()), array.size());
-        LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "Read {} bytes", array.size() * array.itemsize());
         return;
     }
     else
     {
-        throw Exception(
-            ErrorCodes::BAD_TYPE_OF_FIELD,
-            "Unsupported type {} for value {}",
-            obj.get_type().attr("__name__").cast<std::string>(),
-            py::str(obj).cast<std::string>());
+        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for value {}", getPyType(obj), castToStr(obj));
     }
 }
 
 template <typename T>
-ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
+ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0)
 {
     MutableColumnPtr column;
     if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
@@ -101,38 +110,25 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
     else
         column = ColumnVector<T>::create();
 
-    if (py::isinstance<py::list>(obj) || py::isinstance<py::array>(obj))
+    std::string type_name = getPyType(obj);
+    // if (isInstanceOf<py::list>(obj) || isInstanceOf<py::array>(obj))
+    if (type_name == "list" || type_name == "ndarray")
     {
         //reserve the size of the column
-        column->reserve(py::len(obj));
+        column->reserve(getObjectLength(obj));
         insert_from_pyobject<T>(obj, column);
         return column;
     }
 
-    std::string type_name = obj.attr("__class__").attr("__name__").cast<std::string>();
     if (type_name == "Series")
     {
-        py::object values = obj.attr("values");
-        if (py::isinstance<py::array>(values))
+        py::object values;
         {
-            // if constexpr (std::is_same_v<T, String>)
-            // {
-            //     // call obj.memory_usage(deep=True) if possible
-            //     if (py::hasattr(obj, "memory_usage"))
-            //     {
-            //         size_t mem_usage = obj.attr("memory_usage")("deep"_a = true).cast<size_t>();
-            //         LOG_DEBUG(&Poco::Logger::get("TableFunctionPython"), "Memory usage: {}", mem_usage);
-            //         //reserve the size of the column
-            //         auto col = ColumnString::create();
-            //         col->getOffsets().reserve(py::len(values));
-            //         col->getChars().reserve(mem_usage);
-            //         column = std::move(col);
-            //     }
-
-            //     // // If the values first element is a Python str object
-            //     // if (py::isinstance<py::str>(values.attr("__getitem__")(0)))
-            //     //     column = ColumnPyObject::create();
-            // }
+            py::gil_scoped_acquire acquire;
+            values = obj.attr("values");
+        }
+        if (isInstanceOf<py::array>(values))
+        {
             insert_from_pyobject<T>(values, column);
             return column;
         }
@@ -152,70 +148,96 @@ ColumnPtr convert_and_insert(py::object obj, UInt32 scale = 0)
         //      Run with new chDB on dataframe. Time cost: 0.09642386436462402 s
         //      Run with new chDB on dataframe(arrow). Time cost: 0.11595273017883301 s
         // chdb todo: maybe we can use the ArrowExtensionArray directly
-        if (py::hasattr(values, "to_numpy"))
+        if (hasAttribute(values, "to_numpy"))
         {
-            py::array numpy_array = values.attr("to_numpy")();
+            py::array numpy_array = callMethod(values, "to_numpy");
             column->reserve(numpy_array.size());
             insert_from_pyobject<T>(numpy_array, column);
             return column;
         }
     }
 
-    throw Exception(
-        ErrorCodes::BAD_TYPE_OF_FIELD,
-        "Unsupported type {} for value {}",
-        obj.get_type().attr("__name__").cast<std::string>(),
-        py::str(obj).cast<std::string>());
+    throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for value {}", getPyType(obj), castToStr(obj));
+}
+
+void PythonSource::destory(std::shared_ptr<std::vector<py::object>> & data)
+{
+    // manually destory std::shared_ptr<std::vector<py::object>> and trigger the py::object dec_ref with GIL holded
+    py::gil_scoped_acquire acquire;
+    data->clear();
+    data.reset();
 }
 
 Chunk PythonSource::generate()
 {
     size_t num_rows = 0;
-    py::gil_scoped_acquire acquire;
-    try
+    auto names = description.sample_block.getNames();
+    if (names.empty())
+        return {};
+
+    std::shared_ptr<std::vector<py::object>> data;
+    if (isInheritsFromPyReader(data_source))
     {
-        auto names = description.sample_block.getNames();
-        auto data = reader.attr("read")(names, max_block_size).cast<std::vector<py::object>>();
+        py::gil_scoped_acquire acquire;
+        data = std::move(castToSharedPtrVector<py::object>(data_source.attr("read")(names, max_block_size)));
+    }
+    else
+    {
+        auto total_rows = getLengthOfValueByKey(data_source, names.front());
+        auto rows_per_stream = total_rows / num_streams;
+        auto start = stream_index * rows_per_stream;
+        auto end = (stream_index + 1) * rows_per_stream;
+        if (stream_index == num_streams - 1)
+            end = total_rows;
+        if (cursor == 0)
+            cursor = start;
+        auto count = std::min(max_block_size, end - cursor);
+        if (count == 0)
+            return {};
+        LOG_DEBUG(logger, "Stream index {} Reading {} rows from {}", stream_index, count, cursor);
+        data = PyReader::readData(data_source, names, cursor, count);
+    }
 
-        LOG_DEBUG(logger, "Read {} columns", data.size());
-        LOG_DEBUG(logger, "Need {} columns", description.sample_block.columns());
-        LOG_DEBUG(logger, "Max block size: {}", max_block_size);
+    if (data->empty())
+        return {};
 
-        // if log level is debug, print all the data
-        if (logger->debug())
+    // // if log level is debug, print all the data
+    // if (logger->debug())
+    // {
+    //     // print all the data
+    //     for (auto && col : data)
+    //     {
+    //         if (isInstanceOf<py::list>(col))
+    //         {
+    //             py::list list = col.cast<py::list>();
+    //             for (auto && i : list)
+    //                 LOG_DEBUG(logger, "Data: {}", py::str(i).cast<std::string>());
+    //         }
+    //         else if (isInstanceOf<py::array>(col))
+    //         {
+    //             py::array array = col.cast<py::array>();
+    //             for (auto && i : array)
+    //                 LOG_DEBUG(logger, "Data: {}", py::str(i).cast<std::string>());
+    //         }
+    //         else
+    //         {
+    //             LOG_DEBUG(logger, "Data: {}", py::str(col).cast<std::string>());
+    //         }
+    //     }
+    // }
+
+    Columns columns(description.sample_block.columns());
+    for (size_t i = 0; i < data->size(); ++i)
+    {
+        if (i == 0)
+            num_rows = getObjectLength((*data)[i]);
+        const auto & column = (*data)[i];
+        const auto & type = description.sample_block.getByPosition(i).type;
+        WhichDataType which(type);
+
+        try
         {
-            // print all the data
-            for (auto && col : data)
-            {
-                if (py::isinstance<py::list>(col))
-                {
-                    py::list list = col.cast<py::list>();
-                    for (auto && i : list)
-                        LOG_DEBUG(logger, "Data: {}", py::str(i).cast<std::string>());
-                }
-                else if (py::isinstance<py::array>(col))
-                {
-                    py::array array = col.cast<py::array>();
-                    for (auto && i : array)
-                        LOG_DEBUG(logger, "Data: {}", py::str(i).cast<std::string>());
-                }
-                else
-                {
-                    LOG_DEBUG(logger, "Data: {}", py::str(col).cast<std::string>());
-                }
-            }
-        }
-
-        Columns columns(description.sample_block.columns());
-        // fill in the columns
-        for (size_t i = 0; i < data.size(); ++i)
-        {
-            if (i == 0)
-                num_rows = py::len(data[i]);
-            const auto & column = data[i];
-            const auto & type = description.sample_block.getByPosition(i).type;
-            WhichDataType which(type);
-
+            // Dispatch to the appropriate conversion function based on data type
             if (which.isUInt8())
                 columns[i] = convert_and_insert<UInt8>(column);
             else if (which.isUInt16())
@@ -267,18 +289,19 @@ Chunk PythonSource::generate()
                     type->getName(),
                     description.sample_block.getByPosition(i).name);
         }
-
-        if (num_rows == 0)
-            return {};
-
-        return Chunk(std::move(columns), num_rows);
+        catch (const Exception & e)
+        {
+            destory(data);
+            LOG_ERROR(logger, "Error processing column {}: {}", i, e.what());
+            throw;
+        }
     }
-    catch (const std::exception & e)
-    {
-        // py::gil_scoped_release release;
-        throw Exception(ErrorCodes::LOGICAL_ERROR, e.what());
-    }
+
+    destory(data);
+
+    if (num_rows == 0)
+        return {};
+
+    return Chunk(std::move(columns), num_rows);
 }
-
-
 }

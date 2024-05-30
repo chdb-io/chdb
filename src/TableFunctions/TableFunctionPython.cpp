@@ -11,6 +11,7 @@
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
+#include <Common/PythonUtils.h>
 #include <Common/logger_useful.h>
 
 namespace DB
@@ -21,42 +22,6 @@ namespace ErrorCodes
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 extern const int PY_OBJECT_NOT_FOUND;
 extern const int PY_EXCEPTION_OCCURED;
-}
-
-// Helper function to check if an object's class is or inherits from PyReader with a maximum depth
-bool is_or_inherits_from_pyreader(const py::handle & obj, int depth = 3)
-{
-    // Base case: if depth limit reached, stop the recursion
-    if (depth == 0)
-        return false;
-
-    // Check directly if obj is an instance of PyReader
-    if (py::isinstance(obj, py::module_::import("chdb").attr("PyReader")))
-        return true;
-
-    // Check if obj's class or any of its bases is PyReader
-    py::object cls = obj.attr("__class__");
-    if (py::hasattr(cls, "__bases__"))
-    {
-        for (auto base : cls.attr("__bases__"))
-            if (py::str(base.attr("__name__")).cast<std::string>() == "PyReader" || is_or_inherits_from_pyreader(base, depth - 1))
-                return true;
-    }
-    return false;
-}
-
-// Helper function to check if object is a pandas DataFrame
-bool is_pandas_dataframe(const py::object & obj)
-{
-    auto pd_data_frame_type = py::module_::import("pandas").attr("DataFrame");
-    return py::isinstance(obj, pd_data_frame_type);
-}
-
-// Helper function to check if object is a PyArrow Table
-bool is_pyarrow_table(const py::object & obj)
-{
-    auto table_type = py::module_::import("pyarrow").attr("Table");
-    return py::isinstance(obj, table_type);
 }
 
 // Function to find instance of PyReader, pandas DataFrame, or PyArrow Table, filtered by variable name
@@ -75,7 +40,7 @@ py::object find_instances_of_pyreader(const std::string & var_name)
             if (dict.contains(var_name))
             {
                 py::object obj = dict[var_name.data()];
-                if (is_or_inherits_from_pyreader(obj) || is_pandas_dataframe(obj) || is_pyarrow_table(obj))
+                if (isInheritsFromPyReader(obj) || isPandasDf(obj) || isPyarrowTable(obj))
                     return obj;
             }
         }
@@ -143,7 +108,7 @@ StoragePtr TableFunctionPython::executeImpl(
 {
     py::gil_scoped_acquire acquire;
     if (!reader)
-        throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python reader not initialized");
+        throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python data source not initialized");
 
     auto columns = getActualTableStructure(context, is_insert_query);
 
@@ -163,9 +128,11 @@ void registerTableFunctionPython(TableFunctionFactory & factory)
     factory.registerFunction<TableFunctionPython>(
         {.documentation
          = {.description = R"(
-                Creates a table interface to a Python data source and reads data from a PyReader object.
-                This table function requires a single argument which is a PyReader object used to read data from Python.
-            )",
+Passing Pandas DataFrame or Pyarrow Table to ClickHouse engine.
+For any other data structure, you can also create a table interface to a Python data source and reads data 
+from a PyReader object.
+This table function requires a single argument which is a PyReader object used to read data from Python.
+)",
             .examples = {{"1", "SELECT * FROM Python(PyReader)", ""}}}},
         TableFunctionFactory::CaseInsensitive);
 }
