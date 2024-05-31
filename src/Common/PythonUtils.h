@@ -39,10 +39,10 @@ auto execWithGIL(Func func, Args &&... args) -> decltype(func(std::forward<Args>
 //       4 for 4-byte characters (Assume UCS-4/UTF-32)
 const char * ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, size_t & output_size);
 
-const char * GetPyUtf8StrData(const py::handle & obj, size_t & buf_len);
+const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len);
 
 
-inline const char * GetPyUtf8StrDataWithGIL(const py::handle & obj, size_t & buf_len)
+inline const char * GetPyUtf8StrDataWithGIL(PyObject * obj, size_t & buf_len)
 {
     return execWithGIL([&]() { return GetPyUtf8StrData(obj, buf_len); });
 }
