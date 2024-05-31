@@ -14,6 +14,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <Common/Exception.h>
+#include "object.h"
 
 
 namespace DB
@@ -45,23 +46,28 @@ public:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "read() method is not implemented");
     }
 
-    static std::shared_ptr<std::vector<py::object>>
-    readData(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count)
-    {
-        py::gil_scoped_acquire acquire;
-        auto block = std::make_shared<std::vector<py::object>>();
-        // Access columns directly by name and slice
-        for (const auto & col : col_names)
-        {
-            py::object col_data = data[py::str(col)]; // Use dictionary-style access
-            block->push_back(col_data.attr("__getitem__")(py::slice(cursor, cursor + count, 1)));
-        }
+    // // readDataPtr is similar to readData but return pointer to py::object
+    // static std::shared_ptr<std::vector<std::vector<PyObject *>>>
+    // readDataPtr(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count)
+    // {
+    //     py::gil_scoped_acquire acquire;
+    //     auto block = std::make_shared<std::vector<std::vector<PyObject *>>>();
+    //     // Access columns directly by name and slice
+    //     for (const auto & col : col_names)
+    //     {
+    //         py::object col_data = data[py::str(col)]; // Use dictionary-style access
+    //         auto col_block = std::make_shared<std::vector<PyObject *>>();
+    //         for (size_t i = cursor; i < cursor + count; i++)
+    //             col_block->push_back(col_data.attr("__getitem__")(i).ptr());
+    //         block->push_back(col_block);
+    //     }
 
-        if (!block->empty())
-            cursor += py::len((*block)[0]); // Update cursor based on the length of the first column slice
+    //     if (!block->empty())
+    //         cursor += py::len((*block)[0]); // Update cursor based on the length of the first column slice
 
-        return block;
-    }
+    //     return block;
+    // }
+
     // Return a vector of column names and their types, as a list of pairs.
     // The order is important, and should match the order of the data.
     // This is the default implementation, which trys to infer the schema from the every first row

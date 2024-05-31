@@ -106,7 +106,6 @@ StoragePtr TableFunctionPython::executeImpl(
     ColumnsDescription /*cached_columns*/,
     bool is_insert_query) const
 {
-    py::gil_scoped_acquire acquire;
     if (!reader)
         throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python data source not initialized");
 

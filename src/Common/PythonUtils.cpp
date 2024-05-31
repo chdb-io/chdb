@@ -79,18 +79,18 @@ const char * ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoi
     return output_buffer;
 }
 
-const char * GetPyUtf8StrData(const py::handle & obj, size_t & buf_len)
+const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len)
 {
     // See: https://github.com/python/cpython/blob/3.9/Include/cpython/unicodeobject.h#L81
-    if (PyUnicode_IS_COMPACT_ASCII(obj.ptr()))
+    if (PyUnicode_IS_COMPACT_ASCII(obj))
     {
-        const char * data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj.ptr()));
-        buf_len = PyUnicode_GET_LENGTH(obj.ptr());
+        const char * data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj));
+        buf_len = PyUnicode_GET_LENGTH(obj);
         return data;
     }
     else
     {
-        PyCompactUnicodeObject * unicode = reinterpret_cast<PyCompactUnicodeObject *>(obj.ptr());
+        PyCompactUnicodeObject * unicode = reinterpret_cast<PyCompactUnicodeObject *>(obj);
         if (unicode->utf8 != nullptr)
         {
             // It's utf8 string, treat it like ASCII
@@ -98,13 +98,13 @@ const char * GetPyUtf8StrData(const py::handle & obj, size_t & buf_len)
             buf_len = unicode->utf8_length;
             return data;
         }
-        else if (PyUnicode_IS_COMPACT(obj.ptr()))
+        else if (PyUnicode_IS_COMPACT(obj))
         {
-            auto kind = PyUnicode_KIND(obj.ptr());
+            auto kind = PyUnicode_KIND(obj);
             // if (kind == PyUnicode_1BYTE_KIND || kind == PyUnicode_2BYTE_KIND || kind == PyUnicode_4BYTE_KIND)
             // {
             //     // always convert it to utf8
-            //     const char * data = PyUnicode_AsUTF8AndSize(obj.ptr(), &unicode->utf8_length);
+            //     const char * data = PyUnicode_AsUTF8AndSize(obj, &unicode->utf8_length);
             //     buf_len = unicode->utf8_length;
             //     // set the utf8 buffer back
             //     unicode->utf8 = const_cast<char *>(data);
@@ -114,16 +114,16 @@ const char * GetPyUtf8StrData(const py::handle & obj, size_t & buf_len)
             size_t codepoint_cnt;
 
             if (kind == PyUnicode_1BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj.ptr()));
+                data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj));
             else if (kind == PyUnicode_2BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_2BYTE_DATA(obj.ptr()));
+                data = reinterpret_cast<const char *>(PyUnicode_2BYTE_DATA(obj));
             else if (kind == PyUnicode_4BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_4BYTE_DATA(obj.ptr()));
+                data = reinterpret_cast<const char *>(PyUnicode_4BYTE_DATA(obj));
             else
                 throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported unicode kind {}", kind);
             // always convert it to utf8, and we can't use as function provided by CPython because it requires GIL
             // holded by the caller. So we have to do it manually with libicu
-            codepoint_cnt = PyUnicode_GET_LENGTH(obj.ptr());
+            codepoint_cnt = PyUnicode_GET_LENGTH(obj);
             data = ConvertPyUnicodeToUtf8(data, kind, codepoint_cnt, buf_len);
             unicode->utf8 = const_cast<char *>(data);
             unicode->utf8_length = buf_len;
@@ -133,7 +133,7 @@ const char * GetPyUtf8StrData(const py::handle & obj, size_t & buf_len)
         {
             // always convert it to utf8, but this case is rare, here goes the slow path
             py::gil_scoped_acquire acquire;
-            const char * data = PyUnicode_AsUTF8AndSize(obj.ptr(), &unicode->utf8_length);
+            const char * data = PyUnicode_AsUTF8AndSize(obj, &unicode->utf8_length);
             buf_len = unicode->utf8_length;
             // set the utf8 buffer back
             unicode->utf8 = const_cast<char *>(data);
@@ -167,8 +167,9 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, std::str
     {
         // Return the handle of py::array directly
         row_count = py::len(obj);
-        result = obj;
-        return obj.cast<py::array>().data();
+        py::array array = obj.cast<py::array>();
+        result = array;
+        return array.data();
     }
     else if (type_name == "Series")
     {
@@ -186,6 +187,8 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, std::str
         result = array;
         return array.data();
     }
+
+    // chdb todo: maybe convert list to py::array?
 
     return nullptr;
 }
