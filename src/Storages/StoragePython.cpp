@@ -60,7 +60,6 @@ Pipe StoragePython::read(
     size_t max_block_size,
     size_t num_streams)
 {
-    py::gil_scoped_acquire acquire;
     storage_snapshot->check(column_names);
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
@@ -75,11 +74,11 @@ Pipe StoragePython::read(
         }
     }
 
-    // num_streams = 10; // for testing
+    // num_streams = 3; // for testing
 
     // Converting Python str to ClickHouse String type will cost a lot of time.
-    // so if string column involved, return multiple streams.
-    if (has_string_column)
+    // so if string column involved and not using PyReader return multiple streams.
+    if (has_string_column && !isInheritsFromPyReader(data_source))
     {
         Pipes pipes;
         for (size_t stream = 0; stream < num_streams; ++stream)
