@@ -14,7 +14,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <Common/Exception.h>
-#include "object.h"
+#include <Common/PythonUtils.h>
 
 
 namespace DB
@@ -26,6 +26,7 @@ namespace ErrorCodes
 {
 extern const int UNKNOWN_FORMAT;
 extern const int NOT_IMPLEMENTED;
+extern const int PY_EXCEPTION_OCCURED;
 }
 class PyReader
 {
@@ -169,7 +170,10 @@ public:
     static ColumnsDescription getTableStructureFromData(py::object data_source);
 
 private:
+    void prepareColumnCache(const Names & names, const Columns & columns, const Block & sample_block);
     py::object data_source;
+    PyColumnVecPtr column_cache;
+    size_t data_source_row_count;
     Poco::Logger * logger = &Poco::Logger::get("StoragePython");
 };
 

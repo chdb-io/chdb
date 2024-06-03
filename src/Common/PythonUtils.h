@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <stdexcept>
 // #include <unicodeobject.h>
+#include <DataTypes/Serializations/SerializationNumber.h>
 #include <pybind11/gil.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -14,6 +15,7 @@
 #include <unicode/utypes.h>
 #include <Common/Exception.h>
 
+
 namespace DB
 {
 
@@ -24,6 +26,23 @@ extern const int NOT_IMPLEMENTED;
 
 namespace py = pybind11;
 
+
+struct ColumnWrapper
+{
+    void * buf; // we may modify the data when cast it to PyObject **, so we need a non-const pointer
+    size_t row_count;
+    py::handle data;
+    DataTypePtr dest_type;
+    std::string py_type; //py::handle type, eg. numpy.ndarray;
+    std::string row_format;
+    std::string encoding; // utf8, utf16, utf32, etc.
+    std::string name;
+};
+
+using PyObjectVec = std::vector<py::object>;
+using PyObjectVecPtr = std::shared_ptr<PyObjectVec>;
+using PyColumnVec = std::vector<ColumnWrapper>;
+using PyColumnVecPtr = std::shared_ptr<PyColumnVec>;
 
 // Template wrapper function to handle any return type
 template <typename Func, typename... Args>

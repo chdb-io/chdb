@@ -63,29 +63,19 @@ Pipe StoragePython::read(
     storage_snapshot->check(column_names);
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
-    // check if string type column involved
-    bool has_string_column = false;
-    for (const auto & column_name : column_names)
-    {
-        if (sample_block.getByName(column_name).type->getName() == "String")
-        {
-            has_string_column = true;
-            break;
-        }
-    }
 
     // num_streams = 3; // for testing
 
-    // Converting Python str to ClickHouse String type will cost a lot of time.
-    // so if string column involved and not using PyReader return multiple streams.
-    if (has_string_column && !isInheritsFromPyReader(data_source))
-    {
-        Pipes pipes;
-        for (size_t stream = 0; stream < num_streams; ++stream)
-            pipes.emplace_back(std::make_shared<PythonSource>(data_source, sample_block, max_block_size, stream, num_streams));
-        return Pipe::unitePipes(std::move(pipes));
-    }
-    return Pipe(std::make_shared<PythonSource>(data_source, sample_block, max_block_size, 0, 1));
+    prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
+
+    if (isInheritsFromPyReader(data_source))
+        return Pipe(std::make_shared<PythonSource>(data_source, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
+
+    Pipes pipes;
+    for (size_t stream = 0; stream < num_streams; ++stream)
+        pipes.emplace_back(std::make_shared<PythonSource>(
+            data_source, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams));
+    return Pipe::unitePipes(std::move(pipes));
 }
 
 Block StoragePython::prepareSampleBlock(const Names & column_names, const StorageSnapshotPtr & storage_snapshot)
@@ -97,6 +87,38 @@ Block StoragePython::prepareSampleBlock(const Names & column_names, const Storag
         sample_block.insert({column_data.type, column_data.name});
     }
     return sample_block;
+}
+
+void StoragePython::prepareColumnCache(const Names & names, const Columns & columns, const Block & sample_block)
+{
+    // check column cache with GIL holded
+    py::gil_scoped_acquire acquire;
+    if (column_cache == nullptr)
+    {
+        // fill in the cache
+        column_cache = std::make_shared<PyColumnVec>(columns.size());
+        for (size_t i = 0; i < columns.size(); ++i)
+        {
+            const auto & col_name = names[i];
+            auto & col = (*column_cache)[i];
+            col.name = col_name;
+            try
+            {
+                py::object col_data = data_source[py::str(col_name)];
+                col.buf = const_cast<void *>(tryGetPyArray(col_data, col.data, col.py_type, col.row_count));
+                if (col.buf == nullptr)
+                    throw Exception(
+                        ErrorCodes::PY_EXCEPTION_OCCURED, "Convert to array failed for column {} type {}", col_name, col.py_type);
+                col.dest_type = sample_block.getByPosition(i).type;
+                data_source_row_count = col.row_count;
+            }
+            catch (const Exception & e)
+            {
+                LOG_ERROR(logger, "Error processing column {}: {}", col_name, e.what());
+                throw;
+            }
+        }
+    }
 }
 
 ColumnsDescription StoragePython::getTableStructureFromData(py::object data_source)
