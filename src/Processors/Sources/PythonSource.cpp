@@ -42,11 +42,16 @@ extern const int PY_EXCEPTION_OCCURED;
 PythonSource::PythonSource(
     py::object & data_source_,
     const Block & sample_block_,
-    const UInt64 max_block_size_,
-    const size_t stream_index,
-    const size_t num_streams)
+    PyColumnVecPtr column_cache,
+    size_t data_source_row_count,
+    size_t max_block_size_,
+    size_t stream_index,
+    size_t num_streams)
     : ISource(sample_block_.cloneEmpty())
     , data_source(data_source_)
+    , sample_block(sample_block_)
+    , column_cache(column_cache)
+    , data_source_row_count(data_source_row_count)
     , max_block_size(max_block_size_)
     , stream_index(stream_index)
     , num_streams(num_streams)
@@ -261,6 +266,8 @@ PythonSource::scanData(const py::object & data, const std::vector<std::string> &
     return std::move(block);
 }
 
+
+
 Chunk PythonSource::scanDataToChunk()
 {
     auto names = description.sample_block.getNames();
@@ -275,37 +282,6 @@ Chunk PythonSource::scanDataToChunk()
     Columns columns(description.sample_block.columns());
     if (names.size() != columns.size())
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column cache size mismatch");
-
-    {
-        // check column cache with GIL holded
-        py::gil_scoped_acquire acquire;
-        if (column_cache == nullptr)
-        {
-            // fill in the cache
-            column_cache = std::make_shared<PyColumnVec>(columns.size());
-            for (size_t i = 0; i < columns.size(); ++i)
-            {
-                const auto & col_name = names[i];
-                auto & col = (*column_cache)[i];
-                col.name = col_name;
-                try
-                {
-                    py::object col_data = data_source[py::str(col_name)];
-                    col.buf = const_cast<void *>(tryGetPyArray(col_data, col.data, col.py_type, col.row_count));
-                    if (col.buf == nullptr)
-                        throw Exception(
-                            ErrorCodes::PY_EXCEPTION_OCCURED, "Convert to array failed for column {} type {}", col_name, col.py_type);
-                    col.dest_type = description.sample_block.getByPosition(i).type;
-                    data_source_row_count = col.row_count;
-                }
-                catch (const Exception & e)
-                {
-                    LOG_ERROR(logger, "Error processing column {}: {}", col_name, e.what());
-                    throw;
-                }
-            }
-        }
-    }
 
     auto rows_per_stream = data_source_row_count / num_streams;
     auto start = stream_index * rows_per_stream;
