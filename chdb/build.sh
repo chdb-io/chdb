@@ -2,6 +2,9 @@
 
 set -e
 
+# default to build Release
+build_type=${1:-Release}
+
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 . ${DIR}/vars.sh
@@ -68,7 +71,7 @@ if [ ! -d $BUILD_DIR ]; then
 fi
 
 cd ${BUILD_DIR}
-cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
+cmake -DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
     -DENABLE_CLICKHOUSE_KEEPER=0 -DENABLE_CLICKHOUSE_KEEPER_CONVERTER=0 -DENABLE_CLICKHOUSE_LOCAL=1 -DENABLE_CLICKHOUSE_SU=0 -DENABLE_CLICKHOUSE_BENCHMARK=0 \
     -DENABLE_AZURE_BLOB_STORAGE=0 -DENABLE_CLICKHOUSE_COPIER=0 -DENABLE_CLICKHOUSE_DISKS=0 -DENABLE_CLICKHOUSE_FORMAT=0 -DENABLE_CLICKHOUSE_GIT_IMPORT=0 \
     -DENABLE_AWS_S3=1 -DENABLE_HIVE=0 -DENABLE_AVRO=1 \
@@ -81,11 +84,11 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
     ${GLIBC_COMPATIBILITY} \
     -DENABLE_UTILS=0 ${LLVM} ${UNWIND} \
-    -DENABLE_ICU=0 ${JEMALLOC} \
+    -DENABLE_ICU=1 ${JEMALLOC} \
     -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
     -DENABLE_RAPIDJSON=1 \
-    -DENABLE_BROTLI=1 \
+    -DENABLE_BROTLI=1 -DENABLE_H3=1 \
     -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
     ${CPU_FEATURES} \
     ${CMAKE_TOOLCHAIN_FILE} \
@@ -108,7 +111,7 @@ ninja -v > build.log
 
 # extract the command to generate CHDB_PY_MODULE
 
-PYCHDB_CMD=$(grep 'clang++.*-o programs/clickhouse .*' build.log \
+PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
     | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \

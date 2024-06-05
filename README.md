@@ -3,8 +3,8 @@
 </div>
 <div align="center">
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/_static/snake-chdb-dark.png" height="130">
-  <img src="docs/_static/snake-chdb.png" height="130">
+  <source media="(prefers-color-scheme: dark)" srcset="https://github.com/chdb-io/chdb/raw/main/docs/_static/snake-chdb-dark.png" height="130">
+  <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/snake-chdb.png" height="130">
 </picture>
   
 [![Build X86](https://github.com/chdb-io/chdb/actions/workflows/build_wheels.yml/badge.svg?event=release)](https://github.com/chdb-io/chdb/actions/workflows/build_wheels.yml)
@@ -34,7 +34,7 @@
 
 ## Arch
 <div align="center">
-  <img src="docs/_static/arch-chdb2.png" width="450">
+  <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/arch-chdb2.png" width="450">
 </div>
 
 ## Get Started
@@ -202,7 +202,7 @@ for trade mark and other reasons, I named it chDB.
 
 ## Contact
 - Discord: [https://discord.gg/D2Daa2fM5K](https://discord.gg/D2Daa2fM5K)
-- Email: auxtenwpc@gmail.com
+- Email: auxten@clickhouse.com
 - Twitter: [@chdb](https://twitter.com/chdb_io)
 
 
