@@ -78,6 +78,8 @@ def query(sql, output_format="CSV", path="", udf_path=""):
         raise ChdbError(res.error_message())
     return result_func(res)
 
+# alias for query
+sql = query
 
-__all__ = ["ChdbError", "query", "chdb_version",
+__all__ = ["ChdbError", "query", "sql", "chdb_version",
            "engine_version", "to_df", "to_arrowTable"]
