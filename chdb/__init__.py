@@ -9,7 +9,7 @@ class ChdbError(Exception):
 _arrow_format = set({"dataframe", "arrowtable"})
 _process_result_format_funs = {
     "dataframe": lambda x: to_df(x),
-    "arrowtable": lambda x: to_arrowTable(x)
+    "arrowtable": lambda x: to_arrowTable(x),
 }
 
 # If any UDF is defined, the path of the UDF will be set to this variable
@@ -18,7 +18,7 @@ _process_result_format_funs = {
 # UDF script path will be f"{g_udf_path}/{func_name}.py"
 g_udf_path = ""
 
-chdb_version = ('0', '6', '0')
+chdb_version = ("0", "6", "0")
 if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -79,5 +79,15 @@ def query(sql, output_format="CSV", path="", udf_path=""):
     return result_func(res)
 
 
-__all__ = ["ChdbError", "query", "chdb_version",
-           "engine_version", "to_df", "to_arrowTable"]
+# alias for query
+sql = query
+
+__all__ = [
+    "ChdbError",
+    "query",
+    "sql",
+    "chdb_version",
+    "engine_version",
+    "to_df",
+    "to_arrowTable",
+]
