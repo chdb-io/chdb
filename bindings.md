@@ -84,5 +84,5 @@ If you have already developed bindings for a language not listed above,
 If you are interested in contributing to the development of bindings for a language not listed above, please contact us at:
 
 - Discord: [bindings](https://discord.gg/uUk6AKf7yM)
-- Email: auxtenwpc@gmail.com
+- Email: auxten@clickhouse.com
 - Twitter: [@chdb](https://twitter.com/chdb_io)
