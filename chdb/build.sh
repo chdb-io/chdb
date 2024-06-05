@@ -21,6 +21,7 @@ if [ "$(uname)" == "Darwin" ]; then
     PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
     HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
     MYSQL="-DENABLE_MYSQL=0"
+    ICU="-DENABLE_ICU=0"
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
@@ -50,6 +51,7 @@ elif [ "$(uname)" == "Linux" ]; then
     UNWIND="-DUSE_UNWIND=1"
     JEMALLOC="-DENABLE_JEMALLOC=1"
     PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
+    ICU="-DENABLE_ICU=1"
     # only x86_64, enable AVX and AVX2, enable embedded compiler
     if [ "$(uname -m)" == "x86_64" ]; then
         CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1 -DENABLE_SIMDJSON=1"
@@ -81,7 +83,7 @@ cmake -DCMAKE_BUILD_TYPE=Release -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CL
     -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
     ${GLIBC_COMPATIBILITY} \
     -DENABLE_UTILS=0 ${LLVM} ${UNWIND} \
-    -DENABLE_ICU=0 ${JEMALLOC} \
+    ${ICU} ${JEMALLOC} \
     -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
     -DENABLE_RAPIDJSON=1 \
