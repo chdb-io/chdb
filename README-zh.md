@@ -182,5 +182,5 @@ chDB 主要基于 [ClickHouse](https://github.com/ClickHouse/ClickHouse)。由�
 ## 联系方式
 - 知乎: [@auxten](https://www.zhihu.com/people/auxten)
 - Discord：[https://discord.gg/D2Daa2fM5K](https://discord.gg/D2Daa2fM5K)
-- 电子邮件：auxtenwpc@gmail.com
+- 电子邮件：auxten@clickhouse.com
 - Twitter：[@chdb](https://twitter.com/chdb_io)
