@@ -3,7 +3,7 @@
 import unittest
 from chdb.udf import chdb_udf
 from chdb.session import Session
-from chdb import query
+from chdb import query, sql
 
 
 @chdb_udf()
@@ -30,7 +30,8 @@ class TestUDF(unittest.TestCase):
         def sum_udf2(lhs, rhs):
             return int(lhs) + int(rhs)
 
-        ret = query("select sum_udf2(11, 22)", "Debug")
+        # sql is a alias for query
+        ret = sql("select sum_udf2(11, 22)", "Debug")
         self.assertEqual(str(ret), '"33"\n')
 
 
@@ -51,7 +52,8 @@ class TestUDFinSession(unittest.TestCase):
             return int(lhs) + int(rhs)
 
         with Session() as session:
-            ret = session.query("select sum_udf2(11, 22)", "Debug")
+            # sql is a alias for query
+            ret = session.sql("select sum_udf2(11, 22)", "Debug")
             self.assertEqual(str(ret), '"33"\n')
 
 if __name__ == "__main__":
