@@ -45,3 +45,6 @@ class Session:
         Execute a query.
         """
         return query(sql, fmt, path=self._path)
+
+    # alias sql = query
+    sql = query

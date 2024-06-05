@@ -134,6 +134,9 @@ class Table:
         else:
             raise ValueError("Table object is not initialized correctly")
 
+    # alias sql = query
+    sql = query
+
     def show(self):
         print(self.to_pandas())
 
