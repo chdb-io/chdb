@@ -64,7 +64,7 @@ Pipe StoragePython::read(
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
 
-    // num_streams = 3; // for testing
+    // num_streams = 3; // for chdb testing
 
     prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
 

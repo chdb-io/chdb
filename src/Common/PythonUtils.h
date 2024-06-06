@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <stdexcept>
 // #include <unicodeobject.h>
+#include <Columns/ColumnString.h>
+#include <Columns/IColumn.h>
 #include <DataTypes/Serializations/SerializationNumber.h>
 #include <pybind11/gil.h>
 #include <pybind11/numpy.h>
@@ -15,13 +17,13 @@
 #include <unicode/utypes.h>
 #include <Common/Exception.h>
 
-
 namespace DB
 {
 
 namespace ErrorCodes
 {
 extern const int NOT_IMPLEMENTED;
+extern const int PY_EXCEPTION_OCCURED;
 }
 
 namespace py = pybind11;
@@ -58,8 +60,12 @@ auto execWithGIL(Func func, Args &&... args) -> decltype(func(std::forward<Args>
 //       4 for 4-byte characters (Assume UCS-4/UTF-32)
 const char * ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, size_t & output_size);
 
+size_t
+ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, ColumnString::Offsets & offsets, ColumnString::Chars & chars);
+
 const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len);
 
+void FillColumnString(PyObject * obj, ColumnString * column);
 
 inline const char * GetPyUtf8StrDataWithGIL(PyObject * obj, size_t & buf_len)
 {
