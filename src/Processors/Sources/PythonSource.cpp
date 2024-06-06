@@ -2,8 +2,6 @@
 #include <memory>
 #include <vector>
 #include <Columns/ColumnDecimal.h>
-#include <pybind11/numpy.h>
-// #include <Columns/ColumnPyObject.h>
 #include <Columns/ColumnString.h>
 #include <Columns/ColumnVectorHelper.h>
 #include <Columns/IColumn.h>
@@ -19,6 +17,7 @@
 #include <base/Decimal_fwd.h>
 #include <base/types.h>
 #include <pybind11/gil.h>
+#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
@@ -26,6 +25,7 @@
 #include <Common/Exception.h>
 #include <Common/PythonUtils.h>
 #include <Common/logger_useful.h>
+#include <Common/typeid_cast.h>
 
 
 namespace DB
@@ -61,14 +61,14 @@ PythonSource::PythonSource(
 }
 
 template <typename T>
-void insert_from_list(const py::list & obj, const MutableColumnPtr & column)
+void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr & column)
 {
     py::gil_scoped_acquire acquire;
     for (auto && item : obj)
         column->insert(item.cast<T>());
 }
 
-void insert_string_from_array(const py::handle obj, const MutableColumnPtr & column)
+void PythonSource::insert_string_from_array(const py::handle obj, const MutableColumnPtr & column)
 {
     auto array = castToPyHandleVector(obj);
     for (auto && item : array)
@@ -79,7 +79,8 @@ void insert_string_from_array(const py::handle obj, const MutableColumnPtr & col
     }
 }
 
-void insert_string_from_array_raw(PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
+void PythonSource::insert_string_from_array_raw(
+    PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
 {
     column->reserve(row_count);
     for (size_t i = offset; i < offset + row_count; ++i)
@@ -90,8 +91,37 @@ void insert_string_from_array_raw(PyObject ** buf, const MutableColumnPtr & colu
     }
 }
 
+void PythonSource::convert_string_array_to_block(
+    PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
+{
+    ColumnString * string_column = typeid_cast<ColumnString *>(column.get());
+    if (string_column == nullptr)
+        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Column is not a string column");
+    ColumnString::Chars & data = string_column->getChars();
+    ColumnString::Offsets & offsets = string_column->getOffsets();
+    offsets.reserve(row_count);
+    for (size_t i = offset; i < offset + row_count; ++i)
+    {
+        FillColumnString(buf[i], string_column);
+        // Try to help reserve memory for the string column data every 100 rows to avoid frequent reallocations
+        // Check the avg size of the string column data and reserve memory accordingly
+        if ((i - offset) % 100 == 99)
+        {
+            size_t data_size = data.size();
+            size_t counter = i - offset + 1;
+            size_t avg_size = data_size / counter;
+            size_t reserve_size = avg_size * row_count;
+            if (reserve_size > data.capacity())
+            {
+                LOG_DEBUG(logger, "Reserving memory for string column data: {} bytes", reserve_size);
+                data.reserve(reserve_size);
+            }
+        }
+    }
+}
+
 template <typename T>
-void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
+void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
 {
     column->reserve(row_count);
     // get the raw data from the array and memcpy it into the column
@@ -102,7 +132,7 @@ void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const si
 
 
 template <typename T>
-ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0)
+ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
 {
     MutableColumnPtr column;
     if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
@@ -138,7 +168,7 @@ ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0)
 
 
 template <typename T>
-ColumnPtr convert_and_insert_array(const ColumnWrapper & col_wrap, size_t & cursor, const size_t count, UInt32 scale = 0)
+ColumnPtr PythonSource::convert_and_insert_array(const ColumnWrapper & col_wrap, size_t & cursor, const size_t count, UInt32 scale)
 {
     MutableColumnPtr column;
     if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
@@ -152,7 +182,7 @@ ColumnPtr convert_and_insert_array(const ColumnWrapper & col_wrap, size_t & curs
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column data is None");
 
     if constexpr (std::is_same_v<T, String>)
-        insert_string_from_array_raw(static_cast<PyObject **>(col_wrap.buf), column, cursor, count);
+        convert_string_array_to_block(static_cast<PyObject **>(col_wrap.buf), column, cursor, count);
     else
         insert_from_ptr<T>(col_wrap.buf, column, cursor, count);
 
@@ -354,13 +384,15 @@ Chunk PythonSource::scanDataToChunk()
             if (logger->debug())
             {
                 // log first 10 rows of the column
+                std::stringstream ss;
                 LOG_DEBUG(logger, "Column {} structure: {}", col.name, columns[i]->dumpStructure());
                 for (size_t j = 0; j < std::min(count, static_cast<size_t>(10)); ++j)
                 {
-                    std::stringstream ss;
-
-                    LOG_DEBUG(logger, "Column {} row {}: {}", col.name, j, columns[i]->getDataAt(j).toString());
+                    Field value;
+                    columns[i]->get(j, value);
+                    ss << toString(value) << ", ";
                 }
+                LOG_DEBUG(logger, "Column {} data: {}", col.name, ss.str());
             }
         }
         catch (const Exception & e)

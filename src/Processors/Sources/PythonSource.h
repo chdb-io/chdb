@@ -54,6 +54,22 @@ private:
     ExternalResultDescription description;
 
     PyObjectVecPtr scanData(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count);
+    template <typename T>
+    ColumnPtr convert_and_insert_array(const ColumnWrapper & col_wrap, size_t & cursor, size_t count, UInt32 scale = 0);
+    template <typename T>
+    ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0);
+    template <typename T>
+    void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, size_t offset, size_t row_count);
+
+    void convert_string_array_to_block(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
+
+
+    template <typename T>
+    void insert_from_list(const py::list & obj, const MutableColumnPtr & column);
+
+    void insert_string_from_array(py::handle obj, const MutableColumnPtr & column);
+
+    void insert_string_from_array_raw(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
     void prepareColumnCache(Names & names, Columns & columns);
     Chunk scanDataToChunk();
     void destory(PyObjectVecPtr & data);
