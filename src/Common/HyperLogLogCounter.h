@@ -4,7 +4,7 @@
 #include <Common/HyperLogLogBiasEstimator.h>
 #include <Common/CompactArray.h>
 #include <Common/HashTable/Hash.h>
-#include <Common/TransformEndianness.hpp>
+#include <Common/transformEndianness.h>
 
 #include <IO/ReadBuffer.h>
 #include <IO/WriteBuffer.h>
@@ -27,7 +27,7 @@ namespace ErrorCodes
 
 
 /// Sets denominator type.
-enum class DenominatorMode
+enum class DenominatorMode : uint8_t
 {
     Compact,        /// Compact denominator.
     StableIfBig,    /// Stable denominator falling back to Compact if rank storage is not big enough.
@@ -246,7 +246,7 @@ struct RankWidth<UInt64>
 
 
 /// Sets behavior of HyperLogLog class.
-enum class HyperLogLogMode
+enum class HyperLogLogMode : uint8_t
 {
     Raw,            /// No error correction.
     LinearCounting, /// LinearCounting error correction.
