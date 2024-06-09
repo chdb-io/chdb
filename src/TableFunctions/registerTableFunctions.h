@@ -17,8 +17,12 @@ void registerTableFunctionURLCluster(TableFunctionFactory & factory);
 void registerTableFunctionValues(TableFunctionFactory & factory);
 void registerTableFunctionInput(TableFunctionFactory & factory);
 void registerTableFunctionGenerate(TableFunctionFactory & factory);
+#ifdef MONGO
 void registerTableFunctionMongoDB(TableFunctionFactory & factory);
+#endif
+#ifdef USE_REDIS
 void registerTableFunctionRedis(TableFunctionFactory & factory);
+#endif
 
 #if USE_AWS_S3
 void registerTableFunctionS3(TableFunctionFactory & factory);

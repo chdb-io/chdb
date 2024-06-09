@@ -20,8 +20,12 @@ void registerTableFunctions()
     registerTableFunctionValues(factory);
     registerTableFunctionInput(factory);
     registerTableFunctionGenerate(factory);
+#ifdef MONGODB
     registerTableFunctionMongoDB(factory);
+#endif
+#ifdef USE_REDIS
     registerTableFunctionRedis(factory);
+#endif
 
 #if USE_AWS_S3
     registerTableFunctionS3(factory);

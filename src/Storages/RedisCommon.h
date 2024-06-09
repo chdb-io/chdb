@@ -1,3 +1,4 @@
+#ifdef USE_REDIS
 #pragma once
 
 #include <Poco/Redis/Client.h>
@@ -76,3 +77,4 @@ RedisConnectionPtr getRedisConnection(RedisPoolPtr pool, const RedisConfiguratio
 RedisArrayPtr getRedisHashMapKeys(const RedisConnectionPtr & connection, RedisArray & keys);
 
 }
+#endif

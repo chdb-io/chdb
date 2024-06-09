@@ -1,3 +1,4 @@
+#ifdef MONGODB_STORAGE
 #pragma once
 
 #include <Poco/MongoDB/Connection.h>
@@ -72,3 +73,4 @@ private:
 };
 
 }
+#endif
