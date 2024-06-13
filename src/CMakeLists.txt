@@ -9,7 +9,7 @@ if (USE_CLANG_TIDY)
 endif ()
 
 if(COMPILER_PIPE)
-    set(MAX_COMPILER_MEMORY 2500)
+    set(MAX_COMPILER_MEMORY 600)
 else()
     set(MAX_COMPILER_MEMORY 1500)
 endif()
