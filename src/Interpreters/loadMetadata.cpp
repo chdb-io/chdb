@@ -161,7 +161,7 @@ LoadTaskPtrs loadMetadata(ContextMutablePtr context, const String & default_data
 {
     LoggerPtr log = getLogger("loadMetadata");
 
-    String path = context->getPath() + "metadata";
+    String path = fs::path(context->getPath()) / "metadata";
 
     /// There may exist 'force_restore_data' file, which means skip safety threshold
     /// on difference of data parts while initializing tables.

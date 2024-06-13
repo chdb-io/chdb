@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <Core/UUID.h>
 #include <Common/thread_local_rng.h>
 

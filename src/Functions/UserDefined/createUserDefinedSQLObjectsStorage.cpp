@@ -35,12 +35,15 @@ std::unique_ptr<IUserDefinedSQLObjectsStorage> createUserDefinedSQLObjectsStorag
         }
         return std::make_unique<UserDefinedSQLObjectsZooKeeperStorage>(global_context, config.getString(zookeeper_path_key));
     }
-    else
+
+    if (config.has("path"))
     {
-        String default_path = fs::path{global_context->getPath()} / "user_defined" / "";
-        String path = config.getString(disk_path_key, default_path);
-        return std::make_unique<UserDefinedSQLObjectsDiskStorage>(global_context, path);
+        global_context->setPath(fs::path{config.getString("path")} / "");
     }
+    
+    String default_path = fs::path{global_context->getPath()} / "user_defined/";
+    String path = config.getString(disk_path_key, default_path);
+    return std::make_unique<UserDefinedSQLObjectsDiskStorage>(global_context, path);
 }
 
 }

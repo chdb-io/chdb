@@ -16,8 +16,6 @@
 
 #include <Interpreters/Context.h>
 
-#include <Parsers/parseQuery.h>
-#include <Parsers/formatAST.h>
 #include <Parsers/ParserCreateFunctionQuery.h>
 
 #include <Poco/DirectoryIterator.h>
@@ -124,6 +122,8 @@ void UserDefinedSQLObjectsDiskStorage::loadObjectsImpl()
 
     if (!std::filesystem::exists(dir_path))
     {
+        setAllObjects({});
+        objects_loaded = false;
         LOG_DEBUG(log, "The directory for user defined objects ({}) does not exist: nothing to load", dir_path);
         return;
     }

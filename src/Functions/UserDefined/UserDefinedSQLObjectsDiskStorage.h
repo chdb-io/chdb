@@ -20,6 +20,8 @@ public:
 
     void reloadObject(UserDefinedSQLObjectType object_type, const String & object_name) override;
 
+    void setPath(const String & dir_path_) override { dir_path = dir_path_; }
+
 private:
     bool storeObjectImpl(
         const ContextPtr & current_context,

@@ -53,6 +53,7 @@
 #include <Dictionaries/registerDictionaries.h>
 #include <Disks/registerDisks.h>
 #include <Formats/registerFormats.h>
+#include <Formats/FormatFactory.h>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/program_options/options_description.hpp>
 #include <base/argsToConfig.h>
@@ -264,7 +265,7 @@ void LocalServer::tryInitPath()
     }
 
     global_context->setPath(fs::path(path) / "");
-    DatabaseCatalog::instance().fixPath(path);
+    DatabaseCatalog::instance().fixPath(global_context->getPath());
 
     global_context->setTemporaryStoragePath(fs::path(path) / "tmp" / "", 0);
     global_context->setFlagsPath(fs::path(path) / "flags" / "");
@@ -626,8 +627,8 @@ void LocalServer::processConfig()
     setDefaultFormatsAndCompressionFromConfiguration();
 
     /// Check format is supported before the engine runs too far
-    if (!FormatFactory::instance().isOutputFormat(format))
-        throw Exception(ErrorCodes::UNKNOWN_FORMAT, "Unknown output format {}", format);
+    if (!FormatFactory::instance().isOutputFormat(default_output_format))
+        throw Exception(ErrorCodes::UNKNOWN_FORMAT, "Unknown output format {}", default_output_format);
 
     /// Sets external authenticators config (LDAP, Kerberos).
     global_context->setExternalAuthenticatorsConfig(config());
@@ -812,7 +813,7 @@ void LocalServer::processConfig()
                     // Just construct AST changes and apply them.
                     ParserSetQuery parser;
                     const char * start = set_statement.data();
-                    ASTPtr ast = parseQuery(start, start + set_statement.size(), false);
+                    ASTPtr ast = parseQuery(start, start + set_statement.size(), global_context->getSettingsRef(), false, false, false);
                     auto * set_query = typeid_cast<ASTSetQuery *>(ast.get());
                     if (set_query)
                     {

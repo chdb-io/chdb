@@ -20,6 +20,8 @@ class IUserDefinedSQLObjectsStorage
 public:
     virtual ~IUserDefinedSQLObjectsStorage() = default;
 
+    virtual void setPath(const String &) { }
+
     /// Whether this loader can replicate SQL objects to another node.
     virtual bool isReplicated() const { return false; }
     virtual String getReplicationID() const { return ""; }

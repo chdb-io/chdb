@@ -9,6 +9,7 @@
 #include <Parsers/ASTQueryWithOutput.h>
 #include <Parsers/ASTSelectWithUnionQuery.h>
 
+#include <filesystem>
 #include <fstream>
 
 namespace DB
@@ -30,7 +31,7 @@ BlockIO InterpreterSetQuery::execute()
 
     // Define the path for the file where SET statements will be logged. Assuming `getContext()->getPath()`
     // provides a base directory suitable for such logs.
-    auto set_statements_path = fs::path(getContext()->getPath()) / "set_statements";
+    auto set_statements_path = std::filesystem::path(getContext()->getPath()) / "set_statements";
     // Open the log file in append mode. If the file doesn't exist, it will be created.
     std::ofstream set_statements_fs(set_statements_path, std::ofstream::out | std::ofstream::app);
     if (!set_statements_fs.is_open())

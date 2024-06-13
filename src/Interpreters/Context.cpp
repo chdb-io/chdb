@@ -1044,7 +1044,7 @@ void Context::setPath(const String & path)
         shared->flags_path = shared->path + "flags/";
 
     if (shared->user_files_path.empty())
-        shared->user_files_path = shared->path + "user_files/";
+        shared->user_files_path = ""; // chdb should use cwd
 
     if (shared->dictionaries_lib_path.empty())
         shared->dictionaries_lib_path = shared->path + "dictionaries_lib/";
@@ -2706,21 +2706,54 @@ void Context::loadOrReloadUserDefinedExecutableFunctions(const Poco::Util::Abstr
 
 const IUserDefinedSQLObjectsStorage & Context::getUserDefinedSQLObjectsStorage() const
 {
-    callOnce(shared->user_defined_sql_objects_storage_initialized, [&] {
+    // callOnce(shared->user_defined_sql_objects_storage_initialized, [&] {
+    //     shared->user_defined_sql_objects_storage = createUserDefinedSQLObjectsStorage(getGlobalContext());
+    // });
+
+    if (!shared->user_defined_sql_objects_storage)
+    {
         shared->user_defined_sql_objects_storage = createUserDefinedSQLObjectsStorage(getGlobalContext());
-    });
+        return *shared->user_defined_sql_objects_storage;
+    }
+
+    String udf_path;
+    if (getConfigRef().has("path"))
+    {
+        udf_path = fs::path{getConfigRef().getString("path")} / "user_defined" / "";
+    }
 
     SharedLockGuard lock(shared->mutex);
+    if (!udf_path.empty())
+    {
+        shared->user_defined_sql_objects_storage->setPath(udf_path);
+    }
+    shared->user_defined_sql_objects_storage->setPath(udf_path);
     return *shared->user_defined_sql_objects_storage;
 }
 
 IUserDefinedSQLObjectsStorage & Context::getUserDefinedSQLObjectsStorage()
 {
-    callOnce(shared->user_defined_sql_objects_storage_initialized, [&] {
+    // callOnce(shared->user_defined_sql_objects_storage_initialized, [&] {
+    //     shared->user_defined_sql_objects_storage = createUserDefinedSQLObjectsStorage(getGlobalContext());
+    // });
+
+    if (!shared->user_defined_sql_objects_storage)
+    {
         shared->user_defined_sql_objects_storage = createUserDefinedSQLObjectsStorage(getGlobalContext());
-    });
+        return *shared->user_defined_sql_objects_storage;
+    }
+
+    String udf_path;
+    if (getConfigRef().has("path"))
+    {
+        udf_path = fs::path{getConfigRef().getString("path")} / "user_defined" / "";
+    }
 
     std::lock_guard lock(shared->mutex);
+    if (!udf_path.empty())
+    {
+        shared->user_defined_sql_objects_storage->setPath(udf_path);
+    }
     return *shared->user_defined_sql_objects_storage;
 }
 

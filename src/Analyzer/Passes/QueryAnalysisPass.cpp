@@ -28,6 +28,7 @@
 #include <Columns/ColumnConst.h>
 
 #include <Functions/FunctionFactory.h>
+#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
 #include <Functions/UserDefined/UserDefinedExecutableFunctionFactory.h>
 #include <Functions/UserDefined/UserDefinedSQLFunctionFactory.h>
 #include <Functions/grouping.h>
@@ -1219,6 +1220,17 @@ public:
                 if (table_expression)
                     throw Exception(ErrorCodes::LOGICAL_ERROR,
                         "For query analysis table expression must be empty");
+
+                // chdb todo: this is a hack to reload UDFs when the query is re-analyzed
+                // the root cause is for chdb, the ClientBase and Server might have different Contexts
+                // the hacking might impact the performance when running stateful query(with arg "path" specified)
+                auto global_context = Context::getGlobalContextInstance();
+                if (global_context->getConfigRef().has("path"))
+                {
+                    IUserDefinedSQLObjectsStorage & udf_store
+                        = const_cast<IUserDefinedSQLObjectsStorage &>(global_context->getUserDefinedSQLObjectsStorage());
+                    udf_store.reloadObjects();
+                }
 
                 resolveQuery(node, scope);
                 break;
