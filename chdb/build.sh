@@ -25,6 +25,7 @@ if [ "$(uname)" == "Darwin" ]; then
     HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
     MYSQL="-DENABLE_MYSQL=0"
     ICU="-DENABLE_ICU=0"
+    SED_INPLACE="sed -i ''"
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
@@ -55,6 +56,7 @@ elif [ "$(uname)" == "Linux" ]; then
     JEMALLOC="-DENABLE_JEMALLOC=1"
     PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     ICU="-DENABLE_ICU=1"
+    SED_INPLACE="sed -i"
     # only x86_64, enable AVX and AVX2, enable embedded compiler
     if [ "$(uname -m)" == "x86_64" ]; then
         CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1 -DENABLE_SIMDJSON=1"
@@ -97,7 +99,7 @@ cmake -DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENA
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DCHDB_VERSION=${CHDB_VERSION} \
     ..
-ninja
+ninja -d keeprsp
 
 BINARY=${BUILD_DIR}/programs/clickhouse
 echo -e "\nBINARY: ${BINARY}"
@@ -109,7 +111,15 @@ rm -f ${BINARY}
 # del the binary and run ninja -v again to capture the command, then modify it to generate CHDB_PY_MODULE
 /bin/rm -f ${BINARY} 
 cd ${BUILD_DIR} 
-ninja -v > build.log
+ninja -d keeprsp -v > build.log || true
+
+if [ ! -f CMakeFiles/clickhouse.rsp ]; then
+    echo "CMakeFiles/clickhouse.rsp not found"
+    exit 1
+fi
+
+cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
+cp -a CMakeFiles/clickhouse.rsp CMakeFiles/pychdb.rsp
 
 # extract the command to generate CHDB_PY_MODULE
 
@@ -118,13 +128,22 @@ PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
     | sed 's/ -Xlinker --no-undefined//g' \
+    | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/pychdb.rsp/g' \
      )
+
+# inplace modify the CMakeFiles/pychdb.rsp
+${SED_INPLACE} 's/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/' CMakeFiles/pychdb.rsp
+${SED_INPLACE} 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' CMakeFiles/pychdb.rsp
+${SED_INPLACE} 's/ -Xlinker --no-undefined//g' CMakeFiles/pychdb.rsp
+
 
 if [ "$(uname)" == "Linux" ]; then
     # remove src/CMakeFiles/clickhouse_malloc.dir/Common/stubFree.c.o
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g')
+    ${SED_INPLACE} 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g' CMakeFiles/pychdb.rsp
     # put -Wl,-wrap,malloc ... after -DUSE_JEMALLOC=1
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g')
+    ${SED_INPLACE} 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g' CMakeFiles/pychdb.rsp
 fi
 
 # save the command to a file for debug
@@ -159,14 +178,20 @@ ls -l ${BUILD_DIR}/programs/local/
 #   generate the command to generate libchdb.so
 LIBCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/libclickhouse-local-lib.a/'${CLEAN_CHDB_A}'/g')
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
+${SED_INPLACE} 's/libclickhouse-local-lib.a/'${CLEAN_CHDB_A}'/g' CMakeFiles/libchdb.rsp
+${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
 
 if [ "$(uname)" == "Linux" ]; then
     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
+    ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
 fi
 
 if [ "$(uname)" == "Darwin" ]; then
     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
+    ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
 fi
+
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
 
 # Step 4:
 #   save the command to a file for debug
