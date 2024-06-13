@@ -17,6 +17,41 @@ extract_into_parent_list(clickhouse_table_functions_headers dbms_headers
     TableFunctionFactory.h
 )
 
+# Include path from shell cmd "python3 -m pybind11 --includes"
+execute_process(COMMAND python3 -m pybind11 --includes
+    OUTPUT_VARIABLE PYBIND11_INCLUDES
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+
+# Extract and set include directories specifically for source using pybind11
+string(REGEX MATCHALL "-I([^ ]+)" INCLUDE_DIRS_MATCHES ${PYBIND11_INCLUDES})
+set(PYTHON_INCLUDE_DIRS "")
+foreach(INCLUDE_DIR_MATCH ${INCLUDE_DIRS_MATCHES})
+    string(REGEX REPLACE "-I" "" INCLUDE_DIR_MATCH ${INCLUDE_DIR_MATCH})
+    # Accumulate all include directories
+    set(PYTHON_INCLUDE_DIRS "${PYTHON_INCLUDE_DIRS};${INCLUDE_DIR_MATCH}")
+endforeach()
+
+# Add include directories for pybind11
+set_source_files_properties(TableFunctionPython.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
+
+# remove all warning, because pybind11 will generate a lot of warning
+if (OS_LINUX)
+    if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
+        set_source_files_properties(TableFunctionPython.cpp PROPERTIES COMPILE_FLAGS
+            "-w -idirafter /usr/include -include crypt.h"
+        )
+    else()
+        set_source_files_properties(TableFunctionPython.cpp PROPERTIES COMPILE_FLAGS
+            "-w"
+        )
+    endif()
+elseif (OS_DARWIN)
+    set_source_files_properties(TableFunctionPython.cpp PROPERTIES COMPILE_FLAGS
+        "-w"
+    )
+endif()
+
 add_library(clickhouse_table_functions ${clickhouse_table_functions_headers} ${clickhouse_table_functions_sources})
 
 target_link_libraries(clickhouse_table_functions PRIVATE clickhouse_parsers clickhouse_storages_system dbms)

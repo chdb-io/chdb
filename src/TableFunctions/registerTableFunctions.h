@@ -25,6 +25,8 @@ void registerTableFunctionMergeTreeIndex(TableFunctionFactory & factory);
 #if USE_RAPIDJSON || USE_SIMDJSON
 void registerTableFunctionFuzzJSON(TableFunctionFactory & factory);
 #endif
+//chdb todo: add a #if USE_PYTHON here
+void registerTableFunctionPython(TableFunctionFactory & factory);
 
 #if USE_AWS_S3
 void registerTableFunctionS3(TableFunctionFactory & factory);

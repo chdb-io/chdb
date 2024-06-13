@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cassert>
+#include <cstddef>
 #include <cstring>
 
 #include <Columns/IColumn.h>
@@ -171,7 +173,6 @@ public:
     {
         const size_t old_size = chars.size();
         const size_t new_size = old_size + length + 1;
-
         chars.resize(new_size);
         if (length)
             memcpy(chars.data() + old_size, pos, length);
