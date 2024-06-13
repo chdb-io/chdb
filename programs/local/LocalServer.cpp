@@ -39,7 +39,6 @@
 #include <Loggers/OwnFormattingChannel.h>
 #include <Loggers/OwnPatternFormatter.h>
 #include <IO/ReadBufferFromFile.h>
-#include <IO/ReadBufferFromString.h>
 #include <IO/WriteBufferFromFileDescriptor.h>
 #include <IO/UseSSL.h>
 #include <IO/SharedThreadPools.h>

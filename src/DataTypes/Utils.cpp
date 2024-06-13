@@ -226,6 +226,11 @@ bool canBeSafelyCasted(const DataTypePtr & from_type, const DataTypePtr & to_typ
         case TypeIndex::Variant:
         case TypeIndex::Dynamic:
             return false;
+        case TypeIndex::PyObject: {
+            if (to_which_type.isString())
+                return true;
+            return false;
+        }
     }
 
     return true;

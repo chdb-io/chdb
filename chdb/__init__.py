@@ -82,7 +82,10 @@ def query(sql, output_format="CSV", path="", udf_path=""):
 # alias for query
 sql = query
 
+PyReader = _chdb.PyReader
+
 __all__ = [
+    "PyReader",
     "ChdbError",
     "query",
     "sql",
