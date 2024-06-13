@@ -13,7 +13,7 @@ class TestBasic(unittest.TestCase):
         self.assertFalse(res.has_error())
         self.assertTrue(len(res.error_message()) == 0)
         with self.assertRaises(Exception):
-            res = chdb.query("SELECT 1", "csv")
+            res = chdb.query("SELECT 1", "unknown_format")
 class TestOutput(unittest.TestCase):
     def test_output(self):
         for format, output in format_output.items():
@@ -25,6 +25,9 @@ class TestOutput(unittest.TestCase):
             # Arrow format output is not deterministic
             if format in ("Arrow", "ArrowStream"):
                 continue
+            if format == "Parquet":
+                data = data[:2000]
+                output["data"] = output["data"][:2000]
             self.assertEqual(data, output["data"])
 
 

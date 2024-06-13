@@ -7,7 +7,7 @@ from chdb import dataframe as cdf
 
 class TestJoinDf(unittest.TestCase):
     def test_1df(self):
-        df1 = pd.DataFrame({"a": [1, 2, 3], "b": [b"one", b"two", b"three"]})
+        df1 = pd.DataFrame({"a": [1, 2, 3], "b": ["one", "two", "three"]})
         cdf1 = cdf.Table(dataframe=df1)
         ret1 = cdf.query(sql="select * from __tbl1__", tbl1=cdf1)
         self.assertEqual(str(ret1), str(df1))
@@ -29,9 +29,9 @@ class TestJoinDf(unittest.TestCase):
                 pd.DataFrame(
                     {
                         "a": [1, 2, 3],
-                        "b": [b"one", b"two", b"three"],
+                        "b": ["one", "two", "three"],
                         "c": [1, 2, 3],
-                        "d": [b"\xe2\x91\xa0", b"\xe2\x91\xa1", b"\xe2\x91\xa2"],
+                        "d": ["①", "②", "③"],
                     }
                 )
             ),
@@ -42,7 +42,7 @@ class TestJoinDf(unittest.TestCase):
         )
         self.assertEqual(
             str(ret_tbl2),
-            str(pd.DataFrame({"b": [b"one", b"two", b"three"], "s": [2, 4, 6]})),
+            str(pd.DataFrame({"b": ["one", "two", "three"], "s": [2, 4, 6]})),
         )
         self.assertEqual(ret_tbl2.rows_read(), 3)
         self.assertEqual(ret_tbl2.bytes_read(), 68)

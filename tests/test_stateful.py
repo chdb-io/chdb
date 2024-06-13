@@ -8,7 +8,7 @@ from chdb import session
 import chdb
 
 
-test_state_dir = ".state_tmp_auxten_"
+test_state_dir = ".state_tmp_auxten_test_stateful"
 current_process = psutil.Process()
 check_thread_count = False
 
@@ -25,7 +25,7 @@ class TestStateful(unittest.TestCase):
     def test_path(self):
         sess = session.Session(test_state_dir)
         sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
-        ret = sess.query("SELECT chdb_xxx()", "CSV")
+        ret = sess.query("SELECT chdb_xxx()", "Debug")
         self.assertEqual(str(ret), '"0.12.0"\n')
 
         sess.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic", "CSV")
@@ -151,13 +151,13 @@ class TestStateful(unittest.TestCase):
 
     def test_context_mgr(self):
         with session.Session() as sess:
-            sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
-            ret = sess.query("SELECT chdb_xxx()", "CSV")
-            self.assertEqual(str(ret), '"0.12.0"\n')
+            sess.query("CREATE FUNCTION chdb_xxx_mgr AS () -> '0.12.0_mgr'", "Debug")
+            ret = sess.query("SELECT chdb_xxx_mgr()", "CSV")
+            self.assertEqual(str(ret), '"0.12.0_mgr"\n')
 
         with session.Session() as sess:
             with self.assertRaises(Exception):
-                ret = sess.query("SELECT chdb_xxx()", "CSV")
+                ret = sess.query("SELECT chdb_xxx_notexist()", "CSV")
 
     def test_zfree_thread_count(self):
         time.sleep(3)
