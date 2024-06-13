@@ -28,7 +28,7 @@ void purgeJemallocArenas()
 {
     LOG_TRACE(getLogger("SystemJemalloc"), "Purging unused memory");
     Stopwatch watch;
-    mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+    je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
     ProfileEvents::increment(ProfileEvents::MemoryAllocatorPurge);
     ProfileEvents::increment(ProfileEvents::MemoryAllocatorPurgeTimeMicroseconds, watch.elapsedMicroseconds());
 }
@@ -37,7 +37,7 @@ void checkJemallocProfilingEnabled()
 {
     bool active = true;
     size_t active_size = sizeof(active);
-    mallctl("opt.prof", &active, &active_size, nullptr, 0);
+    je_mallctl("opt.prof", &active, &active_size, nullptr, 0);
 
     if (!active)
         throw Exception(
@@ -51,14 +51,14 @@ void setJemallocProfileActive(bool value)
     checkJemallocProfilingEnabled();
     bool active = true;
     size_t active_size = sizeof(active);
-    mallctl("prof.active", &active, &active_size, nullptr, 0);
+    je_mallctl("prof.active", &active, &active_size, nullptr, 0);
     if (active == value)
     {
         LOG_TRACE(getLogger("SystemJemalloc"), "Profiling is already {}", active ? "enabled" : "disabled");
         return;
     }
 
-    mallctl("prof.active", nullptr, nullptr, &value, sizeof(bool));
+    je_mallctl("prof.active", nullptr, nullptr, &value, sizeof(bool));
     LOG_TRACE(getLogger("SystemJemalloc"), "Profiling is {}", value ? "enabled" : "disabled");
 }
 
@@ -67,11 +67,11 @@ std::string flushJemallocProfile(const std::string & file_prefix)
     checkJemallocProfilingEnabled();
     char * prefix_buffer;
     size_t prefix_size = sizeof(prefix_buffer);
-    int n = mallctl("opt.prof_prefix", &prefix_buffer, &prefix_size, nullptr, 0); // NOLINT
+    int n = je_mallctl("opt.prof_prefix", &prefix_buffer, &prefix_size, nullptr, 0); // NOLINT
     if (!n && std::string_view(prefix_buffer) != "jeprof")
     {
         LOG_TRACE(getLogger("SystemJemalloc"), "Flushing memory profile with prefix {}", prefix_buffer);
-        mallctl("prof.dump", nullptr, nullptr, nullptr, 0);
+        je_mallctl("prof.dump", nullptr, nullptr, nullptr, 0);
         return prefix_buffer;
     }
 
@@ -80,7 +80,7 @@ std::string flushJemallocProfile(const std::string & file_prefix)
     const auto * profile_dump_path_str = profile_dump_path.c_str();
 
     LOG_TRACE(getLogger("SystemJemalloc"), "Flushing memory profile to {}", profile_dump_path_str);
-    mallctl("prof.dump", nullptr, nullptr, &profile_dump_path_str, sizeof(profile_dump_path_str)); // NOLINT
+    je_mallctl("prof.dump", nullptr, nullptr, &profile_dump_path_str, sizeof(profile_dump_path_str)); // NOLINT
     return profile_dump_path;
 }
 
