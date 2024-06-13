@@ -15,7 +15,8 @@
 #include <IO/WriteHelpers.h>
 
 #include <Interpreters/Context.h>
-
+#include <Parsers/parseQuery.h>
+#include <Parsers/formatAST.h>
 #include <Parsers/ParserCreateFunctionQuery.h>
 
 #include <Poco/DirectoryIterator.h>
