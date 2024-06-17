@@ -269,7 +269,7 @@ public:
     template <typename... TAllocatorParams>
     void append_raw(const void * ptr, size_t count, TAllocatorParams &&... allocator_params) /// NOLINT
     {
-        size_t bytes_to_copy = byte_size(count);
+        size_t bytes_to_copy = PODArrayDetails::byte_size(count, ELEMENT_SIZE);
         size_t required_capacity = size() + bytes_to_copy;
         if (unlikely(required_capacity > capacity()))
             reserve(required_capacity, std::forward<TAllocatorParams>(allocator_params)...);

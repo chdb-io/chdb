@@ -95,7 +95,7 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
     }
     catch (py::error_already_set & e)
     {
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, e.what());
+        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python exception occured: {}", e.what());
     }
 }
 
