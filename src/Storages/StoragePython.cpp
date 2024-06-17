@@ -4,7 +4,7 @@
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <Functions/FunctionsConversion.h>
+#include <DataTypes/DataTypesDecimal.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Processors/Sources/PythonSource.h>
 #include <Storages/ColumnsDescription.h>
@@ -34,6 +34,8 @@ namespace ErrorCodes
 extern const int BAD_ARGUMENTS;
 extern const int LOGICAL_ERROR;
 extern const int BAD_TYPE_OF_FIELD;
+extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
+extern const int TYPE_MISMATCH;
 }
 
 
@@ -43,7 +45,7 @@ StoragePython::StoragePython(
     const ConstraintsDescription & constraints_,
     py::object reader_,
     ContextPtr context_)
-    : IStorage(table_id_), data_source(reader_), WithContext(context_->getGlobalContext())
+    : IStorage(table_id_), data_source(reader_), WithContext(context_)
 {
     StorageInMemoryMetadata storage_metadata;
     storage_metadata.setColumns(columns_);
