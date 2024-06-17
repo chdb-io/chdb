@@ -219,7 +219,7 @@ ret = chdb.query(
     # """ SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
     #                     FROM Python(reader) GROUP BY RegionID ORDER BY c DESC LIMIT 10""",
     # "SELECT COUNT(DISTINCT Title) FROM Python(reader);",
-    sql.replace("hits", "Python(reader)"),
+    sql.replace("hits", "Python(hits)"),
     "Dataframe",
 )
 print("Run with new chDB on dataframe. Time cost:", time.time() - t, "s")
