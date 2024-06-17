@@ -99,14 +99,14 @@ cmake -DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENA
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DCHDB_VERSION=${CHDB_VERSION} \
     ..
-ninja -d keeprsp
+ninja -d keeprsp || true
 
-BINARY=${BUILD_DIR}/programs/clickhouse
-echo -e "\nBINARY: ${BINARY}"
-ls -lh ${BINARY}
-echo -e "\nldd ${BINARY}"
-${LDD} ${BINARY}
-rm -f ${BINARY}
+# BINARY=${BUILD_DIR}/programs/clickhouse
+# echo -e "\nBINARY: ${BINARY}"
+# ls -lh ${BINARY}
+# echo -e "\nldd ${BINARY}"
+# ${LDD} ${BINARY}
+# rm -f ${BINARY}
 
 # del the binary and run ninja -v again to capture the command, then modify it to generate CHDB_PY_MODULE
 /bin/rm -f ${BINARY} 
