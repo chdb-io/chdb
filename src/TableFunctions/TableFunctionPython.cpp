@@ -1,3 +1,7 @@
+#include <memory>
+#include <TableFunctions/TableFunctionPython.h>
+
+#if USE_PYTHON
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
@@ -5,7 +9,6 @@
 #include <Storages/StorageInMemoryMetadata.h>
 #include <Storages/StoragePython.h>
 #include <TableFunctions/TableFunctionFactory.h>
-#include <TableFunctions/TableFunctionPython.h>
 #include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
@@ -111,14 +114,19 @@ StoragePtr TableFunctionPython::executeImpl(
 
     auto columns = getActualTableStructure(context, is_insert_query);
 
-    auto storage
-        = std::make_shared<StoragePython>(StorageID(getDatabaseName(), table_name), columns, ConstraintsDescription{}, reader, context);
+    std::shared_ptr<StoragePython> storage;
+    {
+        py::gil_scoped_acquire acquire;
+        storage = std::make_shared<StoragePython>(
+            StorageID(getDatabaseName(), table_name), columns, ConstraintsDescription{}, reader, context);
+    }
     storage->startup();
     return storage;
 }
 
 ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr /*context*/, bool /*is_insert_query*/) const
 {
+    py::gil_scoped_acquire acquire;
     return StoragePython::getTableStructureFromData(reader);
 }
 
@@ -137,3 +145,4 @@ This table function requires a single argument which is a PyReader object used t
 }
 
 }
+#endif
