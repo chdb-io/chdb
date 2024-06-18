@@ -1,13 +1,13 @@
 #include <Common/PythonUtils.h>
 
 #if USE_PYTHON
+
 #include <cstddef>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
-#include <unicode/bytestream.h>
-#include <unicode/unistr.h>
 #include <Common/logger_useful.h>
-#include "Columns/ColumnString.h"
+#include <Columns/ColumnString.h>
+#include <utf8proc.h>
 
 namespace DB
 {
