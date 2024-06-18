@@ -28,8 +28,9 @@ void registerStorageWindowView(StorageFactory & factory);
 #if USE_RAPIDJSON || USE_SIMDJSON
 void registerStorageFuzzJSON(StorageFactory & factory);
 #endif
-//chdb todo: add a #if USE_PYTHON here
+#if USE_PYTHON
 void registerStoragePython(StorageFactory & factory);
+#endif
 
 #if USE_AWS_S3
 void registerStorageS3(StorageFactory & factory);
@@ -129,7 +130,9 @@ void registerStorages()
 #if USE_RAPIDJSON || USE_SIMDJSON
     registerStorageFuzzJSON(factory);
 #endif
+#if USE_PYTHON
     registerStoragePython(factory);
+#endif
 
 #if USE_AWS_S3
     registerStorageS3(factory);

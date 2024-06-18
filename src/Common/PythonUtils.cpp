@@ -1,10 +1,11 @@
-#include <cstddef>
+#include <Common/PythonUtils.h>
 
+#if USE_PYTHON
+#include <cstddef>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
 #include <unicode/bytestream.h>
 #include <unicode/unistr.h>
-#include <Common/PythonUtils.h>
 #include <Common/logger_useful.h>
 #include "Columns/ColumnString.h"
 
@@ -267,15 +268,22 @@ const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len)
 
 bool _isInheritsFromPyReader(const py::handle & obj)
 {
-    // Check directly if obj is an instance of a class named "PyReader"
-    if (py::str(obj.attr("__class__").attr("__name__")).cast<std::string>() == "PyReader")
-        return true;
-
-    // Check the direct base classes of obj's class for "PyReader"
-    py::tuple bases = obj.attr("__class__").attr("__bases__");
-    for (auto base : bases)
-        if (py::str(base.attr("__name__")).cast<std::string>() == "PyReader")
+    try
+    {
+        // Check directly if obj is an instance of a class named "PyReader"
+        if (py::str(obj.attr("__class__").attr("__name__")).cast<std::string>() == "PyReader")
             return true;
+
+        // Check the direct base classes of obj's class for "PyReader"
+        py::tuple bases = obj.attr("__class__").attr("__bases__");
+        for (auto base : bases)
+            if (py::str(base.attr("__name__")).cast<std::string>() == "PyReader")
+                return true;
+    }
+    catch (const py::error_already_set &)
+    {
+        // Ignore the exception, and return false
+    }
 
     return false;
 }
@@ -316,3 +324,4 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, std::str
     return nullptr;
 }
 }
+#endif

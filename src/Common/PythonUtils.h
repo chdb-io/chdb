@@ -1,5 +1,8 @@
 #pragma once
 
+#include "config.h"
+
+#if USE_PYTHON
 #include <cstddef>
 #include <stdexcept>
 // #include <unicodeobject.h>
@@ -201,3 +204,4 @@ inline std::vector<py::object> readData(const py::object & data_source, const st
 const void * tryGetPyArray(const py::object & obj, py::handle & result, std::string & type_name, size_t & row_count);
 
 } // namespace DB
+#endif
