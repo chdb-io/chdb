@@ -1087,7 +1087,7 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 local_result * query_stable(int argc, char ** argv)
 {
     auto result = pyEntryClickHouseLocal(argc, argv);
-    if (result->error_msg_.empty() || result->buf_ == nullptr)
+    if (!result->error_msg_.empty() || result->buf_ == nullptr)
     {
         return nullptr;
     }
