@@ -1,11 +1,15 @@
 #pragma once
 
+#include "config.h"
+
+#if USE_PYTHON
 #include "chdb.h"
-#include "pybind11/pybind11.h"
-#include "pybind11/pytypes.h"
-#include "pybind11/stl.h"
+#include <pybind11/pybind11.h>
+#include <pybind11/pytypes.h>
+#include <pybind11/stl.h>
 
 namespace py = pybind11;
+
 
 class local_result_wrapper;
 class __attribute__((visibility("default"))) memoryview_wrapper;
@@ -155,3 +159,4 @@ public:
         }
     }
 };
+#endif

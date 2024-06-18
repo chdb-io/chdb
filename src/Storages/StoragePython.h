@@ -1,5 +1,8 @@
 #pragma once
 
+#include "config.h"
+
+#if USE_PYTHON
 #include <memory>
 #include <string>
 #include <vector>
@@ -181,3 +184,4 @@ void registerStoragePython(StorageFactory & factory);
 
 
 }
+#endif
