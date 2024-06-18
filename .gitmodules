@@ -372,3 +372,6 @@
 [submodule "contrib/arrow"]
 	path = contrib/arrow
 	url = https://github.com/auxten/arrow
+[submodule "contrib/utf8proc"]
+	path = contrib/utf8proc
+	url = https://github.com/JuliaStrings/utf8proc.git
