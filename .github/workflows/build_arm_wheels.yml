@@ -33,13 +33,13 @@ jobs:
       - name: Restore submodules cache
         run: |
           cp -a /builder_cache/contrib ./
-      - name: remove old clang and link clang-17 to clang
+      - name: remove old clang and link clang-18 to clang
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo rm -f /usr/bin/clang || true
-          sudo ln -s /usr/bin/clang-17 /usr/bin/clang
+          sudo ln -s /usr/bin/clang-18 /usr/bin/clang
           sudo rm -f /usr/bin/clang++ || true
-          sudo ln -s /usr/bin/clang++-17 /usr/bin/clang++
+          sudo ln -s /usr/bin/clang++-18 /usr/bin/clang++
           which clang++
           clang++ --version
       - name: Make linux-arm64
@@ -65,11 +65,11 @@ jobs:
           eval "$(pyenv init -)"
           pyenv local "${{ matrix.python-version }}"
           python3 -m pip install auditwheel
-          auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
+          auditwheel -v repair -w dist/ --plat manylinux_2_18_aarch64 dist/*.whl
         continue-on-error: false
       - name: Show files
         run: |
-          # e.g: remove chdb-0.11.4-cp310-cp310-linux_aarch64.whl, keep chdb-0.11.4-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+          # e.g: remove chdb-0.11.4-cp310-cp310-linux_aarch64.whl, keep chdb-0.11.4-cp310-cp310-manylinux_2_18_aarch64.manylinux2014_aarch64.whl
           sudo rm -f dist/*linux_aarch64.whl
           ls -lh dist
         shell: bash
