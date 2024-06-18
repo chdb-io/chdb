@@ -70,6 +70,10 @@ if (TARGET ch_contrib::simdjson)
     target_link_libraries(clickhouse_table_functions PRIVATE ch_contrib::simdjson)
 endif ()
 
+if (TARGET ch_contrib::utf8proc)
+    target_link_libraries(clickhouse_table_functions PRIVATE ch_contrib::utf8proc)
+endif ()
+
 if (TARGET ch_contrib::rapidjson)
     target_link_libraries(clickhouse_table_functions PRIVATE ch_contrib::rapidjson)
 endif ()

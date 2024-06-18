@@ -55,7 +55,7 @@ elif [ "$(uname)" == "Linux" ]; then
     UNWIND="-DUSE_UNWIND=1"
     JEMALLOC="-DENABLE_JEMALLOC=1"
     PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
-    ICU="-DENABLE_ICU=1"
+    ICU="-DENABLE_ICU=0"
     SED_INPLACE="sed -i"
     # only x86_64, enable AVX and AVX2, enable embedded compiler
     if [ "$(uname -m)" == "x86_64" ]; then

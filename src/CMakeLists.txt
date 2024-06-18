@@ -281,6 +281,9 @@ target_link_libraries (dbms PRIVATE ch_contrib::libdivide)
 if (TARGET ch_contrib::jemalloc)
     target_link_libraries (dbms PRIVATE ch_contrib::jemalloc)
 endif()
+if (TARGET ch_contrib::utf8proc)
+    target_link_libraries (dbms PRIVATE ch_contrib::utf8proc)
+endif()
 
 if (USE_PYTHON)
     # Include path from shell cmd "python3 -m pybind11 --includes"

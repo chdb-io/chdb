@@ -83,6 +83,9 @@ endif()
 if (TARGET ch_contrib::azure_sdk)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::azure_sdk)
 endif()
+if (TARGET ch_contrib::utf8proc)
+    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::utf8proc)
+endif()
 
 # Always use internal readpassphrase
 target_link_libraries(clickhouse-local-lib PRIVATE readpassphrase)
