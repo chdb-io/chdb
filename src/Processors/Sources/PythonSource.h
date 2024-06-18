@@ -1,5 +1,8 @@
 #pragma once
 
+#include "config.h"
+
+#if USE_PYTHON
 #include <cstddef>
 #include <Core/Block.h>
 
@@ -75,3 +78,4 @@ private:
     void destory(PyObjectVecPtr & data);
 };
 }
+#endif

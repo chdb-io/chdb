@@ -1,5 +1,8 @@
 #pragma once
 
+#include "config.h"
+
+#if USE_PYTHON
 #include <Storages/ColumnsDescription.h>
 #include <Storages/StoragePython.h>
 #include <TableFunctions/ITableFunction.h>
@@ -39,3 +42,4 @@ private:
 };
 
 }
+#endif

@@ -114,6 +114,10 @@ if (ENABLE_FUZZING)
     add_compile_definitions(FUZZING_MODE=1)
 endif()
 
+if (ENABLE_PYTHON)
+    set(USE_PYTHON 1)
+endif()
+
 # Global libraries
 # See:
 # - default_libs.cmake

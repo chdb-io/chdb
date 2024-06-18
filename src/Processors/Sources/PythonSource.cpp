@@ -1,3 +1,6 @@
+#include <Processors/Sources/PythonSource.h>
+
+#if USE_PYTHON
 #include <cstddef>
 #include <memory>
 #include <vector>
@@ -11,7 +14,6 @@
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/IDataType.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Processors/Sources/PythonSource.h>
 #include <Storages/StoragePython.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
@@ -430,3 +432,4 @@ Chunk PythonSource::generate()
     }
 }
 }
+#endif
