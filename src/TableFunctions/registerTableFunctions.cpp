@@ -28,9 +28,10 @@ void registerTableFunctions()
 #if USE_RAPIDJSON || USE_SIMDJSON
     registerTableFunctionFuzzJSON(factory);
 #endif
-    //chdb todo: add a #if USE_PYTHON here
+#if USE_PYTHON
     registerTableFunctionPython(factory);
-
+#endif
+    
 #if USE_AWS_S3
     registerTableFunctionS3(factory);
     registerTableFunctionS3Cluster(factory);

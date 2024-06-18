@@ -1,16 +1,18 @@
+#include <Storages/StoragePython.h>
+
+#if USE_PYTHON
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypeDate32.h>
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeString.h>
-#include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypesDecimal.h>
+#include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Processors/Sources/PythonSource.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
 #include <Storages/StorageFactory.h>
-#include <Storages/StoragePython.h>
 #include <base/types.h>
 #include <pybind11/functional.h>
 #include <pybind11/gil.h>
@@ -71,7 +73,9 @@ Pipe StoragePython::read(
     prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
 
     if (isInheritsFromPyReader(data_source))
+    {
         return Pipe(std::make_shared<PythonSource>(data_source, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
+    }
 
     Pipes pipes;
     for (size_t stream = 0; stream < num_streams; ++stream)
@@ -344,3 +348,4 @@ void registerStoragePython(StorageFactory & factory)
         {.supports_settings = true, .supports_parallel_insert = false});
 }
 }
+#endif

@@ -1,5 +1,7 @@
 #include "LocalChdb.h"
 
+#if USE_PYTHON
+
 #include <iostream>
 #include <Storages/StoragePython.h>
 #include <pybind11/gil.h>
@@ -191,3 +193,4 @@ PYBIND11_MODULE(_chdb, m)
 }
 
 #endif // PY_TEST_MAIN
+#endif // USE_PYTHON
