@@ -151,28 +151,29 @@ void printExceptionWithRespectToAbort(LoggerPtr log, const String & query_id)
     if (ex == nullptr)
         return;
 
-    try
-    {
-        std::rethrow_exception(ex);
-    }
-    catch (const Exception & e)
-    {
-        NOEXCEPT_SCOPE({
-            ALLOW_ALLOCATIONS_IN_SCOPE;
-            /// Cancelled merging parts is not an error - log normally.
-            if (e.code() == ErrorCodes::ABORTED)
-                LOG_DEBUG(log, getExceptionMessageAndPattern(e, /* with_stacktrace */ false));
-            else
-                tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
-        });
-    }
-    catch (...)
-    {
-        NOEXCEPT_SCOPE({
-            ALLOW_ALLOCATIONS_IN_SCOPE;
-            tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
-        });
-    }
+    tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
+    // try
+    // {
+    //     std::rethrow_exception(ex);
+    // }
+    // catch (Exception & e)
+    // {
+    //     NOEXCEPT_SCOPE({
+    //         ALLOW_ALLOCATIONS_IN_SCOPE;
+    //         /// Cancelled merging parts is not an error - log normally.
+    //         if (e.code() == ErrorCodes::ABORTED)
+    //             LOG_DEBUG(log, getExceptionMessageAndPattern(e, /* with_stacktrace */ false));
+    //         else
+    //             tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
+    //     });
+    // }
+    // catch (...)
+    // {
+    //     NOEXCEPT_SCOPE({
+    //         ALLOW_ALLOCATIONS_IN_SCOPE;
+    //         tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
+    //     });
+    // }
 }
 
 template <class Queue>
