@@ -281,9 +281,6 @@ target_link_libraries (dbms PRIVATE ch_contrib::libdivide)
 if (TARGET ch_contrib::jemalloc)
     target_link_libraries (dbms PRIVATE ch_contrib::jemalloc)
 endif()
-if (TARGET ch_contrib::utf8proc)
-    target_link_libraries (dbms PRIVATE ch_contrib::utf8proc)
-endif()
 
 if (USE_PYTHON)
     # Include path from shell cmd "python3 -m pybind11 --includes"
@@ -642,6 +639,12 @@ if (USE_ORC)
     dbms_target_link_libraries(PUBLIC ${ORC_LIBRARIES})
     dbms_target_include_directories(SYSTEM BEFORE PUBLIC ${ORC_INCLUDE_DIR} "${PROJECT_BINARY_DIR}/contrib/orc/c++/include")
 endif ()
+
+if (USE_UTF8PROC)
+    dbms_target_link_libraries(PUBLIC ch_contrib::utf8proc)
+    target_include_directories (clickhouse_common_io SYSTEM BEFORE PUBLIC ${UTF8PROC_INCLUDE_DIR})
+    message(STATUS "UTF8PROC_INCLUDE_DIR: ${UTF8PROC_INCLUDE_DIR}")
+endif()
 
 if (TARGET ch_contrib::rocksdb)
     dbms_target_link_libraries(PUBLIC ch_contrib::rocksdb)

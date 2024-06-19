@@ -42,6 +42,7 @@
 #cmakedefine01 USE_PROTOBUF
 #cmakedefine01 USE_MSGPACK
 #cmakedefine01 USE_ICU
+#cmakedefine01 USE_UTF8PROC
 #cmakedefine01 USE_MYSQL
 #cmakedefine01 USE_RDKAFKA
 #cmakedefine01 USE_AMQPCPP
