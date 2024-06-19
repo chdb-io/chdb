@@ -116,6 +116,7 @@ endif()
 
 if (ENABLE_PYTHON)
     set(USE_PYTHON 1)
+    set(USE_UTF8PROC 1)
 endif()
 
 # Global libraries

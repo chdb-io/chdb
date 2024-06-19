@@ -17,6 +17,10 @@ extract_into_parent_list(clickhouse_table_functions_headers dbms_headers
     TableFunctionFactory.h
 )
 
+add_library(clickhouse_table_functions ${clickhouse_table_functions_headers} ${clickhouse_table_functions_sources})
+
+target_link_libraries(clickhouse_table_functions PRIVATE clickhouse_parsers clickhouse_storages_system dbms)
+
 if (USE_PYTHON)
     # Include path from shell cmd "python3 -m pybind11 --includes"
     execute_process(COMMAND python3 -m pybind11 --includes
@@ -54,10 +58,6 @@ if (USE_PYTHON)
     endif()
 endif()
 
-add_library(clickhouse_table_functions ${clickhouse_table_functions_headers} ${clickhouse_table_functions_sources})
-
-target_link_libraries(clickhouse_table_functions PRIVATE clickhouse_parsers clickhouse_storages_system dbms)
-
 if (TARGET ch_contrib::hivemetastore)
     target_link_libraries(clickhouse_table_functions PRIVATE ch_contrib::hivemetastore ch_contrib::hdfs ch_contrib::parquet)
 endif ()
@@ -72,6 +72,7 @@ endif ()
 
 if (TARGET ch_contrib::utf8proc)
     target_link_libraries(clickhouse_table_functions PRIVATE ch_contrib::utf8proc)
+    target_include_directories(clickhouse_table_functions PRIVATE ${UTF8PROC_INCLUDE_DIR})
 endif ()
 
 if (TARGET ch_contrib::rapidjson)

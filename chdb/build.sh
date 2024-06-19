@@ -176,7 +176,7 @@ USING_RESPONSE_FILE=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log |
 
 if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
     if [ -f CMakeFiles/clickhouse.rsp ]; then
-        cp -a CMakeFiles/clickhouse.rsp CMakeFiles/pychdb.rsp
+        cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
     else
         echo "CMakeFiles/clickhouse.rsp not found"
         exit 1
@@ -207,7 +207,7 @@ fi
 
 if [ "$(uname)" == "Darwin" ]; then
     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
-    ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
+    # ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
 fi
 
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
