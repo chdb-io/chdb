@@ -282,6 +282,16 @@ LIBCHDB_DIR=${BUILD_DIR}/
 
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
+
+if [ ${build_type} == "Debug" ]; then
+    echo -e "\nDebug build, skip strip"
+else
+    echo -e "\nStrip the binary:"
+    llvm-strip --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
+    llvm-strip --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
+fi
+echo -e "\nStripe the binary:"
+
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}
 echo -e "\nLIBCHDB: ${LIBCHDB}"
