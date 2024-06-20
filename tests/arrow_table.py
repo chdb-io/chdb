@@ -22,18 +22,20 @@ from utils import current_dir
 #                     os.path.join(current_dir, "hits_0.parquet"))
 
 # 122MB parquet file
-hits_0 = os.path.join(current_dir, "hits_0.parquet")
+# hits_0 = os.path.join(current_dir, "hits_0.parquet")
 
 # 14GB parquet file
 # hits_0 = os.path.join(current_dir, "hits.parquet")
 
 # 1.3G parquet file
-# hits_0 = os.path.join(current_dir, "hits1.parquet")
+hits_0 = os.path.join(current_dir, "hits1.parquet")
 
 # sql = """SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
 #                         FROM __table__ GROUP BY RegionID ORDER BY c DESC LIMIT 10"""
 
-sql = "SELECT * FROM hits WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 10;"
+# sql = "SELECT * FROM hits WHERE URL LIKE '%google%' ORDER BY EventTime LIMIT 10;"
+
+sql = "SELECT COUNT(DISTINCT UserID) FROM hits;"
 
 t = time.time()
 # read parquet file into memory
@@ -50,23 +52,23 @@ print("Read parquet file as old pandas dataframe. Time cost:", time.time() - t, 
 print("Dataframe size:", df_old.memory_usage().sum(), "bytes")
 
 hits = df_old
-# print(hits["EventTime"][0:10])
-hits["EventTime"] = pd.to_datetime(hits["EventTime"], unit="s")
-# print(hits["EventTime"][0:10])
+# # print(hits["EventTime"][0:10])
+# hits["EventTime"] = pd.to_datetime(hits["EventTime"], unit="s")
+# # print(hits["EventTime"][0:10])
 
-hits["EventDate"] = pd.to_datetime(hits["EventDate"], unit="D")
-# print(hits["EventDate"][0:10])
+# hits["EventDate"] = pd.to_datetime(hits["EventDate"], unit="D")
+# # print(hits["EventDate"][0:10])
 
-# fix all object columns to string
-for col in hits.columns:
-    if hits[col].dtype == "O":
-        # hits[col] = hits[col].astype('string')
-        hits[col] = hits[col].astype(str)
+# # fix all object columns to string
+# for col in hits.columns:
+#     if hits[col].dtype == "O":
+#         # hits[col] = hits[col].astype('string')
+#         hits[col] = hits[col].astype(str)
 
 # title = hits["Title"]
 # title.values.data
 
-hits.dtypes
+# hits.dtypes
 
 # # read parquet file as pandas dataframe
 # t = time.time()
@@ -214,16 +216,32 @@ class myReader(chdb.PyReader):
 
 reader = myReader(df_old)
 
-t = time.time()
-ret = chdb.query(
-    # """ SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
-    #                     FROM Python(reader) GROUP BY RegionID ORDER BY c DESC LIMIT 10""",
-    # "SELECT COUNT(DISTINCT Title) FROM Python(reader);",
-    sql.replace("hits", "Python(hits)"),
-    "Dataframe",
-)
-print("Run with new chDB on dataframe. Time cost:", time.time() - t, "s")
-print(ret)
+
+def bench_chdb(i):
+    if i == 0:
+        format = "Debug"
+    else:
+        format = "DataFrame"
+    ret = chdb.query(
+        # """ SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
+        #                     FROM Python(reader) GROUP BY RegionID ORDER BY c DESC LIMIT 10""",
+        # "SELECT COUNT(DISTINCT Title) FROM Python(reader);",
+        sql.replace("hits", "Python(hits)"),
+        format,
+    )
+    return ret
+
+
+# run 5 times, remove the fastest and slowest, then calculate the average
+times = []
+for i in range(5):
+    t = time.time()
+    ret = bench_chdb(i)
+    times.append(time.time() - t)
+    print(ret)
+times.remove(max(times))
+times.remove(min(times))
+print("Run with new chDB on dataframe. Time cost:", sum(times) / len(times), "s")
 
 # t = time.time()
 # df_arr_reader = myReader(df)
