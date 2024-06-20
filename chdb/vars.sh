@@ -9,6 +9,30 @@ pushd ${PROJ_DIR}
 CHDB_VERSION=$(python3 -c 'import setup; print(setup.get_latest_git_tag())')
 popd
 
+# try to use largest llvm-strip version
+# if none of them are found, use llvm-strip or strip
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /usr/bin/llvm-strip* | sort -V | tail -n 1)
+fi
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /usr/local/bin/llvm-strip* | sort -V | tail -n 1)
+fi
+# on macOS
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /usr/local/Cellar/llvm/*/bin/llvm-strip* | sort -V | tail -n 1)
+fi
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /usr/local/opt/llvm/bin/llvm-strip* | sort -V | tail -n 1)
+fi
+
+# if none of them are found, use llvm-strip or strip
+if [ -z "$STRIP" ]; then
+    STRIP=$(which llvm-strip)
+fi
+if [ -z "$STRIP" ]; then
+    STRIP=$(which strip)
+fi
+
 # check current os type, and make ldd command
 if [ "$(uname)" == "Darwin" ]; then
     LDD="otool -L"
