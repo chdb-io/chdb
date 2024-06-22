@@ -47,20 +47,6 @@ if (USE_PYTHON)
     endif()
 endif()
 
-# add_library(clickhouse-local-lib SHARED ${CLICKHOUSE_LOCAL_SOURCES})
-
-# target_link_libraries(clickhouse-local-lib
-#     PRIVATE
-#         boost::program_options
-#         clickhouse_aggregate_functions
-#         clickhouse_common_config
-#         clickhouse_common_io
-#         clickhouse_functions
-#         clickhouse_parsers
-#         clickhouse_storages_system
-#         clickhouse_table_functions
-# )
-
 set (CLICKHOUSE_LOCAL_LINK
     PRIVATE
         boost::program_options
@@ -82,6 +68,9 @@ if (TARGET ch_rust::skim)
 endif()
 if (TARGET ch_contrib::azure_sdk)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::azure_sdk)
+endif()
+if (TARGET ch_contrib::utf8proc)
+    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::utf8proc)
 endif()
 
 # Always use internal readpassphrase

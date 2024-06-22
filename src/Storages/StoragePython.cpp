@@ -68,16 +68,15 @@ Pipe StoragePython::read(
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
 
-    // num_streams = 3; // for chdb testing
-
-    prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
-
     if (isInheritsFromPyReader(data_source))
     {
         return Pipe(std::make_shared<PythonSource>(data_source, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
     }
 
+    prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
+
     Pipes pipes;
+    // num_streams = 32; // for chdb testing
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
             data_source, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams));

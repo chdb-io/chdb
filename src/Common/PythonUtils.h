@@ -4,8 +4,6 @@
 
 #if USE_PYTHON
 #include <cstddef>
-#include <stdexcept>
-// #include <unicodeobject.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/Serializations/SerializationNumber.h>
@@ -13,11 +11,6 @@
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
-#include <unicode/ucnv.h>
-#include <unicode/unistr.h>
-#include <unicode/utf16.h>
-#include <unicode/utf8.h>
-#include <unicode/utypes.h>
 #include <Common/Exception.h>
 
 namespace DB

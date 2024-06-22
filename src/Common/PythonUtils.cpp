@@ -1,13 +1,15 @@
 #include <Common/PythonUtils.h>
+#include "config.h"
 
 #if USE_PYTHON
+
 #include <cstddef>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
-#include <unicode/bytestream.h>
-#include <unicode/unistr.h>
+
 #include <Common/logger_useful.h>
-#include "Columns/ColumnString.h"
+#include <Columns/ColumnString.h>
+#include <utf8proc.h>
 
 namespace DB
 {
@@ -15,71 +17,51 @@ namespace DB
 const char * ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, size_t & output_size)
 {
     if (input == nullptr)
-        return nullptr;
-
-    char * output_buffer = new char[4 * codepoint_cnt]; // Allocate buffer for UTF-8 output
-
-    size_t real_size = 0;
-
-    switch (kind)
     {
-        case 1: { // Handle 1-byte characters (Latin1/ASCII equivalent in ICU)
-            const char * start = (const char *)input;
-            const char * end = start + codepoint_cnt;
-            char code_unit;
-            char * target = output_buffer;
-            int32_t append_size = 0;
-
-            while (start < end)
-            {
-                code_unit = *start++;
-                U8_APPEND_UNSAFE(target, append_size, code_unit);
-            }
-            real_size += append_size;
-            output_buffer[real_size] = '\0'; // Null terminate the output string
-            // LOG_DEBUG(&Poco::Logger::get("PythonUtils"), "Coverted 1byte String: {}", output_buffer);
-            break;
-        }
-        case 2: { // Handle 2-byte characters (UTF-16 equivalent)
-            const UChar * start = (const UChar *)input;
-            const UChar * end = start + codepoint_cnt;
-            UChar code_unit;
-            char * target = output_buffer;
-            int32_t append_size = 0;
-
-            while (start < end)
-            {
-                code_unit = *start++;
-                U8_APPEND_UNSAFE(target, append_size, code_unit);
-            }
-            real_size += append_size;
-            output_buffer[real_size] = '\0'; // Null terminate the output string
-            // LOG_DEBUG(&Poco::Logger::get("PythonUtils"), "Coverted 2byte String: {}", output_buffer);
-            break;
-        }
-        case 4: { // Handle 4-byte characters (Assume UCS-4/UTF-32)
-            const UInt32 * start = (const UInt32 *)input;
-            const UInt32 * end = start + codepoint_cnt;
-            UInt32 code_unit;
-            char * target = output_buffer;
-            int32_t append_size = 0;
-
-            while (start < end)
-            {
-                code_unit = *start++;
-                U8_APPEND_UNSAFE(target, append_size, code_unit);
-            }
-            real_size += append_size;
-            output_buffer[real_size] = '\0'; // Null terminate the output string
-            // LOG_DEBUG(&Poco::Logger::get("PythonUtils"), "Coverted 4byte String: {}", output_buffer);
-            break;
-        }
-        default:
-            delete[] output_buffer; // Clean up memory allocation if kind is unsupported
-            throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported unicode kind {}", kind);
+        return nullptr;
     }
 
-    output_size = real_size;
+    char * output_buffer = new char[codepoint_cnt * 4 + 1]; // Allocate buffer based on calculated size
+    char * target = output_buffer;
+    size_t total_size = 0;
+
+    // Encode each Unicode codepoint to UTF-8 using utf8proc
+    switch (kind)
+    {
+        case 1: {
+            const auto * start = static_cast<const uint8_t *>(input);
+            for (size_t i = 0; i < codepoint_cnt; ++i)
+            {
+                int sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(target));
+                target += sz;
+                total_size += sz;
+            }
+            break;
+        }
+        case 2: {
+            const auto * start = static_cast<const uint16_t *>(input);
+            for (size_t i = 0; i < codepoint_cnt; ++i)
+            {
+                int sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(target));
+                target += sz;
+                total_size += sz;
+            }
+            break;
+        }
+        case 4: {
+            const auto * start = static_cast<const uint32_t *>(input);
+            for (size_t i = 0; i < codepoint_cnt; ++i)
+            {
+                int sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(target));
+                target += sz;
+                total_size += sz;
+            }
+            break;
+        }
+    }
+
+    output_buffer[total_size] = '\0'; // Null-terminate the output string
+    output_size = total_size;
     return output_buffer;
 }
 
@@ -87,63 +69,57 @@ size_t
 ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, ColumnString::Offsets & offsets, ColumnString::Chars & chars)
 {
     if (input == nullptr)
+    {
         return 0;
+    }
 
+    // Estimate the maximum buffer size required for the UTF-8 output
+    // Buffers is reserved from the caller, so we can safely resize it and memory will not be wasted
     size_t estimated_size = codepoint_cnt * 4 + 1; // Allocate buffer for UTF-8 output
     size_t chars_cursor = chars.size();
     size_t target_size = chars_cursor + estimated_size;
     chars.resize(target_size);
 
+    // Resize the character buffer to accommodate the UTF-8 string
+    chars.resize(chars_cursor + estimated_size + 1); // +1 for null terminator
+
+    size_t offset = chars_cursor;
     switch (kind)
     {
-        case 1: { // Handle 1-byte characters (Latin1/ASCII equivalent in ICU)
-            const char * start = (const char *)input;
-            const char * end = start + codepoint_cnt;
-            char code_unit;
-            int32_t append_size = 0;
-
-            while (start < end)
+        case 1: { // Latin1/ASCII
+            const auto * start = static_cast<const uint8_t *>(input);
+            for (size_t i = 0; i < codepoint_cnt; ++i)
             {
-                code_unit = *start++;
-                U8_APPEND_UNSAFE(chars.data(), chars_cursor, code_unit);
+                auto sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(&chars[offset]));
+                offset += sz;
             }
             break;
         }
-        case 2: { // Handle 2-byte characters (UTF-16 equivalent)
-            const UChar * start = (const UChar *)input;
-            const UChar * end = start + codepoint_cnt;
-            UChar code_unit;
-            int32_t append_size = 0;
-
-            while (start < end)
+        case 2: { // UTF-16
+            const auto * start = static_cast<const uint16_t *>(input);
+            for (size_t i = 0; i < codepoint_cnt; ++i)
             {
-                code_unit = *start++;
-                U8_APPEND_UNSAFE(chars.data(), chars_cursor, code_unit);
+                auto sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(&chars[offset]));
+                offset += sz;
             }
             break;
         }
-        case 4: { // Handle 4-byte characters (Assume UCS-4/UTF-32)
-            const UInt32 * start = (const UInt32 *)input;
-            const UInt32 * end = start + codepoint_cnt;
-            UInt32 code_unit;
-            int32_t append_size = 0;
-
-            while (start < end)
+        case 4: { // UTF-32
+            const auto * start = static_cast<const uint32_t *>(input);
+            for (size_t i = 0; i < codepoint_cnt; ++i)
             {
-                code_unit = *start++;
-                U8_APPEND_UNSAFE(chars.data(), chars_cursor, code_unit);
+                auto sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(&chars[offset]));
+                offset += sz;
             }
             break;
         }
-        default:
-            throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported unicode kind {}", kind);
     }
 
-    chars[chars_cursor++] = '\0'; // Null terminate the output string and increase the cursor
-    offsets.push_back(chars_cursor);
-    chars.resize_assume_reserved(chars_cursor);
+    chars[offset++] = '\0'; // Null terminate the output string
+    offsets.push_back(offset); // Include the null terminator in the offset
+    chars.resize(offset); // Resize to the actual used size, including null terminator
 
-    return chars_cursor;
+    return offset; // Return the number of bytes written, not including the null terminator
 }
 
 void FillColumnString(PyObject * obj, ColumnString * column)
