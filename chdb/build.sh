@@ -88,7 +88,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
     ${GLIBC_COMPATIBILITY} \
     -DENABLE_UTILS=0 ${LLVM} ${UNWIND} \
-    ${ICU} ${JEMALLOC} \
+    ${ICU} -DENABLE_UTF8PROC=1 ${JEMALLOC} \
     -DENABLE_PARQUET=1 -DENABLE_ROCKSDB=1 -DENABLE_SQLITE=1 -DENABLE_VECTORSCAN=1 \
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 \
     -DENABLE_RAPIDJSON=1 \
@@ -161,12 +161,7 @@ LIBCHDB_SO="libchdb.so"
 # Build libchdb.so
 cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 ..
 ninja -d keeprsp
-if [ ! -f CMakeFiles/clickhouse.rsp ]; then
-    echo "CMakeFiles/clickhouse.rsp not found"
-    exit 1
-fi
 
-cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
 
 BINARY=${BUILD_DIR}/programs/clickhouse
 echo -e "\nBINARY: ${BINARY}"
@@ -175,6 +170,18 @@ echo -e "\nldd ${BINARY}"
 ${LDD} ${BINARY}
 rm -f ${BINARY}
 
+cd ${BUILD_DIR}
+ninja -d keeprsp -v > build.log || true
+USING_RESPONSE_FILE=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log | grep '@CMakeFiles/clickhouse.rsp' || true)
+
+if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+    if [ -f CMakeFiles/clickhouse.rsp ]; then
+        cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
+    else
+        echo "CMakeFiles/clickhouse.rsp not found"
+        exit 1
+    fi
+fi
 
 LIBCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
     | sed "s/-o programs\/clickhouse/-fPIC -shared -o ${LIBCHDB_SO}/" \
@@ -186,16 +193,21 @@ LIBCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
 
 #   generate the command to generate libchdb.so
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
-${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
+
+if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+    ${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
+fi
 
 if [ "$(uname)" == "Linux" ]; then
     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
-    ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
+    if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+        ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
+    fi
 fi
 
 if [ "$(uname)" == "Darwin" ]; then
     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
-    ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
+    # ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
 fi
 
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
@@ -220,12 +232,16 @@ ninja -d keeprsp || true
 cd ${BUILD_DIR}
 ninja -d keeprsp -v > build.log || true
 
-if [ ! -f CMakeFiles/clickhouse.rsp ]; then
-    echo "CMakeFiles/clickhouse.rsp not found"
-    exit 1
-fi
+USING_RESPONSE_FILE=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log | grep '@CMakeFiles/clickhouse.rsp' || true)
 
-cp -a CMakeFiles/clickhouse.rsp CMakeFiles/pychdb.rsp
+if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+    if [ -f CMakeFiles/clickhouse.rsp ]; then
+        cp -a CMakeFiles/clickhouse.rsp CMakeFiles/pychdb.rsp
+    else
+        echo "CMakeFiles/clickhouse.rsp not found"
+        exit 1
+    fi
+fi
 
 # extract the command to generate CHDB_PY_MODULE
 PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
@@ -237,19 +253,21 @@ PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
      )
 
 
-# inplace modify the CMakeFiles/pychdb.rsp
-${SED_INPLACE} 's/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/' CMakeFiles/pychdb.rsp
-${SED_INPLACE} 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' CMakeFiles/pychdb.rsp
-${SED_INPLACE} 's/ -Xlinker --no-undefined//g' CMakeFiles/pychdb.rsp
+# # inplace modify the CMakeFiles/pychdb.rsp
+# ${SED_INPLACE} 's/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/' CMakeFiles/pychdb.rsp
+# ${SED_INPLACE} 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' CMakeFiles/pychdb.rsp
+# ${SED_INPLACE} 's/ -Xlinker --no-undefined//g' CMakeFiles/pychdb.rsp
 
 
 if [ "$(uname)" == "Linux" ]; then
     # remove src/CMakeFiles/clickhouse_malloc.dir/Common/stubFree.c.o
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g')
-    ${SED_INPLACE} 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g' CMakeFiles/pychdb.rsp
     # put -Wl,-wrap,malloc ... after -DUSE_JEMALLOC=1
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g')
-    ${SED_INPLACE} 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g' CMakeFiles/pychdb.rsp
+    if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+        ${SED_INPLACE} 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g' CMakeFiles/pychdb.rsp
+        ${SED_INPLACE} 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g' CMakeFiles/pychdb.rsp
+    fi
 fi
 
 # save the command to a file for debug
@@ -264,6 +282,16 @@ LIBCHDB_DIR=${BUILD_DIR}/
 
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
+
+if [ ${build_type} == "Debug" ]; then
+    echo -e "\nDebug build, skip strip"
+else
+    echo -e "\nStrip the binary:"
+    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
+fi
+echo -e "\nStripe the binary:"
+
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}
 echo -e "\nLIBCHDB: ${LIBCHDB}"

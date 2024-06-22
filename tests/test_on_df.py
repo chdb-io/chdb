@@ -1,10 +1,10 @@
 import atexit
 import io
 import os.path
-import sys
 import time
 import unittest
 
+import pandas as pd
 from chdb.dataframe import Table, pandas_read_parquet
 from utils import current_dir
 
@@ -40,6 +40,8 @@ output = io.StringIO()
 # run print at exit
 atexit.register(lambda: print("\n" + output.getvalue()))
 
+pd.set_option("display.max_columns", 10)
+pd.set_option("display.width", 200)
 
 class TestRunOnDf(unittest.TestCase):
 

@@ -23,6 +23,7 @@ const char * auto_config_build[]
     "USE_GLIBC_COMPATIBILITY", "@GLIBC_COMPATIBILITY@",
     "USE_JEMALLOC", "@ENABLE_JEMALLOC@",
     "USE_ICU", "@USE_ICU@",
+    "USE_UTF8PROC", "@USE_UTF8PROC@",
     "USE_H3", "@USE_H3@",
     "USE_MYSQL", "@USE_MYSQL@",
     "USE_RDKAFKA", "@USE_RDKAFKA@",
