@@ -460,8 +460,7 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
     {
         auto stream_count = pipeline.getNumStreams();
         /// Calculate the stream count by adding up all the stream aggregate functions costs.
-        /// the max stream count is the number of pipeline streams, the min stream count is 4.
-        ///     cost = 2 + agg_col_cost + group_by_keys_cost
+        /// the max stream count is the number of pipeline streams.
         size_t estimate_stream = 0;
         size_t agg_col_cost = 0;
         size_t group_by_keys_cost = 0;
