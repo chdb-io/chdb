@@ -1,3 +1,4 @@
+#include <string>
 #include <Common/PythonUtils.h>
 #include "config.h"
 
@@ -312,15 +313,26 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
         row_count = py::len(obj);
         // if element type is bytes or object, we need to convert it to string
         // chdb todo: need more type check
-        if (array.dtype().kind() == 'O')
+        if (row_count > 0)
         {
-            auto str_obj = obj.attr("astype")(py::dtype("str"));
-            array = str_obj.attr("values");
-            result = array;
-            tmp = array;
-            tmp.inc_ref();
-            return array.data();
+            auto elem_type = obj.attr("__getitem__")(0).attr("__class__").attr("__name__").cast<std::string>();
+            if (elem_type == "str" || elem_type == "unicode")
+            {
+                result = array;
+                return array.data();
+            }
+            if (elem_type == "bytes" || elem_type == "object")
+            {
+                // chdb todo: better handle for bytes and object type
+                auto str_obj = obj.attr("astype")(py::dtype("str"));
+                array = str_obj.attr("values");
+                result = array;
+                tmp = array;
+                tmp.inc_ref();
+                return array.data();
+            }
         }
+
         result = array;
         return array.data();
     }
