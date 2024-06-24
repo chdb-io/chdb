@@ -387,14 +387,14 @@ Chunk PythonSource::scanDataToChunk()
             {
                 // log first 10 rows of the column
                 std::stringstream ss;
-                LOG_DEBUG(logger, "Column {} structure: {}", col.name, columns[i]->dumpStructure());
+                // LOG_DEBUG(logger, "Column {} structure: {}", col.name, columns[i]->dumpStructure());
                 for (size_t j = 0; j < std::min(count, static_cast<size_t>(10)); ++j)
                 {
                     Field value;
                     columns[i]->get(j, value);
                     ss << toString(value) << ", ";
                 }
-                LOG_DEBUG(logger, "Column {} data: {}", col.name, ss.str());
+                // LOG_DEBUG(logger, "Column {} data: {}", col.name, ss.str());
             }
         }
         catch (const Exception & e)
