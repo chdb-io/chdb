@@ -6,10 +6,10 @@
 #include <cstddef>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
-
-#include <Common/logger_useful.h>
-#include <Columns/ColumnString.h>
+#include <pybind11/numpy.h>
 #include <utf8proc.h>
+#include <Columns/ColumnString.h>
+#include <Common/logger_useful.h>
 
 namespace DB
 {
@@ -122,13 +122,40 @@ ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, Colum
     return offset; // Return the number of bytes written, not including the null terminator
 }
 
+int PyString_AsStringAndSize(PyObject * ob, char ** charpp, Py_ssize_t * sizep)
+{
+    // always convert it to utf8, but this case is rare, here goes the slow path
+    py::gil_scoped_acquire acquire;
+    if (PyUnicode_Check(ob))
+    {
+        *charpp = const_cast<char *>(PyUnicode_AsUTF8AndSize(ob, sizep));
+        if (*charpp == nullptr)
+        {
+            return -1;
+        }
+        return 0;
+    }
+    else
+    {
+        return PyBytes_AsStringAndSize(ob, charpp, sizep);
+    }
+}
+
 void FillColumnString(PyObject * obj, ColumnString * column)
 {
     ColumnString::Offsets & offsets = column->getOffsets();
     ColumnString::Chars & chars = column->getChars();
+    // if obj is bytes
+    // if (PyBytes_Check(obj))
+    // {
+    //     // convert bytes to string
+    //     column->insertData(data, bytes_size);
+    // }
+    // else
     if (PyUnicode_IS_COMPACT_ASCII(obj))
     {
-        const char * data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj));
+        // if obj is unicode
+        const char * data = reinterpret_cast<const char *>(PyUnicode_DATA(obj));
         size_t unicode_len = PyUnicode_GET_LENGTH(obj);
         column->insertData(data, unicode_len);
     }
@@ -160,10 +187,10 @@ void FillColumnString(PyObject * obj, ColumnString * column)
         }
         else
         {
-            // always convert it to utf8, but this case is rare, here goes the slow path
-            py::gil_scoped_acquire acquire;
             Py_ssize_t bytes_size = -1;
-            const char * data = PyUnicode_AsUTF8AndSize(obj, &bytes_size);
+            // const char * data = PyUnicode_AsUTF8AndSize(obj, &bytes_size);
+            char * data = nullptr;
+            bytes_size = PyString_AsStringAndSize(obj, &data, &bytes_size);
             if (bytes_size < 0)
                 throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
             column->insertData(data, bytes_size);
@@ -266,7 +293,7 @@ bool _isInheritsFromPyReader(const py::handle & obj)
 
 // Will try to get the ref of py::array from pandas Series, or PyArrow Table
 // without import numpy or pyarrow. Just from class name for now.
-const void * tryGetPyArray(const py::object & obj, py::handle & result, std::string & type_name, size_t & row_count)
+const void * tryGetPyArray(const py::object & obj, py::handle & result, py::handle & tmp, std::string & type_name, size_t & row_count)
 {
     py::gil_scoped_acquire acquire;
     type_name = py::str(obj.attr("__class__").attr("__name__")).cast<std::string>();
@@ -283,6 +310,17 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, std::str
         // Try to get the handle of py::array from pandas Series
         py::array array = obj.attr("values");
         row_count = py::len(obj);
+        // if element type is bytes or object, we need to convert it to string
+        // chdb todo: need more type check
+        if (array.dtype().kind() == 'O')
+        {
+            auto str_obj = obj.attr("astype")(py::dtype("str"));
+            array = str_obj.attr("values");
+            result = array;
+            tmp = array;
+            tmp.inc_ref();
+            return array.data();
+        }
         result = array;
         return array.data();
     }
