@@ -21,11 +21,14 @@ def main():
     sql = options.sql[0]
     output_format = options.format
     res = query(sql, output_format)
-    if output_format.lower() in ('dataframe', 'arrowtable'):
-        temp = res
-    else:
-        temp = res.data()
-    print(temp, end="")
+    try:
+        if output_format.lower() in ("dataframe", "arrowtable"):
+            temp = res
+        else:
+            temp = res.data()
+        print(temp, end="")
+    except UnicodeDecodeError:
+        print(repr(res.bytes()))
 
 
 if __name__ == '__main__':
