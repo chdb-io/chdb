@@ -151,7 +151,10 @@ void printExceptionWithRespectToAbort(LoggerPtr log, const String & query_id)
     if (ex == nullptr)
         return;
 
-    tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
+    NOEXCEPT_SCOPE({
+        ALLOW_ALLOCATIONS_IN_SCOPE;
+        tryLogCurrentException(log, "Exception while executing background task {" + query_id + "}");
+    });
     // try
     // {
     //     std::rethrow_exception(ex);
