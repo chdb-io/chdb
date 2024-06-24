@@ -38,6 +38,7 @@ local_result_v2 * queryToBuffer(
         // Add path string
         argv.push_back("--path=" + path);
     }
+    // argv.push_back("--no-system-tables");
     // Add query string
     argv.push_back("--query=" + queryStr);
 
