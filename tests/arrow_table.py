@@ -4,6 +4,7 @@ import os
 import time
 import chdb
 import chdb.dataframe as cdf
+import chdb.session as chs
 import pandas as pd
 import numpy as np
 import pyarrow as pa
@@ -37,6 +38,8 @@ hits_0 = os.path.join(current_dir, "hits1.parquet")
 
 sql = "SELECT COUNT(DISTINCT UserID) FROM hits;"
 
+# sql = "SELECT REGEXP_REPLACE(Referer, '^https?://(?:www\.)?([^/]+)/.*$', '\1') AS k, AVG(STRLEN(Referer)) AS l, COUNT(*) AS c, MIN(Referer) FROM hits WHERE Referer <> '' GROUP BY k HAVING COUNT(*) > 100000 ORDER BY l DESC LIMIT 25;"
+
 t = time.time()
 # read parquet file into memory
 with open(hits_0, "rb") as f:
@@ -64,6 +67,8 @@ hits = df_old
 #     if hits[col].dtype == "O":
 #         # hits[col] = hits[col].astype('string')
 #         hits[col] = hits[col].astype(str)
+
+hits["Referer"] = hits["Referer"].astype(str)
 
 # title = hits["Title"]
 # title.values.data
@@ -216,17 +221,22 @@ class myReader(chdb.PyReader):
 
 reader = myReader(df_old)
 
+sess = chs.Session()
+# sess.query("set aggregation_memory_efficient_merge_threads=2;")
+
+sql = sql.replace("STRLEN", "length")
 
 def bench_chdb(i):
     if i == 0:
         format = "Debug"
     else:
         format = "DataFrame"
-    ret = chdb.query(
+    ret = sess.query(
         # """ SELECT RegionID, SUM(AdvEngineID), COUNT(*) AS c, AVG(ResolutionWidth), COUNT(DISTINCT UserID)
         #                     FROM Python(reader) GROUP BY RegionID ORDER BY c DESC LIMIT 10""",
         # "SELECT COUNT(DISTINCT Title) FROM Python(reader);",
-        sql.replace("hits", "Python(hits)"),
+        "set aggregation_memory_efficient_merge_threads=3;"
+        + sql.replace("hits", "Python(hits)"),
         format,
     )
     return ret
