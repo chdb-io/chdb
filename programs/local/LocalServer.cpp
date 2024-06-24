@@ -1050,10 +1050,14 @@ public:
 };
 
 
+// global mutex for all local servers
+static std::mutex CHDB_MUTEX;
+
 std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 {
     try
     {
+        std::lock_guard<std::mutex> lock(CHDB_MUTEX);
         DB::LocalServer app;
         app.init(argc, argv);
         int ret = app.run();
