@@ -135,7 +135,7 @@ void LocalServer::initialize(Poco::Util::Application & self)
     }
 
     GlobalThreadPool::initialize(
-        config().getUInt("max_thread_pool_size", std::max(getNumberOfPhysicalCPUCores() * 2, 256u)),
+        config().getUInt("max_thread_pool_size", std::max(getNumberOfPhysicalCPUCores(), 1024u)),
         config().getUInt("max_thread_pool_free_size", 0),
         config().getUInt("thread_pool_queue_size", 10000));
 
