@@ -1,4 +1,5 @@
 #include <Processors/Sources/PythonSource.h>
+#include "base/scope_guard.h"
 
 #if USE_PYTHON
 #include <cstddef>
@@ -147,7 +148,12 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
     std::string type_name;
     size_t row_count;
     py::handle py_array;
-    const void * data = tryGetPyArray(obj, py_array, type_name, row_count);
+    py::handle tmp;
+    SCOPE_EXIT({
+        if (!tmp.is_none())
+            tmp.dec_ref();
+    });
+    const void * data = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
     if (!py_array.is_none())
     {
         if constexpr (std::is_same_v<T, String>)
@@ -416,19 +422,38 @@ Chunk PythonSource::generate()
     if (names.empty())
         return {};
 
-    if (isInheritsFromPyReader(data_source))
+    try
     {
-        PyObjectVecPtr data;
-        py::gil_scoped_acquire acquire;
-        data = std::move(castToSharedPtrVector<py::object>(data_source.attr("read")(names, max_block_size)));
-        if (data->empty())
-            return {};
+        if (isInheritsFromPyReader(data_source))
+        {
+            PyObjectVecPtr data;
+            py::gil_scoped_acquire acquire;
+            data = std::move(castToSharedPtrVector<py::object>(data_source.attr("read")(names, max_block_size)));
+            if (data->empty())
+                return {};
 
-        return std::move(genChunk(num_rows, data));
+            return std::move(genChunk(num_rows, data));
+        }
+        else
+        {
+            return std::move(scanDataToChunk());
+        }
     }
-    else
+    catch (const Exception & e)
     {
-        return std::move(scanDataToChunk());
+        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling {}", e.what());
+    }
+    catch (const std::exception & e)
+    {
+        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling {}", e.what());
+    }
+    catch (const py::error_already_set & e)
+    {
+        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling {}", e.what());
+    }
+    catch (...)
+    {
+        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling unknown exception");
     }
 }
 }

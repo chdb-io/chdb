@@ -30,11 +30,21 @@ struct ColumnWrapper
     void * buf; // we may modify the data when cast it to PyObject **, so we need a non-const pointer
     size_t row_count;
     py::handle data;
+    py::handle tmp; // hold some tmp data like hits['Title'].astype("str")
     DataTypePtr dest_type;
     std::string py_type; //py::handle type, eg. numpy.ndarray;
     std::string row_format;
     std::string encoding; // utf8, utf16, utf32, etc.
     std::string name;
+
+    ~ColumnWrapper()
+    {
+        py::gil_scoped_acquire acquire;
+        if (!tmp.is_none())
+        {
+            tmp.dec_ref();
+        }
+    }
 };
 
 using PyObjectVec = std::vector<py::object>;
@@ -194,7 +204,7 @@ inline std::vector<py::object> readData(const py::object & data_source, const st
     return execWithGIL([&]() { return data_source.attr("read")(names, cursor, count).cast<std::vector<py::object>>(); });
 }
 
-const void * tryGetPyArray(const py::object & obj, py::handle & result, std::string & type_name, size_t & row_count);
+const void * tryGetPyArray(const py::object & obj, py::handle & result, py::handle & tmp, std::string & type_name, size_t & row_count);
 
 } // namespace DB
 #endif
