@@ -1,7 +1,5 @@
 name: Build X86
 
-runs-on: gh-64c
-
 on:
   workflow_dispatch:
     inputs:
@@ -29,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-20.04 ]
+        os: [ gh-64c ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         # python-version: [ "3.7" ]
     env:
