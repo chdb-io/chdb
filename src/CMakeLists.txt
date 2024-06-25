@@ -208,7 +208,7 @@ if (TARGET ch_contrib::jemalloc)
     target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::jemalloc)
 endif()
 
-target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::sparsehash ch_contrib::incbin ch_contrib::icu)
+target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::sparsehash ch_contrib::incbin)
 
 add_subdirectory(Access/Common)
 add_subdirectory(Common/ZooKeeper)
