@@ -1,5 +1,7 @@
 name: Build X86
 
+runs-on: gh-64c
+
 on:
   workflow_dispatch:
     inputs:
