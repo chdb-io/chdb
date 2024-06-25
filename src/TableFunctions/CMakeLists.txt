@@ -40,6 +40,12 @@ if (USE_PYTHON)
     # Add include directories for pybind11
     set_source_files_properties(TableFunctionPython.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
 
+    # get python version, something like python3.x
+    execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
+        OUTPUT_VARIABLE PYTHON_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+
     # remove all warning, because pybind11 will generate a lot of warning
     if (OS_LINUX)
         if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
