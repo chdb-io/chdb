@@ -23,11 +23,11 @@ on:
 jobs:
   build_wheels_linux:
     name: ${{ matrix.os }} py${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
+    runs-on: gh-64c
     strategy:
       fail-fast: false
       matrix:
-        os: [ gh-64c ]
+        os: [ ubuntu-22.04 ]
         python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12" ]
         # python-version: [ "3.7" ]
     env:
@@ -39,7 +39,7 @@ jobs:
         with:
           python-version: "${{ matrix.python-version }}"
       - name: Install clang++ for Ubuntu
-        if: matrix.os == 'ubuntu-20.04'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           pwd
           uname -a
@@ -86,7 +86,7 @@ jobs:
           max-size: 5G
           append-timestamp: true
       - name: remove old clang and link clang-18 to clang
-        if: matrix.os == 'ubuntu-20.04'
+        if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo rm -f /usr/bin/clang || true
           sudo ln -s /usr/bin/clang-18 /usr/bin/clang
