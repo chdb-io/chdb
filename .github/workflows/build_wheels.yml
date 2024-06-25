@@ -120,7 +120,7 @@ jobs:
           make wheel
       - name: Install patchelf from github
         run: |
-          wget https://github.com/NixOS/patchelf/releases/download/0.18.2/patchelf-0.18.2-x86_64.tar.gz -O patchelf.tar.gz
+          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-x86_64.tar.gz -O patchelf.tar.gz
           tar -xvf patchelf.tar.gz
           sudo cp bin/patchelf /usr/bin/
           sudo chmod +x /usr/bin/patchelf
@@ -198,10 +198,10 @@ jobs:
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew update
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
-          brew install --ignore-dependencies llvm@16
+          brew install --ignore-dependencies llvm@18
           brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
-          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@16 llvm
-          export PATH=$(brew --prefix llvm@16)/bin:$PATH
+          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@18 llvm
+          export PATH=$(brew --prefix llvm@18)/bin:$PATH
           which clang++
           clang++ --version
           ccache -s
@@ -238,9 +238,9 @@ jobs:
         timeout-minutes: 300
         run: |
           python3 -m pip install pybind11 setuptools
-          export PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@16)/bin/clang
-          export CXX=$(brew --prefix llvm@16)/bin/clang++
+          export PATH=$(brew --prefix llvm@18)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@18)/bin/clang
+          export CXX=$(brew --prefix llvm@18)/bin/clang++
           bash gen_manifest.sh
           bash ./chdb/build.sh
           python3 -m pip install pandas pyarrow
@@ -277,15 +277,15 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@16)/bin/clang CXX=$(brew --prefix llvm@16)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@18)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@18)/bin/clang CXX=$(brew --prefix llvm@18)/bin/clang++"
       - name: Install dependencies for building wheels
         run: |
           python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
       - name: Build wheels
         run: |
-          export PATH=$(brew --prefix llvm@16)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@16)/bin/clang
-          export CXX=$(brew --prefix llvm@16)/bin/clang++
+          export PATH=$(brew --prefix llvm@18)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@18)/bin/clang
+          export CXX=$(brew --prefix llvm@18)/bin/clang++
           make wheel
       - name: Fix wheel platform tag
         run: |
