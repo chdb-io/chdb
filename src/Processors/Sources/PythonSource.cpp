@@ -108,7 +108,7 @@ void PythonSource::convert_string_array_to_block(
         FillColumnString(buf[i], string_column);
         // Try to help reserve memory for the string column data every 100 rows to avoid frequent reallocations
         // Check the avg size of the string column data and reserve memory accordingly
-        if ((i - offset) % 100 == 99)
+        if ((i - offset) % 10 == 9)
         {
             size_t data_size = data.size();
             size_t counter = i - offset + 1;
@@ -116,7 +116,8 @@ void PythonSource::convert_string_array_to_block(
             size_t reserve_size = avg_size * row_count;
             if (reserve_size > data.capacity())
             {
-                LOG_DEBUG(logger, "Reserving memory for string column data: {} bytes", reserve_size);
+                LOG_DEBUG(logger, "Reserving memory for string column data from {} to {}, avg size: {}, count: {}",
+                            data_size, reserve_size, avg_size, counter);
                 data.reserve(reserve_size);
             }
         }
