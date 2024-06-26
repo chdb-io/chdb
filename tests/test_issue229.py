@@ -1,6 +1,10 @@
+import unittest
 import threading
 from chdb import session
 
+thread_count = 5
+insert_count = 15
+return_results = [None] * thread_count
 
 def perform_operations(index):
     sess = session.Session()
@@ -28,7 +32,8 @@ def perform_operations(index):
     )
 
     # Insert multiple entries into the table
-    for i in range(15):
+    for i in range(insert_count):
+        # print(f"Inserting entry {i} into the table in session {index}")
         sess.query(
             f"""
         INSERT INTO knowledge_base_portal_interface_event
@@ -37,26 +42,39 @@ def perform_operations(index):
                 }, "locale": "en", "timestamp": 1717780952772, "event_type": "article_update", "article_id": 7}}]"""
         )
 
+    print(f"Inserted {insert_count} entries into the table in session {index}")
+
     # Retrieve all entries from the table
     results = sess.query(
         "SELECT * FROM knowledge_base_portal_interface_event", "JSONObjectEachRow"
     )
     print("Session Query Result:", results)
+    return_results[index] = str(results)
 
     # Cleanup session
     sess.cleanup()
 
 
-# Create multiple threads to perform operations
-threads = []
-for i in range(5):
-    threads.append(threading.Thread(target=perform_operations, args=(i,)))
+class TestIssue229(unittest.TestCase):
+    def test_issue229(self):
+        # Create multiple threads to perform operations
+        threads = []
+        results = []
+        for i in range(thread_count):
+            threads.append(threading.Thread(target=perform_operations, args=(i,)))
 
-for thread in threads:
-    thread.start()
+        for thread in threads:
+            thread.start()
 
-for thread in threads:
-    thread.join()
+        # Wait for all threads to complete, and collect results returned by each thread
+        for thread in threads:
+            thread.join()
 
-# for i in range(5):
-#     perform_operations(i)
+        # Check if all threads have returned results
+        for i in range(thread_count):
+            lines = return_results[i].split("\n")
+            self.assertGreater(len(lines), 2 * insert_count)
+
+
+if __name__ == "__main__":
+    unittest.main()
