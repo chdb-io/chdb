@@ -16,7 +16,6 @@
 
 # chDB
 
-[中文](README-zh.md)
 
 > chDB is an in-process SQL OLAP Engine powered by ClickHouse  [^1]
 > For more details: [The birth of chDB](https://auxten.com/the-birth-of-chdb/) 
