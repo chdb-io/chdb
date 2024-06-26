@@ -36,8 +36,6 @@
 
 #define ARROW_PACKAGE_KIND ""
 
-#define ARROW_JEMALLOC "1"
-
 /* #undef ARROW_COMPUTE */
 /* #undef ARROW_CSV */
 /* #undef ARROW_CUDA */

@@ -46,7 +46,7 @@ private:
     Block sample_block;
     PyColumnVecPtr column_cache;
     size_t data_source_row_count;
-    const UInt64 max_block_size;
+    const size_t max_block_size;
     // Caller will only pass stream index and total stream count
     // to the constructor, we need to calculate the start offset and end offset.
     const size_t stream_index;
