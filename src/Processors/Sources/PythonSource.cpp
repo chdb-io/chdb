@@ -2,6 +2,7 @@
 #include "base/scope_guard.h"
 
 #if USE_PYTHON
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <vector>
