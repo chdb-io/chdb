@@ -6,8 +6,8 @@
   <source media="(prefers-color-scheme: dark)" srcset="https://github.com/chdb-io/chdb/raw/main/docs/_static/snake-chdb-dark.png" height="130">
   <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/snake-chdb.png" height="130">
 </picture>
-  
-[![Build X86](https://github.com/chdb-io/chdb/actions/workflows/build_wheels.yml/badge.svg?event=release)](https://github.com/chdb-io/chdb/actions/workflows/build_wheels.yml)
+
+[![Build X86](https://github.com/chdb-io/chdb/actions/workflows/build_linux_x86_wheels.yml/badge.svg?event=release)](https://github.com/chdb-io/chdb/actions/workflows/build_linux_x86_wheels.yml)
 [![PyPI](https://img.shields.io/pypi/v/chdb.svg)](https://pypi.org/project/chdb/)
 [![Downloads](https://static.pepy.tech/badge/chdb)](https://pepy.tech/project/chdb)
 [![Discord](https://img.shields.io/discord/1098133460310294528?logo=Discord)](https://discord.gg/D2Daa2fM5K)
