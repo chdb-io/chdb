@@ -31,6 +31,7 @@ endif()
 
 if (OS_LINUX)
     set (ARROW_JEMALLOC ON)
+    add_definitions(-DARROW_JEMALLOC=1)
     message(STATUS "Using jemalloc in arrow lib")
 endif()
 

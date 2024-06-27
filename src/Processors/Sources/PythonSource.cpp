@@ -148,7 +148,7 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
         column = ColumnVector<T>::create();
 
     std::string type_name;
-    size_t row_count;
+    size_t row_count = 0;
     py::handle py_array;
     py::handle tmp;
     SCOPE_EXIT({
@@ -156,20 +156,20 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
             tmp.dec_ref();
     });
     const void * data = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
-    if (!py_array.is_none())
-    {
-        if constexpr (std::is_same_v<T, String>)
-            insert_string_from_array(py_array, column);
-        else
-            insert_from_ptr<T>(data, column, 0, row_count);
-        return column;
-    }
-
     if (type_name == "list")
     {
         //reserve the size of the column
         column->reserve(row_count);
         insert_from_list<T>(obj, column);
+        return column;
+    }
+
+    if (!py_array.is_none() && data != nullptr)
+    {
+        if constexpr (std::is_same_v<T, String>)
+            insert_string_from_array(py_array, column);
+        else
+            insert_from_ptr<T>(data, column, 0, row_count);
         return column;
     }
 
