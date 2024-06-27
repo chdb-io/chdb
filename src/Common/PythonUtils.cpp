@@ -342,7 +342,25 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
         py::array array = obj.attr("to_pandas")();
         row_count = py::len(obj);
         result = array;
+        tmp = array;
+        tmp.inc_ref();
         return array.data();
+    }
+    else if (type_name == "ChunkedArray")
+    {
+        // Try to get the handle of py::array from PyArrow ChunkedArray
+        py::array array = obj.attr("to_numpy")();
+        row_count = py::len(obj);
+        result = array;
+        tmp = array;
+        tmp.inc_ref();
+        return array.data();
+    }
+    else if (type_name == "list")
+    {
+        // Just set the row count for list
+        row_count = py::len(obj);
+        return nullptr;
     }
 
     // chdb todo: maybe convert list to py::array?

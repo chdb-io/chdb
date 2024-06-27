@@ -109,6 +109,15 @@ inline bool isPyarrowTable(const py::object & obj)
         });
 }
 
+inline bool hasGetItem(const py::object & obj)
+{
+    return execWithGIL(
+        [&]()
+        {
+            return py::hasattr(obj, "__getitem__");
+        });
+}
+
 // Specific wrappers for common use cases
 inline auto castToPyList(const py::object & obj)
 {

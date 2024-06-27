@@ -43,7 +43,7 @@ py::object find_instances_of_pyreader(const std::string & var_name)
             if (dict.contains(var_name))
             {
                 py::object obj = dict[var_name.data()];
-                if (isInheritsFromPyReader(obj) || isPandasDf(obj) || isPyarrowTable(obj))
+                if (isInheritsFromPyReader(obj) || isPandasDf(obj) || isPyarrowTable(obj) || hasGetItem(obj))
                     return obj;
             }
         }
