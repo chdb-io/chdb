@@ -156,7 +156,118 @@ def sum_udf(lhs, rhs):
 print(query("select sum_udf(12,22)"))
 ```
 
+Some notes on chDB Python UDF(User Defined Function) decorator.
+1. The function should be stateless. So, only UDFs are supported, not UDAFs(User Defined Aggregation Function).
+2. Default return type is String. If you want to change the return type, you can pass in the return type as an argument.
+    The return type should be one of the following: https://clickhouse.com/docs/en/sql-reference/data-types
+3. The function should take in arguments of type String. As the input is TabSeparated, all arguments are strings.
+4. The function will be called for each line of input. Something like this:
+    ```
+    def sum_udf(lhs, rhs):
+        return int(lhs) + int(rhs)
+
+    for line in sys.stdin:
+        args = line.strip().split('\t')
+        lhs = args[0]
+        rhs = args[1]
+        print(sum_udf(lhs, rhs))
+        sys.stdout.flush()
+    ```
+5. The function should be pure python function. You SHOULD import all python modules used IN THE FUNCTION.
+    ```
+    def func_use_json(arg):
+        import json
+        ...
+    ```
+6. Python interpertor used is the same as the one used to run the script. Get from `sys.executable`
+
 see also: [test_udf.py](tests/test_udf.py).
+</details>
+
+
+<details>
+    <summary><h4>🗂️ Python Table Engine</h4></summary>
+
+### Query on Pandas DataFrame
+
+```python
+import chdb
+import pandas as pd
+df = pd.DataFrame(
+    {
+        "a": [1, 2, 3, 4, 5, 6],
+        "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+    }
+)
+
+chdb.query("SELECT b, sum(a) FROM Python(df) GROUP BY b ORDER BY b").show()
+```
+
+### Query on Arrow Table
+
+```python
+import chdb
+import pyarrow as pa
+arrow_table = pa.table(
+    {
+        "a": [1, 2, 3, 4, 5, 6],
+        "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+    }
+)
+
+chdb.query(
+    "SELECT b, sum(a) FROM Python(arrow_table) GROUP BY b ORDER BY b", "debug"
+).show()
+```
+
+### Query on chdb.PyReader class instance
+
+1. You must inherit from chdb.PyReader class and implement the `read` method.
+2. The `read` method should:
+    1. return a list of lists, the first demension is the column, the second dimension is the row, the columns order should be the same as the first arg `col_names` of `read`.
+    1. return an empty list when there is no more data to read.
+    1. be stateful, the cursor should be updated in the `read` method.
+3. An optional `get_schema` method can be implemented to return the schema of the table. The prototype is `def get_schema(self) -> List[Tuple[str, str]]:`, the return value is a list of tuples, each tuple contains the column name and the column type. The column type should be one of the following: https://clickhouse.com/docs/en/sql-reference/data-types
+
+```python
+import chdb
+
+class myReader(chdb.PyReader):
+    def __init__(self, data):
+        self.data = data
+        self.cursor = 0
+        super().__init__(data)
+
+    def read(self, col_names, count):
+        print("Python func read", col_names, count, self.cursor)
+        if self.cursor >= len(self.data["a"]):
+            return []
+        block = [self.data[col] for col in col_names]
+        self.cursor += len(block[0])
+        return block
+
+reader = myReader(
+    {
+        "a": [1, 2, 3, 4, 5, 6],
+        "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+    }
+)
+
+chdb.query(
+    "SELECT b, sum(a) FROM Python(reader) GROUP BY b ORDER BY b"
+).show()
+```
+
+see also: [test_query_py.py](tests/test_query_py.py).
+
+### Limitations
+
+1. Column types supported: pandas.Series, pyarrow.array, chdb.PyReader
+1. Data types supported: Int, UInt, Float, String, Date, DateTime, Decimal
+1. Python Object type will be converted to String
+1. Pandas DataFrame performance is all of the best, Arrow Table is better than PyReader
+
+
 </details>
 
 For more examples, see [examples](examples) and [tests](tests).
