@@ -360,7 +360,8 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
     {
         // Just set the row count for list
         row_count = py::len(obj);
-        return nullptr;
+        result = obj;
+        return obj.ptr();
     }
 
     // chdb todo: maybe convert list to py::array?

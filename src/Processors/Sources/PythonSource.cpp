@@ -191,6 +191,12 @@ ColumnPtr PythonSource::convert_and_insert_array(const ColumnWrapper & col_wrap,
     if (col_wrap.data.is_none())
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column data is None");
 
+    if (col_wrap.py_type == "list")
+    {
+        py::gil_scoped_acquire acquire;
+        insert_from_list<T>(col_wrap.data.cast<py::list>().attr("__getitem__")(py::slice(cursor, cursor + count, 1)), column);
+        return column;
+    }
     if constexpr (std::is_same_v<T, String>)
         convert_string_array_to_block(static_cast<PyObject **>(col_wrap.buf), column, cursor, count);
     else
