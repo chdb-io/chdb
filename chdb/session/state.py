@@ -40,11 +40,11 @@ class Session:
         except:  # noqa
             pass
 
-    def query(self, sql, fmt="CSV"):
+    def query(self, sql, fmt="CSV", udf_path=""):
         """
         Execute a query.
         """
-        return query(sql, fmt, path=self._path)
+        return query(sql, fmt, path=self._path, udf_path=udf_path)
 
     # alias sql = query
     sql = query
