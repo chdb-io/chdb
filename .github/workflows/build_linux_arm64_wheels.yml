@@ -8,6 +8,12 @@ on:
         required: true
   release:
     types: [created]
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
 
 defaults:
   run:
