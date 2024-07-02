@@ -8,7 +8,11 @@ on:
         required: true
   release:
     types: [created]
-
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
 jobs:
   build_wheels_macos_12:
