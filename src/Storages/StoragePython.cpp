@@ -263,7 +263,8 @@ std::vector<std::pair<std::string, std::string>> PyReader::getSchemaFromPyObj(co
     if (!py::hasattr(data, "__class__"))
     {
         throw Exception(
-            ErrorCodes::UNKNOWN_FORMAT, "Unknown data type for schema inference. Consider inheriting PyReader and overriding getSchema().");
+            ErrorCodes::UNKNOWN_FORMAT,
+            "Unknown data type for schema inference. Consider inheriting PyReader and overriding get_schema().");
     }
 
     auto type_name = data.attr("__class__").attr("__name__").cast<std::string>();
