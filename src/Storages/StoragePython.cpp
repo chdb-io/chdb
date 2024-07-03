@@ -151,7 +151,7 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object data_sour
     RE2 pattern_int(R"(\bint(\d+))");
     RE2 pattern_generic_int(R"(\bint\b|<class 'int'>)"); // Matches generic 'int'
     RE2 pattern_uint(R"(\buint(\d+))");
-    RE2 pattern_float(R"(\b(float|double)(\d+))");
+    RE2 pattern_float(R"(\b(float|double)(\d+)?)");
     RE2 pattern_decimal128(R"(decimal128\((\d+),\s*(\d+)\))");
     RE2 pattern_decimal256(R"(decimal256\((\d+),\s*(\d+)\))");
     RE2 pattern_date32(R"(\bdate32\b)");
@@ -160,14 +160,15 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object data_sour
     RE2 pattern_time64_us(R"(\btime64\[us\]\b)");
     RE2 pattern_time64_ns(R"(\btime64\[ns\]\b|<M8\[ns\])");
     RE2 pattern_string_binary(
-        R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|binary\[pyarrow\]|dtype\[object_\]|dtype\('S|dtype\('O'\))");
+        R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|binary\[pyarrow\]|dtype\[object_\]|
+dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<class 'numpy.bytes_'>|<class 'numpy.str_'>|<class 'numpy.void)");
 
     // Iterate through each pair of name and type string in the schema
     for (const auto & [name, typeStr] : schema)
     {
         std::shared_ptr<IDataType> data_type;
 
-        std::string bits, precision, scale;
+        std::string type_capture, bits, precision, scale;
         if (RE2::PartialMatch(typeStr, pattern_int, &bits))
         {
             if (bits == "8")
@@ -202,12 +203,16 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object data_sour
         {
             data_type = std::make_shared<DataTypeInt64>(); // Default to 64-bit integers for generic 'int'
         }
-        else if (RE2::PartialMatch(typeStr, pattern_float, &bits))
+        else if (RE2::PartialMatch(typeStr, pattern_float, &type_capture, &bits))
         {
             if (bits == "32")
                 data_type = std::make_shared<DataTypeFloat32>();
             else if (bits == "64")
                 data_type = std::make_shared<DataTypeFloat64>();
+            else if (bits.empty())
+                data_type = std::make_shared<DataTypeFloat64>(); // Default to 64-bit floating point numbers
+            else
+                throw Exception(ErrorCodes::TYPE_MISMATCH, "Unrecognized floating point type: {}", typeStr);
         }
         else if (RE2::PartialMatch(typeStr, pattern_decimal128, &precision, &scale))
         {
