@@ -392,6 +392,10 @@ Chunk PythonSource::scanDataToChunk()
                 columns[i] = convert_and_insert_array<UInt32>(col, cursor, count);
             else if (which.isDateTime64())
                 columns[i] = convert_and_insert_array<DateTime64>(col, cursor, count);
+            else if (which.isDate32())
+                columns[i] = convert_and_insert_array<Int32>(col, cursor, count);
+            else if (which.isDate())
+                columns[i] = convert_and_insert_array<UInt16>(col, cursor, count);
             else if (which.isString())
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
             else

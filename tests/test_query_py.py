@@ -1,10 +1,12 @@
 #!python3
 
-from io import StringIO
+import io
+import random
 import unittest
 import numpy as np
 import pandas as pd
 import pyarrow as pa
+from pyarrow import csv
 import chdb
 
 
@@ -27,6 +29,19 @@ SMALL_CSV = """score1,score2,score3
 717410,0.6095994785374601,draw
 """
 
+SCORES_CSV = """score,result,dateOfBirth
+758270,lose,1983-07-24
+355079,win,2000-11-27
+451231,lose,1980-03-11
+854953,lose,1996-08-10
+294257,lose,1966-12-12
+756327,lose,1997-08-29
+379755,lose,1981-10-24
+916108,lose,1950-08-30
+467033,win,2007-09-15
+639860,win,1989-06-30
+"""
+
 class myReader(chdb.PyReader):
     def __init__(self, data):
         self.data = data
@@ -43,6 +58,17 @@ class myReader(chdb.PyReader):
 
 
 class TestQueryPy(unittest.TestCase):
+    # def test_query_np(self):
+    #     t3 = {
+    #         "a": np.array([1, 2, 3, 4, 5, 6]),
+    #         "b": np.array(["tom", "jerry", "auxten", "tom", "jerry", "auxten"]),
+    #     }
+
+    #     ret = chdb.query(
+    #         "SELECT b, sum(a) FROM Python(t3) GROUP BY b ORDER BY b", "debug"
+    #     )
+    #     self.assertEqual(str(ret), EXPECTED)
+
     def test_query_py(self):
         reader = myReader(
             {
@@ -74,7 +100,7 @@ class TestQueryPy(unittest.TestCase):
         )
 
         ret = chdb.query(
-            "SELECT b, sum(a) FROM Python(table) GROUP BY b ORDER BY b", "debug"
+            "SELECT b, sum(a) FROM Python(table) GROUP BY b ORDER BY b"
         )
         self.assertEqual(str(ret), EXPECTED)
 
@@ -87,20 +113,38 @@ class TestQueryPy(unittest.TestCase):
         )
 
         ret = chdb.query(
-            "SELECT b, sum(a) FROM Python(t2) GROUP BY b ORDER BY b", "debug"
+            "SELECT b, sum(a) FROM Python(t2) GROUP BY b ORDER BY b"
         )
         self.assertEqual(str(ret), EXPECTED)
 
-    # def test_query_np(self):
-    #     t3 = {
-    #         "a": np.array([1, 2, 3, 4, 5, 6]),
-    #         "b": np.array(["tom", "jerry", "auxten", "tom", "jerry", "auxten"]),
-    #     }
+    def test_query_arrow3(self):
+        table = csv.read_csv(io.BytesIO(SCORES_CSV.encode()))
+        ret = chdb.query(
+            """
+        SELECT sum(score), avg(score), median(score),
+               avgIf(score, dateOfBirth > '1980-01-01') as avgIf,
+               countIf(result = 'win') AS wins,
+               countIf(result = 'draw') AS draws,
+               countIf(result = 'lose') AS losses,
+               count()
+        FROM Python(table)
+        """,
+        )
+        self.assertEqual(
+            str(ret),
+            "5872873,587287.3,553446.5,470878.25,3,0,7,10\n",
+        )
 
-    #     ret = chdb.query(
-    #         "SELECT b, sum(a) FROM Python(t3) GROUP BY b ORDER BY b", "debug"
-    #     )
-    #     self.assertEqual(str(ret), EXPECTED)
+    def test_random_float(self):
+        x = {"col1": [random.uniform(0, 1) for _ in range(0, 100000)]}
+        ret = chdb.sql(
+            """
+        select avg(col1)
+        FROM Python(x)
+        """
+        )
+        print(ret.bytes())
+        self.assertAlmostEqual(float(ret.bytes()), 0.5, delta=0.01)
 
     def test_query_dict(self):
         data = {
@@ -109,7 +153,7 @@ class TestQueryPy(unittest.TestCase):
         }
 
         ret = chdb.query(
-            "SELECT b, sum(a) FROM Python(data) GROUP BY b ORDER BY b", "debug"
+            "SELECT b, sum(a) FROM Python(data) GROUP BY b ORDER BY b"
         )
         self.assertEqual(str(ret), EXPECTED)
 
@@ -120,7 +164,7 @@ class TestQueryPy(unittest.TestCase):
         }
 
         ret = chdb.query(
-            "SELECT b, sum(a) FROM Python(data) GROUP BY b ORDER BY b", "debug"
+            "SELECT b, sum(a) FROM Python(data) GROUP BY b ORDER BY b"
         )
         self.assertEqual(
             str(ret),
@@ -131,7 +175,7 @@ class TestQueryPy(unittest.TestCase):
             )
 
     def test_query_pd_csv(self):
-        csv_data = pd.read_csv(StringIO(SMALL_CSV))
+        csv_data = pd.read_csv(io.StringIO(SMALL_CSV))
         ret = chdb.query(
             """
             SELECT sum(score1), avg(score1), median(score1),
@@ -145,8 +189,7 @@ class TestQueryPy(unittest.TestCase):
         )
         self.assertEqual(
             str(ret),
-            """4099877,409987.7,414399.5,6.128691345453262,0.6128691345453262,0.5693101584911346,1,5,4,10
-""",
+            "4099877,409987.7,414399.5,6.128691345453262,0.6128691345453262,0.5693101584911346,1,5,4,10\n",
         )
 
 
