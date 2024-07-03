@@ -14,5 +14,6 @@ if pd.__version__[0] < '2':
 from .query import Table, pandas_read_parquet  # noqa: C0413
 
 query = Table.queryStatic
+sql = Table.queryStatic
 
-__all__ = ['Table', 'query', 'pandas_read_parquet']
+__all__ = ["Table", "query", "sql", "pandas_read_parquet"]
