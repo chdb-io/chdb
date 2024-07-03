@@ -113,22 +113,22 @@ class TestQueryPy(unittest.TestCase):
         )
         self.assertEqual(str(ret), EXPECTED)
 
-    #     def test_query_dict_int(self):
-    #         data = {
-    #             "a": [1, 2, 3, 4, 5, 6],
-    #             "b": [1, 2, 3, 1, 2, 3],
-    #         }
+    def test_query_dict_int(self):
+        data = {
+            "a": [1, 2, 3, 4, 5, 6],
+            "b": [1, 2, 3, 1, 2, 3],
+        }
 
-    #         ret = chdb.query(
-    #             "SELECT b, sum(a) FROM Python(data) GROUP BY b ORDER BY b", "debug"
-    #         )
-    #         self.assertEqual(
-    #             str(ret),
-    #             """1,5
-    # 2,7
-    # 3,9
-    # """,
-    #         )
+        ret = chdb.query(
+            "SELECT b, sum(a) FROM Python(data) GROUP BY b ORDER BY b", "debug"
+        )
+        self.assertEqual(
+            str(ret),
+            """1,5
+2,7
+3,9
+""",
+            )
 
     def test_query_pd_csv(self):
         csv_data = pd.read_csv(StringIO(SMALL_CSV))
