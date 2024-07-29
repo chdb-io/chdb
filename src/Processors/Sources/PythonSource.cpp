@@ -1,3 +1,4 @@
+#include <exception>
 #include <Processors/Sources/PythonSource.h>
 #include "base/scope_guard.h"
 
@@ -106,7 +107,16 @@ void PythonSource::convert_string_array_to_block(
     offsets.reserve(row_count);
     for (size_t i = offset; i < offset + row_count; ++i)
     {
-        FillColumnString(buf[i], string_column);
+        auto * obj = buf[i];
+        if (!PyUnicode_Check(obj))
+        {
+            LOG_ERROR(
+                logger,
+                "Unsupported Python object type {}, Unicode string expected here. Try convert column type to str with `astype(str)`",
+                Py_TYPE(obj)->tp_name);
+            throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported Python object type {}", Py_TYPE(obj)->tp_name);
+        }
+        FillColumnString(obj, string_column);
         // Try to help reserve memory for the string column data every 100 rows to avoid frequent reallocations
         // Check the avg size of the string column data and reserve memory accordingly
         if ((i - offset) % 10 == 9)
@@ -278,11 +288,34 @@ Chunk PythonSource::genChunk(size_t & num_rows, PyObjectVecPtr data)
                     type->getName(),
                     description.sample_block.getByPosition(i).name);
         }
-        catch (const Exception & e)
+        catch (Exception & e)
         {
             destory(data);
-            LOG_ERROR(logger, "Error processing column {}: {}", i, e.what());
-            throw;
+            LOG_ERROR(logger, "Error processing column \"{}\": {}", description.sample_block.getByPosition(i).name, e.what());
+            throw Exception(
+                ErrorCodes::PY_EXCEPTION_OCCURED,
+                "Error processing column \"{}\": {}",
+                description.sample_block.getByPosition(i).name,
+                e.what());
+        }
+        catch (std::exception & e)
+        {
+            destory(data);
+            LOG_ERROR(logger, "Error processing column \"{}\": {}", description.sample_block.getByPosition(i).name, e.what());
+            throw Exception(
+                ErrorCodes::PY_EXCEPTION_OCCURED,
+                "Error processing column \"{}\": {}",
+                description.sample_block.getByPosition(i).name,
+                e.what());
+        }
+        catch (...)
+        {
+            destory(data);
+            LOG_ERROR(logger, "Error processing column \"{}\": unknown exception", description.sample_block.getByPosition(i).name);
+            throw Exception(
+                ErrorCodes::PY_EXCEPTION_OCCURED,
+                "Error processing column \"{}\": unknown exception",
+                description.sample_block.getByPosition(i).name);
         }
     }
 
@@ -415,10 +448,20 @@ Chunk PythonSource::scanDataToChunk()
                 // LOG_DEBUG(logger, "Column {} data: {}", col.name, ss.str());
             }
         }
-        catch (const Exception & e)
+        catch (Exception & e)
         {
-            LOG_ERROR(logger, "Error processing column {}: {}", i, e.what());
-            throw;
+            LOG_ERROR(logger, "Error processing column \"{}\": {}", col.name, e.what());
+            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Error processing column \"{}\": {}", col.name, e.what());
+        }
+        catch (std::exception & e)
+        {
+            LOG_ERROR(logger, "Error processing column \"{}\": {}", col.name, e.what());
+            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Error processing column \"{}\": {}", col.name, e.what());
+        }
+        catch (...)
+        {
+            LOG_ERROR(logger, "Error processing column \"{}\": unknown exception", col.name);
+            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Error processing column \"{}\": unknown exception", col.name);
         }
     }
     cursor += count;
