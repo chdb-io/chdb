@@ -1,6 +1,8 @@
 #include <exception>
+#include <type_traits>
 #include <Processors/Sources/PythonSource.h>
 #include "base/scope_guard.h"
+#include "boolobject.h"
 
 #if USE_PYTHON
 #include <algorithm>
@@ -70,7 +72,27 @@ void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr
 {
     py::gil_scoped_acquire acquire;
     for (auto && item : obj)
-        column->insert(item.cast<T>());
+    {
+        if constexpr (std::is_same_v<T, UInt8>)
+        {
+            if (PyBool_Check(item.ptr()))
+            {
+                column->insert(static_cast<UInt8>(py::cast<bool>(item) ? 1 : 0));
+            }
+            else
+            {
+                column->insert(py::cast<UInt8>(item));
+            }
+        }
+        else if (item.is_none())
+        {
+            column->insertDefault();
+        }
+        else
+        {
+            column->insert(item.cast<T>());
+        }
+    }
 }
 
 void PythonSource::insert_string_from_array(const py::handle obj, const MutableColumnPtr & column)
