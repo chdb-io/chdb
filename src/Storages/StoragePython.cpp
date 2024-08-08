@@ -151,6 +151,7 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object data_sour
     RE2 pattern_int(R"(\bint(\d+))");
     RE2 pattern_generic_int(R"(\bint\b|<class 'int'>)"); // Matches generic 'int'
     RE2 pattern_uint(R"(\buint(\d+))");
+    RE2 pattern_bool(R"(\bBool|bool)");
     RE2 pattern_float(R"(\b(float|double)(\d+)?)");
     RE2 pattern_decimal128(R"(decimal128\((\d+),\s*(\d+)\))");
     RE2 pattern_decimal256(R"(decimal256\((\d+),\s*(\d+)\))");
@@ -198,6 +199,10 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
                 data_type = std::make_shared<DataTypeUInt128>();
             else if (bits == "256")
                 data_type = std::make_shared<DataTypeUInt256>();
+        }
+        else if (RE2::PartialMatch(typeStr, pattern_bool))
+        {
+            data_type = std::make_shared<DataTypeUInt8>();
         }
         else if (RE2::PartialMatch(typeStr, pattern_generic_int))
         {
@@ -334,7 +339,7 @@ std::vector<std::pair<std::string, std::string>> PyReader::getSchemaFromPyObj(co
 
     throw Exception(
         ErrorCodes::UNKNOWN_FORMAT,
-        "Unknown data type {} for schema inference. Consider inheriting PyReader and overriding getSchema().",
+        "Unknown data type {} for schema inference. Consider inheriting PyReader and overriding get_schema().",
         py::str(data.attr("__class__")).cast<std::string>());
 }
 
