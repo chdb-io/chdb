@@ -1,13 +1,11 @@
-#include <exception>
-#include <type_traits>
 #include <Processors/Sources/PythonSource.h>
-#include "base/scope_guard.h"
-#include "boolobject.h"
 
 #if USE_PYTHON
 #include <algorithm>
 #include <cstddef>
+#include <exception>
 #include <memory>
+#include <type_traits>
 #include <vector>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
@@ -22,7 +20,9 @@
 #include <Storages/StoragePython.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
+#include <base/scope_guard.h>
 #include <base/types.h>
+#include <boolobject.h>
 #include <pybind11/gil.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
