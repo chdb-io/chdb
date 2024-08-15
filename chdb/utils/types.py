@@ -201,7 +201,6 @@ def infer_data_type(values: List[Any]) -> str:
             min_val = min(min_val, num)
         except (ValueError, TypeError):
             is_int = False
-            is_uint = False
             try:
                 num = decimal.Decimal(val)
                 max_val = max(max_val, float(num))
