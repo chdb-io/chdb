@@ -22,7 +22,7 @@ local_result_v2 * queryToBuffer(
     if (output_format == "Debug" || output_format == "debug")
     {
         argv.push_back("--verbose");
-        argv.push_back("--log-level=trace");
+        argv.push_back("--log-level=test");
         // Add format string
         argv.push_back("--output-format=CSV");
     }
