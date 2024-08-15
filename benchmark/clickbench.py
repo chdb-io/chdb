@@ -29,7 +29,7 @@ queries = [
     """SELECT UserID, COUNT(*) FROM hits GROUP BY UserID ORDER BY COUNT(*) DESC LIMIT 10;""",
     """SELECT UserID, SearchPhrase, COUNT(*) FROM hits GROUP BY UserID, SearchPhrase ORDER BY COUNT(*) DESC LIMIT 10;""",
     """SELECT UserID, SearchPhrase, COUNT(*) FROM hits GROUP BY UserID, SearchPhrase LIMIT 10;""",
-    """SELECT UserID, extract(minute FROM EventTime) AS m, SearchPhrase, COUNT(*) FROM hits GROUP BY UserID, m, SearchPhrase ORDER BY COUNT(*) DESC LIMIT 10;""",
+    """SELECT UserID, extract(minute FROM toDateTime(EventTime)) AS m, SearchPhrase, COUNT(*) FROM hits GROUP BY UserID, m, SearchPhrase ORDER BY COUNT(*) DESC LIMIT 10;""",
     """SELECT UserID FROM hits WHERE UserID = 435090932899640449;""",
     """SELECT COUNT(*) FROM hits WHERE URL LIKE '%google%';""",
     """SELECT SearchPhrase, MIN(URL), COUNT(*) AS c FROM hits WHERE URL LIKE '%google%' AND SearchPhrase <> '' GROUP BY SearchPhrase ORDER BY c DESC LIMIT 10;""",
@@ -47,13 +47,13 @@ queries = [
     """SELECT URL, COUNT(*) AS c FROM hits GROUP BY URL ORDER BY c DESC LIMIT 10;""",
     """SELECT 1, URL, COUNT(*) AS c FROM hits GROUP BY 1, URL ORDER BY c DESC LIMIT 10;""",
     """SELECT ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3, COUNT(*) AS c FROM hits GROUP BY ClientIP, ClientIP - 1, ClientIP - 2, ClientIP - 3 ORDER BY c DESC LIMIT 10;""",
-    """SELECT URL, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND DontCountHits = 0 AND IsRefresh = 0 AND URL <> '' GROUP BY URL ORDER BY PageViews DESC LIMIT 10;""",
-    """SELECT Title, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND DontCountHits = 0 AND IsRefresh = 0 AND Title <> '' GROUP BY Title ORDER BY PageViews DESC LIMIT 10;""",
-    """SELECT URL, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND IsRefresh = 0 AND IsLink <> 0 AND IsDownload = 0 GROUP BY URL ORDER BY PageViews DESC LIMIT 10 OFFSET 1000;""",
-    """SELECT TraficSourceID, SearchEngineID, AdvEngineID, CASE WHEN (SearchEngineID = 0 AND AdvEngineID = 0) THEN Referer ELSE '' END AS Src, URL AS Dst, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND IsRefresh = 0 GROUP BY TraficSourceID, SearchEngineID, AdvEngineID, Src, Dst ORDER BY PageViews DESC LIMIT 10 OFFSET 1000;""",
-    """SELECT URLHash, EventDate, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND IsRefresh = 0 AND TraficSourceID IN (-1, 6) AND RefererHash = 3594120000172545465 GROUP BY URLHash, EventDate ORDER BY PageViews DESC LIMIT 10 OFFSET 100;""",
-    """SELECT WindowClientWidth, WindowClientHeight, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-01' AND EventDate <= '2013-07-31' AND IsRefresh = 0 AND DontCountHits = 0 AND URLHash = 2868770270353813622 GROUP BY WindowClientWidth, WindowClientHeight ORDER BY PageViews DESC LIMIT 10 OFFSET 10000;""",
-    """SELECT DATE_TRUNC('minute', EventTime) AS M, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62 AND EventDate >= '2013-07-14' AND EventDate <= '2013-07-15' AND IsRefresh = 0 AND DontCountHits = 0 GROUP BY DATE_TRUNC('minute', EventTime) ORDER BY DATE_TRUNC('minute', EventTime) LIMIT 10 OFFSET 1000;""",
+    """SELECT URL, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-01'  AND toDate(EventDate) <= '2013-07-31' AND DontCountHits = 0 AND IsRefresh = 0 AND URL <> '' GROUP BY URL ORDER BY PageViews DESC LIMIT 10;""",
+    """SELECT Title, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-01'  AND toDate(EventDate) <= '2013-07-31' AND DontCountHits = 0 AND IsRefresh = 0 AND Title <> '' GROUP BY Title ORDER BY PageViews DESC LIMIT 10;""",
+    """SELECT URL, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-01'  AND toDate(EventDate) <= '2013-07-31' AND IsRefresh = 0 AND IsLink <> 0 AND IsDownload = 0 GROUP BY URL ORDER BY PageViews DESC LIMIT 10 OFFSET 1000;""",
+    """SELECT TraficSourceID, SearchEngineID, AdvEngineID, CASE WHEN (SearchEngineID = 0 AND AdvEngineID = 0) THEN Referer ELSE '' END AS Src, URL AS Dst, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-01'  AND toDate(EventDate) <= '2013-07-31' AND IsRefresh = 0 GROUP BY TraficSourceID, SearchEngineID, AdvEngineID, Src, Dst ORDER BY PageViews DESC LIMIT 10 OFFSET 1000;""",
+    """SELECT URLHash, EventDate, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-01'  AND toDate(EventDate) <= '2013-07-31' AND IsRefresh = 0 AND TraficSourceID IN (-1, 6) AND RefererHash = 3594120000172545465 GROUP BY URLHash, EventDate ORDER BY PageViews DESC LIMIT 10 OFFSET 100;""",
+    """SELECT WindowClientWidth, WindowClientHeight, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-01'  AND toDate(EventDate) <= '2013-07-31' AND IsRefresh = 0 AND DontCountHits = 0 AND URLHash = 2868770270353813622 GROUP BY WindowClientWidth, WindowClientHeight ORDER BY PageViews DESC LIMIT 10 OFFSET 10000;""",
+    """SELECT DATE_TRUNC('minute', toDateTime(EventTime)) AS M, COUNT(*) AS PageViews FROM hits WHERE CounterID = 62  AND toDate(EventDate) >= '2013-07-14'  AND toDate(EventDate) <= '2013-07-15' AND IsRefresh = 0 AND DontCountHits = 0 GROUP BY DATE_TRUNC('minute', toDateTime(EventTime)) ORDER BY DATE_TRUNC('minute', toDateTime(EventTime)) LIMIT 10 OFFSET 1000;""",
 ]
 
 
@@ -61,7 +61,7 @@ def chdb_query(i, output, times=1):
     sql = queries[i]
     sql = sql.replace(
         "FROM hits",
-        f"FROM file('{data_path}', 'parquet')",
+        f"FROM file('{data_path}', Parquet)",
     )
     return execute_query(i, output, times, sql)
 
@@ -107,13 +107,13 @@ def chdb_query_pandas(i, output, times=1):
     return execute_query(i, output, times, sql)
 
 
-def exec_ch_local(i, log_level="test", output="Null"):
+def exec_ch_local(i, log_level="test", output="Null", times=1):
     f"""
     execute clickhouse local binary like
     /auxten/chdb/tests/ch24.5/usr/bin/clickhouse -q "SELECT COUNT(*) FROM  file("{data_path}") WHERE URL LIKE '%google%'" --log-level=trace
     """
     sql = queries[i]
-    sql = sql.replace("FROM hits", f"FROM file('{data_path}', 'parquet')")
+    sql = sql.replace("FROM hits", f"FROM file('{data_path}', Parquet)")
     import subprocess
 
     cmd = [
@@ -125,18 +125,28 @@ def exec_ch_local(i, log_level="test", output="Null"):
         "--output-format=" + output,
     ]
     print(" ".join(cmd))
-    subprocess.run(cmd)
+    time_list = []
+    for t in range(times):
+        start = timeit.default_timer()
+        subprocess.run(cmd)
+        end = timeit.default_timer()
+        time_list.append(round(end - start, 2))
+        print(f"Times: {t}")
+    print("ExecTime: ", time_list)
+    return time_list
 
 
 chdb_time_list = None
 chdb_elapsed_list = None
 chdb_pandas_time_list = None
 chdb_pandas_elapsed_list = None
+exec_time_list = None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("query", type=int, help="query index")
     parser.add_argument("output", type=str, help="output format")
+    parser.add_argument("--all", action="store_true", help="run all queries")
     parser.add_argument("--times", type=int, default=1, help="run times for each query")
     parser.add_argument("--chdb", action="store_true", help="use chdb to run query")
     parser.add_argument("--pandas", action="store_true", help="use pandas to run query")
@@ -147,6 +157,47 @@ if __name__ == "__main__":
         "--log_level", type=str, default="test", help="log level for local"
     )
     args = parser.parse_args()
+    if args.output == "Null":
+        args.log_level = "error"
+    if args.all:
+        all_time_list = []
+        for i in range(len(queries)):
+            args.output = "Null"
+            args.log_level = "error"
+            args.query = i
+            tmp = []
+            if args.chdb:
+                chdb_time_list, chdb_elapsed_list = chdb_query(
+                    args.query, args.output, args.times
+                )
+                tmp.append(chdb_time_list)
+                tmp.append(chdb_elapsed_list)
+            if args.pandas:
+                chdb_pandas_time_list, chdb_pandas_elapsed_list = chdb_query_pandas(
+                    args.query, args.output, args.times
+                )
+                tmp.append(chdb_pandas_time_list)
+                tmp.append(chdb_pandas_elapsed_list)
+            if args.local:
+                exec_time_list = exec_ch_local(
+                    args.query, args.log_level, args.output, args.times
+                )
+                tmp.append(exec_time_list)
+            all_time_list.append(tmp)
+        # convert to pandas with columns like chdb_time_list, chdb_elapsed_list
+        df = pd.DataFrame(all_time_list)
+        columns = []
+        if args.chdb:
+            columns += ["chdb_time", "chdb_elapsed"]
+        if args.pandas:
+            columns += ["chdb_pd_time", "chdb_pd_elapsed"]
+        if args.local:
+            columns += ["ch_local_time"]
+        df.columns = columns
+        print("All queries:")
+        print(df)
+        sys.exit(0)
+
     if args.chdb:
         chdb_time_list, chdb_elapsed_list = chdb_query(
             args.query, args.output, args.times
@@ -156,12 +207,13 @@ if __name__ == "__main__":
             args.query, args.output, args.times
         )
     if args.local:
-        exec_ch_local(args.query, args.log_level, args.output)
+        exec_time_list = exec_ch_local(
+            args.query, args.log_level, args.output, args.times
+        )
 
     # print summary
     print(f"Q{args.query}: {queries[args.query]}")
     print("Summary:")
-    print("chdb_time_list:       ", chdb_time_list)
-    print("chdb_elapsed_list:    ", chdb_elapsed_list)
-    print("chdb_pd_time_list:    ", chdb_pandas_time_list)
-    print("chdb_pd_elapsed_list: ", chdb_pandas_elapsed_list)
+    print(f"chdb_time_list:       {chdb_time_list}, elapsed: {chdb_elapsed_list}")
+    print(f"chdb_pd_time_list:    {chdb_pandas_time_list}, elapsed: {chdb_pandas_elapsed_list}")
+    print(f"local_time_list:      {exec_time_list}")
