@@ -36,7 +36,7 @@ public:
     ~PythonSource() override = default;
 
     String getName() const override { return "Python"; }
-    Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
+
     Chunk generate() override;
 
 
@@ -55,6 +55,8 @@ private:
 
     Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
     ExternalResultDescription description;
+
+    Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
 
     PyObjectVecPtr scanData(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count);
     template <typename T>
