@@ -182,7 +182,6 @@ def infer_data_type(values: List[Any]) -> str:
     max_val = float("-inf")
     min_val = float("inf")
     is_int = True
-    is_uint = True
     is_decimal = True
     is_float = True
 
