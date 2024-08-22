@@ -68,6 +68,7 @@ private:
 
     void convert_string_array_to_block(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
 
+    void insert_obj_to_string_column(PyObject * obj, ColumnString * string_column);
 
     template <typename T>
     void insert_from_list(const py::list & obj, const MutableColumnPtr & column);
