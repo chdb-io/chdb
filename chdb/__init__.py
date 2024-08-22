@@ -84,7 +84,7 @@ sql = query
 
 PyReader = _chdb.PyReader
 
-from . import dataframe, dbapi, session, udf, utils
+from . import dataframe, dbapi, session, udf, utils  # noqa: E402
 
 __all__ = [
     "PyReader",

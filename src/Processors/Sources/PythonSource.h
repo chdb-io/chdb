@@ -36,7 +36,7 @@ public:
     ~PythonSource() override = default;
 
     String getName() const override { return "Python"; }
-    Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
+
     Chunk generate() override;
 
 
@@ -56,6 +56,8 @@ private:
     Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
     ExternalResultDescription description;
 
+    Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
+
     PyObjectVecPtr scanData(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count);
     template <typename T>
     ColumnPtr convert_and_insert_array(const ColumnWrapper & col_wrap, size_t & cursor, size_t count, UInt32 scale = 0);
@@ -66,6 +68,7 @@ private:
 
     void convert_string_array_to_block(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
 
+    void insert_obj_to_string_column(PyObject * obj, ColumnString * string_column);
 
     template <typename T>
     void insert_from_list(const py::list & obj, const MutableColumnPtr & column);

@@ -71,11 +71,13 @@ class TimeoutTestRunner(unittest.TextTestRunner):
 
 class TestAggOnCSVSpeed(unittest.TestCase):
     def setUp(self):
-        download_and_extract(csv_url, "organizations-500000.zip")
+        if not os.path.exists("organizations-500000.csv"):
+            download_and_extract(csv_url, "organizations-500000.zip")
 
     def tearDown(self):
-        os.remove("organizations-500000.csv")
-        os.remove("organizations-500000.zip")
+        # os.remove("organizations-500000.csv")
+        # os.remove("organizations-500000.zip")
+        pass
 
     def _test_agg(self, arg=None):
         payload()
