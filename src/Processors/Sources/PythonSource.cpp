@@ -113,6 +113,13 @@ void PythonSource::insert_string_from_array_raw(
     for (size_t i = offset; i < offset + row_count; ++i)
     {
         size_t str_len;
+        auto * obj = buf[i];
+        if (!PyUnicode_Check(obj))
+        {
+            insert_obj_to_string_column(obj, static_cast<ColumnString *>(column.get()));
+            continue;
+        }
+
         const char * ptr = GetPyUtf8StrData(buf[i], str_len);
         column->insertData(ptr, str_len);
     }
@@ -132,11 +139,8 @@ void PythonSource::convert_string_array_to_block(
         auto * obj = buf[i];
         if (!PyUnicode_Check(obj))
         {
-            LOG_ERROR(
-                logger,
-                "Unsupported Python object type {}, Unicode string expected here. Try convert column type to str with `astype(str)`",
-                Py_TYPE(obj)->tp_name);
-            throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported Python object type {}", Py_TYPE(obj)->tp_name);
+            insert_obj_to_string_column(obj, string_column);
+            continue;
         }
         FillColumnString(obj, string_column);
         // Try to help reserve memory for the string column data every 100 rows to avoid frequent reallocations
@@ -154,6 +158,43 @@ void PythonSource::convert_string_array_to_block(
                 data.reserve(reserve_size);
             }
         }
+    }
+}
+
+void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * string_column)
+{
+    // check if the object is NaN
+    if (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AS_DOUBLE(obj)))
+    {
+        // insert default value for string column, which is empty string
+        string_column->insertDefault();
+        return;
+    }
+    // if object is list, tuple, or dict, convert it to json string
+    if (PyList_Check(obj) || PyTuple_Check(obj) || PyDict_Check(obj))
+    {
+        py::gil_scoped_acquire acquire;
+        std::string str = py::module::import("json").attr("dumps")(py::reinterpret_borrow<py::object>(obj)).cast<std::string>();
+        string_column->insertData(str.data(), str.size());
+        return;
+    }
+    // try convert the object to string
+    try
+    {
+        py::gil_scoped_acquire acquire;
+        std::string str = py::str(obj);
+        string_column->insertData(str.data(), str.size());
+        return;
+    }
+    catch (const py::error_already_set & e)
+    {
+        LOG_ERROR(
+            logger,
+            "Error converting Python object {} to string: {}, Unicode string expected here. Try convert column type to str with "
+            "`astype(str)`",
+            Py_TYPE(obj)->tp_name,
+            e.what());
+        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", Py_TYPE(obj)->tp_name, e.what());
     }
 }
 

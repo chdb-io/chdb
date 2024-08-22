@@ -23,7 +23,6 @@
 #include <Processors/Transforms/MergingAggregatedMemoryEfficientTransform.h>
 #include <QueryPipeline/QueryPipelineBuilder.h>
 #include <Common/JSONBuilder.h>
-#include <Common/Logger.h>
 
 namespace DB
 {
@@ -458,33 +457,12 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
     /// If there are several sources, then we perform parallel aggregation
     if (pipeline.getNumStreams() > 1)
     {
-        auto stream_count = pipeline.getNumStreams();
-        /// Calculate the stream count by adding up all the stream aggregate functions costs.
-        /// the max stream count is the number of pipeline streams.
-        size_t estimate_stream = 0;
-        size_t agg_col_cost = 0;
-        size_t group_by_keys_cost = 0;
-        for (const auto & agg : params.aggregates)
-        {
-            /// get the function count by counting "("
-            agg_col_cost += static_cast<size_t>(std::count(agg.column_name.begin(), agg.column_name.end(), '('));
-            /// get the column count by counting "," + 1
-            agg_col_cost += 1 + static_cast<size_t>(std::count(agg.column_name.begin(), agg.column_name.end(), ','));
-        }
-        for (const auto & key : params.keys)
-        {
-            group_by_keys_cost += 1 + 8 * static_cast<size_t>(std::log2(key.size() + 1));
-        }
-        estimate_stream = std::min(stream_count, std::max(4ul, 2 * (agg_col_cost + group_by_keys_cost)));
-
-        LOG_TRACE(getLogger("AggregatingStep"), "AggregatingStep: estimate_stream = {}", estimate_stream);
-
         /// Add resize transform to uniformly distribute data between aggregating streams.
         /// But not if we execute aggregation over partitioned data in which case data streams shouldn't be mixed.
         if (!storage_has_evenly_distributed_read && !skip_merging)
-            pipeline.resize(estimate_stream, true, true);
+            pipeline.resize(pipeline.getNumStreams(), true, true);
 
-        auto many_data = std::make_shared<ManyAggregatedData>(estimate_stream);
+        auto many_data = std::make_shared<ManyAggregatedData>(pipeline.getNumStreams());
 
         size_t counter = 0;
         pipeline.addSimpleTransform(
@@ -501,7 +479,7 @@ void AggregatingStep::transformPipeline(QueryPipelineBuilder & pipeline, const B
                     skip_merging);
             });
 
-        pipeline.resize(should_produce_results_in_order_of_bucket_number ? 1 : estimate_stream, true /* force */);
+        pipeline.resize(should_produce_results_in_order_of_bucket_number ? 1 : params.max_threads, true /* force */);
 
         aggregating = collector.detachProcessors(0);
     }
