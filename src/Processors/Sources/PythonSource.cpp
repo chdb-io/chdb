@@ -1,5 +1,4 @@
 #include <Processors/Sources/PythonSource.h>
-#include "object.h"
 
 #if USE_PYTHON
 #include <algorithm>
