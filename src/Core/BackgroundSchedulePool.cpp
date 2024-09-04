@@ -331,7 +331,8 @@ void BackgroundSchedulePool::delayExecutionThreadFunction()
 
                 if (!task)
                 {
-                    delayed_tasks_cond_var.wait(lock);
+                    // delayed_tasks_cond_var.wait(lock);
+                    delayed_tasks_cond_var.wait_for(lock, std::chrono::milliseconds(200));
                     continue;
                 }
 
