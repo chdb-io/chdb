@@ -164,7 +164,7 @@ void PythonSource::convert_string_array_to_block(
 void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * string_column)
 {
     // check if the object is NaN
-    if (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AS_DOUBLE(obj)))
+    if (obj == Py_None || (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AS_DOUBLE(obj))))
     {
         // insert default value for string column, which is empty string
         string_column->insertDefault();
@@ -493,6 +493,8 @@ Chunk PythonSource::scanDataToChunk()
             else if (which.isDate())
                 columns[i] = convert_and_insert_array<UInt16>(col, cursor, count);
             else if (which.isString())
+                columns[i] = convert_and_insert_array<String>(col, cursor, count);
+            else if (which.isNullable())
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);
