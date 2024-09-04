@@ -241,6 +241,10 @@ std::vector<String> Client::loadWarningMessages()
     }
 }
 
+Poco::Util::LayeredConfiguration & Client::getClientConfiguration()
+{
+    return config();
+}
 
 void Client::initialize(Poco::Util::Application & self)
 {
@@ -1047,7 +1051,7 @@ void Client::processOptions(const OptionsDescription & options_description,
 
     send_external_tables = true;
 
-    shared_context = Context::createSharedHolder();
+    shared_context = Context::createShared();
     global_context = Context::createGlobal(shared_context.get());
 
     global_context->makeGlobalContext();

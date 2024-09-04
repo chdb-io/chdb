@@ -30,6 +30,8 @@ public:
     int main(const std::vector<String> & /*args*/) override;
 
 protected:
+    Poco::Util::LayeredConfiguration & getClientConfiguration() override;
+
     void connect() override;
 
     void processError(const String & query) const override;
@@ -45,7 +47,6 @@ protected:
 
     void processConfig() override;
     void readArguments(int argc, char ** argv, Arguments & common_arguments, std::vector<Arguments> &, std::vector<Arguments> &) override;
-
 
     void updateLoggerLevel(const String & logs_level) override;
 
@@ -63,6 +64,8 @@ private:
     void applyCmdOptions(ContextMutablePtr context);
     void applyCmdSettings(ContextMutablePtr context);
 
+    void createClientContext();
+    
     std::optional<StatusFile> status;
     std::optional<std::filesystem::path> temporary_directory_to_delete;
 

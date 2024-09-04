@@ -95,6 +95,9 @@ protected:
     char * argv0 = nullptr;
     void runLibFuzzer();
 
+    /// This is the analogue of Poco::Application::config()
+    virtual Poco::Util::LayeredConfiguration & getClientConfiguration() = 0;
+
     virtual bool processWithFuzzing(const String &)
     {
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Query processing with fuzzing is not implemented");
@@ -203,14 +206,20 @@ protected:
     /// Adjust some settings after command line options and config had been processed.
     void adjustSettings();
 
+    /// Initializes the client context.
+    void initClientContext();
+
     void setDefaultFormatsAndCompressionFromConfiguration();
 
     void initTTYBuffer(ProgressOption progress);
 
     /// Should be one of the first, to be destroyed the last,
     /// since other members can use them.
-    SharedPtrContextHolder shared_context;
+    SharedContextHolder shared_context;
     ContextMutablePtr global_context;
+
+    /// Client context is a context used only by the client to parse queries, process query parameters and to connect to clickhouse-server.
+    ContextMutablePtr client_context;
 
     bool is_interactive = false; /// Use either interactive line editing interface or batch mode.
     bool is_multiquery = false;

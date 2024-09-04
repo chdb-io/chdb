@@ -90,6 +90,11 @@ void applySettingsOverridesForLocal(ContextMutablePtr context)
     context->setSettings(settings);
 }
 
+Poco::Util::LayeredConfiguration & LocalServer::getClientConfiguration()
+{
+    return config();
+}
+
 void LocalServer::processError(const String &) const
 {
     if (ignore_error)
@@ -264,7 +269,7 @@ void LocalServer::tryInitPath()
     }
 
     global_context->setPath(fs::path(path) / "");
-    DatabaseCatalog::instance().fixPath(global_context->getPath());
+    // DatabaseCatalog::instance().fixPath(global_context->getPath());
 
     global_context->setTemporaryStoragePath(fs::path(path) / "tmp" / "", 0);
     global_context->setFlagsPath(fs::path(path) / "flags" / "");
@@ -291,6 +296,8 @@ void LocalServer::cleanup()
         /// We should reset it before resetting global_context.
         if (suggest)
             suggest.reset();
+
+        client_context.reset();
 
         if (global_context)
         {
@@ -434,7 +441,7 @@ void LocalServer::connect()
         in = input.get();
     }
     connection = LocalConnection::createConnection(
-        connection_parameters, global_context, in, need_render_progress, need_render_profile_events, server_display_name);
+        connection_parameters, client_context, in, need_render_progress, need_render_profile_events, server_display_name);
 }
 
 
@@ -500,8 +507,6 @@ try
     initTTYBuffer(toProgressOption(config().getString("progress", "default")));
     ASTAlterCommand::setFormatAlterCommandsWithParentheses(true);
 
-    applyCmdSettings(global_context);
-
     /// try to load user defined executable functions, throw on error and die
     try
     {
@@ -512,6 +517,11 @@ try
         tryLogCurrentException(&logger(), "Caught exception while loading user defined executable functions.");
         throw;
     }
+
+    /// Must be called after we stopped initializing the global context and changing its settings.
+    /// After this point the global context must be stayed almost unchanged till shutdown,
+    /// and all necessary changes must be made to the client context instead.
+    createClientContext();
 
     if (is_interactive)
     {
@@ -609,7 +619,7 @@ void LocalServer::processConfig()
         buildLoggers(config(), logger(), "clickhouse-local");
     }
 
-    shared_context = Context::createSharedHolder();
+    shared_context = Context::createShared();
     global_context = Context::createGlobal(shared_context.get());
 
     global_context->makeGlobalContext();
@@ -711,7 +721,9 @@ void LocalServer::processConfig()
     /// Load global settings from default_profile and system_profile.
     global_context->setDefaultProfiles(config());
 
-    // global once flag
+    /// Command-line parameters can override settings from the default profile.
+    applyCmdSettings(global_context);
+
     /// We load temporary database first, because projections need it.
     static std::once_flag db_catalog_once;
     if (config().has("path"))
@@ -744,15 +756,15 @@ void LocalServer::processConfig()
 
         if (!config().has("only-system-tables"))
         {
-            //chdb-todo: maybe fix the destruction order, make sure the background tasks are finished 
+            //chdb-todo: maybe fix the destruction order, make sure the background tasks are finished
             // GlobalThreadPool destructor will stuck on waiting for background tasks to finish.
-            // This should be fixed in the future. But it seems chdb do not nedd background tasks which
+            // This should be fixed in the future. But it seems chdb do not need background tasks which
             // will do some drop table cleanup issues. So we just disable it for now.
             // before the global thread pool is destroyed.
             // DatabaseCatalog::instance().createBackgroundTasks();
-            // DatabaseCatalog::instance().createBackgroundTasks();
+            DatabaseCatalog::instance().createBackgroundTasks();
             waitLoad(loadMetadata(global_context));
-            // DatabaseCatalog::instance().startupBackgroundTasks();
+            DatabaseCatalog::instance().startupBackgroundTasks();
         }
 
         /// For ClickHouse local if path is not set the loader will be disabled.
@@ -837,10 +849,6 @@ void LocalServer::processConfig()
     std::map<String, String> prompt_substitutions{{"display_name", server_display_name}};
     for (const auto & [key, value] : prompt_substitutions)
         boost::replace_all(prompt_by_server_display_name, "{" + key + "}", value);
-
-    global_context->setQueryKindInitial();
-    global_context->setQueryKind(query_kind);
-    global_context->setQueryParameters(query_parameters);
 }
 
 
@@ -916,6 +924,15 @@ void LocalServer::applyCmdOptions(ContextMutablePtr context)
 {
     context->setDefaultFormat(config().getString("output-format", config().getString("format", is_interactive ? "PrettyCompact" : "TSV")));
     applyCmdSettings(context);
+}
+
+void LocalServer::createClientContext()
+{
+    /// In case of clickhouse-local it's necessary to use a separate context for client-related purposes.
+    /// We can't just change the global context because it is used in background tasks (for example, in merges)
+    /// which don't expect that the global context can suddenly change.
+    client_context = Context::createCopy(global_context);
+    initClientContext();
 }
 
 
