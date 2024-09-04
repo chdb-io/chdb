@@ -213,10 +213,10 @@ void LocalServer::tryInitPath()
 {
     std::string path;
 
-    if (config().has("path"))
+    if (getClientConfiguration().has("path"))
     {
         // User-supplied path.
-        path = config().getString("path");
+        path = getClientConfiguration().getString("path");
         Poco::trimInPlace(path);
 
         if (path.empty())
@@ -269,20 +269,19 @@ void LocalServer::tryInitPath()
     }
 
     global_context->setPath(fs::path(path) / "");
-    // DatabaseCatalog::instance().fixPath(global_context->getPath());
 
     global_context->setTemporaryStoragePath(fs::path(path) / "tmp" / "", 0);
     global_context->setFlagsPath(fs::path(path) / "flags" / "");
 
     global_context->setUserFilesPath(""); /// user's files are everywhere
 
-    std::string user_scripts_path = config().getString("user_scripts_path", fs::path(path) / "user_scripts/");
+    std::string user_scripts_path = getClientConfiguration().getString("user_scripts_path", fs::path(path) / "user_scripts/");
     global_context->setUserScriptsPath(user_scripts_path);
 
     /// top_level_domains_lists
-    const std::string & top_level_domains_path = config().getString("top_level_domains_path", fs::path(path) / "top_level_domains/");
+    const std::string & top_level_domains_path = getClientConfiguration().getString("top_level_domains_path", fs::path(path) / "top_level_domains/");
     if (!top_level_domains_path.empty())
-        TLDListsHolder::getInstance().parseConfig(fs::path(top_level_domains_path) / "", config());
+        TLDListsHolder::getInstance().parseConfig(fs::path(top_level_domains_path) / "", getClientConfiguration());
 }
 
 
