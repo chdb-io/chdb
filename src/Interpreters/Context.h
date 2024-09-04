@@ -246,21 +246,21 @@ private:
     std::unique_ptr<ContextSharedPart> shared;
 };
 
-struct SharedPtrContextHolder
-{
-    ~SharedPtrContextHolder();
-    SharedPtrContextHolder();
-    explicit SharedPtrContextHolder(ContextSharedPart *);
-    SharedPtrContextHolder(SharedPtrContextHolder &&) noexcept;
+// struct SharedPtrContextHolder
+// {
+//     ~SharedPtrContextHolder();
+//     SharedPtrContextHolder();
+//     explicit SharedPtrContextHolder(ContextSharedPart *);
+//     SharedPtrContextHolder(SharedPtrContextHolder &&) noexcept;
 
-    SharedPtrContextHolder & operator=(SharedPtrContextHolder &&) noexcept;
+//     SharedPtrContextHolder & operator=(SharedPtrContextHolder &&) noexcept;
 
-    ContextSharedPart * get() const { return shared; }
-    void reset();
+//     ContextSharedPart * get() const { return shared; }
+//     void reset();
 
-private:
-    ContextSharedPart * shared;
-};
+// private:
+//     ContextSharedPart * shared;
+// };
 
 class ContextSharedMutex : public SharedMutexHelper<ContextSharedMutex>
 {
@@ -535,7 +535,7 @@ public:
     static ContextMutablePtr createCopy(const ContextMutablePtr & other);
     static ContextMutablePtr createCopy(const ContextPtr & other);
     static SharedContextHolder createShared();
-    static SharedPtrContextHolder createSharedHolder();
+    // static SharedPtrContextHolder createSharedHolder();
 
     ~Context();
 
