@@ -201,8 +201,8 @@ void MemoryTracker::debugLogBigAllocationWithoutCheck(Int64 size [[maybe_unused]
         return;
 
     MemoryTrackerBlockerInThread blocker(VariableContext::Global);
-    LOG_TEST(getLogger("MemoryTracker"), "Too big allocation ({} bytes) without checking memory limits, "
-                                                   "it may lead to OOM. Stack trace: {}", size, StackTrace().toString());
+    // LOG_TEST(getLogger("MemoryTracker"), "Too big allocation ({} bytes) without checking memory limits, "
+    //                                                "it may lead to OOM. Stack trace: {}", size, StackTrace().toString());
 #else
     return;     /// Avoid trash logging in release builds
 #endif
