@@ -156,13 +156,15 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object data_sour
     RE2 pattern_decimal128(R"(decimal128\((\d+),\s*(\d+)\))");
     RE2 pattern_decimal256(R"(decimal256\((\d+),\s*(\d+)\))");
     RE2 pattern_date32(R"(\bdate32\b)");
-    RE2 pattern_date64(R"(\bdate64\b)");
+    RE2 pattern_datatime64s(R"(\bdatetime64\[s\]|timestamp\[s\])");
+    RE2 pattern_date64(R"(\bdate64\b|datetime64\[ms\]|timestamp\[ms\])");
     RE2 pattern_time32(R"(\btime32\b)");
-    RE2 pattern_time64_us(R"(\btime64\[us\]\b)");
-    RE2 pattern_time64_ns(R"(\btime64\[ns\]\b|<M8\[ns\])");
+    RE2 pattern_time64_us(R"(\btime64\[us\]\b|datetime64\[us\]|<M8\[us\])");
+    RE2 pattern_time64_ns(R"(\btime64\[ns\]\b|datetime64\[ns\]|<M8\[ns\])");
     RE2 pattern_string_binary(
         R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|binary\[pyarrow\]|dtype\[object_\]|
 dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<class 'numpy.bytes_'>|<class 'numpy.str_'>|<class 'numpy.void)");
+    RE2 pattern_null(R"(\bnull\b)");
 
     // Iterate through each pair of name and type string in the schema
     for (const auto & [name, typeStr] : schema)
@@ -231,6 +233,10 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
         {
             data_type = std::make_shared<DataTypeDate32>();
         }
+        else if (RE2::PartialMatch(typeStr, pattern_datatime64s))
+        {
+            data_type = std::make_shared<DataTypeDateTime64>(0); // datetime64[s] corresponds to DateTime64(0)
+        }
         else if (RE2::PartialMatch(typeStr, pattern_date64))
         {
             data_type = std::make_shared<DataTypeDateTime64>(3); // date64 corresponds to DateTime64(3)
@@ -251,9 +257,18 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
         {
             data_type = std::make_shared<DataTypeString>();
         }
+        else if (RE2::PartialMatch(typeStr, pattern_null))
+        {
+            // ClickHouse uses a separate file with NULL masks in addition to normal file with values.
+            // Entries in masks file allow ClickHouse to distinguish between NULL and a default value of
+            // corresponding data type for each table row. Because of an additional file we can't make it
+            // in Python, so we have to use String type for NULLs.
+            // https://clickhouse.com/docs/en/sql-reference/data-types/nullable#storage-features
+            data_type = std::make_shared<DataTypeString>();
+        }
         else
         {
-            throw Exception(ErrorCodes::TYPE_MISMATCH, "Unrecognized data type: {}", typeStr);
+            throw Exception(ErrorCodes::TYPE_MISMATCH, "Unrecognized data type: {} on column {}", typeStr, name);
         }
 
         names_and_types.push_back({name, data_type});
