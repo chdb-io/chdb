@@ -262,15 +262,20 @@ convertFieldToORCLiteral(const orc::Type & orc_type, const Field & field, DataTy
         {
             case orc::BOOLEAN: {
                 /// May throw exception
-                auto val = field.get<UInt64>();
+                auto val = field.safeGet<UInt64>();
                 return orc::Literal(val != 0);
             }
             case orc::BYTE:
             case orc::SHORT:
             case orc::INT:
             case orc::LONG: {
-                /// May throw exception
-                auto val = field.get<Int64>();
+                /// May throw exception.
+                ///
+                /// In particular, it'll throw if we request the column as unsigned, like this:
+                ///   SELECT * FROM file('t.orc', ORC, 'x UInt8') WHERE x > 10
+                /// We have to reject this, otherwise it would miss values > 127 (because
+                /// they're treated as negative by ORC).
+                auto val = field.safeGet<Int64>();
                 return orc::Literal(val);
             }
             case orc::FLOAT:
@@ -895,6 +900,7 @@ bool NativeORCBlockInputFormat::prepareStripeReader()
 
     orc::RowReaderOptions row_reader_options;
     row_reader_options.includeTypes(include_indices);
+    row_reader_options.setTimezoneName(format_settings.orc.reader_time_zone_name);
     row_reader_options.range(current_stripe_info->getOffset(), current_stripe_info->getLength());
     if (format_settings.orc.filter_push_down && sarg)
     {
@@ -996,7 +1002,7 @@ NamesAndTypesList NativeORCSchemaReader::readSchema()
             header.insert(ColumnWithTypeAndName{type, name});
     }
 
-    if (format_settings.schema_inference_make_columns_nullable)
+    if (format_settings.schema_inference_make_columns_nullable == 1)
         return getNamesAndRecursivelyNullableTypes(header);
     return header.getNamesAndTypesList();
 }
