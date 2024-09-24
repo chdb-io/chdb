@@ -2806,29 +2806,6 @@ absl_cc_library(
 # Internal-only target, do not depend on directly.
 absl_cc_library(
   NAME
-    random_internal_distribution_test_util
-  SRCS
-    "${DIR}/internal/chi_square.cc"
-    "${DIR}/internal/distribution_test_util.cc"
-  HDRS
-    "${DIR}/internal/chi_square.h"
-    "${DIR}/internal/distribution_test_util.h"
-  COPTS
-    ${ABSL_DEFAULT_COPTS}
-  LINKOPTS
-    ${ABSL_DEFAULT_LINKOPTS}
-  DEPS
-    absl::config
-    absl::core_headers
-    absl::raw_logging_internal
-    absl::strings
-    absl::str_format
-    absl::span
-)
-
-# Internal-only target, do not depend on directly.
-absl_cc_library(
-  NAME
     random_internal_uniform_helper
   HDRS
     "${DIR}/internal/uniform_helper.h"
@@ -3623,14 +3600,7 @@ absl_cc_library(
   PUBLIC
 )
 
-# The following definitions are an amalgamation of the CMakeLists.txt files in absl/*/
-# To refresh them when upgrading to a new version:
-# - copy them over from upstream
-# - remove calls of 'absl_cc_test'
-# - remove calls of `absl_cc_library` that contain `TESTONLY`
-# - append '${DIR}' to the file definitions
 
 add_library(_abseil_swiss_tables INTERFACE)
 target_include_directories (_abseil_swiss_tables SYSTEM BEFORE INTERFACE ${ABSL_ROOT_DIR})
-add_library(ch_contrib::abseil_swiss_tables ALIAS _abseil_swiss_tables)    $<$<BOOL:${LIBRT}>:-lrt>
-    $<$<BOOL:${MINGW}>:-ladvapi32>
+add_library(ch_contrib::abseil_swiss_tables ALIAS _abseil_swiss_tables)
