@@ -25,6 +25,8 @@
 #define STRINGIFY(x) STRINGIFY_HELPER(x)
 #endif
 
+using namespace DB;
+namespace fs = std::filesystem;
 
 namespace DB
 {
@@ -33,6 +35,8 @@ namespace ErrorCodes
 {
 extern const int FILE_DOESNT_EXIST;
 extern const int INCORRECT_DATA;
+}
+
 }
 
 namespace
@@ -77,12 +81,12 @@ struct CgroupsV1Reader : ICgroupsReader
     explicit CgroupsV1Reader(const fs::path & stat_file_dir) : buf(stat_file_dir / "memory.stat") { }
 
 
- uint64_t readMemoryUsage()override +
-{
-    std::lock_guard lock(mutex);
-    buf.rewind();
-    return readMetricFromStatFile(buf, "rss");
-}
+    uint64_t readMemoryUsage() override
+    {
+        std::lock_guard lock(mutex);
+        buf.rewind();
+        return readMetricFromStatFile(buf, "rss");
+    }
 
     std::string dumpAllStats() override
     {
@@ -246,7 +250,7 @@ void CgroupsMemoryUsageObserver::setMemoryUsageLimits(uint64_t hard_limit_, uint
 
 #    if USE_JEMALLOC
             LOG_INFO(log, "Purging jemalloc arenas");
-            mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+            je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
 #    endif
             /// Reset current usage in memory tracker. Expect zero for free_memory_in_allocator_arenas as we just purged them.
             uint64_t memory_usage = cgroup_reader->readMemoryUsage();
