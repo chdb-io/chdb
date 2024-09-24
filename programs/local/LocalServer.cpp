@@ -1,66 +1,61 @@
 #include "LocalServer.h"
 #include "chdb.h"
 
-#include <filesystem>
-#include <fstream>
-#include <memory>
-#include <Access/AccessControl.h>
-#include <AggregateFunctions/registerAggregateFunctions.h>
-#include <Core/UUID.h>
-#include <Databases/DatabaseFilesystem.h>
-#include <Databases/DatabaseMemory.h>
-#include <Databases/DatabasesOverlay.h>
-#include <Databases/registerDatabases.h>
-#include <Dictionaries/registerDictionaries.h>
-#include <Disks/registerDisks.h>
-#include <Formats/FormatFactory.h>
-#include <Formats/registerFormats.h>
-#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
-#include <Functions/registerFunctions.h>
-#include <IO/ReadBufferFromFile.h>
-#include <IO/SharedThreadPools.h>
-#include <IO/UseSSL.h>
-#include <IO/WriteBufferFromFileDescriptor.h>
-#include <Interpreters/DatabaseCatalog.h>
-#include <Interpreters/JIT/CompiledExpressionCache.h>
-#include <Interpreters/ProcessList.h>
-#include <Interpreters/Session.h>
-#include <Interpreters/loadMetadata.h>
-#include <Interpreters/registerInterpreters.h>
-#include <Loggers/OwnFormattingChannel.h>
-#include <Loggers/OwnPatternFormatter.h>
-#include <Parsers/ASTInsertQuery.h>
-#include <Storages/System/attachInformationSchemaTables.h>
-#include <Storages/System/attachSystemTables.h>
-#include <Storages/registerStorages.h>
-#include <TableFunctions/registerTableFunctions.h>
-#include <base/argsToConfig.h>
-#include <base/getFQDNOrHostName.h>
-#include <base/getMemoryAmount.h>
-#include <boost/algorithm/string/replace.hpp>
-#include <boost/program_options/options_description.hpp>
 #include <sys/resource.h>
+#include <Common/Config/getLocalConfigPath.h>
+#include <Common/logger_useful.h>
+#include <Common/formatReadable.h>
+#include <Core/UUID.h>
+#include <base/getMemoryAmount.h>
+#include <Poco/Util/XMLConfiguration.h>
+#include <Poco/String.h>
 #include <Poco/Logger.h>
 #include <Poco/NullChannel.h>
 #include <Poco/SimpleFileChannel.h>
-#include <Poco/String.h>
-#include <Poco/Util/XMLConfiguration.h>
-#include <Common/Config/ConfigProcessor.h>
-#include <Common/Config/getLocalConfigPath.h>
-#include <Common/CurrentMetrics.h>
-#include <Common/ErrorHandlers.h>
+#include <Databases/registerDatabases.h>
+#include <Databases/DatabaseFilesystem.h>
+#include <Databases/DatabaseMemory.h>
+#include <Databases/DatabasesOverlay.h>
+#include <Storages/System/attachSystemTables.h>
+#include <Storages/System/attachInformationSchemaTables.h>
+#include <Interpreters/DatabaseCatalog.h>
+#include <Interpreters/JIT/CompiledExpressionCache.h>
+#include <Interpreters/ProcessList.h>
+#include <Interpreters/loadMetadata.h>
+#include <Interpreters/registerInterpreters.h>
+#include <base/getFQDNOrHostName.h>
+#include <Access/AccessControl.h>
+#include <Common/PoolId.h>
 #include <Common/Exception.h>
 #include <Common/Macros.h>
-#include <Common/NamedCollections/NamedCollectionUtils.h>
-#include <Common/PoolId.h>
-#include <Common/TLDListsHolder.h>
-#include <Common/ThreadPool.h>
+#include <Common/Config/ConfigProcessor.h>
 #include <Common/ThreadStatus.h>
-#include <Common/formatReadable.h>
-#include <Common/getNumberOfPhysicalCPUCores.h>
-#include <Common/logger_useful.h>
+#include <Common/TLDListsHolder.h>
 #include <Common/quoteString.h>
 #include <Common/randomSeed.h>
+#include <Common/ThreadPool.h>
+#include <Common/CurrentMetrics.h>
+#include <Loggers/OwnFormattingChannel.h>
+#include <Loggers/OwnPatternFormatter.h>
+#include <IO/ReadBufferFromFile.h>
+#include <IO/ReadBufferFromString.h>
+#include <IO/UseSSL.h>
+#include <IO/SharedThreadPools.h>
+#include <Parsers/ASTInsertQuery.h>
+#include <Common/ErrorHandlers.h>
+#include <Formats/FormatFactory.h>
+#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
+#include <Functions/registerFunctions.h>
+#include <AggregateFunctions/registerAggregateFunctions.h>
+#include <TableFunctions/registerTableFunctions.h>
+#include <Storages/registerStorages.h>
+#include <Dictionaries/registerDictionaries.h>
+#include <Disks/registerDisks.h>
+#include <Formats/registerFormats.h>
+#include <boost/algorithm/string/replace.hpp>
+#include <boost/program_options/options_description.hpp>
+#include <base/argsToConfig.h>
+#include <filesystem>
 
 #include "config.h"
 
@@ -160,7 +155,9 @@ void LocalServer::initialize(Poco::Util::Application & self)
     server_settings.loadSettingsFromConfig(config());
 
     GlobalThreadPool::initialize(
-        server_settings.max_thread_pool_size, server_settings.max_thread_pool_free_size, server_settings.thread_pool_queue_size);
+        server_settings.max_thread_pool_size,
+        server_settings.max_thread_pool_free_size,
+        server_settings.thread_pool_queue_size);
 
 #if USE_AZURE_BLOB_STORAGE
     /// See the explanation near the same line in Server.cpp
@@ -441,7 +438,7 @@ void LocalServer::setupUsers()
     if (users_config)
     {
         global_context->setUsersConfig(users_config);
-        NamedCollectionUtils::loadIfNot();
+        // NamedCollectionUtils::loadIfNot();
     }
     else
         throw Exception(ErrorCodes::CANNOT_LOAD_CONFIG, "Can't load config for users");
@@ -635,9 +632,7 @@ void LocalServer::processConfig()
     {
         getClientConfiguration().setString("logger", "logger");
         auto log_level_default = logging ? level : "fatal";
-        getClientConfiguration().setString(
-            "logger.level",
-            getClientConfiguration().getString("log-level", getClientConfiguration().getString("send_logs_level", log_level_default)));
+        getClientConfiguration().setString("logger.level", getClientConfiguration().getString("log-level", getClientConfiguration().getString("send_logs_level", log_level_default)));
         buildLoggers(getClientConfiguration(), logger(), "clickhouse-local");
     }
 
@@ -652,8 +647,9 @@ void LocalServer::processConfig()
     LoggerRawPtr log = &logger();
 
     /// Maybe useless
-    if (config().has("macros"))
-        global_context->setMacros(std::make_unique<Macros>(config(), "macros", log));
+    if (getClientConfiguration().has("macros"))
+        global_context->setMacros(std::make_unique<Macros>(getClientConfiguration(), "macros", log));
+
 
     setDefaultFormatsAndCompressionFromConfiguration();
 
@@ -882,7 +878,7 @@ void LocalServer::processConfig()
                     // Just construct AST changes and apply them.
                     ParserSetQuery parser;
                     const char * start = set_statement.data();
-                    ASTPtr ast = parseQuery(start, start + set_statement.size(), global_context->getSettingsRef(), false, false, false);
+                    ASTPtr ast = parseQuery(start, start + set_statement.size(), global_context->getSettingsRef(), false);
                     auto * set_query = typeid_cast<ASTSetQuery *>(ast.get());
                     if (set_query)
                     {
