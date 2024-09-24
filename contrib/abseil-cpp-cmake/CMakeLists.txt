@@ -25,7 +25,6 @@ function(absl_cc_library)
     "HDRS;SRCS;COPTS;DEFINES;LINKOPTS;DEPS"
     ${ARGN}
   )
-
   set(_NAME "absl_${ABSL_CC_LIB_NAME}")
 
   # Check if this is a header-only library
@@ -1564,6 +1563,7 @@ absl_cc_library(
     absl::log_internal_conditions
     absl::log_internal_message
     absl::log_internal_strip
+    absl::absl_vlog_is_on
 )
 
 absl_cc_library(
@@ -1888,6 +1888,7 @@ absl_cc_library(
     ${ABSL_DEFAULT_LINKOPTS}
   DEPS
     absl::log_internal_log_impl
+    absl::vlog_is_on
   PUBLIC
 )
 
@@ -2740,6 +2741,29 @@ absl_cc_library(
   DEPS
     absl::random_internal_platform
     absl::config
+)
+
+# Internal-only target, do not depend on directly.
+absl_cc_library(
+  NAME
+    random_internal_distribution_test_util
+  SRCS
+    "${DIR}/internal/chi_square.cc"
+    "${DIR}/internal/distribution_test_util.cc"
+  HDRS
+    "${DIR}/internal/chi_square.h"
+    "${DIR}/internal/distribution_test_util.h"
+  COPTS
+    ${ABSL_DEFAULT_COPTS}
+  LINKOPTS
+    ${ABSL_DEFAULT_LINKOPTS}
+  DEPS
+    absl::config
+    absl::core_headers
+    absl::raw_logging_internal
+    absl::strings
+    absl::str_format
+    absl::span
 )
 
 # Internal-only target, do not depend on directly.
@@ -3599,7 +3623,14 @@ absl_cc_library(
   PUBLIC
 )
 
+# The following definitions are an amalgamation of the CMakeLists.txt files in absl/*/
+# To refresh them when upgrading to a new version:
+# - copy them over from upstream
+# - remove calls of 'absl_cc_test'
+# - remove calls of `absl_cc_library` that contain `TESTONLY`
+# - append '${DIR}' to the file definitions
 
 add_library(_abseil_swiss_tables INTERFACE)
 target_include_directories (_abseil_swiss_tables SYSTEM BEFORE INTERFACE ${ABSL_ROOT_DIR})
-add_library(ch_contrib::abseil_swiss_tables ALIAS _abseil_swiss_tables)
+add_library(ch_contrib::abseil_swiss_tables ALIAS _abseil_swiss_tables)    $<$<BOOL:${LIBRT}>:-lrt>
+    $<$<BOOL:${MINGW}>:-ladvapi32>
