@@ -11,6 +11,7 @@
 #include <Common/config_version.h>
 #include "config.h"
 
+#include <mutex>
 #include <unordered_set>
 #include <string>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -379,9 +380,14 @@ void ClientApplicationBase::init(int argc, char ** argv)
         fatal_channel_ptr->addChannel(fatal_file_channel_ptr);
     }
 
-    fatal_log = createLogger("ClientBase", fatal_channel_ptr.get(), Poco::Message::PRIO_FATAL);
-    signal_listener = std::make_unique<SignalListener>(nullptr, fatal_log);
-    signal_listener_thread.start(*signal_listener);
+    // Create loggers for once
+    static std::once_flag once;
+    std::call_once(once, [this]()
+    {
+        fatal_log = createLogger("ClientBase", fatal_channel_ptr.get(), Poco::Message::PRIO_FATAL);
+        signal_listener = std::make_unique<SignalListener>(nullptr, fatal_log);
+        signal_listener_thread.start(*signal_listener);
+    });
 
 #if USE_GWP_ASAN
     GWPAsan::initFinished();
