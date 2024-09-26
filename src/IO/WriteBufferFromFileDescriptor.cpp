@@ -66,11 +66,12 @@ void WriteBufferFromFileDescriptor::nextImpl()
             ProfileEvents::increment(ProfileEvents::WriteBufferFromFileDescriptorWriteFailed);
 
             /// Don't use getFileName() here because this method can be called from destructor
-            String error_file_name = file_name;
-            if (error_file_name.empty())
-                error_file_name = "(fd = " + toString(fd) + ")";
-            ErrnoException::throwFromPath(
-                ErrorCodes::CANNOT_WRITE_TO_FILE_DESCRIPTOR, error_file_name, "Cannot write to file {}", error_file_name);
+            // String error_file_name = file_name;
+            // if (error_file_name.empty())
+            //     error_file_name = "(fd = " + toString(fd) + ")";
+            // ErrnoException::throwFromPath(
+            //     ErrorCodes::CANNOT_WRITE_TO_FILE_DESCRIPTOR, error_file_name, "Cannot write to file {}", error_file_name);
+            break;
         }
 
         if (res > 0)
