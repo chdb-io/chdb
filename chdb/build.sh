@@ -29,16 +29,16 @@ if [ "$(uname)" == "Darwin" ]; then
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
         CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
-        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DENABLE_SIMDJSON=1"
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
     else
         LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
         # disable AVX on Darwin for macos11
         if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
-            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DENABLE_SIMDJSON=1"
+            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         else
             # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
-            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DENABLE_SIMDJSON=1"
+            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
             # # If target macos version is 12, we need to test if support AVX2, 
             # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
             # # just test it on the github action, hope you don't using Mac Pro Late 2013.
@@ -59,7 +59,7 @@ elif [ "$(uname)" == "Linux" ]; then
     SED_INPLACE="sed -i"
     # only x86_64, enable AVX and AVX2, enable embedded compiler
     if [ "$(uname -m)" == "x86_64" ]; then
-        CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1 -DENABLE_SIMDJSON=1"
+        CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1"
         LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
     else
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
@@ -93,6 +93,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_PROTOBUF=1 -DENABLE_THRIFT=1 -DENABLE_MSGPACK=1 \
     -DENABLE_BROTLI=1 -DENABLE_H3=1 -DENABLE_CURL=1 \
     -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
+    -DENABLE_SIMDJSON=1 \
     ${CPU_FEATURES} \
     ${CMAKE_TOOLCHAIN_FILE} \
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
