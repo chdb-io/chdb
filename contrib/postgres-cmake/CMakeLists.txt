@@ -57,6 +57,7 @@ set(SRCS
     "${POSTGRES_SOURCE_DIR}/src/port/pg_bitutils.c"
     "${POSTGRES_SOURCE_DIR}/src/port/thread.c"
     "${POSTGRES_SOURCE_DIR}/src/port/path.c"
+    "${POSTGRES_SOURCE_DIR}/src/port/explicit_bzero.c"
 )
 
 add_library(_libpq ${SRCS})
