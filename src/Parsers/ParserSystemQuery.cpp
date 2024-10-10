@@ -445,7 +445,7 @@ bool ParserSystemQuery::parseImpl(IParser::Pos & pos, ASTPtr & node, Expected & 
             ASTPtr ast;
             if (!ParserStringLiteral{}.parse(pos, ast, expected))
                 return false;
-            String time_str = ast->as<ASTLiteral &>().value.get<const String &>();
+            String time_str = ast->as<ASTLiteral &>().value.safeGet<const String &>();
             ReadBufferFromString buf(time_str);
             time_t time;
             readDateTimeText(time, buf);
@@ -467,7 +467,17 @@ bool ParserSystemQuery::parseImpl(IParser::Pos & pos, ASTPtr & node, Expected & 
                 return false;
             }
 
-            res->seconds = seconds->as<ASTLiteral>()->value.get<UInt64>();
+            res->seconds = seconds->as<ASTLiteral>()->value.safeGet<UInt64>();
+            break;
+        }
+        case Type::DROP_QUERY_CACHE:
+        {
+            ParserLiteral tag_parser;
+            ASTPtr ast;
+            if (ParserKeyword{Keyword::TAG}.ignore(pos, expected) && tag_parser.parse(pos, ast, expected))
+                res->query_cache_tag = std::make_optional<String>(ast->as<ASTLiteral>()->value.safeGet<String>());
+            if (!parseQueryWithOnCluster(res, pos, expected))
+                return false;
             break;
         }
         case Type::DROP_FILESYSTEM_CACHE:
@@ -538,7 +548,7 @@ bool ParserSystemQuery::parseImpl(IParser::Pos & pos, ASTPtr & node, Expected & 
             ASTPtr ast;
             if (ParserKeyword{Keyword::WITH_NAME}.ignore(pos, expected) && ParserStringLiteral{}.parse(pos, ast, expected))
             {
-                res->backup_name = ast->as<ASTLiteral &>().value.get<const String &>();
+                res->backup_name = ast->as<ASTLiteral &>().value.safeGet<const String &>();
             }
             else
             {
@@ -577,7 +587,7 @@ bool ParserSystemQuery::parseImpl(IParser::Pos & pos, ASTPtr & node, Expected & 
                     if (!ParserStringLiteral{}.parse(pos, ast, expected))
                         return false;
 
-                    custom_name = ast->as<ASTLiteral &>().value.get<const String &>();
+                    custom_name = ast->as<ASTLiteral &>().value.safeGet<const String &>();
                 }
 
                 return true;

@@ -86,7 +86,10 @@ inline std::string_view toDescription(OvercommitResult result)
 
 bool shouldTrackAllocation(Float64 probability, void * ptr)
 {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wimplicit-const-int-float-conversion"
     return intHash64(uintptr_t(ptr)) < std::numeric_limits<uint64_t>::max() * probability;
+#pragma clang diagnostic pop
 }
 
 }
@@ -192,17 +195,18 @@ void MemoryTracker::debugLogBigAllocationWithoutCheck(Int64 size [[maybe_unused]
 {
     /// Big allocations through allocNoThrow (without checking memory limits) may easily lead to OOM (and it's hard to debug).
     /// Let's find them.
-#ifdef ABORT_ON_LOGICAL_ERROR
-    if (size < 0)
-        return;
+#ifdef DEBUG_OR_SANITIZER_BUILD
+    return;
+    // if (size < 0)
+    //     return;
 
-    constexpr Int64 threshold = 16 * 1024 * 1024;   /// The choice is arbitrary (maybe we should decrease it)
-    if (size < threshold)
-        return;
+    // constexpr Int64 threshold = 16 * 1024 * 1024;   /// The choice is arbitrary (maybe we should decrease it)
+    // if (size < threshold)
+    //     return;
 
-    MemoryTrackerBlockerInThread blocker(VariableContext::Global);
-    LOG_TEST(getLogger("MemoryTracker"), "Too big allocation ({} bytes) without checking memory limits, "
-                                                   "it may lead to OOM. Stack trace: {}", size, StackTrace().toString());
+    // MemoryTrackerBlockerInThread blocker(VariableContext::Global);
+    // LOG_TEST(getLogger("MemoryTracker"), "Too big allocation ({} bytes) without checking memory limits, "
+    //                                                "it may lead to OOM. Stack trace: {}", size, StackTrace().toString());
 #else
     return;     /// Avoid trash logging in release builds
 #endif

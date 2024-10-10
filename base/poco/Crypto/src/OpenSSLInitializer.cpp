@@ -23,9 +23,6 @@
 #include <openssl/conf.h>
 #endif
 
-#if __has_feature(address_sanitizer)
-#include <sanitizer/lsan_interface.h>
-#endif
 
 using Poco::RandomInputStream;
 using Poco::Thread;
@@ -74,13 +71,7 @@ void OpenSSLInitializer::initialize()
 		char seed[SEEDSIZE];
 		RandomInputStream rnd;
 		rnd.read(seed, sizeof(seed));
-        {
-#   if __has_feature(address_sanitizer)
-            /// Leak sanitizer (part of address sanitizer) thinks that a few bytes of memory in OpenSSL are allocated during but never released.
-            __lsan::ScopedDisabler lsan_disabler;
-#endif
-		    RAND_seed(seed, SEEDSIZE);
-        }
+		RAND_seed(seed, SEEDSIZE);
 
 		int nMutexes = CRYPTO_num_locks();
 		_mutexes = new Poco::FastMutex[nMutexes];

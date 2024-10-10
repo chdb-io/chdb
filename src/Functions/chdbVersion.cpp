@@ -30,7 +30,7 @@ Returns the version of chDB.  The result type is String.
           .examples{{"chdb", "SELECT chdb();", ""}},
           .categories{"String"}
         },
-        FunctionFactory::CaseInsensitive);
+        FunctionFactory::Case::Insensitive);
 }
 }
 #endif

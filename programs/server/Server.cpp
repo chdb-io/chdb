@@ -1,111 +1,115 @@
 #include "Server.h"
 
+#include <filesystem>
 #include <memory>
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <unordered_set>
 #include <pwd.h>
 #include <unistd.h>
-#include <Poco/Net/HTTPServer.h>
-#include <Poco/Net/NetException.h>
-#include <Poco/Util/HelpFormatter.h>
-#include <Poco/Environment.h>
-#include <Common/scope_guard_safe.h>
-#include <Common/logger_useful.h>
-#include <base/phdr_cache.h>
-#include <Common/ErrorHandlers.h>
-#include <base/getMemoryAmount.h>
-#include <base/getAvailableMemoryAmount.h>
-#include <base/errnoToString.h>
-#include <base/coverage.h>
-#include <base/getFQDNOrHostName.h>
-#include <base/safeExit.h>
-#include <Common/PoolId.h>
-#include <Common/MemoryTracker.h>
-#include <Common/ClickHouseRevision.h>
-#include <Common/DNSResolver.h>
-#include <Common/CgroupsMemoryUsageObserver.h>
-#include <Common/CurrentMetrics.h>
-#include <Common/ConcurrencyControl.h>
-#include <Common/Macros.h>
-#include <Common/ShellCommand.h>
-#include <Common/ZooKeeper/ZooKeeper.h>
-#include <Common/ZooKeeper/ZooKeeperNodeCache.h>
-#include <Common/formatReadable.h>
-#include <Common/getMultipleKeysFromConfig.h>
-#include <Common/getNumberOfPhysicalCPUCores.h>
-#include <Common/getExecutablePath.h>
-#include <Common/ProfileEvents.h>
-#include <Common/Scheduler/IResourceManager.h>
-#include <Common/ThreadProfileEvents.h>
-#include <Common/ThreadStatus.h>
-#include <Common/getMappedArea.h>
-#include <Common/remapExecutable.h>
-#include <Common/TLDListsHolder.h>
-#include <Common/Config/AbstractConfigurationComparison.h>
-#include <Common/assertProcessUserMatchesDataOwner.h>
-#include <Common/makeSocketAddress.h>
-#include <Common/FailPoint.h>
-#include <Common/CPUID.h>
-#include <Common/HTTPConnectionPool.h>
-#include <Server/waitServersToFinish.h>
-#include <Interpreters/Cache/FileCacheFactory.h>
+#include <Access/AccessControl.h>
+#include <AggregateFunctions/registerAggregateFunctions.h>
+#include <Compression/CompressionCodecEncrypted.h>
+#include <Core/ServerSettings.h>
 #include <Core/ServerUUID.h>
-#include <IO/ReadHelpers.h>
+#include <Databases/registerDatabases.h>
+#include <Dictionaries/registerDictionaries.h>
+#include <Disks/registerDisks.h>
+#include <Formats/registerFormats.h>
+#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
+#include <Functions/registerFunctions.h>
 #include <IO/ReadBufferFromFile.h>
+#include <IO/ReadHelpers.h>
 #include <IO/SharedThreadPools.h>
 #include <IO/UseSSL.h>
-#include <Interpreters/ServerAsynchronousMetrics.h>
+#include <Interpreters/AsynchronousInsertQueue.h>
+#include <Interpreters/Cache/FileCacheFactory.h>
 #include <Interpreters/DDLWorker.h>
 #include <Interpreters/DNSCacheUpdater.h>
 #include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/ExternalDictionariesLoader.h>
+#include <Interpreters/JIT/CompiledExpressionCache.h>
 #include <Interpreters/ProcessList.h>
+#include <Interpreters/ServerAsynchronousMetrics.h>
 #include <Interpreters/loadMetadata.h>
 #include <Interpreters/registerInterpreters.h>
-#include <Interpreters/JIT/CompiledExpressionCache.h>
-#include <Access/AccessControl.h>
-#include <Storages/StorageReplicatedMergeTree.h>
-#include <Storages/System/attachSystemTables.h>
-#include <Storages/System/attachInformationSchemaTables.h>
-#include <Storages/Cache/ExternalDataSourceCache.h>
-#include <Storages/Cache/registerRemoteFileMetadatas.h>
-#include <Common/NamedCollections/NamedCollectionUtils.h>
-#include <AggregateFunctions/registerAggregateFunctions.h>
-#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
-#include <Functions/registerFunctions.h>
-#include <TableFunctions/registerTableFunctions.h>
-#include <Formats/registerFormats.h>
-#include <Storages/registerStorages.h>
-#include <Databases/registerDatabases.h>
-#include <Dictionaries/registerDictionaries.h>
-#include <Disks/registerDisks.h>
-#include <Common/Scheduler/Nodes/registerSchedulerNodes.h>
-#include <Common/Scheduler/Nodes/registerResourceManagers.h>
-#include <Common/Config/ConfigReloader.h>
-#include <Server/HTTPHandlerFactory.h>
-#include "MetricsTransmitter.h"
-#include <Common/StatusFile.h>
-#include <Server/TCPHandlerFactory.h>
-#include <Server/TCPServer.h>
-#include <Common/SensitiveDataMasker.h>
-#include <Common/ThreadFuzzer.h>
-#include <Common/getHashOfLoadedBinary.h>
-#include <Common/filesystemHelpers.h>
-#include <Compression/CompressionCodecEncrypted.h>
+#include <Server/CloudPlacementInfo.h>
+#include <Server/HTTP/HTTPServer.h>
 #include <Server/HTTP/HTTPServerConnectionFactory.h>
+#include <Server/HTTPHandlerFactory.h>
+#include <Server/KeeperReadinessHandler.h>
 #include <Server/MySQLHandlerFactory.h>
 #include <Server/PostgreSQLHandlerFactory.h>
-#include <Server/ProxyV1HandlerFactory.h>
-#include <Server/TLSHandlerFactory.h>
 #include <Server/ProtocolServerAdapter.h>
-#include <Server/KeeperReadinessHandler.h>
-#include <Server/HTTP/HTTPServer.h>
-#include <Server/CloudPlacementInfo.h>
-#include <Interpreters/AsynchronousInsertQueue.h>
-#include <Core/ServerSettings.h>
-#include <filesystem>
-#include <unordered_set>
+#include <Server/ProxyV1HandlerFactory.h>
+#include <Server/TCPHandlerFactory.h>
+#include <Server/TCPServer.h>
+#include <Server/TLSHandlerFactory.h>
+#include <Server/waitServersToFinish.h>
+#include <Storages/Cache/ExternalDataSourceCache.h>
+#include <Storages/Cache/registerRemoteFileMetadatas.h>
+#include <Storages/MergeTree/MergeTreeSettings.h>
+#include <Storages/StorageReplicatedMergeTree.h>
+#include <Storages/System/attachInformationSchemaTables.h>
+#include <Storages/System/attachSystemTables.h>
+#include <Storages/registerStorages.h>
+#include <TableFunctions/registerTableFunctions.h>
+#include <base/Numa.h>
+#include <base/coverage.h>
+#include <base/errnoToString.h>
+#include <base/getAvailableMemoryAmount.h>
+#include <base/getFQDNOrHostName.h>
+#include <base/getMemoryAmount.h>
+#include <base/phdr_cache.h>
+#include <base/safeExit.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <Poco/Config.h>
+#include <Poco/Environment.h>
+#include <Poco/Net/HTTPServer.h>
+#include <Poco/Net/NetException.h>
+#include <Poco/Util/HelpFormatter.h>
+#include <Common/CPUID.h>
+#include <Common/CgroupsMemoryUsageObserver.h>
+#include <Common/ClickHouseRevision.h>
+#include <Common/ConcurrencyControl.h>
+#include <Common/Config/AbstractConfigurationComparison.h>
+#include <Common/Config/ConfigReloader.h>
+#include <Common/CurrentMetrics.h>
+#include <Common/DNSResolver.h>
+#include <Common/ErrorHandlers.h>
+#include <Common/FailPoint.h>
+#include <Common/HTTPConnectionPool.h>
+#include <Common/Jemalloc.h>
+#include <Common/Macros.h>
+#include <Common/MemoryTracker.h>
+#include <Common/NamedCollections/NamedCollectionsFactory.h>
+#include <Common/PoolId.h>
+#include <Common/ProfileEvents.h>
+#include <Common/Scheduler/IResourceManager.h>
+#include <Common/Scheduler/Nodes/registerResourceManagers.h>
+#include <Common/Scheduler/Nodes/registerSchedulerNodes.h>
+#include <Common/SensitiveDataMasker.h>
+#include <Common/ShellCommand.h>
+#include <Common/StatusFile.h>
+#include <Common/TLDListsHolder.h>
+#include <Common/ThreadFuzzer.h>
+#include <Common/ThreadProfileEvents.h>
+#include <Common/ThreadStatus.h>
+#include <Common/ZooKeeper/ZooKeeper.h>
+#include <Common/ZooKeeper/ZooKeeperNodeCache.h>
+#include <Common/assertProcessUserMatchesDataOwner.h>
+#include <Common/filesystemHelpers.h>
+#include <Common/formatReadable.h>
+#include <Common/getExecutablePath.h>
+#include <Common/getHashOfLoadedBinary.h>
+#include <Common/getMappedArea.h>
+#include <Common/getMultipleKeysFromConfig.h>
+#include <Common/getNumberOfPhysicalCPUCores.h>
+#include <Common/logger_useful.h>
+#include <Common/makeSocketAddress.h>
+#include <Common/remapExecutable.h>
+#include <Common/scope_guard_safe.h>
+#include "MetricsTransmitter.h"
 
 #include "config.h"
 #include <Common/config_version.h>
@@ -132,14 +136,11 @@
 #    include <Server/KeeperTCPHandlerFactory.h>
 #endif
 
-#if USE_JEMALLOC
-#    include <jemalloc/jemalloc.h>
-#endif
-
 #if USE_AZURE_BLOB_STORAGE
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #   include <azure/core/diagnostics/logger.hpp>
 #endif
+
 
 #include <incbin.h>
 /// A minimal file used when the server is run without installation
@@ -175,33 +176,9 @@ namespace ProfileEvents
 
 namespace fs = std::filesystem;
 
-#if USE_JEMALLOC
-static bool jemallocOptionEnabled(const char *name)
-{
-    bool value;
-    size_t size = sizeof(value);
-
-    if (je_mallctl(name, reinterpret_cast<void *>(&value), &size, /* newp= */ nullptr, /* newlen= */ 0))
-        throw Poco::SystemException("mallctl() failed");
-
-    return value;
-}
-#else
-static bool jemallocOptionEnabled(const char *) { return false; }
-#endif
-
 int mainEntryClickHouseServer(int argc, char ** argv)
 {
     DB::Server app;
-
-    if (jemallocOptionEnabled("opt.background_thread"))
-    {
-        LOG_ERROR(&app.logger(),
-            "jemalloc.background_thread was requested, "
-            "however ClickHouse uses percpu_arena and background_thread most likely will not give any benefits, "
-            "and also background_thread is not compatible with ClickHouse watchdog "
-            "(that can be disabled with CLICKHOUSE_WATCHDOG_ENABLE=0)");
-    }
 
     /// Do not fork separate process from watchdog if we attached to terminal.
     /// Otherwise it breaks gdb usage.
@@ -613,6 +590,58 @@ static void sanityChecks(Server & server)
     }
 }
 
+void loadStartupScripts(const Poco::Util::AbstractConfiguration & config, ContextMutablePtr context, Poco::Logger * log)
+{
+    try
+    {
+        Poco::Util::AbstractConfiguration::Keys keys;
+        config.keys("startup_scripts", keys);
+
+        SetResultDetailsFunc callback;
+        for (const auto & key : keys)
+        {
+            std::string full_prefix = "startup_scripts." + key;
+
+            if (config.has(full_prefix + ".condition"))
+            {
+                auto condition = config.getString(full_prefix + ".condition");
+                auto condition_read_buffer = ReadBufferFromString(condition);
+                auto condition_write_buffer = WriteBufferFromOwnString();
+
+                LOG_DEBUG(log, "Checking startup query condition `{}`", condition);
+                executeQuery(
+                    condition_read_buffer, condition_write_buffer, true, context, callback, QueryFlags{.internal = true}, std::nullopt, {});
+
+                auto result = condition_write_buffer.str();
+
+                if (result != "1\n" && result != "true\n")
+                {
+                    if (result != "0\n" && result != "false\n")
+                        context->addWarningMessage(fmt::format(
+                            "The condition query returned `{}`, which can't be interpreted as a boolean (`0`, `false`, `1`, `true`). Will "
+                            "skip this query.",
+                            result));
+
+                    continue;
+                }
+
+                LOG_DEBUG(log, "Condition is true, will execute the query next");
+            }
+
+            auto query = config.getString(full_prefix + ".query");
+            auto read_buffer = ReadBufferFromString(query);
+            auto write_buffer = WriteBufferFromOwnString();
+
+            LOG_DEBUG(log, "Executing query `{}`", query);
+            executeQuery(read_buffer, write_buffer, true, context, callback, QueryFlags{.internal = true}, std::nullopt, {});
+        }
+    }
+    catch (...)
+    {
+        tryLogCurrentException(log, "Failed to parse startup scripts file");
+    }
+}
+
 static void initializeAzureSDKLogger(
     [[ maybe_unused ]] const ServerSettings & server_settings,
     [[ maybe_unused ]] int server_logs_level)
@@ -652,9 +681,35 @@ static void initializeAzureSDKLogger(
 #endif
 }
 
+#if defined(SANITIZER)
+static std::vector<String> getSanitizerNames()
+{
+    std::vector<String> names;
+
+#    if defined(ADDRESS_SANITIZER)
+    names.push_back("address");
+#    endif
+#    if defined(THREAD_SANITIZER)
+    names.push_back("thread");
+#    endif
+#    if defined(MEMORY_SANITIZER)
+    names.push_back("memory");
+#    endif
+#    if defined(UNDEFINED_BEHAVIOR_SANITIZER)
+    names.push_back("undefined behavior");
+#    endif
+
+    return names;
+}
+#endif
+
 int Server::main(const std::vector<std::string> & /*args*/)
 try
 {
+#if USE_JEMALLOC
+    setJemallocBackgroundThreads(true);
+#endif
+
     Stopwatch startup_watch;
 
     Poco::Logger * log = &logger();
@@ -705,6 +760,14 @@ try
         setenv("OPENSSL_CONF", config_dir.c_str(), true); /// NOLINT
     }
 
+    if (auto total_numa_memory = getNumaNodesTotalMemory(); total_numa_memory.has_value())
+    {
+        LOG_INFO(
+            log,
+            "ClickHouse is bound to a subset of NUMA nodes. Total memory of all available nodes: {}",
+            ReadableSize(*total_numa_memory));
+    }
+
     registerInterpreters();
     registerFunctions();
     registerAggregateFunctions();
@@ -720,11 +783,6 @@ try
 
     CurrentMetrics::set(CurrentMetrics::Revision, ClickHouseRevision::getVersionRevision());
     CurrentMetrics::set(CurrentMetrics::VersionInteger, ClickHouseRevision::getVersionInteger());
-
-    Poco::ThreadPool server_pool(3, server_settings.max_connections);
-    std::mutex servers_lock;
-    std::vector<ProtocolServerAdapter> servers;
-    std::vector<ProtocolServerAdapter> servers_to_start_before_tables;
 
     /** Context contains all that query execution is dependent:
       *  settings, available functions, data types, aggregate functions, databases, ...
@@ -743,7 +801,17 @@ try
         global_context->addWarningMessage("ThreadFuzzer is enabled. Application will run slowly and unstable.");
 
 #if defined(SANITIZER)
-    global_context->addWarningMessage("Server was built with sanitizer. It will work slowly.");
+    auto sanitizers = getSanitizerNames();
+
+    String log_message;
+    if (sanitizers.empty())
+        log_message = "sanitizer";
+    else if (sanitizers.size() == 1)
+        log_message = fmt::format("{} sanitizer", sanitizers.front());
+    else
+        log_message = fmt::format("sanitizers ({})", fmt::join(sanitizers, ", "));
+
+    global_context->addWarningMessage(fmt::format("Server was built with {}. It will work slowly.", log_message));
 #endif
 
 #if defined(SANITIZE_COVERAGE) || WITH_COVERAGE
@@ -752,10 +820,13 @@ try
 
     const size_t physical_server_memory = getMemoryAmount();
 
-    LOG_INFO(log, "Available RAM: {}; physical cores: {}; logical cores: {}.",
+    LOG_INFO(
+        log,
+        "Available RAM: {}; logical cores: {}; used cores: {}.",
         formatReadableSizeWithBinarySuffix(physical_server_memory),
-        getNumberOfPhysicalCPUCores(),  // on ARM processors it can show only enabled at current moment cores
-        std::thread::hardware_concurrency());
+        std::thread::hardware_concurrency(),
+        getNumberOfPhysicalCPUCores() // on ARM processors it can show only enabled at current moment cores
+    );
 
 #if defined(__x86_64__)
     String cpu_info;
@@ -773,7 +844,31 @@ try
     LOG_INFO(log, "Available CPU instruction sets: {}", cpu_info);
 #endif
 
-    bool will_have_trace_collector = hasPHDRCache() && config().has("trace_log");
+    bool has_trace_collector = false;
+    /// Disable it if we collect test coverage information, because it will work extremely slow.
+#if !WITH_COVERAGE
+    /// Profilers cannot work reliably with any other libunwind or without PHDR cache.
+    has_trace_collector = hasPHDRCache() && config().has("trace_log");
+#endif
+
+    /// Describe multiple reasons when query profiler cannot work.
+
+#if WITH_COVERAGE
+    LOG_INFO(log, "Query Profiler and TraceCollector are disabled because they work extremely slow with test coverage.");
+#endif
+
+#if defined(SANITIZER)
+    LOG_INFO(
+        log,
+        "Query Profiler is disabled because it cannot work under sanitizers"
+        " when two different stack unwinding methods will interfere with each other.");
+#endif
+
+    if (!hasPHDRCache())
+        LOG_INFO(
+            log,
+            "Query Profiler and TraceCollector are disabled because they require PHDR cache to be created"
+            " (otherwise the function 'dl_iterate_phdr' is not lock free and not async-signal safe).");
 
     // Initialize global thread pool. Do it before we fetch configs from zookeeper
     // nodes (`from_zk`), because ZooKeeper interface uses the pool. We will
@@ -782,8 +877,39 @@ try
         server_settings.max_thread_pool_size,
         server_settings.max_thread_pool_free_size,
         server_settings.thread_pool_queue_size,
-        will_have_trace_collector ? server_settings.global_profiler_real_time_period_ns : 0,
-        will_have_trace_collector ? server_settings.global_profiler_cpu_time_period_ns : 0);
+        has_trace_collector ? server_settings.global_profiler_real_time_period_ns : 0,
+        has_trace_collector ? server_settings.global_profiler_cpu_time_period_ns : 0);
+
+    if (has_trace_collector)
+    {
+        global_context->createTraceCollector();
+
+        /// Set up server-wide memory profiler (for total memory tracker).
+        if (server_settings.total_memory_profiler_step)
+            total_memory_tracker.setProfilerStep(server_settings.total_memory_profiler_step);
+
+        if (server_settings.total_memory_tracker_sample_probability > 0.0)
+            total_memory_tracker.setSampleProbability(server_settings.total_memory_tracker_sample_probability);
+
+        if (server_settings.total_memory_profiler_sample_min_allocation_size)
+            total_memory_tracker.setSampleMinAllocationSize(server_settings.total_memory_profiler_sample_min_allocation_size);
+
+        if (server_settings.total_memory_profiler_sample_max_allocation_size)
+            total_memory_tracker.setSampleMaxAllocationSize(server_settings.total_memory_profiler_sample_max_allocation_size);
+    }
+
+    Poco::ThreadPool server_pool(
+        /* minCapacity */ 3,
+        /* maxCapacity */ server_settings.max_connections,
+        /* idleTime */ 60,
+        /* stackSize */ POCO_THREAD_STACK_SIZE,
+        server_settings.global_profiler_real_time_period_ns,
+        server_settings.global_profiler_cpu_time_period_ns);
+
+    std::mutex servers_lock;
+    std::vector<ProtocolServerAdapter> servers;
+    std::vector<ProtocolServerAdapter> servers_to_start_before_tables;
+
     /// Wait for all threads to avoid possible use-after-free (for example logging objects can be already destroyed).
     SCOPE_EXIT({
         Stopwatch watch;
@@ -792,9 +918,31 @@ try
         LOG_INFO(log, "Background threads finished in {} ms", watch.elapsedMilliseconds());
     });
 
+    /// This object will periodically calculate some metrics.
+    ServerAsynchronousMetrics async_metrics(
+        global_context,
+        server_settings.asynchronous_metrics_update_period_s,
+        server_settings.asynchronous_heavy_metrics_update_period_s,
+        [&]() -> std::vector<ProtocolServerMetrics>
+        {
+            std::vector<ProtocolServerMetrics> metrics;
+
+            std::lock_guard lock(servers_lock);
+            metrics.reserve(servers_to_start_before_tables.size() + servers.size());
+
+            for (const auto & server : servers_to_start_before_tables)
+                metrics.emplace_back(ProtocolServerMetrics{server.getPortName(), server.currentThreads(), server.refusedConnections()});
+
+            for (const auto & server : servers)
+                metrics.emplace_back(ProtocolServerMetrics{server.getPortName(), server.currentThreads(), server.refusedConnections()});
+            return metrics;
+        });
+
     /// NOTE: global context should be destroyed *before* GlobalThreadPool::shutdown()
     /// Otherwise GlobalThreadPool::shutdown() will hang, since Context holds some threads.
     SCOPE_EXIT({
+        async_metrics.stop();
+
         /** Ask to cancel background jobs all table engines,
           *  and also query_log.
           * It is important to do early, not in destructor of Context, because
@@ -907,6 +1055,11 @@ try
         0, // We don't need any threads once all the tables will be created
         max_database_replicated_create_table_thread_pool_size);
 
+    getDatabaseCatalogDropTablesThreadPool().initialize(
+        server_settings.database_catalog_drop_table_concurrency,
+        0, // We don't need any threads if there are no DROP queries.
+        server_settings.database_catalog_drop_table_concurrency);
+
     /// Initialize global local cache for remote filesystem.
     if (config().has("local_cache_for_remote_fs"))
     {
@@ -921,26 +1074,19 @@ try
         }
     }
 
-    /// This object will periodically calculate some metrics.
-    ServerAsynchronousMetrics async_metrics(
-        global_context,
-        server_settings.asynchronous_metrics_update_period_s,
-        server_settings.asynchronous_heavy_metrics_update_period_s,
-        [&]() -> std::vector<ProtocolServerMetrics>
-        {
-            std::vector<ProtocolServerMetrics> metrics;
+    std::string path_str = getCanonicalPath(config().getString("path", DBMS_DEFAULT_PATH));
+    fs::path path = path_str;
 
-            std::lock_guard lock(servers_lock);
-            metrics.reserve(servers_to_start_before_tables.size() + servers.size());
+    /// Check that the process user id matches the owner of the data.
+    assertProcessUserMatchesDataOwner(path_str, [&](const std::string & message) { global_context->addWarningMessage(message); });
 
-            for (const auto & server : servers_to_start_before_tables)
-                metrics.emplace_back(ProtocolServerMetrics{server.getPortName(), server.currentThreads()});
+    global_context->setPath(path_str);
 
-            for (const auto & server : servers)
-                metrics.emplace_back(ProtocolServerMetrics{server.getPortName(), server.currentThreads()});
-            return metrics;
-        }
-    );
+    StatusFile status{path / "status", StatusFile::write_full_info};
+
+    ServerUUID::load(path / "uuid", log);
+
+    PlacementInfo::PlacementInfo::instance().initialize(config());
 
     zkutil::validateZooKeeperConfig(config());
     bool has_zookeeper = zkutil::hasZooKeeperConfig(config());
@@ -953,7 +1099,7 @@ try
         ConfigProcessor config_processor(config_path);
         loaded_config = config_processor.loadConfigWithZooKeeperIncludes(
             main_config_zk_node_cache, main_config_zk_changed_event, /* fallback_to_preprocessed = */ true);
-        config_processor.savePreprocessedConfig(loaded_config, config().getString("path", DBMS_DEFAULT_PATH));
+        config_processor.savePreprocessedConfig(loaded_config, path_str);
         config().removeConfiguration(old_configuration.get());
         config().add(loaded_config.configuration.duplicate(), PRIO_DEFAULT, false);
         global_context->setConfig(loaded_config.configuration);
@@ -1086,19 +1232,6 @@ try
 
     global_context->setRemoteHostFilter(config());
     global_context->setHTTPHeaderFilter(config());
-
-    std::string path_str = getCanonicalPath(config().getString("path", DBMS_DEFAULT_PATH));
-    fs::path path = path_str;
-    std::string default_database = server_settings.default_database.toString();
-
-    /// Check that the process user id matches the owner of the data.
-    assertProcessUserMatchesDataOwner(path_str, [&](const std::string & message){ global_context->addWarningMessage(message); });
-
-    global_context->setPath(path_str);
-
-    StatusFile status{path / "status", StatusFile::write_full_info};
-
-    ServerUUID::load(path / "uuid", log);
 
     /// Try to increase limit on number of open files.
     {
@@ -1332,12 +1465,12 @@ try
     global_context->setQueryCache(query_cache_max_size_in_bytes, query_cache_max_entries, query_cache_query_cache_max_entry_size_in_bytes, query_cache_max_entry_size_in_rows);
 
 #if USE_EMBEDDED_COMPILER
-    size_t compiled_expression_cache_max_size_in_bytes = config().getUInt64("compiled_expression_cache_size", DEFAULT_COMPILED_EXPRESSION_CACHE_MAX_SIZE);
-    size_t compiled_expression_cache_max_elements = config().getUInt64("compiled_expression_cache_elements_size", DEFAULT_COMPILED_EXPRESSION_CACHE_MAX_ENTRIES);
+    size_t compiled_expression_cache_max_size_in_bytes = server_settings.compiled_expression_cache_size;
+    size_t compiled_expression_cache_max_elements = server_settings.compiled_expression_cache_elements_size;
     CompiledExpressionCacheFactory::instance().init(compiled_expression_cache_max_size_in_bytes, compiled_expression_cache_max_elements);
 #endif
 
-    NamedCollectionUtils::loadIfNot();
+    NamedCollectionFactory::instance().loadIfNot();
 
     /// Initialize main config reloader.
     std::string include_from_path = config().getString("include_from", "/etc/metrika.xml");
@@ -1359,14 +1492,26 @@ try
         tryLogCurrentException(log, "Disabling cgroup memory observer because of an error during initialization");
     }
 
-    const std::string cert_path = config().getString("openSSL.server.certificateFile", "");
-    const std::string key_path = config().getString("openSSL.server.privateKeyFile", "");
+    std::string cert_path = config().getString("openSSL.server.certificateFile", "");
+    std::string key_path = config().getString("openSSL.server.privateKeyFile", "");
 
     std::vector<std::string> extra_paths = {include_from_path};
     if (!cert_path.empty())
         extra_paths.emplace_back(cert_path);
     if (!key_path.empty())
         extra_paths.emplace_back(key_path);
+
+    Poco::Util::AbstractConfiguration::Keys protocols;
+    config().keys("protocols", protocols);
+    for (const auto & protocol : protocols)
+    {
+        cert_path = config().getString("protocols." + protocol + ".certificateFile", "");
+        key_path = config().getString("protocols." + protocol + ".privateKeyFile", "");
+        if (!cert_path.empty())
+            extra_paths.emplace_back(cert_path);
+        if (!key_path.empty())
+            extra_paths.emplace_back(key_path);
+    }
 
     auto main_config_reloader = std::make_unique<ConfigReloader>(
         config_path,
@@ -1462,6 +1607,8 @@ try
             global_context->setMacros(std::make_unique<Macros>(*config, "macros", log));
             global_context->setExternalAuthenticatorsConfig(*config);
 
+            global_context->setDashboardsConfig(config);
+
             if (global_context->isServerCompletelyStarted())
             {
                 /// It does not make sense to reload anything before server has started.
@@ -1480,13 +1627,15 @@ try
             global_context->setMaxDictionaryNumToWarn(new_server_settings.max_dictionary_num_to_warn);
             global_context->setMaxDatabaseNumToWarn(new_server_settings.max_database_num_to_warn);
             global_context->setMaxPartNumToWarn(new_server_settings.max_part_num_to_warn);
+            /// Only for system.server_settings
+            global_context->setConfigReloaderInterval(new_server_settings.config_reload_interval_ms);
 
             SlotCount concurrent_threads_soft_limit = UnlimitedSlots;
             if (new_server_settings.concurrent_threads_soft_limit_num > 0 && new_server_settings.concurrent_threads_soft_limit_num < concurrent_threads_soft_limit)
                 concurrent_threads_soft_limit = new_server_settings.concurrent_threads_soft_limit_num;
             if (new_server_settings.concurrent_threads_soft_limit_ratio_to_cores > 0)
             {
-                auto value = new_server_settings.concurrent_threads_soft_limit_ratio_to_cores * std::thread::hardware_concurrency();
+                auto value = new_server_settings.concurrent_threads_soft_limit_ratio_to_cores * getNumberOfPhysicalCPUCores();
                 if (value > 0 && value < concurrent_threads_soft_limit)
                     concurrent_threads_soft_limit = value;
             }
@@ -1569,6 +1718,10 @@ try
                 0, // We don't need any threads one all the parts will be deleted
                 new_server_settings.max_parts_cleaning_thread_pool_size);
 
+
+            global_context->setMergeWorkload(new_server_settings.merge_workload);
+            global_context->setMutationWorkload(new_server_settings.mutation_workload);
+
             if (config->has("resources"))
             {
                 global_context->getResourceManager()->updateConfiguration(*config);
@@ -1604,9 +1757,9 @@ try
 
             CompressionCodecEncrypted::Configuration::instance().tryLoad(*config, "encryption_codecs");
 #if USE_SSL
-            CertificateReloader::instance().tryLoad(*config);
+            CertificateReloader::instance().tryReloadAll(*config);
 #endif
-            NamedCollectionUtils::reloadFromConfig(*config);
+            NamedCollectionFactory::instance().reloadFromConfig(*config);
 
             FileCacheFactory::instance().updateSettingsFromConfig(*config);
 
@@ -1630,12 +1783,15 @@ try
             if (global_context->isServerCompletelyStarted())
                 CannotAllocateThreadFaultInjector::setFaultProbability(new_server_settings.cannot_allocate_thread_fault_injection_probability);
 
+#if USE_GWP_ASAN
+            GWPAsan::setForceSampleProbability(new_server_settings.gwp_asan_force_sample_probability);
+#endif
+
             ProfileEvents::increment(ProfileEvents::MainConfigLoads);
 
             /// Must be the last.
             latest_config = config;
-        },
-        /* already_loaded = */ false);  /// Reload it right now (initial loading)
+        });
 
     const auto listen_hosts = getListenHosts(config());
     const auto interserver_listen_hosts = getInterserverListenHosts(config());
@@ -1882,6 +2038,7 @@ try
 
     /// Set current database name before loading tables and databases because
     /// system logs may copy global context.
+    std::string default_database = server_settings.default_database.toString();
     global_context->setCurrentDatabaseNameInGlobalContext(default_database);
 
     LOG_INFO(log, "Loading metadata from {}", path_str);
@@ -1909,6 +2066,11 @@ try
         /// otherwise there is a race condition between the system database initialization
         /// and creation of new tables in the database.
         waitLoad(TablesLoaderForegroundPoolId, system_startup_tasks);
+
+        /// Startup scripts can depend on the system log tables.
+        if (config().has("startup_scripts") && !server_settings.prepare_system_log_tables_on_startup.changed)
+            global_context->setServerSetting("prepare_system_log_tables_on_startup", true);
+
         /// After attaching system databases we can initialize system log.
         global_context->initializeSystemLogs();
         global_context->setSystemZooKeeperLogAfterInitializationIfNeeded();
@@ -1943,51 +2105,8 @@ try
 
     LOG_DEBUG(log, "Loaded metadata.");
 
-    /// Init trace collector only after trace_log system table was created
-    /// Disable it if we collect test coverage information, because it will work extremely slow.
-#if !WITH_COVERAGE
-    /// Profilers cannot work reliably with any other libunwind or without PHDR cache.
-    if (hasPHDRCache())
-    {
+    if (has_trace_collector)
         global_context->initializeTraceCollector();
-
-        /// Set up server-wide memory profiler (for total memory tracker).
-        if (server_settings.total_memory_profiler_step)
-        {
-            total_memory_tracker.setProfilerStep(server_settings.total_memory_profiler_step);
-        }
-
-        if (server_settings.total_memory_tracker_sample_probability > 0.0)
-        {
-            total_memory_tracker.setSampleProbability(server_settings.total_memory_tracker_sample_probability);
-        }
-
-        if (server_settings.total_memory_profiler_sample_min_allocation_size)
-        {
-            total_memory_tracker.setSampleMinAllocationSize(server_settings.total_memory_profiler_sample_min_allocation_size);
-        }
-
-        if (server_settings.total_memory_profiler_sample_max_allocation_size)
-        {
-            total_memory_tracker.setSampleMaxAllocationSize(server_settings.total_memory_profiler_sample_max_allocation_size);
-        }
-    }
-#endif
-
-    /// Describe multiple reasons when query profiler cannot work.
-
-#if WITH_COVERAGE
-    LOG_INFO(log, "Query Profiler and TraceCollector are disabled because they work extremely slow with test coverage.");
-#endif
-
-#if defined(SANITIZER)
-    LOG_INFO(log, "Query Profiler disabled because they cannot work under sanitizers"
-        " when two different stack unwinding methods will interfere with each other.");
-#endif
-
-    if (!hasPHDRCache())
-        LOG_INFO(log, "Query Profiler and TraceCollector are disabled because they require PHDR cache to be created"
-            " (otherwise the function 'dl_iterate_phdr' is not lock free and not async-signal safe).");
 
 #if defined(OS_LINUX)
     auto tasks_stats_provider = TasksStatsCounters::findBestAvailableProvider();
@@ -2096,14 +2215,12 @@ try
                                          load_metadata_tasks);
         }
 
-        if (config().has(DB::PlacementInfo::PLACEMENT_CONFIG_PREFIX))
-        {
-            PlacementInfo::PlacementInfo::instance().initialize(config());
-        }
-
         /// Do not keep tasks in server, they should be kept inside databases. Used here to make dependent tasks only.
         load_metadata_tasks.clear();
         load_metadata_tasks.shrink_to_fit();
+
+        if (config().has("startup_scripts"))
+            loadStartupScripts(config(), global_context, log);
 
         {
             std::lock_guard lock(servers_lock);
@@ -2121,6 +2238,11 @@ try
         ProfileEvents::increment(ProfileEvents::ServerStartupMilliseconds, startup_watch.elapsedMilliseconds());
 
         CannotAllocateThreadFaultInjector::setFaultProbability(server_settings.cannot_allocate_thread_fault_injection_probability);
+
+#if USE_GWP_ASAN
+        GWPAsan::initFinished();
+        GWPAsan::setForceSampleProbability(server_settings.gwp_asan_force_sample_probability);
+#endif
 
         try
         {
@@ -2317,6 +2439,7 @@ void Server::createServers(
     Poco::Net::HTTPServerParams::Ptr http_params = new Poco::Net::HTTPServerParams;
     http_params->setTimeout(settings.http_receive_timeout);
     http_params->setKeepAliveTimeout(global_context->getServerSettings().keep_alive_timeout);
+    http_params->setMaxKeepAliveRequests(static_cast<int>(global_context->getServerSettings().max_keep_alive_requests));
 
     Poco::Util::AbstractConfiguration::Keys protocols;
     config.keys("protocols", protocols);
@@ -2635,10 +2758,7 @@ void Server::createInterserverServers(
     }
 }
 
-void Server::stopServers(
-    std::vector<ProtocolServerAdapter> & servers,
-    const ServerType & server_type
-) const
+void Server::stopServers(std::vector<ProtocolServerAdapter> & servers, const ServerType & server_type) const
 {
     LoggerRawPtr log = &logger();
 

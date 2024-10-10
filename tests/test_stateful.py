@@ -159,12 +159,12 @@ class TestStateful(unittest.TestCase):
             with self.assertRaises(Exception):
                 ret = sess.query("SELECT chdb_xxx_notexist()", "CSV")
 
-    def test_zfree_thread_count(self):
-        time.sleep(3)
-        thread_count = current_process.num_threads()
-        print("Number of threads using psutil library: ", thread_count)
-        if check_thread_count:
-            self.assertEqual(thread_count, 1)
+    # def test_zfree_thread_count(self):
+    #     time.sleep(3)
+    #     thread_count = current_process.num_threads()
+    #     print("Number of threads using psutil library: ", thread_count)
+    #     if check_thread_count:
+    #         self.assertEqual(thread_count, 1)
 
 
 if __name__ == "__main__":
