@@ -15,13 +15,13 @@ on:
       - '**/*.md'
 
 jobs:
-  build_wheels_macos_12:
+  build_wheels_macos_13:
     name: ${{ matrix.os }} py${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-12 ]
+        os: [ macos-13 ]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12" ]
     env:
       RUNNER_OS: ${{ matrix.os }}
