@@ -141,7 +141,7 @@ from a PyReader object.
 This table function requires a single argument which is a PyReader object used to read data from Python.
 )",
             .examples = {{"1", "SELECT * FROM Python(PyReader)", ""}}}},
-        TableFunctionFactory::CaseInsensitive);
+        TableFunctionFactory::Case::Insensitive);
 }
 
 }
