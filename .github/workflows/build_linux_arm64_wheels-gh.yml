@@ -65,6 +65,8 @@ jobs:
         with:
           path: |
             contrib/**
+            !contrib/*-cmake
+            !**/CMakeLists.txt
           key: |
             submodule-${{ hashFiles('.gitmodules') }}
       - name: Update submodules if cache miss
@@ -77,6 +79,8 @@ jobs:
         with:
           path: |
             contrib/**
+            !contrib/*-cmake
+            !**/CMakeLists.txt
           key: |
             submodule-${{ hashFiles('.gitmodules') }}
       - name: ccache
