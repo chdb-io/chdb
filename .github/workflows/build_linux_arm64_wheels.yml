@@ -8,11 +8,11 @@ on:
   #       required: true
   # release:
   #   types: [created]
-  # push:
-  #   branches:
-  #     - main
-  #   paths-ignore:
-  #     - '**/*.md'
+  push:
+    branches:
+      - Disabled
+    paths-ignore:
+      - '**/*.md'
 
 
 defaults:
