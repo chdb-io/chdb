@@ -9,6 +9,13 @@ build-frontend = "pip"
 include = ["chdb"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
 
+[project]
+name = "chdb"
+# Add other required fields here, such as:
+# version = "0.1.0"
+# description = "A brief description of your project"
+authors = [{name = "auxten", email = "auxten@clickhouse.com"}]
+
 [project.urls]
 Homepage = "https://clickhouse.com/chdb"
 Documentation = "https://clickhouse.com/docs/en/chdb"
