@@ -81,6 +81,21 @@ def fix_version_init(version):
         f.seek(0)
         f.write(init_content)
         f.truncate()
+# Update version in pyproject.toml
+def update_pyproject_version(version):
+    pyproject_file = os.path.join(script_dir, "pyproject.toml")
+    with open(pyproject_file, "r") as f:
+        content = f.read()
+    
+    # Use regex to replace the version
+    updated_content = re.sub(
+        r'version\s*=\s*"[^"]*"',
+        f'version = "{version}"',
+        content
+    )
+    
+    with open(pyproject_file, "w") as f:
+        f.write(updated_content)
 
 
 # As of Python 3.6, CCompiler has a `has_flag` method.
@@ -183,6 +198,8 @@ if __name__ == "__main__":
         # fix the version in chdb/__init__.py
         versionStr = get_latest_git_tag()
         fix_version_init(versionStr)
+        # Call the function to update pyproject.toml
+        update_pyproject_version(versionStr) 
         
         # scan the chdb directory and add all the .py files to the package
         pkg_files = []

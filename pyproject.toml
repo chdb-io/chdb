@@ -12,8 +12,8 @@ exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".
 [project]
 name = "chdb"
 # Add other required fields here, such as:
-# version = "0.1.0"
-# description = "A brief description of your project"
+version = "0.1.0"
+description = "chDB is an in-process OLAP SQL Engine powered by ClickHouse"
 authors = [{name = "auxten", email = "auxten@clickhouse.com"}]
 
 [project.urls]
