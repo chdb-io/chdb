@@ -105,5 +105,17 @@ gh release upload v${CHDB_VERSION} macos-arm64-libchdb.tar.gz --clobber
 
 
 cd ${PROJ_DIR}
+# Set environment variables for PyPI upload
+export TWINE_USERNAME=__token__
+export TWINE_PASSWORD=$(cat ~/.config/pypi.token)
+
 make pub
 
+# Upload wheel files to GitHub release
+echo "Uploading wheel files to GitHub release..."
+for wheel in dist/*.whl; do
+    if [ -f "$wheel" ]; then
+        gh release upload v${CHDB_VERSION} "$wheel" --clobber
+        echo "Uploaded $wheel"
+    fi
+done
