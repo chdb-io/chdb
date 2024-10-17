@@ -10,9 +10,18 @@ from distutils import log
 
 log.set_verbosity(log.DEBUG)
 
+
 def get_python_ext_suffix():
-    internal_ext_suffix = sysconfig.get_config_var('EXT_SUFFIX')
-    p = subprocess.run(['python3', '-c', "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))"], capture_output=True, text=True)
+    internal_ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
+    p = subprocess.run(
+        [
+            "python3",
+            "-c",
+            "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))",
+        ],
+        capture_output=True,
+        text=True,
+    )
     if p.returncode != 0:
         print("Failed to get EXT_SUFFIX via python3")
         return internal_ext_suffix
@@ -23,18 +32,30 @@ def get_python_ext_suffix():
         print("Python3 EXT_SUFFIX: " + py_ext_suffix)
         print("Current Python Path: " + sys.executable)
         print("Current Python Version: " + sys.version)
-        print("Outside Python Path: " + subprocess.check_output(['which', 'python3']).decode('utf-8').strip())
-        print("Outside Python Version: " + subprocess.check_output(['python3', '--version']).decode('utf-8').strip())
+        print(
+            "Outside Python Path: "
+            + subprocess.check_output(["which", "python3"]).decode("utf-8").strip()
+        )
+        print(
+            "Outside Python Version: "
+            + subprocess.check_output(["python3", "--version"]).decode("utf-8").strip()
+        )
     return py_ext_suffix
+
 
 # get the path of the current file
 script_dir = os.path.dirname(os.path.abspath(__file__))
 libdir = os.path.join(script_dir, "chdb")
 
+
 def get_latest_git_tag(minor_ver_auto=False):
     try:
         # get latest tag commit
-        completed_process = subprocess.run(['git', 'rev-list', '--tags', '--max-count=1'], capture_output=True, text=True)
+        completed_process = subprocess.run(
+            ["git", "rev-list", "--tags", "--max-count=1"],
+            capture_output=True,
+            text=True,
+        )
         if completed_process.returncode != 0:
             print(completed_process.stdout)
             print(completed_process.stderr)
@@ -42,19 +63,25 @@ def get_latest_git_tag(minor_ver_auto=False):
             raise RuntimeError("Failed to get git latest tag commit ")
         output = completed_process.stdout.strip()
         # get latest tag name by commit
-        completed_process = subprocess.run(['git', 'describe', '--tags', f"{output}"], capture_output=True, text=True)
+        completed_process = subprocess.run(
+            ["git", "describe", "--tags", f"{output}"], capture_output=True, text=True
+        )
         if completed_process.returncode != 0:
             print(completed_process.stdout)
             print(completed_process.stderr)
             # get git version
             raise RuntimeError("Failed to get git tag")
         output = completed_process.stdout.strip()
-        #strip the v from the tag
+        # strip the v from the tag
         output = output[1:]
-        parts = output.split('.')
+        parts = output.split(".")
         if len(parts) == 3:
             if minor_ver_auto:
-                completed_process = subprocess.run(['git', 'rev-list', '--count', f"v{output}..HEAD"], capture_output=True, text=True)
+                completed_process = subprocess.run(
+                    ["git", "rev-list", "--count", f"v{output}..HEAD"],
+                    capture_output=True,
+                    text=True,
+                )
                 if completed_process.returncode != 0:
                     print(completed_process.stdout)
                     print(completed_process.stderr)
@@ -67,33 +94,36 @@ def get_latest_git_tag(minor_ver_auto=False):
         print(e)
         raise
 
+
 # replace the version in chdb/__init__.py, which is `chdb_version = ('0', '1', '0')` by default
 # regex replace the version string `chdb_version = ('0', '1', '0')` with version parts
 def fix_version_init(version):
     # split version string into parts
-    p1, p2, p3 = version.split('.')
+    p1, p2, p3 = version.split(".")
     init_file = os.path.join(script_dir, "chdb", "__init__.py")
     with open(init_file, "r+") as f:
         init_content = f.read()
         # regex replace the version string `chdb_version = ('0', '1', '0')`
         regPattern = r"chdb_version = \(\'\d+\', \'\d+\', \'\d+\'\)"
-        init_content = re.sub(regPattern, f"chdb_version = ('{p1}', '{p2}', '{p3}')", init_content)
+        init_content = re.sub(
+            regPattern, f"chdb_version = ('{p1}', '{p2}', '{p3}')", init_content
+        )
         f.seek(0)
         f.write(init_content)
         f.truncate()
+
+
 # Update version in pyproject.toml
 def update_pyproject_version(version):
     pyproject_file = os.path.join(script_dir, "pyproject.toml")
     with open(pyproject_file, "r") as f:
         content = f.read()
-    
+
     # Use regex to replace the version
     updated_content = re.sub(
-        r'version\s*=\s*"[^"]*"',
-        f'version = "{version}"',
-        content
+        r'version\s*=\s*"[^"]*"', f'version = "{version}"', content
     )
-    
+
     with open(pyproject_file, "w") as f:
         f.write(updated_content)
 
@@ -105,8 +135,9 @@ def has_flag(compiler, flagname):
     the specified compiler.
     """
     import tempfile
-    with tempfile.NamedTemporaryFile('w', suffix='.cpp') as f:
-        f.write('int main (int argc, char **argv) { return 0; }')
+
+    with tempfile.NamedTemporaryFile("w", suffix=".cpp") as f:
+        f.write("int main (int argc, char **argv) { return 0; }")
         try:
             compiler.compile([f.name], extra_postargs=[flagname])
         except setuptools.distutils.errors.CompileError:
@@ -118,17 +149,18 @@ def cpp_flag(compiler):
     """Return the -std=c++[11/2a] compiler flag.
     The c++2a is prefered over c++11 (when it is available).
     """
-    if has_flag(compiler, '-std=c++2a'):
-        return '-std=c++2a'
-    elif has_flag(compiler, '-std=c++17'):
-        return '-std=c++17'
-    elif has_flag(compiler, '-std=c++14'):
-        return '-std=c++14'
-    elif has_flag(compiler, '-std=c++11'):
-        return '-std=c++11'
+    if has_flag(compiler, "-std=c++2a"):
+        return "-std=c++2a"
+    elif has_flag(compiler, "-std=c++17"):
+        return "-std=c++17"
+    elif has_flag(compiler, "-std=c++14"):
+        return "-std=c++14"
+    elif has_flag(compiler, "-std=c++11"):
+        return "-std=c++11"
     else:
-        raise RuntimeError('Unsupported compiler -- at least C++11 support '
-                           'is needed!')
+        raise RuntimeError(
+            "Unsupported compiler -- at least C++11 support " "is needed!"
+        )
 
 
 class BuildExt(build_ext):
@@ -136,37 +168,55 @@ class BuildExt(build_ext):
 
     def build_extensions(self):
         # Determine which compiler to use, if CC and CXX env exist, use them
-        if os.environ.get('CC') is not None and os.environ.get('CXX') is not None:
+        if os.environ.get("CC") is not None and os.environ.get("CXX") is not None:
             print("Using CC and CXX from env")
-            print("CC: " + os.environ.get('CC'))
-            print("CXX: " + os.environ.get('CXX'))
-        if sys.platform == 'darwin':
+            print("CC: " + os.environ.get("CC"))
+            print("CXX: " + os.environ.get("CXX"))
+        if sys.platform == "darwin":
             try:
-                brew_prefix = subprocess.check_output('brew --prefix', shell=True).decode("utf-8").strip("\n")
+                brew_prefix = (
+                    subprocess.check_output("brew --prefix", shell=True)
+                    .decode("utf-8")
+                    .strip("\n")
+                )
             except Exception:
                 raise RuntimeError("Must install brew")
-            if os.system('which '+brew_prefix+'/opt/llvm/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = brew_prefix + '/opt/llvm/bin/clang'
-                os.environ['CXX'] = brew_prefix + '/opt/llvm/bin/clang++'
-            elif os.system('which '+brew_prefix+'/opt/llvm@15/bin/clang++ > /dev/null') == 0:
-                os.environ['CC'] = brew_prefix + '/opt/llvm@15/bin/clang'
-                os.environ['CXX'] = brew_prefix + '/opt/llvm@15/bin/clang++'
+            if (
+                os.system("which " + brew_prefix + "/opt/llvm/bin/clang++ > /dev/null")
+                == 0
+            ):
+                os.environ["CC"] = brew_prefix + "/opt/llvm/bin/clang"
+                os.environ["CXX"] = brew_prefix + "/opt/llvm/bin/clang++"
+            elif (
+                os.system(
+                    "which " + brew_prefix + "/opt/llvm@15/bin/clang++ > /dev/null"
+                )
+                == 0
+            ):
+                os.environ["CC"] = brew_prefix + "/opt/llvm@15/bin/clang"
+                os.environ["CXX"] = brew_prefix + "/opt/llvm@15/bin/clang++"
             else:
                 raise RuntimeError("Must use brew clang++")
-        elif sys.platform == 'linux':
+        elif sys.platform == "linux":
             pass
-            #os.environ['CC'] = 'clang-15'
-            #os.environ['CXX'] = 'clang++-15'
+            # os.environ['CC'] = 'clang-15'
+            # os.environ['CXX'] = 'clang++-15'
         else:
             raise RuntimeError("Unsupported platform")
 
-        #exec chdb/build.sh and print the output if it fails
+        # exec chdb/build.sh and print the output if it fails
         # Run the build script and capture its output
         # if macOS and arch is arm64, run with arch -arm64 /bin/bash
-        if sys.platform == 'darwin' and os.uname().machine == 'arm64':
-            completed_process = subprocess.run(["arch", "-arm64", "/bin/bash", "chdb/build.sh"], capture_output=True, text=True)
+        if sys.platform == "darwin" and os.uname().machine == "arm64":
+            completed_process = subprocess.run(
+                ["arch", "-arm64", "/bin/bash", "chdb/build.sh"],
+                capture_output=True,
+                text=True,
+            )
         else:
-            completed_process = subprocess.run(["bash", "chdb/build.sh"], capture_output=True, text=True)
+            completed_process = subprocess.run(
+                ["bash", "chdb/build.sh"], capture_output=True, text=True
+            )
         # If it failed, print the output
         print(completed_process.stdout)
         print(completed_process.stderr)
@@ -176,7 +226,9 @@ class BuildExt(build_ext):
             raise RuntimeError("Build failed")
 
         # add the _chdb.cpython-37m-darwin.so or _chdb.cpython-39-x86_64-linux.so to the chdb package
-        self.distribution.package_data['chdb'] = [ "chdb/_chdb" + get_python_ext_suffix()]
+        self.distribution.package_data["chdb"] = [
+            "chdb/_chdb" + get_python_ext_suffix()
+        ]
         # super().build_extensions()
 
 
@@ -187,9 +239,9 @@ if __name__ == "__main__":
         chdb_so = libdir + "/_chdb" + get_python_ext_suffix()
         ext_modules = [
             Extension(
-                '_chdb',
+                "_chdb",
                 sources=["programs/local/LocalChdb.cpp"],
-                language='c++',
+                language="c++",
                 libraries=[],
                 library_dirs=[libdir],
                 extra_objects=[chdb_so],
@@ -199,8 +251,8 @@ if __name__ == "__main__":
         versionStr = get_latest_git_tag()
         fix_version_init(versionStr)
         # Call the function to update pyproject.toml
-        update_pyproject_version(versionStr) 
-        
+        # update_pyproject_version(versionStr)
+
         # scan the chdb directory and add all the .py files to the package
         pkg_files = []
         for root, dirs, files in os.walk(libdir):
@@ -208,15 +260,15 @@ if __name__ == "__main__":
                 if file.endswith(".py"):
                     pkg_files.append(os.path.join(root, file))
         pkg_files.append(chdb_so)
-        
+
         setup(
-            packages=['chdb'],
+            packages=["chdb"],
             version=versionStr,
-            package_data={'chdb': pkg_files},
-            exclude_package_data={'': ['*.pyc', 'src/**']},
+            package_data={"chdb": pkg_files},
+            exclude_package_data={"": ["*.pyc", "src/**"]},
             ext_modules=ext_modules,
-            python_requires='>=3.8',
-            cmdclass={'build_ext': BuildExt},
+            python_requires=">=3.8",
+            cmdclass={"build_ext": BuildExt},
             test_suite="tests",
             zip_safe=False,
         )
