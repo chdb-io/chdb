@@ -8,10 +8,3 @@ build-frontend = "pip"
 [tool.pyright]
 include = ["chdb"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
-
-[project.urls]
-Homepage = "https://clickhouse.com/chdb"
-Documentation = "https://clickhouse.com/docs/en/chdb"
-Source = "https://github.com/chdb-io/chdb"
-Download = "https://pypi.org/project/chdb/#files"
-Twitter = "https://twitter.com/chdb_io"
