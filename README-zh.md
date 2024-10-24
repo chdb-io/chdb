@@ -182,6 +182,10 @@ print(query("select sum_udf(12,22)"))
 
 - Demo chDB at [ClickHouse v23.7 livehouse!](https://t.co/todc13Kn19) and [Slides](https://docs.google.com/presentation/d/1ikqjOlimRa7QAg588TAB_Fna-Tad2WMg7_4AgnbQbFA/edit?usp=sharing)
 
+## 相关论文
+
+- [ClickHouse - Lightning Fast Analytics for Everyone](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf)
+
 ## 版权信息
 Apache 2.0，请查看 [LICENSE](LICENSE.txt) 获取更多信息。
 
