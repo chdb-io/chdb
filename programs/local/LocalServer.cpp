@@ -523,10 +523,7 @@ try
 
     processConfig();
 
-    if (!is_background)
-    {
-        SCOPE_EXIT({ cleanup(); });
-    }
+    SCOPE_EXIT({ if (!is_background) cleanup(); });
 
     initTTYBuffer(toProgressOption(getClientConfiguration().getString("progress", "default")));
     ASTAlterCommand::setFormatAlterCommandsWithParentheses(true);
