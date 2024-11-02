@@ -111,9 +111,16 @@ public:
 
     ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements);
 
+    bool is_background = false;
+
+    /// Returns true if query processing was successful.
+    bool processQueryText(const String & text);
+
 protected:
     void runInteractive();
     void runNonInteractive();
+
+    void runBackground();
 
     char * argv0 = nullptr;
     void runLibFuzzer();
@@ -167,9 +174,6 @@ protected:
                                 const std::vector<Arguments> & external_tables_arguments,
                                 const std::vector<Arguments> & hosts_and_ports_arguments) = 0;
     virtual void processConfig() = 0;
-
-    /// Returns true if query processing was successful.
-    bool processQueryText(const String & text);
 
     virtual void readArguments(
         int argc,
@@ -264,7 +268,7 @@ protected:
     ContextMutablePtr global_context;
 
     /// Client context is a context used only by the client to parse queries, process query parameters and to connect to clickhouse-server.
-    ContextMutablePtr client_context;
+    public: ContextMutablePtr client_context;
 
     bool is_interactive = false; /// Use either interactive line editing interface or batch mode.
     bool delayed_interactive = false;

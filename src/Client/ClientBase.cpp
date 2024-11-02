@@ -2677,6 +2677,21 @@ void ClientBase::runInteractive()
 }
 
 
+void ClientBase::runBackground()
+{
+    initQueryIdFormats();
+
+    // Initialize DateLUT here to avoid counting time spent here as query execution time.
+    (void)DateLUT::instance().getTimeZone();
+
+    if (home_path.empty())
+    {
+        const char * home_path_cstr = getenv("HOME"); // NOLINT(concurrency-mt-unsafe)
+        if (home_path_cstr)
+            home_path = home_path_cstr;
+    }
+}
+
 bool ClientBase::processMultiQueryFromFile(const String & file_name)
 {
     String queries_from_file;
