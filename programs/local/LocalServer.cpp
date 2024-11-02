@@ -1207,7 +1207,7 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
         else
         {
             // Handle successful data retrieval scenario
-            res->_vec = new std::vector<char>(*result->buf_);
+            res->_vec = result->buf_;
             res->len = result->buf_->size();
             res->buf = result->buf_->data();
             res->rows_read = result->rows_;
