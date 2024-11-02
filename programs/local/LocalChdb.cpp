@@ -2,9 +2,9 @@
 
 #if USE_PYTHON
 
-#include <iostream>
-#include <Storages/StoragePython.h>
-#include <pybind11/gil.h>
+#    include <iostream>
+#    include <Storages/StoragePython.h>
+#    include <pybind11/gil.h>
 
 
 extern bool inside_main = true;
@@ -53,6 +53,7 @@ local_result_v2 * queryToBuffer(
 
     // Convert std::string to char*
     std::vector<char *> argv_char;
+    argv_char.reserve(argv.size());
     for (auto & arg : argv)
         argv_char.push_back(const_cast<char *>(arg.c_str()));
 
@@ -77,13 +78,49 @@ memoryview_wrapper * query_result::get_memview()
     return new memoryview_wrapper(this->result_wrapper);
 }
 
-#ifdef PY_TEST_MAIN
-#    include <string_view>
-#    include <arrow/api.h>
-#    include <arrow/buffer.h>
-#    include <arrow/io/memory.h>
-#    include <arrow/ipc/api.h>
-#    include <arrow/python/pyarrow.h>
+// Add these new wrapper classes
+class connection_wrapper
+{
+private:
+    chdb_conn * conn;
+
+public:
+    connection_wrapper(int argc, char ** argv)
+    {
+        conn = connect_chdb(argc, argv);
+        if (!conn)
+        {
+            throw std::runtime_error("Failed to connect to chdb");
+        }
+    }
+
+    ~connection_wrapper()
+    {
+        if (conn)
+        {
+            close_conn(conn);
+            conn = nullptr;
+        }
+    }
+
+    query_result * query(const std::string & query_str, const std::string & format = "CSV")
+    {
+        auto * result = query_conn(conn, query_str.c_str(), format.c_str());
+        if (!result)
+        {
+            throw std::runtime_error("Query failed");
+        }
+        return new query_result(result);
+    }
+};
+
+#    ifdef PY_TEST_MAIN
+#        include <string_view>
+#        include <arrow/api.h>
+#        include <arrow/buffer.h>
+#        include <arrow/io/memory.h>
+#        include <arrow/ipc/api.h>
+#        include <arrow/python/pyarrow.h>
 
 
 std::shared_ptr<arrow::Table> queryToArrow(const std::string & queryStr)
@@ -124,7 +161,7 @@ int main()
 
     return 0;
 }
-#else
+#    else
 PYBIND11_MODULE(_chdb, m)
 {
     m.doc() = "chDB module for query function";
@@ -182,6 +219,26 @@ PYBIND11_MODULE(_chdb, m)
             "Returns:\n"
             "    List[str, str]: List of column name and type pairs.");
 
+    py::class_<connection_wrapper>(m, "Connection")
+        .def(
+            py::init(
+                [](const std::string & path)
+                {
+                    std::vector<std::string> argv = {"clickhouse", "--path=" + path};
+                    std::vector<char *> argv_char;
+                    argv_char.reserve(argv.size());
+                    for (auto & arg : argv)
+                        argv_char.push_back(const_cast<char *>(arg.c_str()));
+                    return new connection_wrapper(argv_char.size(), argv_char.data());
+                }),
+            py::arg("path") = "")
+        .def(
+            "query",
+            &connection_wrapper::query,
+            py::arg("query_str"),
+            py::arg("format") = "CSV",
+            "Execute a query and return a query_result object");
+
     m.def(
         "query",
         &query,
@@ -191,17 +248,7 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("path") = "",
         py::arg("udf_path") = "",
         "Query chDB and return a query_result object");
-
-    // Pybind wrapper for:
-    // struct chdb_conn
-    // {
-    //     void * server; // LocalServer * server;
-    //     bool connected;
-    // };
-    // CHDB_EXPORT chdb_conn * connect_chdb(int argc, char ** argv);
-    // CHDB_EXPORT void close_conn(chdb_conn * conn);
-    // CHDB_EXPORT struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format);
 }
 
-#endif // PY_TEST_MAIN
+#    endif // PY_TEST_MAIN
 #endif // USE_PYTHON

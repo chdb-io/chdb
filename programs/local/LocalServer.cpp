@@ -1157,14 +1157,19 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
     }
 }
 
-int bgClickHouseLocal(int argc, char ** argv)
+DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
 {
     try
     {
-        DB::LocalServer app;
-        app.is_background = true; // Set background mode
-        app.init(argc, argv);
-        return app.run();
+        auto * app = new DB::LocalServer();
+        app->is_background = true; // Set background mode
+        app->init(argc, argv);
+        int ret = app->run();
+        if (ret != 0)
+        {
+            throw std::domain_error(app->get_error_msg());
+        }
+        return app;
     }
     catch (const DB::Exception & e)
     {
@@ -1275,19 +1280,10 @@ chdb_conn * connect_chdb(int argc, char ** argv)
         std::lock_guard<std::mutex> lock(connection_mutex);
 
         // Use background mode
-        int ret = bgClickHouseLocal(argc, argv);
-        if (ret != 0)
-        {
-            throw std::domain_error("Failed to run ClickHouse background server");
-        }
+        DB::LocalServer * server = bgClickHouseLocal(argc, argv);
 
         auto * conn = new chdb_conn();
-        auto * server = new DB::LocalServer();
         conn->server = server;
-        server->is_background = true;
-
-        // Initialize server in background mode
-        server->init(argc, argv);
         conn->connected = true;
 
         return conn;
