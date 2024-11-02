@@ -50,6 +50,16 @@ CHDB_EXPORT void free_result(struct local_result * result);
 CHDB_EXPORT struct local_result_v2 * query_stable_v2(int argc, char ** argv);
 CHDB_EXPORT void free_result_v2(struct local_result_v2 * result);
 
+struct chdb_conn
+{
+    void * server; // LocalServer * server;
+    bool connected;
+};
+
+CHDB_EXPORT chdb_conn * connect_chdb(int argc, char ** argv);
+CHDB_EXPORT void close_conn(chdb_conn * conn);
+CHDB_EXPORT struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format);
+
 #ifdef __cplusplus
 }
 #endif

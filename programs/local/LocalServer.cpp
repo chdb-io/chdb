@@ -493,12 +493,12 @@ try
         }
     }
 
-    is_interactive = stdin_is_a_tty
+    is_interactive = !is_background && stdin_is_a_tty
         && (getClientConfiguration().hasOption("interactive")
             || (queries.empty() && !getClientConfiguration().has("table-structure") && queries_files.empty()
                 && !getClientConfiguration().has("table-file")));
 
-    if (!is_interactive)
+    if (!is_interactive && !is_background)
     {
         /// We will terminate process on error
         static KillingErrorHandler error_handler;
@@ -523,7 +523,10 @@ try
 
     processConfig();
 
-    SCOPE_EXIT({ cleanup(); });
+    if (!is_background)
+    {
+        SCOPE_EXIT({ cleanup(); });
+    }
 
     initTTYBuffer(toProgressOption(getClientConfiguration().getString("progress", "default")));
     ASTAlterCommand::setFormatAlterCommandsWithParentheses(true);
@@ -560,7 +563,11 @@ try
 #if defined(FUZZING_MODE)
     runLibFuzzer();
 #else
-    if (is_interactive && !delayed_interactive)
+    if (is_background)
+    {
+        runBackground();
+    }
+    else if (is_interactive && !delayed_interactive)
     {
         runInteractive();
     }
@@ -1150,6 +1157,25 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
     }
 }
 
+int bgClickHouseLocal(int argc, char ** argv)
+{
+    try
+    {
+        DB::LocalServer app;
+        app.is_background = true; // Set background mode
+        app.init(argc, argv);
+        return app.run();
+    }
+    catch (const DB::Exception & e)
+    {
+        throw std::domain_error(DB::getExceptionMessage(e, false));
+    }
+    catch (...)
+    {
+        throw std::domain_error(DB::getCurrentExceptionMessage(true));
+    }
+}
+
 // todo fix the memory leak and unnecessary copy
 local_result * query_stable(int argc, char ** argv)
 {
@@ -1238,6 +1264,127 @@ void free_result_v2(local_result_v2 * result)
     delete reinterpret_cast<std::vector<char> *>(result->_vec);
     delete[] result->error_message;
     delete result;
+}
+
+std::mutex connection_mutex;
+
+chdb_conn * connect_chdb(int argc, char ** argv)
+{
+    try
+    {
+        std::lock_guard<std::mutex> lock(connection_mutex);
+
+        // Use background mode
+        int ret = bgClickHouseLocal(argc, argv);
+        if (ret != 0)
+        {
+            throw std::domain_error("Failed to run ClickHouse background server");
+        }
+
+        auto * conn = new chdb_conn();
+        auto * server = new DB::LocalServer();
+        conn->server = server;
+        server->is_background = true;
+
+        // Initialize server in background mode
+        server->init(argc, argv);
+        conn->connected = true;
+
+        return conn;
+    }
+    catch (const DB::Exception & e)
+    {
+        throw std::domain_error(DB::getExceptionMessage(e, false));
+    }
+    catch (...)
+    {
+        throw std::domain_error(DB::getCurrentExceptionMessage(true));
+    }
+}
+
+
+void close_conn(chdb_conn * conn)
+{
+    if (!conn)
+        return;
+
+    std::lock_guard<std::mutex> lock(connection_mutex);
+
+    if (conn->connected)
+    {
+        DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
+        // Cleanup suggestions before context
+        server->cleanup();
+        delete server;
+    }
+
+    delete conn;
+}
+
+struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
+{
+    if (!conn || !conn->connected)
+        return nullptr;
+
+    std::lock_guard<std::mutex> lock(connection_mutex);
+
+    try
+    {
+        auto * result = new local_result_v2{};
+        DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
+        // Set output format if specified
+        if (format && *format)
+        {
+            server->client_context->setDefaultFormat(format);
+        }
+
+        // Check connection and reconnect if needed
+        if (!conn->connected)
+        {
+            server->connect();
+        }
+
+        // Execute query
+        if (!server->processQueryText(query))
+        {
+            std::string error = server->get_error_msg();
+            result->error_message = new char[error.length() + 1];
+            std::strcpy(result->error_message, error.c_str());
+            return result;
+        }
+
+        // Get query results without copying
+        auto * output_vec = server->getQueryOutputVector();
+        if (output_vec && !output_vec->empty())
+        {
+            // Take ownership of the vector
+            result->_vec = std::move(output_vec);
+            result->buf = output_vec->data();
+            result->len = output_vec->size();
+        }
+
+        result->rows_read = server->getProcessedRows();
+        result->bytes_read = server->getProcessedBytes();
+        result->elapsed = server->getElapsedTime();
+
+        return result;
+    }
+    catch (const DB::Exception & e)
+    {
+        auto * result = new local_result_v2{};
+        std::string error = DB::getExceptionMessage(e, false);
+        result->error_message = new char[error.length() + 1];
+        std::strcpy(result->error_message, error.c_str());
+        return result;
+    }
+    catch (...)
+    {
+        auto * result = new local_result_v2{};
+        std::string error = DB::getCurrentExceptionMessage(true);
+        result->error_message = new char[error.length() + 1];
+        std::strcpy(result->error_message, error.c_str());
+        return result;
+    }
 }
 
 /**
