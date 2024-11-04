@@ -2425,6 +2425,23 @@ bool ClientBase::processQueryText(const String & text)
     return executeMultiQuery(text);
 }
 
+bool ClientBase::parseQueryTextWithOutputFormat(const String & query, const String & format)
+{
+    // Set output format if specified
+    if (!format.empty())
+    {
+        client_context->setDefaultFormat(format);
+        setDefaultFormat(format);
+    }
+
+    // Check connection and reconnect if needed
+    if (!connection->checkConnected(connection_parameters.timeouts))
+        connect();
+
+    // Execute query
+    return processQueryText(query);
+}
+
 
 String ClientBase::prompt() const
 {
