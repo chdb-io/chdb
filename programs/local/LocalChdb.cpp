@@ -219,7 +219,7 @@ PYBIND11_MODULE(_chdb, m)
             "Returns:\n"
             "    List[str, str]: List of column name and type pairs.");
 
-    py::class_<connection_wrapper>(m, "Connection")
+    py::class_<connection_wrapper>(m, "connect")
         .def(
             py::init(
                 [](const std::string & path)

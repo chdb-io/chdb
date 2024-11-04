@@ -108,6 +108,7 @@ public:
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }
     std::string get_error_msg() const { return error_message_oss.str(); }
+    void setDefaultFormat(const String & format);
 
     ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements);
 
