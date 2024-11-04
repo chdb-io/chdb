@@ -107,7 +107,7 @@ public:
     size_t getProcessedRows() const { return processed_rows; }
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }
-    std::string get_error_msg() const { return error_message_oss.str(); }
+    std::string getErrorMsg() const { return error_message_oss.str(); }
     void setDefaultFormat(const String & format);
     void setBackground(bool is_background_) { is_background = is_background_; }
     bool parseQueryTextWithOutputFormat(const String & query, const String & format);
