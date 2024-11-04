@@ -1159,7 +1159,7 @@ DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
     try
     {
         auto * app = new DB::LocalServer();
-        app->is_background = true; // Set background mode
+        app->setBackground(true);
         app->init(argc, argv);
         int ret = app->run();
         if (ret != 0)
@@ -1325,21 +1325,9 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
     {
         auto * result = new local_result_v2{};
         DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
-        // Set output format if specified
-        if (format && *format)
-        {
-            server->client_context->setDefaultFormat(format);
-            server->setDefaultFormat(format);
-        }
-
-        // Check connection and reconnect if needed
-        if (!conn->connected)
-        {
-            server->connect();
-        }
 
         // Execute query
-        if (!server->processQueryText(query))
+        if (!server->parseQueryTextWithOutputFormat(query, format))
         {
             std::string error = server->get_error_msg();
             result->error_message = new char[error.length() + 1];

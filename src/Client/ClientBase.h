@@ -109,18 +109,16 @@ public:
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }
     std::string get_error_msg() const { return error_message_oss.str(); }
     void setDefaultFormat(const String & format);
+    void setBackground(bool is_background_) { is_background = is_background_; }
+    bool parseQueryTextWithOutputFormat(const String & query, const String & format);
 
     ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements);
-
-    bool is_background = false;
-
-    /// Returns true if query processing was successful.
-    bool processQueryText(const String & text);
 
 protected:
     void runInteractive();
     void runNonInteractive();
 
+    bool is_background = false;
     void runBackground();
 
     char * argv0 = nullptr;
@@ -175,6 +173,9 @@ protected:
                                 const std::vector<Arguments> & external_tables_arguments,
                                 const std::vector<Arguments> & hosts_and_ports_arguments) = 0;
     virtual void processConfig() = 0;
+
+    /// Returns true if query processing was successful.
+    bool processQueryText(const String & text);
 
     virtual void readArguments(
         int argc,
@@ -269,7 +270,7 @@ protected:
     ContextMutablePtr global_context;
 
     /// Client context is a context used only by the client to parse queries, process query parameters and to connect to clickhouse-server.
-    public: ContextMutablePtr client_context;
+    ContextMutablePtr client_context;
 
     bool is_interactive = false; /// Use either interactive line editing interface or batch mode.
     bool delayed_interactive = false;
