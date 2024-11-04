@@ -1136,7 +1136,7 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
                 app.getProcessedBytes(),
                 app.getElapsedTime());
         } else {
-            return std::make_unique<query_result_>(app.get_error_msg());
+            return std::make_unique<query_result_>(app.getErrorMsg());
         }
     }
     catch (const DB::Exception & e)
@@ -1164,7 +1164,7 @@ DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
         int ret = app->run();
         if (ret != 0)
         {
-            throw std::domain_error(app->get_error_msg());
+            throw std::domain_error(app->getErrorMsg());
         }
         return app;
     }
@@ -1329,7 +1329,7 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
         // Execute query
         if (!server->parseQueryTextWithOutputFormat(query, format))
         {
-            std::string error = server->get_error_msg();
+            std::string error = server->getErrorMsg();
             result->error_message = new char[error.length() + 1];
             std::strcpy(result->error_message, error.c_str());
             return result;
