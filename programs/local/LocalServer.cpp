@@ -1329,6 +1329,7 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
         if (format && *format)
         {
             server->client_context->setDefaultFormat(format);
+            server->setDefaultFormat(format);
         }
 
         // Check connection and reconnect if needed

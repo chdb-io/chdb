@@ -707,6 +707,12 @@ bool ClientBase::isRegularFile(int fd)
     return fstat(fd, &file_stat) == 0 && S_ISREG(file_stat.st_mode);
 }
 
+void ClientBase::setDefaultFormat(const String & format)
+{
+    default_output_format = format;
+    is_default_format = false;
+}
+
 void ClientBase::setDefaultFormatsAndCompressionFromConfiguration()
 {
     if (getClientConfiguration().has("output-format"))
