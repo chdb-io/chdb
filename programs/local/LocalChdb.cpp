@@ -2,10 +2,10 @@
 
 #if USE_PYTHON
 
-#    include <iostream>
 #    include <Storages/StoragePython.h>
-#    include <pybind11/gil.h>
 
+
+namespace py = pybind11;
 
 extern bool inside_main = true;
 
@@ -78,41 +78,267 @@ memoryview_wrapper * query_result::get_memview()
     return new memoryview_wrapper(this->result_wrapper);
 }
 
-// Add these new wrapper classes
-class connection_wrapper
+
+// Parse SQLite-style connection string
+std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::parse_connection_string(const std::string & conn_str)
 {
-private:
-    chdb_conn * conn;
+    std::string path;
+    std::map<std::string, std::string> params;
 
-public:
-    connection_wrapper(int argc, char ** argv)
+    if (conn_str == ":memory:")
     {
-        conn = connect_chdb(argc, argv);
-        if (!conn)
+        return {":memory:", params};
+    }
+
+    std::string working_str = conn_str;
+
+    // Handle file: prefix
+    if (working_str.starts_with("file:"))
+    {
+        working_str = working_str.substr(5);
+
+        // Handle triple slash for absolute paths
+        if (working_str.starts_with("///"))
         {
-            throw std::runtime_error("Failed to connect to chdb");
+            working_str = working_str.substr(2); // Remove two slashes, keep one
         }
     }
 
-    ~connection_wrapper()
+    // Split path and parameters
+    auto query_pos = working_str.find('?');
+    if (query_pos != std::string::npos)
     {
-        if (conn)
+        path = working_str.substr(0, query_pos);
+        std::string query = working_str.substr(query_pos + 1);
+
+        // Parse parameters
+        std::istringstream params_stream(query);
+        std::string param;
+        while (std::getline(params_stream, param, '&'))
         {
-            close_conn(conn);
-            conn = nullptr;
+            auto eq_pos = param.find('=');
+            if (eq_pos != std::string::npos)
+            {
+                std::string key = param.substr(0, eq_pos);
+                std::string value = param.substr(eq_pos + 1);
+                params[key] = value;
+            }
+        }
+    }
+    else
+    {
+        path = working_str;
+    }
+
+    // Convert relative paths to absolute
+    if (!path.empty() && path[0] != '/')
+    {
+        std::error_code ec;
+        path = std::filesystem::absolute(path, ec).string();
+        if (ec)
+        {
+            throw std::runtime_error("Failed to resolve path: " + path);
         }
     }
 
-    query_result * query(const std::string & query_str, const std::string & format = "CSV")
+    return {path, params};
+}
+
+std::vector<std::string>
+connection_wrapper::build_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params)
+{
+    std::vector<std::string> argv = {"clickhouse"};
+
+    if (path != ":memory:")
     {
-        auto * result = query_conn(conn, query_str.c_str(), format.c_str());
-        if (!result)
-        {
-            throw std::runtime_error("Query failed");
-        }
-        return new query_result(result);
+        argv.push_back("--path=" + path);
     }
-};
+
+    // Map SQLite parameters to ClickHouse arguments
+    for (const auto & [key, value] : params)
+    {
+        if (key == "mode")
+        {
+            if (value == "ro")
+            {
+                argv.push_back("--readonly=1");
+            }
+        }
+    }
+
+    return argv;
+}
+
+void connection_wrapper::initialize_database()
+{
+    if (is_memory_db)
+    {
+        // Setup memory engine
+        query_result * ret = query("CREATE DATABASE IF NOT EXISTS default ENGINE = Memory; USE default");
+        if (ret->has_error())
+        {
+            auto err_msg = fmt::format("Failed to create memory database: {}", std::string(ret->error_message()));
+            delete ret;
+            throw std::runtime_error(err_msg);
+        }
+    }
+    else
+    {
+        // Create directory if it doesn't exist
+        std::filesystem::create_directories(db_path);
+        // Setup Atomic database
+        query_result * ret = query("CREATE DATABASE IF NOT EXISTS default ENGINE = Atomic; USE default");
+        if (ret->has_error())
+        {
+            auto err_msg = fmt::format("Failed to create database: {}", std::string(ret->error_message()));
+            delete ret;
+            throw std::runtime_error(err_msg);
+        }
+    }
+}
+
+connection_wrapper::connection_wrapper(int argc, char ** argv)
+{
+    conn = connect_chdb(argc, argv);
+    if (!conn)
+    {
+        throw std::runtime_error("Failed to connect to chdb");
+    }
+}
+
+connection_wrapper::connection_wrapper(const std::string & conn_str)
+{
+    auto [path, params] = parse_connection_string(conn_str);
+
+    db_path = path;
+    is_memory_db = (path == ":memory:");
+
+    auto argv = build_clickhouse_args(path, params);
+
+    // Convert to char* array
+    std::vector<char *> argv_char;
+    argv_char.reserve(argv.size());
+    for (auto & arg : argv)
+    {
+        argv_char.push_back(const_cast<char *>(arg.c_str()));
+    }
+
+    conn = connect_chdb(argv_char.size(), argv_char.data());
+    if (!conn)
+    {
+        throw std::runtime_error("Failed to connect to chdb");
+    }
+
+    initialize_database();
+}
+
+connection_wrapper::~connection_wrapper()
+{
+    if (conn)
+    {
+        close_conn(conn);
+        conn = nullptr;
+    }
+}
+
+cursor_wrapper * connection_wrapper::cursor()
+{
+    return new cursor_wrapper(this);
+}
+
+void connection_wrapper::commit()
+{
+    // do nothing
+}
+
+void connection_wrapper::close()
+{
+    if (conn)
+    {
+        close_conn(conn);
+        conn = nullptr;
+    }
+}
+
+query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
+{
+    return new query_result(query_conn(conn, query_str.c_str(), format.c_str()));
+}
+
+void cursor_wrapper::execute(const std::string & query_str)
+{
+    if (current_result)
+    {
+        delete current_result;
+        current_result = nullptr;
+    }
+    current_row = 0;
+
+    // Always use Arrow format internally
+    current_result = conn->query(query_str, "ArrowStream");
+
+    if (current_result->has_error())
+    {
+        throw std::runtime_error(current_result->error_message());
+    }
+
+    if (current_result->data() == nullptr || current_result->size() == 0)
+    {
+        return;
+    }
+    // Convert Arrow buffer to Table with RecordBatchStreamReader
+    auto input_stream = std::make_shared<arrow::io::BufferReader>(std::string_view(current_result->data(), current_result->size()));
+    auto batch_reader = arrow::ipc::RecordBatchStreamReader::Open(input_stream).ValueOrDie();
+    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
+    std::shared_ptr<arrow::RecordBatch> batch;
+    while (batch_reader->ReadNext(&batch).ok() && batch != nullptr)
+    {
+        batches.push_back(batch);
+    }
+    current_table = arrow::Table::FromRecordBatches(batches).ValueOrDie();
+}
+
+py::object cursor_wrapper::fetchone()
+{
+    if (!current_table || current_row >= current_table->num_rows())
+    {
+        return py::none();
+    }
+
+    py::tuple row(current_table->num_columns());
+    for (int i = 0; i < current_table->num_columns(); i++)
+    {
+        auto column = current_table->column(i);
+        // Convert Arrow column value to Python object based on type
+        // This is a simplified example
+        row[i] = py::cast(column->GetScalar(current_row).ValueOrDie()->ToString());
+    }
+    current_row++;
+    return row;
+}
+
+py::list cursor_wrapper::fetchall()
+{
+    py::list results;
+    while (true)
+    {
+        py::object row = fetchone();
+        if (row.is_none())
+            break;
+        results.append(row);
+    }
+    return results;
+}
+
+py::object cursor_wrapper::__next__()
+{
+    py::object row = fetchone();
+    if (row.is_none())
+    {
+        throw py::stop_iteration();
+    }
+    return row;
+}
 
 #    ifdef PY_TEST_MAIN
 #        include <string_view>
@@ -219,19 +445,33 @@ PYBIND11_MODULE(_chdb, m)
             "Returns:\n"
             "    List[str, str]: List of column name and type pairs.");
 
+    py::class_<cursor_wrapper>(m, "cursor")
+        .def(py::init<connection_wrapper *>())
+        .def("execute", &cursor_wrapper::execute)
+        .def("fetchone", &cursor_wrapper::fetchone)
+        .def("fetchall", &cursor_wrapper::fetchall)
+        .def("__iter__", &cursor_wrapper::__iter__)
+        .def("__next__", &cursor_wrapper::__next__);
+
     py::class_<connection_wrapper>(m, "connect")
         .def(
             py::init(
                 [](const std::string & path)
                 {
-                    std::vector<std::string> argv = {"clickhouse", "--path=" + path};
-                    std::vector<char *> argv_char;
-                    argv_char.reserve(argv.size());
-                    for (auto & arg : argv)
-                        argv_char.push_back(const_cast<char *>(arg.c_str()));
-                    return new connection_wrapper(argv_char.size(), argv_char.data());
+                    try
+                    {
+                        return new connection_wrapper(path);
+                    }
+                    catch (const std::exception & e)
+                    {
+                        throw py::error_already_set();
+                    }
                 }),
-            py::arg("path") = "")
+            py::arg("path") = ":memory:")
+        .def("cursor", &connection_wrapper::cursor)
+        .def("execute", &connection_wrapper::query)
+        .def("commit", &connection_wrapper::commit)
+        .def("close", &connection_wrapper::close)
         .def(
             "query",
             &connection_wrapper::query,

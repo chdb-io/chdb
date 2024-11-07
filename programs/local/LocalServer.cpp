@@ -1317,7 +1317,7 @@ void close_conn(chdb_conn * conn)
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
 {
     if (!conn || !conn->connected)
-        return nullptr;
+        return new local_result_v2{};
 
     std::lock_guard<std::mutex> lock(connection_mutex);
 
