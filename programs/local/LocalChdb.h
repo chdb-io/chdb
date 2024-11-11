@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string_view>
 #include "config.h"
 
@@ -36,6 +37,7 @@ private:
 public:
     connection_wrapper(int argc, char ** argv);
     explicit connection_wrapper(const std::string & conn_str);
+    chdb_conn * get_conn() { return conn; }
     ~connection_wrapper();
     cursor_wrapper * cursor();
     void commit();
@@ -138,7 +140,7 @@ private:
 
 public:
     query_result(local_result_v2 * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
-    ~query_result() { }
+    ~query_result() = default;
     char * data() { return result_wrapper->data(); }
     py::bytes bytes() { return result_wrapper->bytes(); }
     py::str str() { return result_wrapper->str(); }
@@ -193,27 +195,77 @@ class cursor_wrapper
 {
 private:
     connection_wrapper * conn;
-    query_result * current_result;
-    size_t current_row;
-    std::shared_ptr<arrow::Table> current_table;
+    local_result_v2 * current_result;
 
 public:
-    explicit cursor_wrapper(connection_wrapper * connection)
-        : conn(connection), current_result(nullptr), current_row(0), current_table(nullptr)
-    {
-    }
+    explicit cursor_wrapper(connection_wrapper * connection) : conn(connection), current_result(nullptr) { }
 
     ~cursor_wrapper() { delete current_result; }
 
     void execute(const std::string & query_str);
 
-    py::object fetchone();
+    py::memoryview get_memview()
+    {
+        if (current_result == nullptr)
+        {
+            return py::memoryview(py::memoryview::from_memory(nullptr, 0, true));
+        }
+        return py::memoryview(py::memoryview::from_memory(current_result->buf, current_result->len, true));
+    }
 
-    py::list fetchall();
+    size_t data_size()
+    {
+        if (current_result == nullptr)
+        {
+            return 0;
+        }
+        return current_result->len;
+    }
 
-    // Support iteration
-    bool __iter__(py::object & self) { return true; }
-    py::object __next__();
+    size_t rows_read()
+    {
+        if (current_result == nullptr)
+        {
+            return 0;
+        }
+        return current_result->rows_read;
+    }
+
+    size_t bytes_read()
+    {
+        if (current_result == nullptr)
+        {
+            return 0;
+        }
+        return current_result->bytes_read;
+    }
+
+    double elapsed()
+    {
+        if (current_result == nullptr)
+        {
+            return 0;
+        }
+        return current_result->elapsed;
+    }
+
+    bool has_error()
+    {
+        if (current_result == nullptr)
+        {
+            return false;
+        }
+        return current_result->error_message != nullptr;
+    }
+
+    py::str error_message()
+    {
+        if (has_error())
+        {
+            return py::str(current_result->error_message);
+        }
+        return py::str();
+    }
 };
 
 
