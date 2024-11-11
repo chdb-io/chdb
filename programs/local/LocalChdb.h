@@ -197,12 +197,31 @@ private:
     connection_wrapper * conn;
     local_result_v2 * current_result;
 
+    void release_result()
+    {
+        if (current_result)
+        {
+            // The free_result_v2 vector is managed by the ClickHouse Engine
+            // As we don't want to copy the data, so just release the memory here.
+            // The memory will be released when the ClientBase.query_result_buf is reassigned.
+            if (current_result->_vec)
+            {
+                current_result->_vec = nullptr;
+            }
+            free_result_v2(current_result);
+
+            current_result = nullptr;
+        }
+    }
+
 public:
     explicit cursor_wrapper(connection_wrapper * connection) : conn(connection), current_result(nullptr) { }
 
-    ~cursor_wrapper() { delete current_result; }
+    ~cursor_wrapper() { release_result(); }
 
     void execute(const std::string & query_str);
+
+    void close() { release_result(); }
 
     py::memoryview get_memview()
     {

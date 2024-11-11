@@ -146,7 +146,7 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
 }
 
 std::vector<std::string>
-connection_wrapper::build_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params)
+connection_wrapper::llbuild_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params)
 {
     std::vector<std::string> argv = {"clickhouse"};
 
@@ -268,19 +268,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
 void cursor_wrapper::execute(const std::string & query_str)
 {
-    if (current_result)
-    {
-        // The free_result_v2 vector is managed by the ClickHouse Engine
-        // As we don't want to copy the data, so just release the memory here.
-        // The memory will be released when the ClientBase.query_result_buf is reassigned.
-        if (current_result->_vec)
-        {
-            current_result->_vec = nullptr;
-        }
-        free_result_v2(current_result);
-
-        current_result = nullptr;
-    }
+    release_result();
 
     // Always use Arrow format internally
     current_result = query_conn(conn->get_conn(), query_str.c_str(), "ArrowStream");
@@ -395,6 +383,7 @@ PYBIND11_MODULE(_chdb, m)
     py::class_<cursor_wrapper>(m, "cursor")
         .def(py::init<connection_wrapper *>())
         .def("execute", &cursor_wrapper::execute)
+        .def("close", &cursor_wrapper::close)
         .def("get_memview", &cursor_wrapper::get_memview)
         .def("data_size", &cursor_wrapper::data_size)
         .def("rows_read", &cursor_wrapper::rows_read)
