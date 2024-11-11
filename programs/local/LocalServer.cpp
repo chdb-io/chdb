@@ -1316,14 +1316,15 @@ void close_conn(chdb_conn * conn)
 
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
 {
+    auto * result = new local_result_v2{ nullptr, 0, nullptr, 0, 0, 0, nullptr };
+
     if (!conn || !conn->connected)
-        return new local_result_v2{};
+        return result;
 
     std::lock_guard<std::mutex> lock(connection_mutex);
 
     try
     {
-        auto * result = new local_result_v2{};
         DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
 
         // Execute query
@@ -1353,7 +1354,6 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
     }
     catch (const DB::Exception & e)
     {
-        auto * result = new local_result_v2{};
         std::string error = DB::getExceptionMessage(e, false);
         result->error_message = new char[error.length() + 1];
         std::strcpy(result->error_message, error.c_str());
@@ -1361,7 +1361,6 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
     }
     catch (...)
     {
-        auto * result = new local_result_v2{};
         std::string error = DB::getCurrentExceptionMessage(true);
         result->error_message = new char[error.length() + 1];
         std::strcpy(result->error_message, error.c_str());

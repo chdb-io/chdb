@@ -1,4 +1,5 @@
 #include "LocalChdb.h"
+#include "chdb.h"
 
 #if USE_PYTHON
 
@@ -269,76 +270,22 @@ void cursor_wrapper::execute(const std::string & query_str)
 {
     if (current_result)
     {
-        delete current_result;
+        // The free_result_v2 vector is managed by the ClickHouse Engine
+        // As we don't want to copy the data, so just release the memory here.
+        // The memory will be released when the ClientBase.query_result_buf is reassigned.
+        if (current_result->_vec)
+        {
+            current_result->_vec = nullptr;
+        }
+        free_result_v2(current_result);
+
         current_result = nullptr;
     }
-    current_row = 0;
 
     // Always use Arrow format internally
-    current_result = conn->query(query_str, "ArrowStream");
-
-    if (current_result->has_error())
-    {
-        throw std::runtime_error(current_result->error_message());
-    }
-
-    if (current_result->data() == nullptr || current_result->size() == 0)
-    {
-        return;
-    }
-    // Convert Arrow buffer to Table with RecordBatchStreamReader
-    auto input_stream = std::make_shared<arrow::io::BufferReader>(std::string_view(current_result->data(), current_result->size()));
-    auto batch_reader = arrow::ipc::RecordBatchStreamReader::Open(input_stream).ValueOrDie();
-    std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
-    std::shared_ptr<arrow::RecordBatch> batch;
-    while (batch_reader->ReadNext(&batch).ok() && batch != nullptr)
-    {
-        batches.push_back(batch);
-    }
-    current_table = arrow::Table::FromRecordBatches(batches).ValueOrDie();
+    current_result = query_conn(conn->get_conn(), query_str.c_str(), "ArrowStream");
 }
 
-py::object cursor_wrapper::fetchone()
-{
-    if (!current_table || current_row >= current_table->num_rows())
-    {
-        return py::none();
-    }
-
-    py::tuple row(current_table->num_columns());
-    for (int i = 0; i < current_table->num_columns(); i++)
-    {
-        auto column = current_table->column(i);
-        // Convert Arrow column value to Python object based on type
-        // This is a simplified example
-        row[i] = py::cast(column->GetScalar(current_row).ValueOrDie()->ToString());
-    }
-    current_row++;
-    return row;
-}
-
-py::list cursor_wrapper::fetchall()
-{
-    py::list results;
-    while (true)
-    {
-        py::object row = fetchone();
-        if (row.is_none())
-            break;
-        results.append(row);
-    }
-    return results;
-}
-
-py::object cursor_wrapper::__next__()
-{
-    py::object row = fetchone();
-    if (row.is_none())
-    {
-        throw py::stop_iteration();
-    }
-    return row;
-}
 
 #    ifdef PY_TEST_MAIN
 #        include <string_view>
@@ -448,10 +395,13 @@ PYBIND11_MODULE(_chdb, m)
     py::class_<cursor_wrapper>(m, "cursor")
         .def(py::init<connection_wrapper *>())
         .def("execute", &cursor_wrapper::execute)
-        .def("fetchone", &cursor_wrapper::fetchone)
-        .def("fetchall", &cursor_wrapper::fetchall)
-        .def("__iter__", &cursor_wrapper::__iter__)
-        .def("__next__", &cursor_wrapper::__next__);
+        .def("get_memview", &cursor_wrapper::get_memview)
+        .def("data_size", &cursor_wrapper::data_size)
+        .def("rows_read", &cursor_wrapper::rows_read)
+        .def("bytes_read", &cursor_wrapper::bytes_read)
+        .def("elapsed", &cursor_wrapper::elapsed)
+        .def("has_error", &cursor_wrapper::has_error)
+        .def("error_message", &cursor_wrapper::error_message);
 
     py::class_<connection_wrapper>(m, "connect")
         .def(
