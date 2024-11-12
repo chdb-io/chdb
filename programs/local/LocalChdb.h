@@ -33,6 +33,7 @@ private:
     chdb_conn * conn;
     std::string db_path;
     bool is_memory_db;
+    bool is_readonly;
 
 public:
     connection_wrapper(int argc, char ** argv);
@@ -220,6 +221,11 @@ public:
     ~cursor_wrapper() { release_result(); }
 
     void execute(const std::string & query_str);
+
+    void commit()
+    {
+        // do nothing
+    }
 
     void close() { release_result(); }
 
