@@ -146,7 +146,7 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
 }
 
 std::vector<std::string>
-connection_wrapper::llbuild_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params)
+connection_wrapper::build_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params)
 {
     std::vector<std::string> argv = {"clickhouse"};
 
@@ -162,6 +162,7 @@ connection_wrapper::llbuild_clickhouse_args(const std::string & path, const std:
         {
             if (value == "ro")
             {
+                is_readonly = true;
                 argv.push_back("--readonly=1");
             }
         }
@@ -172,6 +173,10 @@ connection_wrapper::llbuild_clickhouse_args(const std::string & path, const std:
 
 void connection_wrapper::initialize_database()
 {
+    if (is_readonly)
+    {
+        return;
+    }
     if (is_memory_db)
     {
         // Setup memory engine
@@ -201,10 +206,6 @@ void connection_wrapper::initialize_database()
 connection_wrapper::connection_wrapper(int argc, char ** argv)
 {
     conn = connect_chdb(argc, argv);
-    if (!conn)
-    {
-        throw std::runtime_error("Failed to connect to chdb");
-    }
 }
 
 connection_wrapper::connection_wrapper(const std::string & conn_str)
@@ -225,11 +226,6 @@ connection_wrapper::connection_wrapper(const std::string & conn_str)
     }
 
     conn = connect_chdb(argv_char.size(), argv_char.data());
-    if (!conn)
-    {
-        throw std::runtime_error("Failed to connect to chdb");
-    }
-
     initialize_database();
 }
 
@@ -383,6 +379,7 @@ PYBIND11_MODULE(_chdb, m)
     py::class_<cursor_wrapper>(m, "cursor")
         .def(py::init<connection_wrapper *>())
         .def("execute", &cursor_wrapper::execute)
+        .def("commit", &cursor_wrapper::commit)
         .def("close", &cursor_wrapper::close)
         .def("get_memview", &cursor_wrapper::get_memview)
         .def("data_size", &cursor_wrapper::data_size)
@@ -393,20 +390,7 @@ PYBIND11_MODULE(_chdb, m)
         .def("error_message", &cursor_wrapper::error_message);
 
     py::class_<connection_wrapper>(m, "connect")
-        .def(
-            py::init(
-                [](const std::string & path)
-                {
-                    try
-                    {
-                        return new connection_wrapper(path);
-                    }
-                    catch (const std::exception & e)
-                    {
-                        throw py::error_already_set();
-                    }
-                }),
-            py::arg("path") = ":memory:")
+        .def(py::init([](const std::string & path) { return new connection_wrapper(path); }), py::arg("path") = ":memory:")
         .def("cursor", &connection_wrapper::cursor)
         .def("execute", &connection_wrapper::query)
         .def("commit", &connection_wrapper::commit)

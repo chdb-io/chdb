@@ -1164,13 +1164,16 @@ DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
         int ret = app->run();
         if (ret != 0)
         {
-            throw std::domain_error(app->getErrorMsg());
+            auto err_msg = app->getErrorMsg();
+            LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
+            delete app;
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
         }
         return app;
     }
     catch (const DB::Exception & e)
     {
-        throw std::domain_error(DB::getExceptionMessage(e, false));
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
     }
     catch (...)
     {
@@ -1272,27 +1275,16 @@ std::mutex connection_mutex;
 
 chdb_conn * connect_chdb(int argc, char ** argv)
 {
-    try
-    {
-        std::lock_guard<std::mutex> lock(connection_mutex);
+    std::lock_guard<std::mutex> lock(connection_mutex);
 
-        // Use background mode
-        DB::LocalServer * server = bgClickHouseLocal(argc, argv);
+    // Use background mode
+    DB::LocalServer * server = bgClickHouseLocal(argc, argv);
 
-        auto * conn = new chdb_conn();
-        conn->server = server;
-        conn->connected = true;
+    auto * conn = new chdb_conn();
+    conn->server = server;
+    conn->connected = true;
 
-        return conn;
-    }
-    catch (const DB::Exception & e)
-    {
-        throw std::domain_error(DB::getExceptionMessage(e, false));
-    }
-    catch (...)
-    {
-        throw std::domain_error(DB::getCurrentExceptionMessage(true));
-    }
+    return conn;
 }
 
 
