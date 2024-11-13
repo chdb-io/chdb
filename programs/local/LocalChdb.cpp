@@ -86,7 +86,7 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
     std::string path;
     std::map<std::string, std::string> params;
 
-    if (conn_str == ":memory:")
+    if (conn_str.empty() || conn_str == ":memory:")
     {
         return {":memory:", params};
     }
