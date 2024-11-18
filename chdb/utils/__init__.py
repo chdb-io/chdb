@@ -5,4 +5,5 @@ __all__ = [  # noqa: F405
     "convert_to_columnar",
     "infer_data_type",
     "infer_data_types",
+    "trace",
 ]
