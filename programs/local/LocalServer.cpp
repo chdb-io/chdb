@@ -65,7 +65,9 @@
 
 
 namespace fs = std::filesystem;
-
+std::mutex global_connection_mutex;
+chdb_conn * global_conn_ptr = nullptr;
+std::string global_db_path;
 namespace CurrentMetrics
 {
 extern const Metric MemoryTracking;
@@ -1271,39 +1273,68 @@ void free_result_v2(local_result_v2 * result)
     delete result;
 }
 
-std::mutex connection_mutex;
-
-chdb_conn * connect_chdb(int argc, char ** argv)
+chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    std::lock_guard<std::mutex> lock(connection_mutex);
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
 
-    // Use background mode
+    // Check if we already have a connection with this path
+    std::string path = ":memory:"; // Default path
+    for (int i = 1; i < argc; i++)
+    {
+        if (strncmp(argv[i], "--path=", 7) == 0)
+        {
+            path = argv[i] + 7;
+            break;
+        }
+    }
+
+    if (global_conn_ptr != nullptr)
+    {
+        if (path == global_db_path)
+        {
+            // Return existing connection
+            return &global_conn_ptr;
+        }
+        throw DB::Exception(
+            DB::ErrorCodes::BAD_ARGUMENTS,
+            "Another connection is already active with different path. Close the existing connection first.");
+    }
+
+    // Create new connection
     DB::LocalServer * server = bgClickHouseLocal(argc, argv);
-
     auto * conn = new chdb_conn();
     conn->server = server;
     conn->connected = true;
 
-    return conn;
+    // Store globally
+    global_conn_ptr = conn;
+    global_db_path = path;
+
+    return &global_conn_ptr;
 }
 
-
-void close_conn(chdb_conn * conn)
+void close_conn(chdb_conn ** conn)
 {
-    if (!conn)
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
+
+    if (!conn || !*conn)
         return;
 
-    std::lock_guard<std::mutex> lock(connection_mutex);
-
-    if (conn->connected)
+    if ((*conn)->connected)
     {
-        DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
-        // Cleanup suggestions before context
+        DB::LocalServer * server = static_cast<DB::LocalServer *>((*conn)->server);
         server->cleanup();
         delete server;
+
+        if (*conn == global_conn_ptr)
+        {
+            global_conn_ptr = nullptr;
+            global_db_path.clear();
+        }
     }
 
-    delete conn;
+    delete *conn;
+    *conn = nullptr;
 }
 
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
@@ -1313,7 +1344,7 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
     if (!conn || !conn->connected)
         return result;
 
-    std::lock_guard<std::mutex> lock(connection_mutex);
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
 
     try
     {

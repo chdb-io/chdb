@@ -1,4 +1,5 @@
 #include "LocalChdb.h"
+#include <mutex>
 #include "chdb.h"
 
 #if USE_PYTHON
@@ -212,12 +213,7 @@ connection_wrapper::connection_wrapper(const std::string & conn_str)
 {
     auto [path, params] = parse_connection_string(conn_str);
 
-    db_path = path;
-    is_memory_db = (path == ":memory:");
-
     auto argv = build_clickhouse_args(path, params);
-
-    // Convert to char* array
     std::vector<char *> argv_char;
     argv_char.reserve(argv.size());
     for (auto & arg : argv)
@@ -226,16 +222,19 @@ connection_wrapper::connection_wrapper(const std::string & conn_str)
     }
 
     conn = connect_chdb(argv_char.size(), argv_char.data());
+    db_path = path;
+    is_memory_db = (path == ":memory:");
     initialize_database();
 }
 
 connection_wrapper::~connection_wrapper()
 {
-    if (conn)
-    {
-        close_conn(conn);
-        conn = nullptr;
-    }
+    close_conn(conn);
+}
+
+void connection_wrapper::close()
+{
+    close_conn(conn);
 }
 
 cursor_wrapper * connection_wrapper::cursor()
@@ -248,18 +247,9 @@ void connection_wrapper::commit()
     // do nothing
 }
 
-void connection_wrapper::close()
-{
-    if (conn)
-    {
-        close_conn(conn);
-        conn = nullptr;
-    }
-}
-
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    return new query_result(query_conn(conn, query_str.c_str(), format.c_str()));
+    return new query_result(query_conn(*conn, query_str.c_str(), format.c_str()));
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
