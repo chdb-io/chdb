@@ -85,8 +85,10 @@ sql = query
 PyReader = _chdb.PyReader
 
 from . import dbapi, session, udf, utils  # noqa: E402
+from .state import connect  # noqa: E402
 
 __all__ = [
+    "_chdb",
     "PyReader",
     "ChdbError",
     "query",
@@ -99,4 +101,5 @@ __all__ = [
     "session",
     "udf",
     "utils",
+    "connect",
 ]
