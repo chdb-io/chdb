@@ -30,7 +30,7 @@ class __attribute__((visibility("default"))) query_result;
 class connection_wrapper
 {
 private:
-    chdb_conn * conn;
+    chdb_conn ** conn;
     std::string db_path;
     bool is_memory_db;
     bool is_readonly;
@@ -38,7 +38,7 @@ private:
 public:
     connection_wrapper(int argc, char ** argv);
     explicit connection_wrapper(const std::string & conn_str);
-    chdb_conn * get_conn() { return conn; }
+    chdb_conn * get_conn() { return *conn; }
     ~connection_wrapper();
     cursor_wrapper * cursor();
     void commit();
