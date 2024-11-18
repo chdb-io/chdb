@@ -6,6 +6,7 @@ from datetime import datetime
 
 enable_print = False
 
+
 def print_lines(func):
     if not enable_print:
         return func
@@ -16,7 +17,7 @@ def print_lines(func):
         is_method = inspect.ismethod(func) or (
             len(args) > 0 and hasattr(args[0].__class__, func.__name__)
         )
-        class_name = args[0].__class__.__name__ if is_method else None
+        class_name = args[0].__class__.__name__ if is_method else None # type: ignore
 
         # Get the source code of the function
         try:
