@@ -43,7 +43,7 @@ class Cursor:
         result_mv = self._cursor.get_memview()
         # print("get_result", result_mv)
         if self._cursor.has_error():
-            raise Exception(self._cursor.get_error())
+            raise Exception(self._cursor.error_message())
         if self._cursor.data_size() == 0:
             self._current_table = None
             self._current_row = 0
@@ -67,14 +67,25 @@ class Cursor:
         self._current_row += 1
         return tuple(row_dict.values())
 
-    def fetchall(self) -> List[tuple]:
+    def fetchmany(self, size: int = 1) -> tuple[tuple]:
         if not self._current_table:
-            return []
+            return tuple()
+
+        rows = []
+        for _ in range(size):
+            if (row := self.fetchone()) is None:
+                break
+            rows.append(row)
+        return tuple(rows)
+
+    def fetchall(self) -> tuple[tuple]:
+        if not self._current_table:
+            return tuple()
 
         remaining_rows = []
         while (row := self.fetchone()) is not None:
             remaining_rows.append(row)
-        return remaining_rows
+        return tuple(remaining_rows)
 
     def close(self) -> None:
         self._cursor.close()
@@ -89,5 +100,5 @@ class Cursor:
         return row
 
 
-def connect(connection_string: str) -> Connection:
+def connect(connection_string: str = ":memory:") -> Connection:
     return Connection(connection_string)
