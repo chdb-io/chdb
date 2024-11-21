@@ -1,5 +1,5 @@
 import io
-from typing import Optional, List, Any
+from typing import Optional, Any
 from chdb import _chdb
 
 # try import pyarrow if failed, raise ImportError with suggestion
