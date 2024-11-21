@@ -55,10 +55,27 @@ class local_result_wrapper
 {
 private:
     local_result_v2 * result;
+    bool keep_buf; // background server mode will handle buf in ClickHouse engine
 
 public:
-    local_result_wrapper(local_result_v2 * result) : result(result) { }
-    ~local_result_wrapper() { free_result_v2(result); }
+    local_result_wrapper(local_result_v2 * result) : result(result), keep_buf(false) { }
+    local_result_wrapper(local_result_v2 * result, bool keep_buf) : result(result), keep_buf(keep_buf) { }
+    ~local_result_wrapper()
+    {
+        if (keep_buf)
+        {
+            if (!result)
+                return;
+
+            result->_vec = nullptr;
+            delete[] result->error_message;
+            delete result;
+        }
+        else
+        {
+            free_result_v2(result);
+        }
+    }
     char * data()
     {
         if (result == nullptr)
@@ -141,6 +158,7 @@ private:
 
 public:
     query_result(local_result_v2 * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
+    query_result(local_result_v2 * result, bool keep_buf) : result_wrapper(std::make_shared<local_result_wrapper>(result, keep_buf)) { }
     ~query_result() = default;
     char * data() { return result_wrapper->data(); }
     py::bytes bytes() { return result_wrapper->bytes(); }

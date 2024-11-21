@@ -249,7 +249,7 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    return new query_result(query_conn(*conn, query_str.c_str(), format.c_str()));
+    return new query_result(query_conn(*conn, query_str.c_str(), format.c_str()), true);
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
