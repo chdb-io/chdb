@@ -14,6 +14,13 @@ class TestCHDB(unittest.TestCase):
         if os.path.exists(db_path):
             shutil.rmtree(db_path)
 
+    def test_conn_query_without_receiving_result(self):
+        conn = connect()
+        conn.query("SELECT 1", "CSV")
+        conn.query("SELECT 1", "Null")
+        conn.query("SELECT 1", "Null")
+        conn.close()
+
     def test_basic_operations(self):
         conn = connect(":memory:")
         cursor = conn.cursor()
