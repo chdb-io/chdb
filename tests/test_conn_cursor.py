@@ -5,7 +5,6 @@ from typing import List, Any, Dict
 
 from chdb import connect
 
-enable_print = False
 db_path = "test_db_3fdds"
 
 
@@ -270,6 +269,23 @@ class TestCHDB(unittest.TestCase):
 
         conn1.close()
         conn2.close()
+
+    def test_connection_properties(self):
+        # conn = connect("{db_path}?log_queries=1&verbose=1&log-level=test")
+        with self.assertRaises(Exception):
+            conn = connect(f"{db_path}?not_exist_flag=1")
+        with self.assertRaises(Exception):
+            conn = connect(f"{db_path}?verbose=1")
+
+        conn = connect(f"{db_path}?verbose&log-level=test")
+        ret = conn.query("SELECT 123", "CSV")
+        print(ret)
+        print(len(ret))
+        self.assertEqual(str(ret), "123\n")
+        ret = conn.query("show tables in system", "CSV")
+        self.assertGreater(len(ret), 10)
+
+        conn.close()
 
 
 if __name__ == "__main__":
