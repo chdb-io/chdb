@@ -107,6 +107,8 @@ public:
 
     std::span<char> getQueryOutputSpan()
     {
+        if (!query_result_memory || !query_result_buf)
+            return {};
         auto size = query_result_buf->count();
         return std::span<char>(query_result_memory->begin(), size);
     }
