@@ -1170,6 +1170,7 @@ DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
             auto err_msg = app->getErrorMsg();
             LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
             delete app;
+            app = nullptr;
             throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
         }
         return app;
