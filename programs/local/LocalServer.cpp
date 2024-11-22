@@ -1158,9 +1158,10 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
 
 DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
 {
+    DB::LocalServer * app = nullptr;
     try
     {
-        auto * app = new DB::LocalServer();
+        app = new DB::LocalServer();
         app->setBackground(true);
         app->init(argc, argv);
         int ret = app->run();
@@ -1175,10 +1176,22 @@ DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
     }
     catch (const DB::Exception & e)
     {
+        delete app;
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
+    }
+    catch (const Poco::Exception & e)
+    {
+        delete app;
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", e.displayText());
+    }
+    catch (const std::exception & e)
+    {
+        delete app;
+        throw std::domain_error(e.what());
     }
     catch (...)
     {
+        delete app;
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
@@ -1360,13 +1373,12 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
         }
 
         // Get query results without copying
-        auto * output_vec = server->getQueryOutputVector();
-        if (output_vec && !output_vec->empty())
+        auto output_span = server->getQueryOutputSpan();
+        if (!output_span.empty())
         {
-            // Take ownership of the vector
-            result->_vec = std::move(output_vec);
-            result->buf = output_vec->data();
-            result->len = output_vec->size();
+            result->_vec = nullptr;
+            result->buf = output_span.data();
+            result->len = output_span.size();
         }
 
         result->rows_read = server->getProcessedRows();

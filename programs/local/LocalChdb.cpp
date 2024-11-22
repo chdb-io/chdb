@@ -125,6 +125,11 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
                 std::string value = param.substr(eq_pos + 1);
                 params[key] = value;
             }
+            else if (!param.empty())
+            {
+                // Handle parameters without values
+                params[param] = "";
+            }
         }
     }
     else
@@ -167,6 +172,15 @@ connection_wrapper::build_clickhouse_args(const std::string & path, const std::m
                 argv.push_back("--readonly=1");
             }
         }
+        else if (value.empty())
+        {
+            // Handle parameters without values (like ?withoutarg)
+            argv.push_back("--" + key);
+        }
+        else
+        {
+            argv.push_back("--" + key + "=" + value);
+        }
     }
 
     return argv;
@@ -202,11 +216,6 @@ void connection_wrapper::initialize_database()
             throw std::runtime_error(err_msg);
         }
     }
-}
-
-connection_wrapper::connection_wrapper(int argc, char ** argv)
-{
-    conn = connect_chdb(argc, argv);
 }
 
 connection_wrapper::connection_wrapper(const std::string & conn_str)
