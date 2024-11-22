@@ -67,7 +67,7 @@ class Cursor:
         self._current_row += 1
         return tuple(row_dict.values())
 
-    def fetchmany(self, size: int = 1) -> tuple[tuple]:
+    def fetchmany(self, size: int = 1) -> tuple:
         if not self._current_table:
             return tuple()
 
@@ -78,7 +78,7 @@ class Cursor:
             rows.append(row)
         return tuple(rows)
 
-    def fetchall(self) -> tuple[tuple]:
+    def fetchall(self) -> tuple:
         if not self._current_table:
             return tuple()
 
