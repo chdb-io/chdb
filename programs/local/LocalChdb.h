@@ -36,7 +36,6 @@ private:
     bool is_readonly;
 
 public:
-    connection_wrapper(int argc, char ** argv);
     explicit connection_wrapper(const std::string & conn_str);
     chdb_conn * get_conn() { return *conn; }
     ~connection_wrapper();
