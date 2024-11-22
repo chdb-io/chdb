@@ -101,4 +101,32 @@ class Cursor:
 
 
 def connect(connection_string: str = ":memory:") -> Connection:
+    """
+    Create a connection to chDB backgroud server.
+    Only one open connection is allowed per process. Use `close` to close the connection.
+    If called with the same connection string, the same connection object will be returned.
+    You can use the connection object to create cursor object. `cursor` method will return a cursor object.
+
+    Args:
+        connection_string (str, optional): Connection string. Defaults to ":memory:".
+        Aslo support file path like:
+          - ":memory:" (for in-memory database)
+          - "test.db" (for relative path)
+          - "file:test.db" (same as above)
+          - "/path/to/test.db" (for absolute path)
+          - "file:/path/to/test.db" (same as above)
+          - "file:test.db?param1=value1&param2=value2" (for relative path with query params)
+          - "///path/to/test.db?param1=value1&param2=value2" (for absolute path)
+
+        Connection string args handling:
+          Connection string can contain query params like "file:test.db?param1=value1&param2=value2"
+          "param1=value1" will be passed to ClickHouse engine as start up args.
+
+          For more details, see `clickhouse local --help --verbose`
+          Some special args handling:
+            - "mode=ro" would be "--readonly=1" for clickhouse (read-only mode)
+
+    Returns:
+        Connection: Connection object
+    """
     return Connection(connection_string)
