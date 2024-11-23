@@ -12,23 +12,23 @@ print("data: ", cur1.fetchone())
 cur1.close()
 conn1.close()
 
-conn2 = dbapi.connect(cursorclass=DictCursor)
-cur2 = conn2.cursor()
-cur2.execute('''
-SELECT
-    town,
-    district,
-    count() AS c,
-    round(avg(price)) AS price
-FROM url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')
-GROUP BY
-    town,
-    district
-LIMIT 10
-''')
-print("description", cur2.description)
-for row in cur2:
-    print(row)
+# conn2 = dbapi.connect(cursorclass=DictCursor)
+# cur2 = conn2.cursor()
+# cur2.execute('''
+# SELECT
+#     town,
+#     district,
+#     count() AS c,
+#     round(avg(price)) AS price
+# FROM url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')
+# GROUP BY
+#     town,
+#     district
+# LIMIT 10
+# ''')
+# print("description", cur2.description)
+# for row in cur2:
+#     print(row)
 
-cur2.close()
-conn2.close()
+# cur2.close()
+# conn2.close()

@@ -65,7 +65,9 @@
 
 
 namespace fs = std::filesystem;
-
+std::mutex global_connection_mutex;
+chdb_conn * global_conn_ptr = nullptr;
+std::string global_db_path;
 namespace CurrentMetrics
 {
 extern const Metric MemoryTracking;
@@ -493,12 +495,12 @@ try
         }
     }
 
-    is_interactive = stdin_is_a_tty
+    is_interactive = !is_background && stdin_is_a_tty
         && (getClientConfiguration().hasOption("interactive")
             || (queries.empty() && !getClientConfiguration().has("table-structure") && queries_files.empty()
                 && !getClientConfiguration().has("table-file")));
 
-    if (!is_interactive)
+    if (!is_interactive && !is_background)
     {
         /// We will terminate process on error
         static KillingErrorHandler error_handler;
@@ -523,7 +525,7 @@ try
 
     processConfig();
 
-    SCOPE_EXIT({ cleanup(); });
+    SCOPE_EXIT({ if (!is_background) cleanup(); });
 
     initTTYBuffer(toProgressOption(getClientConfiguration().getString("progress", "default")));
     ASTAlterCommand::setFormatAlterCommandsWithParentheses(true);
@@ -560,7 +562,11 @@ try
 #if defined(FUZZING_MODE)
     runLibFuzzer();
 #else
-    if (is_interactive && !delayed_interactive)
+    if (is_background)
+    {
+        runBackground();
+    }
+    else if (is_interactive && !delayed_interactive)
     {
         runInteractive();
     }
@@ -1132,7 +1138,7 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
                 app.getProcessedBytes(),
                 app.getElapsedTime());
         } else {
-            return std::make_unique<query_result_>(app.get_error_msg());
+            return std::make_unique<query_result_>(app.getErrorMsg());
         }
     }
     catch (const DB::Exception & e)
@@ -1146,6 +1152,47 @@ std::unique_ptr<query_result_> pyEntryClickHouseLocal(int argc, char ** argv)
     }
     catch (...)
     {
+        throw std::domain_error(DB::getCurrentExceptionMessage(true));
+    }
+}
+
+DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
+{
+    DB::LocalServer * app = nullptr;
+    try
+    {
+        app = new DB::LocalServer();
+        app->setBackground(true);
+        app->init(argc, argv);
+        int ret = app->run();
+        if (ret != 0)
+        {
+            auto err_msg = app->getErrorMsg();
+            LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
+            delete app;
+            app = nullptr;
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
+        }
+        return app;
+    }
+    catch (const DB::Exception & e)
+    {
+        delete app;
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
+    }
+    catch (const Poco::Exception & e)
+    {
+        delete app;
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", e.displayText());
+    }
+    catch (const std::exception & e)
+    {
+        delete app;
+        throw std::domain_error(e.what());
+    }
+    catch (...)
+    {
+        delete app;
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
@@ -1207,7 +1254,7 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
         else
         {
             // Handle successful data retrieval scenario
-            res->_vec = new std::vector<char>(*result->buf_);
+            res->_vec = result->buf_;
             res->len = result->buf_->size();
             res->buf = result->buf_->data();
             res->rows_read = result->rows_;
@@ -1238,6 +1285,123 @@ void free_result_v2(local_result_v2 * result)
     delete reinterpret_cast<std::vector<char> *>(result->_vec);
     delete[] result->error_message;
     delete result;
+}
+
+chdb_conn ** connect_chdb(int argc, char ** argv)
+{
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
+
+    // Check if we already have a connection with this path
+    std::string path = ":memory:"; // Default path
+    for (int i = 1; i < argc; i++)
+    {
+        if (strncmp(argv[i], "--path=", 7) == 0)
+        {
+            path = argv[i] + 7;
+            break;
+        }
+    }
+
+    if (global_conn_ptr != nullptr)
+    {
+        if (path == global_db_path)
+        {
+            // Return existing connection
+            return &global_conn_ptr;
+        }
+        throw DB::Exception(
+            DB::ErrorCodes::BAD_ARGUMENTS,
+            "Another connection is already active with different path. Close the existing connection first.");
+    }
+
+    // Create new connection
+    DB::LocalServer * server = bgClickHouseLocal(argc, argv);
+    auto * conn = new chdb_conn();
+    conn->server = server;
+    conn->connected = true;
+
+    // Store globally
+    global_conn_ptr = conn;
+    global_db_path = path;
+
+    return &global_conn_ptr;
+}
+
+void close_conn(chdb_conn ** conn)
+{
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
+
+    if (!conn || !*conn)
+        return;
+
+    if ((*conn)->connected)
+    {
+        DB::LocalServer * server = static_cast<DB::LocalServer *>((*conn)->server);
+        server->cleanup();
+        delete server;
+
+        if (*conn == global_conn_ptr)
+        {
+            global_conn_ptr = nullptr;
+            global_db_path.clear();
+        }
+    }
+
+    delete *conn;
+    *conn = nullptr;
+}
+
+struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
+{
+    auto * result = new local_result_v2{ nullptr, 0, nullptr, 0, 0, 0, nullptr };
+
+    if (!conn || !conn->connected)
+        return result;
+
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
+
+    try
+    {
+        DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
+
+        // Execute query
+        if (!server->parseQueryTextWithOutputFormat(query, format))
+        {
+            std::string error = server->getErrorMsg();
+            result->error_message = new char[error.length() + 1];
+            std::strcpy(result->error_message, error.c_str());
+            return result;
+        }
+
+        // Get query results without copying
+        auto output_span = server->getQueryOutputSpan();
+        if (!output_span.empty())
+        {
+            result->_vec = nullptr;
+            result->buf = output_span.data();
+            result->len = output_span.size();
+        }
+
+        result->rows_read = server->getProcessedRows();
+        result->bytes_read = server->getProcessedBytes();
+        result->elapsed = server->getElapsedTime();
+
+        return result;
+    }
+    catch (const DB::Exception & e)
+    {
+        std::string error = DB::getExceptionMessage(e, false);
+        result->error_message = new char[error.length() + 1];
+        std::strcpy(result->error_message, error.c_str());
+        return result;
+    }
+    catch (...)
+    {
+        std::string error = DB::getCurrentExceptionMessage(true);
+        result->error_message = new char[error.length() + 1];
+        std::strcpy(result->error_message, error.c_str());
+        return result;
+    }
 }
 
 /**

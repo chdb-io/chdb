@@ -707,6 +707,12 @@ bool ClientBase::isRegularFile(int fd)
     return fstat(fd, &file_stat) == 0 && S_ISREG(file_stat.st_mode);
 }
 
+void ClientBase::setDefaultFormat(const String & format)
+{
+    default_output_format = format;
+    is_default_format = false;
+}
+
 void ClientBase::setDefaultFormatsAndCompressionFromConfiguration()
 {
     if (getClientConfiguration().has("output-format"))
@@ -2419,6 +2425,23 @@ bool ClientBase::processQueryText(const String & text)
     return executeMultiQuery(text);
 }
 
+bool ClientBase::parseQueryTextWithOutputFormat(const String & query, const String & format)
+{
+    // Set output format if specified
+    if (!format.empty())
+    {
+        client_context->setDefaultFormat(format);
+        setDefaultFormat(format);
+    }
+
+    // Check connection and reconnect if needed
+    if (!connection->checkConnected(connection_parameters.timeouts))
+        connect();
+
+    // Execute query
+    return processQueryText(query);
+}
+
 
 String ClientBase::prompt() const
 {
@@ -2676,6 +2699,21 @@ void ClientBase::runInteractive()
         output_stream << "Bye." << std::endl;
 }
 
+
+void ClientBase::runBackground()
+{
+    initQueryIdFormats();
+
+    // Initialize DateLUT here to avoid counting time spent here as query execution time.
+    (void)DateLUT::instance().getTimeZone();
+
+    if (home_path.empty())
+    {
+        const char * home_path_cstr = getenv("HOME"); // NOLINT(concurrency-mt-unsafe)
+        if (home_path_cstr)
+            home_path = home_path_cstr;
+    }
+}
 
 bool ClientBase::processMultiQueryFromFile(const String & file_name)
 {

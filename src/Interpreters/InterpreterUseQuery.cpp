@@ -33,10 +33,11 @@ BlockIO InterpreterUseQuery::execute()
         tmp_path_fs << new_database;
         tmp_path_fs.close();
     }
-    else
-    {
-        throw Exception(ErrorCodes::CANNOT_OPEN_FILE, "Cannot open file {} for writing", default_database_path.string());
-    }
+    //chdb todo: fix the following code on bgClickHouseLocal mode
+    // else
+    // {
+    //     throw Exception(ErrorCodes::CANNOT_OPEN_FILE, "Cannot open file {} for writing", default_database_path.string());
+    // }
 
     return {};
 }

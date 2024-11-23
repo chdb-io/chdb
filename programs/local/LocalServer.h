@@ -30,10 +30,12 @@ public:
 
     int main(const std::vector<String> & /*args*/) override;
 
-protected:
-    Poco::Util::LayeredConfiguration & getClientConfiguration() override;
+    void cleanup();
 
     void connect() override;
+
+protected:
+    Poco::Util::LayeredConfiguration & getClientConfiguration() override;
 
     void processError(const String & query) const override;
 
@@ -60,7 +62,6 @@ private:
 
     void tryInitPath();
     void setupUsers();
-    void cleanup();
 
     void applyCmdOptions(ContextMutablePtr context);
     void applyCmdSettings(ContextMutablePtr context);
