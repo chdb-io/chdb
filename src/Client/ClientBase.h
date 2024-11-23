@@ -104,16 +104,31 @@ public:
         // std::vector<char> vec(buf.begin(), buf.end());
         return query_result_memory;
     }
+
+    std::span<char> getQueryOutputSpan()
+    {
+        if (!query_result_memory || !query_result_buf)
+            return {};
+        auto size = query_result_buf->count();
+        return std::span<char>(query_result_memory->begin(), size);
+    }
+
     size_t getProcessedRows() const { return processed_rows; }
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }
-    std::string get_error_msg() const { return error_message_oss.str(); }
+    std::string getErrorMsg() const { return error_message_oss.str(); }
+    void setDefaultFormat(const String & format);
+    void setBackground(bool is_background_) { is_background = is_background_; }
+    bool parseQueryTextWithOutputFormat(const String & query, const String & format);
 
     ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements);
 
 protected:
     void runInteractive();
     void runNonInteractive();
+
+    bool is_background = false;
+    void runBackground();
 
     char * argv0 = nullptr;
     void runLibFuzzer();

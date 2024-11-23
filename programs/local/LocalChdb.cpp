@@ -1,11 +1,13 @@
 #include "LocalChdb.h"
+#include <mutex>
+#include "chdb.h"
 
 #if USE_PYTHON
 
-#include <iostream>
-#include <Storages/StoragePython.h>
-#include <pybind11/gil.h>
+#    include <Storages/StoragePython.h>
 
+
+namespace py = pybind11;
 
 extern bool inside_main = true;
 
@@ -53,6 +55,7 @@ local_result_v2 * queryToBuffer(
 
     // Convert std::string to char*
     std::vector<char *> argv_char;
+    argv_char.reserve(argv.size());
     for (auto & arg : argv)
         argv_char.push_back(const_cast<char *>(arg.c_str()));
 
@@ -77,13 +80,203 @@ memoryview_wrapper * query_result::get_memview()
     return new memoryview_wrapper(this->result_wrapper);
 }
 
-#ifdef PY_TEST_MAIN
-#    include <string_view>
-#    include <arrow/api.h>
-#    include <arrow/buffer.h>
-#    include <arrow/io/memory.h>
-#    include <arrow/ipc/api.h>
-#    include <arrow/python/pyarrow.h>
+
+// Parse SQLite-style connection string
+std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::parse_connection_string(const std::string & conn_str)
+{
+    std::string path;
+    std::map<std::string, std::string> params;
+
+    if (conn_str.empty() || conn_str == ":memory:")
+    {
+        return {":memory:", params};
+    }
+
+    std::string working_str = conn_str;
+
+    // Handle file: prefix
+    if (working_str.starts_with("file:"))
+    {
+        working_str = working_str.substr(5);
+
+        // Handle triple slash for absolute paths
+        if (working_str.starts_with("///"))
+        {
+            working_str = working_str.substr(2); // Remove two slashes, keep one
+        }
+    }
+
+    // Split path and parameters
+    auto query_pos = working_str.find('?');
+    if (query_pos != std::string::npos)
+    {
+        path = working_str.substr(0, query_pos);
+        std::string query = working_str.substr(query_pos + 1);
+
+        // Parse parameters
+        std::istringstream params_stream(query);
+        std::string param;
+        while (std::getline(params_stream, param, '&'))
+        {
+            auto eq_pos = param.find('=');
+            if (eq_pos != std::string::npos)
+            {
+                std::string key = param.substr(0, eq_pos);
+                std::string value = param.substr(eq_pos + 1);
+                params[key] = value;
+            }
+            else if (!param.empty())
+            {
+                // Handle parameters without values
+                params[param] = "";
+            }
+        }
+    }
+    else
+    {
+        path = working_str;
+    }
+
+    // Convert relative paths to absolute
+    if (!path.empty() && path[0] != '/')
+    {
+        std::error_code ec;
+        path = std::filesystem::absolute(path, ec).string();
+        if (ec)
+        {
+            throw std::runtime_error("Failed to resolve path: " + path);
+        }
+    }
+
+    return {path, params};
+}
+
+std::vector<std::string>
+connection_wrapper::build_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params)
+{
+    std::vector<std::string> argv = {"clickhouse"};
+
+    if (path != ":memory:")
+    {
+        argv.push_back("--path=" + path);
+    }
+
+    // Map SQLite parameters to ClickHouse arguments
+    for (const auto & [key, value] : params)
+    {
+        if (key == "mode")
+        {
+            if (value == "ro")
+            {
+                is_readonly = true;
+                argv.push_back("--readonly=1");
+            }
+        }
+        else if (value.empty())
+        {
+            // Handle parameters without values (like ?withoutarg)
+            argv.push_back("--" + key);
+        }
+        else
+        {
+            argv.push_back("--" + key + "=" + value);
+        }
+    }
+
+    return argv;
+}
+
+void connection_wrapper::initialize_database()
+{
+    if (is_readonly)
+    {
+        return;
+    }
+    if (is_memory_db)
+    {
+        // Setup memory engine
+        query_result * ret = query("CREATE DATABASE IF NOT EXISTS default ENGINE = Memory; USE default");
+        if (ret->has_error())
+        {
+            auto err_msg = fmt::format("Failed to create memory database: {}", std::string(ret->error_message()));
+            delete ret;
+            throw std::runtime_error(err_msg);
+        }
+    }
+    else
+    {
+        // Create directory if it doesn't exist
+        std::filesystem::create_directories(db_path);
+        // Setup Atomic database
+        query_result * ret = query("CREATE DATABASE IF NOT EXISTS default ENGINE = Atomic; USE default");
+        if (ret->has_error())
+        {
+            auto err_msg = fmt::format("Failed to create database: {}", std::string(ret->error_message()));
+            delete ret;
+            throw std::runtime_error(err_msg);
+        }
+    }
+}
+
+connection_wrapper::connection_wrapper(const std::string & conn_str)
+{
+    auto [path, params] = parse_connection_string(conn_str);
+
+    auto argv = build_clickhouse_args(path, params);
+    std::vector<char *> argv_char;
+    argv_char.reserve(argv.size());
+    for (auto & arg : argv)
+    {
+        argv_char.push_back(const_cast<char *>(arg.c_str()));
+    }
+
+    conn = connect_chdb(argv_char.size(), argv_char.data());
+    db_path = path;
+    is_memory_db = (path == ":memory:");
+    initialize_database();
+}
+
+connection_wrapper::~connection_wrapper()
+{
+    close_conn(conn);
+}
+
+void connection_wrapper::close()
+{
+    close_conn(conn);
+}
+
+cursor_wrapper * connection_wrapper::cursor()
+{
+    return new cursor_wrapper(this);
+}
+
+void connection_wrapper::commit()
+{
+    // do nothing
+}
+
+query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
+{
+    return new query_result(query_conn(*conn, query_str.c_str(), format.c_str()), true);
+}
+
+void cursor_wrapper::execute(const std::string & query_str)
+{
+    release_result();
+
+    // Always use Arrow format internally
+    current_result = query_conn(conn->get_conn(), query_str.c_str(), "ArrowStream");
+}
+
+
+#    ifdef PY_TEST_MAIN
+#        include <string_view>
+#        include <arrow/api.h>
+#        include <arrow/buffer.h>
+#        include <arrow/io/memory.h>
+#        include <arrow/ipc/api.h>
+#        include <arrow/python/pyarrow.h>
 
 
 std::shared_ptr<arrow::Table> queryToArrow(const std::string & queryStr)
@@ -124,7 +317,7 @@ int main()
 
     return 0;
 }
-#else
+#    else
 PYBIND11_MODULE(_chdb, m)
 {
     m.doc() = "chDB module for query function";
@@ -182,6 +375,32 @@ PYBIND11_MODULE(_chdb, m)
             "Returns:\n"
             "    List[str, str]: List of column name and type pairs.");
 
+    py::class_<cursor_wrapper>(m, "cursor")
+        .def(py::init<connection_wrapper *>())
+        .def("execute", &cursor_wrapper::execute)
+        .def("commit", &cursor_wrapper::commit)
+        .def("close", &cursor_wrapper::close)
+        .def("get_memview", &cursor_wrapper::get_memview)
+        .def("data_size", &cursor_wrapper::data_size)
+        .def("rows_read", &cursor_wrapper::rows_read)
+        .def("bytes_read", &cursor_wrapper::bytes_read)
+        .def("elapsed", &cursor_wrapper::elapsed)
+        .def("has_error", &cursor_wrapper::has_error)
+        .def("error_message", &cursor_wrapper::error_message);
+
+    py::class_<connection_wrapper>(m, "connect")
+        .def(py::init([](const std::string & path) { return new connection_wrapper(path); }), py::arg("path") = ":memory:")
+        .def("cursor", &connection_wrapper::cursor)
+        .def("execute", &connection_wrapper::query)
+        .def("commit", &connection_wrapper::commit)
+        .def("close", &connection_wrapper::close)
+        .def(
+            "query",
+            &connection_wrapper::query,
+            py::arg("query_str"),
+            py::arg("format") = "CSV",
+            "Execute a query and return a query_result object");
+
     m.def(
         "query",
         &query,
@@ -193,5 +412,5 @@ PYBIND11_MODULE(_chdb, m)
         "Query chDB and return a query_result object");
 }
 
-#endif // PY_TEST_MAIN
+#    endif // PY_TEST_MAIN
 #endif // USE_PYTHON

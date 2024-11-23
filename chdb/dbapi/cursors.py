@@ -29,13 +29,11 @@ class Cursor(object):
 
     def __init__(self, connection):
         self.connection = connection
+        self._cursor = connection._conn.cursor()
         self.description = None
         self.rowcount = -1
-        self.rownumber = 0
         self.arraysize = 1
         self.lastrowid = None
-        self._result = None
-        self._rows = None
         self._executed = None
 
     def __enter__(self):
@@ -83,14 +81,7 @@ class Cursor(object):
         """
         Closing a cursor just exhausts all remaining data.
         """
-        conn = self.connection
-        if conn is None:
-            return
-        try:
-            while self.nextset():
-                pass
-        finally:
-            self.connection = None
+        self._cursor.close()
 
     def _get_db(self):
         if not self.connection:
@@ -121,33 +112,6 @@ class Cursor(object):
 
         return query
 
-    def _clear_result(self):
-        self.rownumber = 0
-        self._result = None
-
-        self.rowcount = 0
-        self.description = None
-        self.lastrowid = None
-        self._rows = None
-
-    def _do_get_result(self):
-        conn = self._get_db()
-
-        self._result = result = conn._result
-
-        self.rowcount = result.affected_rows
-        self.description = result.description
-        self.lastrowid = result.insert_id
-        self._rows = result.rows
-
-    def _query(self, q):
-        conn = self._get_db()
-        self._last_executed = q
-        self._clear_result()
-        conn.query(q)
-        self._do_get_result()
-        return self.rowcount
-
     def execute(self, query, args=None):
         """Execute a query
 
@@ -162,14 +126,24 @@ class Cursor(object):
         If args is a list or tuple, %s can be used as a placeholder in the query.
         If args is a dict, %(name)s can be used as a placeholder in the query.
         """
-        while self.nextset():
-            pass
+        if args is not None:
+            query = query % self._escape_args(args, self.connection)
 
-        query = self.mogrify(query, args)
+        self._cursor.execute(query)
 
-        result = self._query(query)
+        # Get description from Arrow schema
+        if self._cursor._current_table is not None:
+            self.description = [
+                (field.name, field.type.to_pandas_dtype(), None, None, None, None, None)
+                for field in self._cursor._current_table.schema
+            ]
+            self.rowcount = self._cursor._current_table.num_rows
+        else:
+            self.description = None
+            self.rowcount = -1
+
         self._executed = query
-        return result
+        return self.rowcount
 
     def executemany(self, query, args):
         # type: (str, list) -> int
@@ -233,34 +207,21 @@ class Cursor(object):
 
     def fetchone(self):
         """Fetch the next row"""
-        self._check_executed()
-        if self._rows is None or self.rownumber >= len(self._rows):
-            return None
-        result = self._rows[self.rownumber]
-        self.rownumber += 1
-        return result
+        if not self._executed:
+            raise err.ProgrammingError("execute() first")
+        return self._cursor.fetchone()
 
-    def fetchmany(self, size=None):
+    def fetchmany(self, size=1):
         """Fetch several rows"""
-        self._check_executed()
-        if self._rows is None:
-            return ()
-        end = self.rownumber + (size or self.arraysize)
-        result = self._rows[self.rownumber:end]
-        self.rownumber = min(end, len(self._rows))
-        return result
+        if not self._executed:
+            raise err.ProgrammingError("execute() first")
+        return self._cursor.fetchmany(size)
 
     def fetchall(self):
         """Fetch all the rows"""
-        self._check_executed()
-        if self._rows is None:
-            return ()
-        if self.rownumber:
-            result = self._rows[self.rownumber:]
-        else:
-            result = self._rows
-        self.rownumber = len(self._rows)
-        return result
+        if not self._executed:
+            raise err.ProgrammingError("execute() first")
+        return self._cursor.fetchall()
 
     def nextset(self):
         """Get the next query set"""
@@ -272,26 +233,3 @@ class Cursor(object):
 
     def setoutputsizes(self, *args):
         """Does nothing, required by DB API."""
-
-
-class DictCursor(Cursor):
-    """A cursor which returns results as a dictionary"""
-    # You can override this to use OrderedDict or other dict-like types.
-    dict_type = dict
-
-    def _do_get_result(self):
-        super()._do_get_result()
-        fields = []
-        if self.description:
-            for f in self.description:
-                name = f[0]
-                fields.append(name)
-            self._fields = fields
-
-        if fields and self._rows:
-            self._rows = [self._conv_row(r) for r in self._rows]
-
-    def _conv_row(self, row):
-        if row is None:
-            return None
-        return self.dict_type(zip(self._fields, row))
