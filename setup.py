@@ -167,64 +167,6 @@ class BuildExt(build_ext):
     """A custom build extension for adding compiler-specific options."""
 
     def build_extensions(self):
-        # Determine which compiler to use, if CC and CXX env exist, use them
-        if os.environ.get("CC") is not None and os.environ.get("CXX") is not None:
-            print("Using CC and CXX from env")
-            print("CC: " + os.environ.get("CC"))
-            print("CXX: " + os.environ.get("CXX"))
-        if sys.platform == "darwin":
-            try:
-                brew_prefix = (
-                    subprocess.check_output("brew --prefix", shell=True)
-                    .decode("utf-8")
-                    .strip("\n")
-                )
-            except Exception:
-                raise RuntimeError("Must install brew")
-            if (
-                os.system("which " + brew_prefix + "/opt/llvm/bin/clang++ > /dev/null")
-                == 0
-            ):
-                os.environ["CC"] = brew_prefix + "/opt/llvm/bin/clang"
-                os.environ["CXX"] = brew_prefix + "/opt/llvm/bin/clang++"
-            elif (
-                os.system(
-                    "which " + brew_prefix + "/opt/llvm@15/bin/clang++ > /dev/null"
-                )
-                == 0
-            ):
-                os.environ["CC"] = brew_prefix + "/opt/llvm@15/bin/clang"
-                os.environ["CXX"] = brew_prefix + "/opt/llvm@15/bin/clang++"
-            else:
-                raise RuntimeError("Must use brew clang++")
-        elif sys.platform == "linux":
-            pass
-            # os.environ['CC'] = 'clang-15'
-            # os.environ['CXX'] = 'clang++-15'
-        else:
-            raise RuntimeError("Unsupported platform")
-
-        # exec chdb/build.sh and print the output if it fails
-        # Run the build script and capture its output
-        # if macOS and arch is arm64, run with arch -arm64 /bin/bash
-        if sys.platform == "darwin" and os.uname().machine == "arm64":
-            completed_process = subprocess.run(
-                ["arch", "-arm64", "/bin/bash", "chdb/build.sh"],
-                capture_output=True,
-                text=True,
-            )
-        else:
-            completed_process = subprocess.run(
-                ["bash", "chdb/build.sh"], capture_output=True, text=True
-            )
-        # If it failed, print the output
-        print(completed_process.stdout)
-        print(completed_process.stderr)
-
-        # Check the return code to see if the script failed
-        if completed_process.returncode != 0:
-            raise RuntimeError("Build failed")
-
         # add the _chdb.cpython-37m-darwin.so or _chdb.cpython-39-x86_64-linux.so to the chdb package
         self.distribution.package_data["chdb"] = [
             "chdb/_chdb" + get_python_ext_suffix()
