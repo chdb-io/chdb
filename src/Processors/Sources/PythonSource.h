@@ -26,6 +26,7 @@ class PythonSource : public ISource
 public:
     PythonSource(
         py::object & data_source_,
+        bool isInheritsFromPyReader_,
         const Block & sample_block_,
         PyColumnVecPtr column_cache,
         size_t data_source_row_count,
@@ -42,6 +43,7 @@ public:
 
 private:
     py::object & data_source; // Do not own the reference
+    bool isInheritsFromPyReader; // If the data_source is a PyReader object
 
     Block sample_block;
     PyColumnVecPtr column_cache;
