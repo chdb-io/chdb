@@ -70,7 +70,8 @@ Pipe StoragePython::read(
 
     if (isInheritsFromPyReader(data_source))
     {
-        return Pipe(std::make_shared<PythonSource>(data_source, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
+        return Pipe(
+            std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
     }
 
     prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
@@ -79,7 +80,7 @@ Pipe StoragePython::read(
     // num_streams = 32; // for chdb testing
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams));
+            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams));
     return Pipe::unitePipes(std::move(pipes));
 }
 

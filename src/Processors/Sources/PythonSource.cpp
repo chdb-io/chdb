@@ -48,6 +48,7 @@ extern const int PY_EXCEPTION_OCCURED;
 
 PythonSource::PythonSource(
     py::object & data_source_,
+    bool isInheritsFromPyReader_,
     const Block & sample_block_,
     PyColumnVecPtr column_cache,
     size_t data_source_row_count,
@@ -56,6 +57,7 @@ PythonSource::PythonSource(
     size_t num_streams)
     : ISource(sample_block_.cloneEmpty())
     , data_source(data_source_)
+    , isInheritsFromPyReader(isInheritsFromPyReader_)
     , sample_block(sample_block_)
     , column_cache(column_cache)
     , data_source_row_count(data_source_row_count)
@@ -544,7 +546,7 @@ Chunk PythonSource::generate()
 
     try
     {
-        if (isInheritsFromPyReader(data_source))
+        if (isInheritsFromPyReader)
         {
             PyObjectVecPtr data;
             py::gil_scoped_acquire acquire;
