@@ -206,7 +206,7 @@ class TestCHDB(unittest.TestCase):
         self.assertIsNotNone(arrow_result)
 
     def test_cursor_statistics(self):
-        conn = connect(":memory:")
+        conn = connect(":memory:?verbose&log-level=test")
         cursor = conn.cursor()
         # Create and populate test table
         cursor.execute(
@@ -271,7 +271,7 @@ class TestCHDB(unittest.TestCase):
         conn2.close()
 
     def test_connection_properties(self):
-        # conn = connect("{db_path}?log_queries=1&verbose=1&log-level=test")
+        # conn = connect("{db_path}?log_queries=1&verbose&log-level=test")
         with self.assertRaises(Exception):
             conn = connect(f"{db_path}?not_exist_flag=1")
         with self.assertRaises(Exception):
@@ -285,6 +285,13 @@ class TestCHDB(unittest.TestCase):
         ret = conn.query("show tables in system", "CSV")
         self.assertGreater(len(ret), 10)
 
+        conn.close()
+
+    def test_create_func(self):
+        conn = connect(f"file:{db_path}")
+        ret = conn.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
+        ret = conn.query("SELECT chdb_xxx()", "CSV")
+        self.assertEqual(str(ret), '"0.12.0"\n')
         conn.close()
 
 
