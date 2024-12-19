@@ -111,10 +111,10 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
     if (query_pos != std::string::npos)
     {
         path = working_str.substr(0, query_pos);
-        std::string query = working_str.substr(query_pos + 1);
+        std::string params_str = working_str.substr(query_pos + 1);
 
         // Parse parameters
-        std::istringstream params_stream(query);
+        std::istringstream params_stream(params_str);
         std::string param;
         while (std::getline(params_stream, param, '&'))
         {
@@ -131,6 +131,21 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
                 params[param] = "";
             }
         }
+        // Handle udf_path
+        // add user_scripts_path and user_defined_executable_functions_config to params
+        // these two parameters need "--" as prefix
+        if (params.contains("udf_path"))
+        {
+            std::string udf_path = params["udf_path"];
+            if (!udf_path.empty())
+            {
+                params["--"] = "";
+                params["user_scripts_path"] = udf_path;
+                params["user_defined_executable_functions_config"] = udf_path + "/*.xml";
+            }
+            // remove udf_path from params
+            params.erase("udf_path");
+        }
     }
     else
     {
@@ -138,7 +153,7 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
     }
 
     // Convert relative paths to absolute
-    if (!path.empty() && path[0] != '/')
+    if (!path.empty() && path[0] != '/' && path != ":memory:")
     {
         std::error_code ec;
         path = std::filesystem::absolute(path, ec).string();
@@ -171,6 +186,11 @@ connection_wrapper::build_clickhouse_args(const std::string & path, const std::m
                 is_readonly = true;
                 argv.push_back("--readonly=1");
             }
+        }
+        else if (key == "--")
+        {
+            // Handle special parameters "--"
+            argv.push_back("--");
         }
         else if (value.empty())
         {
