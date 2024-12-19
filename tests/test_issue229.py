@@ -6,17 +6,15 @@ thread_count = 5
 insert_count = 15
 return_results = [None] * thread_count
 
-def perform_operations(index):
-    sess = session.Session()
-    print(f"Performing operations in session {index}, path = {sess._path}")
+sess = None
 
-    # Create a local database
-    sess.query("CREATE DATABASE local", "Debug")
+
+def insert_data():
+    print(f"Performing operations, path = {sess._path}")
 
     # Create a table within the local database
     sess.query(
         """
-    USE local; 
     CREATE TABLE IF NOT EXISTS knowledge_base_portal_interface_event
     (
         timestamp DateTime64,
@@ -37,12 +35,15 @@ def perform_operations(index):
         sess.query(
             f"""
         INSERT INTO knowledge_base_portal_interface_event
-            FORMAT JSONEachRow [{{"company_id": {i+index}, "locale": "en", "timestamp": 1717780952772, "event_type": "article_update", "article_id": 7}},{{"company_id": {
-                i + index + 100
+            FORMAT JSONEachRow [{{"company_id": {i}, "locale": "en", "timestamp": 1717780952772, "event_type": "article_update", "article_id": 7}},{{"company_id": {
+                i + 100
                 }, "locale": "en", "timestamp": 1717780952772, "event_type": "article_update", "article_id": 7}}]"""
         )
 
-    print(f"Inserted {insert_count} entries into the table in session {index}")
+    print(f"Inserted {insert_count} entries into the table in session {sess._path}")
+
+
+def perform_operations(index):
 
     # Retrieve all entries from the table
     results = sess.query(
@@ -51,11 +52,17 @@ def perform_operations(index):
     print("Session Query Result:", results)
     return_results[index] = str(results)
 
-    # Cleanup session
-    sess.cleanup()
-
 
 class TestIssue229(unittest.TestCase):
+
+    def setUp(self):
+        global sess
+        sess = session.Session()
+        insert_data()
+
+    def tearDown(self):
+        sess.cleanup()
+
     def test_issue229(self):
         # Create multiple threads to perform operations
         threads = []

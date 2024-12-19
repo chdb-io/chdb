@@ -1,41 +1,102 @@
 import tempfile
 import shutil
+import warnings
 
-from chdb import query
+import chdb
+from ..state import sqlitelike as chdb_stateful
 
+
+g_session = None
+g_session_path = None
 
 class Session:
     """
-    Session will keep the state of query. All DDL and DML state will be kept in a dir.
-    Dir path could be passed in as an argument. If not, a temporary dir will be created.
+    Session will keep the state of query.
+    If path is None, it will create a temporary directory and use it as the database path
+    and the temporary directory will be removed when the session is closed.
+    You can also pass in a path to create a database at that path where will keep your data.
 
-    If path is not specified, the temporary dir will be deleted when the Session object is deleted.
-    Otherwise path will be kept.
+    You can also use a connection string to pass in the path and other parameters.
+    Examples:
+        - ":memory:" (for in-memory database)
+        - "test.db" (for relative path)
+        - "file:test.db" (same as above)
+        - "/path/to/test.db" (for absolute path)
+        - "file:/path/to/test.db" (same as above)
+        - "file:test.db?param1=value1&param2=value2" (for relative path with query params)
+        - "file::memory:?verbose&log-level=test" (for in-memory database with query params)
+        - "///path/to/test.db?param1=value1&param2=value2" (for absolute path)
 
-    Note: The default database is "_local" and the default engine is "Memory" which means all data
-    will be stored in memory. If you want to store data in disk, you should create another database.
+    Connection string args handling:
+        Connection string can contain query params like "file:test.db?param1=value1&param2=value2"
+        "param1=value1" will be passed to ClickHouse engine as start up args.
+
+        For more details, see `clickhouse local --help --verbose`
+        Some special args handling:
+        - "mode=ro" would be "--readonly=1" for clickhouse (read-only mode)
+
+    Important:
+        - There can be only one session at a time. If you want to create a new session, you need to close the existing one.
+        - Creating a new session will close the existing one.
     """
 
     def __init__(self, path=None):
+        global g_session, g_session_path
+        if g_session is not None:
+            warnings.warn(
+                """There is already an active session. Creating a new session will close the existing one.
+It is recommended to close the existing session before creating a new one."""
+            )
+            g_session.close()
         if path is None:
             self._cleanup = True
             self._path = tempfile.mkdtemp()
         else:
             self._cleanup = False
             self._path = path
+        if chdb.g_udf_path != "":
+            self._udf_path = chdb.g_udf_path
+            # add udf_path to conn_str here.
+            # - the `user_scripts_path` will be the value of `udf_path`
+            # - the `user_defined_executable_functions_config` will be `user_scripts_path/*.xml`
+            # Both of them will be added to the conn_str in the Connection class
+            if "?" in self._path:
+                self._conn_str = f"{self._path}&udf_path={self._udf_path}"
+            else:
+                self._conn_str = f"{self._path}?udf_path={self._udf_path}"
+        else:
+            self._udf_path = ""
+            self._conn_str = f"{self._path}"
+        self._conn = chdb_stateful.Connection(self._conn_str)
+        g_session = self
+        g_session_path = self._path
 
     def __del__(self):
         if self._cleanup:
             self.cleanup()
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        self.cleanup()
+        if self._cleanup:
+            self.cleanup()
+
+    def close(self):
+        if self._cleanup:
+            self.cleanup()
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
 
     def cleanup(self):
         try:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
             shutil.rmtree(self._path)
         except:  # noqa
             pass
@@ -44,7 +105,14 @@ class Session:
         """
         Execute a query.
         """
-        return query(sql, fmt, path=self._path, udf_path=udf_path)
+        if fmt == "Debug":
+            warnings.warn(
+                """Debug format is not supported in Session.query
+Please try use parameters in connection string instead:
+Eg: conn = connect(f"db_path?verbose&log-level=test")"""
+            )
+            fmt = "CSV"
+        return self._conn.query(sql, fmt)
 
     # alias sql = query
     sql = query

@@ -109,13 +109,14 @@ def connect(connection_string: str = ":memory:") -> Connection:
 
     Args:
         connection_string (str, optional): Connection string. Defaults to ":memory:".
-        Aslo support file path like:
+        Also support file path like:
           - ":memory:" (for in-memory database)
           - "test.db" (for relative path)
           - "file:test.db" (same as above)
           - "/path/to/test.db" (for absolute path)
           - "file:/path/to/test.db" (same as above)
           - "file:test.db?param1=value1&param2=value2" (for relative path with query params)
+          - "file::memory:?verbose&log-level=test" (for in-memory database with query params)
           - "///path/to/test.db?param1=value1&param2=value2" (for absolute path)
 
         Connection string args handling:

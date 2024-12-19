@@ -12,6 +12,7 @@
 *.logrt
 
 /python_pkg/
+minitest/
 /tmps
 /bak
 *state_tmp_*

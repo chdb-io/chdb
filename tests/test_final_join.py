@@ -18,9 +18,8 @@ class TestStateful(unittest.TestCase):
         print("Number of threads using psutil library: ", thread_count)
         if check_thread_count:
             self.assertEqual(thread_count, 1)
-
+        sess2.cleanup()
 
 if __name__ == "__main__":
     check_thread_count = True
     unittest.main()
-

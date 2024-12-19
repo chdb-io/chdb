@@ -471,7 +471,7 @@ int LocalServer::main(const std::vector<std::string> & /*args*/)
 try
 {
     UseSSL use_ssl;
-    thread_status.emplace();
+    thread_status.emplace(false);
 
     StackTrace::setShowAddresses(server_settings.show_addresses_in_stack_traces);
 
@@ -1311,8 +1311,12 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
         }
         throw DB::Exception(
             DB::ErrorCodes::BAD_ARGUMENTS,
-            "Another connection is already active with different path. Close the existing connection first.");
+            "Another connection is already active with different path. Old path = {}, new path = {}, "
+            "please close the existing connection first.",
+            global_db_path,
+            path);
     }
+
 
     // Create new connection
     DB::LocalServer * server = bgClickHouseLocal(argc, argv);
@@ -1363,6 +1367,13 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
     try
     {
         DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
+
+        // Init ClickHouse thread status to avoid "Logical error: 'Thread #3302630 status was not initialized'"
+        // This happens when we run a query in a new thread without initializing the thread status
+        if (DB::current_thread == nullptr)
+        {
+            DB::current_thread = new DB::ThreadStatus(false);
+        }
 
         // Execute query
         if (!server->parseQueryTextWithOutputFormat(query, format))

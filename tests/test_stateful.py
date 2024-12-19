@@ -25,7 +25,7 @@ class TestStateful(unittest.TestCase):
     def test_path(self):
         sess = session.Session(test_state_dir)
         sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
-        ret = sess.query("SELECT chdb_xxx()", "Debug")
+        ret = sess.query("SELECT chdb_xxx()", "CSV")
         self.assertEqual(str(ret), '"0.12.0"\n')
 
         sess.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic", "CSV")
@@ -43,7 +43,7 @@ class TestStateful(unittest.TestCase):
         ret = sess.query("SELECT * FROM db_xxx.view_xxx", "CSV")
         self.assertEqual(str(ret), "1\n2\n")
 
-        del sess  # name sess dir will not be deleted
+        sess.close()
 
         sess = session.Session(test_state_dir)
         ret = sess.query("SELECT chdb_xxx()", "CSV")
@@ -55,6 +55,7 @@ class TestStateful(unittest.TestCase):
         ret = sess.query("SELECT * FROM db_xxx.log_table_xxx", "CSV")
         self.assertEqual(str(ret), "1\n2\n3\n4\n")
         ret.show()
+        sess.close()
 
         # reuse session
         sess2 = session.Session(test_state_dir)
@@ -80,78 +81,26 @@ class TestStateful(unittest.TestCase):
         sess.query("Optimize TABLE db_xxx_merge.log_table_xxx;")
         ret = sess.query("SELECT count(*) FROM db_xxx_merge.log_table_xxx;")
         self.assertEqual(str(ret), "1000000\n")
+        sess.cleanup()
 
     def test_tmp(self):
         sess = session.Session()
         sess.query("CREATE FUNCTION chdb_xxx AS () -> '0.12.0'", "CSV")
         ret = sess.query("SELECT chdb_xxx()", "CSV")
         self.assertEqual(str(ret), '"0.12.0"\n')
-        del sess
-
-        # another session
-        sess2 = session.Session()
-        with self.assertRaises(Exception):
-            ret = sess2.query("SELECT chdb_xxx()", "CSV")
+        sess.cleanup()
 
     def test_two_sessions(self):
         sess1 = session.Session()
-        sess2 = session.Session()
-        sess1.query("CREATE FUNCTION chdb_xxx AS () -> 'sess1'", "CSV")
-        sess2.query("CREATE FUNCTION chdb_xxx AS () -> 'sess2'", "CSV")
-        sess1.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic", "CSV")
-        sess2.query("CREATE DATABASE IF NOT EXISTS db_xxx ENGINE = Atomic", "CSV")
-        sess1.query("CREATE TABLE IF NOT EXISTS db_xxx.tbl1 (x UInt8) ENGINE = Log;")
-        sess2.query("CREATE TABLE IF NOT EXISTS db_xxx.tbl2 (x UInt8) ENGINE = Log;")
-        sess1.query("INSERT INTO db_xxx.tbl1 VALUES (1), (2), (3), (4);")
-        sess2.query("INSERT INTO db_xxx.tbl2 VALUES (5), (6), (7), (8);")
-        ret = sess1.query("SELECT chdb_xxx()", "CSV")
-        self.assertEqual(str(ret), '"sess1"\n')
-        ret = sess2.query("SELECT chdb_xxx()", "CSV")
-        self.assertEqual(str(ret), '"sess2"\n')
-        ret = sess1.query("SELECT * FROM db_xxx.tbl1", "CSV")
-        self.assertEqual(str(ret), "1\n2\n3\n4\n")
-        ret = sess2.query("SELECT * FROM db_xxx.tbl2", "CSV")
-        self.assertEqual(str(ret), "5\n6\n7\n8\n")
-        sess1.query(
-            """
-            SET input_format_csv_use_best_effort_in_schema_inference = 0;
-            SET input_format_csv_skip_first_lines = 1;"""
-        )
-        # query level settings should not affect session level settings
-        ret = sess1.query(
-            "SELECT 123 SETTINGS input_format_csv_use_best_effort_in_schema_inference = 1;"
-        )
-        # check sess1 settings
-        ret = sess1.query("""SELECT value, changed FROM system.settings
-            WHERE name = 'input_format_csv_use_best_effort_in_schema_inference';""")
-        self.assertEqual(str(ret), '"0",1\n')
-        ret = sess1.query("""SELECT value, changed FROM system.settings
-            WHERE name = 'input_format_csv_skip_first_lines';""")
-        self.assertEqual(str(ret), '"1",1\n')
-
-        # sess2 should not be affected
-        ret = sess2.query("""SELECT value, changed FROM system.settings
-            WHERE name = 'input_format_csv_use_best_effort_in_schema_inference';""")
-        self.assertEqual(str(ret), '"1",0\n')
-        ret = sess2.query("""SELECT value, changed FROM system.settings
-            WHERE name = 'input_format_csv_skip_first_lines';""")
-        self.assertEqual(str(ret), '"0",0\n')
-
-        # stateless query should not be affected
-        ret = chdb.query(
-            """SELECT value, changed FROM system.settings
-            WHERE name = 'input_format_csv_use_best_effort_in_schema_inference';"""
-        )
-        self.assertEqual(str(ret), '"1",0\n')
-        ret = chdb.query(
-            """SELECT value, changed FROM system.settings
-            WHERE name = 'input_format_csv_skip_first_lines';"""
-        )
-        self.assertEqual(str(ret), '"0",0\n')
+        try:
+            sess2 = session.Session()
+        except Exception as e:
+            self.assertIn("already active", str(e))
+        sess1.cleanup()
 
     def test_context_mgr(self):
         with session.Session() as sess:
-            sess.query("CREATE FUNCTION chdb_xxx_mgr AS () -> '0.12.0_mgr'", "Debug")
+            sess.query("CREATE FUNCTION chdb_xxx_mgr AS () -> '0.12.0_mgr'", "CSV")
             ret = sess.query("SELECT chdb_xxx_mgr()", "CSV")
             self.assertEqual(str(ret), '"0.12.0_mgr"\n')
 

@@ -221,7 +221,6 @@ class myReader(chdb.PyReader):
 
 reader = myReader(df_old)
 
-sess = chs.Session()
 # sess.query("set aggregation_memory_efficient_merge_threads=2;")
 
 sql = sql.replace("STRLEN", "length")
@@ -241,6 +240,7 @@ def bench_chdb(i):
     )
     return ret
 
+sess = chs.Session()
 
 # run 5 times, remove the fastest and slowest, then calculate the average
 times = []
@@ -253,6 +253,7 @@ times.remove(max(times))
 times.remove(min(times))
 print("Run with new chDB on dataframe. Time cost:", sum(times) / len(times), "s")
 
+sess.cleanup()
 # t = time.time()
 # df_arr_reader = myReader(df)
 # ret = chdb.query(
