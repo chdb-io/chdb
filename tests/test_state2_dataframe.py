@@ -55,6 +55,7 @@ class TestChDBDataFrame(unittest.TestCase):
         for i, query in enumerate(self.queries, 1):
             times = []
             for _ in range(3):
+                hits = self.hits
                 start = timeit.default_timer()
                 result = self.conn.query(query, "CSV")
                 end = timeit.default_timer()
