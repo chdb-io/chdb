@@ -278,7 +278,13 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    return new query_result(query_conn(*conn, query_str.c_str(), format.c_str()), true);
+    py::gil_scoped_release release;
+    auto * result = query_conn(*conn, query_str.c_str(), format.c_str());
+    if (result->error_message)
+    {
+        throw std::runtime_error(result->error_message);
+    }
+    return new query_result(result, true);
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
@@ -286,6 +292,7 @@ void cursor_wrapper::execute(const std::string & query_str)
     release_result();
 
     // Always use Arrow format internally
+    py::gil_scoped_release release;
     current_result = query_conn(conn->get_conn(), query_str.c_str(), "ArrowStream");
 }
 
