@@ -29,7 +29,9 @@ if sys.version_info[:2] >= (3, 7):
     from . import _chdb  # noqa
 
     os.chdir(cwd)
-    engine_version = str(_chdb.query("SELECT version();", "CSV").bytes())[3:-4]
+    conn = _chdb.connect()
+    engine_version = str(conn.query("SELECT version();", "CSV").bytes())[3:-4]
+    conn.close()
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
 
@@ -69,13 +71,34 @@ def query(sql, output_format="CSV", path="", udf_path=""):
     global g_udf_path
     if udf_path != "":
         g_udf_path = udf_path
+    conn_str = ""
+    if path == "":
+        conn_str = f":memory:"
+    else:
+        conn_str = f"{path}"
+    if g_udf_path != "":
+        if "?" in conn_str:
+            conn_str = f"{conn_str}&udf_path={g_udf_path}"
+        else:
+            conn_str = f"{conn_str}?udf_path={g_udf_path}"
+    if output_format == "Debug":
+        output_format = "CSV"
+        if "?" in conn_str:
+            conn_str = f"{conn_str}&verbose&log-level=test"
+        else:
+            conn_str = f"{conn_str}?verbose&log-level=test"
+
     lower_output_format = output_format.lower()
     result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
     if lower_output_format in _arrow_format:
         output_format = "Arrow"
-    res = _chdb.query(sql, output_format, path=path, udf_path=g_udf_path)
+
+    conn = _chdb.connect(conn_str)
+    res = conn.query(sql, output_format)
     if res.has_error():
+        conn.close()
         raise ChdbError(res.error_message())
+    conn.close()
     return result_func(res)
 
 
