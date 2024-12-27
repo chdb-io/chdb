@@ -72,6 +72,7 @@ class TestCHDB(unittest.TestCase):
         # Test iteration
         cursor.execute("SELECT * FROM users ORDER BY id")
         rows = [row for row in cursor]
+        print(rows)
         self.assertEqual(len(rows), 3)
         self.assertEqual(rows[2][1], "Charlie")
         cursor.close()
@@ -296,4 +297,4 @@ class TestCHDB(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
+    unittest.main(verbosity=2)
