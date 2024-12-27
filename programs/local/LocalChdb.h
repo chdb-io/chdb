@@ -20,7 +20,6 @@
 
 namespace py = pybind11;
 
-
 class __attribute__((visibility("default"))) local_result_wrapper;
 class __attribute__((visibility("default"))) connection_wrapper;
 class __attribute__((visibility("default"))) cursor_wrapper;

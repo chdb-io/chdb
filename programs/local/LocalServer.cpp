@@ -1289,9 +1289,8 @@ void free_result_v2(local_result_v2 * result)
 
 chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
+    std::lock_guard<std::mutex> glock(global_connection_mutex);
 
-    // Check if we already have a connection with this path
     std::string path = ":memory:"; // Default path
     for (int i = 1; i < argc; i++)
     {
@@ -1305,10 +1304,8 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     if (global_conn_ptr != nullptr)
     {
         if (path == global_db_path)
-        {
-            // Return existing connection
             return &global_conn_ptr;
-        }
+
         throw DB::Exception(
             DB::ErrorCodes::BAD_ARGUMENTS,
             "Another connection is already active with different path. Old path = {}, new path = {}, "
@@ -1317,32 +1314,165 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
             path);
     }
 
-
-    // Create new connection
-    DB::LocalServer * server = bgClickHouseLocal(argc, argv);
     auto * conn = new chdb_conn();
-    conn->server = server;
-    conn->connected = true;
+    auto * q_queue = new query_queue();
+    conn->queue = q_queue;
 
-    // Store globally
-    global_conn_ptr = conn;
-    global_db_path = path;
+    std::mutex init_mutex;
+    std::condition_variable init_cv;
+    bool init_done = false;
+    bool init_success = false;
+    std::exception_ptr init_exception;
+
+    // Start query processing thread
+    std::thread(
+        [&]()
+        {
+            try
+            {
+                DB::LocalServer * server = bgClickHouseLocal(argc, argv);
+                conn->server = server;
+                conn->connected = true;
+
+                // Store globally
+                global_conn_ptr = conn;
+                global_db_path = path;
+
+                // Signal successful initialization
+                {
+                    std::lock_guard<std::mutex> init_lock(init_mutex);
+                    init_success = true;
+                    init_done = true;
+                }
+                init_cv.notify_one();
+
+                auto * queue = static_cast<query_queue *>(conn->queue);
+                while (true)
+                {
+                    auto result = std::make_unique<local_result_v2>();
+                    try
+                    {
+                        query_request req;
+                        {
+                            std::unique_lock<std::mutex> lock(queue->mutex);
+                            queue->cv.wait(lock, [queue]() { return !queue->queries.empty() || queue->shutdown; });
+
+                            if (queue->shutdown && queue->queries.empty())
+                            {
+                                server->cleanup();
+                                delete server;
+                                queue->cleanup_done = true;
+                                queue->cv.notify_all();
+                                break;
+                            }
+
+                            req = queue->queries.front();
+                            queue->queries.pop();
+                        }
+
+                        if (!server->parseQueryTextWithOutputFormat(req.query, req.format))
+                        {
+                            std::string error = server->getErrorMsg();
+                            result->error_message = new char[error.length() + 1];
+                            std::strcpy(result->error_message, error.c_str());
+                        }
+                        else
+                        {
+                            auto output_span = server->getQueryOutputSpan();
+                            if (!output_span.empty())
+                            {
+                                result->buf = output_span.data();
+                                result->len = output_span.size();
+                            }
+                            result->rows_read = server->getProcessedRows();
+                            result->bytes_read = server->getProcessedBytes();
+                            result->elapsed = server->getElapsedTime();
+                        }
+                    }
+                    catch (const DB::Exception & e)
+                    {
+                        std::string error = DB::getExceptionMessage(e, false);
+                        result->error_message = new char[error.length() + 1];
+                        std::strcpy(result->error_message, error.c_str());
+                    }
+                    catch (...)
+                    {
+                        const char * unknown_error = "Unknown error occurred";
+                        result->error_message = new char[strlen(unknown_error) + 1];
+                        std::strcpy(result->error_message, unknown_error);
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(queue->mutex);
+                        queue->results.push(result.release());
+                    }
+                    queue->cv.notify_one();
+                }
+            }
+            catch (...)
+            {
+                // Signal initialization failure
+                {
+                    std::lock_guard<std::mutex> init_lock(init_mutex);
+                    init_exception = std::current_exception();
+                    init_done = true;
+                }
+                init_cv.notify_one();
+            }
+        })
+        .detach();
+
+    // Wait for initialization to complete
+    {
+        std::unique_lock<std::mutex> init_lock(init_mutex);
+        init_cv.wait(init_lock, [&init_done] { return init_done; });
+        // If initialization failed, clean up and rethrow the exception
+        if (!init_success)
+        {
+            delete q_queue;
+            delete conn;
+            if (init_exception)
+                std::rethrow_exception(init_exception);
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Failed to create connection");
+        }
+    }
 
     return &global_conn_ptr;
 }
 
 void close_conn(chdb_conn ** conn)
 {
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
-
     if (!conn || !*conn)
         return;
 
+    std::lock_guard<std::mutex> lock(global_connection_mutex);
+
     if ((*conn)->connected)
     {
-        DB::LocalServer * server = static_cast<DB::LocalServer *>((*conn)->server);
-        server->cleanup();
-        delete server;
+        if ((*conn)->queue)
+        {
+            auto * queue = static_cast<query_queue *>((*conn)->queue);
+
+            {
+                std::unique_lock<std::mutex> queue_lock(queue->mutex);
+                queue->shutdown = true;
+                queue->cv.notify_all();
+
+                // Wait for server cleanup
+                queue->cv.wait(queue_lock, [queue] { return queue->cleanup_done; });
+
+                // Clean up remaining results
+                while (!queue->results.empty())
+                {
+                    auto * result = queue->results.front();
+                    queue->results.pop();
+                    free_result_v2(result);
+                }
+            }
+
+            delete queue;
+            (*conn)->queue = nullptr;
+        }
 
         if (*conn == global_conn_ptr)
         {
@@ -1357,62 +1487,38 @@ void close_conn(chdb_conn ** conn)
 
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
 {
-    auto * result = new local_result_v2{ nullptr, 0, nullptr, 0, 0, 0, nullptr };
+    if (!conn || !conn->connected || !conn->queue)
+        return new local_result_v2{nullptr, 0, nullptr, 0, 0, 0, nullptr};
 
-    if (!conn || !conn->connected)
-        return result;
+    auto * queue = static_cast<query_queue *>(conn->queue);
 
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
-
-    try
     {
-        DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
-
-        // Init ClickHouse thread status to avoid "Logical error: 'Thread #3302630 status was not initialized'"
-        // This happens when we run a query in a new thread without initializing the thread status
-        if (DB::current_thread == nullptr)
-        {
-            DB::current_thread = new DB::ThreadStatus(false);
-        }
-
-        // Execute query
-        if (!server->parseQueryTextWithOutputFormat(query, format))
-        {
-            std::string error = server->getErrorMsg();
-            result->error_message = new char[error.length() + 1];
-            std::strcpy(result->error_message, error.c_str());
-            return result;
-        }
-
-        // Get query results without copying
-        auto output_span = server->getQueryOutputSpan();
-        if (!output_span.empty())
-        {
-            result->_vec = nullptr;
-            result->buf = output_span.data();
-            result->len = output_span.size();
-        }
-
-        result->rows_read = server->getProcessedRows();
-        result->bytes_read = server->getProcessedBytes();
-        result->elapsed = server->getElapsedTime();
-
-        return result;
+        std::lock_guard<std::mutex> lock(queue->mutex);
+        queue->queries.push({query, format});
     }
-    catch (const DB::Exception & e)
+    queue->cv.notify_one();
+
+    local_result_v2 * result = nullptr;
     {
-        std::string error = DB::getExceptionMessage(e, false);
-        result->error_message = new char[error.length() + 1];
-        std::strcpy(result->error_message, error.c_str());
-        return result;
+        std::unique_lock<std::mutex> lock(queue->mutex);
+        queue->cv.wait(lock, [queue]() { return !queue->results.empty() || queue->shutdown; });
+
+        if (!queue->shutdown && !queue->results.empty())
+        {
+            result = queue->results.front();
+            queue->results.pop();
+        }
     }
-    catch (...)
+
+    if (result == nullptr)
     {
-        std::string error = DB::getCurrentExceptionMessage(true);
-        result->error_message = new char[error.length() + 1];
-        std::strcpy(result->error_message, error.c_str());
-        return result;
+        result = new local_result_v2{};
+        const char * error = "Error occurred while processing query";
+        result->error_message = new char[strlen(error) + 1];
+        std::strcpy(result->error_message, error);
     }
+
+    return result;
 }
 
 /**
