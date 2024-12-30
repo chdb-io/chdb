@@ -12,6 +12,8 @@
 namespace DB
 {
 
+py::object findQueryableObj(const std::string & var_name);
+
 class TableFunctionPython : public ITableFunction
 {
 public:
