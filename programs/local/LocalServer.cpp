@@ -1330,13 +1330,13 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     std::thread(
         [&]()
         {
+            auto * queue = static_cast<query_queue *>(conn->queue);
             try
             {
                 DB::LocalServer * server = bgClickHouseLocal(argc, argv);
                 conn->server = server;
                 conn->connected = true;
 
-                // Store globally
                 global_conn_ptr = conn;
                 global_db_path = path;
 
@@ -1348,7 +1348,6 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                 }
                 init_cv.notify_one();
 
-                auto * queue = static_cast<query_queue *>(conn->queue);
                 while (true)
                 {
                     query_request req;
@@ -1358,8 +1357,16 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                         if (queue->shutdown)
                         {
-                            server->cleanup();
-                            delete server;
+                            try
+                            {
+                                server->cleanup();
+                                delete server;
+                            }
+                            catch (...)
+                            {
+                                // Log error but continue shutdown
+                                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Error during server cleanup");
+                            }
                             queue->cleanup_done = true;
                             queue->query_cv.notify_all();
                             break;
@@ -1368,7 +1375,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                         req = queue->current_query;
                     }
 
-                    auto result = std::make_unique<local_result_v2>();
+                    local_result_v2 * result = new local_result_v2();
                     try
                     {
                         if (!server->parseQueryTextWithOutputFormat(req.query, req.format))
@@ -1406,21 +1413,45 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                     {
                         std::lock_guard<std::mutex> lock(queue->mutex);
-                        queue->current_result = result.release();
+                        queue->current_result = result;
                         queue->has_query = false;
                     }
                     queue->result_cv.notify_one();
                 }
             }
-            catch (...)
+            catch (const DB::Exception & e)
             {
-                // Signal initialization failure
+                // Log the error
+                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Query thread terminated with error: {}", e.what());
+
+                // Signal thread termination
                 {
                     std::lock_guard<std::mutex> init_lock(init_mutex);
                     init_exception = std::current_exception();
                     init_done = true;
+                    std::lock_guard<std::mutex> lock(queue->mutex);
+                    queue->shutdown = true;
+                    queue->cleanup_done = true;
                 }
                 init_cv.notify_one();
+                queue->query_cv.notify_all();
+                queue->result_cv.notify_all();
+            }
+            catch (...)
+            {
+                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Query thread terminated with unknown error");
+
+                {
+                    std::lock_guard<std::mutex> init_lock(init_mutex);
+                    init_exception = std::current_exception();
+                    init_done = true;
+                    std::lock_guard<std::mutex> lock(queue->mutex);
+                    queue->shutdown = true;
+                    queue->cleanup_done = true;
+                }
+                init_cv.notify_one();
+                queue->query_cv.notify_all();
+                queue->result_cv.notify_all();
             }
         })
         .detach();
@@ -1473,18 +1504,17 @@ void close_conn(chdb_conn ** conn)
                 }
             }
 
-            // Mark as disconnected before deleting queue
-            (*conn)->connected = false;
-
             delete queue;
             (*conn)->queue = nullptr;
         }
 
-        if (*conn == global_conn_ptr)
-        {
-            global_conn_ptr = nullptr;
-            global_db_path.clear();
-        }
+        // Mark as disconnected BEFORE deleting queue and nulling global pointer
+        (*conn)->connected = false;
+    }
+    // Clear global pointer under lock before queue deletion
+    if (*conn != global_conn_ptr)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection mismatch during close_conn");
     }
 
     delete *conn;
