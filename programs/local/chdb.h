@@ -65,11 +65,13 @@ struct query_request
 struct query_queue
 {
     std::mutex mutex;
-    std::condition_variable cv; // Single condition variable for all synchronization
-    std::queue<query_request> queries;
-    std::queue<local_result_v2 *> results;
+    std::condition_variable query_cv; // For query submission
+    std::condition_variable result_cv;
+    query_request current_query;
+    local_result_v2 * current_result = nullptr;
+    bool has_query = false;
     bool shutdown = false;
-    bool cleanup_done = false; // Flag to indicate server cleanup is complete
+    bool cleanup_done = false;
 };
 #endif
 

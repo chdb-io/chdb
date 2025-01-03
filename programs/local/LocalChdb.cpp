@@ -1,5 +1,6 @@
 #include "LocalChdb.h"
 #include <mutex>
+#include "Common/logger_useful.h"
 #include "chdb.h"
 #include "pybind11/gil.h"
 #include "pybind11/pytypes.h"
@@ -337,6 +338,10 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
     py::gil_scoped_release release;
     auto * result = query_conn(*conn, query_str.c_str(), format.c_str());
+    if (result->len == 0)
+    {
+        LOG_WARNING(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+    }
     if (result->error_message)
     {
         throw std::runtime_error(result->error_message);
