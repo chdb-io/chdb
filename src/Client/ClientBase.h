@@ -16,6 +16,7 @@
 #include <Common/QueryFuzzer.h>
 #include <Common/ShellCommand.h>
 #include <Common/Stopwatch.h>
+#include "IO/WriteBufferFromVector.h"
 
 #include <Storages/MergeTree/MergeTreeSettings.h>
 #include <Storages/SelectQueryInfo.h>
@@ -24,6 +25,7 @@
 #include <boost/program_options.hpp>
 
 #include <atomic>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -105,12 +107,14 @@ public:
         return query_result_memory;
     }
 
-    std::span<char> getQueryOutputSpan()
+    /// Steals and returns the query output vector, replacing it with a new one
+    std::vector<char> * stealQueryOutputVector()
     {
-        if (!query_result_memory || !query_result_buf)
-            return {};
-        auto size = query_result_buf->count();
-        return std::span<char>(query_result_memory->begin(), size);
+        auto * result = query_result_memory;
+        query_result_memory = new std::vector<char>(4096);
+        // WriteBufferFromVector takes a reference to the vector but doesn't own it
+        query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory);
+        return result;
     }
 
     size_t getProcessedRows() const { return processed_rows; }
