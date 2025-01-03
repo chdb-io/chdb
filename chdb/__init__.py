@@ -1,6 +1,6 @@
 import sys
 import os
-
+import threading
 
 class ChdbError(Exception):
     """Base class for exceptions in this module."""
@@ -65,6 +65,8 @@ def to_df(r):
     t = to_arrowTable(r)
     return t.to_pandas(use_threads=True)
 
+# global connection lock, for multi-threading use of legacy chdb.query()
+g_conn_lock = threading.Lock()
 
 # wrap _chdb functions
 def query(sql, output_format="CSV", path="", udf_path=""):
@@ -93,12 +95,13 @@ def query(sql, output_format="CSV", path="", udf_path=""):
     if lower_output_format in _arrow_format:
         output_format = "Arrow"
 
-    conn = _chdb.connect(conn_str)
-    res = conn.query(sql, output_format)
-    if res.has_error():
+    with g_conn_lock:
+        conn = _chdb.connect(conn_str)
+        res = conn.query(sql, output_format)
+        if res.has_error():
+            conn.close()
+            raise ChdbError(res.error_message())
         conn.close()
-        raise ChdbError(res.error_message())
-    conn.close()
     return result_func(res)
 
 
