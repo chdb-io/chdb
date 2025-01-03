@@ -2,6 +2,7 @@
 #include "chdb.h"
 
 #include <sys/resource.h>
+#include "Common/Logger.h"
 #include <Common/Config/getLocalConfigPath.h>
 #include <Common/logger_useful.h>
 #include <Common/formatReadable.h>
@@ -56,6 +57,7 @@
 #include <boost/program_options/options_description.hpp>
 #include <base/argsToConfig.h>
 #include <filesystem>
+#include <math.h>
 
 #include "config.h"
 
@@ -1289,7 +1291,7 @@ void free_result_v2(local_result_v2 * result)
 
 chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    std::lock_guard<std::mutex> glock(global_connection_mutex);
+    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
 
     std::string path = ":memory:"; // Default path
     for (int i = 1; i < argc; i++)
@@ -1349,27 +1351,26 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                 auto * queue = static_cast<query_queue *>(conn->queue);
                 while (true)
                 {
+                    query_request req;
+                    {
+                        std::unique_lock<std::mutex> lock(queue->mutex);
+                        queue->query_cv.wait(lock, [queue]() { return queue->has_query || queue->shutdown; });
+
+                        if (queue->shutdown)
+                        {
+                            server->cleanup();
+                            delete server;
+                            queue->cleanup_done = true;
+                            queue->query_cv.notify_all();
+                            break;
+                        }
+
+                        req = queue->current_query;
+                    }
+
                     auto result = std::make_unique<local_result_v2>();
                     try
                     {
-                        query_request req;
-                        {
-                            std::unique_lock<std::mutex> lock(queue->mutex);
-                            queue->cv.wait(lock, [queue]() { return !queue->queries.empty() || queue->shutdown; });
-
-                            if (queue->shutdown && queue->queries.empty())
-                            {
-                                server->cleanup();
-                                delete server;
-                                queue->cleanup_done = true;
-                                queue->cv.notify_all();
-                                break;
-                            }
-
-                            req = queue->queries.front();
-                            queue->queries.pop();
-                        }
-
                         if (!server->parseQueryTextWithOutputFormat(req.query, req.format))
                         {
                             std::string error = server->getErrorMsg();
@@ -1378,11 +1379,12 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                         }
                         else
                         {
-                            auto output_span = server->getQueryOutputSpan();
-                            if (!output_span.empty())
+                            auto * query_output_vec = server->stealQueryOutputVector();
+                            if (query_output_vec)
                             {
-                                result->buf = output_span.data();
-                                result->len = output_span.size();
+                                result->_vec = query_output_vec;
+                                result->len = query_output_vec->size();
+                                result->buf = query_output_vec->data();
                             }
                             result->rows_read = server->getProcessedRows();
                             result->bytes_read = server->getProcessedBytes();
@@ -1404,9 +1406,10 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                     {
                         std::lock_guard<std::mutex> lock(queue->mutex);
-                        queue->results.push(result.release());
+                        queue->current_result = result.release();
+                        queue->has_query = false;
                     }
-                    queue->cv.notify_one();
+                    queue->result_cv.notify_one();
                 }
             }
             catch (...)
@@ -1425,8 +1428,8 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     // Wait for initialization to complete
     {
         std::unique_lock<std::mutex> init_lock(init_mutex);
-        init_cv.wait(init_lock, [&init_done] { return init_done; });
-        // If initialization failed, clean up and rethrow the exception
+        init_cv.wait(init_lock, [&init_done]() { return init_done; });
+
         if (!init_success)
         {
             delete q_queue;
@@ -1442,10 +1445,10 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
 void close_conn(chdb_conn ** conn)
 {
+    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
+
     if (!conn || !*conn)
         return;
-
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
 
     if ((*conn)->connected)
     {
@@ -1456,19 +1459,22 @@ void close_conn(chdb_conn ** conn)
             {
                 std::unique_lock<std::mutex> queue_lock(queue->mutex);
                 queue->shutdown = true;
-                queue->cv.notify_all();
+                queue->query_cv.notify_all(); // Wake up query processing thread
+                queue->result_cv.notify_all(); // Wake up any waiting result threads
 
                 // Wait for server cleanup
-                queue->cv.wait(queue_lock, [queue] { return queue->cleanup_done; });
+                queue->query_cv.wait(queue_lock, [queue] { return queue->cleanup_done; });
 
-                // Clean up remaining results
-                while (!queue->results.empty())
+                // Clean up current result if any
+                if (queue->current_result)
                 {
-                    auto * result = queue->results.front();
-                    queue->results.pop();
-                    free_result_v2(result);
+                    free_result_v2(queue->current_result);
+                    queue->current_result = nullptr;
                 }
             }
+
+            // Mark as disconnected before deleting queue
+            (*conn)->connected = false;
 
             delete queue;
             (*conn)->queue = nullptr;
@@ -1487,29 +1493,50 @@ void close_conn(chdb_conn ** conn)
 
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
 {
+    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
+
     if (!conn || !conn->connected || !conn->queue)
         return new local_result_v2{nullptr, 0, nullptr, 0, 0, 0, nullptr};
 
     auto * queue = static_cast<query_queue *>(conn->queue);
 
     {
-        std::lock_guard<std::mutex> lock(queue->mutex);
-        queue->queries.push({query, format});
+        std::unique_lock<std::mutex> lock(queue->mutex);
+        // Wait until any ongoing query completes
+        queue->query_cv.wait(lock, [queue]() { return !queue->has_query || queue->shutdown; });
+
+        if (queue->shutdown)
+        {
+            auto * result = new local_result_v2{};
+            const char * error = "Connection is shutting down";
+            result->error_message = new char[strlen(error) + 1];
+            std::strcpy(result->error_message, error);
+            return result;
+        }
+
+        queue->current_query = {query, format};
+        queue->has_query = true;
+        queue->current_result = nullptr;
     }
-    queue->cv.notify_one();
+    queue->query_cv.notify_one();
 
     local_result_v2 * result = nullptr;
     {
         std::unique_lock<std::mutex> lock(queue->mutex);
-        queue->cv.wait(lock, [queue]() { return !queue->results.empty() || queue->shutdown; });
+        queue->result_cv.wait(lock, [queue]() { return queue->current_result != nullptr || queue->shutdown; });
 
-        if (!queue->shutdown && !queue->results.empty())
+        if (!queue->shutdown && queue->current_result)
         {
-            result = queue->results.front();
-            queue->results.pop();
+            result = queue->current_result;
+            if (result->len == 0)
+            {
+                LOG_WARNING(getLogger("CHDB"), "Empty result returned for query: {}", query);
+            }
+            queue->current_result = nullptr;
         }
     }
 
+    queue->query_cv.notify_one();
     if (result == nullptr)
     {
         result = new local_result_v2{};
