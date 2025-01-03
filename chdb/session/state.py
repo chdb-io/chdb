@@ -44,13 +44,15 @@ class Session:
         global g_session, g_session_path
         if g_session is not None:
             warnings.warn(
-                """There is already an active session. Creating a new session will close the existing one.
-It is recommended to close the existing session before creating a new one."""
+                "There is already an active session. Creating a new session will close the existing one. "
+                f"It is recommended to close the existing session before creating a new one. Closing the existing session {g_session_path}"
             )
             g_session.close()
+            g_session_path = None
         if path is None:
             self._cleanup = True
             self._path = tempfile.mkdtemp()
+            print(f"Creating a temporary database at {self._path}")
         else:
             self._cleanup = False
             self._path = path
@@ -72,18 +74,13 @@ It is recommended to close the existing session before creating a new one."""
         g_session_path = self._path
 
     def __del__(self):
-        if self._cleanup:
-            self.cleanup()
-        if self._conn is not None:
-            self._conn.close()
-            self._conn = None
+        self.close()
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if self._cleanup:
-            self.cleanup()
+        self.close()
 
     def close(self):
         if self._cleanup:
