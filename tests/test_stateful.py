@@ -65,6 +65,7 @@ class TestStateful(unittest.TestCase):
 
         # remove session dir
         sess2.cleanup()
+
         with self.assertRaises(Exception):
             ret = sess2.query("SELECT chdb_xxx()", "CSV")
 
@@ -91,12 +92,18 @@ class TestStateful(unittest.TestCase):
         sess.cleanup()
 
     def test_two_sessions(self):
-        sess1 = session.Session()
+        sess1 = None
+        sess2 = None
         try:
-            sess2 = session.Session()
-        except Exception as e:
-            self.assertIn("already active", str(e))
-        sess1.cleanup()
+            sess1 = session.Session()
+            with self.assertWarns(Warning):
+                sess2 = session.Session()
+            self.assertIsNone(sess1._conn)
+        finally:
+            if sess1:
+                sess1.cleanup()
+            if sess2:
+                sess2.cleanup()
 
     def test_context_mgr(self):
         with session.Session() as sess:

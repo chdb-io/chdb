@@ -54,14 +54,14 @@ def perform_operations(index):
 
 
 class TestIssue229(unittest.TestCase):
-
     def setUp(self):
         global sess
         sess = session.Session()
         insert_data()
 
     def tearDown(self):
-        sess.cleanup()
+        if sess:
+            sess.cleanup()
 
     def test_issue229(self):
         # Create multiple threads to perform operations
