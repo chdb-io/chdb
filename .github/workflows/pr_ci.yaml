@@ -9,7 +9,7 @@ jobs:
     env:
       PYTHON_VERSIONS: "3.11"
 
-    runs-on: self-hosted
+    runs-on: gh-64c
     steps:
       - name: Check for chdb directory
         run: |
