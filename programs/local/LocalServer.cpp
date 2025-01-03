@@ -1530,7 +1530,7 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
             result = queue->current_result;
             if (result->len == 0)
             {
-                LOG_WARNING(getLogger("CHDB"), "Empty result returned for query: {}", query);
+                LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query);
             }
             queue->current_result = nullptr;
         }
