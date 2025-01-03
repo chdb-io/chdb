@@ -11,31 +11,21 @@ jobs:
 
     runs-on: gh-64c
     steps:
-      - name: Check for chdb directory
-        run: |
-          if [ ! -d "/home/ubuntu/pr_runner/chdb" ]; then
-            echo "chdb directory does not exist. Checkout the repository."
-            mkdir -p /home/ubuntu/pr_runner/
-            git clone https://github.com/chdb-io/chdb.git /home/ubuntu/pr_runner/chdb
-          fi
+      - name: Clone chDB repository
+        uses: actions/checkout@v2
+        with:
+          repository: "chdb-io/chdb"
+          ref: "refs/pull/${{ github.event.pull_request.number }}/merge"
+          token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cleanup and update chdb directory
-        run: |
-          cd /home/ubuntu/pr_runner/chdb
-          git fetch origin || true
-          git fetch origin +refs/heads/*:refs/remotes/origin/* +refs/pull/${{ github.event.pull_request.number }}/merge:refs/remotes/pull/${{ github.event.pull_request.number }}/merge || true
-          git reset --hard origin/${{ github.head_ref }} || true
-          git clean -fdx || true
-          git checkout --progress --force refs/remotes/pull/${{ github.event.pull_request.number }}/merge || true
-          git status -v || true
-        continue-on-error: true
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.11
 
-      - name: Code style check
-        run: |
-          export PYENV_ROOT="$HOME/.pyenv"
-          [[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv local 3.11
-          python3 -m pip install flake8
-          cd chdb && python3 -m flake8
-        working-directory: /home/ubuntu/pr_runner/chdb
+      - name: Install flake8
+        run: python -m pip install flake8
+
+      - name: Run flake8 on chdb directory
+        run: flake8 chdb
+        
