@@ -78,7 +78,7 @@ def query(sql, output_format="CSV", path="", udf_path=""):
         g_udf_path = udf_path
     conn_str = ""
     if path == "":
-        conn_str = f":memory:"
+        conn_str = ":memory:"
     else:
         conn_str = f"{path}"
     if g_udf_path != "":

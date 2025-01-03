@@ -9,6 +9,7 @@ from ..state import sqlitelike as chdb_stateful
 g_session = None
 g_session_path = None
 
+
 class Session:
     """
     Session will keep the state of query.
@@ -45,7 +46,8 @@ class Session:
         if g_session is not None:
             warnings.warn(
                 "There is already an active session. Creating a new session will close the existing one. "
-                f"It is recommended to close the existing session before creating a new one. Closing the existing session {g_session_path}"
+                "It is recommended to close the existing session before creating a new one. "
+                f"Closing the existing session {g_session_path}"
             )
             g_session.close()
             g_session_path = None
