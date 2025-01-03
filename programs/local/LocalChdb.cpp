@@ -340,7 +340,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     auto * result = query_conn(*conn, query_str.c_str(), format.c_str());
     if (result->len == 0)
     {
-        LOG_WARNING(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
     }
     if (result->error_message)
     {
