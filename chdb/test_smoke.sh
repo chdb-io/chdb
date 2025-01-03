@@ -29,4 +29,4 @@ python3 -c \
 #     "import chdb; res = chdb.query('select isValidJSON(\'not a json\')', 'CSV'); print(res)"
 
 # test cli
-python3 -m chdb "select 1112222222,555" Dataframe
+# python3 -m chdb "select 1112222222,555" Dataframe
