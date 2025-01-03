@@ -52,7 +52,6 @@ class Session:
         if path is None:
             self._cleanup = True
             self._path = tempfile.mkdtemp()
-            print(f"Creating a temporary database at {self._path}")
         else:
             self._cleanup = False
             self._path = path
