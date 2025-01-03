@@ -2,6 +2,7 @@ import sys
 import os
 import threading
 
+
 class ChdbError(Exception):
     """Base class for exceptions in this module."""
 
@@ -65,8 +66,10 @@ def to_df(r):
     t = to_arrowTable(r)
     return t.to_pandas(use_threads=True)
 
+
 # global connection lock, for multi-threading use of legacy chdb.query()
 g_conn_lock = threading.Lock()
+
 
 # wrap _chdb functions
 def query(sql, output_format="CSV", path="", udf_path=""):
