@@ -20,7 +20,6 @@
 
 namespace py = pybind11;
 
-
 class __attribute__((visibility("default"))) local_result_wrapper;
 class __attribute__((visibility("default"))) connection_wrapper;
 class __attribute__((visibility("default"))) cursor_wrapper;
@@ -219,11 +218,10 @@ private:
     {
         if (current_result)
         {
-            // The free_result_v2 vector is managed by the ClickHouse Engine
-            // As we don't want to copy the data, so just release the memory here.
-            // The memory will be released when the ClientBase.query_result_buf is reassigned.
             if (current_result->_vec)
             {
+                auto * vec = reinterpret_cast<std::vector<char> *>(current_result->_vec);
+                delete vec;
                 current_result->_vec = nullptr;
             }
             free_result_v2(current_result);
