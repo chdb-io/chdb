@@ -22,7 +22,7 @@ python3 -c \
     "import chdb; res = chdb._chdb.query('select version()', 'CSV'); print(res)"
 
 python3 -c \
-    "import chdb; res = chdb.query('select version()', 'CSV'); print(res.bytes())"
+    "import chdb; res = chdb.query('select version()', 'Debug'); print(res.bytes())"
 
 # test json function
 python3 -c \

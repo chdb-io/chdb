@@ -1,16 +1,70 @@
 #include "LocalChdb.h"
 #include <mutex>
+#include "Common/logger_useful.h"
 #include "chdb.h"
+#include "pybind11/gil.h"
+#include "pybind11/pytypes.h"
 
 #if USE_PYTHON
 
 #    include <Storages/StoragePython.h>
+#    include <TableFunctions/TableFunctionPython.h>
+#    include <Common/re2.h>
 
 
 namespace py = pybind11;
 
 extern bool inside_main = true;
 
+// Global storage for Python Table Engine queriable object
+extern py::handle global_query_obj;
+
+// Find the queriable object in the Python environment
+// return nullptr if no Python obj is referenced in query string
+// return py::none if the obj referenced not found
+// return the Python object if found
+// The object name is extracted from the query string, must referenced by
+// Python(var_name) or Python('var_name') or python("var_name") or python('var_name')
+// such as:
+//  - `SELECT * FROM Python('PyReader')`
+//  - `SELECT * FROM Python(PyReader_instance)`
+//  - `SELECT * FROM Python(some_var_with_type_pandas_DataFrame_or_pyarrow_Table)`
+// The object can be any thing that Python Table supported, like PyReader, pandas DataFrame, or PyArrow Table
+// The object should be in the global or local scope
+py::handle findQueryableObjFromQuery(const std::string & query_str)
+{
+    // Extract the object name from the query string
+    std::string var_name;
+
+    // RE2 pattern to match Python()/python() patterns with single/double quotes or no quotes
+    static const RE2 pattern(R"([Pp]ython\s*\(\s*(?:['"]([^'"]+)['"]|([a-zA-Z_][a-zA-Z0-9_]*))\s*\))");
+
+    re2::StringPiece input(query_str);
+    std::string quoted_match, unquoted_match;
+
+    // Try to match and extract the groups
+    if (RE2::PartialMatch(query_str, pattern, &quoted_match, &unquoted_match))
+    {
+        // If quoted string was matched
+        if (!quoted_match.empty())
+        {
+            var_name = quoted_match;
+        }
+        // If unquoted identifier was matched
+        else if (!unquoted_match.empty())
+        {
+            var_name = unquoted_match;
+        }
+    }
+
+    if (var_name.empty())
+    {
+        return nullptr;
+    }
+
+    // Find the object in the Python environment
+    return DB::findQueryableObj(var_name);
+}
 
 local_result_v2 * queryToBuffer(
     const std::string & queryStr,
@@ -111,10 +165,10 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
     if (query_pos != std::string::npos)
     {
         path = working_str.substr(0, query_pos);
-        std::string query = working_str.substr(query_pos + 1);
+        std::string params_str = working_str.substr(query_pos + 1);
 
         // Parse parameters
-        std::istringstream params_stream(query);
+        std::istringstream params_stream(params_str);
         std::string param;
         while (std::getline(params_stream, param, '&'))
         {
@@ -131,6 +185,21 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
                 params[param] = "";
             }
         }
+        // Handle udf_path
+        // add user_scripts_path and user_defined_executable_functions_config to params
+        // these two parameters need "--" as prefix
+        if (params.contains("udf_path"))
+        {
+            std::string udf_path = params["udf_path"];
+            if (!udf_path.empty())
+            {
+                params["--"] = "";
+                params["user_scripts_path"] = udf_path;
+                params["user_defined_executable_functions_config"] = udf_path + "/*.xml";
+            }
+            // remove udf_path from params
+            params.erase("udf_path");
+        }
     }
     else
     {
@@ -138,7 +207,7 @@ std::pair<std::string, std::map<std::string, std::string>> connection_wrapper::p
     }
 
     // Convert relative paths to absolute
-    if (!path.empty() && path[0] != '/')
+    if (!path.empty() && path[0] != '/' && path != ":memory:")
     {
         std::error_code ec;
         path = std::filesystem::absolute(path, ec).string();
@@ -171,6 +240,11 @@ connection_wrapper::build_clickhouse_args(const std::string & path, const std::m
                 is_readonly = true;
                 argv.push_back("--readonly=1");
             }
+        }
+        else if (key == "--")
+        {
+            // Handle special parameters "--"
+            argv.push_back("--");
         }
         else if (value.empty())
         {
@@ -238,11 +312,13 @@ connection_wrapper::connection_wrapper(const std::string & conn_str)
 
 connection_wrapper::~connection_wrapper()
 {
+    py::gil_scoped_release release;
     close_conn(conn);
 }
 
 void connection_wrapper::close()
 {
+    py::gil_scoped_release release;
     close_conn(conn);
 }
 
@@ -258,14 +334,28 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    return new query_result(query_conn(*conn, query_str.c_str(), format.c_str()), true);
+    global_query_obj = findQueryableObjFromQuery(query_str);
+
+    py::gil_scoped_release release;
+    auto * result = query_conn(*conn, query_str.c_str(), format.c_str());
+    if (result->len == 0)
+    {
+        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+    }
+    if (result->error_message)
+    {
+        throw std::runtime_error(result->error_message);
+    }
+    return new query_result(result, true);
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
 {
     release_result();
+    global_query_obj = findQueryableObjFromQuery(query_str);
 
     // Always use Arrow format internally
+    py::gil_scoped_release release;
     current_result = query_conn(conn->get_conn(), query_str.c_str(), "ArrowStream");
 }
 

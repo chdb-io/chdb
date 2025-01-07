@@ -2,6 +2,7 @@
 #include "chdb.h"
 
 #include <sys/resource.h>
+#include "Common/Logger.h"
 #include <Common/Config/getLocalConfigPath.h>
 #include <Common/logger_useful.h>
 #include <Common/formatReadable.h>
@@ -56,6 +57,7 @@
 #include <boost/program_options/options_description.hpp>
 #include <base/argsToConfig.h>
 #include <filesystem>
+#include <math.h>
 
 #include "config.h"
 
@@ -471,7 +473,7 @@ int LocalServer::main(const std::vector<std::string> & /*args*/)
 try
 {
     UseSSL use_ssl;
-    thread_status.emplace();
+    thread_status.emplace(false);
 
     StackTrace::setShowAddresses(server_settings.show_addresses_in_stack_traces);
 
@@ -1289,9 +1291,8 @@ void free_result_v2(local_result_v2 * result)
 
 chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
+    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
 
-    // Check if we already have a connection with this path
     std::string path = ":memory:"; // Default path
     for (int i = 1; i < argc; i++)
     {
@@ -1305,46 +1306,215 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     if (global_conn_ptr != nullptr)
     {
         if (path == global_db_path)
-        {
-            // Return existing connection
             return &global_conn_ptr;
-        }
+
         throw DB::Exception(
             DB::ErrorCodes::BAD_ARGUMENTS,
-            "Another connection is already active with different path. Close the existing connection first.");
+            "Another connection is already active with different path. Old path = {}, new path = {}, "
+            "please close the existing connection first.",
+            global_db_path,
+            path);
     }
 
-    // Create new connection
-    DB::LocalServer * server = bgClickHouseLocal(argc, argv);
     auto * conn = new chdb_conn();
-    conn->server = server;
-    conn->connected = true;
+    auto * q_queue = new query_queue();
+    conn->queue = q_queue;
 
-    // Store globally
-    global_conn_ptr = conn;
-    global_db_path = path;
+    std::mutex init_mutex;
+    std::condition_variable init_cv;
+    bool init_done = false;
+    bool init_success = false;
+    std::exception_ptr init_exception;
+
+    // Start query processing thread
+    std::thread(
+        [&]()
+        {
+            auto * queue = static_cast<query_queue *>(conn->queue);
+            try
+            {
+                DB::LocalServer * server = bgClickHouseLocal(argc, argv);
+                conn->server = server;
+                conn->connected = true;
+
+                global_conn_ptr = conn;
+                global_db_path = path;
+
+                // Signal successful initialization
+                {
+                    std::lock_guard<std::mutex> init_lock(init_mutex);
+                    init_success = true;
+                    init_done = true;
+                }
+                init_cv.notify_one();
+
+                while (true)
+                {
+                    query_request req;
+                    {
+                        std::unique_lock<std::mutex> lock(queue->mutex);
+                        queue->query_cv.wait(lock, [queue]() { return queue->has_query || queue->shutdown; });
+
+                        if (queue->shutdown)
+                        {
+                            try
+                            {
+                                server->cleanup();
+                                delete server;
+                            }
+                            catch (...)
+                            {
+                                // Log error but continue shutdown
+                                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Error during server cleanup");
+                            }
+                            queue->cleanup_done = true;
+                            queue->query_cv.notify_all();
+                            break;
+                        }
+
+                        req = queue->current_query;
+                    }
+
+                    local_result_v2 * result = new local_result_v2();
+                    try
+                    {
+                        if (!server->parseQueryTextWithOutputFormat(req.query, req.format))
+                        {
+                            std::string error = server->getErrorMsg();
+                            result->error_message = new char[error.length() + 1];
+                            std::strcpy(result->error_message, error.c_str());
+                        }
+                        else
+                        {
+                            auto * query_output_vec = server->stealQueryOutputVector();
+                            if (query_output_vec)
+                            {
+                                result->_vec = query_output_vec;
+                                result->len = query_output_vec->size();
+                                result->buf = query_output_vec->data();
+                            }
+                            result->rows_read = server->getProcessedRows();
+                            result->bytes_read = server->getProcessedBytes();
+                            result->elapsed = server->getElapsedTime();
+                        }
+                    }
+                    catch (const DB::Exception & e)
+                    {
+                        std::string error = DB::getExceptionMessage(e, false);
+                        result->error_message = new char[error.length() + 1];
+                        std::strcpy(result->error_message, error.c_str());
+                    }
+                    catch (...)
+                    {
+                        const char * unknown_error = "Unknown error occurred";
+                        result->error_message = new char[strlen(unknown_error) + 1];
+                        std::strcpy(result->error_message, unknown_error);
+                    }
+
+                    {
+                        std::lock_guard<std::mutex> lock(queue->mutex);
+                        queue->current_result = result;
+                        queue->has_query = false;
+                    }
+                    queue->result_cv.notify_one();
+                }
+            }
+            catch (const DB::Exception & e)
+            {
+                // Log the error
+                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Query thread terminated with error: {}", e.what());
+
+                // Signal thread termination
+                {
+                    std::lock_guard<std::mutex> init_lock(init_mutex);
+                    init_exception = std::current_exception();
+                    init_done = true;
+                    std::lock_guard<std::mutex> lock(queue->mutex);
+                    queue->shutdown = true;
+                    queue->cleanup_done = true;
+                }
+                init_cv.notify_one();
+                queue->query_cv.notify_all();
+                queue->result_cv.notify_all();
+            }
+            catch (...)
+            {
+                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Query thread terminated with unknown error");
+
+                {
+                    std::lock_guard<std::mutex> init_lock(init_mutex);
+                    init_exception = std::current_exception();
+                    init_done = true;
+                    std::lock_guard<std::mutex> lock(queue->mutex);
+                    queue->shutdown = true;
+                    queue->cleanup_done = true;
+                }
+                init_cv.notify_one();
+                queue->query_cv.notify_all();
+                queue->result_cv.notify_all();
+            }
+        })
+        .detach();
+
+    // Wait for initialization to complete
+    {
+        std::unique_lock<std::mutex> init_lock(init_mutex);
+        init_cv.wait(init_lock, [&init_done]() { return init_done; });
+
+        if (!init_success)
+        {
+            delete q_queue;
+            delete conn;
+            if (init_exception)
+                std::rethrow_exception(init_exception);
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Failed to create connection");
+        }
+    }
 
     return &global_conn_ptr;
 }
 
 void close_conn(chdb_conn ** conn)
 {
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
+    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
 
     if (!conn || !*conn)
         return;
 
     if ((*conn)->connected)
     {
-        DB::LocalServer * server = static_cast<DB::LocalServer *>((*conn)->server);
-        server->cleanup();
-        delete server;
-
-        if (*conn == global_conn_ptr)
+        if ((*conn)->queue)
         {
-            global_conn_ptr = nullptr;
-            global_db_path.clear();
+            auto * queue = static_cast<query_queue *>((*conn)->queue);
+
+            {
+                std::unique_lock<std::mutex> queue_lock(queue->mutex);
+                queue->shutdown = true;
+                queue->query_cv.notify_all(); // Wake up query processing thread
+                queue->result_cv.notify_all(); // Wake up any waiting result threads
+
+                // Wait for server cleanup
+                queue->query_cv.wait(queue_lock, [queue] { return queue->cleanup_done; });
+
+                // Clean up current result if any
+                if (queue->current_result)
+                {
+                    free_result_v2(queue->current_result);
+                    queue->current_result = nullptr;
+                }
+            }
+
+            delete queue;
+            (*conn)->queue = nullptr;
         }
+
+        // Mark as disconnected BEFORE deleting queue and nulling global pointer
+        (*conn)->connected = false;
+    }
+    // Clear global pointer under lock before queue deletion
+    if (*conn != global_conn_ptr)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection mismatch during close_conn");
     }
 
     delete *conn;
@@ -1353,55 +1523,75 @@ void close_conn(chdb_conn ** conn)
 
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
 {
-    auto * result = new local_result_v2{ nullptr, 0, nullptr, 0, 0, 0, nullptr };
-
-    if (!conn || !conn->connected)
+    // Add connection validity check under global lock
+    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
+    if (!conn || !conn->connected || !conn->queue)
+    {
+        auto * result = new local_result_v2{};
+        const char * error = "Invalid or closed connection";
+        result->error_message = new char[strlen(error) + 1];
+        std::strcpy(result->error_message, error);
         return result;
+    }
 
-    std::lock_guard<std::mutex> lock(global_connection_mutex);
+    // Release global lock before processing query
+    auto * queue = static_cast<query_queue *>(conn->queue);
+    local_result_v2 * result = nullptr;
 
     try
     {
-        DB::LocalServer * server = static_cast<DB::LocalServer *>(conn->server);
-
-        // Execute query
-        if (!server->parseQueryTextWithOutputFormat(query, format))
         {
-            std::string error = server->getErrorMsg();
-            result->error_message = new char[error.length() + 1];
-            std::strcpy(result->error_message, error.c_str());
-            return result;
-        }
+            std::unique_lock<std::mutex> lock(queue->mutex);
+            // Wait until any ongoing query completes
+            queue->result_cv.wait(lock, [queue]() { return !queue->has_query || queue->shutdown; });
 
-        // Get query results without copying
-        auto output_span = server->getQueryOutputSpan();
-        if (!output_span.empty())
+            if (queue->shutdown)
+            {
+                result = new local_result_v2{};
+                const char * error = "Connection is shutting down";
+                result->error_message = new char[strlen(error) + 1];
+                std::strcpy(result->error_message, error);
+                return result;
+            }
+
+            // Set new query
+            queue->current_query = {query, format};
+            queue->has_query = true;
+            queue->current_result = nullptr;
+        }
+        queue->query_cv.notify_one();
+
         {
-            result->_vec = nullptr;
-            result->buf = output_span.data();
-            result->len = output_span.size();
+            std::unique_lock<std::mutex> lock(queue->mutex);
+            queue->result_cv.wait(lock, [queue]() { return queue->current_result != nullptr || queue->shutdown; });
+
+            if (!queue->shutdown && queue->current_result)
+            {
+                result = queue->current_result;
+                queue->current_result = nullptr;
+                queue->has_query = false;
+            }
         }
-
-        result->rows_read = server->getProcessedRows();
-        result->bytes_read = server->getProcessedBytes();
-        result->elapsed = server->getElapsedTime();
-
-        return result;
-    }
-    catch (const DB::Exception & e)
-    {
-        std::string error = DB::getExceptionMessage(e, false);
-        result->error_message = new char[error.length() + 1];
-        std::strcpy(result->error_message, error.c_str());
-        return result;
+        queue->query_cv.notify_one();
     }
     catch (...)
     {
-        std::string error = DB::getCurrentExceptionMessage(true);
-        result->error_message = new char[error.length() + 1];
-        std::strcpy(result->error_message, error.c_str());
-        return result;
+        // Handle any exceptions during query processing
+        result = new local_result_v2{};
+        const char * error = "Error occurred while processing query";
+        result->error_message = new char[strlen(error) + 1];
+        std::strcpy(result->error_message, error);
     }
+
+    if (!result)
+    {
+        result = new local_result_v2{};
+        const char * error = "Query processing failed";
+        result->error_message = new char[strlen(error) + 1];
+        std::strcpy(result->error_message, error);
+    }
+
+    return result;
 }
 
 /**

@@ -17,6 +17,11 @@
 #include <Common/PythonUtils.h>
 #include <Common/logger_useful.h>
 
+
+namespace py = pybind11;
+// Global storage for Python Table Engine queriable object
+py::handle global_query_obj = nullptr;
+
 namespace DB
 {
 
@@ -28,7 +33,7 @@ extern const int PY_EXCEPTION_OCCURED;
 }
 
 // Function to find instance of PyReader, pandas DataFrame, or PyArrow Table, filtered by variable name
-py::object find_instances_of_pyreader(const std::string & var_name)
+py::object findQueryableObj(const std::string & var_name)
 {
     py::module inspect = py::module_::import("inspect");
     py::object current_frame = inspect.attr("currentframe")();
@@ -57,7 +62,7 @@ py::object find_instances_of_pyreader(const std::string & var_name)
 
 void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr context)
 {
-    py::gil_scoped_acquire acquire;
+    // py::gil_scoped_acquire acquire;
     const auto & func_args = ast_function->as<ASTFunction &>();
 
     if (!func_args.arguments)
@@ -81,8 +86,8 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
             std::remove_if(py_reader_arg_str.begin(), py_reader_arg_str.end(), [](char c) { return c == '\'' || c == '\"' || c == '`'; }),
             py_reader_arg_str.end());
 
-        auto instance = find_instances_of_pyreader(py_reader_arg_str);
-        if (instance.is_none())
+        auto instance = global_query_obj;
+        if (instance == nullptr || instance.is_none())
             throw Exception(
                 ErrorCodes::PY_OBJECT_NOT_FOUND,
                 "Python object not found in the Python environment\n"
@@ -93,8 +98,8 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
             "Python object found in Python environment with name: {} type: {}",
             py_reader_arg_str,
             py::str(instance.attr("__class__")).cast<std::string>());
-
-        reader = instance;
+        py::gil_scoped_acquire acquire;
+        reader = instance.cast<py::object>();
     }
     catch (py::error_already_set & e)
     {

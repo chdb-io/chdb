@@ -36,6 +36,7 @@ class TestStateful(unittest.TestCase):
         sess.query("USE db_xxx")
         ret = sess.query("SELECT * FROM log_table_xxx", "Debug")
         self.assertEqual(str(ret), "1\n2\n3\n4\n")
+        sess.close()
 
 
 if __name__ == '__main__':
