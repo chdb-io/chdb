@@ -30,7 +30,7 @@
 
 ## 架构
 <div align="center">
-  <img src="docs/_static/arch-chdb2.png" width="450">
+  <img src="docs/_static/arch-chdb3.png" width="450">
 </div>
 
 ## 安装方式
