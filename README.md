@@ -33,7 +33,7 @@
 
 ## Arch
 <div align="center">
-  <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/arch-chdb2.png" width="450">
+  <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/arch-chdb3.png" width="450">
 </div>
 
 ## Get Started
