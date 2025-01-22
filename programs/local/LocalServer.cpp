@@ -1286,6 +1286,7 @@ void free_result_v2(local_result_v2 * result)
 
     delete reinterpret_cast<std::vector<char> *>(result->_vec);
     delete[] result->error_message;
+    delete[] result->buf;
     delete result;
 }
 
