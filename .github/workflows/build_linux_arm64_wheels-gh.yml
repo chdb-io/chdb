@@ -143,7 +143,7 @@ jobs:
           gh release upload ${{ github.ref_name }} linux-aarch64-libchdb.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@v4
         with:
           path: |
             ./dist/*.whl
