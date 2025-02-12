@@ -148,6 +148,7 @@ jobs:
           path: |
             ./dist/*.whl
             ./linux-aarch64-libchdb.tar.gz
+          overwrite: true
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
