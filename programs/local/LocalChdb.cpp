@@ -346,7 +346,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     {
         throw std::runtime_error(result->error_message);
     }
-    return new query_result(result, true);
+    return new query_result(result, false);
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
