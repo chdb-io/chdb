@@ -21,7 +21,7 @@ class Connection:
         self._cursor = Cursor(self._conn)
         return self._cursor
 
-    def query(self, query: str, format: str = "ArrowStream") -> Any:
+    def query(self, query: str, format: str = "CSV") -> Any:
         return self._conn.query(query, format)
 
     def close(self) -> None:
