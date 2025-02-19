@@ -260,38 +260,6 @@ connection_wrapper::build_clickhouse_args(const std::string & path, const std::m
     return argv;
 }
 
-void connection_wrapper::initialize_database()
-{
-    if (is_readonly)
-    {
-        return;
-    }
-    if (is_memory_db)
-    {
-        // Setup memory engine
-        query_result * ret = query("CREATE DATABASE IF NOT EXISTS default ENGINE = Memory; USE default");
-        if (ret->has_error())
-        {
-            auto err_msg = fmt::format("Failed to create memory database: {}", std::string(ret->error_message()));
-            delete ret;
-            throw std::runtime_error(err_msg);
-        }
-    }
-    else
-    {
-        // Create directory if it doesn't exist
-        std::filesystem::create_directories(db_path);
-        // Setup Atomic database
-        query_result * ret = query("CREATE DATABASE IF NOT EXISTS default ENGINE = Atomic; USE default");
-        if (ret->has_error())
-        {
-            auto err_msg = fmt::format("Failed to create database: {}", std::string(ret->error_message()));
-            delete ret;
-            throw std::runtime_error(err_msg);
-        }
-    }
-}
-
 connection_wrapper::connection_wrapper(const std::string & conn_str)
 {
     auto [path, params] = parse_connection_string(conn_str);
@@ -307,7 +275,6 @@ connection_wrapper::connection_wrapper(const std::string & conn_str)
     conn = connect_chdb(argv_char.size(), argv_char.data());
     db_path = path;
     is_memory_db = (path == ":memory:");
-    initialize_database();
 }
 
 connection_wrapper::~connection_wrapper()
@@ -346,7 +313,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     {
         throw std::runtime_error(result->error_message);
     }
-    return new query_result(result, true);
+    return new query_result(result, false);
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
