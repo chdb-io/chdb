@@ -785,17 +785,8 @@ void LocalServer::processConfig()
     /// Command-line parameters can override settings from the default profile.
     applyCmdSettings(global_context);
 
-    // global once flag
     /// We load temporary database first, because projections need it.
-    static std::once_flag db_catalog_once;
-    if (config().has("path"))
-    {
-        DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase();
-    }
-    else
-    {
-        std::call_once(db_catalog_once, [&] { DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase(); });
-    }
+    DatabaseCatalog::instance().initializeAndLoadTemporaryDatabase();
 
     std::string default_database = server_settings.default_database;
     DatabaseCatalog::instance().attachDatabase(default_database, createClickHouseLocalDatabaseOverlay(default_database, global_context));
