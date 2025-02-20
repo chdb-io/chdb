@@ -145,6 +145,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
+          name: chdb-artifacts-linux-aarch64-${{ matrix.python-version }}
           path: |
             ./dist/*.whl
             ./linux-aarch64-libchdb.tar.gz
