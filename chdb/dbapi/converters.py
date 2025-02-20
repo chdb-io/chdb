@@ -59,6 +59,7 @@ def escape_float(value, mapping=None):
 
 _escape_table = [chr(x) for x in range(128)]
 _escape_table[ord("'")] = u"''"
+_escape_table[ord("\\")] = "\\\\"
 
 
 def _escape_unicode(value, mapping=None):
