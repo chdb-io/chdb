@@ -90,6 +90,35 @@ class TestDBAPI(unittest.TestCase):
         self.assertEqual(ver, ".".join(ver_tuple))
         self.assertRegex(ver, expected_version_pattern)
 
+    def test_insert_escape_slash(self):
+        # make a tmp dir context
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            conn = dbapi.connect(tmpdirname)
+            print(conn)
+            cur = conn.cursor()
+            # cur.execute("CREATE DATABASE IF NOT EXISTS test_db ENGINE = Atomic")
+            # cur.execute("USE test_db")
+            cur.execute(
+                """
+            CREATE TABLE tmp (
+                s String
+            ) ENGINE = Log"""
+            )
+
+            # Insert single value
+            s = "hello\\'world"
+            print("Inserting string: ", s)
+            cur.execute("INSERT INTO tmp VALUES (%s)", (s))
+
+            # Test fetchone
+            cur.execute("SELECT s FROM tmp")
+            row1 = cur.fetchone()
+            self.assertEqual(row1[0], s)
+
+            # Clean up
+            cur.close()
+            conn.close()
+
 
 if __name__ == "__main__":
     unittest.main()
