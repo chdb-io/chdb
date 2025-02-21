@@ -51,7 +51,7 @@ class Session:
             )
             g_session.close()
             g_session_path = None
-        if path is None:
+        if path is None or ":memory:" in path:
             self._cleanup = True
             self._path = tempfile.mkdtemp()
         else:
@@ -89,6 +89,9 @@ class Session:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+        global g_session, g_session_path
+        g_session = None
+        g_session_path = None
 
     def cleanup(self):
         try:
@@ -96,6 +99,9 @@ class Session:
                 self._conn.close()
                 self._conn = None
             shutil.rmtree(self._path)
+            global g_session, g_session_path
+            g_session = None
+            g_session_path = None
         except:  # noqa
             pass
 
