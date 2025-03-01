@@ -40,23 +40,39 @@ py::object findQueryableObj(const std::string & var_name)
 
     while (!current_frame.is_none())
     {
-        auto local_dict = py::reinterpret_borrow<py::dict>(current_frame.attr("f_locals"));
-        auto global_dict = py::reinterpret_borrow<py::dict>(current_frame.attr("f_globals"));
+        // Get f_locals and f_globals
+        py::object locals_obj = current_frame.attr("f_locals");
+        py::object globals_obj = current_frame.attr("f_globals");
 
-        for (const auto & dict : {local_dict, global_dict})
+        // For each namespace (locals and globals)
+        for (const auto & namespace_obj : {locals_obj, globals_obj})
         {
-            if (dict.contains(var_name))
+            // Use Python's __contains__ method to check if the key exists
+            // This works with both regular dicts and FrameLocalsProxy (Python 3.13+)
+            if (py::bool_(namespace_obj.attr("__contains__")(var_name)))
             {
-                py::object obj = dict[var_name.data()];
-                if (isInheritsFromPyReader(obj) || isPandasDf(obj) || isPyarrowTable(obj) || hasGetItem(obj))
-                    return obj;
+                py::object obj;
+                try
+                {
+                    // Get the object using Python's indexing syntax
+                    obj = namespace_obj[py::cast(var_name)];
+                    if (isInheritsFromPyReader(obj) || isPandasDf(obj) || isPyarrowTable(obj) || hasGetItem(obj))
+                    {
+                        return obj;
+                    }
+                }
+                catch (const py::error_already_set &)
+                {
+                    continue; // If getting the value fails, continue to the next namespace
+                }
             }
         }
 
+        // Move to the parent frame
         current_frame = current_frame.attr("f_back");
     }
 
-    // not found
+    // Object not found
     return py::none();
 }
 
