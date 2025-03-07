@@ -11,6 +11,36 @@ except ImportError as e:
     raise ImportError("Failed to import pyarrow") from None
 
 
+_arrow_format = set({"dataframe", "arrowtable"})
+_process_result_format_funs = {
+    "dataframe": lambda x: to_df(x),
+    "arrowtable": lambda x: to_arrowTable(x),
+}
+
+
+# return pyarrow table
+def to_arrowTable(res):
+    """convert res to arrow table"""
+    # try import pyarrow and pandas, if failed, raise ImportError with suggestion
+    try:
+        import pyarrow as pa  # noqa
+        import pandas as pd  # noqa
+    except ImportError as e:
+        print(f"ImportError: {e}")
+        print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
+        raise ImportError("Failed to import pyarrow or pandas") from None
+    if len(res) == 0:
+        return pa.Table.from_batches([], schema=pa.schema([]))
+    return pa.RecordBatchFileReader(res.bytes()).read_all()
+
+
+# return pandas dataframe
+def to_df(r):
+    """convert arrow table to Dataframe"""
+    t = to_arrowTable(r)
+    return t.to_pandas(use_threads=True)
+
+
 class Connection:
     def __init__(self, connection_string: str):
         # print("Connection", connection_string)
@@ -22,7 +52,13 @@ class Connection:
         return self._cursor
 
     def query(self, query: str, format: str = "CSV") -> Any:
-        return self._conn.query(query, format)
+        lower_output_format = format.lower()
+        result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
+        if lower_output_format in _arrow_format:
+            format = "Arrow"
+
+        result = self._conn.query(query, format)
+        return result_func(result)
 
     def close(self) -> None:
         # print("close")
