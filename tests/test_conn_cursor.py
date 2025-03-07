@@ -20,6 +20,21 @@ class TestCHDB(unittest.TestCase):
         conn.query("SELECT 1", "Null")
         conn.close()
 
+    def test_conn_query_df_and_arrowtable(self):
+        conn = connect()
+        ret = conn.query("SELECT 123 as x", "DataFrame")
+        self.assertEqual(ret.x[0], 123)
+
+        ret = conn.query("SELECT 123 as x", "ArrowTable")
+        self.assertEqual(
+            str(ret),
+            """pyarrow.Table
+x: uint8 not null
+----
+x: [[123]]""",
+        )
+        conn.close()
+
     def test_basic_operations(self):
         conn = connect(":memory:")
         cursor = conn.cursor()
