@@ -115,6 +115,21 @@ class TestStateful(unittest.TestCase):
             with self.assertRaises(Exception):
                 ret = sess.query("SELECT chdb_xxx_notexist()", "CSV")
 
+    def test_query_fmt(self):
+        with session.Session() as sess:
+            # Dataframe result
+            ret = sess.query("SELECT 1 AS x", "DataFrame")
+            self.assertEqual(ret.x[0], 1)
+            # ArrowTable
+            ret = sess.query("SELECT 1 AS x", "ArrowTable")
+            self.assertEqual(
+                str(ret),
+                """pyarrow.Table
+x: uint8 not null
+----
+x: [[1]]""",
+            )
+
     # def test_zfree_thread_count(self):
     #     time.sleep(3)
     #     thread_count = current_process.num_threads()
