@@ -321,9 +321,9 @@ void cursor_wrapper::execute(const std::string & query_str)
     release_result();
     global_query_obj = findQueryableObjFromQuery(query_str);
 
-    // Always use Arrow format internally
+    // Use JSONCompactEachRowWithNamesAndTypes format for better type support
     py::gil_scoped_release release;
-    current_result = query_conn(conn->get_conn(), query_str.c_str(), "ArrowStream");
+    current_result = query_conn(conn->get_conn(), query_str.c_str(), "JSONCompactEachRowWithNamesAndTypes");
 }
 
 
