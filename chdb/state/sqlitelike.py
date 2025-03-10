@@ -1,4 +1,3 @@
-import io
 from typing import Optional, Any
 from chdb import _chdb
 
