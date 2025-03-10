@@ -57,7 +57,7 @@ class Connection(object):
             return Cursor(self)
         return Cursor(self)
 
-    def query(self, sql, fmt="ArrowStream"):
+    def query(self, sql, fmt="CSV"):
         """Execute a query and return the raw result."""
         if self._closed:
             raise err.InterfaceError("Connection closed")
