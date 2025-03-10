@@ -77,17 +77,103 @@ class Cursor:
     def execute(self, query: str) -> None:
         self._cursor.execute(query)
         result_mv = self._cursor.get_memview()
-        # print("get_result", result_mv)
         if self._cursor.has_error():
             raise Exception(self._cursor.error_message())
         if self._cursor.data_size() == 0:
             self._current_table = None
             self._current_row = 0
+            self._column_names = []
+            self._column_types = []
             return
-        arrow_data = result_mv.tobytes()
-        reader = pa.ipc.open_stream(io.BytesIO(arrow_data))
-        self._current_table = reader.read_all()
-        self._current_row = 0
+
+        # Parse JSON data
+        json_data = result_mv.tobytes().decode("utf-8")
+        import json
+
+        try:
+            # First line contains column names
+            # Second line contains column types
+            # Following lines contain data
+            lines = json_data.strip().split("\n")
+            if len(lines) < 2:
+                self._current_table = None
+                self._current_row = 0
+                self._column_names = []
+                self._column_types = []
+                return
+
+            self._column_names = json.loads(lines[0])
+            self._column_types = json.loads(lines[1])
+
+            # Convert data rows
+            rows = []
+            for line in lines[2:]:
+                if not line.strip():
+                    continue
+                row_data = json.loads(line)
+                converted_row = []
+                for val, type_info in zip(row_data, self._column_types):
+                    # Handle NULL values first
+                    if val is None:
+                        converted_row.append(None)
+                        continue
+
+                    # Basic type conversion
+                    try:
+                        if type_info.startswith("Int") or type_info.startswith("UInt"):
+                            converted_row.append(int(val))
+                        elif type_info.startswith("Float"):
+                            converted_row.append(float(val))
+                        elif type_info == "Bool":
+                            converted_row.append(bool(val))
+                        elif type_info == "String" or type_info == "FixedString":
+                            converted_row.append(str(val))
+                        elif type_info.startswith("DateTime"):
+                            from datetime import datetime
+
+                            # Check if the value is numeric (timestamp)
+                            val_str = str(val)
+                            if val_str.replace(".", "").isdigit():
+                                converted_row.append(datetime.fromtimestamp(float(val)))
+                            else:
+                                # Handle datetime string formats
+                                if "." in val_str:  # Has microseconds
+                                    converted_row.append(
+                                        datetime.strptime(
+                                            val_str, "%Y-%m-%d %H:%M:%S.%f"
+                                        )
+                                    )
+                                else:  # No microseconds
+                                    converted_row.append(
+                                        datetime.strptime(val_str, "%Y-%m-%d %H:%M:%S")
+                                    )
+                        elif type_info.startswith("Date"):
+                            from datetime import date, datetime
+
+                            # Check if the value is numeric (days since epoch)
+                            val_str = str(val)
+                            if val_str.isdigit():
+                                converted_row.append(
+                                    date.fromtimestamp(float(val) * 86400)
+                                )
+                            else:
+                                # Handle date string format
+                                converted_row.append(
+                                    datetime.strptime(val_str, "%Y-%m-%d").date()
+                                )
+                        else:
+                            # For unsupported types, keep as string
+                            converted_row.append(str(val))
+                    except (ValueError, TypeError):
+                        # If conversion fails, keep original value as string
+                        converted_row.append(str(val))
+                rows.append(tuple(converted_row))
+
+            self._current_table = rows
+            self._current_row = 0
+
+        except json.JSONDecodeError as e:
+            raise Exception(f"Failed to parse JSON data: {e}")
 
     def commit(self) -> None:
         self._cursor.commit()
@@ -96,12 +182,10 @@ class Cursor:
         if not self._current_table or self._current_row >= len(self._current_table):
             return None
 
-        row_dict = {
-            col: self._current_table.column(col)[self._current_row].as_py()
-            for col in self._current_table.column_names
-        }
+        # Now self._current_table is a list of row tuples
+        row = self._current_table[self._current_row]
         self._current_row += 1
-        return tuple(row_dict.values())
+        return row
 
     def fetchmany(self, size: int = 1) -> tuple:
         if not self._current_table:
@@ -134,6 +218,30 @@ class Cursor:
         if row is None:
             raise StopIteration
         return row
+
+    def column_names(self) -> list:
+        """Return a list of column names from the last executed query"""
+        return self._column_names if hasattr(self, "_column_names") else []
+
+    def column_types(self) -> list:
+        """Return a list of column types from the last executed query"""
+        return self._column_types if hasattr(self, "_column_types") else []
+
+    @property
+    def description(self) -> list:
+        """
+        Return a description of the columns as per DB-API 2.0
+        Returns a list of 7-item tuples, each containing:
+        (name, type_code, display_size, internal_size, precision, scale, null_ok)
+        where only name and type_code are provided
+        """
+        if not hasattr(self, "_column_names") or not self._column_names:
+            return []
+
+        return [
+            (name, type_info, None, None, None, None, None)
+            for name, type_info in zip(self._column_names, self._column_types)
+        ]
 
 
 def connect(connection_string: str = ":memory:") -> Connection:
