@@ -5,10 +5,11 @@ import re
 # executemany only supports simple bulk insert.
 # You can use it to load large dataset.
 RE_INSERT_VALUES = re.compile(
-    r"\s*((?:INSERT|REPLACE)\b.+\bVALUES?\s*)" +
-    r"(\(\s*(?:%s|%\(.+\)s)\s*(?:,\s*(?:%s|%\(.+\)s)\s*)*\))" +
-    r"(\s*(?:ON DUPLICATE.*)?);?\s*\Z",
-    re.IGNORECASE | re.DOTALL)
+    r"\s*((?:INSERT|REPLACE)\b.+\bVALUES?\s*)"
+    + r"(\(\s*(?:%s|%\(.+\)s)\s*(?:,\s*(?:%s|%\(.+\)s)\s*)*\))"
+    + r"(\s*(?:ON DUPLICATE.*)?);?\s*\Z",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class Cursor(object):
@@ -131,13 +132,17 @@ class Cursor(object):
 
         self._cursor.execute(query)
 
-        # Get description from Arrow schema
-        if self._cursor._current_table is not None:
+        # Get description from column names and types
+        if hasattr(self._cursor, "_column_names") and self._cursor._column_names:
             self.description = [
-                (field.name, field.type.to_pandas_dtype(), None, None, None, None, None)
-                for field in self._cursor._current_table.schema
+                (name, type_info, None, None, None, None, None)
+                for name, type_info in zip(
+                    self._cursor._column_names, self._cursor._column_types
+                )
             ]
-            self.rowcount = self._cursor._current_table.num_rows
+            self.rowcount = (
+                len(self._cursor._current_table) if self._cursor._current_table else -1
+            )
         else:
             self.description = None
             self.rowcount = -1
@@ -164,16 +169,23 @@ class Cursor(object):
         if m:
             q_prefix = m.group(1) % ()
             q_values = m.group(2).rstrip()
-            q_postfix = m.group(3) or ''
-            assert q_values[0] == '(' and q_values[-1] == ')'
-            return self._do_execute_many(q_prefix, q_values, q_postfix, args,
-                                         self.max_stmt_length,
-                                         self._get_db().encoding)
+            q_postfix = m.group(3) or ""
+            assert q_values[0] == "(" and q_values[-1] == ")"
+            return self._do_execute_many(
+                q_prefix,
+                q_values,
+                q_postfix,
+                args,
+                self.max_stmt_length,
+                self._get_db().encoding,
+            )
 
         self.rowcount = sum(self.execute(query, arg) for arg in args)
         return self.rowcount
 
-    def _do_execute_many(self, prefix, values, postfix, args, max_stmt_length, encoding):
+    def _do_execute_many(
+        self, prefix, values, postfix, args, max_stmt_length, encoding
+    ):
         conn = self._get_db()
         escape = self._escape_args
         if isinstance(prefix, str):
@@ -184,18 +196,18 @@ class Cursor(object):
         args = iter(args)
         v = values % escape(next(args), conn)
         if isinstance(v, str):
-            v = v.encode(encoding, 'surrogateescape')
+            v = v.encode(encoding, "surrogateescape")
         sql += v
         rows = 0
         for arg in args:
             v = values % escape(arg, conn)
             if isinstance(v, str):
-                v = v.encode(encoding, 'surrogateescape')
+                v = v.encode(encoding, "surrogateescape")
             if len(sql) + len(v) + len(postfix) + 1 > max_stmt_length:
                 rows += self.execute(sql + postfix)
                 sql = prefix
             else:
-                sql += ','.encode(encoding)
+                sql += ",".encode(encoding)
             sql += v
         rows += self.execute(sql + postfix)
         self.rowcount = rows
