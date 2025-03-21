@@ -285,8 +285,12 @@ connection_wrapper::~connection_wrapper()
 
 void connection_wrapper::close()
 {
-    py::gil_scoped_release release;
-    close_conn(conn);
+    {
+        py::gil_scoped_release release;
+        close_conn(conn);
+    }
+    // Ensure that if a new connection is created before this object is destroyed that we don't try to close it.
+    conn = nullptr;
 }
 
 cursor_wrapper * connection_wrapper::cursor()
