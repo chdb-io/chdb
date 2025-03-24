@@ -1,6 +1,6 @@
 # Contributors
 
-* auxten  [auxtenwpc@gmail.com](mailto:auxtenwpc@gmail.com)
+* auxten [auxten@clickhouse.com](mailto:auxten@clickhouse.com)
 * Daniel Robbins  [elongaos@gmail.com](mailto:elongaos@gmail.com)
 * Lorenzo Mangani  [lorenzo.mangani@gmail.com](mailto:lorenzo.mangani@gmail.com)
 * nmreadelf  [frank.q.kong@hotmail.com](mailto:frank.q.kong@hotmail.com)
@@ -13,7 +13,6 @@
 * xinhuitian  [xinhui_tian@126.com](mailto:xinhui_tian@126.com)
 * Alex Bocharov  [alex@x.ai](mailto:alex@x.ai)
 * meastham [meastham@ramp.com](mailto:meastham@ramp.com)
-
 
 To see the list of authors who created the source code of ClickHouse, published and distributed by ClickHouse, Inc. as the owner,
 run "SELECT * FROM system.contributors;" query on any ClickHouse server.
