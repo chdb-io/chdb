@@ -57,9 +57,9 @@ elif [ "$(uname)" == "Linux" ]; then
     PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     ICU="-DENABLE_ICU=1"
     SED_INPLACE="sed -i"
-    # only x86_64, enable AVX and AVX2, enable embedded compiler
+    # only x86_64, enable AVX, enable embedded compiler
     if [ "$(uname -m)" == "x86_64" ]; then
-        CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1"
+        CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
     else
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
