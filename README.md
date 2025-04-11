@@ -61,6 +61,44 @@ python3 -m chdb "SELECT 1,'abc'" Pretty
 The following methods are available to access on-disk and in-memory data formats:
 
 <details>
+    <summary><h4>🗂️ Connection based API (recommended)</h4></summary>
+
+```python
+import chdb
+
+# Create a connection (in-memory by default)
+conn = chdb.connect(":memory:")
+# Or use file-based: conn = chdb.connect("test.db")
+
+# Create a cursor
+cur = conn.cursor()
+
+# Execute queries
+cur.execute("SELECT number, toString(number) as str FROM system.numbers LIMIT 3")
+
+# Fetch data in different ways
+print(cur.fetchone())    # Single row: (0, '0')
+print(cur.fetchmany(2))  # Multiple rows: ((1, '1'), (2, '2'))
+
+# Get column information
+print(cur.column_names())  # ['number', 'str']
+print(cur.column_types())  # ['UInt64', 'String']
+
+# Use the cursor as an iterator
+cur.execute("SELECT number FROM system.numbers LIMIT 3")
+for row in cur:
+    print(row)
+
+# Always close resources when done
+cur.close()
+conn.close()
+```
+
+For more details, see [examples/connect.py](examples/connect.py).
+</details>
+
+
+<details>
     <summary><h4>🗂️ Query On File</h4> (Parquet, CSV, JSON, Arrow, ORC and 60+)</summary>
 
 You can execute SQL and return desired format data.
