@@ -93,6 +93,8 @@ for row in cur:
 cur.close()
 conn.close()
 ```
+
+For more details, see [examples/connect.py](examples/connect.py).
 </details>
 
 
