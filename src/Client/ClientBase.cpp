@@ -523,7 +523,14 @@ try
         else
         {
             // The underlying vector<char> will be freed by `free_result` from Python side.
-            query_result_memory = new std::vector<char>(4096);
+            // When the input query contains multiple statements, such as "SELECT 1; SELECT 2". When executing "SELECT 2",
+            // the query_result_memory corresponding to SELECT 1 has not been "stolen" by function stealQueryOutputVector,
+            // so it remains non-empty.
+            if (query_result_memory)
+                query_result_memory->resize(4096);
+            else
+                query_result_memory = new std::vector<char>(4096);
+
             query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory);
 
             out_buf = query_result_buf.get();
