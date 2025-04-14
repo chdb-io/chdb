@@ -107,13 +107,13 @@ public:
         return query_result_memory;
     }
 
-    /// Steals and returns the query output vector, replacing it with a new one
+    /// Steals and returns the query output vector.
+    /// Afterward, the content of query_result_memory is released by the Python side.
     std::vector<char> * stealQueryOutputVector()
     {
         auto * result = query_result_memory;
-        query_result_memory = new std::vector<char>(4096);
-        // WriteBufferFromVector takes a reference to the vector but doesn't own it
-        query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory);
+        query_result_memory = nullptr;
+        query_result_buf.reset();
         return result;
     }
 
