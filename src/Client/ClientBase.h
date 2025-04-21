@@ -72,6 +72,16 @@ std::istream& operator>> (std::istream & in, ProgressOption & progress);
 class InternalTextLogs;
 class WriteBufferFromFileDescriptor;
 
+struct StreamingQueryContext
+{
+    String full_query;
+    ASTPtr parsed_query;
+    void * streaming_result = nullptr;
+    bool is_streaming_query = true;
+
+    StreamingQueryContext() = default;
+};
+
 /**
  * The base class which encapsulates the core functionality of a client.
  * Can be used in a standalone application (clickhouse-client or clickhouse-local),
@@ -127,7 +137,7 @@ public:
 
     ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements);
 
-protected:
+public:
     void runInteractive();
     void runNonInteractive();
 
@@ -190,6 +200,10 @@ protected:
     /// Returns true if query processing was successful.
     bool processQueryText(const String & text);
 
+    bool processStreamingQuery(void * streaming_result_);
+    void resetOutputFormat();
+    void receiveResult(ASTPtr parsed_query);
+
     virtual void readArguments(
         int argc,
         char ** argv,
@@ -199,7 +213,7 @@ protected:
 
     void setInsertionTable(const ASTInsertQuery & insert_query);
 
-private:
+public:
     void receiveResult(ASTPtr parsed_query, Int32 signals_before_stop, bool partial_result_on_first_cancel);
     bool receiveAndProcessPacket(ASTPtr parsed_query, bool cancelled_);
     void receiveLogsAndProfileEvents(ASTPtr parsed_query);
@@ -237,7 +251,7 @@ private:
     void initQueryIdFormats();
     bool addMergeTreeSettings(ASTCreateQuery & ast_create);
 
-protected:
+public:
     class QueryInterruptHandler : private boost::noncopyable
     {
     public:
@@ -344,6 +358,7 @@ protected:
     // PODArray<char> query_result_memory;
     std::vector<char> * query_result_memory = nullptr;
     std::shared_ptr<WriteBuffer> query_result_buf;
+    std::shared_ptr<StreamingQueryContext> streaming_query_context;
 
     /// The user can specify to redirect query output to a file.
     std::unique_ptr<WriteBuffer> out_file_buf;

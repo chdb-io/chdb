@@ -1,12 +1,8 @@
 #pragma once
 
 #ifdef __cplusplus
-#    include <condition_variable>
 #    include <cstddef>
 #    include <cstdint>
-#    include <mutex>
-#    include <queue>
-#    include <string>
 extern "C" {
 #else
 #    include <stdbool.h>
@@ -55,26 +51,6 @@ CHDB_EXPORT void free_result(struct local_result * result);
 CHDB_EXPORT struct local_result_v2 * query_stable_v2(int argc, char ** argv);
 CHDB_EXPORT void free_result_v2(struct local_result_v2 * result);
 
-#ifdef __cplusplus
-struct query_request
-{
-    std::string query;
-    std::string format;
-};
-
-struct query_queue
-{
-    std::mutex mutex;
-    std::condition_variable query_cv; // For query submission
-    std::condition_variable result_cv; // For query result retrieval
-    query_request current_query;
-    local_result_v2 * current_result = nullptr;
-    bool has_query = false;
-    bool shutdown = false;
-    bool cleanup_done = false;
-};
-#endif
-
 /**
  * Connection structure for chDB
  * Contains server instance, connection state, and query processing queue
@@ -86,11 +62,15 @@ struct chdb_conn
     void * queue; /* Query processing queue */
 };
 
+typedef struct {
+	void * internal_data;
+} chdb_streaming_result;
+
 /**
  * Creates a new chDB connection.
  * Only one active connection is allowed per process.
  * Creating a new connection with different path requires closing existing connection.
- * 
+ *
  * @param argc Number of command-line arguments
  * @param argv Command-line arguments array (--path=<db_path> to specify database location)
  * @return Pointer to connection pointer, or NULL on failure
@@ -101,7 +81,7 @@ CHDB_EXPORT struct chdb_conn ** connect_chdb(int argc, char ** argv);
 /**
  * Closes an existing chDB connection and cleans up resources.
  * Thread-safe function that handles connection shutdown and cleanup.
- * 
+ *
  * @param conn Pointer to connection pointer to close
  */
 CHDB_EXPORT void close_conn(struct chdb_conn ** conn);
@@ -109,7 +89,7 @@ CHDB_EXPORT void close_conn(struct chdb_conn ** conn);
 /**
  * Executes a query on the given connection.
  * Thread-safe function that handles query execution in a separate thread.
- * 
+ *
  * @param conn Connection to execute query on
  * @param query SQL query string to execute
  * @param format Output format string (e.g., "CSV", default format)
@@ -117,6 +97,14 @@ CHDB_EXPORT void close_conn(struct chdb_conn ** conn);
  * @note Returns error result if connection is invalid or closed
  */
 CHDB_EXPORT struct local_result_v2 * query_conn(struct chdb_conn * conn, const char * query, const char * format);
+
+CHDB_EXPORT chdb_streaming_result * query_conn_streaming(struct chdb_conn * conn, const char * query, const char * format);
+
+CHDB_EXPORT const char * chdb_streaming_result_error(chdb_streaming_result * result);
+
+CHDB_EXPORT struct local_result_v2 * chdb_stream_fetch_result(struct chdb_conn * conn, chdb_streaming_result * result);
+
+CHDB_EXPORT void chdb_destroy_result(chdb_streaming_result * result);
 
 #ifdef __cplusplus
 }
