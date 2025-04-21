@@ -39,6 +39,47 @@ def to_df(r):
     t = to_arrowTable(r)
     return t.to_pandas(use_threads=True)
 
+class StreamingResult:
+    def __init__(self, c_result, conn, result_func):
+        self._result = c_result
+        self._result_func = result_func
+        self._conn = conn
+        self._exhausted = False
+
+    def fetch(self):
+        """Fetch next chunk of streaming results"""
+        if self._exhausted:
+            return None
+
+        try:
+            result = self._conn.streaming_fetch_result(self._result)
+            if result is None or result.rows_read() == 0:
+                self._exhausted = True
+                return None
+            return self._result_func(result)
+        except Exception as e:
+            self._exhausted = True
+            raise RuntimeError(f"Streaming query failed: {str(e)}") from e
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._exhausted:
+            raise StopIteration
+
+        chunk = self.fetch()
+        if chunk is None:
+            self._exhausted = True
+            raise StopIteration
+
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
 
 class Connection:
     def __init__(self, connection_string: str):
@@ -58,6 +99,15 @@ class Connection:
 
         result = self._conn.query(query, format)
         return result_func(result)
+
+    def send_query(self, query: str, format: str = "CSV") -> StreamingResult:
+        lower_output_format = format.lower()
+        result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
+        if lower_output_format in _arrow_format:
+            format = "Arrow"
+
+        c_stream_result = self._conn.send_query(query, format)
+        return StreamingResult(c_stream_result, self._conn, result_func)
 
     def close(self) -> None:
         # print("close")

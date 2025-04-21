@@ -25,6 +25,7 @@ class __attribute__((visibility("default"))) connection_wrapper;
 class __attribute__((visibility("default"))) cursor_wrapper;
 class __attribute__((visibility("default"))) memoryview_wrapper;
 class __attribute__((visibility("default"))) query_result;
+class __attribute__((visibility("default"))) streaming_query_result;
 
 class connection_wrapper
 {
@@ -42,6 +43,8 @@ public:
     void commit();
     void close();
     query_result * query(const std::string & query_str, const std::string & format = "CSV");
+    streaming_query_result * send_query(const std::string & query_str, const std::string & format = "CSV");
+    query_result * streaming_fetch_result(streaming_query_result * streaming_result);
 
     // Move the private methods declarations here
     std::pair<std::string, std::map<std::string, std::string>> parse_connection_string(const std::string & conn_str);
@@ -167,6 +170,22 @@ public:
     bool has_error() { return result_wrapper->has_error(); }
     py::str error_message() { return result_wrapper->error_message(); }
     memoryview_wrapper * get_memview();
+};
+
+class streaming_query_result
+{
+private:
+    chdb_streaming_result * result;
+
+public:
+    streaming_query_result(chdb_streaming_result * result_) : result(result_) {}
+    ~streaming_query_result()
+    {
+        chdb_destroy_result(result);
+    }
+    bool has_error() { return chdb_streaming_result_error(result) != nullptr; }
+    py::str error_message() { return chdb_streaming_result_error(result); }
+    chdb_streaming_result * get_result() { return result; }
 };
 
 class memoryview_wrapper

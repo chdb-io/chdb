@@ -1,5 +1,6 @@
 #include "LocalServer.h"
 #include "chdb.h"
+#include "chdb-internal.h"
 
 #include <sys/resource.h>
 #include "Common/Logger.h"
@@ -67,7 +68,7 @@
 
 
 namespace fs = std::filesystem;
-std::mutex global_connection_mutex;
+static std::shared_mutex global_connection_mutex;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
 namespace CurrentMetrics
@@ -1215,9 +1216,162 @@ void free_result_v2(local_result_v2 * result)
     delete result;
 }
 
+static local_result_v2 * createMaterializedLocalQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+{
+    auto * result = new local_result_v2();
+    const auto & materialized_request = dynamic_cast<const CHDB::MaterializedQueryRequest &>(req);
+
+    try
+    {
+        if (!server->parseQueryTextWithOutputFormat(materialized_request.query, materialized_request.format))
+        {
+            std::string error = server->getErrorMsg();
+            result->error_message = new char[error.length() + 1];
+            std::strcpy(result->error_message, error.c_str());
+        }
+        else
+        {
+            auto* query_output_vec = server->stealQueryOutputVector();
+            if (query_output_vec)
+            {
+                result->_vec = query_output_vec;
+                result->len = query_output_vec->size();
+                result->buf = query_output_vec->data();
+            }
+            result->rows_read = server->getProcessedRows();
+            result->bytes_read = server->getProcessedBytes();
+            result->elapsed = server->getElapsedTime();
+        }
+    }
+    catch (const DB::Exception& e)
+    {
+        std::string error = DB::getExceptionMessage(e, false);
+        result->error_message = new char[error.length() + 1];
+        std::strcpy(result->error_message, error.c_str());
+    }
+    catch (...)
+    {
+        const char* unknown_error = "Unknown error occurred";
+        result->error_message = new char[strlen(unknown_error) + 1];
+        std::strcpy(result->error_message, unknown_error);
+    }
+    return result;
+}
+
+static chdb_streaming_result * createStreamingQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+{
+    auto * result = new chdb_streaming_result();
+    auto * streaming_result = new CHDB::StreamingResultData();
+    result->internal_data = streaming_result;
+    const auto & streaming_init_request = dynamic_cast<const CHDB::StreamingInitRequest &>(req);
+
+    try
+    {
+        if (!server->parseQueryTextWithOutputFormat(streaming_init_request.query, streaming_init_request.format))
+            streaming_result->error_message = server->getErrorMsg();
+    }
+    catch (const DB::Exception& e)
+    {
+        std::string error = DB::getExceptionMessage(e, false);
+        streaming_result->error_message = error;
+    }
+    catch (...)
+    {
+        const char* unknown_error = "Unknown error occurred";
+        streaming_result->error_message = unknown_error;
+    }
+    return result;
+}
+
+static local_result_v2 * createStreamingIterateQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+{
+    auto * result = new local_result_v2();
+    const auto & streaming_iter_request = dynamic_cast<const CHDB::StreamingIterateRequest &>(req);
+    const auto old_processed_rows = server->getProcessedRows();
+    const auto old_processed_bytes = server->getProcessedBytes();
+    const auto old_elapsed_time = server->getElapsedTime();
+
+    try
+    {
+        if (!server->processStreamingQuery(streaming_iter_request.streaming_result))
+        {
+            std::string error = server->getErrorMsg();
+            result->error_message = new char[error.length() + 1];
+            std::strcpy(result->error_message, error.c_str());
+        }
+        else
+        {
+            const auto processed_rows = server->getProcessedRows();
+            const auto processed_bytes = server->getProcessedBytes();
+            const auto elapsed_time = server->getElapsedTime();
+            if (processed_rows <= old_processed_rows)
+                return result;
+
+            auto* query_output_vec = server->stealQueryOutputVector();
+            if (query_output_vec)
+            {
+                result->_vec = query_output_vec;
+                result->len = query_output_vec->size();
+                result->buf = query_output_vec->data();
+            }
+            result->rows_read = processed_rows - old_processed_rows;
+            result->bytes_read = processed_bytes - old_processed_bytes;
+            result->elapsed = elapsed_time - old_elapsed_time;
+        }
+    }
+    catch (const DB::Exception& e)
+    {
+        std::string error = DB::getExceptionMessage(e, false);
+        result->error_message = new char[error.length() + 1];
+        std::strcpy(result->error_message, error.c_str());
+    }
+    catch (...)
+    {
+        const char* unknown_error = "Unknown error occurred";
+        result->error_message = new char[strlen(unknown_error) + 1];
+        std::strcpy(result->error_message, unknown_error);
+    }
+    return result;
+}
+
+static CHDB::ResultData createQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+{
+    CHDB::ResultData result_data;
+
+    if (!req.isStreaming())
+    {
+        result_data.result_type = CHDB::QueryResultType::RESULT_TYPE_MATERIALIZED;
+        result_data.materialized_result = createMaterializedLocalQueryResult(server, req);
+        result_data.is_end = true;
+    }
+    else if (!req.isIteration())
+    {
+        server->streaming_query_context = std::make_shared<DB::StreamingQueryContext>();
+        result_data.result_type = CHDB::QueryResultType::RESULT_TYPE_STREAMING;
+        result_data.streaming_result = createStreamingQueryResult(server, req);
+        result_data.is_end = chdb_streaming_result_error(result_data.streaming_result);
+
+        if (!result_data.is_end)
+            server->streaming_query_context->streaming_result = result_data.streaming_result;
+        else
+            server->streaming_query_context.reset();
+    }
+    else
+    {
+        result_data.result_type = CHDB::QueryResultType::RESULT_TYPE_MATERIALIZED;
+        result_data.materialized_result = createStreamingIterateQueryResult(server, req);
+        result_data.is_end = result_data.materialized_result->error_message || result_data.materialized_result->rows_read == 0;
+    }
+
+    if (result_data.is_end)
+        server->streaming_query_context.reset();
+
+    return result_data;
+}
+
 chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
+    std::lock_guard<std::shared_mutex> global_lock(global_connection_mutex);
 
     std::string path = ":memory:"; // Default path
     for (int i = 1; i < argc; i++)
@@ -1243,7 +1397,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     }
 
     auto * conn = new chdb_conn();
-    auto * q_queue = new query_queue();
+    auto * q_queue = new CHDB::QueryQueue();
     conn->queue = q_queue;
 
     std::mutex init_mutex;
@@ -1256,7 +1410,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     std::thread(
         [&]()
         {
-            auto * queue = static_cast<query_queue *>(conn->queue);
+            auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
             try
             {
                 DB::LocalServer * server = bgClickHouseLocal(argc, argv);
@@ -1276,7 +1430,6 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                 while (true)
                 {
-                    query_request req;
                     {
                         std::unique_lock<std::mutex> lock(queue->mutex);
                         queue->query_cv.wait(lock, [queue]() { return queue->has_query || queue->shutdown; });
@@ -1298,48 +1451,21 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                             break;
                         }
 
-                        req = queue->current_query;
                     }
 
-                    local_result_v2 * result = new local_result_v2();
-                    try
-                    {
-                        if (!server->parseQueryTextWithOutputFormat(req.query, req.format))
-                        {
-                            std::string error = server->getErrorMsg();
-                            result->error_message = new char[error.length() + 1];
-                            std::strcpy(result->error_message, error.c_str());
-                        }
-                        else
-                        {
-                            auto * query_output_vec = server->stealQueryOutputVector();
-                            if (query_output_vec)
-                            {
-                                result->_vec = query_output_vec;
-                                result->len = query_output_vec->size();
-                                result->buf = query_output_vec->data();
-                            }
-                            result->rows_read = server->getProcessedRows();
-                            result->bytes_read = server->getProcessedBytes();
-                            result->elapsed = server->getElapsedTime();
-                        }
-                    }
-                    catch (const DB::Exception & e)
-                    {
-                        std::string error = DB::getExceptionMessage(e, false);
-                        result->error_message = new char[error.length() + 1];
-                        std::strcpy(result->error_message, error.c_str());
-                    }
-                    catch (...)
-                    {
-                        const char * unknown_error = "Unknown error occurred";
-                        result->error_message = new char[strlen(unknown_error) + 1];
-                        std::strcpy(result->error_message, unknown_error);
-                    }
+                    CHDB::QueryRequestBase & req = *(queue->current_query);
+                    auto result = createQueryResult(server, req);
 
                     {
                         std::lock_guard<std::mutex> lock(queue->mutex);
+                        if (req.isStreaming() && !req.isIteration())
+                            queue->has_streaming_query = true;
+
+                        if (req.isStreaming() && req.isIteration() && result.is_end)
+                            queue->has_streaming_query = false;
+
                         queue->current_result = result;
+                        queue->has_result = true;
                         queue->has_query = false;
                     }
                     queue->result_cv.notify_one();
@@ -1402,7 +1528,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
 void close_conn(chdb_conn ** conn)
 {
-    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
+    std::lock_guard<std::shared_mutex> global_lock(global_connection_mutex);
 
     if (!conn || !*conn)
         return;
@@ -1411,7 +1537,7 @@ void close_conn(chdb_conn ** conn)
     {
         if ((*conn)->queue)
         {
-            auto * queue = static_cast<query_queue *>((*conn)->queue);
+            auto * queue = static_cast<CHDB::QueryQueue *>((*conn)->queue);
 
             {
                 std::unique_lock<std::mutex> queue_lock(queue->mutex);
@@ -1423,11 +1549,8 @@ void close_conn(chdb_conn ** conn)
                 queue->query_cv.wait(queue_lock, [queue] { return queue->cleanup_done; });
 
                 // Clean up current result if any
-                if (queue->current_result)
-                {
-                    free_result_v2(queue->current_result);
-                    queue->current_result = nullptr;
-                }
+                queue->current_result.reset();
+                queue->has_result = false;
             }
 
             delete queue;
@@ -1447,77 +1570,202 @@ void close_conn(chdb_conn ** conn)
     *conn = nullptr;
 }
 
-struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
+static bool checkConnectionValidity(chdb_conn * conn)
 {
-    // Add connection validity check under global lock
-    std::lock_guard<std::mutex> global_lock(global_connection_mutex);
-    if (!conn || !conn->connected || !conn->queue)
-    {
-        auto * result = new local_result_v2{};
-        const char * error = "Invalid or closed connection";
-        result->error_message = new char[strlen(error) + 1];
-        std::strcpy(result->error_message, error);
-        return result;
-    }
+    return conn && conn->connected && conn->queue;
+}
 
-    // Release global lock before processing query
-    auto * queue = static_cast<query_queue *>(conn->queue);
-    local_result_v2 * result = nullptr;
+template <typename T>
+T* createErrorResultImpl(const char* error_msg);
+
+template <>
+local_result_v2 * createErrorResultImpl<local_result_v2>(const char * error_msg)
+{
+    auto* result = new local_result_v2{};
+    result->error_message = new char[strlen(error_msg) + 1];
+    std::strcpy(result->error_message, error_msg);
+    return result;
+}
+
+template <>
+chdb_streaming_result * createErrorResultImpl<chdb_streaming_result>(const char * error_msg)
+{
+    auto* stream_result = new chdb_streaming_result();
+    auto* stream_result_data = new CHDB::StreamingResultData();
+    stream_result_data->error_message = error_msg;
+    stream_result->internal_data = stream_result_data;
+    return stream_result;
+}
+
+template <typename T>
+T * createErrorResult(const char * error_msg)
+{
+    if constexpr (std::is_same_v<T, chdb_streaming_result>) {
+        return createErrorResultImpl<chdb_streaming_result>(error_msg);
+    } else {
+        return createErrorResultImpl<local_result_v2>(error_msg);
+    }
+}
+
+static CHDB::ResultData executeQueryRequest(
+    CHDB::QueryQueue * queue,
+    const char * query,
+    const char * format,
+    CHDB::QueryType query_type,
+    chdb_streaming_result * streaming_result_ = nullptr)
+{
+    CHDB::ResultData result;
 
     try
     {
         {
             std::unique_lock<std::mutex> lock(queue->mutex);
             // Wait until any ongoing query completes
-            queue->result_cv.wait(lock, [queue]() { return !queue->has_query || queue->shutdown; });
+            if (query_type == CHDB::QueryType::TYPE_STREAMING_ITER)
+                queue->result_cv.wait(lock, [queue]() { return !queue->has_query || queue->shutdown; });
+            else
+                queue->result_cv.wait(lock, [queue]() { return (!queue->has_query && !queue->has_streaming_query) || queue->shutdown; });
 
             if (queue->shutdown)
             {
-                result = new local_result_v2{};
-                const char * error = "Connection is shutting down";
-                result->error_message = new char[strlen(error) + 1];
-                std::strcpy(result->error_message, error);
+                if (query_type == CHDB::QueryType::TYPE_STREAMING_INIT)
+                    result.streaming_result = createErrorResult<chdb_streaming_result>("Connection is shutting down");
+                else
+                    result.materialized_result = createErrorResult<local_result_v2>("Connection is shutting down");
                 return result;
             }
 
-            // Set new query
-            queue->current_query = {query, format};
+            if (query_type == CHDB::QueryType::TYPE_STREAMING_INIT)
+            {
+                auto streaming_req = std::make_unique<CHDB::StreamingInitRequest>();
+                streaming_req->query = query;
+                streaming_req->format = format;
+                queue->current_query = std::move(streaming_req);
+            }
+            else if (query_type == CHDB::QueryType::TYPE_MATERIALIZED)
+            {
+                auto materialized_req = std::make_unique<CHDB::MaterializedQueryRequest>();
+                materialized_req->query = query;
+                materialized_req->format = format;
+                queue->current_query = std::move(materialized_req);
+            }
+            else
+            {
+                auto streaming_iter_req = std::make_unique<CHDB::StreamingIterateRequest>();
+                streaming_iter_req->streaming_result = streaming_result_;
+                queue->current_query = std::move(streaming_iter_req);
+            }
+
             queue->has_query = true;
-            queue->current_result = nullptr;
+            queue->current_result.clear();
+            queue->has_result = false;
         }
-        queue->query_cv.notify_one();
+        queue->query_cv.notify_all();
 
         {
             std::unique_lock<std::mutex> lock(queue->mutex);
-            queue->result_cv.wait(lock, [queue]() { return queue->current_result != nullptr || queue->shutdown; });
+            queue->result_cv.wait(lock, [queue]() { return queue->has_result || queue->shutdown; });
 
-            if (!queue->shutdown && queue->current_result)
+            if (!queue->shutdown && queue->has_result)
             {
                 result = queue->current_result;
-                queue->current_result = nullptr;
+                queue->current_result.clear();
+                queue->has_result = false;
                 queue->has_query = false;
             }
         }
-        queue->query_cv.notify_one();
+        queue->query_cv.notify_all();
     }
     catch (...)
     {
         // Handle any exceptions during query processing
-        result = new local_result_v2{};
-        const char * error = "Error occurred while processing query";
-        result->error_message = new char[strlen(error) + 1];
-        std::strcpy(result->error_message, error);
-    }
-
-    if (!result)
-    {
-        result = new local_result_v2{};
-        const char * error = "Query processing failed";
-        result->error_message = new char[strlen(error) + 1];
-        std::strcpy(result->error_message, error);
+        if (query_type == CHDB::QueryType::TYPE_STREAMING_INIT)
+            result.streaming_result = createErrorResult<chdb_streaming_result>("Error occurred while processing query");
+        else
+            result.materialized_result = createErrorResult<local_result_v2>("Error occurred while processing query");
     }
 
     return result;
+}
+
+struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
+{
+    // Add connection validity check under global lock
+    std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
+
+    if (!checkConnectionValidity(conn))
+        return createErrorResult<local_result_v2>("Invalid or closed connection");
+
+    auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
+    CHDB::ResultData result = executeQueryRequest(queue, query, format, CHDB::QueryType::TYPE_MATERIALIZED);
+
+    auto * local_result = result.materialized_result;
+    if (!local_result)
+        local_result = createErrorResult<local_result_v2>("Query processing failed");
+
+    return local_result;
+}
+
+chdb_streaming_result * query_conn_streaming(chdb_conn * conn, const char * query, const char * format)
+{
+    // Add connection validity check under global lock
+    std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
+
+    if (!checkConnectionValidity(conn))
+        return createErrorResult<chdb_streaming_result>("Invalid or closed connection");
+
+    auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
+    CHDB::ResultData result = executeQueryRequest(queue, query, format, CHDB::QueryType::TYPE_STREAMING_INIT);
+
+    auto * streaming_result = result.streaming_result;
+    if (!streaming_result)
+        streaming_result = createErrorResult<chdb_streaming_result>("Query processing failed");
+
+    return streaming_result;
+}
+
+const char * chdb_streaming_result_error(chdb_streaming_result * result)
+{
+    if (!result || !result->internal_data)
+		return nullptr;
+
+	auto & result_data = *(reinterpret_cast<CHDB::StreamingResultData *>(result->internal_data));
+    if (result_data.error_message.empty())
+		return nullptr;
+
+	return result_data.error_message.c_str();
+}
+
+local_result_v2 * chdb_stream_fetch_result(chdb_conn * conn, chdb_streaming_result * result_)
+{
+    // Add connection validity check under global lock
+    std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
+
+    if (!checkConnectionValidity(conn))
+        return createErrorResult<local_result_v2>("Invalid or closed connection");
+
+    auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
+    CHDB::ResultData result = executeQueryRequest(queue, nullptr, nullptr, CHDB::QueryType::TYPE_STREAMING_ITER, result_);
+
+    auto * local_result = result.materialized_result;
+    if (!local_result)
+        local_result = createErrorResult<local_result_v2>("Query processing failed");
+
+    return local_result;
+}
+
+void chdb_destroy_result(chdb_streaming_result * result)
+{
+    if (!result)
+		return;
+
+    if (result->internal_data)
+    {
+        auto * result_data = reinterpret_cast<CHDB::StreamingResultData *>(result->internal_data);
+        delete result_data;
+    }
+
+    delete result;
 }
 
 /**
