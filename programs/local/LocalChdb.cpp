@@ -315,6 +315,8 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     }
     if (result->error_message)
     {
+        std::string msg_copy(result->error_message);
+        free_result_v2(result);
         throw std::runtime_error(result->error_message);
     }
     return new query_result(result, false);
@@ -328,7 +330,11 @@ streaming_query_result * connection_wrapper::send_query(const std::string & quer
     auto * result = query_conn_streaming(*conn, query_str.c_str(), format.c_str());
     const auto * error_msg = chdb_streaming_result_error(result);
     if (error_msg)
-        throw std::runtime_error(error_msg);
+    {
+        std::string msg_copy(error_msg);
+        chdb_destroy_result(result);
+        throw std::runtime_error(msg_copy);
+    }
 
     return new streaming_query_result(result);
 }
@@ -346,7 +352,11 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
         LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
 
     if (result->error_message)
-        throw std::runtime_error(result->error_message);
+    {
+        std::string msg_copy(result->error_message);
+        free_result_v2(result);
+        throw std::runtime_error(msg_copy);
+    }
 
     return new query_result(result, false);
 }

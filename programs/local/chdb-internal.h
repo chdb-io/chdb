@@ -40,15 +40,15 @@ struct StreamingIterateRequest : QueryRequestBase {
 
 enum class QueryType : uint8_t
 {
-	TYPE_MATERIALIZED = 0,
-	TYPE_STREAMING_INIT = 1,
+    TYPE_MATERIALIZED = 0,
+    TYPE_STREAMING_INIT = 1,
     TYPE_STREAMING_ITER = 2
 };
 
 enum class QueryResultType : uint8_t
 {
-	RESULT_TYPE_MATERIALIZED = 0,
-	RESULT_TYPE_STREAMING = 1,
+    RESULT_TYPE_MATERIALIZED = 0,
+    RESULT_TYPE_STREAMING = 1,
     RESULT_TYPE_NONE = 2
 };
 
