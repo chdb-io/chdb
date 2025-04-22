@@ -98,12 +98,49 @@ CHDB_EXPORT void close_conn(struct chdb_conn ** conn);
  */
 CHDB_EXPORT struct local_result_v2 * query_conn(struct chdb_conn * conn, const char * query, const char * format);
 
+/**
+ * Executes a streaming query on the given connection.
+ * @brief Initializes streaming query execution and returns result handle
+ * @param conn Connection to execute query on
+ * @param query SQL query string to execute
+ * @param format Output format string (e.g. "CSV", default format)
+ * @return Streaming result handle containing query state or error message
+ * @note Returns error result if connection is invalid or closed
+ */
 CHDB_EXPORT chdb_streaming_result * query_conn_streaming(struct chdb_conn * conn, const char * query, const char * format);
 
+/**
+ * Retrieves error message from streaming result.
+ * @brief Gets error message associated with streaming query execution
+ * @param result Streaming result handle from query_conn_streaming()
+ * @return Null-terminated error message string, or NULL if no error occurred
+ */
 CHDB_EXPORT const char * chdb_streaming_result_error(chdb_streaming_result * result);
 
-CHDB_EXPORT struct local_result_v2 * chdb_stream_fetch_result(struct chdb_conn * conn, chdb_streaming_result * result);
+/**
+ * Fetches next chunk of streaming results.
+ * @brief Iterates through streaming query results
+ * @param conn Active connection handle
+ * @param result Streaming result handle from query_conn_streaming()
+ * @return Materialized result chunk with data
+ * @note Returns empty result when stream ends
+ */
+CHDB_EXPORT struct local_result_v2 * chdb_streaming_fetch_result(struct chdb_conn * conn, chdb_streaming_result * result);
 
+/**
+ * Cancels ongoing streaming query.
+ * @brief Aborts streaming query execution and cleans up resources
+ * @param conn Active connection handle
+ * @param result Streaming result handle to cancel
+ */
+CHDB_EXPORT void chdb_streaming_cancel_query(struct chdb_conn * conn, chdb_streaming_result * result);
+
+/**
+ * Releases resources associated with streaming result.
+ * @brief Destroys streaming result handle and frees allocated memory
+ * @param result Streaming result handle to destroy
+ * @warning Must be called even if query was finished or canceled
+ */
 CHDB_EXPORT void chdb_destroy_result(chdb_streaming_result * result);
 
 #ifdef __cplusplus

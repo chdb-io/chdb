@@ -2450,6 +2450,7 @@ bool ClientBase::processQueryText(const String & text)
         return true;
     }
 
+    cancelled = false;
     const bool is_streaming_query = streaming_query_context && streaming_query_context->is_streaming_query;
     if (is_streaming_query)
     {
@@ -2460,7 +2461,7 @@ bool ClientBase::processQueryText(const String & text)
     return executeMultiQuery(text);
 }
 
-bool ClientBase::processStreamingQuery(void * streaming_result_)
+bool ClientBase::processStreamingQuery(void * streaming_result_, bool is_canceled)
 {
     const auto old_processed_rows = processed_rows;
 
@@ -2474,7 +2475,7 @@ bool ClientBase::processStreamingQuery(void * streaming_result_)
 
         resetOutputFormat();
 
-        receiveResult(streaming_query_context->parsed_query);
+        receiveResult(streaming_query_context->parsed_query, is_canceled);
 
         resetOutputFormat();
     }
@@ -2557,7 +2558,7 @@ void ClientBase::resetOutputFormat()
     output_format.reset();
 }
 
-void ClientBase::receiveResult(ASTPtr parsed_query)
+void ClientBase::receiveResult(ASTPtr parsed_query, bool is_canceled)
 {
     // TODO: get the poll_interval from commandline.
     const auto receive_timeout = connection_parameters.timeouts.receive_timeout;
@@ -2567,6 +2568,9 @@ void ClientBase::receiveResult(ASTPtr parsed_query)
         = std::max(min_poll_interval, std::min<size_t>(receive_timeout.totalMicroseconds(), default_poll_interval));
 
     std::exception_ptr local_format_error;
+
+    if (is_canceled)
+        cancelQuery();
 
     while (true)
     {
@@ -2582,6 +2586,9 @@ void ClientBase::receiveResult(ASTPtr parsed_query)
 
             if (!receiveAndProcessPacket(parsed_query, cancelled))
                 break;
+
+            if (is_canceled)
+                continue;
 
             if (processed_rows > old_processed_rows)
                 break;

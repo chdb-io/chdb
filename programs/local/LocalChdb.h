@@ -45,6 +45,7 @@ public:
     query_result * query(const std::string & query_str, const std::string & format = "CSV");
     streaming_query_result * send_query(const std::string & query_str, const std::string & format = "CSV");
     query_result * streaming_fetch_result(streaming_query_result * streaming_result);
+    void streaming_cancel_query(streaming_query_result * streaming_result);
 
     // Move the private methods declarations here
     std::pair<std::string, std::map<std::string, std::string>> parse_connection_string(const std::string & conn_str);

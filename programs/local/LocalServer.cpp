@@ -66,6 +66,7 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+static local_result_v2 * createStreamingIterateQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req);
 
 namespace fs = std::filesystem;
 static std::shared_mutex global_connection_mutex;
@@ -313,6 +314,8 @@ void LocalServer::cleanup()
 {
     try
     {
+        cleanStreamingQuery();
+
         connection.reset();
 
         /// Suggestions are loaded async in a separate thread and it can use global context.
@@ -321,8 +324,6 @@ void LocalServer::cleanup()
             suggest.reset();
 
         client_context.reset();
-
-        streaming_query_context.reset();
 
         if (global_context)
         {
@@ -995,6 +996,21 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
     }
 }
 
+
+void LocalServer::cleanStreamingQuery()
+{
+    if (streaming_query_context && streaming_query_context->streaming_result)
+    {
+        auto streaming_iter_req = std::make_unique<CHDB::StreamingIterateRequest>();
+        streaming_iter_req->streaming_result = reinterpret_cast<chdb_streaming_result *>(streaming_query_context->streaming_result);
+        streaming_iter_req->is_canceled = true;
+
+        auto * local_result = createStreamingIterateQueryResult(this, *streaming_iter_req);
+        free_result_v2(local_result);
+    }
+    streaming_query_context.reset();
+}
+
 }
 
 #pragma clang diagnostic ignored "-Wunused-function"
@@ -1295,7 +1311,7 @@ static local_result_v2 * createStreamingIterateQueryResult(DB::LocalServer * ser
 
     try
     {
-        if (!server->processStreamingQuery(streaming_iter_request.streaming_result))
+        if (!server->processStreamingQuery(streaming_iter_request.streaming_result, streaming_iter_request.is_canceled))
         {
             std::string error = server->getErrorMsg();
             result->error_message = new char[error.length() + 1];
@@ -1362,7 +1378,10 @@ static CHDB::ResultData createQueryResult(DB::LocalServer * server, const CHDB::
     {
         result_data.result_type = CHDB::QueryResultType::RESULT_TYPE_MATERIALIZED;
         result_data.materialized_result = createStreamingIterateQueryResult(server, req);
-        result_data.is_end = result_data.materialized_result->error_message || result_data.materialized_result->rows_read == 0;
+        const auto & streaming_iter_request = dynamic_cast<const CHDB::StreamingIterateRequest &>(req);
+        result_data.is_end = result_data.materialized_result->error_message
+                             || result_data.materialized_result->rows_read == 0
+                             || streaming_iter_request.is_canceled;
     }
 
     if (result_data.is_end)
@@ -1614,7 +1633,8 @@ static CHDB::ResultData executeQueryRequest(
     const char * query,
     const char * format,
     CHDB::QueryType query_type,
-    chdb_streaming_result * streaming_result_ = nullptr)
+    chdb_streaming_result * streaming_result_ = nullptr,
+    bool is_canceled = false)
 {
     CHDB::ResultData result;
 
@@ -1655,6 +1675,7 @@ static CHDB::ResultData executeQueryRequest(
             {
                 auto streaming_iter_req = std::make_unique<CHDB::StreamingIterateRequest>();
                 streaming_iter_req->streaming_result = streaming_result_;
+                streaming_iter_req->is_canceled = is_canceled;
                 queue->current_query = std::move(streaming_iter_req);
             }
 
@@ -1738,7 +1759,7 @@ const char * chdb_streaming_result_error(chdb_streaming_result * result)
 	return result_data.error_message.c_str();
 }
 
-local_result_v2 * chdb_stream_fetch_result(chdb_conn * conn, chdb_streaming_result * result_)
+local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_result * result)
 {
     // Add connection validity check under global lock
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
@@ -1747,13 +1768,27 @@ local_result_v2 * chdb_stream_fetch_result(chdb_conn * conn, chdb_streaming_resu
         return createErrorResult<local_result_v2>("Invalid or closed connection");
 
     auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
-    CHDB::ResultData result = executeQueryRequest(queue, nullptr, nullptr, CHDB::QueryType::TYPE_STREAMING_ITER, result_);
+    CHDB::ResultData result_data = executeQueryRequest(queue, nullptr, nullptr, CHDB::QueryType::TYPE_STREAMING_ITER, result);
 
-    auto * local_result = result.materialized_result;
+    auto * local_result = result_data.materialized_result;
     if (!local_result)
         local_result = createErrorResult<local_result_v2>("Query processing failed");
 
     return local_result;
+}
+
+void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * result)
+{
+    // Add connection validity check under global lock
+    std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
+
+    if (!checkConnectionValidity(conn))
+        return;
+
+    auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
+    CHDB::ResultData result_data = executeQueryRequest(queue, nullptr, nullptr, CHDB::QueryType::TYPE_STREAMING_ITER, result, true);
+    auto * local_result = result_data.materialized_result;
+    free_result_v2(local_result);
 }
 
 void chdb_destroy_result(chdb_streaming_result * result)
