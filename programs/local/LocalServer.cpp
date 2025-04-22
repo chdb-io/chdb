@@ -322,6 +322,8 @@ void LocalServer::cleanup()
 
         client_context.reset();
 
+        streaming_query_context.reset();
+
         if (global_context)
         {
             global_context->shutdown();
@@ -1458,7 +1460,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                     {
                         std::lock_guard<std::mutex> lock(queue->mutex);
-                        if (req.isStreaming() && !req.isIteration())
+                        if (req.isStreaming() && !req.isIteration() && !result.is_end)
                             queue->has_streaming_query = true;
 
                         if (req.isStreaming() && req.isIteration() && result.is_end)
@@ -1468,7 +1470,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                         queue->has_result = true;
                         queue->has_query = false;
                     }
-                    queue->result_cv.notify_one();
+                    queue->result_cv.notify_all();
                 }
             }
             catch (const DB::Exception & e)
@@ -1622,9 +1624,9 @@ static CHDB::ResultData executeQueryRequest(
             std::unique_lock<std::mutex> lock(queue->mutex);
             // Wait until any ongoing query completes
             if (query_type == CHDB::QueryType::TYPE_STREAMING_ITER)
-                queue->result_cv.wait(lock, [queue]() { return !queue->has_query || queue->shutdown; });
+                queue->result_cv.wait(lock, [queue]() { return (!queue->has_query && !queue->has_result) || queue->shutdown; });
             else
-                queue->result_cv.wait(lock, [queue]() { return (!queue->has_query && !queue->has_streaming_query) || queue->shutdown; });
+                queue->result_cv.wait(lock, [queue]() { return (!queue->has_query && !queue->has_result && !queue->has_streaming_query) || queue->shutdown; });
 
             if (queue->shutdown)
             {
@@ -1660,7 +1662,7 @@ static CHDB::ResultData executeQueryRequest(
             queue->current_result.clear();
             queue->has_result = false;
         }
-        queue->query_cv.notify_all();
+        queue->query_cv.notify_one();
 
         {
             std::unique_lock<std::mutex> lock(queue->mutex);
@@ -1674,7 +1676,7 @@ static CHDB::ResultData executeQueryRequest(
                 queue->has_query = false;
             }
         }
-        queue->query_cv.notify_all();
+        queue->result_cv.notify_all();
     }
     catch (...)
     {
