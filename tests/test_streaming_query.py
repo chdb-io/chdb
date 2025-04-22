@@ -56,6 +56,27 @@ class TestStreamingQuery(unittest.TestCase):
         with self.assertRaises(Exception):
             ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
 
+    def test_cancel_streaming_query(self):
+        self.sess.query("CREATE DATABASE IF NOT EXISTS test")
+        self.sess.query("USE test")
+        self.sess.query("CREATE TABLE IF NOT EXISTS cancel_streaming_test (id Int64) ENGINE = MergeTree() ORDER BY id")
+        self.sess.query("INSERT INTO cancel_streaming_test SELECT number FROM numbers(10000)")
+
+        stream_result =  self.sess.send_query("SELECT * FROM cancel_streaming_test", "CSVWITHNAMES")
+        stream_result.cancel()
+
+        result = self.sess.query("SELECT * FROM cancel_streaming_test", "CSVWITHNAMES")
+        self.assertEqual(result.rows_read(), 10000)
+
+        stream_result = self.sess.send_query("SELECT * FROM cancel_streaming_test", "CSVWITHNAMES")
+        chunks = list(stream_result)
+        self.assertEqual(len(chunks), 1)
+
+        result = self.sess.query("SELECT * FROM cancel_streaming_test", "CSVWITHNAMES")
+        self.assertEqual(result.rows_read(), 10000)
+
+        stream_result = self.sess.send_query("SELECT * FROM cancel_streaming_test", "CSVWITHNAMES")
+
     def streaming_worker1(self):
         global result_counter_streaming1
         query_count = 0
@@ -63,7 +84,11 @@ class TestStreamingQuery(unittest.TestCase):
             query_count += 1
             if query_count % 10 == 0:
                 with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
+                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+
+            if query_count % 10 == 1:
+                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                ret.cancel()
 
             stream = self.sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
             for chunk in stream:
@@ -76,7 +101,11 @@ class TestStreamingQuery(unittest.TestCase):
             query_count += 1
             if query_count % 10 == 0:
                 with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
+                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+
+            if query_count % 10 == 2:
+                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                ret.cancel()
 
             stream = self.sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
             for chunk in stream:
@@ -89,7 +118,11 @@ class TestStreamingQuery(unittest.TestCase):
             query_count += 1
             if query_count % 10 == 0:
                 with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
+                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+
+            if query_count % 10 == 3:
+                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                ret.cancel()
 
             result = self.sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
             result_counter_normal1 += result.data().count('\n') - 2
@@ -101,7 +134,11 @@ class TestStreamingQuery(unittest.TestCase):
             query_count += 1
             if query_count % 10 == 0:
                 with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
+                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+
+            if query_count % 10 == 4:
+                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                ret.cancel()
 
             result = self.sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
             result_counter_normal2 += result.data().count('\n') - 2
@@ -114,7 +151,11 @@ class TestStreamingQuery(unittest.TestCase):
             query_count += 1
             if query_count % 10 == 0:
                 with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
+                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+
+            if query_count % 10 == 5:
+                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                ret.cancel()
 
             self.sess.query(f"INSERT INTO streaming_test2 VALUES ({i})")
             insert_counter += 1
