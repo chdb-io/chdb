@@ -340,7 +340,7 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
     if (!streaming_result || !streaming_result->get_result())
         return nullptr;
 
-    auto * result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
+    auto * result  = chdb_streaming_fetch_result(*conn, streaming_result->get_result());
 
     if (result->len == 0)
         LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
@@ -349,6 +349,16 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
         throw std::runtime_error(result->error_message);
 
     return new query_result(result, false);
+}
+
+void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)
+{
+    py::gil_scoped_release release;
+
+    if (!streaming_result || !streaming_result->get_result())
+        return;
+
+    chdb_streaming_cancel_query(*conn, streaming_result->get_result());
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
@@ -507,7 +517,12 @@ PYBIND11_MODULE(_chdb, m)
             "streaming_fetch_result",
             &connection_wrapper::streaming_fetch_result,
                 py::arg("streaming_result"),
-                "Fetches a data chunk from the streaming result. This function should be called repeatedly until the result is exhausted.");
+                "Fetches a data chunk from the streaming result. This function should be called repeatedly until the result is exhausted")
+        .def(
+            "streaming_cancel_query",
+            &connection_wrapper::streaming_cancel_query,
+            py::arg("streaming_result"),
+            "Cancel a streaming query");
 
     m.def(
         "query",

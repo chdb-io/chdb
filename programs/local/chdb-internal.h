@@ -31,7 +31,8 @@ struct StreamingInitRequest : QueryRequestBase {
 };
 
 struct StreamingIterateRequest : QueryRequestBase {
-    chdb_streaming_result * streaming_result;
+    chdb_streaming_result * streaming_result = nullptr;
+    bool is_canceled = false;
 
     bool isStreaming() const override { return true; }
     bool isIteration() const override { return true; }

@@ -200,9 +200,9 @@ public:
     /// Returns true if query processing was successful.
     bool processQueryText(const String & text);
 
-    bool processStreamingQuery(void * streaming_result_);
+    bool processStreamingQuery(void * streaming_result_, bool is_canceled);
     void resetOutputFormat();
-    void receiveResult(ASTPtr parsed_query);
+    void receiveResult(ASTPtr parsed_query, bool is_canceled);
 
     virtual void readArguments(
         int argc,
