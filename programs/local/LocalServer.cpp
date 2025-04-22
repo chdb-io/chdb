@@ -1249,7 +1249,7 @@ static local_result_v2 * createMaterializedLocalQueryResult(DB::LocalServer * se
         }
         else
         {
-            auto* query_output_vec = server->stealQueryOutputVector();
+            auto * query_output_vec = server->stealQueryOutputVector();
             if (query_output_vec)
             {
                 result->_vec = query_output_vec;
@@ -1269,7 +1269,7 @@ static local_result_v2 * createMaterializedLocalQueryResult(DB::LocalServer * se
     }
     catch (...)
     {
-        const char* unknown_error = "Unknown error occurred";
+        const char * unknown_error = "Unknown error occurred";
         result->error_message = new char[strlen(unknown_error) + 1];
         std::strcpy(result->error_message, unknown_error);
     }
@@ -1295,7 +1295,7 @@ static chdb_streaming_result * createStreamingQueryResult(DB::LocalServer * serv
     }
     catch (...)
     {
-        const char* unknown_error = "Unknown error occurred";
+        const char * unknown_error = "Unknown error occurred";
         streaming_result->error_message = unknown_error;
     }
     return result;
@@ -1325,7 +1325,7 @@ static local_result_v2 * createStreamingIterateQueryResult(DB::LocalServer * ser
             if (processed_rows <= old_processed_rows)
                 return result;
 
-            auto* query_output_vec = server->stealQueryOutputVector();
+            auto * query_output_vec = server->stealQueryOutputVector();
             if (query_output_vec)
             {
                 result->_vec = query_output_vec;
@@ -1345,7 +1345,7 @@ static local_result_v2 * createStreamingIterateQueryResult(DB::LocalServer * ser
     }
     catch (...)
     {
-        const char* unknown_error = "Unknown error occurred";
+        const char * unknown_error = "Unknown error occurred";
         result->error_message = new char[strlen(unknown_error) + 1];
         std::strcpy(result->error_message, unknown_error);
     }
@@ -1597,12 +1597,12 @@ static bool checkConnectionValidity(chdb_conn * conn)
 }
 
 template <typename T>
-T* createErrorResultImpl(const char* error_msg);
+T* createErrorResultImpl(const char * error_msg);
 
 template <>
 local_result_v2 * createErrorResultImpl<local_result_v2>(const char * error_msg)
 {
-    auto* result = new local_result_v2{};
+    auto * result = new local_result_v2{};
     result->error_message = new char[strlen(error_msg) + 1];
     std::strcpy(result->error_message, error_msg);
     return result;
@@ -1611,8 +1611,8 @@ local_result_v2 * createErrorResultImpl<local_result_v2>(const char * error_msg)
 template <>
 chdb_streaming_result * createErrorResultImpl<chdb_streaming_result>(const char * error_msg)
 {
-    auto* stream_result = new chdb_streaming_result();
-    auto* stream_result_data = new CHDB::StreamingResultData();
+    auto * stream_result = new chdb_streaming_result();
+    auto * stream_result_data = new CHDB::StreamingResultData();
     stream_result_data->error_message = error_msg;
     stream_result->internal_data = stream_result_data;
     return stream_result;
@@ -1750,11 +1750,11 @@ chdb_streaming_result * query_conn_streaming(chdb_conn * conn, const char * quer
 const char * chdb_streaming_result_error(chdb_streaming_result * result)
 {
     if (!result || !result->internal_data)
-		return nullptr;
+	    return nullptr;
 
 	auto & result_data = *(reinterpret_cast<CHDB::StreamingResultData *>(result->internal_data));
     if (result_data.error_message.empty())
-		return nullptr;
+	    return nullptr;
 
 	return result_data.error_message.c_str();
 }
@@ -1794,7 +1794,7 @@ void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * resul
 void chdb_destroy_result(chdb_streaming_result * result)
 {
     if (!result)
-		return;
+	    return;
 
     if (result->internal_data)
     {
