@@ -39,6 +39,7 @@ def to_df(r):
     t = to_arrowTable(r)
     return t.to_pandas(use_threads=True)
 
+
 class StreamingResult:
     def __init__(self, c_result, conn, result_func):
         self._result = c_result
@@ -88,6 +89,7 @@ class StreamingResult:
             self._conn.streaming_cancel_query(self._result)
         except Exception as e:
             raise RuntimeError(f"Failed to cancel streaming query: {str(e)}") from e
+
 
 class Connection:
     def __init__(self, connection_string: str):
