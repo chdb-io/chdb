@@ -81,6 +81,14 @@ class StreamingResult:
     def __exit__(self, exc_type, exc_val, exc_tb):
         pass
 
+    def cancel(self):
+        self._exhausted = True
+
+        try:
+            self._conn.streaming_cancel_query(self._result)
+        except Exception as e:
+            raise RuntimeError(f"Failed to cancel streaming query: {str(e)}") from e
+
 class Connection:
     def __init__(self, connection_string: str):
         # print("Connection", connection_string)
