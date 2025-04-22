@@ -317,7 +317,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     {
         std::string msg_copy(result->error_message);
         free_result_v2(result);
-        throw std::runtime_error(result->error_message);
+        throw std::runtime_error(msg_copy);
     }
     return new query_result(result, false);
 }
