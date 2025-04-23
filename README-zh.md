@@ -147,8 +147,6 @@ print(query("select sum_udf(12,22)"))
 参见: [test_udf.py](tests/test_udf.py).
 </details>
 
-更多示例，请参见 [examples](examples) 和 [tests](tests)。
-
 <details>
     <summary><h4>🗂️ 流式查询</h4></summary>
 
@@ -197,6 +195,8 @@ sess.close()
 
 更多细节请参考 [test_streaming_query.py](tests/test_streaming_query.py).
 </details>
+
+更多示例，请参见 [examples](examples) 和 [tests](tests)。
 
 ## 演示和示例
 
