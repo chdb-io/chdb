@@ -147,6 +147,55 @@ print(query("select sum_udf(12,22)"))
 参见: [test_udf.py](tests/test_udf.py).
 </details>
 
+<details>
+    <summary><h4>🗂️ 流式查询</h4></summary>
+
+通过分块流式处理大数据集，保持内存使用恒定。
+
+```python
+from chdb import session as chs
+
+sess = chs.Session()
+
+# 示例1：流式查询基础用法
+rows_cnt = 0
+with sess.send_query("SELECT * FROM numbers(200000)", "CSV") as stream_result:
+    for chunk in stream_result:
+        rows_cnt += chunk.rows_read()
+
+print(rows_cnt) # 200000
+
+# 示例2：使用fetch()手动迭代
+rows_cnt = 0
+stream_result = sess.send_query("SELECT * FROM numbers(200000)", "CSV")
+while True:
+    chunk = stream_result.fetch()
+    if chunk is None:
+        break
+    rows_cnt += chunk.rows_read()
+
+print(rows_cnt) # 200000
+
+# 示例3：提前取消查询
+rows_cnt = 0
+stream_result = sess.send_query("SELECT * FROM numbers(200000)", "CSV")
+while True:
+    chunk = stream_result.fetch()
+    if chunk is None:
+        break
+    if rows_cnt > 0:
+        stream_result.cancel()
+        break
+    rows_cnt += chunk.rows_read()
+
+print(rows_cnt) # 65409
+
+sess.close()
+```
+
+参见: [test_streaming_query.py](tests/test_streaming_query.py)。
+</details>
+
 更多示例，请参见 [examples](examples) 和 [tests](tests)。
 
 ## 演示和示例

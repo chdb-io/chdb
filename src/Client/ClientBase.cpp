@@ -911,6 +911,20 @@ void ClientBase::processTextAsSingleQuery(const String & full_query)
         return;
 
     String query_to_execute;
+    if (!streaming_query_context)
+    {
+    }
+    else if (streaming_query_context->is_streaming_query && parsed_query->as<ASTSelectWithUnionQuery>())
+    {
+        streaming_query_context->is_streaming_query = true;
+        streaming_query_context->full_query = full_query;
+        streaming_query_context->parsed_query = parsed_query;
+    }
+    else
+    {
+        streaming_query_context->is_streaming_query = false;
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Streaming query is not supported for query: {}", full_query);
+    }
 
     /// Query will be parsed before checking the result because error does not
     /// always means a problem, i.e. if table already exists, and it is no a
@@ -1069,6 +1083,10 @@ void ClientBase::processOrdinaryQuery(const String & query_to_execute, ASTPtr pa
 
             if (send_external_tables)
                 sendExternalTables(parsed_query);
+
+            if (streaming_query_context && streaming_query_context->is_streaming_query)
+                break;
+
             receiveResult(parsed_query, signals_before_stop, settings.partial_result_on_first_cancel);
 
             break;
@@ -1970,6 +1988,9 @@ void ClientBase::processParsedSingleQuery(const String & full_query, const Strin
             processOrdinaryQuery(query_to_execute, parsed_query);
     }
 
+    if (streaming_query_context && streaming_query_context->is_streaming_query)
+        return;
+
     /// Do not change context (current DB, settings) in case of an exception.
     if (!have_error)
     {
@@ -2429,7 +2450,160 @@ bool ClientBase::processQueryText(const String & text)
         return true;
     }
 
+    cancelled = false;
+    const bool is_streaming_query = streaming_query_context && streaming_query_context->is_streaming_query;
+    if (is_streaming_query)
+    {
+        processTextAsSingleQuery(text);
+        return true;
+    }
+
     return executeMultiQuery(text);
+}
+
+bool ClientBase::processStreamingQuery(void * streaming_result_, bool is_canceled)
+{
+    const auto old_processed_rows = processed_rows;
+
+    try
+    {
+        if (!streaming_query_context)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "There is no streaming query to process");
+
+        if (streaming_query_context->streaming_result != streaming_result_)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Mismatch between streaming result and query context");
+
+        resetOutputFormat();
+
+        receiveResult(streaming_query_context->parsed_query, is_canceled);
+
+        resetOutputFormat();
+    }
+    catch (...)
+    {
+        // Surprisingly, this is a client error. A server error would
+        // have been reported without throwing (see onReceiveExceptionFromServer()).
+        if (!have_error)
+        {
+            client_exception = std::make_unique<Exception>(getCurrentExceptionMessageAndPattern(print_stack_trace), getCurrentExceptionCode());
+            have_error = true;
+        }
+    }
+
+    if (have_error)
+    {
+        processError(streaming_query_context->full_query);
+        return false;
+    }
+
+    if (old_processed_rows == processed_rows)
+    {
+        /// Always print last block (if it was not printed already)
+        if (profile_events.last_block)
+        {
+            initLogsOutputStream();
+            if (need_render_progress && tty_buf)
+                progress_indication.clearProgressOutput(*tty_buf);
+            logs_out_stream->writeProfileEvents(profile_events.last_block);
+            logs_out_stream->flush();
+
+            profile_events.last_block = {};
+        }
+
+        if (is_interactive)
+        {
+            output_stream << std::endl;
+            if (!server_exception || processed_rows != 0)
+                output_stream << processed_rows << " row" << (processed_rows == 1 ? "" : "s") << " in set. ";
+            output_stream << "Elapsed: " << progress_indication.elapsedSeconds() << " sec. ";
+            progress_indication.writeFinalProgress();
+            output_stream << std::endl << std::endl;
+        }
+        else
+        {
+            const auto & config = getClientConfiguration();
+            if (config.getBool("print-time-to-stderr", false))
+                error_stream << progress_indication.elapsedSeconds() << "\n";
+
+            const auto & print_memory_mode = config.getString("print-memory-to-stderr", "");
+            auto peak_memeory_usage = std::max<Int64>(progress_indication.getMemoryUsage().peak, 0);
+            if (print_memory_mode == "default")
+                error_stream << peak_memeory_usage << "\n";
+            else if (print_memory_mode == "readable")
+                error_stream << formatReadableSizeWithBinarySuffix(peak_memeory_usage) << "\n";
+        }
+
+        if (!is_interactive && getClientConfiguration().getBool("print-num-processed-rows", false))
+        {
+            output_stream << "Processed rows: " << processed_rows << "\n";
+        }
+    }
+
+    return true;
+}
+
+void ClientBase::resetOutputFormat()
+{
+    try
+    {
+        if (output_format)
+            output_format->finalize();
+    }
+    catch (...)
+    {
+        output_format.reset();
+        throw;
+    }
+
+    output_format.reset();
+}
+
+void ClientBase::receiveResult(ASTPtr parsed_query, bool is_canceled)
+{
+    // TODO: get the poll_interval from commandline.
+    const auto receive_timeout = connection_parameters.timeouts.receive_timeout;
+    constexpr size_t default_poll_interval = 1000000; /// in microseconds
+    constexpr size_t min_poll_interval = 5000; /// in microseconds
+    const size_t poll_interval
+        = std::max(min_poll_interval, std::min<size_t>(receive_timeout.totalMicroseconds(), default_poll_interval));
+
+    std::exception_ptr local_format_error;
+
+    if (is_canceled)
+        cancelQuery();
+
+    while (true)
+    {
+        while (true)
+        {
+            if (connection->poll(poll_interval))
+                break;
+        }
+
+        try
+        {
+            const auto old_processed_rows = processed_rows;
+
+            if (!receiveAndProcessPacket(parsed_query, cancelled))
+                break;
+
+            if (is_canceled)
+                continue;
+
+            if (processed_rows > old_processed_rows)
+                break;
+        }
+        catch (const LocalFormatError &)
+        {
+            /// Remember the first exception.
+            if (!local_format_error)
+                local_format_error = std::current_exception();
+            connection->sendCancel();
+        }
+    }
+
+    if (local_format_error)
+        std::rethrow_exception(local_format_error);
 }
 
 bool ClientBase::parseQueryTextWithOutputFormat(const String & query, const String & format)
