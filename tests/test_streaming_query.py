@@ -26,7 +26,7 @@ class TestStreamingQuery(unittest.TestCase):
         shutil.rmtree(test_streaming_query_dir, ignore_errors=True)
         return super().tearDown()
 
-    def test_streaming_query(self):
+    def test_streaming_query_with_session(self):
         self.sess.query("CREATE DATABASE IF NOT EXISTS test")
         self.sess.query("USE test")
         self.sess.query("CREATE TABLE IF NOT EXISTS streaming_test (id Int64) ENGINE = MergeTree() ORDER BY id")
@@ -55,6 +55,26 @@ class TestStreamingQuery(unittest.TestCase):
             ret = self.sess.send_query("INSERT INTO streaming_test SELECT number FROM numbers(1000000)", "CSVWITHNAMES")
         with self.assertRaises(Exception):
             ret = self.sess.send_query("SELECT * FROM streaming_test;SELECT * FROM streaming_test", "CSVWITHNAMES")
+
+    def test_streaming_query_with_connection(self):
+        self.sess.close()
+        conn = chdb.connect(":memory:")
+        total_rows = 0
+        with conn.send_query("SELECT * FROM numbers(200000)") as stream:
+            for chunk in stream:
+                total_rows += chunk.rows_read()
+        self.assertEqual(total_rows, 200000)
+        conn.close()
+        self.sess = session.Session(test_streaming_query_dir)
+
+    def test_large_table(self):
+        # Test querying extremely large dataset (1 billion rows)
+        # with stable memory usage around 56MB
+        total_rows = 0
+        with self.sess.send_query("SELECT * FROM numbers(1073741824)", "CSVWITHNAMES") as stream:
+            for chunk in stream:
+                total_rows += chunk.rows_read()
+        self.assertEqual(total_rows, 1073741824)
 
     def test_cancel_streaming_query(self):
         self.sess.query("CREATE DATABASE IF NOT EXISTS test")
