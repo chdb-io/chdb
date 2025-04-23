@@ -68,6 +68,8 @@ private:
 
     void createClientContext();
 
+    void cleanStreamingQuery();
+
     ServerSettings server_settings;
 
     std::optional<StatusFile> status;

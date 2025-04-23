@@ -4,7 +4,7 @@ import warnings
 
 import chdb
 from ..state import sqlitelike as chdb_stateful
-
+from ..state.sqlitelike import StreamingResult
 
 g_session = None
 g_session_path = None
@@ -120,3 +120,16 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
 
     # alias sql = query
     sql = query
+
+    def send_query(self, sql, fmt="CSV") -> StreamingResult:
+        """
+        Execute a streaming query.
+        """
+        if fmt == "Debug":
+            warnings.warn(
+                """Debug format is not supported in Session.query
+Please try use parameters in connection string instead:
+Eg: conn = connect(f"db_path?verbose&log-level=test")"""
+            )
+            fmt = "CSV"
+        return self._conn.send_query(sql, fmt)

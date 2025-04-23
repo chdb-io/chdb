@@ -315,9 +315,60 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     }
     if (result->error_message)
     {
-        throw std::runtime_error(result->error_message);
+        std::string msg_copy(result->error_message);
+        free_result_v2(result);
+        throw std::runtime_error(msg_copy);
     }
     return new query_result(result, false);
+}
+
+streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
+{
+    global_query_obj = findQueryableObjFromQuery(query_str);
+
+    py::gil_scoped_release release;
+    auto * result = query_conn_streaming(*conn, query_str.c_str(), format.c_str());
+    const auto * error_msg = chdb_streaming_result_error(result);
+    if (error_msg)
+    {
+        std::string msg_copy(error_msg);
+        chdb_destroy_result(result);
+        throw std::runtime_error(msg_copy);
+    }
+
+    return new streaming_query_result(result);
+}
+
+query_result * connection_wrapper::streaming_fetch_result(streaming_query_result * streaming_result)
+{
+    py::gil_scoped_release release;
+
+    if (!streaming_result || !streaming_result->get_result())
+        return nullptr;
+
+    auto * result  = chdb_streaming_fetch_result(*conn, streaming_result->get_result());
+
+    if (result->len == 0)
+        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
+
+    if (result->error_message)
+    {
+        std::string msg_copy(result->error_message);
+        free_result_v2(result);
+        throw std::runtime_error(msg_copy);
+    }
+
+    return new query_result(result, false);
+}
+
+void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)
+{
+    py::gil_scoped_release release;
+
+    if (!streaming_result || !streaming_result->get_result())
+        return;
+
+    chdb_streaming_cancel_query(*conn, streaming_result->get_result());
 }
 
 void cursor_wrapper::execute(const std::string & query_str)
@@ -407,6 +458,11 @@ PYBIND11_MODULE(_chdb, m)
         .def("has_error", &query_result::has_error)
         .def("error_message", &query_result::error_message);
 
+    py::class_<streaming_query_result>(m, "streaming_query_result")
+        .def(py::init<chdb_streaming_result *>(), py::return_value_policy::take_ownership)
+        .def("has_error", &streaming_query_result::has_error)
+        .def("error_message", &streaming_query_result::error_message);
+
     py::class_<DB::PyReader, std::shared_ptr<DB::PyReader>>(m, "PyReader")
         .def(
             py::init<const py::object &>(),
@@ -460,7 +516,23 @@ PYBIND11_MODULE(_chdb, m)
             &connection_wrapper::query,
             py::arg("query_str"),
             py::arg("format") = "CSV",
-            "Execute a query and return a query_result object");
+            "Execute a query and return a query_result object")
+        .def(
+            "send_query",
+            &connection_wrapper::send_query,
+            py::arg("query_str"),
+            py::arg("format") = "CSV",
+            "Send a streaming query and return a streaming query result object")
+        .def(
+            "streaming_fetch_result",
+            &connection_wrapper::streaming_fetch_result,
+                py::arg("streaming_result"),
+                "Fetches a data chunk from the streaming result. This function should be called repeatedly until the result is exhausted")
+        .def(
+            "streaming_cancel_query",
+            &connection_wrapper::streaming_cancel_query,
+            py::arg("streaming_result"),
+            "Cancel a streaming query");
 
     m.def(
         "query",
