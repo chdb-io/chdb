@@ -224,6 +224,56 @@ see also: [test_udf.py](tests/test_udf.py).
 
 
 <details>
+    <summary><h4>🗂️ Streaming Query</h4></summary>
+
+Process large datasets with constant memory usage through chunked streaming.
+
+```python
+from chdb import session as chs
+
+sess = chs.Session()
+
+# Example 1: Basic example of using streaming query
+rows_cnt = 0
+with sess.send_query("SELECT * FROM numbers(200000)", "CSV") as stream_result:
+    for chunk in stream_result:
+        rows_cnt += chunk.rows_read()
+
+print(rows_cnt) # 200000
+
+# Example 2: Manual iteration with fetch()
+rows_cnt = 0
+stream_result = sess.send_query("SELECT * FROM numbers(200000)", "CSV")
+while True:
+    chunk = stream_result.fetch()
+    if chunk is None:
+        break
+    rows_cnt += chunk.rows_read()
+
+print(rows_cnt) # 200000
+
+# Example 3: Early cancellation demo
+rows_cnt = 0
+stream_result = sess.send_query("SELECT * FROM numbers(200000)", "CSV")
+while True:
+    chunk = stream_result.fetch()
+    if chunk is None:
+        break
+    if rows_cnt > 0:
+        stream_result.cancel()
+        break
+    rows_cnt += chunk.rows_read()
+
+print(rows_cnt) # 65409
+
+sess.close()
+```
+
+For more details, see [test_streaming_query.py](tests/test_streaming_query.py).
+</details>
+
+
+<details>
     <summary><h4>🗂️ Python Table Engine</h4></summary>
 
 ### Query on Pandas DataFrame
