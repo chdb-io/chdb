@@ -10,7 +10,8 @@ from chdb import session
 
 test_signal_handler_dir = ".tmp_test_signal_handler"
 insert_counter = 0
-exit_event = threading.Event()
+exit_event1 = threading.Event()
+exit_event2 = threading.Event()
 
 class TestSignalHandler(unittest.TestCase):
     def setUp(self) -> None:
@@ -52,10 +53,11 @@ class TestSignalHandler(unittest.TestCase):
         def data_writer():
             global insert_counter
             i = 500000
-            while not exit_event.is_set():
+            while not exit_event1.is_set():
                 self.sess.query(f"INSERT INTO signal_handler_table VALUES ({i})")
                 insert_counter += 1
                 i += 1
+            exit_event2.set()
 
         self.sess.query("CREATE DATABASE IF NOT EXISTS test")
         self.sess.query("USE test")
@@ -81,12 +83,13 @@ class TestSignalHandler(unittest.TestCase):
                 self.sess.query("SELECT * FROM signal_handler_table")
         except KeyboardInterrupt:
             print("receive signal")
-            exit_event.set()
+            exit_event1.set()
             self.signal_received = True
 
         self.assertTrue(self.signal_received)
 
-        time.sleep(5)
+        while not exit_event2.is_set():
+            continue
         self.sess.close()
         self.sess = session.Session(test_signal_handler_dir)
 
