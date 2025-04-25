@@ -481,7 +481,7 @@ try
 
     StackTrace::setShowAddresses(server_settings.show_addresses_in_stack_traces);
 
-    setupSignalHandler();
+    // setupSignalHandler();
 
     std::cout << std::fixed << std::setprecision(3);
     std::cerr << std::fixed << std::setprecision(3);
