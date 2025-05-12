@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ macos-13-xlarge ]
-        python-version: ["3.13"]
+        python-version: ["3.13"] 
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
