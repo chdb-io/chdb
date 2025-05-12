@@ -28,7 +28,7 @@ if [ "$(uname)" == "Darwin" ]; then
     SED_INPLACE="sed -i ''"
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
-        CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
+        # CMAKE_TOOLCHAIN_FILE="-DCMAKE_TOOLCHAIN_FILE=cmake/darwin/toolchain-aarch64.cmake"
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
     else
@@ -95,7 +95,6 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_CLICKHOUSE_ALL=0 -DUSE_STATIC_LIBRARIES=1 -DSPLIT_SHARED_LIBRARIES=0 \
     -DENABLE_SIMDJSON=1 -DENABLE_RAPIDJSON=1 \
     ${CPU_FEATURES} \
-    ${CMAKE_TOOLCHAIN_FILE} \
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DENABLE_LIBFIU=1 \
     -DCHDB_VERSION=${CHDB_VERSION} \
