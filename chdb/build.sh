@@ -15,9 +15,12 @@ HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
 MYSQL="-DENABLE_MYSQL=1"
 # check current os type
 if [ "$(uname)" == "Darwin" ]; then
-    export CXX=/usr/local/opt/llvm/bin/clang++
-    export CC=/usr/local/opt/llvm/bin/clang
-    export PATH=/usr/local/opt/llvm/bin:$PATH
+    # export CXX=/usr/local/opt/llvm/bin/clang++
+    # export CC=/usr/local/opt/llvm/bin/clang
+    # export PATH=/usr/local/opt/llvm/bin:$PATH
+    export CXX=/opt/homebrew/opt/llvm@18/bin/clang++
+    export CC=/opt/homebrew/opt/llvm@18/bin/clang
+    export PATH="/opt/homebrew/opt/llvm@18/bin:$PATH"
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
     JEMALLOC="-DENABLE_JEMALLOC=0"
