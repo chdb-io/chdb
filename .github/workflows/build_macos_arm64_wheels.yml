@@ -26,7 +26,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-15 ]
+        os: [ macos-14 ]
         python-version: ["3.12"]
     env:
       RUNNER_OS: ${{ matrix.os }}
