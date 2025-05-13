@@ -120,7 +120,7 @@ jobs:
           make wheel
       - name: Fix wheel platform tag
         run: |
-          python3 -m wheel tags --platform-tag=macosx_10_15_aarch64 --remove dist/*.whl
+          python3 -m wheel tags --platform-tag=macosx_10_15_arm64 --remove dist/*.whl
       - name: Run tests
         run: |
           python3 -m pip install dist/*.whl
