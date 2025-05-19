@@ -35,6 +35,78 @@ static bool IsDateTime(NumpyNullableType type)
 	};
 }
 
+String NumpyType::toString() const
+{
+	std::string type_str;
+    switch (type) {
+    case NumpyNullableType::BOOL:
+		type_str = "BOOL";
+		break;
+    case NumpyNullableType::INT_8:
+		type_str = "INT8";
+		break;
+    case NumpyNullableType::UINT_8:
+		type_str = "UINT8";
+		break;
+	case NumpyNullableType::INT_16:
+        type_str = "INT16";
+        break;
+    case NumpyNullableType::UINT_16:
+        type_str = "UINT16";
+        break;
+    case NumpyNullableType::INT_32:
+        type_str = "INT32";
+        break;
+    case NumpyNullableType::UINT_32:
+        type_str = "UINT32";
+        break;
+    case NumpyNullableType::INT_64:
+        type_str = "INT64";
+        break;
+    case NumpyNullableType::UINT_64:
+        type_str = "UINT64";
+        break;
+    case NumpyNullableType::FLOAT_16:
+        type_str = "FLOAT16";
+        break;
+    case NumpyNullableType::FLOAT_32:
+        type_str = "FLOAT32";
+        break;
+    case NumpyNullableType::FLOAT_64:
+		type_str = "FLOAT64";
+		break;
+    case NumpyNullableType::OBJECT:
+	  	type_str = "OBJECT";
+		break;
+    case NumpyNullableType::STRING:
+		type_str = "STRING";
+		break;
+    case NumpyNullableType::DATETIME_NS:
+		type_str = "DATETIME_NS";
+		break;
+    case NumpyNullableType::DATETIME_US:
+		type_str = "DATETIME_US)";
+		break;
+    case NumpyNullableType::DATETIME_MS:
+		type_str = "DATETIME_MS";
+		break;
+    case NumpyNullableType::DATETIME_S:
+		type_str = "DATETIME_S";
+		break;
+    case NumpyNullableType::TIMEDELTA:
+		type_str = "TIMEDELTA";
+		break;
+    case NumpyNullableType::CATEGORY:
+		type_str = "CATEGORY";
+		break;
+    }
+
+    if (has_timezone && IsDateTime(type)) {
+        type_str += " WITH TIMEZONE";
+    }
+    return type_str;
+}
+
 static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
 {
 	static const std::map<String, NumpyNullableType> type_map =
@@ -149,11 +221,11 @@ DataTypePtr NumpyToDataType(const NumpyType & col_type)
 	case NumpyNullableType::DATETIME_NS:
 		return std::make_shared<DataTypeDateTime64>(9);
 	case NumpyNullableType::DATETIME_S:
-		return std::make_shared<DataTypeDateTime64>(0)
+		return std::make_shared<DataTypeDateTime64>(0);
 	case NumpyNullableType::DATETIME_US:
 		std::make_shared<DataTypeDateTime64>(6);
 	default:
-		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unkonow numpy column type: {}", col_type);
+		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unkonow numpy column type: {}", col_type.toString());
 	}
 }
 
