@@ -1,6 +1,9 @@
 #include "LocalServer.h"
 #include "chdb.h"
 #include "chdb-internal.h"
+#include "TableFunctionPython.h"
+#include <TableFunctions/TableFunctionFactory.h>
+#include <Storages/StorageFactory.h>
 
 #include <sys/resource.h>
 #include "Common/Logger.h"
@@ -521,9 +524,17 @@ try
         /// Don't initialize DateLUT
         registerFunctions();
         registerAggregateFunctions();
+
         registerTableFunctions();
+        auto & table_function_factory = TableFunctionFactory::instance();
+        registerTableFunctionPython(table_function_factory);
+
         registerDatabases();
+
         registerStorages();
+        auto & storage_factory = StorageFactory::instance();
+        registerStoragePython(storage_factory);
+
         registerDictionaries();
         registerDisks(/* global_skip_access_check= */ true);
         registerFormats();

@@ -2,15 +2,11 @@
 #include <mutex>
 #include "Common/logger_useful.h"
 #include "chdb.h"
+#include "TableFunctionPython.h"
 #include "pybind11/gil.h"
 #include "pybind11/pytypes.h"
 
 #if USE_PYTHON
-
-#    include <Storages/StoragePython.h>
-#    include <TableFunctions/TableFunctionPython.h>
-#    include <Common/re2.h>
-
 
 namespace py = pybind11;
 
