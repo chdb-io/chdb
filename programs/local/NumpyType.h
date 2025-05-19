@@ -5,6 +5,8 @@
 
 #include <DataTypes/IDataType.h>
 
+namespace py = pybind11;
+
 namespace CHDB {
 
 enum class NumpyNullableType : uint8_t {
@@ -35,6 +37,8 @@ enum class NumpyNullableType : uint8_t {
 struct NumpyType {
 	NumpyNullableType type;
 	bool has_timezone = false;
+
+	String toString() const;
 };
 
 enum class NumpyObjectType : uint8_t {
