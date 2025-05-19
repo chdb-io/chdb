@@ -299,9 +299,6 @@ if (USE_PYTHON)
     endforeach()
 
     # Apply the include directories to Storages/StoragePython.cpp and Processors/Sources/PythonSource.cpp
-    set_source_files_properties(Storages/StoragePython.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
-    set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
-    set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
     set_source_files_properties(Common/PythonUtils.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
 
     # get python version, something like python3.x
@@ -318,42 +315,15 @@ if (USE_PYTHON)
         #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
         # )
         if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
-            set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS
-                "-w -idirafter /usr/include -include crypt.h"
-            )
-            set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS
-                "-w -idirafter /usr/include -include crypt.h"
-            )
-            set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES COMPILE_FLAGS
-                "-w -idirafter /usr/include -include crypt.h"
-            )
             set_source_files_properties(Common/PythonUtils.cpp PROPERTIES COMPILE_FLAGS
                 "-w -idirafter /usr/include -include crypt.h"
             )
         else()
-            set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
-            set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
-            set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
             set_source_files_properties(Common/PythonUtils.cpp PROPERTIES COMPILE_FLAGS
                 "-w"
             )
         endif()
     elseif (OS_DARWIN)
-        set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS 
-            "-w"
-        )
-        set_source_files_properties(Processors/Sources/PythonSource.cpp PROPERTIES COMPILE_FLAGS 
-            "-w"
-        )
-        set_source_files_properties(Columns/ColumnPyObject.cpp PROPERTIES COMPILE_FLAGS 
-            "-w"
-        )
         set_source_files_properties(Common/PythonUtils.cpp PROPERTIES COMPILE_FLAGS 
             "-w"
         )
