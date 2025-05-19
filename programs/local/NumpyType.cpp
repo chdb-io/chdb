@@ -213,7 +213,7 @@ DataTypePtr NumpyToDataType(const NumpyType & col_type)
 	case NumpyNullableType::STRING:
 		return std::make_shared<DataTypeString>();
 	case NumpyNullableType::OBJECT:
-		return std::make_shared<DataTypeObject>();
+		return std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
 	case NumpyNullableType::TIMEDELTA:
 		return std::make_shared<DataTypeInterval>();
 	case NumpyNullableType::DATETIME_MS:

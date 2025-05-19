@@ -18,4 +18,9 @@ using namespace pybind11;
 
 } // namespace py
 
+struct PythonGILWrapper
+{
+    py::gil_scoped_acquire acquire;
+};
+
 } // namespace CHDB
