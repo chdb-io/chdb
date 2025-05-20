@@ -11,7 +11,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 
 namespace DB
 {

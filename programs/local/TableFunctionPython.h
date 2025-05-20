@@ -4,13 +4,16 @@
 
 #if USE_PYTHON
 #include <Storages/ColumnsDescription.h>
-#include <Storages/StoragePython.h>
+#include "StoragePython.h"
 #include <TableFunctions/ITableFunction.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 
 namespace DB
 {
+
+class TableFunctionFactory;
+void registerTableFunctionPython(TableFunctionFactory & factory);
 
 py::object findQueryableObj(const std::string & var_name);
 

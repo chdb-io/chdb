@@ -214,8 +214,6 @@ DataTypePtr NumpyToDataType(const NumpyType & col_type)
 		return std::make_shared<DataTypeString>();
 	case NumpyNullableType::OBJECT:
 		return std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
-	case NumpyNullableType::TIMEDELTA:
-		return std::make_shared<DataTypeInterval>();
 	case NumpyNullableType::DATETIME_MS:
 		return std::make_shared<DataTypeDateTime64>(3);
 	case NumpyNullableType::DATETIME_NS:
@@ -224,6 +222,9 @@ DataTypePtr NumpyToDataType(const NumpyType & col_type)
 		return std::make_shared<DataTypeDateTime64>(0);
 	case NumpyNullableType::DATETIME_US:
 		std::make_shared<DataTypeDateTime64>(6);
+	case NumpyNullableType::TIMEDELTA:
+		/// return std::make_shared<DataTypeInterval>();
+	case NumpyNullableType::CATEGORY:
 	default:
 		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unkonow numpy column type: {}", col_type.toString());
 	}

@@ -1,5 +1,7 @@
-#include <memory>
-#include <TableFunctions/TableFunctionPython.h>
+#include "StoragePython.h"
+
+#include "PandasDataframe.h"
+#include "TableFunctionPython.h"
 
 #if USE_PYTHON
 #include <DataTypes/DataTypeString.h>
@@ -7,16 +9,16 @@
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Parsers/ASTFunction.h>
 #include <Storages/StorageInMemoryMetadata.h>
-#include <Storages/StoragePython.h>
 #include <TableFunctions/TableFunctionFactory.h>
 #include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include <Common/logger_useful.h>
 
+using namespace CHDB;
 
 namespace py = pybind11;
 // Global storage for Python Table Engine queriable object
@@ -145,9 +147,13 @@ StoragePtr TableFunctionPython::executeImpl(
     return storage;
 }
 
-ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr /*context*/, bool /*is_insert_query*/) const
+ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr context, bool /*is_insert_query*/) const
 {
     py::gil_scoped_acquire acquire;
+
+    if (PandasDataFrame::isPandasDataframe(reader))
+        return PandasDataFrame::getActualTableStructure(reader, context);
+
     return StoragePython::getTableStructureFromData(reader);
 }
 
