@@ -1,4 +1,4 @@
-#include <Processors/Sources/PythonSource.h>
+#include "PythonSource.h"
 
 #if USE_PYTHON
 #include <algorithm>
@@ -30,7 +30,7 @@
 #include <Poco/Logger.h>
 #include <Common/COW.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include <Common/logger_useful.h>
 #include <Common/typeid_cast.h>
 

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "PybindWrapper.h"
 #include "PythonImportCache.h"
 #include "PythonImportCacheItem.h"
+
 #include <stack>
 
 namespace CHDB {

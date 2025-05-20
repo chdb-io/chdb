@@ -1,4 +1,4 @@
-#include <Storages/StoragePython.h>
+#include "StoragePython.h"
 
 #if USE_PYTHON
 #include <Columns/IColumn.h>
@@ -9,7 +9,7 @@
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
-#include <Processors/Sources/PythonSource.h>
+#include "PythonSource.h"
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
 #include <Storages/StorageFactory.h>
@@ -23,7 +23,7 @@
 #include <re2/re2.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include <Common/logger_useful.h>
 
 #include <any>

@@ -298,36 +298,12 @@ if (USE_PYTHON)
         set(PYTHON_INCLUDE_DIRS "${PYTHON_INCLUDE_DIRS};${INCLUDE_DIR_MATCH}")
     endforeach()
 
-    # Apply the include directories to Storages/StoragePython.cpp and Processors/Sources/PythonSource.cpp
-    set_source_files_properties(Common/PythonUtils.cpp PROPERTIES INCLUDE_DIRECTORIES "${PYTHON_INCLUDE_DIRS}")
-
     # get python version, something like python3.x
     execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
         OUTPUT_VARIABLE PYTHON_VERSION
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
 
-    # remove all warning, because pybind11 will generate a lot of warning
-    if (OS_LINUX)
-        # pybind11 will try to find x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h
-        # use -idirafter to make it find the right one and not polute the include path
-        # set_source_files_properties(Storages/StoragePython.cpp PROPERTIES COMPILE_FLAGS
-        #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
-        # )
-        if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
-            set_source_files_properties(Common/PythonUtils.cpp PROPERTIES COMPILE_FLAGS
-                "-w -idirafter /usr/include -include crypt.h"
-            )
-        else()
-            set_source_files_properties(Common/PythonUtils.cpp PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
-        endif()
-    elseif (OS_DARWIN)
-        set_source_files_properties(Common/PythonUtils.cpp PROPERTIES COMPILE_FLAGS 
-            "-w"
-        )
-    endif()
 endif()
 
 set (all_modules dbms)
