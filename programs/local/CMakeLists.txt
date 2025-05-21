@@ -1,7 +1,25 @@
 set (CLICKHOUSE_LOCAL_SOURCES LocalServer.cpp)
 
 if (USE_PYTHON)
-    set(CLICKHOUSE_LOCAL_SOURCES ${CLICKHOUSE_LOCAL_SOURCES} LocalChdb.cpp)
+    set (CHDB_SOURCES
+        LocalChdb.cpp
+        LocalServer.cpp
+        NumpyType.cpp
+        PandasAnalyzer.cpp
+        PandasDataFrame.cpp
+        PandasScan.cpp
+        PybindWrapper.cpp
+        PythonConversion.cpp
+        PythonImportCache.cpp
+        PythonImporter.cpp
+        PythonObjects.cpp
+        PythonSource.cpp
+        PythonUtils.cpp
+        StoragePython.cpp
+        TableFunctionPython.cpp
+    )
+    set (CLICKHOUSE_LOCAL_SOURCES ${CLICKHOUSE_LOCAL_SOURCES} ${CHDB_SOURCES})
+
     # include path from shell cmd "python3 -m pybind11 --includes"
     execute_process(COMMAND python3 -m pybind11 --includes
         OUTPUT_VARIABLE PYBIND11_INCLUDES
@@ -32,18 +50,27 @@ if (USE_PYTHON)
         #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
         # )
         if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
-            set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
-                "-w -idirafter /usr/include -include crypt.h"
-            )
+            foreach(_file ${CHDB_SOURCES})
+                set_source_files_properties(${_file}
+                    PROPERTIES COMPILE_FLAGS
+                    "-w -idirafter /usr/include -include crypt.h"
+                )
+            endforeach(_file)
         else()
-            set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
+            foreach(_file ${CHDB_SOURCES})
+                set_source_files_properties(${_file}
+                    PROPERTIES COMPILE_FLAGS
+                    "-w"
+                )
+            endforeach(_file)
         endif()
     elseif (OS_DARWIN)
-        set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS 
-            "-w"
-        )
+        foreach(_file ${CHDB_SOURCES})
+            set_source_files_properties(${_file}
+                PROPERTIES COMPILE_FLAGS
+                "-w"
+            )
+        endforeach(_file)
     endif()
 endif()
 

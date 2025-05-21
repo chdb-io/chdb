@@ -2,7 +2,6 @@
 
 #include "config.h"
 
-#if USE_PYTHON
 #include <cstddef>
 #include <Core/Block.h>
 
@@ -58,6 +57,8 @@ private:
     Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
     ExternalResultDescription description;
 
+    const FormatSettings format_settings;
+
     Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
 
     PyObjectVecPtr scanData(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count);
@@ -83,4 +84,3 @@ private:
     void destory(PyObjectVecPtr & data);
 };
 }
-#endif

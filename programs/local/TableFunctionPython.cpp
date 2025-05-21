@@ -3,7 +3,6 @@
 #include "PandasDataframe.h"
 #include "TableFunctionPython.h"
 
-#if USE_PYTHON
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
@@ -172,4 +171,3 @@ This table function requires a single argument which is a PyReader object used t
 }
 
 }
-#endif
