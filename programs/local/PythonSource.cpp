@@ -1,5 +1,6 @@
 #include "PythonSource.h"
 #include "PandasScan.h"
+#include "StoragePython.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -17,7 +18,6 @@
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/IDataType.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Storages/StoragePython.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>

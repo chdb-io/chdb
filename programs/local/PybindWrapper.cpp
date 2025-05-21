@@ -2,6 +2,8 @@
 
 #include "Common/Exception.h"
 
+using namespace DB;
+
 namespace DB
 {
 
@@ -22,8 +24,8 @@ bool gil_check()
 void gil_assert()
 {
 	if (!gil_check())
-		throw DB::Exception(DB::ErrorCodes::LOGICAL_ERROR,
-							"The GIL should be held for this operation, but it's not!");
+		throw Exception(ErrorCodes::LOGICAL_ERROR,
+					    "The GIL should be held for this operation, but it's not!");
 }
 
 } // namespace pybind11

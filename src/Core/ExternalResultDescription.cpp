@@ -99,6 +99,8 @@ void ExternalResultDescription::init(const Block & sample_block_)
             types.emplace_back(ValueType::vtArray, is_nullable);
         else if (which.isFixedString())
             types.emplace_back(ValueType::vtFixedString, is_nullable);
+        else if (which.isObject())
+            types.emplace_back(ValueType::vtObject, is_nullable);
         else
             throw Exception(ErrorCodes::UNKNOWN_TYPE, "Unsupported type {}", type->getName());
     }

@@ -17,11 +17,11 @@
 #include "PythonUtils.h"
 #include <Common/logger_useful.h>
 
-using namespace CHDB;
-
 namespace py = pybind11;
 // Global storage for Python Table Engine queriable object
 py::handle global_query_obj = nullptr;
+
+using namespace CHDB;
 
 namespace DB
 {

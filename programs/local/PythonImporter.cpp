@@ -33,4 +33,9 @@ PythonImportCache & PythonImporter::ImportCache()
 	return *python_import_cache.get();
 }
 
+void PythonImporter::destroy()
+{
+	python_import_cache.reset();
+}
+
 } // namespace CHDB

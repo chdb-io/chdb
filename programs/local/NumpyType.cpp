@@ -1,10 +1,11 @@
 #include "NumpyType.h"
 
 #include <Common/StringUtils.h>
-#include "DataTypes/DataTypeInterval.h"
-#include "DataTypes/DataTypeObject.h"
-#include "DataTypes/DataTypesNumber.h"
-#include "DataTypes/DataTypeString.h"
+#include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeInterval.h>
+#include <DataTypes/DataTypeObject.h>
+#include <DataTypes/DataTypesNumber.h>
+#include <DataTypes/DataTypeString.h>
 
 using namespace DB;
 
@@ -182,7 +183,7 @@ NumpyType ConvertNumpyType(const py::handle & col_type)
 	return numpy_type;
 }
 
-DataTypePtr NumpyToDataType(const NumpyType & col_type)
+std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 {
 	switch (col_type.type)
 	{

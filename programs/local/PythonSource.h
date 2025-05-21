@@ -6,6 +6,7 @@
 #include <Core/Block.h>
 
 #include <Core/ExternalResultDescription.h>
+#include <Formats/FormatSettings.h>
 #include <Processors/ISource.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
@@ -31,7 +32,8 @@ public:
         size_t data_source_row_count,
         size_t max_block_size_,
         size_t stream_index,
-        size_t num_streams);
+        size_t num_streams,
+        const FormatSettings & format_settings_);
 
     ~PythonSource() override = default;
 
