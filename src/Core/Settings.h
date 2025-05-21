@@ -968,6 +968,9 @@ class IColumn;
     \
     /** Experimental feature for moving data between shards. */ \
     M(Bool, allow_experimental_query_deduplication, false, "Experimental data deduplication for SELECT queries based on part UUIDs", 0) \
+if USE_PYTHON
+    M(UInt64, pandas_analyze_sample, 10000, "Sample rows in pandas to automatically determine the data types. When set to 0, sampling is disabled", 0) \
+#endif
 
     /** End of experimental features */
 
@@ -1293,9 +1296,6 @@ class IColumn;
     M(Bool, precise_float_parsing, false, "Prefer more precise (but slower) float parsing algorithm", 0) \
     M(DateTimeOverflowBehavior, date_time_overflow_behavior, "ignore", "Overflow mode for Date, Date32, DateTime, DateTime64 types. Possible values: 'ignore', 'throw', 'saturate'.", 0) \
     M(Bool, validate_experimental_and_suspicious_types_inside_nested_types, true, "Validate usage of experimental and suspicious types inside nested types like Array/Map/Tuple", 0) \
-if USE_PYTHON
-    M(UInt64, pandas_analyze_sample, 0, "Sample rows in pandas to automatically determine the data types. When set to 0, sampling is disabled", 0) \
-#endif
 
 
 // End of FORMAT_FACTORY_SETTINGS
