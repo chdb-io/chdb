@@ -1,4 +1,5 @@
 #include "LocalChdb.h"
+#include "LocalServer.h"
 #include "chdb.h"
 #include "PythonImporter.h"
 #include "TableFunctionPython.h"
@@ -543,6 +544,7 @@ PYBIND11_MODULE(_chdb, m)
 
 	auto destroy_import_cache = []()
     {
+        DB::LocalServer::cleanupConnection();
 		CHDB::PythonImporter::destroy();
 	};
 	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));

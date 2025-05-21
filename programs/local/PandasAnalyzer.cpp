@@ -60,8 +60,10 @@ DataTypePtr PandasAnalyzer::getItemType(py::object obj, bool & can_convert)
 
 	switch (object_type) {
 	case PythonObjectType::Dict:
+	case PythonObjectType::Tuple:
+	case PythonObjectType::List:
 	{
-		PyDictionary dict = PyDictionary(py::reinterpret_borrow<py::object>(obj));
+		// PyDictionary dict = PyDictionary(py::reinterpret_borrow<py::object>(obj));
 
 		return std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
 	}
@@ -79,8 +81,6 @@ DataTypePtr PandasAnalyzer::getItemType(py::object obj, bool & can_convert)
 	case PythonObjectType::ByteArray:
 	case PythonObjectType::MemoryView:
 	case PythonObjectType::Bytes:
-	case PythonObjectType::Tuple:
-	case PythonObjectType::List:
 	case PythonObjectType::NdDatetime:
 	case PythonObjectType::NdArray:
 	case PythonObjectType::Other:
