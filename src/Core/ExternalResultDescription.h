@@ -37,7 +37,6 @@ struct ExternalResultDescription
         vtArray,
         vtFixedString,
         vtPoint,
-        vtObject,
     };
 
     Block sample_block;

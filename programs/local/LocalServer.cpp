@@ -478,6 +478,17 @@ void LocalServer::connect()
         connection_parameters, client_context, in, need_render_progress, need_render_profile_events, server_display_name);
 }
 
+void LocalServer::cleanupConnection()
+{
+    try
+	{
+        close_conn(&global_conn_ptr);
+	}
+	catch (...)
+	{
+	}
+}
+
 
 int LocalServer::main(const std::vector<std::string> & /*args*/)
 try
@@ -1403,7 +1414,13 @@ static CHDB::ResultData createQueryResult(DB::LocalServer * server, const CHDB::
     }
 
     if (result_data.is_end)
+    {
         server->streaming_query_context.reset();
+#if USE_PYTHON
+        if (auto * local_connection = static_cast<DB::LocalConnection*>(server->connection.get()))
+            local_connection->resetQueryContext();
+#endif
+    }
 
     return result_data;
 }

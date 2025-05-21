@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <Core/Block.h>
 
-#include <Core/ExternalResultDescription.h>
 #include <Formats/FormatSettings.h>
 #include <Processors/ISource.h>
 #include <pybind11/pybind11.h>
@@ -57,7 +56,6 @@ private:
     size_t cursor;
 
     Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
-    ExternalResultDescription description;
 
     const FormatSettings format_settings;
 
