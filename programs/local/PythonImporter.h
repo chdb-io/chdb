@@ -13,6 +13,8 @@ public:
 
 	static PythonImportCache & ImportCache();
 
+	static void destroy();
+
 private:
 	static PythonImportCachePtr python_import_cache;
 };

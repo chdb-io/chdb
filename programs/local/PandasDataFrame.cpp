@@ -43,7 +43,7 @@ public:
 
 struct PandasDataFrameBind {
 public:
-    explicit PandasDataFrameBind(py::handle & df)
+    explicit PandasDataFrameBind(const py::handle & df)
     {
         names = py::list(df.attr("columns"));
         types = py::list(df.attr("dtypes"));
@@ -84,7 +84,7 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
     return NumpyToDataType(numpy_type);
 }
 
-ColumnsDescription PandasDataFrame::getActualTableStructure(py::object & object, ContextPtr & context)
+ColumnsDescription PandasDataFrame::getActualTableStructure(const py::object & object, ContextPtr & context)
 {
     NamesAndTypesList names_and_types;
 
@@ -123,10 +123,10 @@ bool PandasDataFrame::isPandasDataframe(const py::object & object)
 	py::list dtypes = object.attr("dtypes");
 	for (auto & dtype : dtypes) {
 		if (py::isinstance(dtype, arrow_dtype))
-			return true;
+			return false;
 	}
 
-	return false;
+	return true;
 }
 
 bool PandasDataFrame::IsPyArrowBacked(const py::handle & object)

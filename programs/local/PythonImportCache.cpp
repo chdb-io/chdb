@@ -1,7 +1,7 @@
 #include "PythonImportCache.h"
 #include "PythonImporter.h"
 
-#include "Common/Exception.h"
+#include <Common/Exception.h>
 #include <stack>
 
 namespace DB
@@ -25,7 +25,7 @@ py::handle PythonImportCacheItem::operator()(bool load) {
 	PythonImportCacheItem * item = this;
 	while (item)
 	{
-		hierarchy.emplace(*item);
+		hierarchy.emplace(item);
 		item = item->parent;
 	}
 

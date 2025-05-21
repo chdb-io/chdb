@@ -50,6 +50,6 @@ enum class NumpyObjectType : uint8_t {
 };
 
 NumpyType ConvertNumpyType(const py::handle & col_type);
-DB::DataTypePtr NumpyToDataType(const NumpyType & col_type);
+std::shared_ptr<DB::IDataType> NumpyToDataType(const NumpyType & col_type);
 
 } // namespace CHDB

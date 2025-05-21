@@ -34,7 +34,13 @@ if (USE_PYTHON)
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
     string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
-    set_source_files_properties(LocalChdb.cpp PROPERTIES INCLUDE_DIRECTORIES ${PYTHON_INCLUDE_DIR})
+
+    foreach(_file ${CHDB_SOURCES})
+        set_source_files_properties(${_file}
+            PROPERTIES INCLUDE_DIRECTORIES
+            ${PYTHON_INCLUDE_DIR}
+        )
+    endforeach(_file)
 
     # get python version, something like python3.x
     execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"

@@ -8,7 +8,7 @@ namespace CHDB {
 
 class PandasDataFrame {
 public:
-    static DB::ColumnsDescription getActualTableStructure(py::object & object, DB::ContextPtr & context);
+    static DB::ColumnsDescription getActualTableStructure(const py::object & object, DB::ContextPtr & context);
 
     static bool isPandasDataframe(const py::object & object);
 

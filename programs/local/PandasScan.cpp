@@ -17,7 +17,7 @@ ColumnPtr PandasScan::scanObject(
     auto column = data_type->createColumn();
     auto ** object_array = static_cast<PyObject **>(col_wrap.buf);
 
-    auto serialization = data_type->doGetDefaultSerialization();
+    auto serialization = data_type->getDefaultSerialization();
 
     for (size_t i = offset; i < offset + count; ++i)
     {
@@ -27,7 +27,8 @@ ColumnPtr PandasScan::scanObject(
         {
             py::gil_scoped_acquire acquire;
             String json_str = py::module::import("json").attr("dumps")(py::reinterpret_borrow<py::object>(obj)).cast<std::string>();
-            serialization->deserializeTextImpl(column, json_str, format_settings);
+            ReadBuffer read_buffer(json_str.data(), json_str.size(), 0);
+            serialization->deserializeTextJSON(*column, read_buffer, format_settings);
         }
         else
         {

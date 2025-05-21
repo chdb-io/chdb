@@ -1,9 +1,12 @@
 #include "LocalServer.h"
 #include "chdb.h"
 #include "chdb-internal.h"
+
+#if USE_PYTHON
 #include "TableFunctionPython.h"
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Storages/StorageFactory.h>
+#endif
 
 #include <sys/resource.h>
 #include "Common/Logger.h"
@@ -1276,7 +1279,7 @@ static local_result_v2 * createMaterializedLocalQueryResult(DB::LocalServer * se
             result->elapsed = server->getElapsedTime();
         }
     }
-    catch (const DB::Exception& e)
+    catch (const DB::Exception & e)
     {
         std::string error = DB::getExceptionMessage(e, false);
         result->error_message = new char[error.length() + 1];
