@@ -6,8 +6,6 @@
 #include "pybind11/gil.h"
 #include "pybind11/pytypes.h"
 
-#if USE_PYTHON
-
 namespace py = pybind11;
 
 extern bool inside_main = true;
@@ -542,4 +540,3 @@ PYBIND11_MODULE(_chdb, m)
 }
 
 #    endif // PY_TEST_MAIN
-#endif // USE_PYTHON

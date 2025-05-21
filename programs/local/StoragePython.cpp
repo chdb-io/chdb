@@ -1,6 +1,5 @@
 #include "StoragePython.h"
 
-#if USE_PYTHON
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypeDate32.h>
@@ -25,6 +24,7 @@
 #include <Common/Exception.h>
 #include "PythonUtils.h"
 #include <Common/logger_useful.h>
+#include <Formats/FormatFactory.cpp>
 
 #include <any>
 
@@ -67,11 +67,12 @@ Pipe StoragePython::read(
     storage_snapshot->check(column_names);
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
+    auto format_settings = getFormatSettings(getContext());
 
     if (isInheritsFromPyReader(data_source))
     {
         return Pipe(
-            std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
+            std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
     }
 
     prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
@@ -80,7 +81,7 @@ Pipe StoragePython::read(
     // num_streams = 32; // for chdb testing
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams));
+            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings));
     return Pipe::unitePipes(std::move(pipes));
 }
 
@@ -374,4 +375,3 @@ void registerStoragePython(StorageFactory & factory)
         {.supports_settings = true, .supports_parallel_insert = false});
 }
 }
-#endif

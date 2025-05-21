@@ -1,6 +1,6 @@
 #include "PythonSource.h"
+#include "PandasScan.h"
 
-#if USE_PYTHON
 #include <algorithm>
 #include <cstddef>
 #include <exception>
@@ -54,7 +54,8 @@ PythonSource::PythonSource(
     size_t data_source_row_count,
     size_t max_block_size_,
     size_t stream_index,
-    size_t num_streams)
+    size_t num_streams,
+    const FormatSettings & format_settings_)
     : ISource(sample_block_.cloneEmpty())
     , data_source(data_source_)
     , isInheritsFromPyReader(isInheritsFromPyReader_)
@@ -65,6 +66,7 @@ PythonSource::PythonSource(
     , stream_index(stream_index)
     , num_streams(num_streams)
     , cursor(0)
+    , format_settings(format_settings_)
 {
     description.init(sample_block_);
 }
@@ -498,6 +500,8 @@ Chunk PythonSource::scanDataToChunk()
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
             else if (which.isNullable())
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
+            else if (which.isObject())
+                columns[i] = CHDB::PandasScan::scanObject(col, cursor, count, format_settings);
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);
 
@@ -579,4 +583,3 @@ Chunk PythonSource::generate()
     }
 }
 }
-#endif

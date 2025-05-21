@@ -2,7 +2,6 @@
 
 #include "config.h"
 
-#if USE_PYTHON
 #include <memory>
 #include <string>
 #include <vector>
@@ -184,4 +183,3 @@ private:
 };
 
 }
-#endif

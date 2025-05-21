@@ -2,7 +2,6 @@
 
 #include "config.h"
 
-#if USE_PYTHON
 #include <Storages/ColumnsDescription.h>
 #include "StoragePython.h"
 #include <TableFunctions/ITableFunction.h>
@@ -47,4 +46,3 @@ private:
 };
 
 }
-#endif

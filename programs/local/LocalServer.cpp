@@ -526,14 +526,18 @@ try
         registerAggregateFunctions();
 
         registerTableFunctions();
+#if USE_PYTHON
         auto & table_function_factory = TableFunctionFactory::instance();
         registerTableFunctionPython(table_function_factory);
+#endif
 
         registerDatabases();
 
         registerStorages();
+#if USE_PYTHON
         auto & storage_factory = StorageFactory::instance();
         registerStoragePython(storage_factory);
+#endif
 
         registerDictionaries();
         registerDisks(/* global_skip_access_check= */ true);
