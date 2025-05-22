@@ -30,10 +30,7 @@ void registerTableFunctions()
 #if USE_RAPIDJSON || USE_SIMDJSON
     registerTableFunctionFuzzJSON(factory);
 #endif
-#if USE_PYTHON
-    registerTableFunctionPython(factory);
-#endif
-    
+
 #if USE_HIVE
     registerTableFunctionHive(factory);
 #endif

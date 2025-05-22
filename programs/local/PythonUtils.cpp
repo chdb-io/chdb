@@ -1,8 +1,5 @@
-#include <string>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include "config.h"
-
-#if USE_PYTHON
 
 #include <cstddef>
 #include <pybind11/gil.h>
@@ -369,4 +366,3 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
     return nullptr;
 }
 }
-#endif

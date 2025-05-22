@@ -32,9 +32,6 @@ void registerStorageTimeSeries(StorageFactory & factory);
 #if USE_RAPIDJSON || USE_SIMDJSON
 void registerStorageFuzzJSON(StorageFactory & factory);
 #endif
-#if USE_PYTHON
-void registerStoragePython(StorageFactory & factory);
-#endif
 
 #if USE_AWS_S3
 void registerStorageS3(StorageFactory & factory);
@@ -141,10 +138,6 @@ void registerStorages()
 
 #if USE_AZURE_BLOB_STORAGE
     registerStorageAzureQueue(factory);
-#endif
-
-#if USE_PYTHON
-    registerStoragePython(factory);
 #endif
 
 #if USE_AWS_S3

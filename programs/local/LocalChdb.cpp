@@ -1,16 +1,14 @@
 #include "LocalChdb.h"
+#include "LocalServer.h"
+#include "chdb.h"
+#include "PythonImporter.h"
+#include "TableFunctionPython.h"
+
 #include <mutex>
 #include "Common/logger_useful.h"
-#include "chdb.h"
+#include <Common/re2.h>
 #include "pybind11/gil.h"
 #include "pybind11/pytypes.h"
-
-#if USE_PYTHON
-
-#    include <Storages/StoragePython.h>
-#    include <TableFunctions/TableFunctionPython.h>
-#    include <Common/re2.h>
-
 
 namespace py = pybind11;
 
@@ -543,7 +541,13 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("path") = "",
         py::arg("udf_path") = "",
         "Query chDB and return a query_result object");
+
+	auto destroy_import_cache = []()
+    {
+        DB::LocalServer::cleanupConnection();
+		CHDB::PythonImporter::destroy();
+	};
+	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
 
 #    endif // PY_TEST_MAIN
-#endif // USE_PYTHON

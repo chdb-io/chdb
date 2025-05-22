@@ -34,6 +34,8 @@ public:
 
     void connect() override;
 
+    static void cleanupConnection();
+
 protected:
     Poco::Util::LayeredConfiguration & getClientConfiguration() override;
 

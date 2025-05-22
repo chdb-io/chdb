@@ -1,16 +1,18 @@
 #pragma once
 
-#include "config.h"
+#include "StoragePython.h"
 
-#if USE_PYTHON
+#include "config.h"
 #include <Storages/ColumnsDescription.h>
-#include <Storages/StoragePython.h>
 #include <TableFunctions/ITableFunction.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 
 namespace DB
 {
+
+class TableFunctionFactory;
+void registerTableFunctionPython(TableFunctionFactory & factory);
 
 py::object findQueryableObj(const std::string & var_name);
 
@@ -44,4 +46,3 @@ private:
 };
 
 }
-#endif

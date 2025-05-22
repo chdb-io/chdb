@@ -1,26 +1,27 @@
-#include <memory>
-#include <TableFunctions/TableFunctionPython.h>
+#include "StoragePython.h"
 
-#if USE_PYTHON
+#include "PandasDataframe.h"
+#include "TableFunctionPython.h"
+
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Parsers/ASTFunction.h>
 #include <Storages/StorageInMemoryMetadata.h>
-#include <Storages/StoragePython.h>
 #include <TableFunctions/TableFunctionFactory.h>
 #include <pybind11/gil.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include <Common/logger_useful.h>
-
 
 namespace py = pybind11;
 // Global storage for Python Table Engine queriable object
 py::handle global_query_obj = nullptr;
+
+using namespace CHDB;
 
 namespace DB
 {
@@ -145,9 +146,13 @@ StoragePtr TableFunctionPython::executeImpl(
     return storage;
 }
 
-ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr /*context*/, bool /*is_insert_query*/) const
+ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr context, bool /*is_insert_query*/) const
 {
     py::gil_scoped_acquire acquire;
+
+    if (PandasDataFrame::isPandasDataframe(reader))
+        return PandasDataFrame::getActualTableStructure(reader, context);
+
     return StoragePython::getTableStructureFromData(reader);
 }
 
@@ -166,4 +171,3 @@ This table function requires a single argument which is a PyReader object used t
 }
 
 }
-#endif

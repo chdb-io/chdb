@@ -2,7 +2,6 @@
 
 #include "config.h"
 
-#if USE_PYTHON
 #include <memory>
 #include <string>
 #include <vector>
@@ -17,7 +16,7 @@
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 
 
 namespace DB
@@ -31,6 +30,9 @@ extern const int UNKNOWN_FORMAT;
 extern const int NOT_IMPLEMENTED;
 extern const int PY_EXCEPTION_OCCURED;
 }
+
+void registerStoragePython(StorageFactory & factory);
+
 class PyReader
 {
 public:
@@ -180,8 +182,4 @@ private:
     Poco::Logger * logger = &Poco::Logger::get("StoragePython");
 };
 
-void registerStoragePython(StorageFactory & factory);
-
-
 }
-#endif

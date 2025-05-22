@@ -4,7 +4,6 @@
 #include <string_view>
 #include "config.h"
 
-#if USE_PYTHON
 #    include <filesystem>
 #    include <iostream>
 #    include <sstream>
@@ -326,6 +325,3 @@ public:
         return py::str();
     }
 };
-
-
-#endif
