@@ -143,11 +143,7 @@ public:
     void setThrottler(const ThrottlerPtr &) override {}
 
 #if USE_PYTHON
-public:
-    void resetQueryContext()
-    {
-        query_context.reset();
-    }
+    void resetQueryContext();
 #endif
 
 private:

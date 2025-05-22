@@ -639,5 +639,13 @@ ServerConnectionPtr LocalConnection::createConnection(
     return std::make_unique<LocalConnection>(current_context, in, send_progress, send_profile_events, server_display_name);
 }
 
+#if USE_PYTHON
+void LocalConnection::resetQueryContext()
+{
+    query_context.reset();
+    state.reset();
+}
+#endif
+
 
 }
