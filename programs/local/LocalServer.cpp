@@ -1418,7 +1418,13 @@ static CHDB::ResultData createQueryResult(DB::LocalServer * server, const CHDB::
         server->streaming_query_context.reset();
 #if USE_PYTHON
         if (auto * local_connection = static_cast<DB::LocalConnection*>(server->connection.get()))
+        {
+            /// Must clean up Context objects whether the query succeeds or fails.
+            /// During process exit, if LocalServer destructor triggers while cached PythonStorage
+            /// objects still exist in Context, their destruction will attempt to acquire GIL.
+            /// Acquiring GIL during process termination leads to immediate thread termination.
             local_connection->resetQueryContext();
+        }
 #endif
     }
 

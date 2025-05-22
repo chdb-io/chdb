@@ -26,7 +26,7 @@ if (USE_PYTHON)
         OUTPUT_STRIP_TRAILING_WHITESPACE
     )
     string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYBIND11_INCLUDE_DIR ${PYBIND11_INCLUDES})
-    include_directories(${PYBIND11_INCLUDE_DIR})
+    include_directories(${PYBIND11_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
     # include Python.h
     execute_process(COMMAND python3-config --includes
