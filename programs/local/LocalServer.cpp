@@ -3,7 +3,9 @@
 #include "chdb-internal.h"
 
 #if USE_PYTHON
+#include "FormatHelper.h"
 #include "TableFunctionPython.h"
+#include "PythonTableCache.h"
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Storages/StorageFactory.h>
 #endif
@@ -1425,6 +1427,8 @@ static CHDB::ResultData createQueryResult(DB::LocalServer * server, const CHDB::
             /// Acquiring GIL during process termination leads to immediate thread termination.
             local_connection->resetQueryContext();
         }
+
+        CHDB::PythonTableCache::clear();
 #endif
     }
 
@@ -1704,6 +1708,9 @@ static CHDB::ResultData executeQueryRequest(
                 streaming_req->query = query;
                 streaming_req->format = format;
                 queue->current_query = std::move(streaming_req);
+#if USE_PYTHON
+                CHDB::SetCurrentFormat(format);
+#endif
             }
             else if (query_type == CHDB::QueryType::TYPE_MATERIALIZED)
             {
@@ -1711,6 +1718,9 @@ static CHDB::ResultData executeQueryRequest(
                 materialized_req->query = query;
                 materialized_req->format = format;
                 queue->current_query = std::move(materialized_req);
+#if USE_PYTHON
+                CHDB::SetCurrentFormat(format);
+#endif
             }
             else
             {

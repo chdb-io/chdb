@@ -1,6 +1,9 @@
 #include "StoragePython.h"
-
-#include "PandasDataframe.h"
+#include "PandasDataFrame.h"
+#include "PythonDict.h"
+#include "PythonReader.h"
+#include "PythonTableCache.h"
+#include "PythonUtils.h"
 #include "TableFunctionPython.h"
 
 #include <DataTypes/DataTypeString.h>
@@ -14,12 +17,9 @@
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
-#include "PythonUtils.h"
 #include <Common/logger_useful.h>
 
 namespace py = pybind11;
-// Global storage for Python Table Engine queriable object
-py::handle global_query_obj = nullptr;
 
 using namespace CHDB;
 
@@ -31,50 +31,8 @@ namespace ErrorCodes
 extern const int NUMBER_OF_ARGUMENTS_DOESNT_MATCH;
 extern const int PY_OBJECT_NOT_FOUND;
 extern const int PY_EXCEPTION_OCCURED;
-}
-
-// Function to find instance of PyReader, pandas DataFrame, or PyArrow Table, filtered by variable name
-py::object findQueryableObj(const std::string & var_name)
-{
-    py::module inspect = py::module_::import("inspect");
-    py::object current_frame = inspect.attr("currentframe")();
-
-    while (!current_frame.is_none())
-    {
-        // Get f_locals and f_globals
-        py::object locals_obj = current_frame.attr("f_locals");
-        py::object globals_obj = current_frame.attr("f_globals");
-
-        // For each namespace (locals and globals)
-        for (const auto & namespace_obj : {locals_obj, globals_obj})
-        {
-            // Use Python's __contains__ method to check if the key exists
-            // This works with both regular dicts and FrameLocalsProxy (Python 3.13+)
-            if (py::bool_(namespace_obj.attr("__contains__")(var_name)))
-            {
-                py::object obj;
-                try
-                {
-                    // Get the object using Python's indexing syntax
-                    obj = namespace_obj[py::cast(var_name)];
-                    if (isInheritsFromPyReader(obj) || isPandasDf(obj) || isPyarrowTable(obj) || hasGetItem(obj))
-                    {
-                        return obj;
-                    }
-                }
-                catch (const py::error_already_set &)
-                {
-                    continue; // If getting the value fails, continue to the next namespace
-                }
-            }
-        }
-
-        // Move to the parent frame
-        current_frame = current_frame.attr("f_back");
-    }
-
-    // Object not found
-    return py::none();
+extern const int BAD_ARGUMENTS;
+extern const int UNKNOWN_FORMAT;
 }
 
 void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr context)
@@ -103,19 +61,18 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
             std::remove_if(py_reader_arg_str.begin(), py_reader_arg_str.end(), [](char c) { return c == '\'' || c == '\"' || c == '`'; }),
             py_reader_arg_str.end());
 
-        auto instance = global_query_obj;
+        auto instance = PythonTableCache::getQueryableObj(py_reader_arg_str);
         if (instance == nullptr || instance.is_none())
-            throw Exception(
-                ErrorCodes::PY_OBJECT_NOT_FOUND,
-                "Python object not found in the Python environment\n"
-                "Ensure that the object is type of PyReader, pandas DataFrame, or PyArrow Table and is in the global or local scope");
+            throw Exception(ErrorCodes::PY_OBJECT_NOT_FOUND,
+                            "Python object not found in the Python environment\n"
+                            "Ensure that the object is type of PyReader, pandas DataFrame, or PyArrow Table and is in the global or local scope");
 
+        py::gil_scoped_acquire acquire;
         LOG_DEBUG(
             logger,
             "Python object found in Python environment with name: {} type: {}",
             py_reader_arg_str,
             py::str(instance.attr("__class__")).cast<std::string>());
-        py::gil_scoped_acquire acquire;
         reader = instance.cast<py::object>();
     }
     catch (py::error_already_set & e)
@@ -150,10 +107,20 @@ ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr conte
 {
     py::gil_scoped_acquire acquire;
 
+    if (!reader)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python reader not initialized");
+
     if (PandasDataFrame::isPandasDataframe(reader))
         return PandasDataFrame::getActualTableStructure(reader, context);
 
-    return StoragePython::getTableStructureFromData(reader);
+    if (PythonDict::isPythonDict(reader))
+        return PythonDict::getActualTableStructure(reader, context);
+
+    if (PythonReader::isPythonReader(reader))
+        return PythonReader::getActualTableStructure(reader, context);
+
+    auto schema = PyReader::getSchemaFromPyObj(reader);
+    return StoragePython::getTableStructureFromData(schema);
 }
 
 void registerTableFunctionPython(TableFunctionFactory & factory)

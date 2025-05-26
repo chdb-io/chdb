@@ -1,11 +1,11 @@
 #pragma once
 
 #include "StoragePython.h"
+#include "PybindWrapper.h"
 
 #include "config.h"
 #include <Storages/ColumnsDescription.h>
 #include <TableFunctions/ITableFunction.h>
-#include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
 
 namespace DB
@@ -13,8 +13,6 @@ namespace DB
 
 class TableFunctionFactory;
 void registerTableFunctionPython(TableFunctionFactory & factory);
-
-py::object findQueryableObj(const std::string & var_name);
 
 class TableFunctionPython : public ITableFunction
 {

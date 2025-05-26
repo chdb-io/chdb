@@ -18,6 +18,9 @@ EXPECTED = """"auxten",9
 "tom",5
 """
 
+EXPECTED_MULTILPE_TABLES = """1,"tom"
+"""
+
 
 SMALL_CSV = """score1,score2,score3
 70906,0.9166144356547409,draw
@@ -266,6 +269,39 @@ class TestQueryPy(unittest.TestCase):
             str(ret),
             "4099877,409987.7,414399.5,6.128691345453262,0.6128691345453262,0.5693101584911346,1,5,4,10\n",
         )
+
+    def test_query_multiple_df(self):
+        df1 = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            }
+        )
+
+        df2 = pd.DataFrame(
+            {
+                "a": [7, 8, 9, 10, 11, 12],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            }
+        )
+
+        df3 = pd.DataFrame(
+            {
+                "a": [13, 14, 15, 16, 17, 18],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            }
+        )
+
+        ret = chdb.query(
+            """
+            SELECT * FROM python(df1) WHERE a = 1
+            UNION ALL
+            SELECT * FROM python(df2) WHERE a = 98
+            UNION ALL
+            SELECT * FROM python(df3) WHERE a = 198
+            """)
+
+        self.assertEqual(str(ret), EXPECTED_MULTILPE_TABLES)
 
 
 if __name__ == "__main__":

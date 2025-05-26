@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DatetimeCacheItem.h"
+#include "DecimalCacheItem.h"
 #include "PandasCacheItem.h"
 #include "PythonImportCacheItem.h"
 
@@ -20,6 +21,7 @@ public:
 public:
 	PandasCacheItem pandas;
 	DatetimeCacheItem datetime;
+	DecimalCacheItem decimal;
 
 public:
 	py::handle AddCache(py::object item);
