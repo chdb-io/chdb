@@ -112,7 +112,7 @@ class TestStreamingQuery(unittest.TestCase):
 
             stream = self.sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
             for chunk in stream:
-                result_counter_streaming1 += chunk.data().count('\n') - 2
+                result_counter_streaming1 += chunk.rows_read()
 
     def streaming_worker2(self):
         global result_counter_streaming2
@@ -129,7 +129,7 @@ class TestStreamingQuery(unittest.TestCase):
 
             stream = self.sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
             for chunk in stream:
-                result_counter_streaming2 += chunk.data().count('\n') - 2
+                result_counter_streaming2 += chunk.rows_read()
 
     def normal_query_worker1(self):
         global result_counter_normal1
@@ -145,7 +145,7 @@ class TestStreamingQuery(unittest.TestCase):
                 ret.cancel()
 
             result = self.sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
-            result_counter_normal1 += result.data().count('\n') - 2
+            result_counter_normal1 += result.rows_read()
 
     def normal_query_worker2(self):
         global result_counter_normal2
@@ -161,7 +161,7 @@ class TestStreamingQuery(unittest.TestCase):
                 ret.cancel()
 
             result = self.sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
-            result_counter_normal2 += result.data().count('\n') - 2
+            result_counter_normal2 += result.rows_read()
 
     def normal_insert_worker(self):
         global insert_counter

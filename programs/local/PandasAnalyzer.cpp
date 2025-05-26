@@ -60,13 +60,9 @@ DataTypePtr PandasAnalyzer::getItemType(py::object obj, bool & can_convert)
 
 	switch (object_type) {
 	case PythonObjectType::Dict:
+		return std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
 	case PythonObjectType::Tuple:
 	case PythonObjectType::List:
-	{
-		// PyDictionary dict = PyDictionary(py::reinterpret_borrow<py::object>(obj));
-
-		return std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
-	}
 	case PythonObjectType::None:
 	case PythonObjectType::Bool:
 	case PythonObjectType::Integer:

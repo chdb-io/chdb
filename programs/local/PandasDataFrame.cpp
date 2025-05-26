@@ -1,5 +1,5 @@
 #include "PandasDataFrame.h"
-
+#include "FormatHelper.h"
 #include "NumpyType.h"
 #include "PandasAnalyzer.h"
 #include "PandasCacheItem.h"
@@ -73,6 +73,12 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
 
     if (numpy_type.type == NumpyNullableType::OBJECT)
     {
+        if (!isJSONSupported())
+        {
+            numpy_type.type = NumpyNullableType::STRING;
+            return NumpyToDataType(numpy_type);
+        }
+
 		PandasAnalyzer analyzer(context->getSettingsRef());
 		if (analyzer.Analyze(column.handle)) {
 			return analyzer.analyzedType();

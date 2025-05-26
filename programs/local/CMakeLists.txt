@@ -2,6 +2,8 @@ set (CLICKHOUSE_LOCAL_SOURCES LocalServer.cpp)
 
 if (USE_PYTHON)
     set (CHDB_SOURCES
+        FormatHelper.cpp
+        ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp
         NumpyType.cpp
@@ -10,6 +12,9 @@ if (USE_PYTHON)
         PandasScan.cpp
         PybindWrapper.cpp
         PythonConversion.cpp
+        PythonDict.cpp
+        PythonReader.cpp
+        PythonTableCache.cpp
         PythonImportCache.cpp
         PythonImporter.cpp
         PythonObjects.cpp

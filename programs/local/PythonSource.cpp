@@ -1,4 +1,5 @@
 #include "PythonSource.h"
+#include "ListScan.h"
 #include "PandasScan.h"
 #include "StoragePython.h"
 
@@ -16,7 +17,7 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <DataTypes/IDataType.h>
+#include <DataTypes/DataTypeObject.h>
 #include <Interpreters/ExpressionActions.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
@@ -213,10 +214,15 @@ void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & co
 
 
 template <typename T>
-ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
+ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale, bool is_json)
 {
     MutableColumnPtr column;
-    if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
+    if (is_json)
+    {
+        auto data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+        column = data_type->createColumn();
+    }
+    else if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
         column = ColumnDecimal<T>::create(0, scale);
     else if constexpr (std::is_same_v<T, String>)
         column = ColumnString::create();
@@ -234,6 +240,12 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
     const void * data = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
     if (type_name == "list")
     {
+        if (is_json)
+        {
+            CHDB::ListScan::scanObject(0, row_count, format_settings, obj, column);
+            return column;
+        }
+
         //reserve the size of the column
         column->reserve(row_count);
         insert_from_list<T>(obj, column);
@@ -242,7 +254,9 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
 
     if (!py_array.is_none() && data != nullptr)
     {
-        if constexpr (std::is_same_v<T, String>)
+        if (is_json)
+            CHDB::PandasScan::scanObject(0, row_count, format_settings, data, column);
+        else if constexpr (std::is_same_v<T, String>)
             insert_string_from_array(py_array, column);
         else
             insert_from_ptr<T>(data, column, 0, row_count);
@@ -347,6 +361,8 @@ Chunk PythonSource::genChunk(size_t & num_rows, PyObjectVecPtr data)
                 columns[i] = convert_and_insert<DateTime64>(column);
             else if (which.isString())
                 columns[i] = convert_and_insert<String>(column);
+            else if (which.isObject())
+                columns[i] = convert_and_insert<String>(column, 0, true);
             else
                 throw Exception(
                     ErrorCodes::BAD_TYPE_OF_FIELD,
@@ -500,7 +516,12 @@ Chunk PythonSource::scanDataToChunk()
             else if (which.isNullable())
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
             else if (which.isObject())
-                columns[i] = CHDB::PandasScan::scanObject(col, cursor, count, format_settings);
+            {
+                if (col.py_type == "list")
+                    columns[i] = CHDB::ListScan::scanObject(col, cursor, count, format_settings);
+                else
+                    columns[i] = CHDB::PandasScan::scanObject(col, cursor, count, format_settings);
+            }
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);
 

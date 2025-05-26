@@ -1,4 +1,4 @@
-#include "PandasScan.h"
+#include "ListScan.h"
 #include "DataTypes/IDataType.h"
 #include "IO/WriteHelpers.h"
 #include "PythonConversion.h"
@@ -21,7 +21,7 @@ using namespace DB;
 
 namespace CHDB {
 
-ColumnPtr PandasScan::scanObject(
+ColumnPtr ListScan::scanObject(
     const ColumnWrapper & col_wrap,
     const size_t cursor,
     const size_t count,
@@ -31,49 +31,47 @@ ColumnPtr PandasScan::scanObject(
 
     auto & data_type = col_wrap.dest_type;
     auto column = data_type->createColumn();
-    auto ** object_array = static_cast<PyObject **>(col_wrap.buf);
     auto serialization = data_type->getDefaultSerialization();
 
-    innerScanObject(cursor, count, format_settings, serialization, object_array, column);
+    innerScanObject(cursor, count, format_settings, serialization, col_wrap.data, column);
 
     return column;
 }
 
-void PandasScan::scanObject(
+void ListScan::scanObject(
     const size_t cursor,
     const size_t count,
     const FormatSettings & format_settings,
-    const void * buf,
+    const py::handle & obj,
     MutableColumnPtr & column)
 {
-    auto object_array = static_cast<PyObject **>(const_cast<void *>(buf));
     auto data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
     SerializationPtr serialization = data_type->getDefaultSerialization();
 
-    innerScanObject(cursor, count, format_settings, serialization, object_array, column);
+    innerScanObject(cursor, count, format_settings, serialization, obj, column);
 }
 
-void PandasScan::innerScanObject(
+void ListScan::innerScanObject(
     const size_t cursor,
     const size_t count,
     const FormatSettings & format_settings,
     SerializationPtr & serialization,
-    PyObject ** objects,
+    const py::handle & obj,
     MutableColumnPtr & column)
 {
     py::gil_scoped_acquire acquire;
 
+    auto list = obj.cast<py::list>();
+
     for (size_t i = cursor; i < cursor + count; ++i)
     {
-        auto * obj = objects[i];
-        auto handle = py::handle(obj);
-
-        if (!tryInsertJsonResult(handle, format_settings, column, serialization))
+        auto item = list.attr("__getitem__")(i);
+        if (!tryInsertJsonResult(item, format_settings, column, serialization))
             column->insertDefault();
-    }
+	}
 }
 
-void PandasScan::innerCheck(const ColumnWrapper & col_wrap)
+void ListScan::innerCheck(const ColumnWrapper & col_wrap)
 {
     if (col_wrap.data.is_none())
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column data is None");

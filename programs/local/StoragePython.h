@@ -172,7 +172,7 @@ public:
 
     Block prepareSampleBlock(const Names & column_names, const StorageSnapshotPtr & storage_snapshot);
 
-    static ColumnsDescription getTableStructureFromData(py::object data_source);
+    static ColumnsDescription getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema);
 
 private:
     void prepareColumnCache(const Names & names, const Columns & columns, const Block & sample_block);

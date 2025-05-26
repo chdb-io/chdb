@@ -5,7 +5,7 @@
 
 namespace CHDB {
 
-class PandasScan {
+class ListScan {
 public:
     static DB::ColumnPtr scanObject(
         const DB::ColumnWrapper & col_wrap,
@@ -17,7 +17,7 @@ public:
         const size_t cursor,
         const size_t count,
         const DB::FormatSettings & format_settings,
-        const void * buf,
+        const py::handle & obj,
         DB::MutableColumnPtr & column);
 
 private:
@@ -28,7 +28,7 @@ private:
         const size_t count,
         const DB::FormatSettings & format_settings,
         DB::SerializationPtr & serialization,
-        PyObject ** objects,
+        const py::handle & obj,
         DB::MutableColumnPtr & column);
 };
 

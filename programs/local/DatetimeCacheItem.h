@@ -4,7 +4,8 @@
 
 namespace CHDB {
 
-struct DatetimeDatetimeCacheItem : public PythonImportCacheItem {
+struct DatetimeDatetimeCacheItem : public PythonImportCacheItem
+{
 
 public:
 	DatetimeDatetimeCacheItem(PythonImportCacheItem * parent)
@@ -19,7 +20,8 @@ public:
 	PythonImportCacheItem combine;
 };
 
-struct DatetimeDateCacheItem : public PythonImportCacheItem {
+struct DatetimeDateCacheItem : public PythonImportCacheItem
+{
 
 public:
 	DatetimeDateCacheItem(PythonImportCacheItem * parent)
@@ -33,7 +35,8 @@ public:
 	PythonImportCacheItem min;
 };
 
-struct DatetimeCacheItem : public PythonImportCacheItem {
+struct DatetimeCacheItem : public PythonImportCacheItem
+{
 
 public:
 	static constexpr const char *Name = "datetime";
