@@ -2,7 +2,6 @@
 
 #include "NumpyType.h"
 #include "PybindWrapper.h"
-#include "PythonObjects.h"
 
 #include <DataTypes/IDataType.h>
 #include <Core/Settings.h>

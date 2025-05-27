@@ -1,6 +1,6 @@
 #include "PybindWrapper.h"
 
-#include "Common/Exception.h"
+#include <Common/Exception.h>
 
 using namespace DB;
 

@@ -1,11 +1,9 @@
 #pragma once
 
+#include "PybindWrapper.h"
+
 #include <cstdint>
-#include <pybind11/pytypes.h>
-
 #include <DataTypes/IDataType.h>
-
-namespace py = pybind11;
 
 namespace CHDB {
 

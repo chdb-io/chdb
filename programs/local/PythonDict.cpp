@@ -1,6 +1,5 @@
 #include "PythonDict.h"
 #include "FormatHelper.h"
-#include "PythonObjects.h"
 #include "StoragePython.h"
 
 #include <Interpreters/Context.h>
@@ -21,7 +20,6 @@ namespace CHDB {
 
 ColumnsDescription PythonDict::getActualTableStructure(const py::object & object, ContextPtr & context)
 {
-    // auto dict = PyDictionary(py::reinterpret_borrow<py::object>(object));
     std::vector<std::pair<std::string, std::string>> schema;
 
     for (auto item : object.cast<py::dict>())
