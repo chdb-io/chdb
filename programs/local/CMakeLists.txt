@@ -17,7 +17,6 @@ if (USE_PYTHON)
         PythonTableCache.cpp
         PythonImportCache.cpp
         PythonImporter.cpp
-        PythonObjects.cpp
         PythonSource.cpp
         PythonUtils.cpp
         StoragePython.cpp

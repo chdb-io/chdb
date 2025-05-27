@@ -1,13 +1,11 @@
 #include "PandasAnalyzer.h"
-#include "DataTypes/DataTypeObject.h"
-#include "DataTypes/DataTypeString.h"
 #include "PythonConversion.h"
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <cstddef>
-#include <memory>
+#include <DataTypes/DataTypeObject.h>
+#include <DataTypes/DataTypeString.h>
 
 namespace DB
 {
