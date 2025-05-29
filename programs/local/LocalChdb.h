@@ -125,6 +125,22 @@ public:
         }
         return result->bytes_read;
     }
+    size_t storage_rows_read()
+    {
+        if (result == nullptr)
+        {
+            return 0;
+        }
+        return result->storage_rows_read;
+    }
+    size_t storage_bytes_read()
+    {
+        if (result == nullptr)
+        {
+            return 0;
+        }
+        return result->storage_bytes_read;
+    }
     double elapsed()
     {
         if (result == nullptr)
@@ -166,6 +182,8 @@ public:
     size_t size() { return result_wrapper->size(); }
     size_t rows_read() { return result_wrapper->rows_read(); }
     size_t bytes_read() { return result_wrapper->bytes_read(); }
+    size_t storgae_rows_read() { return result_wrapper->storage_rows_read(); }
+    size_t storage_bytes_read() { return result_wrapper->storage_bytes_read(); }
     double elapsed() { return result_wrapper->elapsed(); }
     bool has_error() { return result_wrapper->has_error(); }
     py::str error_message() { return result_wrapper->error_message(); }

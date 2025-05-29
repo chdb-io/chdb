@@ -127,6 +127,9 @@ public:
         return result;
     }
 
+    size_t getStorgaeRowsRead() const { return connection->getCHDBProgress().read_rows; }
+    size_t getStorageBytesRead() const { return connection->getCHDBProgress().read_bytes; }
+
     size_t getProcessedRows() const { return processed_rows; }
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }
