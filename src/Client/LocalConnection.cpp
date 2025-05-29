@@ -43,6 +43,8 @@ LocalConnection::LocalConnection(ContextPtr context_, ReadBuffer * in_, bool sen
     /// Authenticate and create a context to execute queries.
     session.authenticate("default", "", Poco::Net::SocketAddress{});
     session.makeSessionContext();
+
+    send_progress = false;
 }
 
 LocalConnection::~LocalConnection()
@@ -75,6 +77,11 @@ std::optional<UInt64> LocalConnection::checkPacket(size_t)
 void LocalConnection::updateProgress(const Progress & value)
 {
     state->progress.incrementPiecewiseAtomically(value);
+}
+
+void LocalConnection::updateCHDBProgress(const Progress & value)
+{
+    chdb_progress.incrementPiecewiseAtomically(value);
 }
 
 void LocalConnection::sendProfileEvents()
@@ -113,6 +120,11 @@ void LocalConnection::sendQuery(
         query_context->setProgressCallback([this] (const Progress & value) { this->updateProgress(value); });
         query_context->setFileProgressCallback([this](const FileProgress & value) { this->updateProgress(Progress(value)); });
     }
+    else
+    {
+        query_context->setProgressCallback([this] (const Progress & value) { this->updateCHDBProgress(value); });
+        query_context->setFileProgressCallback([this](const FileProgress & value) { this->updateCHDBProgress(Progress(value)); });
+    }
 
     /// Switch the database to the desired one (set by the USE query)
     /// but don't attempt to do it if we are already in that database.
@@ -125,6 +137,7 @@ void LocalConnection::sendQuery(
 
     state.reset();
     state.emplace();
+    chdb_progress.reset();
 
     state->query_id = query_id;
     state->query = query;

@@ -1289,6 +1289,8 @@ static local_result_v2 * createMaterializedLocalQueryResult(DB::LocalServer * se
             }
             result->rows_read = server->getProcessedRows();
             result->bytes_read = server->getProcessedBytes();
+            result->storage_rows_read = server->getStorgaeRowsRead();
+            result->storage_bytes_read = server->getStorageBytesRead();
             result->elapsed = server->getElapsedTime();
         }
     }
