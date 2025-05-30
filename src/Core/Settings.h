@@ -968,7 +968,7 @@ class IColumn;
     \
     /** Experimental feature for moving data between shards. */ \
     M(Bool, allow_experimental_query_deduplication, false, "Experimental data deduplication for SELECT queries based on part UUIDs", 0) \
-    M(UInt64, pandas_analyze_sample, 10000, "Sample rows in pandas to automatically determine the data types. When set to 0, sampling is disabled", 0) \
+    M(Int64, pandas_analyze_sample, 10000, "Sample rows in pandas to automatically determine the data types. When set to 0, sampling is disabled", 0) \
 
     /** End of experimental features */
 

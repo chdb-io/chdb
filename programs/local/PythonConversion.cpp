@@ -90,7 +90,7 @@ bool isInteger(const py::handle & obj)
 	return GetPythonObjectType(obj) == PythonObjectType::Integer;
 }
 
-void writeInteger(const py::handle & obj, rapidjson::Value & json_value)
+static void writeInteger(const py::handle & obj, rapidjson::Value & json_value)
 {
 	auto ptr = obj.ptr();
 	int overflow = 0;
@@ -137,7 +137,7 @@ bool isNone(const py::handle & obj)
 	return GetPythonObjectType(obj) == PythonObjectType::None;
 }
 
-void writeNone(const py::handle & obj, rapidjson::Value & json_value)
+static void writeNone(const py::handle & obj, rapidjson::Value & json_value)
 {
 	json_value.SetNull();
 }
@@ -147,17 +147,17 @@ bool isFloat(const py::handle & obj)
 	return GetPythonObjectType(obj) == PythonObjectType::Float;
 }
 
-void writeFloat(const py::handle & obj, rapidjson::Value & json_value)
+static void writeFloat(const py::handle & obj, rapidjson::Value & json_value)
 {
 	auto ptr = obj.ptr();
-	if (std::isnan(PyFloat_AsDouble(ptr)))
-	{
-		json_value.SetNull();
-		return;
-	}
+    double value = PyFloat_AsDouble(ptr);
 
-	double value = obj.cast<double>();
-	json_value.SetDouble(value);
+    if (std::isnan(value) || std::isinf(value)) {
+        json_value.SetNull();
+        return;
+    }
+
+    json_value.SetDouble(value);
 }
 
 bool isBoolean(const py::handle & obj)
@@ -165,7 +165,7 @@ bool isBoolean(const py::handle & obj)
 	return GetPythonObjectType(obj) == PythonObjectType::Bool;
 }
 
-void writeBoolean(const py::handle & obj, rapidjson::Value & json_value)
+static void writeBoolean(const py::handle & obj, rapidjson::Value & json_value)
 {
 	json_value.SetBool(py::cast<bool>(obj));
 }
@@ -175,9 +175,9 @@ bool isDecimal(const py::handle & obj)
 	return GetPythonObjectType(obj) == PythonObjectType::Decimal;
 }
 
-void writeDecimal(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
+static void writeDecimal(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
 {
-	const auto & str = obj.cast<std::string>();
+    String str = py::str(obj);
 	json_value.SetString(str.data(), str.size(), allocator);
 }
 
@@ -187,16 +187,82 @@ bool isString(const py::handle & obj)
 		|| GetPythonObjectType(obj) == PythonObjectType::Bytes;
 }
 
-void writeString(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
+bool isByteArray(const py::handle & obj)
+{
+	return GetPythonObjectType(obj) == PythonObjectType::ByteArray;
+}
+
+static void writeByteArray(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
+{
+    auto * ptr = obj.ptr();
+	auto * data = PyByteArray_AsString(ptr);
+    auto size = PyByteArray_GET_SIZE(ptr);
+    json_value.SetString(data, size, allocator);
+}
+
+bool isMemoryView(const py::handle & obj)
+{
+    return GetPythonObjectType(obj) == PythonObjectType::MemoryView;
+}
+
+static void writeMemoryView(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
+{
+    auto * ptr = obj.ptr();
+    py::memoryview py_view = obj.cast<py::memoryview>();
+
+	Py_buffer * py_buf = PyMemoryView_GET_BUFFER(ptr);
+    auto * data = static_cast<char *>(py_buf->buf);
+    auto size = py_buf->len;
+
+    json_value.SetString(data, size, allocator);
+}
+
+static void writeString(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
 {
 	const auto & str = obj.cast<std::string>();
 	json_value.SetString(str.data(), str.size(), allocator);
 }
 
-void writeOthers(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
+static void writeOthers(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
 {
 	String str = py::str(obj);
 	json_value.SetString(str.data(), str.size(), allocator);
+}
+
+void handlePrimitiveTypes(
+    const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
+{
+    PythonObjectType type = GetPythonObjectType(obj);
+    switch(type) {
+    case PythonObjectType::Integer:
+        writeInteger(obj, json_value);
+        break;
+    case PythonObjectType::Float:
+        writeFloat(obj, json_value);
+        break;
+    case PythonObjectType::Bool:
+        writeBoolean(obj, json_value);
+        break;
+    case PythonObjectType::Decimal:
+        writeDecimal(obj, json_value, allocator);
+        break;
+    case PythonObjectType::String:
+    case PythonObjectType::Bytes:
+        writeString(obj, json_value, allocator);
+        break;
+    case PythonObjectType::ByteArray:
+        writeByteArray(obj, json_value, allocator);
+        break;
+    case PythonObjectType::MemoryView:
+        writeMemoryView(obj, json_value, allocator);
+        break;
+    case PythonObjectType::None:
+        writeNone(obj, json_value);
+        break;
+    default:
+        writeOthers(obj, json_value, allocator);
+        break;
+    }
 }
 
 void convert_to_json_str(const py::handle & obj, String & ret)
@@ -213,8 +279,8 @@ void convert_to_json_str(const py::handle & obj, String & ret)
             for (auto& item : py::cast<py::dict>(obj))
             {
                 rapidjson::Value key;
-                auto ket_str = py::str(item.first).cast<std::string>();
-                key.SetString(ket_str.data(), ket_str.size(), allocator);
+                auto key_str = py::str(item.first).cast<std::string>();
+                key.SetString(key_str.data(), key_str.size(), allocator);
 
                 rapidjson::Value val;
                 convert(item.second, val);
@@ -259,33 +325,9 @@ void convert_to_json_str(const py::handle & obj, String & ret)
                 json_value.PushBack(element, allocator);
 		    }
         }
-        else if (isInteger(obj))
-        {
-            writeInteger(obj, json_value);
-        }
-        else if (isNone(obj))
-        {
-            writeNone(obj, json_value);
-        }
-        else if (isFloat(obj))
-        {
-            writeFloat(obj, json_value);
-        }
-        else if (isBoolean(obj))
-        {
-            writeBoolean(obj, json_value);
-        }
-        else if (isDecimal(obj))
-        {
-            writeDecimal(obj, json_value, allocator);
-        }
-        else if (isString(obj))
-        {
-            writeString(obj, json_value, allocator);
-        }
         else
         {
-            writeOthers(obj, json_value, allocator);
+            handlePrimitiveTypes(obj, json_value, allocator);
         }
     };
 

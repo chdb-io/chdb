@@ -1,6 +1,7 @@
 #include "PandasAnalyzer.h"
 #include "PythonConversion.h"
 #include "PythonImporter.h"
+#include "base/defines.h"
 
 #include <Common/Exception.h>
 #include <DataTypes/DataTypesNumber.h>
@@ -25,6 +26,12 @@ bool PandasAnalyzer::Analyze(py::object column) {
 	if (sample_size == 0)
 		return false;
 
+	if (sample_size < 0)
+	{
+		analyzed_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+		return true;
+	}
+
 	auto & import_cache = PythonImporter::ImportCache();
 	auto pandas = import_cache.pandas();
 	if (!pandas)
@@ -42,7 +49,7 @@ bool PandasAnalyzer::Analyze(py::object column) {
 
 size_t PandasAnalyzer::getSampleIncrement(size_t rows)
 {
-	auto sample = sample_size;
+	auto sample = static_cast<uint64_t>(sample_size);
 	if (sample > rows)
 		sample = rows;
 
