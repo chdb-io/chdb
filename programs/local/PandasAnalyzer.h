@@ -30,7 +30,7 @@ private:
 	size_t getSampleIncrement(size_t rows);
 
 private:
-	uint64_t sample_size;
+	int64_t sample_size;
 	PythonGILWrapper gil;
 	DB::DataTypePtr analyzed_type;
 };
