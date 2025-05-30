@@ -1,7 +1,6 @@
 #include "PandasAnalyzer.h"
 #include "PythonConversion.h"
 #include "PythonImporter.h"
-#include "base/defines.h"
 
 #include <Common/Exception.h>
 #include <DataTypes/DataTypesNumber.h>
