@@ -1,15 +1,17 @@
-#include <Storages/StoragePython.h>
+#include "StoragePython.h"
+#include "FormatHelper.h"
+#include "PybindWrapper.h"
+#include "PythonSource.h"
 
-#if USE_PYTHON
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypeDate32.h>
 #include <DataTypes/DataTypeDateTime.h>
+#include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
-#include <Processors/Sources/PythonSource.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
 #include <Storages/StorageFactory.h>
@@ -23,8 +25,9 @@
 #include <re2/re2.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include <Common/logger_useful.h>
+#include <Formats/FormatFactory.cpp>
 
 #include <any>
 
@@ -67,11 +70,12 @@ Pipe StoragePython::read(
     storage_snapshot->check(column_names);
 
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
+    auto format_settings = getFormatSettings(getContext());
 
     if (isInheritsFromPyReader(data_source))
     {
         return Pipe(
-            std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1));
+            std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
     }
 
     prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
@@ -80,7 +84,7 @@ Pipe StoragePython::read(
     // num_streams = 32; // for chdb testing
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams));
+            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings));
     return Pipe::unitePipes(std::move(pipes));
 }
 
@@ -127,16 +131,9 @@ void StoragePython::prepareColumnCache(const Names & names, const Columns & colu
     }
 }
 
-ColumnsDescription StoragePython::getTableStructureFromData(py::object data_source)
+ColumnsDescription StoragePython::getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema)
 {
-    if (!data_source)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "Python reader not initialized");
-    py::gil_scoped_acquire acquire;
-    std::vector<std::pair<std::string, std::string>> schema;
-    if (isInheritsFromPyReader(data_source))
-        schema = data_source.attr("get_schema")().cast<std::vector<std::pair<std::string, std::string>>>();
-    else
-        schema = PyReader::getSchemaFromPyObj(data_source);
+    py::gil_assert();
 
     auto * logger = &Poco::Logger::get("StoragePython");
     if (logger->debug())
@@ -166,6 +163,7 @@ ColumnsDescription StoragePython::getTableStructureFromData(py::object data_sour
         R"(\bstring\b|<class 'str'>|str|DataType\(string\)|DataType\(binary\)|binary\[pyarrow\]|dtype\[object_\]|
 dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<class 'numpy.bytes_'>|<class 'numpy.str_'>|<class 'numpy.void)");
     RE2 pattern_null(R"(\bnull\b)");
+    RE2 pattern_json(R"((?i)(\bjson\b|struct<))");
 
     // Iterate through each pair of name and type string in the schema
     for (const auto & [name, typeStr] : schema)
@@ -173,7 +171,11 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
         std::shared_ptr<IDataType> data_type;
 
         std::string type_capture, bits, precision, scale;
-        if (RE2::PartialMatch(typeStr, pattern_int, &bits))
+        if (CHDB::isJSONSupported() && RE2::PartialMatch(typeStr, pattern_json))
+        {
+            data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+        }
+        else if (RE2::PartialMatch(typeStr, pattern_int, &bits))
         {
             if (bits == "8")
                 data_type = std::make_shared<DataTypeInt8>();
@@ -333,6 +335,7 @@ std::vector<std::pair<std::string, std::string>> PyReader::getSchemaFromPyObj(co
         return schema;
     }
 
+    /// TODO: current implementation maybe cause dictionary update sequence error
     if (type_name == "recarray")
     {
         // if it's numpy.recarray
@@ -374,4 +377,3 @@ void registerStoragePython(StorageFactory & factory)
         {.supports_settings = true, .supports_parallel_insert = false});
 }
 }
-#endif

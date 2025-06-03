@@ -1,70 +1,16 @@
 #include "LocalChdb.h"
-#include <mutex>
-#include "Common/logger_useful.h"
+#include "LocalServer.h"
 #include "chdb.h"
-#include "pybind11/gil.h"
-#include "pybind11/pytypes.h"
+#include "PythonImporter.h"
+#include "PythonTableCache.h"
+#include "TableFunctionPython.h"
 
-#if USE_PYTHON
-
-#    include <Storages/StoragePython.h>
-#    include <TableFunctions/TableFunctionPython.h>
-#    include <Common/re2.h>
-
+#include <mutex>
+#include <Common/logger_useful.h>
 
 namespace py = pybind11;
 
 extern bool inside_main = true;
-
-// Global storage for Python Table Engine queriable object
-extern py::handle global_query_obj;
-
-// Find the queriable object in the Python environment
-// return nullptr if no Python obj is referenced in query string
-// return py::none if the obj referenced not found
-// return the Python object if found
-// The object name is extracted from the query string, must referenced by
-// Python(var_name) or Python('var_name') or python("var_name") or python('var_name')
-// such as:
-//  - `SELECT * FROM Python('PyReader')`
-//  - `SELECT * FROM Python(PyReader_instance)`
-//  - `SELECT * FROM Python(some_var_with_type_pandas_DataFrame_or_pyarrow_Table)`
-// The object can be any thing that Python Table supported, like PyReader, pandas DataFrame, or PyArrow Table
-// The object should be in the global or local scope
-py::handle findQueryableObjFromQuery(const std::string & query_str)
-{
-    // Extract the object name from the query string
-    std::string var_name;
-
-    // RE2 pattern to match Python()/python() patterns with single/double quotes or no quotes
-    static const RE2 pattern(R"([Pp]ython\s*\(\s*(?:['"]([^'"]+)['"]|([a-zA-Z_][a-zA-Z0-9_]*))\s*\))");
-
-    re2::StringPiece input(query_str);
-    std::string quoted_match, unquoted_match;
-
-    // Try to match and extract the groups
-    if (RE2::PartialMatch(query_str, pattern, &quoted_match, &unquoted_match))
-    {
-        // If quoted string was matched
-        if (!quoted_match.empty())
-        {
-            var_name = quoted_match;
-        }
-        // If unquoted identifier was matched
-        else if (!unquoted_match.empty())
-        {
-            var_name = unquoted_match;
-        }
-    }
-
-    if (var_name.empty())
-    {
-        return nullptr;
-    }
-
-    // Find the object in the Python environment
-    return DB::findQueryableObj(var_name);
-}
 
 local_result_v2 * queryToBuffer(
     const std::string & queryStr,
@@ -305,7 +251,7 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    global_query_obj = findQueryableObjFromQuery(query_str);
+    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
     py::gil_scoped_release release;
     auto * result = query_conn(*conn, query_str.c_str(), format.c_str());
@@ -324,7 +270,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
 {
-    global_query_obj = findQueryableObjFromQuery(query_str);
+    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
     py::gil_scoped_release release;
     auto * result = query_conn_streaming(*conn, query_str.c_str(), format.c_str());
@@ -374,7 +320,7 @@ void connection_wrapper::streaming_cancel_query(streaming_query_result * streami
 void cursor_wrapper::execute(const std::string & query_str)
 {
     release_result();
-    global_query_obj = findQueryableObjFromQuery(query_str);
+    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
     // Use JSONCompactEachRowWithNamesAndTypes format for better type support
     py::gil_scoped_release release;
@@ -543,7 +489,14 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("path") = "",
         py::arg("udf_path") = "",
         "Query chDB and return a query_result object");
+
+	auto destroy_import_cache = []()
+    {
+        DB::LocalServer::cleanupConnection();
+        CHDB::PythonTableCache::clear();
+		CHDB::PythonImporter::destroy();
+	};
+	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
 
 #    endif // PY_TEST_MAIN
-#endif // USE_PYTHON

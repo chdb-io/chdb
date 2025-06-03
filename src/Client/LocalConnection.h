@@ -142,6 +142,10 @@ public:
 
     void setThrottler(const ThrottlerPtr &) override {}
 
+#if USE_PYTHON
+    void resetQueryContext();
+#endif
+
 private:
     bool pullBlock(Block & block);
 
