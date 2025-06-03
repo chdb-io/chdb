@@ -1,4 +1,4 @@
-name: Build macOS X86
+name: Build macOS arm64
 
 on:
   workflow_dispatch:
@@ -13,6 +13,11 @@ on:
       - main
     paths-ignore:
       - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
 jobs:
   build_wheels_macos_13:
@@ -21,8 +26,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-13 ]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        os: [ macos-14 ]
+        python-version: ["3.12"]
     env:
       RUNNER_OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
@@ -115,7 +120,7 @@ jobs:
           make wheel
       - name: Fix wheel platform tag
         run: |
-          python3 -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+          python3 -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
       - name: Run tests
         run: |
           python3 -m pip install dist/*.whl
@@ -136,19 +141,19 @@ jobs:
         if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
-          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h
+          tar -czvf macos-aarch64-libchdb.tar.gz libchdb.so chdb.h
       - name: Upload libchdb.so to release
         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
         run: |
-          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
+          gh release upload ${{ github.ref_name }} macos-aarch64-libchdb.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: chdb-artifacts-macos-x86_64-${{ matrix.python-version }}
+          name: chdb-artifacts-macos-aarch64-${{ matrix.python-version }}
           path: |
             ./dist/*.whl
-            ./macos-x86_64-libchdb.tar.gz
+            ./macos-aarch64-libchdb.tar.gz
           overwrite: true
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
@@ -158,4 +163,3 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-     
