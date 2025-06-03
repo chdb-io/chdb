@@ -2,6 +2,14 @@
 #include "chdb.h"
 #include "chdb-internal.h"
 
+#if USE_PYTHON
+#include "FormatHelper.h"
+#include "TableFunctionPython.h"
+#include "PythonTableCache.h"
+#include <TableFunctions/TableFunctionFactory.h>
+#include <Storages/StorageFactory.h>
+#endif
+
 #include <sys/resource.h>
 #include "Common/Logger.h"
 #include <Common/Config/getLocalConfigPath.h>
@@ -472,6 +480,17 @@ void LocalServer::connect()
         connection_parameters, client_context, in, need_render_progress, need_render_profile_events, server_display_name);
 }
 
+void LocalServer::cleanupConnection()
+{
+    try
+	{
+        close_conn(&global_conn_ptr);
+	}
+	catch (...)
+	{
+	}
+}
+
 
 int LocalServer::main(const std::vector<std::string> & /*args*/)
 try
@@ -521,9 +540,21 @@ try
         /// Don't initialize DateLUT
         registerFunctions();
         registerAggregateFunctions();
+
         registerTableFunctions();
+#if USE_PYTHON
+        auto & table_function_factory = TableFunctionFactory::instance();
+        registerTableFunctionPython(table_function_factory);
+#endif
+
         registerDatabases();
+
         registerStorages();
+#if USE_PYTHON
+        auto & storage_factory = StorageFactory::instance();
+        registerStoragePython(storage_factory);
+#endif
+
         registerDictionaries();
         registerDisks(/* global_skip_access_check= */ true);
         registerFormats();
@@ -1261,7 +1292,7 @@ static local_result_v2 * createMaterializedLocalQueryResult(DB::LocalServer * se
             result->elapsed = server->getElapsedTime();
         }
     }
-    catch (const DB::Exception& e)
+    catch (const DB::Exception & e)
     {
         std::string error = DB::getExceptionMessage(e, false);
         result->error_message = new char[error.length() + 1];
@@ -1385,7 +1416,21 @@ static CHDB::ResultData createQueryResult(DB::LocalServer * server, const CHDB::
     }
 
     if (result_data.is_end)
+    {
         server->streaming_query_context.reset();
+#if USE_PYTHON
+        if (auto * local_connection = static_cast<DB::LocalConnection*>(server->connection.get()))
+        {
+            /// Must clean up Context objects whether the query succeeds or fails.
+            /// During process exit, if LocalServer destructor triggers while cached PythonStorage
+            /// objects still exist in Context, their destruction will attempt to acquire GIL.
+            /// Acquiring GIL during process termination leads to immediate thread termination.
+            local_connection->resetQueryContext();
+        }
+
+        CHDB::PythonTableCache::clear();
+#endif
+    }
 
     return result_data;
 }
@@ -1663,6 +1708,9 @@ static CHDB::ResultData executeQueryRequest(
                 streaming_req->query = query;
                 streaming_req->format = format;
                 queue->current_query = std::move(streaming_req);
+#if USE_PYTHON
+                CHDB::SetCurrentFormat(format);
+#endif
             }
             else if (query_type == CHDB::QueryType::TYPE_MATERIALIZED)
             {
@@ -1670,6 +1718,9 @@ static CHDB::ResultData executeQueryRequest(
                 materialized_req->query = query;
                 materialized_req->format = format;
                 queue->current_query = std::move(materialized_req);
+#if USE_PYTHON
+                CHDB::SetCurrentFormat(format);
+#endif
             }
             else
             {

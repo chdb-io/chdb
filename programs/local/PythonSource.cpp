@@ -1,6 +1,8 @@
-#include <Processors/Sources/PythonSource.h>
+#include "PythonSource.h"
+#include "ListScan.h"
+#include "PandasScan.h"
+#include "StoragePython.h"
 
-#if USE_PYTHON
 #include <algorithm>
 #include <cstddef>
 #include <exception>
@@ -15,9 +17,8 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <DataTypes/IDataType.h>
+#include <DataTypes/DataTypeObject.h>
 #include <Interpreters/ExpressionActions.h>
-#include <Storages/StoragePython.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
@@ -30,7 +31,7 @@
 #include <Poco/Logger.h>
 #include <Common/COW.h>
 #include <Common/Exception.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 #include <Common/logger_useful.h>
 #include <Common/typeid_cast.h>
 
@@ -54,7 +55,8 @@ PythonSource::PythonSource(
     size_t data_source_row_count,
     size_t max_block_size_,
     size_t stream_index,
-    size_t num_streams)
+    size_t num_streams,
+    const FormatSettings & format_settings_)
     : ISource(sample_block_.cloneEmpty())
     , data_source(data_source_)
     , isInheritsFromPyReader(isInheritsFromPyReader_)
@@ -65,8 +67,8 @@ PythonSource::PythonSource(
     , stream_index(stream_index)
     , num_streams(num_streams)
     , cursor(0)
+    , format_settings(format_settings_)
 {
-    description.init(sample_block_);
 }
 
 template <typename T>
@@ -212,10 +214,15 @@ void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & co
 
 
 template <typename T>
-ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
+ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale, bool is_json)
 {
     MutableColumnPtr column;
-    if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
+    if (is_json)
+    {
+        auto data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+        column = data_type->createColumn();
+    }
+    else if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
         column = ColumnDecimal<T>::create(0, scale);
     else if constexpr (std::is_same_v<T, String>)
         column = ColumnString::create();
@@ -233,6 +240,12 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
     const void * data = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
     if (type_name == "list")
     {
+        if (is_json)
+        {
+            CHDB::ListScan::scanObject(0, row_count, format_settings, obj, column);
+            return column;
+        }
+
         //reserve the size of the column
         column->reserve(row_count);
         insert_from_list<T>(obj, column);
@@ -241,7 +254,9 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale)
 
     if (!py_array.is_none() && data != nullptr)
     {
-        if constexpr (std::is_same_v<T, String>)
+        if (is_json)
+            CHDB::PandasScan::scanObject(0, row_count, format_settings, data, column);
+        else if constexpr (std::is_same_v<T, String>)
             insert_string_from_array(py_array, column);
         else
             insert_from_ptr<T>(data, column, 0, row_count);
@@ -290,13 +305,13 @@ void PythonSource::destory(PyObjectVecPtr & data)
 
 Chunk PythonSource::genChunk(size_t & num_rows, PyObjectVecPtr data)
 {
-    Columns columns(description.sample_block.columns());
+    Columns columns(sample_block.columns());
     for (size_t i = 0; i < data->size(); ++i)
     {
         if (i == 0)
             num_rows = getObjectLength((*data)[i]);
         const auto & column = (*data)[i];
-        const auto & type = description.sample_block.getByPosition(i).type;
+        const auto & type = sample_block.getByPosition(i).type;
         WhichDataType which(type);
 
         try
@@ -346,41 +361,43 @@ Chunk PythonSource::genChunk(size_t & num_rows, PyObjectVecPtr data)
                 columns[i] = convert_and_insert<DateTime64>(column);
             else if (which.isString())
                 columns[i] = convert_and_insert<String>(column);
+            else if (which.isObject())
+                columns[i] = convert_and_insert<String>(column, 0, true);
             else
                 throw Exception(
                     ErrorCodes::BAD_TYPE_OF_FIELD,
                     "Unsupported type {} for column {}",
                     type->getName(),
-                    description.sample_block.getByPosition(i).name);
+                    sample_block.getByPosition(i).name);
         }
         catch (Exception & e)
         {
             destory(data);
-            LOG_ERROR(logger, "Error processing column \"{}\": {}", description.sample_block.getByPosition(i).name, e.what());
+            LOG_ERROR(logger, "Error processing column \"{}\": {}", sample_block.getByPosition(i).name, e.what());
             throw Exception(
                 ErrorCodes::PY_EXCEPTION_OCCURED,
                 "Error processing column \"{}\": {}",
-                description.sample_block.getByPosition(i).name,
+                sample_block.getByPosition(i).name,
                 e.what());
         }
         catch (std::exception & e)
         {
             destory(data);
-            LOG_ERROR(logger, "Error processing column \"{}\": {}", description.sample_block.getByPosition(i).name, e.what());
+            LOG_ERROR(logger, "Error processing column \"{}\": {}", sample_block.getByPosition(i).name, e.what());
             throw Exception(
                 ErrorCodes::PY_EXCEPTION_OCCURED,
                 "Error processing column \"{}\": {}",
-                description.sample_block.getByPosition(i).name,
+                sample_block.getByPosition(i).name,
                 e.what());
         }
         catch (...)
         {
             destory(data);
-            LOG_ERROR(logger, "Error processing column \"{}\": unknown exception", description.sample_block.getByPosition(i).name);
+            LOG_ERROR(logger, "Error processing column \"{}\": unknown exception", sample_block.getByPosition(i).name);
             throw Exception(
                 ErrorCodes::PY_EXCEPTION_OCCURED,
                 "Error processing column \"{}\": unknown exception",
-                description.sample_block.getByPosition(i).name);
+                sample_block.getByPosition(i).name);
         }
     }
 
@@ -414,7 +431,7 @@ PythonSource::scanData(const py::object & data, const std::vector<std::string> &
 
 Chunk PythonSource::scanDataToChunk()
 {
-    auto names = description.sample_block.getNames();
+    auto names = sample_block.getNames();
     if (names.empty())
         return {};
 
@@ -423,7 +440,7 @@ Chunk PythonSource::scanDataToChunk()
     //  3. Insert the raw data into the column with given cursor and count
     //      a. If the column is a string column, convert it to UTF-8
     //      b. If the column is a numeric column, directly insert the raw data
-    Columns columns(description.sample_block.columns());
+    Columns columns(sample_block.columns());
     if (names.size() != columns.size())
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column cache size mismatch");
 
@@ -442,7 +459,7 @@ Chunk PythonSource::scanDataToChunk()
     for (size_t i = 0; i < columns.size(); ++i)
     {
         const auto & col = (*column_cache)[i];
-        const auto & type = description.sample_block.getByPosition(i).type;
+        const auto & type = sample_block.getByPosition(i).type;
 
         WhichDataType which(type);
         try
@@ -498,6 +515,13 @@ Chunk PythonSource::scanDataToChunk()
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
             else if (which.isNullable())
                 columns[i] = convert_and_insert_array<String>(col, cursor, count);
+            else if (which.isObject())
+            {
+                if (col.py_type == "list")
+                    columns[i] = CHDB::ListScan::scanObject(col, cursor, count, format_settings);
+                else
+                    columns[i] = CHDB::PandasScan::scanObject(col, cursor, count, format_settings);
+            }
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);
 
@@ -540,7 +564,7 @@ Chunk PythonSource::scanDataToChunk()
 Chunk PythonSource::generate()
 {
     size_t num_rows = 0;
-    auto names = description.sample_block.getNames();
+    auto names = sample_block.getNames();
     if (names.empty())
         return {};
 
@@ -579,4 +603,3 @@ Chunk PythonSource::generate()
     }
 }
 }
-#endif

@@ -2,16 +2,15 @@
 
 #include "config.h"
 
-#if USE_PYTHON
 #include <cstddef>
 #include <Core/Block.h>
 
-#include <Core/ExternalResultDescription.h>
+#include <Formats/FormatSettings.h>
 #include <Processors/ISource.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
-#include <Common/PythonUtils.h>
+#include "PythonUtils.h"
 
 namespace DB
 {
@@ -32,7 +31,8 @@ public:
         size_t data_source_row_count,
         size_t max_block_size_,
         size_t stream_index,
-        size_t num_streams);
+        size_t num_streams,
+        const FormatSettings & format_settings_);
 
     ~PythonSource() override = default;
 
@@ -56,7 +56,8 @@ private:
     size_t cursor;
 
     Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
-    ExternalResultDescription description;
+
+    const FormatSettings format_settings;
 
     Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
 
@@ -64,7 +65,7 @@ private:
     template <typename T>
     ColumnPtr convert_and_insert_array(const ColumnWrapper & col_wrap, size_t & cursor, size_t count, UInt32 scale = 0);
     template <typename T>
-    ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0);
+    ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0, bool is_json = false);
     template <typename T>
     void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, size_t offset, size_t row_count);
 
@@ -83,4 +84,3 @@ private:
     void destory(PyObjectVecPtr & data);
 };
 }
-#endif
