@@ -59,28 +59,28 @@ struct chdb_conn
     void * queue; /* Query processing queue */
 };
 
+typedef struct
+{
+	void * internal_data;
+} chdb_streaming_result;
+
 #endif
 
 // Opaque handle for query results.
 // Internal data structure managed by chDB implementation.
 // Users should only interact through API functions.
-typedef struct {
+typedef struct chdb_result_
+{
 	void * internal_data;
 } chdb_result;
 
 // Connection handle wrapping database session state.
 // Internal data structure managed by chDB implementation.
 // Users should only interact through API functions.
-typedef struct _chdb_connection {
+typedef struct chdb_connection_
+{
 	void * internal_data;
 } * chdb_connection;
-
-// Opaque handle for streaming query results.
-// Internal data structure managed by chDB implementation.
-// Users should only interact through API functions.
-typedef struct {
-	void * internal_data;
-} chdb_streaming_result;
 
 #ifndef CHDB_NO_DEPRECATED
 // WARNING: The following interfaces are deprecated and will be removed in a future version.
@@ -134,6 +134,14 @@ CHDB_EXPORT struct local_result_v2 * query_conn(struct chdb_conn * conn, const c
 CHDB_EXPORT chdb_streaming_result * query_conn_streaming(struct chdb_conn * conn, const char * query, const char * format);
 
 /**
+ * Retrieves error message from streaming result.
+ * @brief Gets error message associated with streaming query execution
+ * @param result Streaming result handle from query_conn_streaming()
+ * @return Null-terminated error message string, or NULL if no error occurred
+ */
+ CHDB_EXPORT const char * chdb_streaming_result_error(chdb_streaming_result * result);
+
+/**
  * Fetches next chunk of streaming results.
  * @brief Iterates through streaming query results
  * @param conn Active connection handle
@@ -150,6 +158,14 @@ CHDB_EXPORT struct local_result_v2 * chdb_streaming_fetch_result(struct chdb_con
  * @param result Streaming result handle to cancel
  */
 CHDB_EXPORT void chdb_streaming_cancel_query(struct chdb_conn * conn, chdb_streaming_result * result);
+
+/**
+ * Releases resources associated with streaming result.
+ * @brief Destroys streaming result handle and frees allocated memory
+ * @param result Streaming result handle to destroy
+ * @warning Must be called even if query was finished or canceled
+ */
+ CHDB_EXPORT void chdb_destroy_result(chdb_streaming_result * result);
 
 #endif
 
@@ -194,7 +210,7 @@ CHDB_EXPORT chdb_result * chdb_query(chdb_connection conn, const char * query, c
  * @return Streaming result handle containing query state or error message
  * @note Returns error result if connection is invalid or closed
  */
-CHDB_EXPORT chdb_streaming_result * chdb_stream_query(chdb_connection conn, const char * query, const char * format);
+CHDB_EXPORT chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const char * format);
 
 /**
  * Fetches next chunk of streaming results.
@@ -204,7 +220,7 @@ CHDB_EXPORT chdb_streaming_result * chdb_stream_query(chdb_connection conn, cons
  * @return Materialized result chunk with data
  * @note Returns empty result when stream ends
  */
-CHDB_EXPORT chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_streaming_result * result);
+CHDB_EXPORT chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * result);
 
 /**
  * Cancels ongoing streaming query.
@@ -212,23 +228,69 @@ CHDB_EXPORT chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_st
  * @param conn Active connection handle
  * @param result Streaming result handle to cancel
  */
-CHDB_EXPORT void chdb_stream_cancel_query(chdb_connection conn, chdb_streaming_result * result);
+CHDB_EXPORT void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result);
 
 /**
- * Retrieves error message from streaming result.
- * @brief Gets error message associated with streaming query execution
- * @param result Streaming result handle from query_conn_streaming()
- * @return Null-terminated error message string, or NULL if no error occurred
+ * Destroys a query result and releases all associated resources
+ * @param result The result handle to destroy
  */
-CHDB_EXPORT const char * chdb_streaming_result_error(chdb_streaming_result * result);
+CHDB_EXPORT void chdb_destroy_query_result(chdb_result * result);
 
 /**
- * Releases resources associated with streaming result.
- * @brief Destroys streaming result handle and frees allocated memory
- * @param result Streaming result handle to destroy
- * @warning Must be called even if query was finished or canceled
+ * Gets pointer to the result data buffer
+ * @param result The query result handle
+ * @return Read-only pointer to the result data
  */
-CHDB_EXPORT void chdb_destroy_result(chdb_streaming_result * result);
+CHDB_EXPORT const char * chdb_result_buffer(chdb_result * result);
+
+/**
+ * Gets the length of the result data
+ * @param result The query result handle
+ * @return Size of result data in bytes
+ */
+CHDB_EXPORT size_t chdb_result_length(chdb_result * result);
+
+/**
+ * Gets query execution time
+ * @param result The query result handle
+ * @return Elapsed time in seconds
+ */
+CHDB_EXPORT double chdb_result_elapsed(chdb_result * result);
+
+/**
+ * Gets total rows in query result
+ * @param result The query result handle
+ * @return Number of rows contained in the result set
+ */
+CHDB_EXPORT uint64_t chdb_result_rows_read(chdb_result * result);
+
+/**
+ * Gets the total bytes occupied by the result set in internal binary format
+ * @param result The query result handle
+ * @return Number of bytes occupied by the result set in internal binary representation
+ */
+CHDB_EXPORT uint64_t chdb_result_bytes_read(chdb_result * result);
+
+/**
+ * Gets rows read from storage engine
+ * @param result The query result handle
+ * @return Number of rows read from storage
+ */
+CHDB_EXPORT uint64_t chdb_result_storage_rows_read(chdb_result * result);
+
+/**
+ * Gets bytes read from storage engine
+ * @param result The query result handle
+ * @return Number of bytes read from storage engine
+ */
+CHDB_EXPORT uint64_t chdb_result_storage_bytes_read(chdb_result * result);
+
+/**
+ * Retrieves error message from query execution
+ * @param result The query result handle
+ * @return Null-terminated error description, NULL if no error
+ */
+CHDB_EXPORT const char * chdb_result_error(chdb_result * result);
 
 #ifdef __cplusplus
 }

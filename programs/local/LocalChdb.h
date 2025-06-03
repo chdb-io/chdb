@@ -131,7 +131,7 @@ public:
         {
             return 0;
         }
-        return result->storage_rows_read;
+        return 0;
     }
     size_t storage_bytes_read()
     {
@@ -139,7 +139,7 @@ public:
         {
             return 0;
         }
-        return result->storage_bytes_read;
+        return 0;
     }
     double elapsed()
     {
