@@ -396,8 +396,8 @@ std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char *
                 app.getElapsedTime(),
                 app.getProcessedRows(),
                 app.getProcessedBytes(),
-                app.getStorgaeRowsRead(),
-                app.getStorageBytesRead());
+                0,
+                0);
         } else {
             return std::make_unique<MaterializedQueryResult>(app.getErrorMsg());
         }
