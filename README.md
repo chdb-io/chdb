@@ -138,6 +138,8 @@ ret_tbl = cdf.query(sql="select * from __tbl1__ t1 join __tbl2__ t2 on t1.a = t2
 print(ret_tbl)
 # Query on the DataFrame Table
 print(ret_tbl.query('select b, sum(a) from __table__ group by b'))
+# Pandas DataFrames are automatically registered as temporary tables in ClickHouse
+chdb.query("SELECT * FROM Python(df1) t1 JOIN Python(df2) t2 ON t1.a = t2.c").show()
 ```
 </details>
 
@@ -285,10 +287,19 @@ df = pd.DataFrame(
     {
         "a": [1, 2, 3, 4, 5, 6],
         "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+        "dict_col": [
+            {'id': 1, 'tags': ['urgent', 'important'], 'metadata': {'created': '2024-01-01'}},
+            {'id': 2, 'tags': ['normal'], 'metadata': {'created': '2024-02-01'}},
+            {'id': 3, 'name': 'tom'},
+            {'id': 4, 'value': '100'},
+            {'id': 5, 'value': 101},
+            {'id': 6, 'value': 102},
+        ],
     }
 )
 
 chdb.query("SELECT b, sum(a) FROM Python(df) GROUP BY b ORDER BY b").show()
+chdb.query("SELECT dict_col.id FROM Python(df) WHERE dict_col.value='100'").show()
 ```
 
 ### Query on Arrow Table
@@ -300,12 +311,19 @@ arrow_table = pa.table(
     {
         "a": [1, 2, 3, 4, 5, 6],
         "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+        "dict_col": [
+            {'id': 1, 'value': 'tom'},
+            {'id': 2, 'value': 'jerry'},
+            {'id': 3, 'value': 'auxten'},
+            {'id': 4, 'value': 'tom'},
+            {'id': 5, 'value': 'jerry'},
+            {'id': 6, 'value': 'auxten'},
+        ],
     }
 )
 
-chdb.query(
-    "SELECT b, sum(a) FROM Python(arrow_table) GROUP BY b ORDER BY b", "debug"
-).show()
+chdb.query("SELECT b, sum(a) FROM Python(arrow_table) GROUP BY b ORDER BY b").show()
+chdb.query("SELECT dict_col.id FROM Python(arrow_table) WHERE dict_col.value='tom'").show()
 ```
 
 ### Query on chdb.PyReader class instance
@@ -329,24 +347,79 @@ class myReader(chdb.PyReader):
     def read(self, col_names, count):
         print("Python func read", col_names, count, self.cursor)
         if self.cursor >= len(self.data["a"]):
+            self.cursor = 0
             return []
         block = [self.data[col] for col in col_names]
         self.cursor += len(block[0])
         return block
 
+    def get_schema(self):
+        return [
+            ("a", "int"),
+            ("b", "str"),
+            ("dict_col", "json")
+        ]
+
 reader = myReader(
     {
         "a": [1, 2, 3, 4, 5, 6],
         "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+        "dict_col": [
+            {'id': 1, 'tags': ['urgent', 'important'], 'metadata': {'created': '2024-01-01'}},
+            {'id': 2, 'tags': ['normal'], 'metadata': {'created': '2024-02-01'}},
+            {'id': 3, 'name': 'tom'},
+            {'id': 4, 'value': '100'},
+            {'id': 5, 'value': 101},
+            {'id': 6, 'value': 102}
+        ],
     }
 )
 
-chdb.query(
-    "SELECT b, sum(a) FROM Python(reader) GROUP BY b ORDER BY b"
-).show()
+chdb.query("SELECT b, sum(a) FROM Python(reader) GROUP BY b ORDER BY b").show()
+chdb.query("SELECT dict_col.id FROM Python(reader) WHERE dict_col.value='100'").show()
 ```
 
-see also: [test_query_py.py](tests/test_query_py.py).
+see also: [test_query_py.py](tests/test_query_py.py) and [test_query_json.py](tests/test_query_json.py).
+
+### JSON Type Inference
+
+chDB automatically converts Python dictionary objects to ClickHouse JSON types from these sources:
+
+● **Pandas DataFrame**
+  - Columns with `object` dtype are sampled (default 10,000 rows) to detect JSON structures
+  - Control sampling via SQL settings:
+    ```sql
+    SET pandas_analyze_sample = 10000  -- Default sampling
+    SET pandas_analyze_sample = 0      -- Force String type
+    SET pandas_analyze_sample = -1     -- Force JSON type
+    ```
+  - Columns are converted to `String` if sampling finds non-dictionary values
+
+● **Arrow Table**
+  - `struct` type columns are automatically mapped to JSON columns
+  - Nested structures preserve type information
+
+● **chdb.PyReader**
+  - Implement custom schema mapping in `get_schema()`:
+    ```python
+    def get_schema(self):
+        return [
+            ("c1", "JSON"),  # Explicit JSON mapping
+            ("c2", "String")
+        ]
+    ```
+  - Column types declared as "JSON" will bypass auto-detection
+
+When converting Python dictionary objects to JSON columns:
+
+● **Nested Structures**
+  - Recursively process nested dictionaries, lists, tuples and NumPy arrays
+
+● **Primitive Types**
+  - Automatic type recognition for basic types such as integers, floats, strings, and booleans, and more
+
+● **Complex Objects**
+  - Non-primitive types will be converted to strings
 
 ### Limitations
 
