@@ -385,7 +385,7 @@ see also: [test_query_py.py](tests/test_query_py.py) and [test_query_json.py](te
 
 chDB automatically converts Python dictionary objects to ClickHouse JSON types from these sources:
 
-● **Pandas DataFrame**
+1. **Pandas DataFrame**
   - Columns with `object` dtype are sampled (default 10,000 rows) to detect JSON structures
   - Control sampling via SQL settings:
     ```sql
@@ -395,11 +395,11 @@ chDB automatically converts Python dictionary objects to ClickHouse JSON types f
     ```
   - Columns are converted to `String` if sampling finds non-dictionary values
 
-● **Arrow Table**
+2. **Arrow Table**
   - `struct` type columns are automatically mapped to JSON columns
   - Nested structures preserve type information
 
-● **chdb.PyReader**
+3. **chdb.PyReader**
   - Implement custom schema mapping in `get_schema()`:
     ```python
     def get_schema(self):
@@ -412,13 +412,13 @@ chDB automatically converts Python dictionary objects to ClickHouse JSON types f
 
 When converting Python dictionary objects to JSON columns:
 
-● **Nested Structures**
+1. **Nested Structures**
   - Recursively process nested dictionaries, lists, tuples and NumPy arrays
 
-● **Primitive Types**
+2. **Primitive Types**
   - Automatic type recognition for basic types such as integers, floats, strings, and booleans, and more
 
-● **Complex Objects**
+3. **Complex Objects**
   - Non-primitive types will be converted to strings
 
 ### Limitations
