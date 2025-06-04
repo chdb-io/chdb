@@ -18,11 +18,11 @@
 
 
 > chDB is an in-process SQL OLAP Engine powered by ClickHouse  [^1]
-> For more details: [The birth of chDB](https://auxten.com/the-birth-of-chdb/) 
+> For more details: [The birth of chDB](https://auxten.com/the-birth-of-chdb/)
 
 
 ## Features
-     
+
 * In-process SQL OLAP Engine, powered by ClickHouse
 * No need to install ClickHouse
 * Minimized data copy from C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
@@ -113,7 +113,7 @@ res = chdb.query('select version()', 'Pretty'); print(res)
 # See more data type format in tests/format_output.py
 res = chdb.query('select * from file("data.parquet", Parquet)', 'JSON'); print(res)
 res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(res)
-print(f"SQL read {res.rows_read()} rows, {res.bytes_read()} bytes, elapsed {res.elapsed()} seconds")
+print(f"SQL read {res.rows_read()} rows, {res.bytes_read()} bytes, storage read {res.storage_rows_read()} rows, {res.storage_bytes_read()} bytes, elapsed {res.elapsed()} seconds")
 ```
 
 ### Pandas dataframe output
