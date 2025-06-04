@@ -386,18 +386,18 @@ see also: [test_query_py.py](tests/test_query_py.py) and [test_query_json.py](te
 chDB automatically converts Python dictionary objects to ClickHouse JSON types from these sources:
 
 1. **Pandas DataFrame**
-    - Columns with `object` dtype are sampled (default 10,000 rows) to detect JSON structures
+    - Columns with `object` dtype are sampled (default 10,000 rows) to detect JSON structures.
     - Control sampling via SQL settings:
       ```sql
       SET pandas_analyze_sample = 10000  -- Default sampling
       SET pandas_analyze_sample = 0      -- Force String type
       SET pandas_analyze_sample = -1     -- Force JSON type
       ```
-    - Columns are converted to `String` if sampling finds non-dictionary values
+    - Columns are converted to `String` if sampling finds non-dictionary values.
 
 2. **Arrow Table**
-    - `struct` type columns are automatically mapped to JSON columns
-    - Nested structures preserve type information
+    - `struct` type columns are automatically mapped to JSON columns.
+    - Nested structures preserve type information.
 
 3. **chdb.PyReader**
     - Implement custom schema mapping in `get_schema()`:
@@ -408,18 +408,18 @@ chDB automatically converts Python dictionary objects to ClickHouse JSON types f
               ("c2", "String")
           ]
       ```
-    - Column types declared as "JSON" will bypass auto-detection
+    - Column types declared as "JSON" will bypass auto-detection.
 
 When converting Python dictionary objects to JSON columns:
 
 1. **Nested Structures**
-    - Recursively process nested dictionaries, lists, tuples and NumPy arrays
+    - Recursively process nested dictionaries, lists, tuples and NumPy arrays.
 
 2. **Primitive Types**
-    - Automatic type recognition for basic types such as integers, floats, strings, and booleans, and more
+    - Automatic type recognition for basic types such as integers, floats, strings, and booleans, and more.
 
 3. **Complex Objects**
-    - Non-primitive types will be converted to strings
+    - Non-primitive types will be converted to strings.
 
 ### Limitations
 
