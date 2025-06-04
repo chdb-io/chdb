@@ -1,4 +1,5 @@
 #include "chdb.h"
+#include <cstddef>
 #include "chdb-internal.h"
 #include "LocalServer.h"
 #include "QueryResult.h"
@@ -790,6 +791,9 @@ chdb_connection * chdb_connect(int argc, char ** argv)
 
 void chdb_close_conn(chdb_connection * conn)
 {
+    if (!conn || !*conn)
+        return;
+
     auto connection = reinterpret_cast<chdb_conn **>(conn);
 
     close_conn(connection);
@@ -798,6 +802,12 @@ void chdb_close_conn(chdb_connection * conn)
 chdb_result * chdb_query(chdb_connection conn, const char * query, const char * format)
 {
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
+
+    if (!conn)
+    {
+        auto * result = new MaterializedQueryResult("Unexepected null connection");
+        return reinterpret_cast<chdb_result *>(result);
+    }
 
     auto connection = reinterpret_cast<chdb_conn *>(conn);
     if (!checkConnectionValidity(connection))
@@ -813,9 +823,36 @@ chdb_result * chdb_query(chdb_connection conn, const char * query, const char * 
 
 }
 
+chdb_result * chdb_query_cmdline(int argc, char ** argv)
+{
+    MaterializedQueryResult * result = nullptr;
+    try
+    {
+        auto query_result = pyEntryClickHouseLocal(argc, argv);
+
+        return reinterpret_cast<chdb_result *>(query_result.release());
+    }
+    catch (const std::exception & e)
+    {
+        result = new MaterializedQueryResult(e.what());
+    }
+    catch (...)
+    {
+        result = new MaterializedQueryResult("Unknown exception");
+    }
+
+    return reinterpret_cast<chdb_result *>(result);
+}
+
 chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const char * format)
 {
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
+
+    if (!conn)
+    {
+        auto * result = new StreamQueryResult("Unexepected null connection");
+        return reinterpret_cast<chdb_result *>(result);
+    }
 
     auto connection = reinterpret_cast<chdb_conn *>(conn);
     if (!checkConnectionValidity(connection))
@@ -840,6 +877,19 @@ chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * resul
 {
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
+    if (!conn)
+    {
+        auto * query_result = new MaterializedQueryResult("Unexepected null connection");
+        return reinterpret_cast<chdb_result *>(query_result);
+    }
+
+    if (!result)
+    {
+        auto * query_result = new MaterializedQueryResult("Unexepected null result");
+        return reinterpret_cast<chdb_result *>(query_result);
+    }
+
+
     auto connection = reinterpret_cast<chdb_conn *>(conn);
     if (!checkConnectionValidity(connection))
     {
@@ -857,6 +907,9 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 {
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
+    if (!result)
+        return;
+
     auto connection = reinterpret_cast<chdb_conn *>(conn);
     if (!checkConnectionValidity(connection))
         return;
@@ -868,18 +921,24 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 
 void chdb_destroy_query_result(chdb_result * result)
 {
+    if (!result)
+        return;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
     delete query_result;
 }
 
-const char * chdb_result_buffer(chdb_result * result)
+char * chdb_result_buffer(chdb_result * result)
 {
+    if (!result)
+        return nullptr;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
-        return materialized_result->result_buffer->data();
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
+        return materialized_result->result_buffer ? materialized_result->result_buffer->data() : nullptr;
     }
 
     return nullptr;
@@ -887,12 +946,15 @@ const char * chdb_result_buffer(chdb_result * result)
 
 size_t chdb_result_length(chdb_result * result)
 {
+    if (!result)
+        return 0;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
-        return materialized_result->result_buffer->size();
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
+        return materialized_result->result_buffer ? materialized_result->result_buffer->size() : 0;
     }
 
     return 0;
@@ -900,11 +962,14 @@ size_t chdb_result_length(chdb_result * result)
 
 double chdb_result_elapsed(chdb_result * result)
 {
+    if (!result)
+        return 0.0;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
         return materialized_result->elapsed;
     }
 
@@ -913,11 +978,14 @@ double chdb_result_elapsed(chdb_result * result)
 
 uint64_t chdb_result_rows_read(chdb_result * result)
 {
+    if (!result)
+        return 0;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
         return materialized_result->rows_read;
     }
 
@@ -926,11 +994,14 @@ uint64_t chdb_result_rows_read(chdb_result * result)
 
 uint64_t chdb_result_bytes_read(chdb_result * result)
 {
+    if (!result)
+        return 0;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
         return materialized_result->bytes_read;
     }
 
@@ -939,11 +1010,14 @@ uint64_t chdb_result_bytes_read(chdb_result * result)
 
 uint64_t chdb_result_storage_rows_read(chdb_result * result)
 {
+    if (!result)
+        return 0;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
         return materialized_result->storage_rows_read;
     }
 
@@ -952,11 +1026,14 @@ uint64_t chdb_result_storage_rows_read(chdb_result * result)
 
 uint64_t chdb_result_storage_bytes_read(chdb_result * result)
 {
+    if (!result)
+        return 0;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
 
     if (query_result->getType() == QueryResultType::RESULT_TYPE_MATERIALIZED)
     {
-        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(query_result);
+        auto materialized_result = reinterpret_cast<MaterializedQueryResult *>(result);
         return materialized_result->storage_bytes_read;
     }
 
@@ -965,7 +1042,11 @@ uint64_t chdb_result_storage_bytes_read(chdb_result * result)
 
 const char * chdb_result_error(chdb_result * result)
 {
+    if (!result)
+        return nullptr;
+
     auto query_result = reinterpret_cast<QueryResult *>(result);
+
     if (query_result->getError().empty())
         return nullptr;
 

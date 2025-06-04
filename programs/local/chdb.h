@@ -202,6 +202,14 @@ CHDB_EXPORT chdb_connection * chdb_connect(int argc, char ** argv);
 CHDB_EXPORT chdb_result * chdb_query(chdb_connection conn, const char * query, const char * format);
 
 /**
+ * @brief Execute a query with command-line interface
+ * @param argc Argument count (same as main()'s argc)
+ * @param argv Argument vector (same as main()'s argv)
+ * @return Query result structure containing output or error message
+ */
+CHDB_EXPORT chdb_result * chdb_query_cmdline(int argc, char ** argv);
+
+/**
  * Executes a streaming query on the given connection.
  * @brief Initializes streaming query execution and returns result handle
  * @param conn Connection to execute query on
@@ -241,7 +249,7 @@ CHDB_EXPORT void chdb_destroy_query_result(chdb_result * result);
  * @param result The query result handle
  * @return Read-only pointer to the result data
  */
-CHDB_EXPORT const char * chdb_result_buffer(chdb_result * result);
+CHDB_EXPORT char * chdb_result_buffer(chdb_result * result);
 
 /**
  * Gets the length of the result data
