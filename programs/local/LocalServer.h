@@ -34,7 +34,16 @@ public:
 
     void connect() override;
 
-    static void cleanupConnection();
+    size_t getStorgaeRowsRead() const
+    {
+        auto * local_connection = static_cast<LocalConnection *>(connection.get());
+        return local_connection->getCHDBProgress().read_rows;
+    }
+    size_t getStorageBytesRead() const
+    {
+        auto * local_connection = static_cast<LocalConnection *>(connection.get());
+        return local_connection->getCHDBProgress().read_bytes;
+    }
 
 protected:
     Poco::Util::LayeredConfiguration & getClientConfiguration() override;

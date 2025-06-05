@@ -142,6 +142,7 @@ public:
 
     void setThrottler(const ThrottlerPtr &) override {}
 
+    const Progress & getCHDBProgress() const { return chdb_progress; }
 #if USE_PYTHON
     void resetQueryContext();
 #endif
@@ -152,6 +153,8 @@ private:
     void finishQuery();
 
     void updateProgress(const Progress & value);
+
+    void updateCHDBProgress(const Progress & value);
 
     void sendProfileEvents();
 
@@ -169,6 +172,8 @@ private:
     String description = "clickhouse-local";
 
     std::optional<LocalQueryState> state;
+
+    Progress chdb_progress;
 
     /// Last "server" packet.
     std::optional<UInt64> next_packet_type;
