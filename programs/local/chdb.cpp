@@ -907,7 +907,7 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 {
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
-    if (!result)
+    if (!result || !conn)
         return;
 
     auto connection = reinterpret_cast<chdb_conn *>(conn);
