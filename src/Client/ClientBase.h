@@ -109,14 +109,6 @@ public:
     bool tryStopQuery() { return query_interrupt_handler.tryStop(); }
     void stopQuery() { query_interrupt_handler.stop(); }
 
-    std::vector<char> * getQueryOutputVector()
-    {
-        //get Buffer and convert to vector
-        // auto buf = query_result_buf->buffer();
-        // std::vector<char> vec(buf.begin(), buf.end());
-        return query_result_memory;
-    }
-
     /// Steals and returns the query output vector.
     /// Afterward, the content of query_result_memory is released by the Python side.
     std::vector<char> * stealQueryOutputVector()
@@ -126,7 +118,6 @@ public:
         query_result_buf.reset();
         return result;
     }
-
     size_t getProcessedRows() const { return processed_rows; }
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds(); }

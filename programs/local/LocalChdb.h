@@ -1,21 +1,10 @@
 #pragma once
 
-#include <cstddef>
-#include <string_view>
+#include "chdb.h"
+#include "PybindWrapper.h"
 #include "config.h"
 
-#    include <filesystem>
-#    include <iostream>
-#    include <sstream>
-#    include <arrow/api.h>
-#    include <arrow/io/api.h>
-#    include <arrow/ipc/api.h>
-#    include <fmt/core.h>
-#    include <pybind11/gil.h>
-#    include <pybind11/pybind11.h>
-#    include <pybind11/pytypes.h>
-#    include <pybind11/stl.h>
-#    include "chdb.h"
+#include <filesystem>
 
 namespace py = pybind11;
 
@@ -29,14 +18,14 @@ class __attribute__((visibility("default"))) streaming_query_result;
 class connection_wrapper
 {
 private:
-    chdb_conn ** conn;
+    chdb_connection * conn;
     std::string db_path;
     bool is_memory_db;
     bool is_readonly;
 
 public:
     explicit connection_wrapper(const std::string & conn_str);
-    chdb_conn * get_conn() { return *conn; }
+    chdb_connection get_conn() { return *conn; }
     ~connection_wrapper();
     cursor_wrapper * cursor();
     void commit();
@@ -54,43 +43,24 @@ public:
 class local_result_wrapper
 {
 private:
-    local_result_v2 * result;
+    chdb_result * result;
     bool keep_buf; // background server mode will handle buf in ClickHouse engine
 
 public:
-    local_result_wrapper(local_result_v2 * result) : result(result), keep_buf(false) { }
-    local_result_wrapper(local_result_v2 * result, bool keep_buf) : result(result), keep_buf(keep_buf) { }
+    local_result_wrapper(chdb_result * result) : result(result), keep_buf(false) { }
+    local_result_wrapper(chdb_result * result, bool keep_buf) : result(result), keep_buf(keep_buf) { }
     ~local_result_wrapper()
     {
-        if (keep_buf)
-        {
-            if (!result)
-                return;
-
-            result->_vec = nullptr;
-            delete[] result->error_message;
-            delete result;
-        }
-        else
-        {
-            free_result_v2(result);
-        }
+        /// keep_buf is always false
+        chdb_destroy_query_result(result);
     }
     char * data()
     {
-        if (result == nullptr)
-        {
-            return nullptr;
-        }
-        return result->buf;
+        return chdb_result_buffer(result);
     }
     size_t size()
     {
-        if (result == nullptr)
-        {
-            return 0;
-        }
-        return result->len;
+        return chdb_result_length(result);
     }
     py::bytes bytes()
     {
@@ -98,7 +68,7 @@ public:
         {
             return py::bytes();
         }
-        return py::bytes(result->buf, result->len);
+        return py::bytes(chdb_result_buffer(result), chdb_result_length(result));
     }
     py::str str()
     {
@@ -106,46 +76,39 @@ public:
         {
             return py::str();
         }
-        return py::str(result->buf, result->len);
+        return py::str(chdb_result_buffer(result), chdb_result_length(result));
     }
     // Query statistics
     size_t rows_read()
     {
-        if (result == nullptr)
-        {
-            return 0;
-        }
-        return result->rows_read;
+        return chdb_result_rows_read(result);
     }
     size_t bytes_read()
     {
-        if (result == nullptr)
-        {
-            return 0;
-        }
-        return result->bytes_read;
+        return chdb_result_bytes_read(result);
+    }
+    size_t storage_rows_read()
+    {
+        return chdb_result_storage_rows_read(result);
+    }
+    size_t storage_bytes_read()
+    {
+        return chdb_result_storage_bytes_read(result);
     }
     double elapsed()
     {
-        if (result == nullptr)
-        {
-            return 0;
-        }
-        return result->elapsed;
+        return chdb_result_elapsed(result);
     }
     bool has_error()
     {
-        if (result == nullptr)
-        {
-            return false;
-        }
-        return result->error_message != nullptr;
+        return chdb_result_error(result) != nullptr;
     }
     py::str error_message()
     {
-        if (has_error())
+        auto error_message = chdb_result_error(result);
+        if (error_message)
         {
-            return py::str(result->error_message);
+            return py::str(error_message);
         }
         return py::str();
     }
@@ -157,8 +120,8 @@ private:
     std::shared_ptr<local_result_wrapper> result_wrapper;
 
 public:
-    query_result(local_result_v2 * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
-    query_result(local_result_v2 * result, bool keep_buf) : result_wrapper(std::make_shared<local_result_wrapper>(result, keep_buf)) { }
+    query_result(chdb_result * result) : result_wrapper(std::make_shared<local_result_wrapper>(result)) { }
+    query_result(chdb_result * result, bool keep_buf) : result_wrapper(std::make_shared<local_result_wrapper>(result, keep_buf)) { }
     ~query_result() = default;
     char * data() { return result_wrapper->data(); }
     py::bytes bytes() { return result_wrapper->bytes(); }
@@ -166,6 +129,8 @@ public:
     size_t size() { return result_wrapper->size(); }
     size_t rows_read() { return result_wrapper->rows_read(); }
     size_t bytes_read() { return result_wrapper->bytes_read(); }
+    size_t storage_rows_read() { return result_wrapper->storage_rows_read(); }
+    size_t storage_bytes_read() { return result_wrapper->storage_bytes_read(); }
     double elapsed() { return result_wrapper->elapsed(); }
     bool has_error() { return result_wrapper->has_error(); }
     py::str error_message() { return result_wrapper->error_message(); }
@@ -175,17 +140,25 @@ public:
 class streaming_query_result
 {
 private:
-    chdb_streaming_result * result;
+    chdb_result * result;
 
 public:
-    streaming_query_result(chdb_streaming_result * result_) : result(result_) {}
+    streaming_query_result(chdb_result * result_) : result(result_) {}
     ~streaming_query_result()
     {
-        chdb_destroy_result(result);
+        chdb_destroy_query_result(result);
     }
-    bool has_error() { return chdb_streaming_result_error(result) != nullptr; }
-    py::str error_message() { return chdb_streaming_result_error(result); }
-    chdb_streaming_result * get_result() { return result; }
+    bool has_error() { return chdb_result_error(result) != nullptr; }
+    py::str error_message()
+    {
+        auto error_message = chdb_result_error(result);
+        if (error_message)
+        {
+            return py::str(error_message);
+        }
+        return py::str();
+    }
+    chdb_result * get_result() { return result; }
 };
 
 class memoryview_wrapper
@@ -230,19 +203,13 @@ class cursor_wrapper
 {
 private:
     connection_wrapper * conn;
-    local_result_v2 * current_result;
+    chdb_result * current_result;
 
     void release_result()
     {
         if (current_result)
         {
-            if (current_result->_vec)
-            {
-                auto * vec = reinterpret_cast<std::vector<char> *>(current_result->_vec);
-                delete vec;
-                current_result->_vec = nullptr;
-            }
-            free_result_v2(current_result);
+            chdb_destroy_query_result(current_result);
 
             current_result = nullptr;
         }
@@ -268,59 +235,50 @@ public:
         {
             return py::memoryview(py::memoryview::from_memory(nullptr, 0, true));
         }
-        return py::memoryview(py::memoryview::from_memory(current_result->buf, current_result->len, true));
+        return py::memoryview(py::memoryview::from_memory(chdb_result_buffer(current_result), chdb_result_length(current_result), true));
     }
 
     size_t data_size()
     {
-        if (current_result == nullptr)
-        {
-            return 0;
-        }
-        return current_result->len;
+        return chdb_result_length(current_result);
     }
 
     size_t rows_read()
     {
-        if (current_result == nullptr)
-        {
-            return 0;
-        }
-        return current_result->rows_read;
+        return chdb_result_rows_read(current_result);
     }
 
     size_t bytes_read()
     {
-        if (current_result == nullptr)
-        {
-            return 0;
-        }
-        return current_result->bytes_read;
+        return chdb_result_bytes_read(current_result);
+    }
+
+    size_t storage_rows_read()
+    {
+        return chdb_result_storage_rows_read(current_result);
+    }
+
+    size_t storage_bytes_read()
+    {
+        return chdb_result_storage_bytes_read(current_result);
     }
 
     double elapsed()
     {
-        if (current_result == nullptr)
-        {
-            return 0;
-        }
-        return current_result->elapsed;
+        return chdb_result_elapsed(current_result);
     }
 
     bool has_error()
     {
-        if (current_result == nullptr)
-        {
-            return false;
-        }
-        return current_result->error_message != nullptr;
+        return chdb_result_error(current_result) != nullptr;
     }
 
     py::str error_message()
     {
-        if (has_error())
+        auto error_message = chdb_result_error(current_result);
+        if (error_message)
         {
-            return py::str(current_result->error_message);
+            return py::str(error_message);
         }
         return py::str();
     }

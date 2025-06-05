@@ -1,7 +1,11 @@
-set (CLICKHOUSE_LOCAL_SOURCES LocalServer.cpp)
+set (CLICKHOUSE_LOCAL_SOURCES
+    chdb.cpp
+    LocalServer.cpp
+)
 
 if (USE_PYTHON)
     set (CHDB_SOURCES
+        chdb.cpp
         FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
