@@ -1,5 +1,3 @@
-import tempfile
-import shutil
 import warnings
 
 import chdb
