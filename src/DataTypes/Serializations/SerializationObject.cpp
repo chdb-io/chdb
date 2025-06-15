@@ -790,3 +790,4 @@ SerializationPtr SerializationObject::TypedPathSubcolumnCreator::create(const DB
 }
 
 }
+

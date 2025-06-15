@@ -60,3 +60,5 @@ void ASTObjectTypeArgument::formatImpl(const FormatSettings & settings, FormatSt
 }
 
 }
+
+

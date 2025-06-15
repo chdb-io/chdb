@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(ClickHouse LANGUAGES C CXX ASM)
 
-# If turned off (e.g. when ENABLE_FOO is ON, but FOO tool was not found) the CMake will continue.
+# If turned off: e.g. when ENABLE_FOO is ON, but FOO tool was not found, the CMake will continue.
 option(FAIL_ON_UNSUPPORTED_OPTIONS_COMBINATION
    "Stop/Fail CMake configuration if some ENABLE_XXX option is defined (either ON or OFF)
    but is not possible to satisfy" ON)
@@ -127,6 +127,8 @@ add_library(global-libs INTERFACE)
 
 include (cmake/sanitize.cmake)
 
+include (cmake/xray_instrumentation.cmake)
+
 option(ENABLE_COLORED_BUILD "Enable colors in compiler output" ON)
 
 set (CMAKE_COLOR_MAKEFILE ${ENABLE_COLORED_BUILD}) # works only for the makefile generator
@@ -190,14 +192,6 @@ else ()
     set(NO_WHOLE_ARCHIVE --no-whole-archive)
 endif ()
 
-if (NOT CMAKE_BUILD_TYPE_UC STREQUAL "RELEASE")
-    # Can be lld or ld-lld or lld-13 or /path/to/lld.
-    if (LINKER_NAME MATCHES "lld")
-        set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--gdb-index")
-        message (STATUS "Adding .gdb-index via --gdb-index linker option.")
-    endif ()
-endif()
-
 if (NOT (SANITIZE_COVERAGE OR WITH_COVERAGE)
     AND (CMAKE_BUILD_TYPE_UC STREQUAL "RELEASE"
         OR CMAKE_BUILD_TYPE_UC STREQUAL "RELWITHDEBINFO"
@@ -212,8 +206,6 @@ endif()
 option(OMIT_HEAVY_DEBUG_SYMBOLS
     "Do not generate debugger info for heavy modules (ClickHouse functions and dictionaries, some contrib)"
     ${OMIT_HEAVY_DEBUG_SYMBOLS_DEFAULT})
-
-option(USE_DEBUG_HELPERS "Enable debug helpers" ${USE_DEBUG_HELPERS})
 
 option(BUILD_STANDALONE_KEEPER "Build keeper as small standalone binary" OFF)
 if (NOT BUILD_STANDALONE_KEEPER)
@@ -326,7 +318,6 @@ set (COMPILER_FLAGS "${COMPILER_FLAGS} -ffp-contract=off")
 
 set (COMPILER_FLAGS "${COMPILER_FLAGS} -fPIC")
 
-# Our built-in unwinder only supports DWARF version up to 4.
 set (DEBUG_INFO_FLAGS "-g")
 
 # Disable omit frame pointer compiler optimization using -fno-omit-frame-pointer

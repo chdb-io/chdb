@@ -224,7 +224,6 @@ public:
 
     String getPathForDroppedMetadata(const StorageID & table_id) const;
     String getPathForMetadata(const StorageID & table_id) const;
-    void fixPath(const String & path);
     void enqueueDroppedTableCleanup(StorageID table_id, StoragePtr table, String dropped_metadata_path, bool ignore_delay = false);
     void undropTable(StorageID table_id);
 
@@ -266,6 +265,9 @@ public:
     }
 
     void triggerReloadDisksTask(const Strings & new_added_disks);
+
+    /// chdb: chdb session query need to fix the path 
+    void fixPath(const String & path);
 
 private:
     // The global instance of database catalog. unique_ptr is to allow

@@ -1,6 +1,6 @@
 #include "LocalServer.h"
-#include "chdb-internal.h"
 
+#include "chdb-internal.h"
 #if USE_PYTHON
 #include "TableFunctionPython.h"
 #include <TableFunctions/TableFunctionFactory.h>
@@ -8,7 +8,6 @@
 #endif
 
 #include <sys/resource.h>
-#include "Common/Logger.h"
 #include <Common/Config/getLocalConfigPath.h>
 #include <Common/logger_useful.h>
 #include <Common/formatReadable.h>
@@ -50,7 +49,6 @@
 #include <IO/SharedThreadPools.h>
 #include <Parsers/ASTInsertQuery.h>
 #include <Common/ErrorHandlers.h>
-#include <Formats/FormatFactory.h>
 #include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
 #include <Functions/registerFunctions.h>
 #include <AggregateFunctions/registerAggregateFunctions.h>
@@ -63,7 +61,6 @@
 #include <boost/program_options/options_description.hpp>
 #include <base/argsToConfig.h>
 #include <filesystem>
-#include <math.h>
 
 #include "config.h"
 
@@ -71,10 +68,12 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+
 namespace fs = std::filesystem;
+
 namespace CurrentMetrics
 {
-extern const Metric MemoryTracking;
+    extern const Metric MemoryTracking;
 }
 
 namespace DB
@@ -83,9 +82,9 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int BAD_ARGUMENTS;
-    extern const int UNKNOWN_FORMAT;
     extern const int CANNOT_LOAD_CONFIG;
     extern const int FILE_ALREADY_EXISTS;
+    extern const int UNKNOWN_FORMAT;
 }
 
 void applySettingsOverridesForLocal(ContextMutablePtr context)
@@ -174,7 +173,9 @@ void LocalServer::initialize(Poco::Util::Application & self)
 #endif
 
     getIOThreadPool().initialize(
-        server_settings.max_io_thread_pool_size, server_settings.max_io_thread_pool_free_size, server_settings.io_thread_pool_queue_size);
+        server_settings.max_io_thread_pool_size,
+        server_settings.max_io_thread_pool_free_size,
+        server_settings.io_thread_pool_queue_size);
 
     const size_t active_parts_loading_threads = server_settings.max_active_parts_loading_thread_pool_size;
     getActivePartsLoadingThreadPool().initialize(

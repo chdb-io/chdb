@@ -67,12 +67,12 @@ void OpenSSLInitializer::initialize()
 		SSL_library_init();
 		SSL_load_error_strings();
 		OpenSSL_add_all_algorithms();
-
+		
 		char seed[SEEDSIZE];
 		RandomInputStream rnd;
 		rnd.read(seed, sizeof(seed));
 		RAND_seed(seed, SEEDSIZE);
-
+		
 		int nMutexes = CRYPTO_num_locks();
 		_mutexes = new Poco::FastMutex[nMutexes];
 		CRYPTO_set_locking_callback(&OpenSSLInitializer::lock);
@@ -80,8 +80,8 @@ void OpenSSLInitializer::initialize()
 // https://sourceforge.net/p/poco/bugs/110/
 //
 // From http://www.openssl.org/docs/crypto/threads.html :
-// "If the application does not register such a callback using CRYPTO_THREADID_set_callback(),
-//  then a default implementation is used - on Windows and BeOS this uses the system's
+// "If the application does not register such a callback using CRYPTO_THREADID_set_callback(), 
+//  then a default implementation is used - on Windows and BeOS this uses the system's 
 //  default thread identifying APIs"
 		CRYPTO_set_id_callback(&OpenSSLInitializer::id);
 		CRYPTO_set_dynlock_create_callback(&OpenSSLInitializer::dynlockCreate);
@@ -100,7 +100,7 @@ void OpenSSLInitializer::uninitialize()
 		CRYPTO_set_locking_callback(0);
 		CRYPTO_set_id_callback(0);
 		delete [] _mutexes;
-
+		
 		CONF_modules_free();
 	}
 }

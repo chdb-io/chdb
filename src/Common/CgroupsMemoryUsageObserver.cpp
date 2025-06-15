@@ -80,7 +80,6 @@ struct CgroupsV1Reader : ICgroupsReader
 {
     explicit CgroupsV1Reader(const fs::path & stat_file_dir) : buf(stat_file_dir / "memory.stat") { }
 
-
     uint64_t readMemoryUsage() override
     {
         std::lock_guard lock(mutex);
@@ -101,7 +100,7 @@ private:
 };
 
 struct CgroupsV2Reader : ICgroupsReader
- {
+{
     explicit CgroupsV2Reader(const fs::path & stat_file_dir)
         : current_buf(stat_file_dir / "memory.current"), stat_buf(stat_file_dir / "memory.stat")
     {

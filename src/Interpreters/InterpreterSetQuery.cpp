@@ -12,7 +12,7 @@
 namespace DB
 {
 
-    
+
 BlockIO InterpreterSetQuery::execute()
 {
     const auto & ast = query_ptr->as<ASTSetQuery &>();

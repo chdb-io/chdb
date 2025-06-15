@@ -1,4 +1,5 @@
 #include "PythonSource.h"
+#include "ColumnVectorHelper.h"
 #include "ListScan.h"
 #include "PandasScan.h"
 #include "StoragePython.h"
@@ -11,7 +12,6 @@
 #include <vector>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
-#include <Columns/ColumnVectorHelper.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDecimalBase.h>
 #include <DataTypes/DataTypeString.h>
