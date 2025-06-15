@@ -15,11 +15,23 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
+namespace Setting
+{
+	extern const SettingsUInt64 pandas_analyze_sample;
+}
+
 }
 
 using namespace DB;
 
 namespace CHDB {
+
+PandasAnalyzer::PandasAnalyzer(const DB::Settings & settings)
+{
+	analyzed_type = {};
+
+	sample_size = settings[DB::Settings::pandas_analyze_sample];
+}
 
 bool PandasAnalyzer::Analyze(py::object column) {
 	if (sample_size == 0)

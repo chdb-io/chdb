@@ -2,8 +2,6 @@
 
 #include <base/defines.h>
 #include <base/errnoToString.h>
-#include <Common/CurrentThread.h>
-#include <Common/MemoryTracker.h>
 #include <Core/Settings.h>
 #include <Daemon/BaseDaemon.h>
 #include <Daemon/SentryWriter.h>
@@ -11,44 +9,33 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <sys/time.h>
 #include <sys/wait.h>
 #include <sys/resource.h>
 
 #if defined(OS_LINUX)
-    #include <sys/prctl.h>
+#include <sys/prctl.h>
 #endif
 #include <cerrno>
 #include <cstring>
-#include <unistd.h>
-
-#include <algorithm>
-#include <typeinfo>
 #include <iostream>
-#include <fstream>
 #include <memory>
-#include <base/scope_guard.h>
+#include <sstream>
+#include <unistd.h>
 
 #include <Poco/Message.h>
 #include <Poco/Util/Application.h>
 #include <Poco/Exception.h>
 #include <Poco/ErrorHandler.h>
 #include <Poco/Pipe.h>
-
 #include <Common/ErrorHandlers.h>
 #include <Common/SignalHandlers.h>
 #include <base/argsToConfig.h>
-#include <base/getThreadId.h>
 #include <base/coverage.h>
-#include <base/sleep.h>
+#include <base/scope_guard.h>
 
 #include <IO/WriteBufferFromFileDescriptorDiscardOnFailure.h>
-#include <IO/ReadBufferFromFileDescriptor.h>
 #include <IO/ReadHelpers.h>
-#include <IO/WriteHelpers.h>
 #include <Common/Exception.h>
-#include <Common/PipeFDs.h>
-#include <Common/StackTrace.h>
 #include <Common/getMultipleKeysFromConfig.h>
 #include <Common/ClickHouseRevision.h>
 #include <Common/Config/ConfigProcessor.h>
@@ -274,7 +261,11 @@ void BaseDaemon::initialize(Application & self)
     }
     umask(umask_num);
 
-    ConfigProcessor(config_path).savePreprocessedConfig(loaded_config, "");
+    ConfigProcessor(config_path).savePreprocessedConfig(loaded_config, ""
+#if USE_SSL
+    , true // skip loading encryption keys from ZK
+#endif
+    );
 
     /// Write core dump on crash.
     {
@@ -341,7 +332,7 @@ void BaseDaemon::initialize(Application & self)
                 throw Poco::OpenFileException("File " + stderr_path + " (logger.stderr) is not writable");
             if (fd != -1)
             {
-                int err = ::close(fd);
+                [[maybe_unused]] int err = ::close(fd);
                 chassert(!err || errno == EINTR);
             }
         }
@@ -423,12 +414,13 @@ extern const char * GIT_HASH;
 void BaseDaemon::initializeTerminationAndSignalProcessing()
 {
     SentryWriter::initializeInstance(config());
-    if (config().getBool("send_crash_reports.send_logical_errors", false))
+    if (config().getBool("send_crash_reports.enabled", false)
+        && config().getBool("send_crash_reports.send_logical_errors", false))
     {
         /// In release builds send it to sentry (if it is configured)
         if (auto * sentry = SentryWriter::getInstance())
         {
-            LOG_DEBUG(&logger(), "Enable sending LOGICAL_ERRORs to sentry");
+            LOG_DEBUG(&logger(), "Sending logical errors to sentry is enabled");
             Exception::callback = [sentry](const std::string & msg, int code, bool remote, const Exception::FramePointers & trace)
             {
                 if (!remote && code == ErrorCodes::LOGICAL_ERROR)
@@ -450,25 +442,19 @@ void BaseDaemon::initializeTerminationAndSignalProcessing()
     HandledSignals::instance().setupCommonDeadlySignalHandlers();
     HandledSignals::instance().setupCommonTerminateRequestSignalHandlers();
     HandledSignals::instance().addSignalHandler({SIGHUP}, closeLogsSignalHandler, true);
+    HandledSignals::instance().addSignalHandler({SIGCHLD}, childSignalHandler, true);
 
     /// Set up Poco ErrorHandler for Poco Threads.
     static KillingErrorHandler killing_error_handler;
     Poco::ErrorHandler::set(&killing_error_handler);
 
     signal_listener = std::make_unique<SignalListener>(this, getLogger("BaseDaemon"));
-    signal_listener_thread.start(*signal_listener);
 
 #if defined(__ELF__) && !defined(OS_FREEBSD)
-    String build_id_hex = SymbolIndex::instance().getBuildIDHex();
-    if (build_id_hex.empty())
-        build_id = "";
-    else
-        build_id = build_id_hex;
-#else
-    build_id = "";
+    build_id = SymbolIndex::instance().getBuildIDHex();
 #endif
 
-    git_hash = GIT_HASH;
+    signal_listener_thread.start(*signal_listener);
 
 #if defined(OS_LINUX)
     std::string executable_path = getExecutablePath();
@@ -482,7 +468,7 @@ void BaseDaemon::logRevision() const
 {
     logger().information("Starting " + std::string{VERSION_FULL}
         + " (revision: " + std::to_string(ClickHouseRevision::getVersionRevision())
-        + ", git hash: " + (git_hash.empty() ? "<unknown>" : git_hash)
+        + ", git hash: " + std::string(GIT_HASH)
         + ", build id: " + (build_id.empty() ? "<unknown>" : build_id) + ")"
         + ", PID " + std::to_string(getpid()));
 }
@@ -522,24 +508,17 @@ void BaseDaemon::defineOptions(Poco::Util::OptionSet & new_options)
 
 void BaseDaemon::handleSignal(int signal_id)
 {
-    if (signal_id == SIGINT ||
+    if (!(signal_id == SIGINT ||
         signal_id == SIGQUIT ||
-        signal_id == SIGTERM)
-    {
-        std::lock_guard lock(signal_handler_mutex);
-        {
-            ++terminate_signals_counter;
-            signal_event.notify_all();
-        }
-
-        onInterruptSignals(signal_id);
-    }
-    else
+        signal_id == SIGTERM))
         throw Exception::createDeprecated(std::string("Unsupported signal: ") + strsignal(signal_id), 0); // NOLINT(concurrency-mt-unsafe) // it is not thread-safe but ok in this context
-}
 
-void BaseDaemon::onInterruptSignals(int signal_id)
-{
+    std::lock_guard lock(signal_handler_mutex);
+    {
+        ++terminate_signals_counter;
+        signal_event.notify_all();
+    }
+
     is_cancelled = true;
     LOG_INFO(&logger(), "Received termination signal ({})", strsignal(signal_id)); // NOLINT(concurrency-mt-unsafe) // it is not thread-safe but ok in this context
 
@@ -551,7 +530,6 @@ void BaseDaemon::onInterruptSignals(int signal_id)
         _exit(128 + signal_id);
     }
 }
-
 
 void BaseDaemon::waitForTerminationRequest()
 {
@@ -648,8 +626,8 @@ void BaseDaemon::setupWatchdog()
             logger().setChannel(log);
         }
 
-        /// Cuncurrent writing logs to the same file from two threads is questionable on its own,
-        ///  but rotating them from two threads is disastrous.
+        /// Concurrent writing logs to the same file from two threads is questionable on its own,
+        /// but rotating them from two threads is disastrous.
         if (auto * channel = dynamic_cast<OwnSplitChannel *>(logger().getChannel()))
         {
             channel->setChannelProperty("log", Poco::FileChannel::PROP_ROTATION, "never");
@@ -815,11 +793,9 @@ void systemdNotify(const std::string_view & command)
         {
             if (errno == EINTR)
                 continue;
-            else
-                throw ErrnoException(ErrorCodes::SYSTEM_ERROR, "Failed to notify systemd, sendto returned error");
+            throw ErrnoException(ErrorCodes::SYSTEM_ERROR, "Failed to notify systemd, sendto returned error");
         }
-        else
-            sent_bytes_total += sent_bytes;
+        sent_bytes_total += sent_bytes;
     }
 }
 #endif
