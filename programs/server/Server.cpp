@@ -1,115 +1,115 @@
 #include "Server.h"
 
-#include <filesystem>
 #include <memory>
-#include <unordered_set>
+#include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <pwd.h>
 #include <unistd.h>
-#include <Access/AccessControl.h>
-#include <AggregateFunctions/registerAggregateFunctions.h>
-#include <Compression/CompressionCodecEncrypted.h>
-#include <Core/ServerSettings.h>
+#include <Poco/Net/HTTPServer.h>
+#include <Poco/Net/NetException.h>
+#include <Poco/Util/HelpFormatter.h>
+#include <Poco/Environment.h>
+#include <Poco/Config.h>
+#include <Common/Jemalloc.h>
+#include <Common/scope_guard_safe.h>
+#include <Common/logger_useful.h>
+#include <base/phdr_cache.h>
+#include <Common/ErrorHandlers.h>
+#include <base/getMemoryAmount.h>
+#include <base/getAvailableMemoryAmount.h>
+#include <base/errnoToString.h>
+#include <base/coverage.h>
+#include <base/getFQDNOrHostName.h>
+#include <base/safeExit.h>
+#include <base/Numa.h>
+#include <Common/PoolId.h>
+#include <Common/MemoryTracker.h>
+#include <Common/ClickHouseRevision.h>
+#include <Common/DNSResolver.h>
+#include <Common/CgroupsMemoryUsageObserver.h>
+#include <Common/CurrentMetrics.h>
+#include <Common/ConcurrencyControl.h>
+#include <Common/Macros.h>
+#include <Common/ShellCommand.h>
+#include <Common/ZooKeeper/ZooKeeper.h>
+#include <Common/ZooKeeper/ZooKeeperNodeCache.h>
+#include <Common/formatReadable.h>
+#include <Common/getMultipleKeysFromConfig.h>
+#include <Common/getNumberOfPhysicalCPUCores.h>
+#include <Common/getExecutablePath.h>
+#include <Common/ProfileEvents.h>
+#include <Common/Scheduler/IResourceManager.h>
+#include <Common/ThreadProfileEvents.h>
+#include <Common/ThreadStatus.h>
+#include <Common/getMappedArea.h>
+#include <Common/remapExecutable.h>
+#include <Common/TLDListsHolder.h>
+#include <Common/Config/AbstractConfigurationComparison.h>
+#include <Common/assertProcessUserMatchesDataOwner.h>
+#include <Common/makeSocketAddress.h>
+#include <Common/FailPoint.h>
+#include <Common/CPUID.h>
+#include <Common/HTTPConnectionPool.h>
+#include <Common/NamedCollections/NamedCollectionsFactory.h>
+#include <Server/waitServersToFinish.h>
+#include <Interpreters/Cache/FileCacheFactory.h>
 #include <Core/ServerUUID.h>
-#include <Databases/registerDatabases.h>
-#include <Dictionaries/registerDictionaries.h>
-#include <Disks/registerDisks.h>
-#include <Formats/registerFormats.h>
-#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
-#include <Functions/registerFunctions.h>
-#include <IO/ReadBufferFromFile.h>
 #include <IO/ReadHelpers.h>
+#include <IO/ReadBufferFromFile.h>
 #include <IO/SharedThreadPools.h>
 #include <IO/UseSSL.h>
-#include <Interpreters/AsynchronousInsertQueue.h>
-#include <Interpreters/Cache/FileCacheFactory.h>
+#include <Interpreters/ServerAsynchronousMetrics.h>
 #include <Interpreters/DDLWorker.h>
 #include <Interpreters/DNSCacheUpdater.h>
 #include <Interpreters/DatabaseCatalog.h>
 #include <Interpreters/ExternalDictionariesLoader.h>
-#include <Interpreters/JIT/CompiledExpressionCache.h>
 #include <Interpreters/ProcessList.h>
-#include <Interpreters/ServerAsynchronousMetrics.h>
 #include <Interpreters/loadMetadata.h>
 #include <Interpreters/registerInterpreters.h>
-#include <Server/CloudPlacementInfo.h>
-#include <Server/HTTP/HTTPServer.h>
-#include <Server/HTTP/HTTPServerConnectionFactory.h>
-#include <Server/HTTPHandlerFactory.h>
-#include <Server/KeeperReadinessHandler.h>
-#include <Server/MySQLHandlerFactory.h>
-#include <Server/PostgreSQLHandlerFactory.h>
-#include <Server/ProtocolServerAdapter.h>
-#include <Server/ProxyV1HandlerFactory.h>
-#include <Server/TCPHandlerFactory.h>
-#include <Server/TCPServer.h>
-#include <Server/TLSHandlerFactory.h>
-#include <Server/waitServersToFinish.h>
-#include <Storages/Cache/ExternalDataSourceCache.h>
-#include <Storages/Cache/registerRemoteFileMetadatas.h>
+#include <Interpreters/JIT/CompiledExpressionCache.h>
+#include <Access/AccessControl.h>
 #include <Storages/MergeTree/MergeTreeSettings.h>
 #include <Storages/StorageReplicatedMergeTree.h>
-#include <Storages/System/attachInformationSchemaTables.h>
 #include <Storages/System/attachSystemTables.h>
-#include <Storages/registerStorages.h>
+#include <Storages/System/attachInformationSchemaTables.h>
+#include <Storages/Cache/ExternalDataSourceCache.h>
+#include <Storages/Cache/registerRemoteFileMetadatas.h>
+#include <AggregateFunctions/registerAggregateFunctions.h>
+#include <Functions/UserDefined/IUserDefinedSQLObjectsStorage.h>
+#include <Functions/registerFunctions.h>
 #include <TableFunctions/registerTableFunctions.h>
-#include <base/Numa.h>
-#include <base/coverage.h>
-#include <base/errnoToString.h>
-#include <base/getAvailableMemoryAmount.h>
-#include <base/getFQDNOrHostName.h>
-#include <base/getMemoryAmount.h>
-#include <base/phdr_cache.h>
-#include <base/safeExit.h>
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <Poco/Config.h>
-#include <Poco/Environment.h>
-#include <Poco/Net/HTTPServer.h>
-#include <Poco/Net/NetException.h>
-#include <Poco/Util/HelpFormatter.h>
-#include <Common/CPUID.h>
-#include <Common/CgroupsMemoryUsageObserver.h>
-#include <Common/ClickHouseRevision.h>
-#include <Common/ConcurrencyControl.h>
-#include <Common/Config/AbstractConfigurationComparison.h>
-#include <Common/Config/ConfigReloader.h>
-#include <Common/CurrentMetrics.h>
-#include <Common/DNSResolver.h>
-#include <Common/ErrorHandlers.h>
-#include <Common/FailPoint.h>
-#include <Common/HTTPConnectionPool.h>
-#include <Common/Jemalloc.h>
-#include <Common/Macros.h>
-#include <Common/MemoryTracker.h>
-#include <Common/NamedCollections/NamedCollectionsFactory.h>
-#include <Common/PoolId.h>
-#include <Common/ProfileEvents.h>
-#include <Common/Scheduler/IResourceManager.h>
-#include <Common/Scheduler/Nodes/registerResourceManagers.h>
+#include <Formats/registerFormats.h>
+#include <Storages/registerStorages.h>
+#include <Databases/registerDatabases.h>
+#include <Dictionaries/registerDictionaries.h>
+#include <Disks/registerDisks.h>
 #include <Common/Scheduler/Nodes/registerSchedulerNodes.h>
-#include <Common/SensitiveDataMasker.h>
-#include <Common/ShellCommand.h>
-#include <Common/StatusFile.h>
-#include <Common/TLDListsHolder.h>
-#include <Common/ThreadFuzzer.h>
-#include <Common/ThreadProfileEvents.h>
-#include <Common/ThreadStatus.h>
-#include <Common/ZooKeeper/ZooKeeper.h>
-#include <Common/ZooKeeper/ZooKeeperNodeCache.h>
-#include <Common/assertProcessUserMatchesDataOwner.h>
-#include <Common/filesystemHelpers.h>
-#include <Common/formatReadable.h>
-#include <Common/getExecutablePath.h>
-#include <Common/getHashOfLoadedBinary.h>
-#include <Common/getMappedArea.h>
-#include <Common/getMultipleKeysFromConfig.h>
-#include <Common/getNumberOfPhysicalCPUCores.h>
-#include <Common/logger_useful.h>
-#include <Common/makeSocketAddress.h>
-#include <Common/remapExecutable.h>
-#include <Common/scope_guard_safe.h>
+#include <Common/Scheduler/Nodes/registerResourceManagers.h>
+#include <Common/Config/ConfigReloader.h>
+#include <Server/HTTPHandlerFactory.h>
 #include "MetricsTransmitter.h"
+#include <Common/StatusFile.h>
+#include <Server/TCPHandlerFactory.h>
+#include <Server/TCPServer.h>
+#include <Common/SensitiveDataMasker.h>
+#include <Common/ThreadFuzzer.h>
+#include <Common/getHashOfLoadedBinary.h>
+#include <Common/filesystemHelpers.h>
+#include <Compression/CompressionCodecEncrypted.h>
+#include <Server/HTTP/HTTPServerConnectionFactory.h>
+#include <Server/MySQLHandlerFactory.h>
+#include <Server/PostgreSQLHandlerFactory.h>
+#include <Server/ProxyV1HandlerFactory.h>
+#include <Server/TLSHandlerFactory.h>
+#include <Server/ProtocolServerAdapter.h>
+#include <Server/KeeperReadinessHandler.h>
+#include <Server/HTTP/HTTPServer.h>
+#include <Server/CloudPlacementInfo.h>
+#include <Interpreters/AsynchronousInsertQueue.h>
+#include <Core/ServerSettings.h>
+#include <filesystem>
+#include <unordered_set>
 
 #include "config.h"
 #include <Common/config_version.h>
@@ -609,18 +609,14 @@ void loadStartupScripts(const Poco::Util::AbstractConfiguration & config, Contex
                 auto condition_write_buffer = WriteBufferFromOwnString();
 
                 LOG_DEBUG(log, "Checking startup query condition `{}`", condition);
-                executeQuery(
-                    condition_read_buffer, condition_write_buffer, true, context, callback, QueryFlags{.internal = true}, std::nullopt, {});
+                executeQuery(condition_read_buffer, condition_write_buffer, true, context, callback, QueryFlags{ .internal = true }, std::nullopt, {});
 
                 auto result = condition_write_buffer.str();
 
                 if (result != "1\n" && result != "true\n")
                 {
                     if (result != "0\n" && result != "false\n")
-                        context->addWarningMessage(fmt::format(
-                            "The condition query returned `{}`, which can't be interpreted as a boolean (`0`, `false`, `1`, `true`). Will "
-                            "skip this query.",
-                            result));
+                        context->addWarningMessage(fmt::format("The condition query returned `{}`, which can't be interpreted as a boolean (`0`, `false`, `1`, `true`). Will skip this query.", result));
 
                     continue;
                 }
@@ -633,7 +629,7 @@ void loadStartupScripts(const Poco::Util::AbstractConfiguration & config, Contex
             auto write_buffer = WriteBufferFromOwnString();
 
             LOG_DEBUG(log, "Executing query `{}`", query);
-            executeQuery(read_buffer, write_buffer, true, context, callback, QueryFlags{.internal = true}, std::nullopt, {});
+            executeQuery(read_buffer, write_buffer, true, context, callback, QueryFlags{ .internal = true }, std::nullopt, {});
         }
     }
     catch (...)
@@ -686,18 +682,18 @@ static std::vector<String> getSanitizerNames()
 {
     std::vector<String> names;
 
-#    if defined(ADDRESS_SANITIZER)
+#if defined(ADDRESS_SANITIZER)
     names.push_back("address");
-#    endif
-#    if defined(THREAD_SANITIZER)
+#endif
+#if defined(THREAD_SANITIZER)
     names.push_back("thread");
-#    endif
-#    if defined(MEMORY_SANITIZER)
+#endif
+#if defined(MEMORY_SANITIZER)
     names.push_back("memory");
-#    endif
-#    if defined(UNDEFINED_BEHAVIOR_SANITIZER)
+#endif
+#if defined(UNDEFINED_BEHAVIOR_SANITIZER)
     names.push_back("undefined behavior");
-#    endif
+#endif
 
     return names;
 }
@@ -763,9 +759,7 @@ try
     if (auto total_numa_memory = getNumaNodesTotalMemory(); total_numa_memory.has_value())
     {
         LOG_INFO(
-            log,
-            "ClickHouse is bound to a subset of NUMA nodes. Total memory of all available nodes: {}",
-            ReadableSize(*total_numa_memory));
+            log, "ClickHouse is bound to a subset of NUMA nodes. Total memory of all available nodes: {}", ReadableSize(*total_numa_memory));
     }
 
     registerInterpreters();
@@ -820,13 +814,11 @@ try
 
     const size_t physical_server_memory = getMemoryAmount();
 
-    LOG_INFO(
-        log,
-        "Available RAM: {}; logical cores: {}; used cores: {}.",
+    LOG_INFO(log, "Available RAM: {}; logical cores: {}; used cores: {}.",
         formatReadableSizeWithBinarySuffix(physical_server_memory),
         std::thread::hardware_concurrency(),
-        getNumberOfPhysicalCPUCores() // on ARM processors it can show only enabled at current moment cores
-    );
+        getNumberOfPhysicalCPUCores()  // on ARM processors it can show only enabled at current moment cores
+        );
 
 #if defined(__x86_64__)
     String cpu_info;
@@ -858,16 +850,12 @@ try
 #endif
 
 #if defined(SANITIZER)
-    LOG_INFO(
-        log,
-        "Query Profiler is disabled because it cannot work under sanitizers"
+    LOG_INFO(log, "Query Profiler is disabled because it cannot work under sanitizers"
         " when two different stack unwinding methods will interfere with each other.");
 #endif
 
     if (!hasPHDRCache())
-        LOG_INFO(
-            log,
-            "Query Profiler and TraceCollector are disabled because they require PHDR cache to be created"
+        LOG_INFO(log, "Query Profiler and TraceCollector are disabled because they require PHDR cache to be created"
             " (otherwise the function 'dl_iterate_phdr' is not lock free and not async-signal safe).");
 
     // Initialize global thread pool. Do it before we fetch configs from zookeeper
@@ -899,10 +887,10 @@ try
     }
 
     Poco::ThreadPool server_pool(
-        /* minCapacity */ 3,
-        /* maxCapacity */ server_settings.max_connections,
-        /* idleTime */ 60,
-        /* stackSize */ POCO_THREAD_STACK_SIZE,
+        /* minCapacity */3,
+        /* maxCapacity */server_settings.max_connections,
+        /* idleTime */60,
+        /* stackSize */POCO_THREAD_STACK_SIZE,
         server_settings.global_profiler_real_time_period_ns,
         server_settings.global_profiler_cpu_time_period_ns);
 
@@ -936,7 +924,8 @@ try
             for (const auto & server : servers)
                 metrics.emplace_back(ProtocolServerMetrics{server.getPortName(), server.currentThreads(), server.refusedConnections()});
             return metrics;
-        });
+        }
+    );
 
     /// NOTE: global context should be destroyed *before* GlobalThreadPool::shutdown()
     /// Otherwise GlobalThreadPool::shutdown() will hang, since Context holds some threads.
@@ -1078,7 +1067,7 @@ try
     fs::path path = path_str;
 
     /// Check that the process user id matches the owner of the data.
-    assertProcessUserMatchesDataOwner(path_str, [&](const std::string & message) { global_context->addWarningMessage(message); });
+    assertProcessUserMatchesDataOwner(path_str, [&](const std::string & message){ global_context->addWarningMessage(message); });
 
     global_context->setPath(path_str);
 
@@ -2758,7 +2747,9 @@ void Server::createInterserverServers(
     }
 }
 
-void Server::stopServers(std::vector<ProtocolServerAdapter> & servers, const ServerType & server_type) const
+void Server::stopServers(
+    std::vector<ProtocolServerAdapter> & servers,
+    const ServerType & server_type) const
 {
     LoggerRawPtr log = &logger();
 

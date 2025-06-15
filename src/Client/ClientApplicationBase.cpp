@@ -11,7 +11,6 @@
 #include <Common/config_version.h>
 #include "config.h"
 
-#include <mutex>
 #include <unordered_set>
 #include <string>
 #include <boost/algorithm/string/case_conv.hpp>
@@ -380,7 +379,7 @@ void ClientApplicationBase::init(int argc, char ** argv)
         fatal_channel_ptr->addChannel(fatal_file_channel_ptr);
     }
 
-    // Create loggers for once
+    /// chDB: create loggers for once
     static std::once_flag once;
     std::call_once(once, [this]()
     {

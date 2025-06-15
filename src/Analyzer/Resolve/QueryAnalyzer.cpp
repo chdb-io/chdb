@@ -137,7 +137,7 @@ void QueryAnalyzer::resolve(QueryTreeNodePtr & node, const QueryTreeNodePtr & ta
                 throw Exception(ErrorCodes::LOGICAL_ERROR,
                     "For query analysis table expression must be empty");
 
-            // chdb todo: this is a hack to reload UDFs when the query is re-analyzed
+            // chDB(todo): this is a hack to reload UDFs when the query is re-analyzed
             // the root cause is for chdb, the ClientBase and Server might have different Contexts
             // the hacking might impact the performance when running stateful query(with arg "path" specified)
             auto global_context = Context::getGlobalContextInstance();

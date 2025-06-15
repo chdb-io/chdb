@@ -30,23 +30,10 @@ public:
 
     int main(const std::vector<String> & /*args*/) override;
 
-    void cleanup();
-
-    void connect() override;
-
-    size_t getStorgaeRowsRead() const
-    {
-        auto * local_connection = static_cast<LocalConnection *>(connection.get());
-        return local_connection->getCHDBProgress().read_rows;
-    }
-    size_t getStorageBytesRead() const
-    {
-        auto * local_connection = static_cast<LocalConnection *>(connection.get());
-        return local_connection->getCHDBProgress().read_bytes;
-    }
-
 protected:
     Poco::Util::LayeredConfiguration & getClientConfiguration() override;
+
+    void connect() override;
 
     void processError(const String & query) const override;
 
@@ -73,13 +60,12 @@ private:
 
     void tryInitPath();
     void setupUsers();
+    void cleanup();
 
     void applyCmdOptions(ContextMutablePtr context);
     void applyCmdSettings(ContextMutablePtr context);
 
     void createClientContext();
-
-    void cleanStreamingQuery();
 
     ServerSettings server_settings;
 
@@ -87,6 +73,27 @@ private:
     std::optional<std::filesystem::path> temporary_directory_to_delete;
 
     std::unique_ptr<ReadBufferFromFile> input;
+
+/// chDB: add new interfaces for chDB
+public:
+    size_t getStorgaeRowsRead() const
+    {
+        auto * local_connection = static_cast<LocalConnection *>(connection.get());
+        return local_connection->getCHDBProgress().read_rows;
+    }
+    size_t getStorageBytesRead() const
+    {
+        auto * local_connection = static_cast<LocalConnection *>(connection.get());
+        return local_connection->getCHDBProgress().read_bytes;
+    }
+
+    void chdbCleanup()
+    {
+        cleanup();
+    }
+
+private:
+    void cleanStreamingQuery();
 };
 
 }

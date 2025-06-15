@@ -133,7 +133,7 @@ void registerStorages()
     registerStorageTimeSeries(factory);
 
 #if USE_RAPIDJSON || USE_SIMDJSON
-        registerStorageFuzzJSON(factory);
+    registerStorageFuzzJSON(factory);
 #endif
 
 #if USE_AZURE_BLOB_STORAGE

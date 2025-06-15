@@ -774,6 +774,8 @@ void DatabaseCatalog::addUUIDMapping(const UUID & uuid, const DatabasePtr & data
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Mapping for table with UUID={} already exists", uuid);
     /// Normally this should never happen, but it's possible when the same UUIDs are explicitly specified in different CREATE queries,
     /// so it's not LOGICAL_ERROR
+
+    /// chDB: No exception if table uuid exist for stateful query
     // throw Exception(ErrorCodes::TABLE_ALREADY_EXISTS, "Mapping for table with UUID={} already exists. It happened due to UUID collision, "
     //                 "most likely because some not random UUIDs were manually specified in CREATE queries.", uuid);
 }
@@ -1060,12 +1062,6 @@ String DatabaseCatalog::getPathForMetadata(const StorageID & table_id) const
         throw Exception(ErrorCodes::LOGICAL_ERROR, "Empty metadata path in database {}", table_id.getDatabaseName());
 
     return metadata_path + escapeForFileName(table_id.getTableName()) + ".sql";
-}
-
-//chdb session query need to fix the path
-void DatabaseCatalog::fixPath(const String & path)
-{
-    getContext()->setPath(path);
 }
 
 void DatabaseCatalog::enqueueDroppedTableCleanup(StorageID table_id, StoragePtr table, String dropped_metadata_path, bool ignore_delay)
@@ -1807,6 +1803,12 @@ void DatabaseCatalog::triggerReloadDisksTask(const Strings & new_added_disks)
     std::lock_guard lock{reload_disks_mutex};
     disks_to_reload.insert(new_added_disks.begin(), new_added_disks.end());
     (*reload_disks_task)->schedule();
+}
+
+/// chdb: chdb session query need to fix the path.
+void DatabaseCatalog::fixPath(const String & path)
+{
+    getContext()->setPath(path);
 }
 
 static void maybeUnlockUUID(UUID uuid)

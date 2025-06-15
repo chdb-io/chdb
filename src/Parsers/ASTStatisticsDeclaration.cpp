@@ -57,3 +57,4 @@ void ASTStatisticsDeclaration::formatImpl(const FormatSettings & s, FormatState 
 }
 
 }
+
