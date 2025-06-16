@@ -1,5 +1,3 @@
-import tempfile
-import shutil
 import warnings
 
 import chdb
@@ -51,11 +49,9 @@ class Session:
             )
             g_session.close()
             g_session_path = None
-        if path is None or ":memory:" in path:
-            self._cleanup = True
-            self._path = tempfile.mkdtemp()
+        if path is None:
+            self._path = ":memory:"
         else:
-            self._cleanup = False
             self._path = path
         if chdb.g_udf_path != "":
             self._udf_path = chdb.g_udf_path
@@ -84,8 +80,6 @@ class Session:
         self.close()
 
     def close(self):
-        if self._cleanup:
-            self.cleanup()
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -95,13 +89,7 @@ class Session:
 
     def cleanup(self):
         try:
-            if self._conn is not None:
-                self._conn.close()
-                self._conn = None
-            shutil.rmtree(self._path)
-            global g_session, g_session_path
-            g_session = None
-            g_session_path = None
+            self.close()
         except:  # noqa
             pass
 

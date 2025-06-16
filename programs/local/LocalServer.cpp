@@ -289,6 +289,8 @@ void LocalServer::tryInitPath()
 
         path = default_path.string();
         LOG_DEBUG(log, "Working directory created: {}", path);
+
+        getClientConfiguration().setString("path", path);
     }
 
     global_context->setPath(fs::path(path) / "");
