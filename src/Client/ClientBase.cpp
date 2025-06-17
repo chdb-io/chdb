@@ -2897,7 +2897,10 @@ bool ClientBase::processStreamingQuery(void * streaming_result_, bool is_cancele
         {
             initLogsOutputStream();
             if (need_render_progress && tty_buf)
-                progress_indication.clearProgressOutput(*tty_buf);
+            {
+                std::unique_lock lock(tty_mutex);
+                progress_indication.clearProgressOutput(*tty_buf, lock);
+            }
             logs_out_stream->writeProfileEvents(profile_events.last_block);
             logs_out_stream->flush();
 
