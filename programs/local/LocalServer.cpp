@@ -6,6 +6,7 @@
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Storages/StorageFactory.h>
 #endif
+#include <Formats/FormatFactory.h>
 
 #include <sys/resource.h>
 #include <Common/Config/getLocalConfigPath.h>
@@ -713,7 +714,7 @@ catch (const DB::Exception & e)
 }
 catch (...)
 {
-    error_message_oss << << DB::getCurrentExceptionMessage(true) << '\n'; 
+    error_message_oss << DB::getCurrentExceptionMessage(true) << '\n'; 
     auto code = DB::getCurrentExceptionCode();
     return static_cast<UInt8>(code) ? code : 1;
 }

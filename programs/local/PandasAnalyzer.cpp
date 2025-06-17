@@ -30,7 +30,7 @@ PandasAnalyzer::PandasAnalyzer(const DB::Settings & settings)
 {
 	analyzed_type = {};
 
-	sample_size = settings[DB::Settings::pandas_analyze_sample];
+	sample_size = settings[DB::Setting::pandas_analyze_sample];
 }
 
 bool PandasAnalyzer::Analyze(py::object column) {
