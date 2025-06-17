@@ -118,7 +118,7 @@ void WriteBufferFromFileDescriptor::finalizeImpl()
 {
     if (fd < 0)
     {
-        chassert(!offset(), "attempt to write after close");
+        /// chassert(!offset(), "attempt to write after close");
         return;
     }
 

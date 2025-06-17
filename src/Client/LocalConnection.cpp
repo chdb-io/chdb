@@ -50,6 +50,7 @@ namespace ErrorCodes
 
 LocalConnection::LocalConnection(ContextPtr context_, ReadBuffer * in_, bool send_progress_, bool send_profile_events_, const String & server_display_name_)
     : WithContext(context_)
+    , session(std::make_unique<Session>(getContext(), ClientInfo::Interface::LOCAL))
     , send_progress(send_progress_)
     , send_profile_events(send_profile_events_)
     , server_display_name(server_display_name_)
