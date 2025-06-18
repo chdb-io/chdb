@@ -763,23 +763,23 @@ try
         /// See comment above `output_format->flush();`
         /// output_format->setAutoFlush();
 
-        if ((!select_into_file || select_into_file_and_stdout)
-            && stdout_is_a_tty
-            && stdin_is_a_tty
-            && !FormatFactory::instance().checkIfOutputFormatIsTTYFriendly(current_format))
-        {
-            stopKeystrokeInterceptorIfExists();
-            SCOPE_EXIT({ startKeystrokeInterceptorIfExists(); });
+        /// if ((!select_into_file || select_into_file_and_stdout)
+        ///    && stdout_is_a_tty
+        ///   && stdin_is_a_tty
+        ///    && !FormatFactory::instance().checkIfOutputFormatIsTTYFriendly(current_format))
+        /// {
+        ///    stopKeystrokeInterceptorIfExists();
+        ///    SCOPE_EXIT({ startKeystrokeInterceptorIfExists(); });
 
-            const auto question = fmt::format(R"(The requested output format `{}` is binary and could produce side-effects when output directly into the terminal.
-If you want to output it into a file, use the "INTO OUTFILE" modifier in the query or redirect the output of the shell command.
-Do you want to output it anyway? [y/N] )", current_format);
+        ///    const auto question = fmt::format(R"(The requested output format `{}` is binary and could produce side-effects when output directly into the terminal.
+        /// If you want to output it into a file, use the "INTO OUTFILE" modifier in the query or redirect the output of the shell command.
+        /// Do you want to output it anyway? [y/N] )", current_format);
 
-            if (!ask(question, *std_in, *std_out))
-                output_format = std::make_shared<NullOutputFormat>(block);
+        ///    if (!ask(question, *std_in, *std_out))
+        ///        output_format = std::make_shared<NullOutputFormat>(block);
 
-            *std_out << '\n';
-        }
+        ///    *std_out << '\n';
+        /// }
     }
 }
 catch (...)
