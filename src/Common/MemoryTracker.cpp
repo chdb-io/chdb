@@ -421,12 +421,12 @@ AllocationTrace MemoryTracker::allocImpl(Int64 size, bool throw_if_memory_exceed
     return AllocationTrace(_sample_probability);
 }
 
-void MemoryTracker::adjustWithUntrackedMemory(Int64 untracked_memory)
+void MemoryTracker::adjustWithUntrackedMemory(Int64)
 {
-    if (untracked_memory > 0)
-        std::ignore = allocImpl(untracked_memory, /*throw_if_memory_exceeded*/ false);
-    else
-        std::ignore = free(-untracked_memory);
+    // if (untracked_memory > 0)
+    //     std::ignore = allocImpl(untracked_memory, /*throw_if_memory_exceeded*/ false);
+    // else
+    //     std::ignore = free(-untracked_memory);
 }
 
 bool MemoryTracker::updatePeak(Int64 will_be, bool log_memory_usage)
