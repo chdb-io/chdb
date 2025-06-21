@@ -1,5 +1,6 @@
 #include <Common/MemoryTracker.h>
 #include <Common/CurrentThread.h>
+#include <Common/MemoryTrackerBlockerInThread.h>
 
 #include <Common/CurrentMemoryTracker.h>
 
@@ -49,7 +50,25 @@ AllocationTrace CurrentMemoryTracker::allocImpl(Int64 size, bool throw_if_memory
 
     if (auto * memory_tracker = getMemoryTracker())
     {
-        if (current_thread)
+        /// Ignore untracked_memory if:
+        ///  * total_memory_tracker only, or
+        ///  * MemoryTrackerBlockerInThread is active.
+        ///    memory_tracker->allocImpl needs to be called for these bytes with the same blocker
+        ///    state as we currently have.
+        ///    E.g. suppose allocImpl is called twice: first for 2 MB with blocker set to
+        ///    VariableContext::User, then for 3 MB with no blocker. This should increase the
+        ///    Global memory tracker by 5 MB and the User memory tracker by 3 MB. So we can't group
+        ///    these two calls into one memory_tracker->allocImpl call. Without this `if`, the first
+        ///    allocImpl call would increment untracked_memory, and the second call would
+        ///    incorrectly report all 5 MB with no blocker, so the User memory tracker would be
+        ///    incorrectly increased by 5 MB instead of 3 MB.
+        ///    (Alternatively, we could maintain `untracked_memory` value separately for each
+        ///     possible blocker state, i.e. per VariableContext.)
+        if (!current_thread || MemoryTrackerBlockerInThread::isBlockedAny())
+        {
+            return memory_tracker->allocImpl(size, throw_if_memory_exceeded);
+        }
+        else
         {
             Int64 will_be = current_thread->untracked_memory + size;
 
@@ -59,17 +78,10 @@ AllocationTrace CurrentMemoryTracker::allocImpl(Int64 size, bool throw_if_memory
                 current_thread->untracked_memory = 0;
                 return res;
             }
-            else
-            {
-                /// Update after successful allocations,
-                /// since failed allocations should not be take into account.
-                current_thread->untracked_memory = will_be;
-            }
-        }
-        /// total_memory_tracker only, ignore untracked_memory
-        else
-        {
-            return memory_tracker->allocImpl(size, throw_if_memory_exceeded);
+
+            /// Update after successful allocations,
+            /// since failed allocations should not be take into account.
+            current_thread->untracked_memory = will_be;
         }
 
         return AllocationTrace(memory_tracker->getSampleProbability(size));
@@ -80,51 +92,53 @@ AllocationTrace CurrentMemoryTracker::allocImpl(Int64 size, bool throw_if_memory
 
 void CurrentMemoryTracker::check()
 {
-    if (auto * memory_tracker = getMemoryTracker())
-        std::ignore = memory_tracker->allocImpl(0, true);
+    // if (auto * memory_tracker = getMemoryTracker())
+    //     std::ignore = memory_tracker->allocImpl(0, true);
 }
 
-AllocationTrace CurrentMemoryTracker::alloc(Int64 size)
+AllocationTrace CurrentMemoryTracker::alloc(Int64)
 {
-    bool throw_if_memory_exceeded = true;
-    return allocImpl(size, throw_if_memory_exceeded);
+    // bool throw_if_memory_exceeded = true;
+    // return allocImpl(size, throw_if_memory_exceeded);
+    return {};
 }
 
-AllocationTrace CurrentMemoryTracker::allocNoThrow(Int64 size)
+AllocationTrace CurrentMemoryTracker::allocNoThrow(Int64)
 {
-    bool throw_if_memory_exceeded = false;
-    return allocImpl(size, throw_if_memory_exceeded);
+    // bool throw_if_memory_exceeded = false;
+    // return allocImpl(size, throw_if_memory_exceeded);
+    return {};
 }
 
-AllocationTrace CurrentMemoryTracker::free(Int64 size)
+AllocationTrace CurrentMemoryTracker::free(Int64)
 {
-    if (auto * memory_tracker = getMemoryTracker())
-    {
-        if (current_thread)
-        {
-            current_thread->untracked_memory -= size;
-            if (current_thread->untracked_memory < -current_thread->untracked_memory_limit)
-            {
-                Int64 untracked_memory = current_thread->untracked_memory;
-                current_thread->untracked_memory = 0;
-                return memory_tracker->free(-untracked_memory);
-            }
-        }
-        /// total_memory_tracker only, ignore untracked_memory
-        else
-        {
-            return memory_tracker->free(size);
-        }
+    // if (auto * memory_tracker = getMemoryTracker())
+    // {
+    //     if (!current_thread || MemoryTrackerBlockerInThread::isBlockedAny())
+    //     {
+    //         return memory_tracker->free(size);
+    //     }
+    //     else
+    //     {
+    //         current_thread->untracked_memory -= size;
+    //         if (current_thread->untracked_memory < -current_thread->untracked_memory_limit)
+    //         {
+    //             Int64 untracked_memory = current_thread->untracked_memory;
+    //             current_thread->untracked_memory = 0;
+    //             return memory_tracker->free(-untracked_memory);
+    //         }
+    //     }
 
-        return AllocationTrace(memory_tracker->getSampleProbability(size));
-    }
+    //     return AllocationTrace(memory_tracker->getSampleProbability(size));
+    // }
 
-    return AllocationTrace(0);
+    // return AllocationTrace(0);
+    return {};
 }
 
 void CurrentMemoryTracker::injectFault()
 {
-    if (auto * memory_tracker = getMemoryTracker())
-        memory_tracker->injectFault();
+    // if (auto * memory_tracker = getMemoryTracker())
+    //     memory_tracker->injectFault();
 }
 

@@ -2,6 +2,8 @@
 
 #include "config.h"
 
+#include <QueryPipeline/Pipe.h>
+
 #include <memory>
 #include <string>
 #include <vector>

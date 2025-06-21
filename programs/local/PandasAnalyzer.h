@@ -10,11 +10,7 @@ namespace CHDB {
 
 class PandasAnalyzer {
 public:
-	explicit PandasAnalyzer(const DB::Settings & settings) {
-		analyzed_type = {};
-
-		sample_size = settings.pandas_analyze_sample;
-	}
+	explicit PandasAnalyzer(const DB::Settings & settings);
 
 public:
 	DB::DataTypePtr getItemType(py::object obj, bool & can_convert);

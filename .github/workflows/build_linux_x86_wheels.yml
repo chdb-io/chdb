@@ -45,9 +45,9 @@ jobs:
           uname -a
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
-          sudo ./llvm.sh 18
-          which clang++-18
-          clang++-18 --version
+          sudo ./llvm.sh 19
+          which clang++-19
+          clang++-19 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
           ccache -s
       - name: Update git
@@ -68,13 +68,13 @@ jobs:
           key: ${{ matrix.os }}
           max-size: 5G
           append-timestamp: true
-      - name: remove old clang and link clang-18 to clang
+      - name: remove old clang and link clang-19 to clang
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo rm -f /usr/bin/clang || true
-          sudo ln -s /usr/bin/clang-18 /usr/bin/clang
+          sudo ln -s /usr/bin/clang-19 /usr/bin/clang
           sudo rm -f /usr/bin/clang++ || true
-          sudo ln -s /usr/bin/clang++-18 /usr/bin/clang++
+          sudo ln -s /usr/bin/clang++-19 /usr/bin/clang++
           which clang++
           clang++ --version
       - name: Run chdb/build.sh

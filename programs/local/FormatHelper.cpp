@@ -1,5 +1,8 @@
 #include "FormatHelper.h"
 
+#include <algorithm>
+#include <cctype>
+
 namespace CHDB {
 
 static bool is_json_supported = true;

@@ -62,3 +62,4 @@ GTEST_TEST(FieldBinaryEncoding, EncodeAndDecode)
         Tuple({Field(UInt64(43)), Map({Tuple{Field(UInt64(43)), Field(String("str_43"))}, Tuple{Field(UInt64(44)), Field(String("str_44"))}}), Field(UUID(43)), Field(String("Hello, World 2!"))})
     }));
 }
+

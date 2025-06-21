@@ -336,6 +336,7 @@ class TestQueryJSON(unittest.TestCase):
             'decimals': complex_dict['decimal_col']
         })
 
+        self.sess.query("SET allow_suspicious_types_in_order_by = 1")
         ret = self.sess.query("""
             SELECT decimals.decimal_val
             FROM Python(df)
@@ -348,6 +349,7 @@ class TestQueryJSON(unittest.TestCase):
             'string_values': complex_dict['string_col']
         })
 
+        self.sess.query("SET allow_suspicious_types_in_order_by = 1")
         ret = self.sess.query("""
             SELECT string_values.str
             FROM Python(df)

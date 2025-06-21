@@ -374,6 +374,9 @@ void registerStoragePython(StorageFactory & factory)
             py::object reader = std::any_cast<py::object>(args.engine_args[0]);
             return std::make_shared<StoragePython>(args.table_id, args.columns, args.constraints, reader, args.getLocalContext());
         },
-        {.supports_settings = true, .supports_parallel_insert = false});
+        {
+            .supports_settings = false,
+            .supports_parallel_insert = false,
+        });
 }
 }

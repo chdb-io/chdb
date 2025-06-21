@@ -41,7 +41,7 @@ std::unique_ptr<IUserDefinedSQLObjectsStorage> createUserDefinedSQLObjectsStorag
         global_context->setPath(fs::path{config.getString("path")} / "");
     }
     
-    String default_path = fs::path{global_context->getPath()} / "user_defined/";
+    String default_path = fs::path{global_context->getPath()} / "user_defined" / "";
     String path = config.getString(disk_path_key, default_path);
     return std::make_unique<UserDefinedSQLObjectsDiskStorage>(global_context, path);
 }

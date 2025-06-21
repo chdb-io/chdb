@@ -4,12 +4,12 @@
 
 #if USE_AWS_S3
 
+#include <aws/core/Aws.h>
 #include <aws/core/client/CoreErrors.h>
 #include <aws/s3/model/HeadBucketRequest.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
-#include <aws/core/client/AWSErrorMarshaller.h>
 #include <aws/core/endpoint/EndpointParameter.h>
 #include <aws/core/utils/HashingUtils.h>
 #include <aws/core/utils/logging/ErrorMacros.h>
@@ -51,6 +51,10 @@ namespace CurrentMetrics
 
 namespace DB
 {
+namespace Setting
+{
+    extern const SettingsBool s3_use_adaptive_timeouts;
+}
 
 namespace ErrorCodes
 {
@@ -79,10 +83,22 @@ bool Client::RetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client:
         return false;
 
     if (CurrentThread::isInitialized() && CurrentThread::get().isQueryCanceled())
-            return false;
+        return false;
+
+    /// It does not make sense to retry when GCS suggest to use Rewrite
+    if (useGCSRewrite(error))
+        return false;
 
     return error.ShouldRetry();
 }
+
+bool Client::RetryStrategy::useGCSRewrite(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error)
+{
+    return error.GetResponseCode() == Aws::Http::HttpResponseCode::GATEWAY_TIMEOUT
+        && error.GetExceptionName() == "InternalError"
+        && error.GetMessage().contains("use the Rewrite method in the JSON API");
+}
+
 
 /// NOLINTNEXTLINE(google-runtime-int)
 long Client::RetryStrategy::CalculateDelayBeforeNextRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>&, long attemptedRetries) const
@@ -152,10 +168,10 @@ namespace
 
 ProviderType deduceProviderType(const std::string & url)
 {
-    if (url.find(".amazonaws.com") != std::string::npos)
+    if (url.contains(".amazonaws.com"))
         return ProviderType::AWS;
 
-    if (url.find("storage.googleapis.com") != std::string::npos)
+    if (url.contains("storage.googleapis.com"))
         return ProviderType::GCS;
 
     return ProviderType::UNKNOWN;
@@ -638,10 +654,13 @@ Client::doRequestWithRetryNetworkErrors(RequestType & request, RequestFn request
         std::exception_ptr last_exception = nullptr;
         for (Int64 attempt_no = 0; attempt_no < max_attempts; ++attempt_no)
         {
+            /// Sometimes we need to slow down because other requests failed with network errors to free the S3 server a bit.
+            slowDownAfterNetworkError();
+
             try
             {
                 /// S3 does retries network errors actually.
-                /// But it is matter when errors occur.
+                /// But it does matter when errors occur.
                 /// This code retries a specific case when
                 /// network error happens when XML document is being read from the response body.
                 /// Hence, the response body is a stream, network errors are possible at reading.
@@ -652,8 +671,9 @@ Client::doRequestWithRetryNetworkErrors(RequestType & request, RequestFn request
                 /// Requests that expose the response stream as an answer are not retried with that code. E.g. GetObject.
                 return request_fn_(request_);
             }
-            catch (Poco::Net::ConnectionResetException &)
+            catch (Poco::Net::NetException &)
             {
+                /// This includes "connection reset", "malformed message", and possibly other exceptions.
 
                 if constexpr (IsReadMethod)
                 {
@@ -679,10 +699,7 @@ Client::doRequestWithRetryNetworkErrors(RequestType & request, RequestFn request
                 if (!client_configuration.retryStrategy->ShouldRetry(error, attempt_no))
                     break;
 
-                auto sleep_ms = client_configuration.retryStrategy->CalculateDelayBeforeNextRetry(error, attempt_no);
-                LOG_WARNING(log, "Request failed, now waiting {} ms before attempting again", sleep_ms);
-                sleepForMilliseconds(sleep_ms);
-
+                sleepAfterNetworkError(error, attempt_no);
                 continue;
             }
         }
@@ -712,6 +729,44 @@ RequestResult Client::processRequestResult(RequestResult && outcome) const
     error.SetMessage(enriched_message);
 
     return RequestResult(error);
+}
+
+void Client::sleepAfterNetworkError(Aws::Client::AWSError<Aws::Client::CoreErrors> error, Int64 attempt_no) const
+{
+    auto sleep_ms = client_configuration.retryStrategy->CalculateDelayBeforeNextRetry(error, attempt_no);
+    if (!client_configuration.s3_slow_all_threads_after_network_error)
+    {
+        LOG_WARNING(log, "Request failed, now waiting {} ms before attempting again", sleep_ms);
+        sleepForMilliseconds(sleep_ms);
+        return;
+    }
+
+    /// Set the time other s3 requests must wait until.
+    UInt64 current_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    UInt64 next_time_ms = current_time_ms + sleep_ms;
+    /// next_time_to_retry_after_network_error = std::max(next_time_to_retry_after_network_error, next_time_ms)
+    for (UInt64 stored_next_time = next_time_to_retry_after_network_error;
+         (stored_next_time < next_time_ms) && !next_time_to_retry_after_network_error.compare_exchange_weak(stored_next_time, next_time_ms);)
+    {
+    }
+}
+
+void Client::slowDownAfterNetworkError() const
+{
+    if (!client_configuration.s3_slow_all_threads_after_network_error)
+        return;
+
+    /// Wait until `next_time_to_retry_after_network_error`.
+    for (;;)
+    {
+        UInt64 current_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        UInt64 next_time_ms = next_time_to_retry_after_network_error.load();
+        if (current_time_ms >= next_time_ms)
+            break;
+        UInt64 sleep_ms = next_time_ms - current_time_ms;
+        LOG_WARNING(log, "Some request failed, now waiting {} ms before executing a request", sleep_ms);
+        sleepForMilliseconds(sleep_ms);
+    }
 }
 
 bool Client::supportsMultiPartCopy() const
@@ -897,9 +952,22 @@ void ClientCacheRegistry::clearCacheForAll()
 ClientFactory::ClientFactory()
 {
     aws_options = Aws::SDKOptions{};
+
+    aws_options.cryptoOptions = Aws::CryptoOptions{};
+    aws_options.cryptoOptions.initAndCleanupOpenSSL = false;
+
+    aws_options.httpOptions = Aws::HttpOptions{};
+    aws_options.httpOptions.initAndCleanupCurl = false;
+    aws_options.httpOptions.httpClientFactory_create_fn = []() { return std::make_shared<PocoHTTPClientFactory>(); };
+
+    aws_options.loggingOptions = Aws::LoggingOptions{};
+    aws_options.loggingOptions.logger_create_fn = []() { return std::make_shared<AWSLogger>(false); };
+
+    aws_options.ioOptions = Aws::IoOptions{};
+    /// We don't need to initialize TLS, because we use PocoHTTPClientFactory
+    aws_options.ioOptions.tlsConnectionOptions_create_fn = []() { return nullptr; };
+
     Aws::InitAPI(aws_options);
-    Aws::Utils::Logging::InitializeAWSLogging(std::make_shared<AWSLogger>(false));
-    Aws::Http::SetHttpClientFactory(std::make_shared<PocoHTTPClientFactory>());
 }
 
 ClientFactory::~ClientFactory()
@@ -974,6 +1042,7 @@ PocoHTTPClientConfiguration ClientFactory::createClientConfiguration( // NOLINT
     const RemoteHostFilter & remote_host_filter,
     unsigned int s3_max_redirects,
     unsigned int s3_retry_attempts,
+    bool s3_slow_all_threads_after_network_error,
     bool enable_s3_requests_logging,
     bool for_disk_s3,
     const ThrottlerPtr & get_request_throttler,
@@ -982,10 +1051,10 @@ PocoHTTPClientConfiguration ClientFactory::createClientConfiguration( // NOLINT
 {
     auto context = Context::getGlobalContextInstance();
     chassert(context);
-    auto proxy_configuration_resolver = DB::ProxyConfigurationResolverProvider::get(DB::ProxyConfiguration::protocolFromString(protocol), context->getConfigRef());
+    auto proxy_configuration_resolver = ProxyConfigurationResolverProvider::get(ProxyConfiguration::protocolFromString(protocol), context->getConfigRef());
 
-    auto per_request_configuration = [=] () { return proxy_configuration_resolver->resolve(); };
-    auto error_report = [=] (const DB::ProxyConfiguration & req) { proxy_configuration_resolver->errorReport(req); };
+    auto per_request_configuration = [=]{ return proxy_configuration_resolver->resolve(); };
+    auto error_report = [=](const ProxyConfiguration & req) { proxy_configuration_resolver->errorReport(req); };
 
     auto config = PocoHTTPClientConfiguration(
         per_request_configuration,
@@ -993,9 +1062,10 @@ PocoHTTPClientConfiguration ClientFactory::createClientConfiguration( // NOLINT
         remote_host_filter,
         s3_max_redirects,
         s3_retry_attempts,
+        s3_slow_all_threads_after_network_error,
         enable_s3_requests_logging,
         for_disk_s3,
-        context->getGlobalContext()->getSettingsRef().s3_use_adaptive_timeouts,
+        context->getGlobalContext()->getSettingsRef()[Setting::s3_use_adaptive_timeouts],
         get_request_throttler,
         put_request_throttler,
         error_report);

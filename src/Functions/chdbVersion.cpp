@@ -4,6 +4,7 @@
 #include <Functions/FunctionFactory.h>
 #include <Functions/FunctionConstantBase.h>
 #include <Common/FunctionDocumentation.h>
+#include <Core/Field.h>
 
 namespace DB
 {
@@ -28,7 +29,7 @@ REGISTER_FUNCTION(ChdbVersion)
 Returns the version of chDB.  The result type is String.
 )",
           .examples{{"chdb", "SELECT chdb();", ""}},
-          .categories{"String"}
+          .category = FunctionDocumentation::Category::String 
         },
         FunctionFactory::Case::Insensitive);
 }

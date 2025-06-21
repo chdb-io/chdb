@@ -25,6 +25,7 @@ function(absl_cc_library)
     "HDRS;SRCS;COPTS;DEFINES;LINKOPTS;DEPS"
     ${ARGN}
   )
+
   set(_NAME "absl_${ABSL_CC_LIB_NAME}")
 
   # Check if this is a header-only library
@@ -1563,7 +1564,6 @@ absl_cc_library(
     absl::log_internal_conditions
     absl::log_internal_message
     absl::log_internal_strip
-    absl::absl_vlog_is_on
 )
 
 absl_cc_library(
@@ -1888,7 +1888,6 @@ absl_cc_library(
     ${ABSL_DEFAULT_LINKOPTS}
   DEPS
     absl::log_internal_log_impl
-    absl::vlog_is_on
   PUBLIC
 )
 
@@ -2746,29 +2745,6 @@ absl_cc_library(
 # Internal-only target, do not depend on directly.
 absl_cc_library(
   NAME
-    random_internal_distribution_test_util
-  SRCS
-    "${DIR}/internal/chi_square.cc"
-    "${DIR}/internal/distribution_test_util.cc"
-  HDRS
-    "${DIR}/internal/chi_square.h"
-    "${DIR}/internal/distribution_test_util.h"
-  COPTS
-    ${ABSL_DEFAULT_COPTS}
-  LINKOPTS
-    ${ABSL_DEFAULT_LINKOPTS}
-  DEPS
-    absl::config
-    absl::core_headers
-    absl::raw_logging_internal
-    absl::strings
-    absl::str_format
-    absl::span
-)
-
-# Internal-only target, do not depend on directly.
-absl_cc_library(
-  NAME
     random_internal_randen_hwaes
   SRCS
     "${DIR}/internal/randen_detect.cc"
@@ -2801,6 +2777,29 @@ absl_cc_library(
   DEPS
     absl::random_internal_platform
     absl::config
+)
+
+# Internal-only target, do not depend on directly.
+absl_cc_library(
+  NAME
+    random_internal_distribution_test_util
+  SRCS
+    "${DIR}/internal/chi_square.cc"
+    "${DIR}/internal/distribution_test_util.cc"
+  HDRS
+    "${DIR}/internal/chi_square.h"
+    "${DIR}/internal/distribution_test_util.h"
+  COPTS
+    ${ABSL_DEFAULT_COPTS}
+  LINKOPTS
+    ${ABSL_DEFAULT_LINKOPTS}
+  DEPS
+    absl::config
+    absl::core_headers
+    absl::raw_logging_internal
+    absl::strings
+    absl::str_format
+    absl::span
 )
 
 # Internal-only target, do not depend on directly.

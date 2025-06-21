@@ -560,7 +560,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                         {
                             try
                             {
-                                server->cleanup();
+                                server->chdbCleanup();
                                 delete server;
                             }
                             catch (...)
