@@ -1,7 +1,10 @@
 #include "PythonSource.h"
+#include "ColumnVectorHelper.h"
 #include "ListScan.h"
 #include "PandasScan.h"
 #include "StoragePython.h"
+
+#include <Columns/ColumnVector.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -11,7 +14,6 @@
 #include <vector>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
-#include <Columns/ColumnVectorHelper.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDecimalBase.h>
 #include <DataTypes/DataTypeString.h>
@@ -43,8 +45,9 @@ namespace py = pybind11;
 
 namespace ErrorCodes
 {
-extern const int PY_OBJECT_NOT_FOUND;
-extern const int PY_EXCEPTION_OCCURED;
+    extern const int BAD_TYPE_OF_FIELD;
+    extern const int PY_OBJECT_NOT_FOUND;
+    extern const int PY_EXCEPTION_OCCURED;
 }
 
 PythonSource::PythonSource(

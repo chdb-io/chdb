@@ -37,11 +37,11 @@ public:
         _socket(socket)
     {
     }
-
+    
     ~TCPConnectionNotification()
     {
     }
-
+    
     const StreamSocket& socket() const
     {
         return _socket;
@@ -68,7 +68,7 @@ TCPServerDispatcher::TCPServerDispatcher(TCPServerConnectionFactory::Ptr pFactor
 
     if (!_pParams)
         _pParams = new TCPServerParams;
-
+    
     if (_pParams->getMaxThreads() == 0)
         _pParams->setMaxThreads(threadPool.capacity());
 }
@@ -138,7 +138,7 @@ namespace
     static const std::string threadName("TCPServerConnection");
 }
 
-
+    
 void TCPServerDispatcher::enqueue(const StreamSocket& socket)
 {
     FastMutex::ScopedLock lock(_mutex);
@@ -210,7 +210,7 @@ int TCPServerDispatcher::currentThreads() const
 int TCPServerDispatcher::maxThreads() const
 {
     FastMutex::ScopedLock lock(_mutex);
-
+    
     return _threadPool.capacity();
 }
 

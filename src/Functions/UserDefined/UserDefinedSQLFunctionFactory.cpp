@@ -19,6 +19,10 @@
 
 namespace DB
 {
+namespace Setting
+{
+    extern const SettingsSetOperationMode union_default_mode;
+}
 
 namespace ErrorCodes
 {
@@ -89,7 +93,7 @@ namespace
         res.if_not_exists = false;
         res.or_replace = false;
         FunctionNameNormalizer::visit(res.function_core.get());
-        NormalizeSelectWithUnionQueryVisitor::Data data{context->getSettingsRef().union_default_mode};
+        NormalizeSelectWithUnionQueryVisitor::Data data{context->getSettingsRef()[Setting::union_default_mode]};
         NormalizeSelectWithUnionQueryVisitor{data}.visit(res.function_core);
         return ptr;
     }
@@ -180,27 +184,27 @@ bool UserDefinedSQLFunctionFactory::unregisterFunction(const ContextMutablePtr &
 
 ASTPtr UserDefinedSQLFunctionFactory::get(const String & function_name) const
 {
-    return global_context->getUserDefinedSQLObjectsStorage().get(function_name);
+    return Context::getGlobalContextInstance()->getUserDefinedSQLObjectsStorage().get(function_name);
 }
 
 ASTPtr UserDefinedSQLFunctionFactory::tryGet(const std::string & function_name) const
 {
-    return global_context->getUserDefinedSQLObjectsStorage().tryGet(function_name);
+    return Context::getGlobalContextInstance()->getUserDefinedSQLObjectsStorage().tryGet(function_name);
 }
 
 bool UserDefinedSQLFunctionFactory::has(const String & function_name) const
 {
-    return global_context->getUserDefinedSQLObjectsStorage().has(function_name);
+    return Context::getGlobalContextInstance()->getUserDefinedSQLObjectsStorage().has(function_name);
 }
 
 std::vector<std::string> UserDefinedSQLFunctionFactory::getAllRegisteredNames() const
 {
-    return global_context->getUserDefinedSQLObjectsStorage().getAllObjectNames();
+    return Context::getGlobalContextInstance()->getUserDefinedSQLObjectsStorage().getAllObjectNames();
 }
 
 bool UserDefinedSQLFunctionFactory::empty() const
 {
-    return global_context->getUserDefinedSQLObjectsStorage().empty();
+    return Context::getGlobalContextInstance()->getUserDefinedSQLObjectsStorage().empty();
 }
 
 void UserDefinedSQLFunctionFactory::backup(BackupEntriesCollector & backup_entries_collector, const String & data_path_in_backup) const
@@ -209,7 +213,7 @@ void UserDefinedSQLFunctionFactory::backup(BackupEntriesCollector & backup_entri
         backup_entries_collector,
         data_path_in_backup,
         UserDefinedSQLObjectType::Function,
-        global_context->getUserDefinedSQLObjectsStorage().getAllObjects());
+        Context::getGlobalContextInstance()->getUserDefinedSQLObjectsStorage().getAllObjects());
 }
 
 void UserDefinedSQLFunctionFactory::restore(RestorerFromBackup & restorer, const String & data_path_in_backup)
