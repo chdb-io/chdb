@@ -6,6 +6,8 @@
 #include "PythonUtils.h"
 #include "TableFunctionPython.h"
 
+#include <Parsers/ASTLiteral.h>
+
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>

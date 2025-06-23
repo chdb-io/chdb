@@ -1,6 +1,7 @@
 #pragma once
 
-#include "chdb-internal.h"
+#include <memory> 
+#include <vector>
 
 #include <base/types.h>
 #include <utility>

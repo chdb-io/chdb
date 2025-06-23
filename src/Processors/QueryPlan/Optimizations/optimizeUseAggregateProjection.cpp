@@ -16,6 +16,7 @@
 #include <Analyzer/QueryTreePassManager.h>
 #include <Analyzer/QueryNode.h>
 
+#include <Columns/ColumnAggregateFunction.h>
 #include <Common/logger_useful.h>
 #include <Core/Settings.h>
 #include <Storages/StorageDummy.h>
@@ -25,7 +26,14 @@
 #include <Interpreters/InterpreterSelectQueryAnalyzer.h>
 #include <Storages/MergeTree/MergeTreeDataSelectExecutor.h>
 #include <Storages/ProjectionsDescription.h>
-#include <Parsers/queryToString.h>
+
+namespace DB
+{
+namespace Setting
+{
+    extern const SettingsString preferred_optimize_projection_name;
+}
+}
 
 namespace DB::QueryPlanOptimizations
 {
@@ -70,7 +78,7 @@ static AggregateProjectionInfo getAggregatingProjectionInfo(
     InterpreterSelectQuery interpreter(
         projection.query_ast,
         context,
-        Pipe(std::make_shared<SourceFromSingleChunk>(metadata_snapshot->getSampleBlock())),
+        Pipe(std::make_shared<SourceFromSingleChunk>(metadata_snapshot->getSampleBlockWithSubcolumns())),
         SelectQueryOptions{QueryProcessingStage::WithMergeableState}.ignoreASTOptimizations().ignoreSettingConstraints());
 
     const auto & analysis_result = interpreter.getAnalysisResult();
@@ -162,7 +170,8 @@ std::optional<AggregateFunctionMatches> matchAggregateFunctions(
             /// This is a special case for the function count().
             /// We can assume that 'count(expr) == count()' if expr is not nullable,
             /// which can be verified by simply casting to `AggregateFunctionCount *`.
-            if (typeid_cast<const AggregateFunctionCount *>(aggregate.function.get()))
+            if (typeid_cast<const AggregateFunctionCount *>(aggregate.function.get())
+                && typeid_cast<const AggregateFunctionCount *>(candidate.function.get()))
             {
                 /// we can ignore arguments for count()
                 found_match = true;
@@ -326,67 +335,11 @@ std::optional<ActionsDAG> analyzeAggregateProjection(
 
     /// Here we want to match query keys with projection keys.
     /// Query key can be any expression depending on projection keys.
+    auto new_inputs = resolveMatchedInputs(matches, proj_key_nodes, query_key_nodes);
+    if (!new_inputs)
+        return {};
 
-    struct Frame
-    {
-        const ActionsDAG::Node * node;
-        size_t next_child_to_visit = 0;
-    };
-
-    std::stack<Frame> stack;
-    std::unordered_set<const ActionsDAG::Node *> visited;
-    std::unordered_map<const ActionsDAG::Node *, const ActionsDAG::Node *> new_inputs;
-
-    for (const auto * key_node : query_key_nodes)
-    {
-        if (visited.contains(key_node))
-            continue;
-
-        stack.push({.node = key_node});
-
-        while (!stack.empty())
-        {
-            auto & frame = stack.top();
-
-            if (frame.next_child_to_visit == 0)
-            {
-                auto jt = matches.find(frame.node);
-                if (jt != matches.end())
-                {
-                    auto & match = jt->second;
-                    if (match.node && !match.monotonicity && proj_key_nodes.contains(match.node))
-                    {
-                        visited.insert(frame.node);
-                        new_inputs[frame.node] = match.node;
-                        stack.pop();
-                        continue;
-                    }
-                }
-            }
-
-            if (frame.next_child_to_visit < frame.node->children.size())
-            {
-                stack.push({.node = frame.node->children[frame.next_child_to_visit]});
-                ++frame.next_child_to_visit;
-                continue;
-            }
-
-            /// Not a match and there is no matched child.
-            if (frame.node->type == ActionsDAG::ActionType::INPUT)
-            {
-                // LOG_TRACE(getLogger("optimizeUseProjections"), "Cannot find match for {}", frame.node->result_name);
-                return {};
-            }
-
-            /// Not a match, but all children matched.
-            visited.insert(frame.node);
-            stack.pop();
-        }
-    }
-
-    // LOG_TRACE(getLogger("optimizeUseProjections"), "Folding actions by projection");
-
-    auto proj_dag = query.dag->foldActionsByProjection(new_inputs, query_key_nodes);
+    auto proj_dag = ActionsDAG::foldActionsByProjection(*new_inputs, query_key_nodes);
     appendAggregateFunctions(proj_dag, aggregates, *matched_aggregates);
     return proj_dag;
 }
@@ -424,7 +377,7 @@ AggregateProjectionCandidates getAggregateProjectionCandidates(
     QueryPlan::Node & node,
     AggregatingStep & aggregating,
     ReadFromMergeTree & reading,
-    const std::shared_ptr<PartitionIdToMaxBlock> & max_added_blocks,
+    const PartitionIdToMaxBlockPtr & max_added_blocks,
     bool allow_implicit_projections)
 {
     const auto & keys = aggregating.getParams().keys;
@@ -513,7 +466,7 @@ AggregateProjectionCandidates getAggregateProjectionCandidates(
             agg_projections.begin(),
             agg_projections.end(),
             [&](const auto * projection)
-            { return projection->name == context->getSettingsRef().preferred_optimize_projection_name.value; });
+            { return projection->name == context->getSettingsRef()[Setting::preferred_optimize_projection_name].value; });
 
         if (it != agg_projections.end())
         {
@@ -544,7 +497,7 @@ AggregateProjectionCandidates getAggregateProjectionCandidates(
 static QueryPlan::Node * findReadingStep(QueryPlan::Node & node)
 {
     IQueryPlanStep * step = node.step.get();
-    if (auto * reading = typeid_cast<ReadFromMergeTree *>(step))
+    if (auto * /*reading*/ _ = typeid_cast<ReadFromMergeTree *>(step))
         return &node;
 
     if (node.children.size() != 1)
@@ -579,7 +532,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     if (!canUseProjectionForReadingStep(reading))
         return {};
 
-    std::shared_ptr<PartitionIdToMaxBlock> max_added_blocks = getMaxAddedBlocks(reading);
+    PartitionIdToMaxBlockPtr max_added_blocks = getMaxAddedBlocks(reading);
 
     auto candidates = getAggregateProjectionCandidates(node, *aggregating, *reading, max_added_blocks, allow_implicit_projections);
 
@@ -639,7 +592,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
 
                         range.begin = exact_ranges[i].end;
                         ordinary_reading_marks -= exact_ranges[i].end - exact_ranges[i].begin;
-                        exact_count += part_with_ranges.data_part->index_granularity.getRowsCountInRange(exact_ranges[i]);
+                        exact_count += part_with_ranges.data_part->index_granularity->getRowsCountInRange(exact_ranges[i]);
                         ++i;
                     }
 
@@ -655,6 +608,8 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
             if (parts_with_ranges.empty())
                 chassert(ordinary_reading_marks == 0);
         }
+
+        auto logger = getLogger("optimizeUseAggregateProjections");
 
         /// Selecting best candidate.
         for (auto & candidate : candidates.real)
@@ -676,10 +631,37 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
                 continue;
 
             if (candidate.sum_marks > ordinary_reading_marks)
+            {
+                LOG_DEBUG(
+                    logger,
+                    "Projection {} is usable but it needs to read {} marks, which is no better than reading {} marks from original table",
+                    candidate.projection->name,
+                    candidate.sum_marks,
+                    ordinary_reading_marks);
                 continue;
+            }
 
             if (best_candidate == nullptr || best_candidate->sum_marks > candidate.sum_marks)
+            {
+                LOG_DEBUG(
+                    logger,
+                    "Projection {} is selected as current best candidate with {} marks to read, while original table needs to scan {} "
+                    "marks",
+                    candidate.projection->name,
+                    candidate.sum_marks,
+                    ordinary_reading_marks);
                 best_candidate = &candidate;
+            }
+            else
+            {
+                LOG_DEBUG(
+                    logger,
+                    "Projection {} with {} marks is less efficient than current best candidate {} with {} marks",
+                    candidate.projection->name,
+                    candidate.sum_marks,
+                    best_candidate->projection->name,
+                    best_candidate->sum_marks);
+            }
         }
 
         if (!best_candidate)
@@ -731,7 +713,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
         AggregateDataPtr place = state.data();
         agg_count->create(place);
         SCOPE_EXIT_MEMORY_SAFE(agg_count->destroy(place));
-        agg_count->set(place, exact_count);
+        AggregateFunctionCount::set(place, exact_count);
 
         auto column = ColumnAggregateFunction::create(agg_count);
         column->insertFrom(place);
@@ -744,7 +726,8 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
         Pipe pipe(std::make_shared<SourceFromSingleChunk>(std::move(block_with_count)));
         projection_reading = std::make_unique<ReadFromPreparedSource>(std::move(pipe));
 
-        selected_projection_name = "Optimized trivial count";
+        /// Use @minmax_count_projection name as it goes through the same optimization.
+        selected_projection_name = metadata->minmax_count_projection->name;
         has_ordinary_parts = reading->getAnalyzedResult() != nullptr;
     }
     else
@@ -757,7 +740,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
 
         projection_reading = reader.readFromParts(
             /* parts = */ {},
-            /* alter_conversions = */ {},
+            reading->getMutationsSnapshot()->cloneEmpty(),
             best_candidate->dag.getRequiredColumnsNames(),
             proj_snapshot,
             projection_query_info,
@@ -790,7 +773,7 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     }
 
     // LOG_TRACE(getLogger("optimizeUseProjections"), "Projection reading header {}",
-    //           projection_reading->getOutputStream().header.dumpStructure());
+    //           projection_reading->getOutputHeader().header.dumpStructure());
 
     projection_reading->setStepDescription(selected_projection_name);
     auto & projection_reading_node = nodes.emplace_back(QueryPlan::Node{.step = std::move(projection_reading)});
@@ -806,14 +789,14 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
         {
             const auto & result_name = best_candidate->dag.getOutputs().front()->result_name;
             aggregate_projection_node->step = std::make_unique<FilterStep>(
-                projection_reading_node.step->getOutputStream(),
+                projection_reading_node.step->getOutputHeader(),
                 std::move(best_candidate->dag),
                 result_name,
                 true);
         }
         else
             aggregate_projection_node->step
-                = std::make_unique<ExpressionStep>(projection_reading_node.step->getOutputStream(), std::move(best_candidate->dag));
+                = std::make_unique<ExpressionStep>(projection_reading_node.step->getOutputHeader(), std::move(best_candidate->dag));
 
         aggregate_projection_node->children.push_back(&projection_reading_node);
     }
@@ -825,12 +808,12 @@ std::optional<String> optimizeUseAggregateProjections(QueryPlan::Node & node, Qu
     if (!has_ordinary_parts)
     {
         /// All parts are taken from projection
-        aggregating->requestOnlyMergeForAggregateProjection(aggregate_projection_node->step->getOutputStream());
+        aggregating->requestOnlyMergeForAggregateProjection(aggregate_projection_node->step->getOutputHeader());
         node.children.front() = aggregate_projection_node;
     }
     else
     {
-        node.step = aggregating->convertToAggregatingProjection(aggregate_projection_node->step->getOutputStream());
+        node.step = aggregating->convertToAggregatingProjection(aggregate_projection_node->step->getOutputHeader());
         node.children.push_back(aggregate_projection_node);
     }
 
