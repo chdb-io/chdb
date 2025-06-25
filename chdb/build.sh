@@ -31,7 +31,7 @@ if [ "$(uname)" == "Darwin" ]; then
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
     else
-        LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
+        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
         # disable AVX on Darwin for macos11
         if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
             CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
