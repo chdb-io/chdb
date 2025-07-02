@@ -13,6 +13,7 @@ BUILD_DIR=${PROJ_DIR}/buildlib
 
 HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
 MYSQL="-DENABLE_MYSQL=1"
+RUST_FEATURES="-DENABLE_RUST=0"
 # check current os type
 if [ "$(uname)" == "Darwin" ]; then
     export CXX=$(brew --prefix llvm@19)/bin/clang++
@@ -60,6 +61,18 @@ elif [ "$(uname)" == "Linux" ]; then
     if [ "$(uname -m)" == "x86_64" ]; then
         CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
+        RUST_FEATURES="-DENABLE_RUST=1 -DENABLE_DELTA_KERNEL_RS=1"
+        CORROSION_CMAKE_FILE="${PROJ_DIR}/contrib/corrosion-cmake/CMakeLists.txt"
+        if [ -f "${CORROSION_CMAKE_FILE}" ]; then
+            if ! grep -q 'OPENSSL_NO_DEPRECATED_3_0' "${CORROSION_CMAKE_FILE}"; then
+                echo "Modifying corrosion CMakeLists.txt for Linux x86_64..."
+                ${SED_INPLACE} 's/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS}")/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS} --cfg osslconf=\\\"OPENSSL_NO_DEPRECATED_3_0\\\"")/g' "${CORROSION_CMAKE_FILE}"
+            else
+                echo "corrosion CMakeLists.txt already modified, skipping..."
+            fi
+        else
+            echo "Warning: corrosion CMakeLists.txt not found at ${CORROSION_CMAKE_FILE}"
+        fi
     else
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
@@ -84,7 +97,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_LDAP=0 \
     ${MYSQL} \
     ${HDFS} \
-    -DENABLE_LIBRARIES=0 -DENABLE_RUST=0 \
+    -DENABLE_LIBRARIES=0 ${RUST_FEATURES} \
     ${GLIBC_COMPATIBILITY} \
     -DENABLE_UTILS=0 ${LLVM} ${UNWIND} \
     ${ICU} -DENABLE_UTF8PROC=1 ${JEMALLOC} \
