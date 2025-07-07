@@ -247,6 +247,7 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
     {
         if (server->streaming_query_context)
         {
+            total_memory_tracker.resetCounters();
             total_memory_tracker.setHardLimit(server->streaming_query_context->limit);
             server->streaming_query_context.reset();
         }
