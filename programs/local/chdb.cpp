@@ -1,5 +1,6 @@
 #include "chdb.h"
 #include <cstddef>
+#include "Common/MemoryTracker.h"
 #include "chdb-internal.h"
 #include "LocalServer.h"
 #include "QueryResult.h"
@@ -248,6 +249,7 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
         if (server->streaming_query_context)
         {
             total_memory_tracker.resetCounters();
+            MemoryTracker::updateRSS(0);
             total_memory_tracker.setHardLimit(server->streaming_query_context->limit);
             server->streaming_query_context.reset();
         }
