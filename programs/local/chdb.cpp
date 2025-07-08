@@ -1,5 +1,6 @@
 #include "chdb.h"
 #include <cstddef>
+#include "Common/MemoryTracker.h"
 #include "chdb-internal.h"
 #include "LocalServer.h"
 #include "QueryResult.h"
@@ -223,13 +224,14 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
     else if (!req.isIteration())
     {
         server->streaming_query_context = std::make_shared<DB::StreamingQueryContext>();
+        /// TODO: support memory tracker for streaming query
+        server->streaming_query_context->limit = total_memory_tracker.getHardLimit();
+        total_memory_tracker.setHardLimit(0);
         query_result = createStreamingQueryResult(server, req);
         is_end = !query_result->getError().empty();
 
         if (!is_end)
             server->streaming_query_context->streaming_result = query_result.get();
-        else
-            server->streaming_query_context.reset();
     }
     else
     {
@@ -244,7 +246,13 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
 
     if (is_end)
     {
-        server->streaming_query_context.reset();
+        if (server->streaming_query_context)
+        {
+            total_memory_tracker.resetCounters();
+            MemoryTracker::updateRSS(0);
+            total_memory_tracker.setHardLimit(server->streaming_query_context->limit);
+            server->streaming_query_context.reset();
+        }
 #if USE_PYTHON
         if (auto * local_connection = static_cast<DB::LocalConnection*>(server->connection.get()))
         {

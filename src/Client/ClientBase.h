@@ -11,6 +11,7 @@
 #include <Common/QueryFuzzer.h>
 #include <Common/ShellCommand.h>
 #include <Common/Stopwatch.h>
+#include "base/types.h"
 #include <Core/ExternalTable.h>
 #include <Core/Settings.h>
 #include <Interpreters/Context.h>
@@ -83,6 +84,7 @@ struct StreamingQueryContext
     ASTPtr parsed_query;
     void * streaming_result = nullptr;
     bool is_streaming_query = true;
+    Int64 limit = 0;
 
     StreamingQueryContext() = default;
 };
