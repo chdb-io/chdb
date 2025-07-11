@@ -123,6 +123,14 @@ public:
         query_result_buf.reset();
         return result;
     }
+
+    void resetQueryOutputVector()
+    {
+        delete query_result_memory;
+        query_result_memory = nullptr;
+        query_result_buf.reset();
+    }
+
     size_t getProcessedRows() const { return processed_rows; }
     size_t getProcessedBytes() const { return processed_bytes; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds();}
