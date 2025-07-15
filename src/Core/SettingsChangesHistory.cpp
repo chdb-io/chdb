@@ -108,6 +108,7 @@ const VersionToSettingsChangesMap & getSettingsChangesHistory()
             {"input_format_parquet_allow_geoparquet_parser", false, true, "A new setting to use geo columns in parquet file"},
             {"enable_url_encoding", true, false, "Changed existing setting's default value"},
             {"s3_slow_all_threads_after_network_error", false, true, "New setting"},
+            {"min_outstreams_per_resize_after_split", 0, 24, "New setting."},
         });
         addSettingsChanges(settings_changes_history, "25.4",
         {
