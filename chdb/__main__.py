@@ -4,9 +4,12 @@ from .__init__ import query
 
 def main():
     prog = 'python -m chdb'
+    custom_usage = "%(prog)s [-h] \"SELECT 1\" [format]"
     description = ('''A simple command line interface for chdb
                    to run SQL and output in specified format''')
-    parser = argparse.ArgumentParser(prog=prog, description=description)
+    parser = argparse.ArgumentParser(prog=prog,
+                                     usage=custom_usage,
+                                     description=description)
     parser.add_argument('sql', nargs=1,
                         type=str,
                         help='sql, e.g: select 1112222222,555')
