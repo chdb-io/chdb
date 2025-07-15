@@ -650,11 +650,14 @@ try
             /// the query_result_memory corresponding to SELECT 1 has not been "stolen" by function stealQueryOutputVector,
             /// so it remains non-empty.
             if (query_result_memory)
-                query_result_memory->resize(4096);
+            {
+                query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory, AppendModeTag{});
+            }
             else
+            {
                 query_result_memory = new std::vector<char>(4096);
-
-            query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory);
+                query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory);
+            }
 
             out_buf = query_result_buf.get();
         }
@@ -1654,6 +1657,8 @@ void ClientBase::resetOutput()
     out_file_buf.reset();
 
     out_logs_buf.reset();
+
+    query_result_buf.reset();
 
     if (pager_cmd)
     {

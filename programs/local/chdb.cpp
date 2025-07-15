@@ -135,6 +135,8 @@ static QueryResultPtr createMaterializedLocalQueryResult(DB::LocalServer * serve
         query_result = std::make_unique<MaterializedQueryResult>(error_message);
     }
 
+    server->resetQueryOutputVector();
+
     return query_result;
 }
 
@@ -207,6 +209,8 @@ static QueryResultPtr createStreamingIterateQueryResult(DB::LocalServer * server
         String error_message = "Unknown error occurred";
         query_result = std::make_unique<MaterializedQueryResult>(error_message);
     }
+
+    server->resetQueryOutputVector();
 
     return query_result;
 }

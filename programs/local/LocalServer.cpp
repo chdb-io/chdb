@@ -155,6 +155,11 @@ void applySettingsOverridesForLocal(ContextMutablePtr context)
     context->setSettings(settings);
 }
 
+LocalServer::~LocalServer()
+{
+    resetQueryOutputVector();
+}
+
 Poco::Util::LayeredConfiguration & LocalServer::getClientConfiguration()
 {
     return config();
