@@ -474,6 +474,10 @@ There are something you can help:
 
 We welcome bindings for other languages, please refer to [bindings](bindings.md) for more details.
 
+## Version Guide
+
+Please refer to [VERSION-GUIDE.md](VERSION-GUIDE.md) for more details.
+
 ## Paper
 
 - [ClickHouse - Lightning Fast Analytics for Everyone](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf)
