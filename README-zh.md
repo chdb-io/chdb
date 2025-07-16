@@ -231,6 +231,10 @@ sess.close()
 
 - Demo chDB at [ClickHouse v23.7 livehouse!](https://t.co/todc13Kn19) and [Slides](https://docs.google.com/presentation/d/1ikqjOlimRa7QAg588TAB_Fna-Tad2WMg7_4AgnbQbFA/edit?usp=sharing)
 
+## 版本说明
+
+请查看 [VERSION-GUIDE.md](VERSION-GUIDE.md) 获取更多信息。
+
 ## 相关论文
 
 - [ClickHouse - Lightning Fast Analytics for Everyone](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf)
