@@ -168,6 +168,10 @@ class ChdbRecordBatchReader:
         return self._schema
 
     def read_next_batch(self):
+        if self._accumulator:
+            result = self._accumulator.pop(0)
+            return result
+
         if self._closed:
             raise StopIteration
 
@@ -207,33 +211,34 @@ class ChdbRecordBatchReader:
 
             # Process the batch if we got one
             if batch is not None:
-                # If single batch >= batch size rows, return directly
-                if batch.num_rows >= self._batch_size_rows:
-                    return batch
-
-                # Otherwise accumulate
                 self._accumulator.append(batch)
                 self._current_rows += batch.num_rows
 
                 # If accumulated enough rows, return combined batch
                 if self._current_rows >= self._batch_size_rows:
                     if len(self._accumulator) == 1:
-                        result = self._accumulator[0]
+                        result = self._accumulator.pop(0)
                     else:
-                        result = pa.concat_batches(self._accumulator)
+                        if hasattr(pa, 'concat_batches'):
+                            result = pa.concat_batches(self._accumulator)
+                            self._accumulator = []
+                        else:
+                            result = self._accumulator.pop(0)
 
-                    self._accumulator = []
                     self._current_rows = 0
                     return result
 
         # End of stream - return any accumulated batches
         if self._accumulator:
             if len(self._accumulator) == 1:
-                result = self._accumulator[0]
+                result = self._accumulator.pop(0)
             else:
-                result = pa.concat_batches(self._accumulator)
+                if hasattr(pa, 'concat_batches'):
+                    result = pa.concat_batches(self._accumulator)
+                    self._accumulator = []
+                else:
+                    result = self._accumulator.pop(0)
 
-            self._accumulator = []
             self._current_rows = 0
             self._closed = True
             return result

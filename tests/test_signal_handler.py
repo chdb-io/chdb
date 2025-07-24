@@ -71,7 +71,7 @@ class TestSignalHandler(unittest.TestCase):
         sender_thread = threading.Thread(
             target=self.background_sender,
             daemon=True,
-            args=(30,)
+            args=(3,)
         )
 
         writer_thread.start()

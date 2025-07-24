@@ -78,6 +78,27 @@ class TestArrowRecordReaderDeltaLake(unittest.TestCase):
         self.assertEqual(schema[0].name, 'id')
         self.assertEqual(schema[1].name, 'name')
 
+        stream_result = self.sess.send_query(
+            "SELECT number as id, toString(number) as name FROM numbers(500000)",
+            "arrow"
+        )
+        batch_reader = stream_result.record_batch()
+        batches = list(batch_reader)
+        total_rows = sum(batch.num_rows for batch in batches)
+
+        self.assertEqual(total_rows, 500000)
+
+        stream_result = self.sess.send_query(
+            "SELECT number as id, toString(number) as name FROM numbers(2000000)",
+            "arrow"
+        )
+        batch_reader = stream_result.record_batch(1000)
+        batches = list(batch_reader)
+        total_rows = sum(batch.num_rows for batch in batches)
+
+        self.assertEqual(total_rows, 2000000)
+
+
     def test_deltalake_integration(self):
         """Test writing RecordBatchReader to Delta Lake and reading back"""
 
