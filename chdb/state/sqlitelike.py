@@ -112,7 +112,10 @@ class StreamingResult:
             ValueError: If the StreamingResult was not created with arrow format
         """
         if not self._supports_record_batch:
-            raise ValueError("record_batch() can only be used with arrow format. Please use format='Arrow' when calling send_query.")
+            raise ValueError(
+                "record_batch() can only be used with arrow format. "
+                "Please use format='Arrow' when calling send_query."
+            )
 
         chdb_reader = ChdbRecordBatchReader(self, rows_per_batch)
         return pa.RecordBatchReader.from_batches(chdb_reader.schema(), chdb_reader)
