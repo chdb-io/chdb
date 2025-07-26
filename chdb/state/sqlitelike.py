@@ -41,11 +41,12 @@ def to_df(r):
 
 
 class StreamingResult:
-    def __init__(self, c_result, conn, result_func):
+    def __init__(self, c_result, conn, result_func, supports_record_batch):
         self._result = c_result
         self._result_func = result_func
         self._conn = conn
         self._exhausted = False
+        self._supports_record_batch = supports_record_batch
 
     def fetch(self):
         """Fetch next chunk of streaming results"""
@@ -80,15 +81,182 @@ class StreamingResult:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+        self.cancel()
+
+    def close(self):
+        self.cancel()
 
     def cancel(self):
-        self._exhausted = True
+        if not self._exhausted:
+            self._exhausted = True
+            try:
+                self._conn.streaming_cancel_query(self._result)
+            except Exception as e:
+                raise RuntimeError(f"Failed to cancel streaming query: {str(e)}") from e
 
-        try:
-            self._conn.streaming_cancel_query(self._result)
-        except Exception as e:
-            raise RuntimeError(f"Failed to cancel streaming query: {str(e)}") from e
+    def record_batch(self, rows_per_batch: int = 1000000) -> pa.RecordBatchReader:
+        """
+        Create a PyArrow RecordBatchReader from this StreamingResult.
+
+        This method requires that the StreamingResult was created with arrow format.
+        It wraps the streaming result with ChdbRecordBatchReader to provide efficient
+        batching with configurable batch sizes.
+
+        Args:
+            rows_per_batch (int): Number of rows per batch. Defaults to 1000000.
+
+        Returns:
+            pa.RecordBatchReader: PyArrow RecordBatchReader for efficient streaming
+
+        Raises:
+            ValueError: If the StreamingResult was not created with arrow format
+        """
+        if not self._supports_record_batch:
+            raise ValueError(
+                "record_batch() can only be used with arrow format. "
+                "Please use format='Arrow' when calling send_query."
+            )
+
+        chdb_reader = ChdbRecordBatchReader(self, rows_per_batch)
+        return pa.RecordBatchReader.from_batches(chdb_reader.schema(), chdb_reader)
+
+
+class ChdbRecordBatchReader:
+    """
+    A PyArrow RecordBatchReader wrapper for chdb StreamingResult.
+
+    This class provides an efficient way to read large result sets as PyArrow RecordBatches
+    with configurable batch sizes to optimize memory usage and performance.
+    """
+
+    def __init__(self, chdb_stream_result, batch_size_rows):
+        self._stream_result = chdb_stream_result
+        self._schema = None
+        self._closed = False
+        self._pending_batches = []
+        self._accumulator = []
+        self._batch_size_rows = batch_size_rows
+        self._current_rows = 0
+        self._first_batch = None
+        self._first_batch_consumed = True
+        self._schema = self.schema()
+
+    def schema(self):
+        if self._schema is None:
+            # Get the first chunk to determine schema
+            chunk = self._stream_result.fetch()
+            if chunk is not None:
+                arrow_bytes = chunk.bytes()
+                reader = pa.RecordBatchFileReader(arrow_bytes)
+                self._schema = reader.schema
+
+                table = reader.read_all()
+                if table.num_rows > 0:
+                    batches = table.to_batches()
+                    self._first_batch = batches[0]
+                    if len(batches) > 1:
+                        self._pending_batches = batches[1:]
+                    self._first_batch_consumed = False
+                else:
+                    self._first_batch = None
+                    self._first_batch_consumed = True
+            else:
+                self._schema = pa.schema([])
+                self._first_batch = None
+                self._first_batch_consumed = True
+                self._closed = True
+        return self._schema
+
+    def read_next_batch(self):
+        if self._accumulator:
+            result = self._accumulator.pop(0)
+            return result
+
+        if self._closed:
+            raise StopIteration
+
+        while True:
+            batch = None
+
+            # 1. Return the first batch if not consumed yet
+            if not self._first_batch_consumed:
+                self._first_batch_consumed = True
+                batch = self._first_batch
+
+            # 2. Check pending batches from current chunk
+            elif self._pending_batches:
+                batch = self._pending_batches.pop(0)
+
+            # 3. Fetch new chunk from chdb stream
+            else:
+                chunk = self._stream_result.fetch()
+                if chunk is None:
+                    # No more data - return accumulated batches if any
+                    break
+
+                arrow_bytes = chunk.bytes()
+                if not arrow_bytes:
+                    continue
+
+                reader = pa.RecordBatchFileReader(arrow_bytes)
+                table = reader.read_all()
+
+                if table.num_rows > 0:
+                    batches = table.to_batches()
+                    batch = batches[0]
+                    if len(batches) > 1:
+                        self._pending_batches = batches[1:]
+                else:
+                    continue
+
+            # Process the batch if we got one
+            if batch is not None:
+                self._accumulator.append(batch)
+                self._current_rows += batch.num_rows
+
+                # If accumulated enough rows, return combined batch
+                if self._current_rows >= self._batch_size_rows:
+                    if len(self._accumulator) == 1:
+                        result = self._accumulator.pop(0)
+                    else:
+                        if hasattr(pa, 'concat_batches'):
+                            result = pa.concat_batches(self._accumulator)
+                            self._accumulator = []
+                        else:
+                            result = self._accumulator.pop(0)
+
+                    self._current_rows = 0
+                    return result
+
+        # End of stream - return any accumulated batches
+        if self._accumulator:
+            if len(self._accumulator) == 1:
+                result = self._accumulator.pop(0)
+            else:
+                if hasattr(pa, 'concat_batches'):
+                    result = pa.concat_batches(self._accumulator)
+                    self._accumulator = []
+                else:
+                    result = self._accumulator.pop(0)
+
+            self._current_rows = 0
+            self._closed = True
+            return result
+
+        # No more data
+        self._closed = True
+        raise StopIteration
+
+    def close(self):
+        if not self._closed:
+            self._stream_result.close()
+            self._closed = True
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self.read_next_batch()
 
 
 class Connection:
@@ -112,12 +280,13 @@ class Connection:
 
     def send_query(self, query: str, format: str = "CSV") -> StreamingResult:
         lower_output_format = format.lower()
+        supports_record_batch = lower_output_format == "arrow"
         result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
         if lower_output_format in _arrow_format:
             format = "Arrow"
 
         c_stream_result = self._conn.send_query(query, format)
-        return StreamingResult(c_stream_result, self._conn, result_func)
+        return StreamingResult(c_stream_result, self._conn, result_func, supports_record_batch)
 
     def close(self) -> None:
         # print("close")

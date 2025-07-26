@@ -184,16 +184,37 @@ while True:
     if chunk is None:
         break
     if rows_cnt > 0:
-        stream_result.cancel()
+        stream_result.close()
         break
     rows_cnt += chunk.rows_read()
 
 print(rows_cnt) # 65409
 
+# 示例4：使用PyArrow RecordBatchReader进行批量导出以及与其他库集成
+import pyarrow as pa
+from deltalake import write_deltalake
+
+# 获取arrow格式的流式结果
+stream_result = sess.send_query("SELECT * FROM numbers(100000)", "Arrow")
+
+# 创建自定义批次大小的RecordBatchReader（默认rows_per_batch=1000000）
+batch_reader = stream_result.record_batch(rows_per_batch=10000)
+
+# 将RecordBatchReader与外部库（如Delta Lake）一起使用
+write_deltalake(
+    table_or_uri="./my_delta_table",
+    data=batch_reader,
+    mode="overwrite"
+)
+
+stream_result.close()
+
 sess.close()
 ```
 
-参见: [test_streaming_query.py](tests/test_streaming_query.py)。
+**重要提示**：使用流式查询时，如果`StreamingResult`没有被完全消耗（由于错误或提前终止），必须显式调用`stream_result.close()`来释放资源，或使用`with`语句进行自动清理。否则可能会阻塞后续查询。
+
+参见: [test_streaming_query.py](tests/test_streaming_query.py) 和 [test_arrow_record_reader_deltalake.py](tests/test_arrow_record_reader_deltalake.py)。
 </details>
 
 更多示例，请参见 [examples](examples) 和 [tests](tests)。

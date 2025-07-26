@@ -262,16 +262,37 @@ while True:
     if chunk is None:
         break
     if rows_cnt > 0:
-        stream_result.cancel()
+        stream_result.close()
         break
     rows_cnt += chunk.rows_read()
 
 print(rows_cnt) # 65409
 
+# Example 4: Using PyArrow RecordBatchReader for batch export and integration with other libraries
+import pyarrow as pa
+from deltalake import write_deltalake
+
+# Get streaming result in arrow format
+stream_result = sess.send_query("SELECT * FROM numbers(100000)", "Arrow")
+
+# Create RecordBatchReader with custom batch size (default rows_per_batch=1000000)
+batch_reader = stream_result.record_batch(rows_per_batch=10000)
+
+# Use RecordBatchReader with external libraries like Delta Lake
+write_deltalake(
+    table_or_uri="./my_delta_table",
+    data=batch_reader,
+    mode="overwrite"
+)
+
+stream_result.close()
+
 sess.close()
 ```
 
-For more details, see [test_streaming_query.py](tests/test_streaming_query.py).
+**Important Note**: When using streaming queries, if the `StreamingResult` is not fully consumed (due to errors or early termination), you must explicitly call `stream_result.close()` to release resources, or use the `with` statement for automatic cleanup. Failure to do so may block subsequent queries.
+
+For more details, see [test_streaming_query.py](tests/test_streaming_query.py) and [test_arrow_record_reader_deltalake.py](tests/test_arrow_record_reader_deltalake.py).
 </details>
 
 
