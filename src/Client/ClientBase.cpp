@@ -1775,7 +1775,7 @@ void ClientBase::processInsertQuery(String query, ASTPtr parsed_query)
 
     /// Process the query that requires transferring data blocks to the server.
     const auto & parsed_insert_query = parsed_query->as<ASTInsertQuery &>();
-    if ((!parsed_insert_query.data && !parsed_insert_query.infile) && (is_interactive || (!stdin_is_a_tty && !isStdinNotEmptyAndValid(*std_in))))
+    if ((!parsed_insert_query.data && !parsed_insert_query.infile) && (true /* is_interactive || (!stdin_is_a_tty && !isStdinNotEmptyAndValid(*std_in)) */))
     {
         const auto & settings = client_context->getSettingsRef();
         if (settings[Setting::throw_if_no_data_to_insert])
