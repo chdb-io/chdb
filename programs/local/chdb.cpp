@@ -18,15 +18,13 @@ static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
 
-static void cleanUpLocalServer(DB::LocalServer *& server)
+static void cleanUpLocalServer(std::unique_ptr<DB::LocalServer> server)
 {
     try
     {
         if (server)
         {
             server->chdbCleanup();
-            delete server;
-            server = nullptr;
         }
     }
     catch (...)
@@ -35,12 +33,12 @@ static void cleanUpLocalServer(DB::LocalServer *& server)
     }
 }
 
-static DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
+static std::unique_ptr<DB::LocalServer> bgClickHouseLocal(int argc, char ** argv)
 {
-    DB::LocalServer * app = nullptr;
+    std::unique_ptr<DB::LocalServer> app;
     try
     {
-        app = new DB::LocalServer();
+        app = std::make_unique<DB::LocalServer>();
         app->setBackground(true);
         app->init(argc, argv);
         int ret = app->run();
@@ -48,29 +46,29 @@ static DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
         {
             auto err_msg = app->getErrorMsg();
             LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
-            cleanUpLocalServer(app);
+            cleanUpLocalServer(std::move(app));
             throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
         }
         return app;
     }
     catch (const DB::Exception & e)
     {
-        cleanUpLocalServer(app);
+        cleanUpLocalServer(std::move(app));
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
     }
     catch (const Poco::Exception & e)
     {
-        cleanUpLocalServer(app);
+        cleanUpLocalServer(std::move(app));
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", e.displayText());
     }
     catch (const std::exception & e)
     {
-        cleanUpLocalServer(app);
+        cleanUpLocalServer(std::move(app));
         throw std::domain_error(e.what());
     }
     catch (...)
     {
-        cleanUpLocalServer(app);
+        cleanUpLocalServer(std::move(app));
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
@@ -561,11 +559,11 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
         [&]()
         {
             auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
-            DB::LocalServer * server = nullptr;
+            std::unique_ptr<DB::LocalServer> server;
             try
             {
                 server = bgClickHouseLocal(argc, argv);
-                conn->server = server;
+                conn->server = nullptr;
                 conn->connected = true;
 
                 global_conn_ptr = conn;
@@ -587,7 +585,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                         if (queue->shutdown)
                         {
-                            cleanUpLocalServer(server);
+                            cleanUpLocalServer(std::move(server));
                             queue->cleanup_done = true;
                             queue->query_cv.notify_all();
                             break;
@@ -596,7 +594,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                     }
 
                     CHDB::QueryRequestBase & req = *(queue->current_query);
-                    auto result = createQueryResult(server, req);
+                    auto result = createQueryResult(server.get(), req);
                     bool is_end = result.second;
 
                     {
