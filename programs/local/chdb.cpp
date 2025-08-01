@@ -565,6 +565,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                         if (queue->shutdown)
                         {
+                            server.reset();
                             queue->cleanup_done = true;
                             queue->query_cv.notify_all();
                             break;
