@@ -89,11 +89,6 @@ public:
         return local_connection->getCHDBProgress().read_bytes;
     }
 
-    void chdbCleanup()
-    {
-        cleanup();
-    }
-
 private:
     void cleanStreamingQuery();
 };

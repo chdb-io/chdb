@@ -157,6 +157,7 @@ void applySettingsOverridesForLocal(ContextMutablePtr context)
 
 LocalServer::~LocalServer()
 {
+    cleanup();
     resetQueryOutputVector();
 }
 
