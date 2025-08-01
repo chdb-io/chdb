@@ -18,21 +18,6 @@ static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
 
-static void cleanUpLocalServer(std::unique_ptr<DB::LocalServer> server)
-{
-    try
-    {
-        if (server)
-        {
-            server->chdbCleanup();
-        }
-    }
-    catch (...)
-    {
-        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Error during server cleanup");
-    }
-}
-
 static std::unique_ptr<DB::LocalServer> bgClickHouseLocal(int argc, char ** argv)
 {
     std::unique_ptr<DB::LocalServer> app;
@@ -46,29 +31,24 @@ static std::unique_ptr<DB::LocalServer> bgClickHouseLocal(int argc, char ** argv
         {
             auto err_msg = app->getErrorMsg();
             LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
-            cleanUpLocalServer(std::move(app));
             throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
         }
         return app;
     }
     catch (const DB::Exception & e)
     {
-        cleanUpLocalServer(std::move(app));
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
     }
     catch (const Poco::Exception & e)
     {
-        cleanUpLocalServer(std::move(app));
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", e.displayText());
     }
     catch (const std::exception & e)
     {
-        cleanUpLocalServer(std::move(app));
         throw std::domain_error(e.what());
     }
     catch (...)
     {
-        cleanUpLocalServer(std::move(app));
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
@@ -585,7 +565,6 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                         if (queue->shutdown)
                         {
-                            cleanUpLocalServer(std::move(server));
                             queue->cleanup_done = true;
                             queue->query_cv.notify_all();
                             break;
