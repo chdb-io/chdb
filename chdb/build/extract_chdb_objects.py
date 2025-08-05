@@ -16,10 +16,16 @@ def extract_chdb_objects(map_file_path):
         print(f"❌ Map file does not exist: {map_file_path}")
         return None
 
-    print(f"📊 Analyzing map file: {map_file_path}")
+    print(f"Analyzing map file: {map_file_path}")
 
-    with open(map_file_path, 'r') as f:
-        lines = f.readlines()
+    # Try to read with UTF-8, fallback to latin-1 if that fails
+    try:
+        with open(map_file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    except UnicodeDecodeError:
+        print("Warning: UTF-8 decode failed, trying with latin-1 encoding...")
+        with open(map_file_path, 'r', encoding='latin-1') as f:
+            lines = f.readlines()
 
     # Store results
     extracted_objects = set()
@@ -31,10 +37,10 @@ def extract_chdb_objects(map_file_path):
         "warning_lines": 0
     }
 
-    # Precise regex pattern matching ./libchdb.a(object.o) format
-    chdb_pattern = re.compile(r'\.\/libchdb\.a\(([^)]+\.o)\)')
+    # Precise regex pattern matching ./libchdb.a(object.o) and ./libchdb.a[anything](object.o) formats
+    chdb_pattern = re.compile(r'\./libchdb\.a(?:\[[^\]]*\])?\(([^)]+\.o)\)')
 
-    print("🔍 Analyzing map file line by line...")
+    print("Analyzing map file line by line...")
 
     for line_num, line in enumerate(lines, 1):
         line = line.strip()
