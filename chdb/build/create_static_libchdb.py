@@ -50,6 +50,11 @@ def parse_libchdb_cmd():
     else:
         raise FileNotFoundError(f"Neither {rsp_file_path} nor {build_log_path} exists")
 
+    # Print the command for debugging
+    print("\n=== COMMAND ===")
+    print(command)
+    print("=== END COMMAND ===\n")
+
     # Common prefix for absolute paths
     base_path = os.path.join(project_root, "build-static-lib")
 
