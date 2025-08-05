@@ -4,9 +4,9 @@ set -e
 
 build_type=${1:-Release}
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
-. ${DIR}/../vars.sh
+. ${MY_DIR}/../vars.sh
 
 BUILD_DIR=${PROJ_DIR}/build-static-lib
 
@@ -82,7 +82,7 @@ ninja -d keeprsp -v > build.log || true
 
 ccache -s || true
 
-cd ${DIR}
+cd ${MY_DIR}
 
 # Create static library
 echo "Creating static library libchdb.a..."
@@ -94,9 +94,9 @@ fi
 
 # Prepare cpp-example directory and copy header file
 echo "Preparing cpp-example directory..."
-cd ${DIR}/cpp-example
+cd ${MY_DIR}/cpp-example
 cp ${PROJ_DIR}/programs/local/chdb.h .
-cp ${DIR}/libchdb.a .
+cp ${MY_DIR}/libchdb.a .
 echo "Copied chdb.h and libchdb.a to cpp-example directory"
 
 # Compile example program
@@ -115,8 +115,8 @@ fi
 
 # Copy map file to parent directory for analysis
 echo "Copying chdb_example.map to parent directory..."
-cp chdb_example.map ${DIR}/
-cd ${DIR}
+cp chdb_example.map ${MY_DIR}/
+cd ${MY_DIR}
 
 # Analyze map file to extract chdb objects
 echo "Analyzing map file to extract chdb objects..."
@@ -145,8 +145,8 @@ fi
 
 # Test with Go example
 echo "Preparing go-example directory..."
-cd ${DIR}/go-example
-cp ${DIR}/libchdb_minimal.a ./libchdb.a
+cd ${MY_DIR}/go-example
+cp ${MY_DIR}/libchdb_minimal.a ./libchdb.a
 cp ${PROJ_DIR}/programs/local/chdb.h .
 echo "Copied libchdb_minimal.a as libchdb.a and chdb.h to go-example directory"
 
@@ -164,5 +164,5 @@ echo "Go test completed successfully!"
 
 # Copy final library to project root
 echo "Copying libchdb_minimal.a to project root as libchdb.a..."
-cp ${DIR}/libchdb_minimal.a ${PROJ_DIR}/libchdb.a
+cp ${MY_DIR}/libchdb_minimal.a ${PROJ_DIR}/libchdb.a
 echo "Final libchdb.a created at ${PROJ_DIR}/libchdb.a"
