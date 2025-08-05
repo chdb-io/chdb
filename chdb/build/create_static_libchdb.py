@@ -59,12 +59,12 @@ def parse_libchdb_cmd():
     base_path = os.path.join(project_root, "build-static-lib")
 
     # Extract all .o files and .a files from the command
-    # Pattern for .o files
-    obj_pattern = r'[^\s]+\.cpp\.o|[^\s]+\.c\.o'
+    # Pattern for .o files (must be followed by space or end of string)
+    obj_pattern = r'[^\s]+\.cpp\.o(?=\s|$)|[^\s]+\.c\.o(?=\s|$)'
     obj_files = re.findall(obj_pattern, command)
 
-    # Pattern for .a files
-    lib_pattern = r'[^\s]+\.a'
+    # Pattern for .a files (must be followed by space or end of string)
+    lib_pattern = r'[^\s]+\.a(?=\s|$)'
     lib_files = re.findall(lib_pattern, command)
 
     # Filter out main.cpp.o and convert to absolute paths
