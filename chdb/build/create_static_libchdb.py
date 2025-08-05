@@ -5,10 +5,14 @@ Script to create libchdb.a static library
 """
 
 import os
+import platform
 import re
 import subprocess
 import sys
 import shutil
+
+# Detect if running on macOS
+IS_MACOS = platform.system() == "Darwin"
 
 def parse_libchdb_cmd():
     """Extract object files and static libraries"""
@@ -85,7 +89,7 @@ def parse_libchdb_cmd():
 def create_static_library(obj_files, lib_files):
     """Create libchdb.a static library using ar command"""
 
-    print("\n🔧 Creating static library using ar...")
+    print("\nCreating static library using ar...")
 
     # Output library name
     output_lib = "libchdb.a"
@@ -95,13 +99,14 @@ def create_static_library(obj_files, lib_files):
         os.remove(output_lib)
         print(f"Removed existing {output_lib}")
 
-    # Check if ar is available
-    try:
-        subprocess.run(["ar", "--version"],
-                       capture_output=True, check=True)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        print("ERROR: ar not found. Please install ar.")
-        return False
+    # Check if ar is available (skip on macOS)
+    if not IS_MACOS:
+        try:
+            subprocess.run(["ar", "--version"],
+                           capture_output=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            print("ERROR: ar not found. Please install ar.")
+            return False
 
     # Create temporary directory for extracted objects
     temp_dir = "create_static_lib_tmp_dir"
@@ -316,7 +321,7 @@ def create_static_library(obj_files, lib_files):
             return False
 
         # Create static library using ar
-        print(f"\n🔨 Creating {output_lib} with ar...")
+        print(f"\nCreating {output_lib} with ar...")
 
         try:
             # Use ar to create static library
@@ -326,22 +331,28 @@ def create_static_library(obj_files, lib_files):
             # ar has a limit on command line length
             batch_size = 1000  # Process objects in batches
 
-            # Create empty archive first
-            result = subprocess.run(["ar", "rcs", output_lib],
-                                    capture_output=True,
-                                    text=True)
+            # Create empty archive first (skip on macOS as it doesn't support empty archives)
+            if not IS_MACOS:
+                result = subprocess.run(["ar", "rcs", output_lib],
+                                        capture_output=True,
+                                        text=True)
 
-            if result.returncode != 0:
-                print(f"ar failed to create empty archive: {result.returncode}")
-                print(f"STDERR: {result.stderr}")
-                return False
+                if result.returncode != 0:
+                    print(f"ar failed to create empty archive: {result.returncode}")
+                    print(f"STDERR: {result.stderr}")
+                    return False
 
             # Add objects in batches
             for i in range(0, len(all_objects), batch_size):
                 batch = all_objects[i:i + batch_size]
-                print(f"📦 Adding batch {i//batch_size + 1}/{(len(all_objects) + batch_size - 1)//batch_size} ({len(batch)} objects)...")
+                print(f"Adding batch {i//batch_size + 1}/{(len(all_objects) + batch_size - 1)//batch_size} ({len(batch)} objects)...")
 
-                cmd = ["ar", "rs", output_lib] + batch
+                # On macOS, use 'rcs' for first batch to create archive, 'rs' for subsequent batches
+                # On Linux, always use 'rs' since empty archive was created above
+                if IS_MACOS and i == 0:
+                    cmd = ["ar", "rcs", output_lib] + batch
+                else:
+                    cmd = ["ar", "rs", output_lib] + batch
 
                 result = subprocess.run(cmd,
                                         capture_output=True,
