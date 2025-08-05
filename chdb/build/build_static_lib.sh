@@ -166,3 +166,7 @@ echo "Go test completed successfully!"
 echo "Copying libchdb_minimal.a to project root as libchdb.a..."
 cp ${MY_DIR}/libchdb_minimal.a ${PROJ_DIR}/libchdb.a
 echo "Final libchdb.a created at ${PROJ_DIR}/libchdb.a"
+
+# Print final library size
+echo "Final libchdb.a size:"
+ls -lh ${PROJ_DIR}/libchdb.a
