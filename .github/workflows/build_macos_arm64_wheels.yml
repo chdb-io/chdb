@@ -1,177 +1,176 @@
-# name: Build macOS arm64
+name: Build macOS arm64
 
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       TAG_NAME:
-#         description: 'Release Version Tag'
-#         required: true
-#   release:
-#     types: [created]
-#   push:
-#     branches:
-#       - main
-#     paths-ignore:
-#       - '**/*.md'
-#   pull_request:
-#     branches:
-#       - main
-#     paths-ignore:
-#       - '**/*.md'
+on:
+  workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: 'Release Version Tag'
+        required: true
+  release:
+    types: [created]
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
-# jobs:
-#   build_wheels_macos_13:
-#     name: ${{ matrix.os }} py${{ matrix.python-version }}
-#     runs-on: ${{ matrix.os }}
-#     strategy:
-#       fail-fast: false
-#       matrix:
-#         os: [ macos-13-xlarge ]
-#         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-#         # python-version: ["3.12"]
-#     env:
-#       RUNNER_OS: ${{ matrix.os }}
-#       PYTHON_VERSION: ${{ matrix.python-version }}
-#     steps:
-#       - name: Install python
-#         uses: actions/setup-python@v4
-#         with:
-#           python-version: "${{ matrix.python-version }}"
-#       - name: Remove /usr/local/bin/python3
-#         run: |
-#           sudo rm -f /usr/local/bin/python3
-#       - name: Install clang++ for macOS
-#         run: |
-#           pwd
-#           uname -a
-#           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-#           brew update
-#           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
-#           brew install --ignore-dependencies llvm@19
-#           brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
-#           brew install go
-#           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
-#           export PATH=$(brew --prefix llvm@19)/bin:$PATH
-#           which clang++
-#           clang++ --version
-#           which go
-#           go version
-#           ccache -s
-#       - uses: actions/checkout@v3
-#         with:
-#           fetch-depth: 0
-#       - name: Update submodules
-#         run: |
-#           git submodule update --init --recursive --jobs 4
-#       - name: ccache
-#         uses: hendrikmuhs/ccache-action@v1.2
-#         with:
-#           key: ${{ matrix.os }}
-#           max-size: 5G
-#           append-timestamp: true
-#       - name: Run chdb/build.sh
-#         timeout-minutes: 300
-#         run: |
-#           python3 -m pip install pybind11 setuptools
-#           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-#           export CC=$(brew --prefix llvm@19)/bin/clang
-#           export CXX=$(brew --prefix llvm@19)/bin/clang++
-#           bash gen_manifest.sh
-#           bash ./chdb/build.sh
-#           python3 -m pip install pandas pyarrow
-#           bash -x ./chdb/test_smoke.sh
-#       - name: Run chdb/build/build_static_lib.sh
-#         timeout-minutes: 300
-#         if: matrix.python-version == '3.12'
-#         run: |
-#           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-#           export CC=$(brew --prefix llvm@19)/bin/clang
-#           export CXX=$(brew --prefix llvm@19)/bin/clang++
-#           bash ./chdb/build/build_static_lib.sh
-#         continue-on-error: false
-#       - name: Debug libchdb
-#         run: |
-#           ls -lh
-#           llvm-nm libchdb.so | grep query_stable || true
-#           echo "Global Symbol in libchdb.so:"
-#           llvm-nm -g libchdb.so || true
-#           echo "Global Symbol in libclickhouse-local-chdb.a:"
-#           llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
-#           echo "Global Symbol in libclickhouse-local-lib.a:"
-#           llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
-#           echo "pychdb_cmd.sh:"
-#           cat buildlib/pychdb_cmd.sh
-#           echo "libchdb_cmd.sh:"
-#           cat buildlib/libchdb_cmd.sh
-#       - name: Run libchdb stub in examples dir
-#         run: |
-#           bash -x ./examples/runStub.sh
-#       - name: Keep killall ccache and wait for ccache to finish
-#         if: always()
-#         run: |
-#           sleep 60
-#           while ps -ef | grep ccache | grep -v grep; do \
-#             killall ccache; \
-#             sleep 10; \
-#           done
-#       - name: Check ccache statistics
-#         run: |
-#           ccache -s
-#           ls -lh chdb
-#           df -h
-#         env:
-#           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
-#       - name: Install dependencies for building wheels
-#         run: |
-#           python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
-#       - name: Build wheels
-#         run: |
-#           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-#           export CC=$(brew --prefix llvm@19)/bin/clang
-#           export CXX=$(brew --prefix llvm@19)/bin/clang++
-#           make wheel
-#       - name: Fix wheel platform tag
-#         run: |
-#           python3 -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
-#       - name: Run tests
-#         run: |
-#           python3 -m pip install dist/*.whl
-#           python3 -m pip install pandas pyarrow psutil deltalake
-#           python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
-#           make test
-#         continue-on-error: false
-#       - name: Show files
-#         run: ls -lh dist
-#         shell: bash
-#       - name: Upload wheels to release
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-#       - name: Packege chdb library
-#         if: matrix.python-version == '3.12'
-#         run: |
-#           cp programs/local/chdb.h chdb.h
-#           tar -czvf macos-arm64-libchdb.tar.gz libchdb.a libchdb.so chdb.h
-#       - name: Upload chdb library to release
-#         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
-#         run: |
-#           gh release upload ${{ github.ref_name }} macos-arm64-libchdb.tar.gz --clobber
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-#       - uses: actions/upload-artifact@v4
-#         with:
-#           name: chdb-artifacts-macos-arm64-${{ matrix.python-version }}
-#           path: |
-#             ./dist/*.whl
-#             ./macos-arm64-libchdb.tar.gz
-#           overwrite: true
-#       - name: Upload pypi
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           python3 -m pip install twine
-#           python3 -m twine upload dist/*.whl
-#         env:
-#           TWINE_USERNAME: __token__
-#           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+jobs:
+  build_wheels_macos_13:
+    name: ${{ matrix.os }} py${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-13-xlarge ]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+        # python-version: ["3.12"]
+    env:
+      RUNNER_OS: ${{ matrix.os }}
+      PYTHON_VERSION: ${{ matrix.python-version }}
+    steps:
+      - name: Install python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "${{ matrix.python-version }}"
+      - name: Remove /usr/local/bin/python3
+        run: |
+          sudo rm -f /usr/local/bin/python3
+      - name: Install clang++ for macOS
+        run: |
+          pwd
+          uname -a
+          export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+          brew update
+          brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
+          brew install --ignore-dependencies llvm@19
+          brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
+          brew install go
+          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
+          export PATH=$(brew --prefix llvm@19)/bin:$PATH
+          which clang++
+          clang++ --version
+          which go
+          go version
+          ccache -s
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Update submodules
+        run: |
+          git submodule update --init --recursive --jobs 4
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}
+          max-size: 5G
+          append-timestamp: true
+      - name: Run chdb/build.sh
+        timeout-minutes: 300
+        run: |
+          python3 -m pip install pybind11 setuptools
+          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@19)/bin/clang
+          export CXX=$(brew --prefix llvm@19)/bin/clang++
+          bash gen_manifest.sh
+          bash ./chdb/build.sh
+          python3 -m pip install pandas pyarrow
+          bash -x ./chdb/test_smoke.sh
+      - name: Run chdb/build/build_static_lib.sh
+        if: matrix.python-version == '3.12'
+        run: |
+          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@19)/bin/clang
+          export CXX=$(brew --prefix llvm@19)/bin/clang++
+          bash ./chdb/build/build_static_lib.sh
+        continue-on-error: false
+      - name: Debug libchdb
+        run: |
+          ls -lh
+          llvm-nm libchdb.so | grep query_stable || true
+          echo "Global Symbol in libchdb.so:"
+          llvm-nm -g libchdb.so || true
+          echo "Global Symbol in libclickhouse-local-chdb.a:"
+          llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
+          echo "Global Symbol in libclickhouse-local-lib.a:"
+          llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
+          echo "pychdb_cmd.sh:"
+          cat buildlib/pychdb_cmd.sh
+          echo "libchdb_cmd.sh:"
+          cat buildlib/libchdb_cmd.sh
+      - name: Run libchdb stub in examples dir
+        run: |
+          bash -x ./examples/runStub.sh
+      - name: Keep killall ccache and wait for ccache to finish
+        if: always()
+        run: |
+          sleep 60
+          while ps -ef | grep ccache | grep -v grep; do \
+            killall ccache; \
+            sleep 10; \
+          done
+      - name: Check ccache statistics
+        run: |
+          ccache -s
+          ls -lh chdb
+          df -h
+        env:
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
+      - name: Install dependencies for building wheels
+        run: |
+          python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
+      - name: Build wheels
+        run: |
+          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@19)/bin/clang
+          export CXX=$(brew --prefix llvm@19)/bin/clang++
+          make wheel
+      - name: Fix wheel platform tag
+        run: |
+          python3 -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
+      - name: Run tests
+        run: |
+          python3 -m pip install dist/*.whl
+          python3 -m pip install pandas pyarrow psutil deltalake
+          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
+          make test
+        continue-on-error: false
+      - name: Show files
+        run: ls -lh dist
+        shell: bash
+      - name: Upload wheels to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Packege chdb library
+        if: matrix.python-version == '3.12'
+        run: |
+          cp programs/local/chdb.h chdb.h
+          tar -czvf macos-arm64-libchdb.tar.gz libchdb.a libchdb.so chdb.h
+      - name: Upload chdb library to release
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        run: |
+          gh release upload ${{ github.ref_name }} macos-arm64-libchdb.tar.gz --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chdb-artifacts-macos-arm64-${{ matrix.python-version }}
+          path: |
+            ./dist/*.whl
+            ./macos-arm64-libchdb.tar.gz
+          overwrite: true
+      - name: Upload pypi
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          python3 -m pip install twine
+          python3 -m twine upload dist/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
