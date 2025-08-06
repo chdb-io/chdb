@@ -11,7 +11,8 @@ import subprocess
 import sys
 import shutil
 
-# Detect if running on macOS
+# Detect if running on macOS x86 (where ar -d has problematic behavior)
+IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
 IS_MACOS = platform.system() == "Darwin"
 
 def parse_libchdb_cmd():
@@ -249,6 +250,7 @@ def create_static_library(obj_files, lib_files):
 
                             if extract_result.returncode != 0:
                                 print(f"Failed to extract {target_filename}")
+                                print(f"STDERR: {extract_result.stderr.decode() if extract_result.stderr else 'No error message'}")
                                 return False
 
                             # Generate unique filename: originalname_X.o format
@@ -265,13 +267,24 @@ def create_static_library(obj_files, lib_files):
 
                             print(f"Extracted {target_filename} → {unique_filename} (group #{file_index})")
 
-                            # Delete this occurrence from working archive
-                            delete_result = subprocess.run(["ar", "d", working_archive, target_filename],
-                                                           capture_output=True)
+                            if IS_MACOS_X86:
+                                # Move the first occurrence to the end (changes extraction order)
+                                move_result = subprocess.run(["ar", "-m", working_archive, target_filename],
+                                                                capture_output=True)
 
-                            if delete_result.returncode != 0:
-                                print(f"Warning: Failed to delete {target_filename} from working archive")
-                                return False
+                                if move_result.returncode != 0:
+                                    print(f"Warning: Failed to move {target_filename} in archive")
+                                    print(f"STDERR: {move_result.stderr.decode() if move_result.stderr else 'No error message'}")
+                                    return False
+                            else:
+                                # Delete this occurrence from working archive
+                                delete_result = subprocess.run(["ar", "d", working_archive, target_filename],
+                                                                capture_output=True)
+
+                                if delete_result.returncode != 0:
+                                    print(f"Warning: Failed to delete {target_filename} from working archive")
+                                    print(f"STDERR: {delete_result.stderr.decode() if delete_result.stderr else 'No error message'}")
+                                    return False
 
                     # Clean up working archive
                     try:
