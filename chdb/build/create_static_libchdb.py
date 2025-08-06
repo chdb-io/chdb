@@ -14,6 +14,17 @@ import shutil
 # Detect if running on macOS x86 (where ar -d has problematic behavior)
 IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
 IS_MACOS = platform.system() == "Darwin"
+AR_CMD = ""
+
+# Choose ar command based on platform
+if IS_MACOS_X86:
+    AR_CMD = "llvm-ar"
+    print(f"Using llvm-ar for macOS x86 platform to avoid archive corruption issues")
+else:
+    AR_CMD = "ar"
+    print(f"Using standard ar command for platform: {platform.system()} {platform.machine()}")
+
+print(f"Selected ar command: {AR_CMD}")
 
 def parse_libchdb_cmd():
     """Extract object files and static libraries"""
@@ -108,7 +119,7 @@ def create_static_library(obj_files, lib_files):
     # Check if ar is available (skip on macOS)
     if not IS_MACOS:
         try:
-            subprocess.run(["ar", "--version"],
+            subprocess.run([AR_CMD, "--version"],
                            capture_output=True, check=True)
         except (subprocess.CalledProcessError, FileNotFoundError):
             print("ERROR: ar not found. Please install ar.")
@@ -159,7 +170,7 @@ def create_static_library(obj_files, lib_files):
             # Optimized extraction: analyze for duplicates first, then choose strategy
             try:
                 # First, get list of all object files in the archive
-                list_result = subprocess.run(["ar", "t", lib_file],
+                list_result = subprocess.run([AR_CMD, "t", lib_file],
                                              capture_output=True,
                                              text=True,
                                              check=True)
@@ -202,7 +213,7 @@ def create_static_library(obj_files, lib_files):
                     print(f"Bulk extracting {len(unique_files)} unique files...")
 
                     # Use ar x for bulk extraction of unique files
-                    extract_result = subprocess.run(["ar", "x", lib_file] + unique_files,
+                    extract_result = subprocess.run([AR_CMD, "x", lib_file] + unique_files,
                                                     cwd=lib_temp_dir,
                                                     capture_output=True,
                                                     text=True)
@@ -245,7 +256,7 @@ def create_static_library(obj_files, lib_files):
                         # Process each file in this group with sequential numbering
                         for file_index, target_filename in enumerate(actual_filenames, 1):
                             # Extract this occurrence
-                            extract_result = subprocess.run(["ar", "p", working_archive, target_filename],
+                            extract_result = subprocess.run([AR_CMD, "p", working_archive, target_filename],
                                                             capture_output=True)
 
                             if extract_result.returncode != 0:
@@ -267,24 +278,24 @@ def create_static_library(obj_files, lib_files):
 
                             print(f"Extracted {target_filename} → {unique_filename} (group #{file_index})")
 
-                            if IS_MACOS_X86:
-                                # Move the first occurrence to the end (changes extraction order)
-                                move_result = subprocess.run(["ar", "-m", working_archive, target_filename],
-                                                                capture_output=True)
+                            # if IS_MACOS_X86:
+                            #     # Move the first occurrence to the end (changes extraction order)
+                            #     move_result = subprocess.run([AR_CMD, "-m", working_archive, target_filename],
+                            #                                     capture_output=True)
 
-                                if move_result.returncode != 0:
-                                    print(f"Warning: Failed to move {target_filename} in archive")
-                                    print(f"STDERR: {move_result.stderr.decode() if move_result.stderr else 'No error message'}")
-                                    return False
-                            else:
-                                # Delete this occurrence from working archive
-                                delete_result = subprocess.run(["ar", "d", working_archive, target_filename],
-                                                                capture_output=True)
+                            #     if move_result.returncode != 0:
+                            #         print(f"Warning: Failed to move {target_filename} in archive")
+                            #         print(f"STDERR: {move_result.stderr.decode() if move_result.stderr else 'No error message'}")
+                            #         return False
+                            # else:
+                            # Delete this occurrence from working archive
+                            delete_result = subprocess.run([AR_CMD, "d", working_archive, target_filename],
+                                                            capture_output=True)
 
-                                if delete_result.returncode != 0:
-                                    print(f"Warning: Failed to delete {target_filename} from working archive")
-                                    print(f"STDERR: {delete_result.stderr.decode() if delete_result.stderr else 'No error message'}")
-                                    return False
+                            if delete_result.returncode != 0:
+                                print(f"Warning: Failed to delete {target_filename} from working archive")
+                                print(f"STDERR: {delete_result.stderr.decode() if delete_result.stderr else 'No error message'}")
+                                return False
 
                     # Clean up working archive
                     try:
@@ -351,7 +362,7 @@ def create_static_library(obj_files, lib_files):
 
             # Create empty archive first (skip on macOS as it doesn't support empty archives)
             if not IS_MACOS:
-                result = subprocess.run(["ar", "rcs", output_lib],
+                result = subprocess.run([AR_CMD, "rcs", output_lib],
                                         capture_output=True,
                                         text=True)
 
@@ -368,9 +379,9 @@ def create_static_library(obj_files, lib_files):
                 # On macOS, use 'rcs' for first batch to create archive, 'rs' for subsequent batches
                 # On Linux, always use 'rs' since empty archive was created above
                 if IS_MACOS and i == 0:
-                    cmd = ["ar", "rcs", output_lib] + batch
+                    cmd = [AR_CMD, "rcs", output_lib] + batch
                 else:
-                    cmd = ["ar", "rs", output_lib] + batch
+                    cmd = [AR_CMD, "rs", output_lib] + batch
 
                 result = subprocess.run(cmd,
                                         capture_output=True,
@@ -389,7 +400,7 @@ def create_static_library(obj_files, lib_files):
 
                 # Show library info
                 try:
-                    ar_result = subprocess.run(["ar", "t", output_lib],
+                    ar_result = subprocess.run([AR_CMD, "t", output_lib],
                                               capture_output=True,
                                               text=True)
                     if ar_result.returncode == 0:
@@ -401,7 +412,7 @@ def create_static_library(obj_files, lib_files):
 
                 # Show updated library info after post-processing
                 try:
-                    ar_result = subprocess.run(["ar", "t", output_lib],
+                    ar_result = subprocess.run([AR_CMD, "t", output_lib],
                                               capture_output=True,
                                               text=True)
                     if ar_result.returncode == 0:
