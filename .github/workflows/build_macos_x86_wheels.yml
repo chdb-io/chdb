@@ -85,6 +85,7 @@ jobs:
         timeout-minutes: 300
         if: matrix.python-version == '3.12'
         run: |
+          python3 -m pip install pybind11 setuptools
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
