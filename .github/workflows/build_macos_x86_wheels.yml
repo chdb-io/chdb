@@ -91,6 +91,12 @@ jobs:
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash ./chdb/build/build_static_lib.sh
         continue-on-error: false
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chdb-artifacts-macos-x86_64-${{ matrix.python-version }}
+          path: |
+            ./chdb/build/go-example/libchdb.a
+          overwrite: true
       # - name: Debug libchdb
       #   run: |
       #     ls -lh
