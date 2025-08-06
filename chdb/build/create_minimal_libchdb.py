@@ -5,8 +5,21 @@ Create minimized libchdb.a based on chdb_objects.txt
 """
 
 import os
+import platform
 import sys
 import subprocess
+
+IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
+AR_CMD = ""
+
+if IS_MACOS_X86:
+    AR_CMD = "llvm-ar"
+    print(f"Using llvm-ar for macOS x86 platform to avoid archive corruption issues")
+else:
+    AR_CMD = "ar"
+    print(f"Using standard ar command for platform: {platform.system()} {platform.machine()}")
+
+print(f"Selected ar command: {AR_CMD}")
 
 def read_required_objects(objects_file="chdb_objects.txt"):
     """Read list of required target files"""
@@ -40,8 +53,8 @@ def extract_objects_from_archive(archive_path, required_objects, temp_dir):
     print(f"Extracting object files from {archive_path}...")
 
     # Get all object files in the archive
-    result = subprocess.run(['ar', 't', archive_path],
-                            capture_output=True, text=True)
+    result = subprocess.run([AR_CMD, 't', archive_path],
+                             capture_output=True, text=True)
 
     if result.returncode != 0:
         print(f"❌ Failed to read archive: {result.stderr}")
@@ -131,7 +144,7 @@ def extract_objects_from_archive(archive_path, required_objects, temp_dir):
             batch = objects_list[i:i + batch_size]
             print(f"   Processing batch {i//batch_size + 1}: {len(batch)} files")
 
-            extract_cmd = ['ar', 'x', '../libchdb.a'] + batch
+            extract_cmd = [AR_CMD, 'x', '../libchdb.a'] + batch
             result = subprocess.run(extract_cmd, capture_output=True, text=True)
 
             if result.returncode != 0:
@@ -204,10 +217,10 @@ def create_minimal_library(extracted_files, temp_dir, output_lib="libchdb_minima
 
         if batch_idx == 0:
             # First batch uses 'rcs' to create a new library
-            ar_cmd = ['ar', 'rcs', os.path.abspath(output_lib)] + batch_files
+            ar_cmd = [AR_CMD, 'rcs', os.path.abspath(output_lib)] + batch_files
         else:
             # Subsequent batches use 'rs' to append to the existing library
-            ar_cmd = ['ar', 'rs', os.path.abspath(output_lib)] + batch_files
+            ar_cmd = [AR_CMD, 'rs', os.path.abspath(output_lib)] + batch_files
 
         result = subprocess.run(ar_cmd, capture_output=True, text=True)
 
