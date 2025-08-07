@@ -14,6 +14,7 @@ HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
 MYSQL="-DENABLE_MYSQL=1"
 RUST_FEATURES="-DENABLE_RUST=0"
 JEMALLOC="-DENABLE_JEMALLOC=0"
+LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
 if [ "$(uname)" == "Darwin" ]; then
     export CXX=$(brew --prefix llvm@19)/bin/clang++
     export CC=$(brew --prefix llvm@19)/bin/clang
@@ -24,17 +25,14 @@ if [ "$(uname)" == "Darwin" ]; then
     MYSQL="-DENABLE_MYSQL=0"
     ICU="-DENABLE_ICU=0"
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-    LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
 elif [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
     UNWIND="-DUSE_UNWIND=1"
     ICU="-DENABLE_ICU=1"
     if [ "$(uname -m)" == "x86_64" ]; then
         CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
     else
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
     fi
 else
     echo "OS not supported"
