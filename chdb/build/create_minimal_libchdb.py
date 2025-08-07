@@ -74,6 +74,9 @@ def extract_objects_from_archive(archive_path, required_objects, temp_dir):
     # Find object files that need to be extracted
     objects_to_extract = required_objects.intersection(available_objects)
 
+    # Force exclude any object files containing ASTSQLSecurity
+    objects_to_extract = {obj for obj in objects_to_extract if 'ASTSQLSecurity' not in obj}
+
     # Add all object files starting with "chdb_func" from the archive, but exclude those containing specific keywords
     exclude_keywords = ['h3', 'H3', 'convertCharset', 'lowerUTF8', 'normalizeString', 'upperUTF8']
 
