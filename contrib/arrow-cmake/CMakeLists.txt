@@ -29,7 +29,7 @@ if (OS_FREEBSD)
     message (FATAL_ERROR "Using internal parquet library on FreeBSD is not supported")
 endif()
 
-if (OS_LINUX)
+if (TARGET ch_contrib::jemalloc)
     set (ARROW_JEMALLOC ON)
     add_definitions(-DARROW_JEMALLOC=1)
     message(STATUS "Using jemalloc in arrow lib")
@@ -207,7 +207,7 @@ target_link_libraries(_orc PRIVATE
 target_include_directories(_orc SYSTEM BEFORE PUBLIC
     ${ORC_INCLUDE_DIR}
     "${ClickHouse_SOURCE_DIR}/contrib/arrow-cmake/cpp/src/orc/c++/include")
-if (OS_LINUX)
+if (TARGET ch_contrib::jemalloc)
     target_link_libraries(_orc PRIVATE ch_contrib::jemalloc)
 endif ()
 target_include_directories(_orc SYSTEM BEFORE PUBLIC ${ORC_BUILD_INCLUDE_DIR})
@@ -441,7 +441,7 @@ set(ARROW_SRCS
         "${ARROW_SRC_DIR}/arrow/adapters/orc/options.cc"
         )
 
-if (OS_LINUX)
+if (TARGET ch_contrib::jemalloc)
     SET(ARROW_SRCS "${LIBRARY_DIR}/memory_pool_jemalloc.cc" ${ARROW_SRCS})
 endif()
 
@@ -475,7 +475,7 @@ target_link_libraries(_arrow PRIVATE
     ch_contrib::zstd
     ch_contrib::brotli
 )
-if (OS_LINUX)
+if (TARGET ch_contrib::jemalloc)
     target_link_libraries(_arrow PRIVATE ch_contrib::jemalloc)
 endif ()
 
@@ -562,7 +562,7 @@ target_link_libraries(_parquet
         boost::regex
         OpenSSL::Crypto OpenSSL::SSL)
 
-if (OS_LINUX)
+if (TARGET ch_contrib::jemalloc)
     target_link_libraries(_parquet PRIVATE ch_contrib::jemalloc)
 endif ()
 
