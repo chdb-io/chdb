@@ -3025,12 +3025,13 @@ void Context::makeGlobalContext()
     if (global_context_instance)
     {
         global_context = shared_from_this();
-        global_context_instance = shared_from_this(); 
+        global_context_instance = shared_from_this();
+        DatabaseCatalog::init(shared_from_this());
         return;
     }
 
     global_context_instance = shared_from_this();
-    database_context_instance = shared_from_this(); 
+    database_context_instance = shared_from_this();
     DatabaseCatalog::init(shared_from_this());
     EventNotifier::init();
 
