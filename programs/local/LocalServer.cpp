@@ -995,14 +995,10 @@ void LocalServer::processConfig()
 
             if (!getClientConfiguration().has("only-system-tables"))
             {
-                // chdb todo: maybe fix the destruction order, make sure the background tasks are finished 
-                // GlobalThreadPool destructor will stuck on waiting for background tasks to finish.
-                // This should be fixed in the future. But it seems chdb do not nedd background tasks which
-                // will do some drop table cleanup issues. So we just disable it for now.
-                // before the global thread pool is destroyed.
-                // DatabaseCatalog::instance().createBackgroundTasks();
+                DatabaseCatalog::instance().loadMarkedAsDroppedTables();
+                DatabaseCatalog::instance().createBackgroundTasks();
                 waitLoad(loadMetadata(global_context));
-                // DatabaseCatalog::instance().startupBackgroundTasks();
+                DatabaseCatalog::instance().startupBackgroundTasks();
             }
 
             /// For ClickHouse local if path is not set the loader will be disabled.
