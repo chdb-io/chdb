@@ -28,13 +28,13 @@ if [ -z "$CMAKE_ARGS" ]; then
 fi
 
 build_pybind11_nonlimitedapi() {
+    cd "${BUILD_DIR}"
+
     local py_version=$1
     echo "Building pybind11 nonlimitedapi library for Python ${py_version}..."
 
-    # Add Python version specific CMake args
     local py_cmake_args="${CMAKE_ARGS} -DPYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION=${py_version}"
 
-    # Configure with specific Python version
     cmake ${py_cmake_args} -DENABLE_PYTHON=1 ..
 
     # Build only the pybind11 targets
@@ -60,8 +60,6 @@ build_pybind11_nonlimitedapi() {
         echo "Available files in contrib/pybind11-cmake/:"
         ls -la "${BUILD_DIR}/contrib/pybind11-cmake/" || true
     fi
-
-    cd "${BUILD_DIR}"
 }
 
 build_all_pybind11_nonlimitedapi() {
