@@ -32,7 +32,7 @@ target_compile_definitions(pybind11_stubs PUBLIC
 )
 
 if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)
-    target_compile_options(pybind11_stubs PRIVATE -include crypt.h)
+    target_compile_options(pybind11_stubs PRIVATE -w -idirafter /usr/include -include crypt.h)
 endif()
 
 set_target_properties(pybind11_stubs PROPERTIES
@@ -51,7 +51,7 @@ set(PYBIND11_NONLIMITEDAPI_LIBNAME
 add_library(${PYBIND11_NONLIMITEDAPI_LIBNAME} SHARED ${LIBRARY_DIR}/source/non_limited_api/non_limited_api.cpp)
 
 if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)
-    target_compile_options(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -include crypt.h)
+    target_compile_options(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -w -idirafter /usr/include -include crypt.h)
 endif()
 
 set_target_properties(${PYBIND11_NONLIMITEDAPI_LIBNAME} PROPERTIES
