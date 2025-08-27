@@ -30,6 +30,11 @@ target_compile_definitions(pybind11_stubs PUBLIC
     PYBIND11_NONLIMITEDAPI_LIB_SUFFIX_FOR_MODULE="${PYBIND11_LIB_SUFFIX}"
     Py_LIMITED_API=0x03080000
 )
+
+if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)
+    target_compile_options(pybind11_stubs PRIVATE -include crypt.h)
+endif()
+
 set_target_properties(pybind11_stubs PROPERTIES
     OUTPUT_NAME "pybind11nonlimitedapi_stubs"
 )
@@ -44,6 +49,10 @@ set(PYBIND11_NONLIMITEDAPI_LIBNAME
     "pybind11nonlimitedapi_${PYBIND11_LIB_SUFFIX}_${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}")
 
 add_library(${PYBIND11_NONLIMITEDAPI_LIBNAME} SHARED ${LIBRARY_DIR}/source/non_limited_api/non_limited_api.cpp)
+
+if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)
+    target_compile_options(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -include crypt.h)
+endif()
 
 set_target_properties(${PYBIND11_NONLIMITEDAPI_LIBNAME} PROPERTIES
     OUTPUT_NAME "${PYBIND11_NONLIMITEDAPI_LIBNAME}"
