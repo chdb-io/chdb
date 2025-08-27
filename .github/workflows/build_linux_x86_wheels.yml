@@ -26,17 +26,21 @@ jobs:
     runs-on: gh-64c
     steps:
       - name: Setup pyenv
-        uses: "gabrielfalcao/pyenv-action@v18"
-        with:
-          default: 3.8
-          command: |
-            pyenv install 3.8:latest
-            pyenv install 3.9:latest
-            pyenv install 3.10:latest
-            pyenv install 3.11:latest
-            pyenv install 3.12:latest
-            pyenv install 3.13:latest
-            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+        run: |
+          curl https://pyenv.run | bash
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv install 3.8:latest
+          pyenv install 3.9:latest
+          pyenv install 3.10:latest
+          pyenv install 3.11:latest
+          pyenv install 3.12:latest
+          pyenv install 3.13:latest
+          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+
+          # Verify installations
+          echo "Installed versions:"
+          pyenv versions
       - name: Verify pyenv installations
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
