@@ -50,6 +50,7 @@ jobs:
           done
       - name: Install dependencies for all Python versions
         run: |
+          eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
@@ -89,6 +90,7 @@ jobs:
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
+          eval "$(pyenv init -)"
           pyenv shell 3.8
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
@@ -132,6 +134,7 @@ jobs:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
       - name: Build wheels
         run: |
+          eval "$(pyenv init -)"
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
@@ -139,10 +142,12 @@ jobs:
           make wheel
       - name: Fix wheel platform tag
         run: |
+          eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
       - name: Test wheel on all Python versions
         run: |
+          eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
@@ -181,6 +186,7 @@ jobs:
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m twine upload dist/*.whl
         env:

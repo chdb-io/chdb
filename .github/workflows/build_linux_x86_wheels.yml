@@ -51,6 +51,7 @@ jobs:
           done
       - name: Install dependencies for all Python versions
         run: |
+          eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
@@ -98,6 +99,7 @@ jobs:
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
+          eval "$(pyenv init -)"
           pyenv shell 3.8
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
@@ -115,6 +117,7 @@ jobs:
           df -h
       - name: Build wheels
         run: |
+          eval "$(pyenv init -)"
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           pyenv shell 3.8
@@ -128,6 +131,7 @@ jobs:
           patchelf --version
       - name: Audit wheels
         run: |
+          eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m pip install auditwheel
           auditwheel -v repair -w dist/ --plat manylinux2014_x86_64 dist/*.whl
@@ -139,6 +143,7 @@ jobs:
         shell: bash
       - name: Test wheel on all Python versions
         run: |
+          eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
@@ -174,6 +179,7 @@ jobs:
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m twine upload dist/*.whl
         env:
