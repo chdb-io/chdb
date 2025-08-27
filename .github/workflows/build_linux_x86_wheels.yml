@@ -39,18 +39,23 @@ jobs:
             pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
       - name: Verify pyenv installations
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
           echo "Installed Python versions:"
           pyenv versions
           echo ""
-          echo "Available Python commands:"
+          echo "Verifying all required Python versions are available:"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            if command -v python$version >/dev/null 2>&1; then
-              echo "python$version: $(which python$version)"
-              python$version --version
+            if ! pyenv versions --bare | grep -q "^$version"; then
+              echo "ERROR: Python $version is not installed!"
+              exit 1
             fi
+            echo "✓ Python $version is installed"
           done
+          echo "All Python versions verified successfully!"
       - name: Install dependencies for all Python versions
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Installing dependencies for Python $version"
@@ -99,6 +104,7 @@ jobs:
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.8
           export CC=/usr/bin/clang
@@ -117,6 +123,7 @@ jobs:
           df -h
       - name: Build wheels
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
@@ -131,6 +138,7 @@ jobs:
           patchelf --version
       - name: Audit wheels
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m pip install auditwheel
@@ -143,6 +151,7 @@ jobs:
         shell: bash
       - name: Test wheel on all Python versions
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
@@ -179,6 +188,7 @@ jobs:
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m twine upload dist/*.whl
