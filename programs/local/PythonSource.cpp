@@ -4,14 +4,25 @@
 #include "PandasScan.h"
 #include "StoragePython.h"
 
-#include <Columns/ColumnVector.h>
-
 #include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <memory>
 #include <type_traits>
-#include <vector>
+#include <boolobject.h>
+#include <pybind11/gil.h>
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/pytypes.h>
+#include <pybind11/detail/non_limited_api.h>
+
+#include <Columns/ColumnVector.h>
+#include <Poco/Logger.h>
+#include <Common/COW.h>
+#include <Common/Exception.h>
+#include "PythonUtils.h"
+#include <Common/logger_useful.h>
+#include <Common/typeid_cast.h>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
@@ -25,18 +36,6 @@
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
 #include <base/types.h>
-#include <boolobject.h>
-#include <pybind11/gil.h>
-#include <pybind11/numpy.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/pytypes.h>
-#include <Poco/Logger.h>
-#include <Common/COW.h>
-#include <Common/Exception.h>
-#include "PythonUtils.h"
-#include <Common/logger_useful.h>
-#include <Common/typeid_cast.h>
-
 
 namespace DB
 {
@@ -171,7 +170,7 @@ void PythonSource::convert_string_array_to_block(
 void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * string_column)
 {
     // check if the object is NaN
-    if (obj == Py_None || (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AS_DOUBLE(obj))))
+    if (obj == Py_None || (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AsDouble(obj))))
     {
         // insert default value for string column, which is empty string
         string_column->insertDefault();
@@ -195,13 +194,22 @@ void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * st
     }
     catch (const py::error_already_set & e)
     {
+        // Get type name using stable API
+        py::gil_scoped_acquire acquire;
+        std::string type_name = "unknown";
+        try {
+            type_name = py::str(py::handle(obj).attr("__class__").attr("__name__")).cast<std::string>();
+        } catch (...) {
+            // Fallback if we can't get the type name
+        }
+        
         LOG_ERROR(
             logger,
             "Error converting Python object {} to string: {}, Unicode string expected here. Try convert column type to str with "
             "`astype(str)`",
-            Py_TYPE(obj)->tp_name,
+            type_name,
             e.what());
-        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", Py_TYPE(obj)->tp_name, e.what());
+        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", type_name, e.what());
     }
 }
 

@@ -20,22 +20,43 @@ on:
       - '**/*.md'
 
 jobs:
-  build_wheels_macos_13:
-    name: ${{ matrix.os }} py${{ matrix.python-version }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ macos-13-xlarge ]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-    env:
-      RUNNER_OS: ${{ matrix.os }}
-      PYTHON_VERSION: ${{ matrix.python-version }}
+  build_universal_wheel:
+    name: Build Universal Wheel (macOS ARM64)
+    runs-on: macos-13-xlarge
     steps:
-      - name: Install python
-        uses: actions/setup-python@v4
+      - name: Setup pyenv
+        uses: "gabrielfalcao/pyenv-action@v18"
         with:
-          python-version: "${{ matrix.python-version }}"
+          default: 3.8
+          command: |
+            pyenv install 3.8:latest
+            pyenv install 3.9:latest
+            pyenv install 3.10:latest
+            pyenv install 3.11:latest
+            pyenv install 3.12:latest
+            pyenv install 3.13:latest
+            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+      - name: Verify pyenv installations
+        run: |
+          echo "Installed Python versions:"
+          pyenv versions
+          echo ""
+          echo "Available Python commands:"
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            if command -v python$version >/dev/null 2>&1; then
+              echo "python$version: $(which python$version)"
+              python$version --version
+            fi
+          done
+      - name: Install dependencies for all Python versions
+        run: |
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            echo "Installing dependencies for Python $version"
+            pyenv shell $version
+            python -m pip install --upgrade pip
+            python -m pip install setuptools wheel tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
+            pyenv shell --unset
+          done
       - name: Remove /usr/local/bin/python3
         run: |
           sudo rm -f /usr/local/bin/python3
@@ -62,19 +83,19 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ matrix.os }}
+          key: macos-13-xlarge
           max-size: 5G
           append-timestamp: true
       - name: Run chdb/build.sh
-        timeout-minutes: 300
+        timeout-minutes: 600
         run: |
-          python3 -m pip install pybind11 setuptools
+          pyenv shell 3.8
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
           bash ./chdb/build.sh
-          python3 -m pip install pandas pyarrow
+          pyenv shell 3.8
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Debug libchdb
@@ -109,24 +130,27 @@ jobs:
           df -h
         env:
           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
-      - name: Install dependencies for building wheels
-        run: |
-          python3 -m pip install -U pip tox pybind11 twine setuptools wheel>=0.40.0
       - name: Build wheels
         run: |
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
+          pyenv shell 3.8
           make wheel
       - name: Fix wheel platform tag
         run: |
-          python3 -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
-      - name: Run tests
+          pyenv shell 3.8
+          python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
+      - name: Test wheel on all Python versions
         run: |
-          python3 -m pip install dist/*.whl
-          python3 -m pip install pandas pyarrow psutil deltalake
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
-          make test
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            echo "Testing chdb on Python $version"
+            pyenv shell $version
+            python -m pip install dist/*.whl --force-reinstall
+            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+            make test
+            pyenv shell --unset
+          done
         continue-on-error: false
       - name: Show files
         run: ls -lh dist
@@ -138,19 +162,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Packege libchdb.so
-        if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
           tar -czvf macos-arm64-libchdb.tar.gz libchdb.so chdb.h
       - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           gh release upload ${{ github.ref_name }} macos-arm64-libchdb.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: chdb-artifacts-macos-arm64-${{ matrix.python-version }}
+          name: chdb-artifacts-macos-arm64
           path: |
             ./dist/*.whl
             ./macos-arm64-libchdb.tar.gz
@@ -158,8 +181,8 @@ jobs:
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          python3 -m pip install twine
-          python3 -m twine upload dist/*.whl
+          pyenv shell 3.8
+          python -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}

@@ -21,25 +21,44 @@ on:
 
 
 jobs:
-  build_wheels_linux:
-    name: ${{ matrix.os }} py${{ matrix.python-version }}
+  build_universal_wheel:
+    name: Build Universal Wheel (Linux ARM64)
     runs-on: GH-Linux-ARM64
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-24.04 ]
-        python-version: [ "3.8", "3.9", "3.10", "3.11", "3.12", "3.13" ]
-        # python-version: [ "3.7" ]
-    env:
-      RUNNER_OS: ${{ matrix.os }}
-      PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
-      - name: Install python
-        uses: actions/setup-python@v4
+      - name: Setup pyenv
+        uses: "gabrielfalcao/pyenv-action@v18"
         with:
-          python-version: "${{ matrix.python-version }}"
+          default: 3.8
+          command: |
+            pyenv install 3.8:latest
+            pyenv install 3.9:latest
+            pyenv install 3.10:latest
+            pyenv install 3.11:latest
+            pyenv install 3.12:latest
+            pyenv install 3.13:latest
+            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+      - name: Verify pyenv installations
+        run: |
+          echo "Installed Python versions:"
+          pyenv versions
+          echo ""
+          echo "Available Python commands:"
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            if command -v python$version >/dev/null 2>&1; then
+              echo "python$version: $(which python$version)"
+              python$version --version
+            fi
+          done
+      - name: Install dependencies for all Python versions
+        run: |
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            echo "Installing dependencies for Python $version"
+            pyenv shell $version
+            python -m pip install --upgrade pip
+            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+            pyenv shell --unset
+          done
       - name: Install clang++ for Ubuntu
-        if: matrix.os == 'ubuntu-24.04'
         run: |
           pwd
           uname -a
@@ -65,11 +84,10 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ${{ matrix.os }}
+          key: ubuntu-24.04-aarch64
           max-size: 5G
           append-timestamp: true
       - name: remove old clang and link clang-19 to clang
-        if: matrix.os == 'ubuntu-24.04'
         run: |
           sudo rm -f /usr/bin/clang || true
           sudo ln -s /usr/bin/clang-19 /usr/bin/clang
@@ -78,12 +96,13 @@ jobs:
           which clang++
           clang++ --version
       - name: Run chdb/build.sh
+        timeout-minutes: 600
         run: |
-          python3 -m pip install pybind11 setuptools
+          pyenv shell 3.8
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
-          python3 -m pip install pandas pyarrow
+          pyenv shell 3.8
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Run libchdb stub in examples dir
@@ -94,12 +113,11 @@ jobs:
           ccache -s
           ls -lh chdb
           df -h
-      - name: Install dependencies for building wheels
-        run: python3 -m pip install -U pip tox pybind11 twine setuptools wheel
       - name: Build wheels
         run: |
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
+          pyenv shell 3.8
           make wheel
       - name: Install patchelf from github
         run: |
@@ -110,7 +128,8 @@ jobs:
           patchelf --version
       - name: Audit wheels
         run: |
-          python3 -m pip install auditwheel
+          pyenv shell 3.8
+          python -m pip install auditwheel
           auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
         continue-on-error: false
       - name: Show files
@@ -119,12 +138,16 @@ jobs:
           sudo rm -f dist/*linux_aarch64.whl
           ls -lh dist
         shell: bash
-      - name: Run tests
+      - name: Test wheel on all Python versions
         run: |
-          python3 -m pip install dist/*.whl
-          python3 -m pip install pandas pyarrow psutil deltalake
-          python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
-          make test
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            echo "Testing chdb on Python $version"
+            pyenv shell $version
+            python -m pip install dist/*.whl --force-reinstall
+            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+            make test
+            pyenv shell --unset
+          done
         continue-on-error: false
       - name: Upload wheels to release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -133,19 +156,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Packege libchdb.so
-        if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
           tar -czvf linux-aarch64-libchdb.tar.gz libchdb.so chdb.h
       - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           gh release upload ${{ github.ref_name }} linux-aarch64-libchdb.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: chdb-artifacts-linux-aarch64-${{ matrix.python-version }}
+          name: chdb-artifacts-linux-aarch64
           path: |
             ./dist/*.whl
             ./linux-aarch64-libchdb.tar.gz
@@ -153,8 +175,8 @@ jobs:
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          python3 -m pip install twine
-          python3 -m twine upload dist/*.whl
+          pyenv shell 3.8
+          python -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}

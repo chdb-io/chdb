@@ -5,6 +5,7 @@
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
 #include <pybind11/numpy.h>
+#include <pybind11/detail/non_limited_api.h>
 #include <utf8proc.h>
 #include <Columns/ColumnString.h>
 #include <Common/logger_useful.h>
@@ -126,7 +127,7 @@ int PyString_AsStringAndSize(PyObject * ob, char ** charpp, Py_ssize_t * sizep)
     py::gil_scoped_acquire acquire;
     if (PyUnicode_Check(ob))
     {
-        *charpp = const_cast<char *>(PyUnicode_AsUTF8AndSize(ob, sizep));
+        *charpp = const_cast<char *>(pybind11::non_limited_api::PyUnicode_AsUTF8AndSize(ob, sizep));
         if (*charpp == nullptr)
         {
             return -1;
@@ -141,130 +142,63 @@ int PyString_AsStringAndSize(PyObject * ob, char ** charpp, Py_ssize_t * sizep)
 
 void FillColumnString(PyObject * obj, ColumnString * column)
 {
-    ColumnString::Offsets & offsets = column->getOffsets();
-    ColumnString::Chars & chars = column->getChars();
-    // if obj is bytes
-    // if (PyBytes_Check(obj))
-    // {
-    //     // convert bytes to string
-    //     column->insertData(data, bytes_size);
-    // }
-    // else
-    if (PyUnicode_IS_COMPACT_ASCII(obj))
+    // Simplified implementation using stable API only
+    if (!PyUnicode_Check(obj))
     {
-        // if obj is unicode
-        const char * data = reinterpret_cast<const char *>(PyUnicode_DATA(obj));
-        size_t unicode_len = PyUnicode_GET_LENGTH(obj);
-        column->insertData(data, unicode_len);
+        return;
+    }
+
+    // Use stable API to get UTF-8 representation
+    Py_ssize_t size;
+    const char * data = pybind11::non_limited_api::PyUnicode_AsUTF8AndSize(obj, &size);
+    if (data != nullptr && size >= 0)
+    {
+        column->insertData(data, static_cast<size_t>(size));
     }
     else
     {
-        PyCompactUnicodeObject * unicode = reinterpret_cast<PyCompactUnicodeObject *>(obj);
-        if (unicode->utf8 != nullptr)
+        // Fallback for error cases
+        py::gil_scoped_acquire acquire;
+        char * fallback_data = nullptr;
+        Py_ssize_t fallback_size = 0;
+        if (PyString_AsStringAndSize(obj, &fallback_data, &fallback_size) == 0 && fallback_data != nullptr)
         {
-            // It's utf8 string, treat it like ASCII
-            const char * data = reinterpret_cast<const char *>(unicode->utf8);
-            column->insertData(data, unicode->utf8_length);
-        }
-        else if (PyUnicode_IS_COMPACT(obj))
-        {
-            auto kind = PyUnicode_KIND(obj);
-            const char * data;
-            size_t codepoint_cnt;
-
-            if (kind == PyUnicode_1BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj));
-            else if (kind == PyUnicode_2BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_2BYTE_DATA(obj));
-            else if (kind == PyUnicode_4BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_4BYTE_DATA(obj));
-            else
-                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported unicode kind {}", kind);
-            codepoint_cnt = PyUnicode_GET_LENGTH(obj);
-            ConvertPyUnicodeToUtf8(data, kind, codepoint_cnt, offsets, chars);
+            column->insertData(fallback_data, static_cast<size_t>(fallback_size));
         }
         else
         {
-            Py_ssize_t bytes_size = -1;
-            // const char * data = PyUnicode_AsUTF8AndSize(obj, &bytes_size);
-            char * data = nullptr;
-            bytes_size = PyString_AsStringAndSize(obj, &data, &bytes_size);
-            if (bytes_size < 0)
-                throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
-            column->insertData(data, bytes_size);
+            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
         }
     }
 }
 
-
 const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len)
 {
-    // See: https://github.com/python/cpython/blob/3.9/Include/cpython/unicodeobject.h#L81
-    if (PyUnicode_IS_COMPACT_ASCII(obj))
+    if (!PyUnicode_Check(obj))
     {
-        const char * data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj));
-        buf_len = PyUnicode_GET_LENGTH(obj);
-        return data;
+        buf_len = 0;
+        return nullptr;
     }
-    else
-    {
-        PyCompactUnicodeObject * unicode = reinterpret_cast<PyCompactUnicodeObject *>(obj);
-        if (unicode->utf8 != nullptr)
-        {
-            // It's utf8 string, treat it like ASCII
-            const char * data = reinterpret_cast<const char *>(unicode->utf8);
-            buf_len = unicode->utf8_length;
-            return data;
-        }
-        else if (PyUnicode_IS_COMPACT(obj))
-        {
-            auto kind = PyUnicode_KIND(obj);
-            /// We could not use the implementation provided by CPython like below because it requires GIL holded by the caller
-            // if (kind == PyUnicode_1BYTE_KIND || kind == PyUnicode_2BYTE_KIND || kind == PyUnicode_4BYTE_KIND)
-            // {
-            //     // always convert it to utf8
-            //     const char * data = PyUnicode_AsUTF8AndSize(obj, &unicode->utf8_length);
-            //     buf_len = unicode->utf8_length;
-            //     // set the utf8 buffer back
-            //     unicode->utf8 = const_cast<char *>(data);
-            //     return data;
-            // }
-            const char * data;
-            size_t codepoint_cnt;
 
-            if (kind == PyUnicode_1BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_1BYTE_DATA(obj));
-            else if (kind == PyUnicode_2BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_2BYTE_DATA(obj));
-            else if (kind == PyUnicode_4BYTE_KIND)
-                data = reinterpret_cast<const char *>(PyUnicode_4BYTE_DATA(obj));
-            else
-                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported unicode kind {}", kind);
-            // always convert it to utf8, and we can't use as function provided by CPython because it requires GIL
-            // holded by the caller. So we have to do it manually with libicu
-            codepoint_cnt = PyUnicode_GET_LENGTH(obj);
-            data = ConvertPyUnicodeToUtf8(data, kind, codepoint_cnt, buf_len);
-            // set the utf8 buffer back like PyUnicode_AsUTF8AndSize does, so that we can reuse it
-            // and also we can avoid the memory leak
-            unicode->utf8 = const_cast<char *>(data);
-            unicode->utf8_length = buf_len;
-            return data;
-        }
-        else
+    // Use stable API approach - always convert to UTF-8
+    Py_ssize_t size;
+    const char * data = pybind11::non_limited_api::PyUnicode_AsUTF8AndSize(obj, &size);
+    if (data == nullptr || size < 0)
+    {
+        // Fallback using PyString_AsStringAndSize
+        py::gil_scoped_acquire acquire;
+        char * fallback_data = nullptr;
+        Py_ssize_t fallback_size = 0;
+        if (PyString_AsStringAndSize(obj, &fallback_data, &fallback_size) != 0 || fallback_data == nullptr)
         {
-            // always convert it to utf8, but this case is rare, here goes the slow path
-            py::gil_scoped_acquire acquire;
-            // PyUnicode_AsUTF8AndSize caches the UTF-8 encoded string in the unicodeobject
-            // and subsequent calls will return the same string.  The memory is released
-            // when the unicodeobject is deallocated.
-            Py_ssize_t bytes_size = -1;
-            const char * data = PyUnicode_AsUTF8AndSize(obj, &bytes_size);
-            if (bytes_size < 0)
-                throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
-            buf_len = bytes_size;
-            return data;
+            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
         }
+        buf_len = static_cast<size_t>(fallback_size);
+        return fallback_data;
     }
+
+    buf_len = static_cast<size_t>(size);
+    return data;
 }
 
 bool _isInheritsFromPyReader(const py::handle & obj)
