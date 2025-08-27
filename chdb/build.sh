@@ -3,7 +3,7 @@
 set -e
 
 # default to build Release
-build_type=${1:-Debug}
+build_type=${1:-Release}
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -112,7 +112,6 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DCHDB_VERSION=${CHDB_VERSION} \
     "
 
-
 # # Generate libchdb.so linkage command:
 # #   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-lib.a
 # #       `ar d programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o`
@@ -170,71 +169,71 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
 # fi
 
 
-# LIBCHDB_SO="libchdb.so"
+LIBCHDB_SO="libchdb.so"
 # Build libchdb.so
-# cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 ..
-# ninja -d keeprsp
+cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 ..
+ninja -d keeprsp
 
 
 BINARY=${BUILD_DIR}/programs/clickhouse
-# echo -e "\nBINARY: ${BINARY}"
-# ls -lh ${BINARY}
-# echo -e "\nldd ${BINARY}"
-# ${LDD} ${BINARY}
-# rm -f ${BINARY}
+echo -e "\nBINARY: ${BINARY}"
+ls -lh ${BINARY}
+echo -e "\nldd ${BINARY}"
+${LDD} ${BINARY}
+rm -f ${BINARY}
 
-# cd ${BUILD_DIR}
-# ninja -d keeprsp -v > build.log || true
-# USING_RESPONSE_FILE=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log | grep '@CMakeFiles/clickhouse.rsp' || true)
+cd ${BUILD_DIR}
+ninja -d keeprsp -v > build.log || true
+USING_RESPONSE_FILE=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log | grep '@CMakeFiles/clickhouse.rsp' || true)
 
-# if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-#     if [ -f CMakeFiles/clickhouse.rsp ]; then
-#         cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
-#     else
-#         echo "CMakeFiles/clickhouse.rsp not found"
-#         exit 1
-#     fi
-# fi
+if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+    if [ -f CMakeFiles/clickhouse.rsp ]; then
+        cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
+    else
+        echo "CMakeFiles/clickhouse.rsp not found"
+        exit 1
+    fi
+fi
 
-# LIBCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
-#     | sed "s/-o programs\/clickhouse/-fPIC -shared -o ${LIBCHDB_SO}/" \
-#     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
-#     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
-#     | sed 's/ -Xlinker --no-undefined//g' \
-#     | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g' \
-#      )
+LIBCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
+    | sed "s/-o programs\/clickhouse/-fPIC -shared -o ${LIBCHDB_SO}/" \
+    | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
+    | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
+    | sed 's/ -Xlinker --no-undefined//g' \
+    | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g' \
+     )
 
-# #   generate the command to generate libchdb.so
-# LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
+#   generate the command to generate libchdb.so
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
 
-# if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-#     ${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
-# fi
+if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+    ${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
+fi
 
-# if [ "$(uname)" == "Linux" ]; then
-#     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
-#     if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-#         ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
-#     fi
-# fi
+if [ "$(uname)" == "Linux" ]; then
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
+    if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
+        ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
+    fi
+fi
 
-# if [ "$(uname)" == "Darwin" ]; then
-#     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
-#     # ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
-# fi
+if [ "$(uname)" == "Darwin" ]; then
+    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
+    # ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
+fi
 
-# LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
 
-# # Step 4:
-# #   save the command to a file for debug
-# echo ${LIBCHDB_CMD} > libchdb_cmd.sh
+# Step 4:
+#   save the command to a file for debug
+echo ${LIBCHDB_CMD} > libchdb_cmd.sh
 
-# # Step 5:
-# ${LIBCHDB_CMD}
+# Step 5:
+${LIBCHDB_CMD}
 
-# LIBCHDB_DIR=${BUILD_DIR}/
-# LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
-# ls -lh ${LIBCHDB}
+LIBCHDB_DIR=${BUILD_DIR}/
+LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
+ls -lh ${LIBCHDB}
 
 # build chdb python module
 cmake ${CMAKE_ARGS} -DENABLE_PYTHON=1 ..
@@ -265,6 +264,7 @@ PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
     | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/pychdb.rsp/g' \
      )
 
+
 # # inplace modify the CMakeFiles/pychdb.rsp
 # ${SED_INPLACE} 's/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/' CMakeFiles/pychdb.rsp
 # ${SED_INPLACE} 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' CMakeFiles/pychdb.rsp
@@ -293,52 +293,52 @@ echo ${PYCHDB_CMD} > pychdb_cmd.sh
 
 ${PYCHDB_CMD}
 
-# ls -lh ${CHDB_PY_MODULE}
+ls -lh ${CHDB_PY_MODULE}
 
 ## check all the so files
 LIBCHDB_DIR=${BUILD_DIR}/
 
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
-# LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
+LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 
-# if [ ${build_type} == "Debug" ]; then
-#     echo -e "\nDebug build, skip strip"
-# else
-#     echo -e "\nStrip the binary:"
-#     ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
-#     ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
-# fi
-# echo -e "\nStripe the binary:"
+if [ ${build_type} == "Debug" ]; then
+    echo -e "\nDebug build, skip strip"
+else
+    echo -e "\nStrip the binary:"
+    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
+fi
+echo -e "\nStripe the binary:"
 
-# echo -e "\nPYCHDB: ${PYCHDB}"
-# ls -lh ${PYCHDB}
-# echo -e "\nLIBCHDB: ${LIBCHDB}"
-# ls -lh ${LIBCHDB}
-# echo -e "\nldd ${PYCHDB}"
-# ${LDD} ${PYCHDB}
-# echo -e "\nfile info of ${PYCHDB}"
-# file ${PYCHDB}
-# echo -e "\nldd ${LIBCHDB}"
-# ${LDD} ${LIBCHDB}
-# echo -e "\nfile info of ${LIBCHDB}"
-# file ${LIBCHDB}
+echo -e "\nPYCHDB: ${PYCHDB}"
+ls -lh ${PYCHDB}
+echo -e "\nLIBCHDB: ${LIBCHDB}"
+ls -lh ${LIBCHDB}
+echo -e "\nldd ${PYCHDB}"
+${LDD} ${PYCHDB}
+echo -e "\nfile info of ${PYCHDB}"
+file ${PYCHDB}
+echo -e "\nldd ${LIBCHDB}"
+${LDD} ${LIBCHDB}
+echo -e "\nfile info of ${LIBCHDB}"
+file ${LIBCHDB}
 
 rm -f ${CHDB_DIR}/*.so
 cp -a ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
-# cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
+cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
 
-# echo -e "\nSymbols:"
-# echo -e "\nPyInit in PYCHDB: ${PYCHDB}"
-# ${NM} ${PYCHDB} | grep PyInit || true
-# echo -e "\nPyInit in LIBCHDB: ${LIBCHDB}"
-# ${NM} ${LIBCHDB} | grep PyInit || echo "PyInit not found in ${LIBCHDB}, it's OK"
-# echo -e "\nquery_stable in PYCHDB: ${PYCHDB}"
-# ${NM} ${PYCHDB} | grep query_stable || true
-# echo -e "\nquery_stable in LIBCHDB: ${LIBCHDB}"
-# ${NM} ${LIBCHDB} | grep query_stable || true
+echo -e "\nSymbols:"
+echo -e "\nPyInit in PYCHDB: ${PYCHDB}"
+${NM} ${PYCHDB} | grep PyInit || true
+echo -e "\nPyInit in LIBCHDB: ${LIBCHDB}"
+${NM} ${LIBCHDB} | grep PyInit || echo "PyInit not found in ${LIBCHDB}, it's OK"
+echo -e "\nquery_stable in PYCHDB: ${PYCHDB}"
+${NM} ${PYCHDB} | grep query_stable || true
+echo -e "\nquery_stable in LIBCHDB: ${LIBCHDB}"
+${NM} ${LIBCHDB} | grep query_stable || true
 
-# echo -e "\nAfter copy:"
-# cd ${PROJ_DIR} && pwd
+echo -e "\nAfter copy:"
+cd ${PROJ_DIR} && pwd
 # ls -lh ${PROJ_DIR}
 
 # strip the binary (no debug info at all)

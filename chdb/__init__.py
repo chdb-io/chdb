@@ -19,7 +19,7 @@ _process_result_format_funs = {
 # UDF script path will be f"{g_udf_path}/{func_name}.py"
 g_udf_path = ""
 
-chdb_version = ('3', '5', '0')
+chdb_version = ('0', '6', '0')
 if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
