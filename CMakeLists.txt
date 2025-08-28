@@ -352,7 +352,7 @@ if (OS_DARWIN)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-U,_inside_main")
     endif()
 elseif (USE_PYTHON)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--allow-shlib-undefined")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-all")
 endif()
 
 # Display absolute paths in error messages. Otherwise KDevelop fails to navigate to correct file and opens a new file instead.
@@ -423,9 +423,9 @@ if (WERROR)
 endif ()
 
 # Make this extra-checks for correct library dependencies.
-if (OS_LINUX AND NOT SANITIZE)
-    target_link_options(global-group INTERFACE "LINKER:--no-undefined")
-endif ()
+# if (OS_LINUX AND NOT SANITIZE)
+#     target_link_options(global-group INTERFACE "LINKER:--no-undefined")
+# endif ()
 
 ######################################
 ### Add targets below this comment ###
