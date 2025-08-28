@@ -142,34 +142,14 @@ int PyString_AsStringAndSize(PyObject * ob, char ** charpp, Py_ssize_t * sizep)
 
 void FillColumnString(PyObject * obj, ColumnString * column)
 {
-    // Simplified implementation using stable API only
-    if (!PyUnicode_Check(obj))
-    {
-        return;
-    }
-
-    // Use stable API to get UTF-8 representation
-    Py_ssize_t size;
-    const char * data = pybind11::non_limited_api::PyUnicode_AsUTF8AndSize(obj, &size);
-    if (data != nullptr && size >= 0)
-    {
-        column->insertData(data, static_cast<size_t>(size));
-    }
-    else
-    {
-        // Fallback for error cases
-        py::gil_scoped_acquire acquire;
-        char * fallback_data = nullptr;
-        Py_ssize_t fallback_size = 0;
-        if (PyString_AsStringAndSize(obj, &fallback_data, &fallback_size) == 0 && fallback_data != nullptr)
-        {
-            column->insertData(fallback_data, static_cast<size_t>(fallback_size));
-        }
-        else
-        {
-            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
-        }
-    }
+    ColumnString::Offsets & offsets = column->getOffsets();
+    ColumnString::Chars & chars = column->getChars();
+    Py_ssize_t bytes_size = -1;
+    char * data = nullptr;
+    bytes_size = PyString_AsStringAndSize(obj, &data, &bytes_size);
+    if (bytes_size < 0)
+        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
+    column->insertData(data, bytes_size);
 }
 
 const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len)
