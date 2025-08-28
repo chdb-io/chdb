@@ -41,6 +41,8 @@ set_target_properties(pybind11_stubs PROPERTIES
 
 if (APPLE)
     target_link_options(pybind11_stubs PRIVATE -undefined dynamic_lookup)
+else()
+    target_link_options(pybind11_stubs PRIVATE -Wl,--unresolved-symbols=ignore-all)
 endif()
 
 add_library(ch_contrib::pybind11_stubs ALIAS pybind11_stubs)

@@ -351,6 +351,8 @@ if (OS_DARWIN)
     else()
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-U,_inside_main")
     endif()
+elseif (USE_PYTHON)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--unresolved-symbols=ignore-all")
 endif()
 
 # Display absolute paths in error messages. Otherwise KDevelop fails to navigate to correct file and opens a new file instead.
