@@ -84,7 +84,6 @@ struct StreamingQueryContext
     ASTPtr parsed_query;
     void * streaming_result = nullptr;
     bool is_streaming_query = true;
-    Int64 limit = 0;
 
     StreamingQueryContext() = default;
 };

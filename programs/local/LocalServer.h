@@ -8,6 +8,7 @@
 #include <Loggers/Loggers.h>
 #include <Common/InterruptListener.h>
 #include <Common/StatusFile.h>
+#include <Common/MemoryWorker.h>
 
 #include <filesystem>
 #include <memory>
@@ -91,6 +92,8 @@ public:
 
 private:
     void cleanStreamingQuery();
+
+    std::unique_ptr<MemoryWorker> memory_worker;
 };
 
 }
