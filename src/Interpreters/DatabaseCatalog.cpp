@@ -939,6 +939,8 @@ void DatabaseCatalog::shutdown()
     {
         database_catalog->shutdownImpl();
     }
+
+    database_catalog.reset();
 }
 
 DatabasePtr DatabaseCatalog::getDatabase(const String & database_name, ContextPtr local_context) const
