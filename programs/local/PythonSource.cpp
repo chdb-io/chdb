@@ -104,30 +104,10 @@ void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr
 void PythonSource::insert_string_from_array(const py::handle obj, const MutableColumnPtr & column)
 {
     auto array = castToPyHandleVector(obj);
+    auto * string_column = static_cast<ColumnString *>(column.get());
     for (auto && item : array)
     {
-        size_t str_len;
-        const char * ptr = GetPyUtf8StrData(item.ptr(), str_len);
-        column->insertData(ptr, str_len);
-    }
-}
-
-void PythonSource::insert_string_from_array_raw(
-    PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
-{
-    column->reserve(row_count);
-    for (size_t i = offset; i < offset + row_count; ++i)
-    {
-        size_t str_len;
-        auto * obj = buf[i];
-        if (!PyUnicode_Check(obj))
-        {
-            insert_obj_to_string_column(obj, static_cast<ColumnString *>(column.get()));
-            continue;
-        }
-
-        const char * ptr = GetPyUtf8StrData(buf[i], str_len);
-        column->insertData(ptr, str_len);
+        FillColumnString(item.ptr(), string_column);
     }
 }
 
@@ -196,13 +176,16 @@ void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * st
     {
         // Get type name using stable API
         py::gil_scoped_acquire acquire;
-        std::string type_name = "unknown";
-        try {
+        std::string type_name;
+        try
+        {
             type_name = py::str(py::handle(obj).attr("__class__").attr("__name__")).cast<std::string>();
-        } catch (...) {
-            // Fallback if we can't get the type name
         }
-        
+        catch (...)
+        {
+            type_name = "unknown";
+        }
+
         LOG_ERROR(
             logger,
             "Error converting Python object {} to string: {}, Unicode string expected here. Try convert column type to str with "

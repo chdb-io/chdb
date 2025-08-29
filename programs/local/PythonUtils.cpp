@@ -13,59 +13,11 @@
 namespace DB
 {
 
-const char * ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, size_t & output_size)
-{
-    if (input == nullptr)
-    {
-        return nullptr;
-    }
-
-    char * output_buffer = new char[codepoint_cnt * 4 + 1]; // Allocate buffer based on calculated size
-    char * target = output_buffer;
-    size_t total_size = 0;
-
-    // Encode each Unicode codepoint to UTF-8 using utf8proc
-    switch (kind)
-    {
-        case 1: {
-            const auto * start = static_cast<const uint8_t *>(input);
-            for (size_t i = 0; i < codepoint_cnt; ++i)
-            {
-                int sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(target));
-                target += sz;
-                total_size += sz;
-            }
-            break;
-        }
-        case 2: {
-            const auto * start = static_cast<const uint16_t *>(input);
-            for (size_t i = 0; i < codepoint_cnt; ++i)
-            {
-                int sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(target));
-                target += sz;
-                total_size += sz;
-            }
-            break;
-        }
-        case 4: {
-            const auto * start = static_cast<const uint32_t *>(input);
-            for (size_t i = 0; i < codepoint_cnt; ++i)
-            {
-                int sz = utf8proc_encode_char(start[i], reinterpret_cast<utf8proc_uint8_t *>(target));
-                target += sz;
-                total_size += sz;
-            }
-            break;
-        }
-    }
-
-    output_buffer[total_size] = '\0'; // Null-terminate the output string
-    output_size = total_size;
-    return output_buffer;
-}
-
-size_t
-ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, ColumnString::Offsets & offsets, ColumnString::Chars & chars)
+/// Helper function to convert Python 1,2,4 bytes unicode string to utf8 with icu4c
+/// kind: 1 for 1-byte characters (Latin1/ASCII equivalent in ICU)
+///       2 for 2-byte characters (UTF-16 equivalent)
+///       4 for 4-byte characters (Assume UCS-4/UTF-32)
+static size_t ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, ColumnString::Offsets & offsets, ColumnString::Chars & chars)
 {
     if (input == nullptr)
     {
@@ -121,64 +73,29 @@ ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, Colum
     return offset; // Return the number of bytes written, not including the null terminator
 }
 
-int PyString_AsStringAndSize(PyObject * ob, char ** charpp, Py_ssize_t * sizep)
+void FillColumnString(PyObject * obj, ColumnString * column)
 {
-    // always convert it to utf8, but this case is rare, here goes the slow path
-    py::gil_scoped_acquire acquire;
-    if (PyUnicode_Check(ob))
+    const char * data;
+    size_t length;
+    int kind;
+    size_t codepoint_cnt;
+    bool direct_insert;
+
+    if (pybind11::non_limited_api::chdbGetPyUnicodeUtf8(obj, data, length, kind, codepoint_cnt, direct_insert))
     {
-        *charpp = const_cast<char *>(pybind11::non_limited_api::PyUnicode_AsUTF8AndSize(ob, sizep));
-        if (*charpp == nullptr)
+        if (direct_insert)
         {
-            return -1;
+            column->insertData(data, length);
         }
-        return 0;
+        else
+        {
+            ConvertPyUnicodeToUtf8(data, kind, codepoint_cnt, column->getOffsets(), column->getChars());
+        }
     }
     else
     {
-        return PyBytes_AsStringAndSize(ob, charpp, sizep);
-    }
-}
-
-void FillColumnString(PyObject * obj, ColumnString * column)
-{
-    ColumnString::Offsets & offsets = column->getOffsets();
-    ColumnString::Chars & chars = column->getChars();
-    Py_ssize_t bytes_size = -1;
-    char * data = nullptr;
-    bytes_size = PyString_AsStringAndSize(obj, &data, &bytes_size);
-    if (bytes_size < 0)
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
-    column->insertData(data, bytes_size);
-}
-
-const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len)
-{
-    if (!PyUnicode_Check(obj))
-    {
-        buf_len = 0;
-        return nullptr;
     }
-
-    // Use stable API approach - always convert to UTF-8
-    Py_ssize_t size;
-    const char * data = pybind11::non_limited_api::PyUnicode_AsUTF8AndSize(obj, &size);
-    if (data == nullptr || size < 0)
-    {
-        // Fallback using PyString_AsStringAndSize
-        py::gil_scoped_acquire acquire;
-        char * fallback_data = nullptr;
-        Py_ssize_t fallback_size = 0;
-        if (PyString_AsStringAndSize(obj, &fallback_data, &fallback_size) != 0 || fallback_data == nullptr)
-        {
-            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Failed to convert Python unicode object to UTF-8");
-        }
-        buf_len = static_cast<size_t>(fallback_size);
-        return fallback_data;
-    }
-
-    buf_len = static_cast<size_t>(size);
-    return data;
 }
 
 bool _isInheritsFromPyReader(const py::handle & obj)
