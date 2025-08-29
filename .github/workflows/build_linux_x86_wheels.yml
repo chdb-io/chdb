@@ -158,10 +158,7 @@ jobs:
           patchelf --version
       - name: Audit wheels
         run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m pip install auditwheel
+          python3 -m pip install auditwheel
           auditwheel -v repair -w dist/ --plat manylinux2014_x86_64 dist/*.whl
         continue-on-error: false
       - name: Show files
