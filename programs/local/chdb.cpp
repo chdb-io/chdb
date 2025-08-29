@@ -15,6 +15,17 @@ extern thread_local bool chdb_destructor_cleanup_in_progress;
 namespace CHDB
 {
 
+/**
+ * RAII guard for accurate memory tracking in chDB external interfaces
+ *
+ * When Python (or other programming language) threads call chDB-provided interfaces
+ * such as chdb_destroy_query_result, the memory released cannot be accurately tracked
+ * by ClickHouse's MemoryTracker, which may lead to false reports of insufficient memory.
+ *
+ * Therefore, for all externally exposed chDB interfaces, ChdbDestructorGuard must be
+ * used at the beginning of execution to provide thread marking, enabling MemoryTracker
+ * to accurately track memory changes.
+ */
 class ChdbDestructorGuard
 {
 public:
