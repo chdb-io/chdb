@@ -6,7 +6,7 @@ import re
 # You can use it to load large dataset.
 RE_INSERT_VALUES = re.compile(
     r"\s*((?:INSERT|REPLACE)\b.+\bVALUES?\s*)"
-    + r"(\(\s*(?:%s|%\(.+\)s)\s*(?:,\s*(?:%s|%\(.+\)s)\s*)*\))"
+    + r"(\(\s*(?:%s|%\(.+\)s|\?)\s*(?:,\s*(?:%s|%\(.+\)s|\?)\s*)*\))"
     + r"(\s*(?:ON DUPLICATE.*)?);?\s*\Z",
     re.IGNORECASE | re.DOTALL,
 )
@@ -99,6 +99,42 @@ class Cursor(object):
             # Worst case it will throw a Value error
             return conn.escape(args)
 
+    def _format_query(self, query, args, conn):
+        """Format query with arguments supporting ? and % placeholders."""
+        if args is None:
+            return query
+
+        if isinstance(args, (tuple, list)) and '?' in query:
+            escaped_args = self._escape_args(args, conn)
+            result = []
+            arg_index = 0
+            in_string = False
+            quote_char = None
+
+            for i, char in enumerate(query):
+                # Track string literals to avoid replacing ? inside strings
+                if not in_string and char in ("'", '"'):
+                    in_string = True
+                    quote_char = char
+                elif in_string and char == quote_char:
+                    # Check if it's an escaped quote
+                    if i == 0 or query[i-1] != '\\':
+                        in_string = False
+                        quote_char = None
+
+                # Only replace ? outside of string literals
+                if char == '?' and not in_string and arg_index < len(escaped_args):
+                    result.append(str(escaped_args[arg_index]))
+                    arg_index += 1
+                else:
+                    result.append(char)
+
+            return ''.join(result)
+        elif '%' in query:
+            return query % self._escape_args(args, conn)
+
+        return query
+
     def mogrify(self, query, args=None):
         """
         Returns the exact string that is sent to the database by calling the
@@ -107,11 +143,7 @@ class Cursor(object):
         This method follows the extension to the DB API 2.0 followed by Psycopg.
         """
         conn = self._get_db()
-
-        if args is not None:
-            query = query % self._escape_args(args, conn)
-
-        return query
+        return self._format_query(query, args, conn)
 
     def execute(self, query, args=None):
         """Execute a query
@@ -124,12 +156,11 @@ class Cursor(object):
         :return: Number of affected rows
         :rtype: int
 
-        If args is a list or tuple, %s can be used as a placeholder in the query.
+        If args is a list or tuple, ? can be used as a placeholder in the query.
         If args is a dict, %(name)s can be used as a placeholder in the query.
+        Also supports %s placeholder for backward compatibility.
         """
-        if args is not None:
-            query = query % self._escape_args(args, self.connection)
-
+        query = self._format_query(query, args, self.connection)
         self._cursor.execute(query)
 
         # Get description from column names and types
@@ -194,13 +225,23 @@ class Cursor(object):
             postfix = postfix.encode(encoding)
         sql = prefix
         args = iter(args)
-        v = values % escape(next(args), conn)
+
+        first_arg = next(args)
+        if '?' in values:
+            v = self._format_query(values, first_arg, conn)
+        else:
+            v = values % escape(first_arg, conn)
+
         if isinstance(v, str):
             v = v.encode(encoding, "surrogateescape")
         sql += v
         rows = 0
         for arg in args:
-            v = values % escape(arg, conn)
+            if '?' in values:
+                v = self._format_query(values, arg, conn)
+            else:
+                v = values % escape(arg, conn)
+
             if isinstance(v, str):
                 v = v.encode(encoding, "surrogateescape")
             if len(sql) + len(v) + len(postfix) + 1 > max_stmt_length:
