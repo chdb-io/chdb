@@ -12,35 +12,8 @@ log.set_verbosity(log.DEBUG)
 
 
 def get_python_ext_suffix():
-    internal_ext_suffix = sysconfig.get_config_var("EXT_SUFFIX")
-    p = subprocess.run(
-        [
-            "python3",
-            "-c",
-            "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if p.returncode != 0:
-        print("Failed to get EXT_SUFFIX via python3")
-        return internal_ext_suffix
-    py_ext_suffix = p.stdout.strip()
-    if py_ext_suffix != internal_ext_suffix:
-        print("EXT_SUFFIX mismatch")
-        print("Internal EXT_SUFFIX: " + internal_ext_suffix)
-        print("Python3 EXT_SUFFIX: " + py_ext_suffix)
-        print("Current Python Path: " + sys.executable)
-        print("Current Python Version: " + sys.version)
-        print(
-            "Outside Python Path: "
-            + subprocess.check_output(["which", "python3"]).decode("utf-8").strip()
-        )
-        print(
-            "Outside Python Version: "
-            + subprocess.check_output(["python3", "--version"]).decode("utf-8").strip()
-        )
-    return py_ext_suffix
+    # Use Limited API suffix for cross-version compatibility
+    return ".abi3.so"
 
 
 # get the path of the current file
@@ -183,10 +156,11 @@ if __name__ == "__main__":
             Extension(
                 "_chdb",
                 sources=["programs/local/LocalChdb.cpp"],
-                language="c++",
                 libraries=[],
                 library_dirs=[libdir],
                 extra_objects=[chdb_so],
+                define_macros=[("Py_LIMITED_API", "0x03080000")],
+                py_limited_api=True,
             ),
         ]
         # fix the version in chdb/__init__.py
@@ -195,12 +169,22 @@ if __name__ == "__main__":
         # Call the function to update pyproject.toml
         # update_pyproject_version(versionStr)
 
-        # scan the chdb directory and add all the .py files to the package
+        # scan the chdb directory and add all the .py and dynamic library files to the package
         pkg_files = []
         for root, dirs, files in os.walk(libdir):
+            if "/build" in root or root.endswith("/build"):
+                continue
+
             for file in files:
                 if file.endswith(".py"):
                     pkg_files.append(os.path.join(root, file))
+                # Include pybind11 nonlimitedapi libraries for all Python versions
+                elif file.startswith("libpybind11nonlimitedapi_chdb_") and (file.endswith(".dylib") or file.endswith(".so")):
+                    pkg_files.append(os.path.join(root, file))
+                # Include pybind11 stub library
+                elif file.startswith("libpybind11nonlimitedapi_stubs") and (file.endswith(".dylib") or file.endswith(".so")):
+                    pkg_files.append(os.path.join(root, file))
+
         pkg_files.append(chdb_so)
 
         setup(
@@ -217,6 +201,11 @@ if __name__ == "__main__":
             cmdclass={"build_ext": BuildExt},
             test_suite="tests",
             zip_safe=False,
+            options={
+                "bdist_wheel": {
+                    "py_limited_api": "cp38",
+                }
+            },
         )
     except Exception as e:
         print("Build from setup.py failed. Error: ")

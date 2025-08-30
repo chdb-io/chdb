@@ -78,7 +78,6 @@ private:
 
     void insert_string_from_array(py::handle obj, const MutableColumnPtr & column);
 
-    void insert_string_from_array_raw(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
     void prepareColumnCache(Names & names, Columns & columns);
     Chunk scanDataToChunk();
     void destory(PyObjectVecPtr & data);

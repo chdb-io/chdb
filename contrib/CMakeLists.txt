@@ -103,6 +103,10 @@ add_contrib (h3-cmake h3)
 add_contrib (mariadb-connector-c-cmake mariadb-connector-c)
 add_contrib (libfiu-cmake libfiu)
 
+if (ENABLE_PYTHON)
+    add_contrib (pybind11-cmake pybind11)
+endif()
+
 if (ENABLE_TESTS)
     add_contrib (googletest-cmake googletest)
 endif()

@@ -28,12 +28,9 @@ if (USE_PYTHON)
     )
     set (CLICKHOUSE_LOCAL_SOURCES ${CLICKHOUSE_LOCAL_SOURCES} ${CHDB_SOURCES})
 
-    # include path from shell cmd "python3 -m pybind11 --includes"
-    execute_process(COMMAND python3 -m pybind11 --includes
-        OUTPUT_VARIABLE PYBIND11_INCLUDES
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYBIND11_INCLUDE_DIR ${PYBIND11_INCLUDES})
+    # Use contrib/pybind11 instead of system pybind11
+    set(PYBIND11_INCLUDE_DIR "${ClickHouse_SOURCE_DIR}/contrib/pybind11/include")
+
     include_directories(${PYBIND11_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
     # include Python.h
@@ -113,6 +110,10 @@ if (TARGET ch_contrib::azure_sdk)
 endif()
 if (TARGET ch_contrib::utf8proc)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::utf8proc)
+endif()
+if (TARGET ch_contrib::pybind11_stubs)
+    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::pybind11_stubs)
+    target_compile_definitions(clickhouse-local-lib PRIVATE Py_LIMITED_API=0x03080000)
 endif()
 
 # Always use internal readpassphrase
