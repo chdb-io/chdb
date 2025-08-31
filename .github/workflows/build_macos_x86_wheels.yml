@@ -1,188 +1,209 @@
-# name: Build macOS X86
+name: Build macOS X86
 
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       TAG_NAME:
-#         description: 'Release Version Tag'
-#         required: true
-#   release:
-#     types: [created]
-#   push:
-#     branches:
-#       - main
-#     paths-ignore:
-#       - '**/*.md'
-#   pull_request:
-#     branches:
-#       - main
-#     paths-ignore:
-#       - '**/*.md'
+on:
+  workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: 'Release Version Tag'
+        required: true
+  release:
+    types: [created]
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
-# jobs:
-#   build_universal_wheel:
-#     name: Build Universal Wheel (macOS x86_64)
-#     runs-on: macos-13
-#     steps:
-#       - name: Setup pyenv
-#         uses: "gabrielfalcao/pyenv-action@v18"
-#         with:
-#           default: 3.8
-#           command: |
-#             pyenv install 3.8:latest
-#             pyenv install 3.9:latest
-#             pyenv install 3.10:latest
-#             pyenv install 3.11:latest
-#             pyenv install 3.12:latest
-#             pyenv install 3.13:latest
-#             pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
-#       - name: Verify pyenv installations
-#         run: |
-#           echo "Installed Python versions:"
-#           pyenv versions
-#           echo ""
-#           echo "Available Python commands:"
-#           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-#             if command -v python$version >/dev/null 2>&1; then
-#               echo "python$version: $(which python$version)"
-#               python$version --version
-#             fi
-#           done
-#       - name: Install dependencies for all Python versions
-#         run: |
-#           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-#             echo "Installing dependencies for Python $version"
-#             pyenv shell $version
-#             python -m pip install --upgrade pip
-#             python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
-#             pyenv shell --unset
-#           done
-#       - name: Remove /usr/local/bin/python3
-#         run: |
-#           sudo rm -f /usr/local/bin/python3
-#       - name: Install clang++ for macOS
-#         run: |
-#           pwd
-#           uname -a
-#           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-#           brew update
-#           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
-#           brew install --ignore-dependencies llvm@19
-#           brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
-#           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
-#           export PATH=$(brew --prefix llvm@19)/bin:$PATH
-#           which clang++
-#           clang++ --version
-#           ccache -s
-#       - uses: actions/checkout@v3
-#         with:
-#           fetch-depth: 0
-#       - name: Update submodules
-#         run: |
-#           git submodule update --init --recursive --jobs 4
-#       - name: ccache
-#         uses: hendrikmuhs/ccache-action@v1.2
-#         with:
-#           key: macos-13-x86_64
-#           max-size: 5G
-#           append-timestamp: true
-#       - name: Run chdb/build.sh
-#         timeout-minutes: 600
-#         run: |
-#           pyenv shell 3.8
-#           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-#           export CC=$(brew --prefix llvm@19)/bin/clang
-#           export CXX=$(brew --prefix llvm@19)/bin/clang++
-#           bash gen_manifest.sh
-#           bash ./chdb/build.sh
-#           pyenv shell 3.8
-#           bash -x ./chdb/test_smoke.sh
-#         continue-on-error: false
-#       - name: Debug libchdb
-#         run: |
-#           ls -lh
-#           llvm-nm libchdb.so | grep query_stable || true
-#           echo "Global Symbol in libchdb.so:"
-#           llvm-nm -g libchdb.so || true
-#           echo "Global Symbol in libclickhouse-local-chdb.a:"
-#           llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
-#           echo "Global Symbol in libclickhouse-local-lib.a:"
-#           llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
-#           echo "pychdb_cmd.sh:"
-#           cat buildlib/pychdb_cmd.sh
-#           echo "libchdb_cmd.sh:"
-#           cat buildlib/libchdb_cmd.sh
-#       - name: Run libchdb stub in examples dir
-#         run: |
-#           bash -x ./examples/runStub.sh
-#       - name: Keep killall ccache and wait for ccache to finish
-#         if: always()
-#         run: |
-#           sleep 60
-#           while ps -ef | grep ccache | grep -v grep; do \
-#             killall ccache; \
-#             sleep 10; \
-#           done
-#       - name: Check ccache statistics
-#         run: |
-#           ccache -s
-#           ls -lh chdb
-#           df -h
-#         env:
-#           CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
-#       - name: Build wheels
-#         run: |
-#           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-#           export CC=$(brew --prefix llvm@19)/bin/clang
-#           export CXX=$(brew --prefix llvm@19)/bin/clang++
-#           pyenv shell 3.8
-#           make wheel
-#       - name: Fix wheel platform tag
-#         run: |
-#           pyenv shell 3.8
-#           python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
-#       - name: Test wheel on all Python versions
-#         run: |
-#           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-#             echo "Testing chdb on Python $version"
-#             pyenv shell $version
-#             python -m pip install dist/*.whl --force-reinstall
-#             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-#             make test
-#             pyenv shell --unset
-#           done
-#         continue-on-error: false
-#       - name: Show files
-#         run: ls -lh dist
-#         shell: bash
-#       - name: Upload wheels to release
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-#       - name: Packege libchdb.so
-#         run: |
-#           cp programs/local/chdb.h chdb.h
-#           tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h
-#       - name: Upload libchdb.so to release
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-#       - uses: actions/upload-artifact@v4
-#         with:
-#           name: chdb-artifacts-macos-x86_64
-#           path: |
-#             ./dist/*.whl
-#             ./macos-x86_64-libchdb.tar.gz
-#           overwrite: true
-#       - name: Upload pypi
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           pyenv shell 3.8
-#           python -m twine upload dist/*.whl
-#         env:
-#           TWINE_USERNAME: __token__
-#           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+jobs:
+  build_universal_wheel:
+    name: Build Universal Wheel (macOS x86_64)
+    runs-on: macos-13
+    steps:
+      - name: Setup pyenv
+        run: |
+          curl https://pyenv.run | bash
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+
+          pyenv install 3.8:latest
+          pyenv install 3.9:latest
+          pyenv install 3.10:latest
+          pyenv install 3.11:latest
+          pyenv install 3.12:latest
+          pyenv install 3.13:latest
+          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+
+          echo "Installed versions:"
+          pyenv versions
+      - name: Verify pyenv installations
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          echo "Installed Python versions:"
+          pyenv versions
+          echo ""
+          echo "Verifying all required Python versions are available:"
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            if ! pyenv versions --bare | grep -q "^$version"; then
+              echo "ERROR: Python $version is not installed!"
+              exit 1
+            fi
+            echo "✓ Python $version is installed"
+          done
+          echo "All Python versions verified successfully!"
+      - name: Install dependencies for all Python versions
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            echo "Installing dependencies for Python $version"
+            pyenv shell $version
+            python -m pip install --upgrade pip
+            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
+            pyenv shell --unset
+          done
+      - name: Remove /usr/local/bin/python3
+        run: |
+          sudo rm -f /usr/local/bin/python3
+      - name: Install clang++ for macOS
+        run: |
+          pwd
+          uname -a
+          export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+          brew update
+          brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
+          brew install --ignore-dependencies llvm@19
+          brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
+          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
+          export PATH=$(brew --prefix llvm@19)/bin:$PATH
+          which clang++
+          clang++ --version
+          ccache -s
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Update submodules
+        run: |
+          git submodule update --init --recursive --jobs 4
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos-13-x86_64
+          max-size: 5G
+          append-timestamp: true
+      - name: Run chdb/build.sh
+        timeout-minutes: 600
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@19)/bin/clang
+          export CXX=$(brew --prefix llvm@19)/bin/clang++
+          bash gen_manifest.sh
+          bash ./chdb/build.sh
+          pyenv shell 3.8
+          bash -x ./chdb/test_smoke.sh
+        continue-on-error: false
+      - name: Debug libchdb
+        run: |
+          ls -lh
+          llvm-nm libchdb.so | grep query_stable || true
+          echo "Global Symbol in libchdb.so:"
+          llvm-nm -g libchdb.so || true
+          echo "Global Symbol in libclickhouse-local-chdb.a:"
+          llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
+          echo "Global Symbol in libclickhouse-local-lib.a:"
+          llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
+          echo "pychdb_cmd.sh:"
+          cat buildlib/pychdb_cmd.sh
+          echo "libchdb_cmd.sh:"
+          cat buildlib/libchdb_cmd.sh
+      - name: Run libchdb stub in examples dir
+        run: |
+          bash -x ./examples/runStub.sh
+      - name: Keep killall ccache and wait for ccache to finish
+        if: always()
+        run: |
+          sleep 60
+          while ps -ef | grep ccache | grep -v grep; do \
+            killall ccache; \
+            sleep 10; \
+          done
+      - name: Check ccache statistics
+        run: |
+          ccache -s
+          ls -lh chdb
+          df -h
+        env:
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
+      - name: Build wheels
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@19)/bin/clang
+          export CXX=$(brew --prefix llvm@19)/bin/clang++
+          pyenv shell 3.8
+          make wheel
+      - name: Fix wheel platform tag
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+      - name: Test wheel on all Python versions
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            echo "Testing chdb on Python $version"
+            pyenv shell $version
+            python -m pip install dist/*.whl --force-reinstall
+            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+            make test
+            pyenv shell --unset
+          done
+        continue-on-error: false
+      - name: Show files
+        run: ls -lh dist
+        shell: bash
+      - name: Upload wheels to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Packege libchdb.so
+        run: |
+          cp programs/local/chdb.h chdb.h
+          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h
+      - name: Upload libchdb.so to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chdb-artifacts-macos-x86_64
+          path: |
+            ./dist/*.whl
+            ./macos-x86_64-libchdb.tar.gz
+          overwrite: true
+      - name: Upload pypi
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          python -m twine upload dist/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}

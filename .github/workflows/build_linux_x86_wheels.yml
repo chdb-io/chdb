@@ -32,15 +32,6 @@ jobs:
             libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
             libffi-dev liblzma-dev
-      - name: Check crypt.h availability
-        run: |
-          if [ ! -f /usr/include/crypt.h ]; then
-            echo "ERROR: /usr/include/crypt.h not found!"
-            echo "This is required for Python 3.6-3.8 compatibility in chdb build."
-            echo "Please install libc6-dev package or ensure crypt.h is available."
-            exit 1
-          fi
-          echo "✓ /usr/include/crypt.h found"
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -196,6 +187,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: chdb-artifacts-linux-x86_64
           path: |
