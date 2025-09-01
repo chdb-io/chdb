@@ -134,6 +134,8 @@ namespace ServerSetting
     extern const ServerSettingsUInt64 max_prefixes_deserialization_thread_pool_size;
     extern const ServerSettingsUInt64 max_prefixes_deserialization_thread_pool_free_size;
     extern const ServerSettingsUInt64 prefixes_deserialization_thread_pool_thread_pool_queue_size;
+    extern const ServerSettingsUInt64 memory_worker_period_ms;
+    extern const ServerSettingsBool memory_worker_correct_memory_tracker;
 }
 
 namespace ErrorCodes
@@ -234,6 +236,15 @@ void LocalServer::initialize(Poco::Util::Application & self)
     {
         Azure::Storage::_internal::XmlGlobalDeinitialize();
     });
+#endif
+
+#if defined(OS_LINUX)
+    memory_worker = std::make_unique<MemoryWorker>(
+        server_settings[ServerSetting::memory_worker_period_ms],
+        server_settings[ServerSetting::memory_worker_correct_memory_tracker],
+        /* use_cgroup */ true,
+        nullptr);
+    memory_worker->start();
 #endif
 
     getIOThreadPool().initialize(
