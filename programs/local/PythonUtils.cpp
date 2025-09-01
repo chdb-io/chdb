@@ -84,7 +84,7 @@ void FillColumnString(PyObject * obj, ColumnString * column)
     /// Due to the use of Python's Stable C API, many Python C API functions cannot be used
     /// directly within chdb. The related code has been moved to libpybind11nonlimitedapi_chdb,
     /// and the wrapped interfaces are called through pybind11::non_limited_api namespace.
-    if (pybind11::non_limited_api::chdbGetPyUnicodeUtf8(obj, data, length, kind, codepoint_cnt, direct_insert))
+    if (pybind11::non_limited_api::getPyUnicodeUtf8(obj, data, length, kind, codepoint_cnt, direct_insert))
     {
         if (direct_insert)
         {
