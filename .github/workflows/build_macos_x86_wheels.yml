@@ -141,7 +141,8 @@ jobs:
         if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
-          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h
+          cp programs/local/chdb.hpp chdb.hpp
+          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
       - name: Upload libchdb.so to release
         if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
         run: |
