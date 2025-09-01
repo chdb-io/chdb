@@ -133,6 +133,16 @@ void * operator new[](std::size_t size, std::align_val_t align, const std::nothr
 
 extern "C" void __real_free(void * ptr);
 
+/// Safely handle memory that may not have been allocated by jemalloc.
+///
+/// This function addresses a critical memory management issue in libpybind11nonlimitedapi_chdb.so:
+/// - The 'new' operator inside the library may not be overridden by chdb's custom allocator
+/// - However, the 'delete' operator is overridden by chdb's custom implementation
+/// - This mismatch can cause crashes when trying to free memory that wasn't allocated by jemalloc
+///
+/// To prevent crashes, this function checks if the memory pointer was allocated by jemalloc
+/// before attempting to free it. If the memory was allocated by a different allocator,
+/// it uses the system's default free() function instead.
 inline bool tryFreeNonJemallocMemory(void * ptr)
 {
     if (unlikely(ptr == nullptr))
