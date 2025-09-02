@@ -101,39 +101,46 @@ class Cursor(object):
 
     def _format_query(self, query, args, conn):
         """Format query with arguments supporting ? and % placeholders."""
-        if args is None:
+        if args is None or ('?' not in query and '%' not in query):
             return query
 
-        if isinstance(args, (tuple, list)) and '?' in query:
-            escaped_args = self._escape_args(args, conn)
-            result = []
-            arg_index = 0
-            in_string = False
-            quote_char = None
+        escaped_args = self._escape_args(args, conn)
+        if not isinstance(escaped_args, (tuple, list)):
+            escaped_args = (escaped_args,)
 
-            for i, char in enumerate(query):
-                # Track string literals to avoid replacing ? inside strings
-                if not in_string and char in ("'", '"'):
+        result = []
+        arg_index = 0
+        max_args = len(escaped_args)
+        i = 0
+        query_len = len(query)
+        in_string = False
+        quote_char = None
+
+        while i < query_len:
+            char = query[i]
+            if not in_string:
+                if char in ("'", '"'):
                     in_string = True
                     quote_char = char
-                elif in_string and char == quote_char:
-                    # Check if it's an escaped quote
-                    if i == 0 or query[i-1] != '\\':
-                        in_string = False
-                        quote_char = None
+                elif arg_index < max_args:
+                    if char == '?':
+                        result.append(str(escaped_args[arg_index]))
+                        arg_index += 1
+                        i += 1
+                        continue
+                    elif char == '%' and i + 1 < query_len and query[i + 1] == 's':
+                        result.append(str(escaped_args[arg_index]))
+                        arg_index += 1
+                        i += 2
+                        continue
+            elif char == quote_char and (i == 0 or query[i - 1] != '\\'):
+                in_string = False
+                quote_char = None
 
-                # Only replace ? outside of string literals
-                if char == '?' and not in_string and arg_index < len(escaped_args):
-                    result.append(str(escaped_args[arg_index]))
-                    arg_index += 1
-                else:
-                    result.append(char)
+            result.append(char)
+            i += 1
 
-            return ''.join(result)
-        elif '%' in query:
-            return query % self._escape_args(args, conn)
-
-        return query
+        return ''.join(result)
 
     def mogrify(self, query, args=None):
         """
@@ -218,7 +225,6 @@ class Cursor(object):
         self, prefix, values, postfix, args, max_stmt_length, encoding
     ):
         conn = self._get_db()
-        escape = self._escape_args
         if isinstance(prefix, str):
             prefix = prefix.encode(encoding)
         if isinstance(postfix, str):
@@ -226,22 +232,13 @@ class Cursor(object):
         sql = prefix
         args = iter(args)
 
-        first_arg = next(args)
-        if '?' in values:
-            v = self._format_query(values, first_arg, conn)
-        else:
-            v = values % escape(first_arg, conn)
-
+        v = self._format_query(values, next(args), conn)
         if isinstance(v, str):
             v = v.encode(encoding, "surrogateescape")
         sql += v
         rows = 0
         for arg in args:
-            if '?' in values:
-                v = self._format_query(values, arg, conn)
-            else:
-                v = values % escape(arg, conn)
-
+            v = self._format_query(values, arg, conn)
             if isinstance(v, str):
                 v = v.encode(encoding, "surrogateescape")
             if len(sql) + len(v) + len(postfix) + 1 > max_stmt_length:
