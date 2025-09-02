@@ -221,6 +221,31 @@ class Cursor(object):
         self.rowcount = sum(self.execute(query, arg) for arg in args)
         return self.rowcount
 
+    def _find_placeholder_positions(self, query):
+        positions = []
+        i = 0
+        query_len = len(query)
+        in_string = False
+        quote_char = None
+
+        while i < query_len:
+            char = query[i]
+            if not in_string:
+                if char in ("'", '"'):
+                    in_string = True
+                    quote_char = char
+                elif char == '?':
+                    positions.append((i, 1))  # (position, length)
+                elif char == '%' and i + 1 < query_len and query[i + 1] == 's':
+                    positions.append((i, 2))
+                    i += 1
+            elif char == quote_char and (i == 0 or query[i - 1] != '\\'):
+                in_string = False
+                quote_char = None
+            i += 1
+
+        return positions
+
     def _do_execute_many(
         self, prefix, values, postfix, args, max_stmt_length, encoding
     ):
@@ -229,24 +254,65 @@ class Cursor(object):
             prefix = prefix.encode(encoding)
         if isinstance(postfix, str):
             postfix = postfix.encode(encoding)
+
+        # Pre-compute placeholder positions
+        placeholder_positions = self._find_placeholder_positions(values)
+
         sql = prefix
         args = iter(args)
 
-        v = self._format_query(values, next(args), conn)
+        if not placeholder_positions:
+            values_bytes = values.encode(encoding, "surrogateescape") if isinstance(values, str) else values
+            sql += values_bytes
+            rows = 0
+            for _ in args:
+                if len(sql) + len(values_bytes) + len(postfix) + 2 > max_stmt_length:
+                    rows += self.execute(sql + postfix)
+                    sql = prefix + values_bytes
+                else:
+                    sql += ",".encode(encoding)
+                    sql += values_bytes
+            rows += self.execute(sql + postfix)
+            self.rowcount = rows
+            return rows
+
+        template_parts = []
+        last_pos = 0
+        for pos, length in placeholder_positions:
+            template_parts.append(values[last_pos:pos])
+            last_pos = pos + length
+        template_parts.append(values[last_pos:])
+
+        def format_values_fast(escaped_arg):
+            if len(escaped_arg) != len(placeholder_positions):
+                return values
+            result = template_parts[0]
+            for i, val in enumerate(escaped_arg):
+                result += str(val) + template_parts[i + 1]
+            return result
+
+        def format_values_with_positions(arg):
+            escaped_arg = self._escape_args(arg, conn)
+            if not isinstance(escaped_arg, (tuple, list)):
+                escaped_arg = (escaped_arg,)
+            return format_values_fast(escaped_arg)
+
+        v = format_values_with_positions(next(args))
         if isinstance(v, str):
             v = v.encode(encoding, "surrogateescape")
         sql += v
         rows = 0
+
         for arg in args:
-            v = self._format_query(values, arg, conn)
+            v = format_values_with_positions(arg)
             if isinstance(v, str):
                 v = v.encode(encoding, "surrogateescape")
-            if len(sql) + len(v) + len(postfix) + 1 > max_stmt_length:
+            if len(sql) + len(v) + len(postfix) + 2 > max_stmt_length:  # +2 for comma
                 rows += self.execute(sql + postfix)
-                sql = prefix
+                sql = prefix + v
             else:
                 sql += ",".encode(encoding)
-            sql += v
+                sql += v
         rows += self.execute(sql + postfix)
         self.rowcount = rows
         return rows
