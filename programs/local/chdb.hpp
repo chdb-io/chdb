@@ -159,7 +159,8 @@ public:
         }
 
         chdb_connection* conn_ptr = chdb_connect(static_cast<int>(argv.size()), argv.data());
-        if (!conn_ptr) {
+        if (!conn_ptr)
+        {
             throw ChdbError(ChdbErrorCode::ConnectionFailed, "Failed to create database connection");
         }
         conn_ = *conn_ptr;
@@ -256,14 +257,32 @@ public:
 
     StreamIterator() : conn_(nullptr), stream_result_(nullptr), finished_(true) {}
 
-    ~StreamIterator() {
-        if (conn_ && !finished_) {
-            try {
-                conn_->stream_cancel(stream_result_);
-            } catch (...) {
-            }
-        }
+    StreamIterator(StreamIterator && other) noexcept
+        : conn_(other.conn_)
+        , stream_result_(std::move(other.stream_result_))
+        , current_result_(std::move(other.current_result_))
+        , finished_(other.finished_)
+    {
+        other.conn_ = nullptr;
+        other.finished_ = true;
     }
+
+    StreamIterator & operator=(StreamIterator && other) noexcept
+    {
+        if (this != &other)
+        {
+            cleanup();
+            conn_ = other.conn_;
+            stream_result_ = std::move(other.stream_result_);
+            current_result_ = std::move(other.current_result_);
+            finished_ = other.finished_;
+            other.conn_ = nullptr;
+            other.finished_ = true;
+        }
+        return *this;
+    }
+
+    ~StreamIterator() { cleanup(); }
 
     StreamIterator(const StreamIterator&) = delete;
     StreamIterator& operator=(const StreamIterator&) = delete;
@@ -288,15 +307,27 @@ public:
         advance();
         return *this;
     }
-    bool operator==(const StreamIterator& other) const {
-        return finished_ == other.finished_;
-    }
+    bool operator==(const StreamIterator & other) const { return finished_ == other.finished_ && (finished_ || conn_ == other.conn_); }
 
     bool operator!=(const StreamIterator& other) const {
         return !(*this == other);
     }
 
 private:
+    void cleanup() noexcept
+    {
+        if (conn_ && !finished_)
+        {
+            try
+            {
+                conn_->stream_cancel(stream_result_);
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
     void advance() {
         if (finished_ || !conn_) return;
         
