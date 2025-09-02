@@ -4,14 +4,25 @@
 #include "PandasScan.h"
 #include "StoragePython.h"
 
-#include <Columns/ColumnVector.h>
-
 #include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <memory>
 #include <type_traits>
-#include <vector>
+#include <boolobject.h>
+#include <pybind11/gil.h>
+#include <pybind11/numpy.h>
+#include <pybind11/pybind11.h>
+#include <pybind11/pytypes.h>
+#include <pybind11/detail/non_limited_api.h>
+
+#include <Columns/ColumnVector.h>
+#include <Poco/Logger.h>
+#include <Common/COW.h>
+#include <Common/Exception.h>
+#include "PythonUtils.h"
+#include <Common/logger_useful.h>
+#include <Common/typeid_cast.h>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
@@ -25,18 +36,6 @@
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
 #include <base/types.h>
-#include <boolobject.h>
-#include <pybind11/gil.h>
-#include <pybind11/numpy.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/pytypes.h>
-#include <Poco/Logger.h>
-#include <Common/COW.h>
-#include <Common/Exception.h>
-#include "PythonUtils.h"
-#include <Common/logger_useful.h>
-#include <Common/typeid_cast.h>
-
 
 namespace DB
 {
@@ -105,30 +104,10 @@ void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr
 void PythonSource::insert_string_from_array(const py::handle obj, const MutableColumnPtr & column)
 {
     auto array = castToPyHandleVector(obj);
+    auto * string_column = static_cast<ColumnString *>(column.get());
     for (auto && item : array)
     {
-        size_t str_len;
-        const char * ptr = GetPyUtf8StrData(item.ptr(), str_len);
-        column->insertData(ptr, str_len);
-    }
-}
-
-void PythonSource::insert_string_from_array_raw(
-    PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
-{
-    column->reserve(row_count);
-    for (size_t i = offset; i < offset + row_count; ++i)
-    {
-        size_t str_len;
-        auto * obj = buf[i];
-        if (!PyUnicode_Check(obj))
-        {
-            insert_obj_to_string_column(obj, static_cast<ColumnString *>(column.get()));
-            continue;
-        }
-
-        const char * ptr = GetPyUtf8StrData(buf[i], str_len);
-        column->insertData(ptr, str_len);
+        FillColumnString(item.ptr(), string_column);
     }
 }
 
@@ -171,7 +150,7 @@ void PythonSource::convert_string_array_to_block(
 void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * string_column)
 {
     // check if the object is NaN
-    if (obj == Py_None || (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AS_DOUBLE(obj))))
+    if (obj == Py_None || (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AsDouble(obj))))
     {
         // insert default value for string column, which is empty string
         string_column->insertDefault();
@@ -195,13 +174,25 @@ void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * st
     }
     catch (const py::error_already_set & e)
     {
+        // Get type name using stable API
+        py::gil_scoped_acquire acquire;
+        std::string type_name;
+        try
+        {
+            type_name = py::str(py::handle(obj).attr("__class__").attr("__name__")).cast<std::string>();
+        }
+        catch (...)
+        {
+            type_name = "unknown";
+        }
+
         LOG_ERROR(
             logger,
             "Error converting Python object {} to string: {}, Unicode string expected here. Try convert column type to str with "
             "`astype(str)`",
-            Py_TYPE(obj)->tp_name,
+            type_name,
             e.what());
-        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", Py_TYPE(obj)->tp_name, e.what());
+        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", type_name, e.what());
     }
 }
 
