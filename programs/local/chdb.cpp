@@ -10,20 +10,52 @@
 #include "PythonTableCache.h"
 #endif
 
+extern thread_local bool chdb_destructor_cleanup_in_progress;
+
 namespace CHDB
 {
+
+/**
+ * RAII guard for accurate memory tracking in chDB external interfaces
+ *
+ * When Python (or other programming language) threads call chDB-provided interfaces
+ * such as chdb_destroy_query_result, the memory released cannot be accurately tracked
+ * by ClickHouse's MemoryTracker, which may lead to false reports of insufficient memory.
+ *
+ * Therefore, for all externally exposed chDB interfaces, ChdbDestructorGuard must be
+ * used at the beginning of execution to provide thread marking, enabling MemoryTracker
+ * to accurately track memory changes.
+ */
+class ChdbDestructorGuard
+{
+public:
+    ChdbDestructorGuard()
+    {
+        chdb_destructor_cleanup_in_progress = true;
+    }
+
+    ~ChdbDestructorGuard()
+    {
+        chdb_destructor_cleanup_in_progress = false;
+    }
+
+    ChdbDestructorGuard(const ChdbDestructorGuard &) = delete;
+    ChdbDestructorGuard & operator=(const ChdbDestructorGuard &) = delete;
+    ChdbDestructorGuard(ChdbDestructorGuard &&) = delete;
+    ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
+};
 
 static std::shared_mutex global_connection_mutex;
 static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
 
-static DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
+static std::unique_ptr<DB::LocalServer> bgClickHouseLocal(int argc, char ** argv)
 {
-    DB::LocalServer * app = nullptr;
+    std::unique_ptr<DB::LocalServer> app;
     try
     {
-        app = new DB::LocalServer();
+        app = std::make_unique<DB::LocalServer>();
         app->setBackground(true);
         app->init(argc, argv);
         int ret = app->run();
@@ -31,30 +63,24 @@ static DB::LocalServer * bgClickHouseLocal(int argc, char ** argv)
         {
             auto err_msg = app->getErrorMsg();
             LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
-            delete app;
-            app = nullptr;
             throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
         }
         return app;
     }
     catch (const DB::Exception & e)
     {
-        delete app;
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
     }
     catch (const Poco::Exception & e)
     {
-        delete app;
         throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", e.displayText());
     }
     catch (const std::exception & e)
     {
-        delete app;
         throw std::domain_error(e.what());
     }
     catch (...)
     {
-        delete app;
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
@@ -228,9 +254,6 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
     else if (!req.isIteration())
     {
         server->streaming_query_context = std::make_shared<DB::StreamingQueryContext>();
-        /// TODO: support memory tracker for streaming query
-        server->streaming_query_context->limit = total_memory_tracker.getHardLimit();
-        total_memory_tracker.setHardLimit(0);
         query_result = createStreamingQueryResult(server, req);
         is_end = !query_result->getError().empty();
 
@@ -252,9 +275,6 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
     {
         if (server->streaming_query_context)
         {
-            total_memory_tracker.resetCounters();
-            MemoryTracker::updateRSS(0);
-            total_memory_tracker.setHardLimit(server->streaming_query_context->limit);
             server->streaming_query_context.reset();
         }
 #if USE_PYTHON
@@ -435,6 +455,8 @@ using namespace CHDB;
 
 local_result * query_stable(int argc, char ** argv)
 {
+    ChdbDestructorGuard guard;
+
     auto query_result = pyEntryClickHouseLocal(argc, argv);
     if (!query_result->getError().empty() || query_result->result_buffer == nullptr)
         return nullptr;
@@ -451,6 +473,8 @@ local_result * query_stable(int argc, char ** argv)
 
 void free_result(local_result * result)
 {
+    ChdbDestructorGuard guard;
+
     if (!result)
     {
         return;
@@ -466,6 +490,8 @@ void free_result(local_result * result)
 
 local_result_v2 * query_stable_v2(int argc, char ** argv)
 {
+    ChdbDestructorGuard guard;
+
     // pyEntryClickHouseLocal may throw some serious exceptions, although it's not likely
     // to happen in the context of clickhouse-local. we catch them here and return an error
     local_result_v2 * res = nullptr;
@@ -495,6 +521,8 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
 
 void free_result_v2(local_result_v2 * result)
 {
+    ChdbDestructorGuard guard;
+
     if (!result)
         return;
 
@@ -545,10 +573,11 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
         [&]()
         {
             auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
+            std::unique_ptr<DB::LocalServer> server;
             try
             {
-                DB::LocalServer * server = bgClickHouseLocal(argc, argv);
-                conn->server = server;
+                server = bgClickHouseLocal(argc, argv);
+                conn->server = nullptr;
                 conn->connected = true;
 
                 global_conn_ptr = conn;
@@ -570,16 +599,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
                         if (queue->shutdown)
                         {
-                            try
-                            {
-                                server->chdbCleanup();
-                                delete server;
-                            }
-                            catch (...)
-                            {
-                                // Log error but continue shutdown
-                                LOG_ERROR(&Poco::Logger::get("LocalServer"), "Error during server cleanup");
-                            }
+                            server.reset();
                             queue->cleanup_done = true;
                             queue->query_cv.notify_all();
                             break;
@@ -588,7 +608,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
                     }
 
                     CHDB::QueryRequestBase & req = *(queue->current_query);
-                    auto result = createQueryResult(server, req);
+                    auto result = createQueryResult(server.get(), req);
                     bool is_end = result.second;
 
                     {
@@ -707,6 +727,8 @@ void close_conn(chdb_conn ** conn)
 
 struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const char * format)
 {
+    ChdbDestructorGuard guard;
+
     // Add connection validity check under global lock
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
@@ -721,6 +743,8 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
 
 chdb_streaming_result * query_conn_streaming(chdb_conn * conn, const char * query, const char * format)
 {
+    ChdbDestructorGuard guard;
+
     // Add connection validity check under global lock
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
@@ -758,6 +782,8 @@ const char * chdb_streaming_result_error(chdb_streaming_result * result)
 
 local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_result * result)
 {
+    ChdbDestructorGuard guard;
+
     // Add connection validity check under global lock
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
@@ -772,6 +798,8 @@ local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_r
 
 void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * result)
 {
+    ChdbDestructorGuard guard;
+
     // Add connection validity check under global lock
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
@@ -780,15 +808,19 @@ void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * resul
 
     auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
     auto query_result = executeQueryRequest(queue, nullptr, nullptr, CHDB::QueryType::TYPE_STREAMING_ITER, result, true);
+
     query_result.reset();
 }
 
 void chdb_destroy_result(chdb_streaming_result * result)
 {
+    ChdbDestructorGuard guard;
+
     if (!result)
 	    return;
 
     auto stream_query_result = reinterpret_cast<StreamQueryResult *>(result);
+
     delete stream_query_result;
 }
 
@@ -813,6 +845,8 @@ void chdb_close_conn(chdb_connection * conn)
 
 chdb_result * chdb_query(chdb_connection conn, const char * query, const char * format)
 {
+    ChdbDestructorGuard guard;
+
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
     if (!conn)
@@ -837,6 +871,8 @@ chdb_result * chdb_query(chdb_connection conn, const char * query, const char * 
 
 chdb_result * chdb_query_cmdline(int argc, char ** argv)
 {
+    ChdbDestructorGuard guard;
+
     MaterializedQueryResult * result = nullptr;
     try
     {
@@ -858,6 +894,8 @@ chdb_result * chdb_query_cmdline(int argc, char ** argv)
 
 chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const char * format)
 {
+    ChdbDestructorGuard guard;
+
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
     if (!conn)
@@ -887,6 +925,8 @@ chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const 
 
 chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * result)
 {
+    ChdbDestructorGuard guard;
+
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
     if (!conn)
@@ -917,6 +957,8 @@ chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * resul
 
 void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 {
+    ChdbDestructorGuard guard;
+
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
     if (!result || !conn)
@@ -933,6 +975,8 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 
 void chdb_destroy_query_result(chdb_result * result)
 {
+    ChdbDestructorGuard guard;
+
     if (!result)
         return;
 

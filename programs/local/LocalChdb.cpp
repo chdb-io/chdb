@@ -5,6 +5,9 @@
 #include "PythonTableCache.h"
 #include "StoragePython.h"
 
+#include <pybind11/pybind11.h>
+#include <pybind11/detail/non_limited_api.h>
+
 #include <Common/logger_useful.h>
 
 namespace py = pybind11;

@@ -9,6 +9,8 @@
 thread_local bool memory_tracker_always_throw_logical_error_on_allocation = false;
 #endif
 
+thread_local bool chdb_destructor_cleanup_in_progress = false;
+
 namespace DB
 {
 namespace ErrorCodes
@@ -29,6 +31,9 @@ MemoryTracker * getMemoryTracker()
     /// total_memory_tracker is initialized too.
     /// And can be used, since MainThreadStatus is required for profiling.
     if (DB::MainThreadStatus::get())
+        return &total_memory_tracker;
+
+    if (chdb_destructor_cleanup_in_progress)
         return &total_memory_tracker;
 
     return nullptr;
@@ -70,18 +75,23 @@ AllocationTrace CurrentMemoryTracker::allocImpl(Int64 size, bool throw_if_memory
         }
         else
         {
-            Int64 will_be = current_thread->untracked_memory + size;
-
-            if (will_be > current_thread->untracked_memory_limit)
+            Int64 previous_untracked_memory = current_thread->untracked_memory;
+            current_thread->untracked_memory += size;
+            if (current_thread->untracked_memory > current_thread->untracked_memory_limit)
             {
-                auto res = memory_tracker->allocImpl(will_be, throw_if_memory_exceeded);
+                Int64 current_untracked_memory = current_thread->untracked_memory;
                 current_thread->untracked_memory = 0;
-                return res;
-            }
 
-            /// Update after successful allocations,
-            /// since failed allocations should not be take into account.
-            current_thread->untracked_memory = will_be;
+                try
+                {
+                    return memory_tracker->allocImpl(current_untracked_memory, throw_if_memory_exceeded);
+                }
+                catch (...)
+                {
+                    current_thread->untracked_memory += previous_untracked_memory;
+                    throw;
+                }
+            }
         }
 
         return AllocationTrace(memory_tracker->getSampleProbability(size));

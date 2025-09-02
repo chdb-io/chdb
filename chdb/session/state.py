@@ -40,6 +40,7 @@ class Session:
     """
 
     def __init__(self, path=None):
+        self._conn = None
         global g_session, g_session_path
         if g_session is not None:
             warnings.warn(
