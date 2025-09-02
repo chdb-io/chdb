@@ -76,8 +76,6 @@ class TestDBAPIPersistence(unittest.TestCase):
             "CREATE TABLE compat.test (id UInt64, value String) "
             "ENGINE = MergeTree ORDER BY id;"
         )
-
-        # Test %s placeholders still work
         cur.execute("INSERT INTO compat.test (id, value) VALUES (%s, %s)",
                    (1, 'test_value'))
 
