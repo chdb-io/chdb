@@ -1,6 +1,8 @@
 #include "PythonConversion.h"
 #include "PythonImporter.h"
 
+#include <pybind11/detail/non_limited_api.h>
+
 #include <Common/Exception.h>
 #include <IO/ReadBuffer.h>
 #include <rapidjson/document.h>
@@ -137,7 +139,7 @@ bool isNone(const py::handle & obj)
 	return GetPythonObjectType(obj) == PythonObjectType::None;
 }
 
-static void writeNone(const py::handle & obj, rapidjson::Value & json_value)
+static void writeNone(const py::handle &, rapidjson::Value & json_value)
 {
 	json_value.SetNull();
 }
@@ -149,7 +151,7 @@ bool isFloat(const py::handle & obj)
 
 static void writeFloat(const py::handle & obj, rapidjson::Value & json_value)
 {
-	auto ptr = obj.ptr();
+	auto * ptr = obj.ptr();
     double value = PyFloat_AsDouble(ptr);
 
     if (std::isnan(value) || std::isinf(value)) {
@@ -195,8 +197,8 @@ bool isByteArray(const py::handle & obj)
 static void writeByteArray(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
 {
     auto * ptr = obj.ptr();
-	auto * data = PyByteArray_AsString(ptr);
-    auto size = PyByteArray_GET_SIZE(ptr);
+    auto * data = PyByteArray_AsString(ptr);
+    auto size = pybind11::non_limited_api::PyByteArray_GET_SIZE_(ptr);
     json_value.SetString(data, size, allocator);
 }
 
@@ -207,14 +209,20 @@ bool isMemoryView(const py::handle & obj)
 
 static void writeMemoryView(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
 {
-    auto * ptr = obj.ptr();
-    py::memoryview py_view = obj.cast<py::memoryview>();
+    try {
+        /// Try to get buffer info using pybind11's buffer interface
+        py::buffer_info buf_info = py::cast<py::buffer>(obj).request();
 
-	Py_buffer * py_buf = PyMemoryView_GET_BUFFER(ptr);
-    auto * data = static_cast<char *>(py_buf->buf);
-    auto size = py_buf->len;
+        /// Convert buffer data to string
+        const char * data = static_cast<const char *>(buf_info.ptr);
+        size_t size = buf_info.size * buf_info.itemsize;
 
-    json_value.SetString(data, size, allocator);
+        json_value.SetString(data, size, allocator);
+    } catch (const std::exception &) {
+        /// Fallback: convert to string representation
+        std::string str_repr = py::str(obj).cast<std::string>();
+        json_value.SetString(str_repr.data(), str_repr.size(), allocator);
+    }
 }
 
 static void writeString(const py::handle & obj, rapidjson::Value & json_value, rapidjson::Document::AllocatorType & allocator)
@@ -276,7 +284,7 @@ void convert_to_json_str(const py::handle & obj, String & ret)
         if (py::isinstance<py::dict>(obj))
         {
             json_value.SetObject();
-            for (auto& item : py::cast<py::dict>(obj))
+            for (auto & item : py::cast<py::dict>(obj))
             {
                 rapidjson::Value key;
                 auto key_str = py::str(item.first).cast<std::string>();

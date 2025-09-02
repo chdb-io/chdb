@@ -134,6 +134,8 @@ namespace ServerSetting
     extern const ServerSettingsUInt64 max_prefixes_deserialization_thread_pool_size;
     extern const ServerSettingsUInt64 max_prefixes_deserialization_thread_pool_free_size;
     extern const ServerSettingsUInt64 prefixes_deserialization_thread_pool_thread_pool_queue_size;
+    extern const ServerSettingsUInt64 memory_worker_period_ms;
+    extern const ServerSettingsBool memory_worker_correct_memory_tracker;
 }
 
 namespace ErrorCodes
@@ -157,6 +159,7 @@ void applySettingsOverridesForLocal(ContextMutablePtr context)
 
 LocalServer::~LocalServer()
 {
+    cleanup();
     resetQueryOutputVector();
 }
 
@@ -233,6 +236,15 @@ void LocalServer::initialize(Poco::Util::Application & self)
     {
         Azure::Storage::_internal::XmlGlobalDeinitialize();
     });
+#endif
+
+#if defined(OS_LINUX)
+    memory_worker = std::make_unique<MemoryWorker>(
+        server_settings[ServerSetting::memory_worker_period_ms],
+        server_settings[ServerSetting::memory_worker_correct_memory_tracker],
+        /* use_cgroup */ true,
+        nullptr);
+    memory_worker->start();
 #endif
 
     getIOThreadPool().initialize(
@@ -994,14 +1006,10 @@ void LocalServer::processConfig()
 
             if (!getClientConfiguration().has("only-system-tables"))
             {
-                // chdb todo: maybe fix the destruction order, make sure the background tasks are finished 
-                // GlobalThreadPool destructor will stuck on waiting for background tasks to finish.
-                // This should be fixed in the future. But it seems chdb do not nedd background tasks which
-                // will do some drop table cleanup issues. So we just disable it for now.
-                // before the global thread pool is destroyed.
-                // DatabaseCatalog::instance().createBackgroundTasks();
+                DatabaseCatalog::instance().loadMarkedAsDroppedTables();
+                DatabaseCatalog::instance().createBackgroundTasks();
                 waitLoad(loadMetadata(global_context));
-                // DatabaseCatalog::instance().startupBackgroundTasks();
+                DatabaseCatalog::instance().startupBackgroundTasks();
             }
 
             /// For ClickHouse local if path is not set the loader will be disabled.
