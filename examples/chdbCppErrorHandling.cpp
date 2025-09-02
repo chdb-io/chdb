@@ -2,7 +2,8 @@
 #include <iostream>
 #include <string>
 
-void demonstrate_connection_error() {
+void connection_error()
+{
     std::cout << "=== Testing Connection Errors ===\n";
     try {
         auto conn = chdb::Connection(std::vector<std::string>{"--invalid-flag"});
@@ -15,28 +16,27 @@ void demonstrate_connection_error() {
     }
 }
 
-void demonstrate_query_error() {
+void query_error(const chdb::Connection & conn)
+{
     std::cout << "\n=== Testing Query Errors ===\n";
-    try {
-        auto conn = chdb::connect(":memory:");
+    try
+    {
         auto result = conn.query("SELECT * FROM non_existent_table");
         std::cout << "Query successful: " << result.str() << std::endl;
-    } catch (const chdb::ChdbError& e) {
+    }
+    catch (const chdb::ChdbError & e)
+    {
         std::cout << "Caught ChdbError: " << e.what() 
                   << " (Code: " << static_cast<int>(e.code()) << ")\n";
     }
 }
 
-void demonstrate_result_error_checking() {
+void result_error_checking(const chdb::Connection & conn)
+{
     std::cout << "\n=== Testing Result Error Checking ===\n";
     try {
-        auto conn = chdb::connect(":memory:");
-        auto result = conn.query("CREATE TABLE test (id UInt32) ENGINE = Memory");
-
-        if (result.has_error()) {
-            std::cout << "CREATE TABLE failed: " << result.error().value() << std::endl;
-            return;
-        }
+        auto result = conn.query("CREATE TABLE if not exists test (id UInt32) ENGINE = Memory");
+        result.throw_if_error();
         std::cout << "CREATE TABLE successful\n";
         
         auto insert_result = conn.query("INSERT INTO test VALUES (1), (2), (3)");
@@ -46,13 +46,13 @@ void demonstrate_result_error_checking() {
         auto select_result = conn.query("SELECT * FROM test ORDER BY id");
         select_result.throw_if_error();
         std::cout << "SELECT result: " << select_result.str() << std::endl;
-        
     } catch (const chdb::ChdbError& e) {
         std::cout << "Caught ChdbError during result checking: " << e.what() << std::endl;
     }
 }
 
-void demonstrate_different_error_types() {
+void different_error_types(const chdb::Connection & conn)
+{
     std::cout << "\n=== Testing Different Error Types ===\n";
     
     std::vector<std::string> test_queries = {
@@ -60,13 +60,12 @@ void demonstrate_different_error_types() {
         "SELECT * FROM non_existent_table", 
         "CREATE TABLE invalid_name (id)"
     };
-    
-    auto conn = chdb::connect(":memory:");
-    
+
     for (const auto& query : test_queries) {
         try {
             std::cout << "Executing: " << query << std::endl;
             auto result = conn.query(query);
+            result.throw_if_error();
             std::cout << "Success: " << result.str() << std::endl;
         } catch (const chdb::ChdbError& e) {
             std::cout << "ChdbError: " << e.what() 
@@ -74,17 +73,18 @@ void demonstrate_different_error_types() {
         } catch (const std::exception& e) {
             std::cout << "Standard exception: " << e.what() << std::endl;
         }
-        std::cout << "---\n";
+        std::cout << "--------------------\n";
     }
 }
 
 int main() {
     try {
-        demonstrate_connection_error();
-        demonstrate_query_error();
-        demonstrate_result_error_checking();
-        demonstrate_different_error_types();
-        
+        //connection_error();
+        auto conn = chdb::connect(":memory:");
+        query_error(conn);
+        result_error_checking(conn);
+        different_error_types(conn);
+
         std::cout << "\n=== Error Handling Demo Complete ===\n";
         return 0;
         

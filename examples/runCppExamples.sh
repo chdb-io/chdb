@@ -36,7 +36,7 @@ for example in "${EXAMPLES[@]}"; do
     if [ -f "${example}.cpp" ]; then
         clang++ -std=c++20 -I../programs/local/ -L.. \
             "${example}.cpp" -lchdb -o "$example" \
-            -Wno-unused-parameter -O2
+            -Wno-unused-parameter -g -O0
         
         if [ $? -eq 0 ]; then
             echo "✓ Successfully built $example"
