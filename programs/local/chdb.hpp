@@ -25,12 +25,18 @@ enum class ChdbErrorCode : std::uint8_t {
 
 class ChdbError : public std::runtime_error {
 public:
-    explicit ChdbError(ChdbErrorCode code, const std::string& message)
-        : std::runtime_error(message), error_code_(code) {}
-    
-    explicit ChdbError(const std::string& message)
-        : std::runtime_error(message), error_code_(ChdbErrorCode::UnknownError) {}
-    
+    explicit ChdbError(ChdbErrorCode code, const char * message)
+        : std::runtime_error(message)
+        , error_code_(code)
+    {
+    }
+
+    explicit ChdbError(const char * message)
+        : std::runtime_error(message)
+        , error_code_(ChdbErrorCode::UnknownError)
+    {
+    }
+
     ChdbErrorCode code() const noexcept { return error_code_; }
     
 private:
@@ -125,7 +131,7 @@ public:
     void throw_if_error() const {
         auto err = error();
         if (err) {
-            throw ChdbError(*err);
+            throw ChdbError(err->c_str());
         }
     }
 
@@ -141,18 +147,17 @@ private:
 
 class Connection {
 public:
-    explicit Connection(const std::vector<std::string>& args = {}) {
-        std::vector<std::string> all_args;
-        all_args.reserve(args.size() + 1);
-        all_args.emplace_back("chdb");
-        all_args.insert(all_args.end(), args.begin(), args.end());
-        
+    explicit Connection(const std::vector<std::string> & args = {})
+    {
         std::vector<char*> argv;
-        argv.reserve(all_args.size());
-        for (auto& arg : all_args) {
-            argv.push_back(arg.data());
+        argv.reserve(args.size() + 1);
+        static std::string chdb_program_name = "chdb";
+        argv.push_back(chdb_program_name.data());
+        for (const auto & arg : args)
+        {
+            argv.push_back(const_cast<char *>(arg.data()));
         }
-        
+
         chdb_connection* conn_ptr = chdb_connect(static_cast<int>(argv.size()), argv.data());
         if (!conn_ptr) {
             throw ChdbError(ChdbErrorCode::ConnectionFailed, "Failed to create database connection");
@@ -186,15 +191,12 @@ public:
         return *this;
     }
 
-    Result query(std::string_view sql, std::string_view format = "TabSeparated") const {
+    Result query(const std::string & sql, const std::string & format = "TabSeparated") const
+    {
         if (!conn_) {
             throw ChdbError(ChdbErrorCode::ConnectionClosed, "Connection is closed");
         }
-        
-        std::string sql_str(sql);
-        std::string format_str(format);
-        
-        chdb_result* result = chdb_query(conn_, sql_str.c_str(), format_str.c_str());
+        chdb_result * result = chdb_query(conn_, sql.c_str(), format.c_str());
         if (!result) {
             throw ChdbError(ChdbErrorCode::QueryExecutionFailed, "Query execution failed");
         }
@@ -202,15 +204,13 @@ public:
         return Result(result);
     }
 
-    Result stream_query(std::string_view sql, std::string_view format = "TabSeparated") const {
+    Result stream_query(const std::string & sql, const std::string & format = "TabSeparated") const
+    {
         if (!conn_) {
             throw ChdbError(ChdbErrorCode::ConnectionClosed, "Connection is closed");
         }
-        
-        std::string sql_str(sql);
-        std::string format_str(format);
-        
-        chdb_result* result = chdb_stream_query(conn_, sql_str.c_str(), format_str.c_str());
+
+        chdb_result * result = chdb_stream_query(conn_, sql.c_str(), format.c_str());
         if (!result) {
             throw ChdbError(ChdbErrorCode::StreamingQueryFailed, "Streaming query initialization failed");
         }
