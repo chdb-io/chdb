@@ -10,6 +10,16 @@
 #include "PythonTableCache.h"
 #endif
 
+#ifdef CHDB_STATIC_LIBRARY_BUILD
+/// Force reference to ensure function registration object is linked
+namespace DB
+{
+    extern void * ForceStaticRegistrationObjects();
+}
+
+[[maybe_unused]] void * force_link_function_references = DB::ForceStaticRegistrationObjects();
+#endif
+
 extern thread_local bool chdb_destructor_cleanup_in_progress;
 
 namespace CHDB

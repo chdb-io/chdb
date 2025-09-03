@@ -113,7 +113,7 @@ jobs:
           pyenv shell 3.8
           bash -x ./chdb/test_smoke.sh
       - name: Run chdb/build/build_static_lib.sh
-        if: matrix.python-version == '3.12'
+        timeout-minutes: 600
         run: |
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
@@ -194,7 +194,6 @@ jobs:
           cp programs/local/chdb.h chdb.h
           tar -czvf macos-arm64-libchdb.tar.gz libchdb.so chdb.h
       - name: Package libchdb.a
-        if: matrix.python-version == '3.12'
         run: |
           cp programs/local/chdb.h chdb.h
           tar -czvf macos-arm64-libchdb-static.tar.gz libchdb.a chdb.h
@@ -205,7 +204,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v') && matrix.python-version == '3.12'
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           gh release upload ${{ github.ref_name }} macos-arm64-libchdb-static.tar.gz --clobber
         env:
