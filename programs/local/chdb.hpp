@@ -135,11 +135,7 @@ public:
         }
     }
 
-    chdb_result* release() {
-        chdb_result* tmp = result_;
-        result_ = nullptr;
-        return tmp;
-    }
+    chdb_result * get() const { return result_; }
 
 private:
     chdb_result* result_;
@@ -223,8 +219,8 @@ public:
         if (!conn_) {
             throw ChdbError(ChdbErrorCode::ConnectionClosed, "Connection is closed");
         }
-        
-        chdb_result* result = chdb_stream_fetch_result(conn_, stream_result.release());
+
+        chdb_result * result = chdb_stream_fetch_result(conn_, stream_result.get());
         if (!result) {
             throw ChdbError(ChdbErrorCode::StreamFetchFailed, "Stream fetch failed");
         }
@@ -236,8 +232,8 @@ public:
         if (!conn_) {
             throw ChdbError(ChdbErrorCode::ConnectionClosed, "Connection is closed");
         }
-        
-        chdb_stream_cancel_query(conn_, stream_result.release());
+
+        chdb_stream_cancel_query(conn_, stream_result.get());
     }
 
     bool is_valid() const {
@@ -250,20 +246,37 @@ private:
 
 class StreamIterator {
 public:
-    StreamIterator(const Connection& conn, Result&& stream_result) 
-        : conn_(&conn), stream_result_(std::move(stream_result)), finished_(false) {
-        advance();
+    StreamIterator(const Connection & conn, Result & stream_result)
+        : conn_(&conn)
+        , stream_result_(&stream_result)
+        , finished_(false)
+    {
+        try
+        {
+            advance();
+        }
+        catch (...)
+        {
+            finished_ = true;
+            throw; // Re-throw the exception for caller to handle
+        }
     }
 
-    StreamIterator() : conn_(nullptr), stream_result_(nullptr), finished_(true) {}
+    StreamIterator()
+        : conn_(nullptr)
+        , stream_result_(nullptr)
+        , finished_(true)
+    {
+    }
 
     StreamIterator(StreamIterator && other) noexcept
         : conn_(other.conn_)
-        , stream_result_(std::move(other.stream_result_))
+        , stream_result_(other.stream_result_)
         , current_result_(std::move(other.current_result_))
         , finished_(other.finished_)
     {
         other.conn_ = nullptr;
+        other.stream_result_ = nullptr;
         other.finished_ = true;
     }
 
@@ -271,90 +284,99 @@ public:
     {
         if (this != &other)
         {
-            cleanup();
             conn_ = other.conn_;
-            stream_result_ = std::move(other.stream_result_);
+            stream_result_ = other.stream_result_;
             current_result_ = std::move(other.current_result_);
             finished_ = other.finished_;
             other.conn_ = nullptr;
+            other.stream_result_ = nullptr;
             other.finished_ = true;
         }
         return *this;
     }
 
-    ~StreamIterator() { cleanup(); }
+    // No need for custom destructor - std::optional handles cleanup automatically
+    ~StreamIterator() = default;
 
     StreamIterator(const StreamIterator&) = delete;
     StreamIterator& operator=(const StreamIterator&) = delete;
 
-    Result& operator*() {
-        return current_result_;
+    Result & operator*()
+    {
+        if (!current_result_)
+        {
+            throw ChdbError("Dereferencing invalid iterator");
+        }
+        return current_result_.value();
     }
 
-    const Result& operator*() const {
-        return current_result_;
+    const Result & operator*() const
+    {
+        if (!current_result_)
+        {
+            throw ChdbError("Dereferencing invalid iterator");
+        }
+        return current_result_.value();
     }
 
-    Result* operator->() {
-        return &current_result_;
+    Result * operator->()
+    {
+        if (!current_result_)
+        {
+            throw ChdbError("Dereferencing invalid iterator");
+        }
+        return &current_result_.value();
     }
 
-    const Result* operator->() const {
-        return &current_result_;
+    const Result * operator->() const
+    {
+        if (!current_result_)
+        {
+            throw ChdbError("Dereferencing invalid iterator");
+        }
+        return &current_result_.value();
     }
 
     StreamIterator& operator++() {
         advance();
         return *this;
     }
-    bool operator==(const StreamIterator & other) const { return finished_ == other.finished_ && (finished_ || conn_ == other.conn_); }
+    bool operator==(const StreamIterator & other) const
+    {
+        return finished_ == other.finished_ && (finished_ || (conn_ == other.conn_ && stream_result_ == other.stream_result_));
+    }
 
     bool operator!=(const StreamIterator& other) const {
         return !(*this == other);
     }
 
 private:
-    void cleanup() noexcept
-    {
-        if (conn_ && !finished_)
-        {
-            try
-            {
-                conn_->stream_cancel(stream_result_);
-            }
-            catch (...)
-            {
-            }
-        }
-    }
-
     void advance() {
-        if (finished_ || !conn_) return;
-        
-        try {
-            current_result_ = conn_->stream_fetch(stream_result_);
-            if (current_result_.size() == 0 || current_result_.has_error()) {
-                finished_ = true;
-            }
-        } catch (const ChdbError&) {
+        if (finished_ || !conn_ || !stream_result_)
+            return;
+
+        current_result_ = conn_->stream_fetch(*stream_result_);
+        if (!current_result_ || current_result_->rows_read() == 0 || current_result_->has_error())
+        {
             finished_ = true;
         }
     }
 
     const Connection* conn_;
-    Result stream_result_;
-    Result current_result_{nullptr};
+    Result * stream_result_;
+    std::optional<Result> current_result_;
     bool finished_;
 };
 
 class Stream {
 public:
-    Stream(const Connection& conn, Result&& stream_result) 
-        : conn_(conn), stream_result_(std::move(stream_result)) {}
-
-    StreamIterator begin() {
-        return StreamIterator(conn_, std::move(stream_result_));
+    Stream(const Connection & conn, Result & stream_result)
+        : conn_(conn)
+        , stream_result_(stream_result)
+    {
     }
+
+    StreamIterator begin() { return StreamIterator(conn_, stream_result_); }
 
     StreamIterator end() {
         return StreamIterator();
@@ -362,7 +384,7 @@ public:
 
 private:
     const Connection& conn_;
-    Result stream_result_;
+    Result & stream_result_;
 };
 
 inline Result query_cmdline(const std::vector<std::string>& args) {
