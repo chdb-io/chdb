@@ -46,6 +46,10 @@ void result_error_checking(const chdb::Connection & conn)
         auto select_result = conn.query("SELECT * FROM test ORDER BY id");
         select_result.throw_if_error();
         std::cout << "SELECT result: " << select_result.str() << std::endl;
+
+        auto select_result2 = conn.query("SELECT * FROM test ORDER BY id1");
+        select_result2.throw_if_error();
+        std::cout << "SELECT result: " << select_result2.str() << std::endl;
     } catch (const chdb::ChdbError& e) {
         std::cout << "Caught ChdbError during result checking: " << e.what() << std::endl;
     }
@@ -58,7 +62,7 @@ void different_error_types(const chdb::Connection & conn)
     std::vector<std::string> test_queries = {
         "INVALID SQL SYNTAX",
         "SELECT * FROM non_existent_table", 
-        "CREATE TABLE invalid_name (id)"
+        "CREATE TABLE ♥️ (id)"
     };
 
     for (const auto& query : test_queries) {
@@ -73,18 +77,16 @@ void different_error_types(const chdb::Connection & conn)
         } catch (const std::exception& e) {
             std::cout << "Standard exception: " << e.what() << std::endl;
         }
-        std::cout << "--------------------\n";
     }
 }
 
 int main() {
     try {
-        //connection_error();
+        connection_error();
         auto conn = chdb::connect(":memory:");
         query_error(conn);
         result_error_checking(conn);
         different_error_types(conn);
-
         std::cout << "\n=== Error Handling Demo Complete ===\n";
         return 0;
         
