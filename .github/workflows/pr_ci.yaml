@@ -28,4 +28,3 @@ jobs:
 
       - name: Run flake8 on chdb directory
         run: cd chdb && flake8 .
-        

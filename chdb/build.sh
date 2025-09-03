@@ -236,11 +236,19 @@ LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 ls -lh ${LIBCHDB}
 
 # build chdb python module
-cmake ${CMAKE_ARGS} -DENABLE_PYTHON=1 ..
+py_version="3.8"
+current_py_version=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
+if [ "$current_py_version" != "$py_version" ]; then
+    echo "Error: Current Python version is $current_py_version, but required version is $py_version"
+    echo "Please switch to Python $py_version using: pyenv shell $py_version"
+    exit 1
+fi
+echo "Using Python version: $current_py_version"
+cmake ${CMAKE_ARGS} -DENABLE_PYTHON=1 -DPYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION=${py_version} ..
 ninja -d keeprsp || true
 
 # del the binary and run ninja -v again to capture the command, then modify it to generate CHDB_PY_MODULE
-/bin/rm -f ${BINARY} 
+/bin/rm -f ${BINARY}
 cd ${BUILD_DIR}
 ninja -d keeprsp -v > build.log || true
 
@@ -282,12 +290,18 @@ if [ "$(uname)" == "Linux" ]; then
     fi
 fi
 
+if [ "$(uname)" == "Darwin" ]; then
+    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,@loader_path|g')
+else
+    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,\$ORIGIN|g')
+fi
+
 # save the command to a file for debug
 echo ${PYCHDB_CMD} > pychdb_cmd.sh
 
 ${PYCHDB_CMD}
 
-ls -lh ${CHDB_PY_MODULE} 
+ls -lh ${CHDB_PY_MODULE}
 
 ## check all the so files
 LIBCHDB_DIR=${BUILD_DIR}/
@@ -348,3 +362,5 @@ ccache -s || true
 
 # bash ${DIR}/build_bind.sh
 # bash ${DIR}/test_smoke.sh
+
+CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --all
