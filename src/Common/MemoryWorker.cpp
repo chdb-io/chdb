@@ -236,7 +236,7 @@ MemoryWorker::MemoryWorker(uint64_t period_ms_, bool correct_tracker_, bool use_
             static constexpr uint64_t cgroups_memory_usage_tick_ms{50};
 
             const auto [cgroup_path, version] = getCgroupsPath();
-            LOG_INFO(
+            LOG_TRACE(
                 getLogger("CgroupsReader"),
                 "Will create cgroup reader from '{}' (cgroups version: {})",
                 cgroup_path,
@@ -275,7 +275,7 @@ void MemoryWorker::start()
     if (source == MemoryUsageSource::None)
         return;
 
-    LOG_INFO(
+    LOG_TRACE(
         getLogger("MemoryWorker"),
         "Starting background memory thread with period of {}ms, using {} as source",
         period_ms,
