@@ -157,6 +157,12 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+      - name: Setup core dump collection
+        run: |
+          mkdir -p tmp/core
+          echo "tmp/core/core.%p" > /tmp/core_pattern
+          sudo cp /tmp/core_pattern /proc/sys/kernel/core_pattern 2>/dev/null
+          ulimit -c unlimited
       - name: Test wheel on all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -170,6 +176,25 @@ jobs:
             pyenv shell --unset
           done
         continue-on-error: false
+      - name: Check and upload core files if present
+        if: always()
+        run: |
+          if ls tmp/core/core.* >/dev/null 2>&1; then
+            echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
+            tar -czvf core-files-macos-x86_64.tar.gz tmp/core/core.*
+            echo "Core files tar created: core-files-macos-x86_64.tar.gz"
+            ls -lh core-files-macos-x86_64.tar.gz
+          else
+            echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
+            echo "No core files found in tmp/core"
+          fi
+        continue-on-error: true
+      - name: Upload core files artifact
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-files-macos-x86_64
+          path: core-files-macos-x86_64.tar.gz
       - name: Show files
         run: ls -lh dist
         shell: bash
