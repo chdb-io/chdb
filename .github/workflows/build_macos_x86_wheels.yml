@@ -160,8 +160,8 @@ jobs:
       - name: Setup core dump collection
         run: |
           mkdir -p tmp/core
-          echo "tmp/core/core.%p" > /tmp/core_pattern
-          sudo cp /tmp/core_pattern /proc/sys/kernel/core_pattern 2>/dev/null
+          sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
+          sudo sysctl kern.coredump=1
           ulimit -c unlimited
       - name: Test wheel on all Python versions
         run: |
