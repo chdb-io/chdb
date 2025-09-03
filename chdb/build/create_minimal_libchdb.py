@@ -78,43 +78,43 @@ def extract_objects_from_archive(archive_path, required_objects, temp_dir):
     objects_to_extract = {obj for obj in objects_to_extract if 'ASTSQLSecurity' not in obj}
 
     # Add all object files starting with "chdb_func" from the archive, but exclude those containing specific keywords
-    exclude_keywords = ['h3', 'H3', 'convertCharset', 'lowerUTF8', 'normalizeString', 'upperUTF8']
+    # exclude_keywords = ['h3', 'H3', 'convertCharset', 'lowerUTF8', 'normalizeString', 'upperUTF8']
 
-    chdb_func_objects = {
-        obj for obj in available_objects
-        if obj.startswith('chdb_func') and not any(keyword in obj for keyword in exclude_keywords)
-    }
-    objects_to_extract.update(chdb_func_objects)
+    # chdb_func_objects = {
+    #     obj for obj in available_objects
+    #     if obj.startswith('chdb_func') and not any(keyword in obj for keyword in exclude_keywords)
+    # }
+    # objects_to_extract.update(chdb_func_objects)
 
     # Force include all objects containing specific keywords
-    force_include_keywords = [
-        'TargetSpecific',
-        'SimdJSONParser',
-        'FunctionsConversion_impl',
-        'SipHash',
-        'farmhash',
-        'metrohash',
-        'MurmurHash',
-        'DummyJSONParser',
-        'wide_integer_to_string',
-        'Base58',
-        'ArgumentExtractor',
-        'int8_to_string',
-        'getMostSubtype',
-        'sha3iuf'
-    ]
+    # force_include_keywords = [
+    #     'TargetSpecific',
+    #     'SimdJSONParser',
+    #     'FunctionsConversion_impl',
+    #     'SipHash',
+    #     'farmhash',
+    #     'metrohash',
+    #     'MurmurHash',
+    #     'DummyJSONParser',
+    #     'wide_integer_to_string',
+    #     'Base58',
+    #     'ArgumentExtractor',
+    #     'int8_to_string',
+    #     'getMostSubtype',
+    #     'sha3iuf'
+    # ]
 
-    force_include_objects = {
-        obj for obj in available_objects
-        if any(keyword in obj for keyword in force_include_keywords)
-    }
-    objects_to_extract.update(force_include_objects)
+    # force_include_objects = {
+    #     obj for obj in available_objects
+    #     if any(keyword in obj for keyword in force_include_keywords)
+    # }
+    # objects_to_extract.update(force_include_objects)
 
-    if chdb_func_objects:
-        print(f"   Added chdb_func* object files (excluding specified keywords): {len(chdb_func_objects)} files")
+    # if chdb_func_objects:
+    #     print(f"   Added chdb_func* object files (excluding specified keywords): {len(chdb_func_objects)} files")
 
-    if force_include_objects:
-        print(f"   Force added critical object files: {len(force_include_objects)} files")
+    # if force_include_objects:
+    #     print(f"   Force added critical object files: {len(force_include_objects)} files")
 
     missing_objects = required_objects - available_objects
 

@@ -69,7 +69,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DCHDB_VERSION=${CHDB_VERSION} \
     "
 
-cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 ..
+cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 -DCHDB_STATIC_LIBRARY_BUILD=1 ..
 ninja -d keeprsp
 
 BINARY=${BUILD_DIR}/programs/clickhouse
@@ -150,8 +150,8 @@ echo "Copied libchdb_minimal.a as libchdb.a and chdb.h to go-example directory"
 
 # Run Go test
 echo "Running Go test..."
-export CGO_CFLAGS_ALLOW=".*"
-export CGO_LDFLAGS_ALLOW=".*"
+# export CGO_CFLAGS_ALLOW=".*"
+# export CGO_LDFLAGS_ALLOW=".*"
 go run .
 if [ $? -ne 0 ]; then
     echo "Error: Go test failed"
