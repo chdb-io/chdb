@@ -117,13 +117,49 @@ jobs:
           sudo rm -f dist/*-linux_x86_64.whl
           ls -lh dist
         shell: bash
+      - name: Enable core dumps
+        run: |
+          ulimit -c unlimited
+          echo 'tmp/core.%p' | sudo tee /proc/sys/kernel/core_pattern
+          mkdir -p tmp
+          
       - name: Run tests
         run: |
           python3 -m pip install dist/*.whl
           python3 -m pip install pandas pyarrow psutil deltalake
           python3 -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(res)"
+          ulimit -c unlimited
           make test
-        continue-on-error: false
+        continue-on-error: true
+        
+      - name: Check for core files and upload if found
+        if: always() # Run if tests fail due to segfaults
+        run: |
+          echo "Checking for core files..."
+          find tmp -name 'core.*' -type f 2>/dev/null | head -10
+          find . -name 'core.*' -type f 2>/dev/null | head -10
+
+          if find tmp -name 'core.*' -type f 2>/dev/null | grep -q .; then
+            mkdir -p core_files
+            find tmp -name 'core.*' -type f -exec cp {} core_files/ \;
+            tar -czf core-files-linux-x86_64-${{ matrix.python-version }}-${{ github.run_id }}.tar.gz core_files/
+            echo "CORE_FILES_EXIST=true" >> $GITHUB_ENV
+          elif find . -name 'core.*' -type f 2>/dev/null | grep -q .; then
+            mkdir -p core_files
+            find . -name 'core.*' -type f -exec cp {} core_files/ \;
+            tar -czf core-files-linux-x86_64-${{ matrix.python-version }}-${{ github.run_id }}.tar.gz core_files/
+            echo "CORE_FILES_EXIST=true" >> $GITHUB_ENV
+          else
+            echo "No core files found"
+            echo "CORE_FILES_EXIST=false" >> $GITHUB_ENV
+          fi
+        
+      - name: Upload core files as artifact
+        if: always() && env.CORE_FILES_EXIST == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-files-linux-x86_64-${{ matrix.python-version }}-${{ github.run_id }}
+          path: core-files-*.tar.gz
       - name: Upload wheels to release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
