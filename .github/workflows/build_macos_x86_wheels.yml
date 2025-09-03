@@ -116,10 +116,13 @@ jobs:
       - name: Run chdb/build/build_static_lib.sh
         timeout-minutes: 600
         run: |
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
+          pyenv shell --unset
         continue-on-error: false
       - name: Debug libchdb
         run: |

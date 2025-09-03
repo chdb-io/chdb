@@ -129,7 +129,11 @@ jobs:
         run: |
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
+          pyenv shell --unset
         continue-on-error: false
       - name: Run libchdb stub in examples dir
         run: |
