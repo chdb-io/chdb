@@ -218,6 +218,9 @@ endif()
 set_source_files_properties(Common/malloc.cpp PROPERTIES COMPILE_FLAGS "-fno-builtin")
 
 add_library (clickhouse_new_delete STATIC Common/new_delete.cpp)
+if (ENABLE_JEMALLOC)
+    set_source_files_properties(Common/new_delete.cpp PROPERTIES COMPILE_FLAGS "-Wno-reserved-identifier")
+endif()
 target_link_libraries (clickhouse_new_delete PRIVATE clickhouse_common_io)
 if (TARGET ch_contrib::jemalloc)
     target_link_libraries (clickhouse_new_delete PRIVATE ch_contrib::jemalloc)
@@ -323,30 +326,6 @@ target_link_libraries (dbms PRIVATE ch_contrib::libdivide)
 if (TARGET ch_contrib::jemalloc)
     target_link_libraries (dbms PRIVATE ch_contrib::jemalloc)
 endif()
-
-# if (USE_PYTHON)
-#     # Include path from shell cmd "python3 -m pybind11 --includes"
-#     execute_process(COMMAND python3 -m pybind11 --includes
-#         OUTPUT_VARIABLE PYBIND11_INCLUDES
-#         OUTPUT_STRIP_TRAILING_WHITESPACE
-#     )
-
-#     # Extract and set include directories specifically for source using pybind11
-#     string(REGEX MATCHALL "-I([^ ]+)" INCLUDE_DIRS_MATCHES ${PYBIND11_INCLUDES})
-#     set(PYTHON_INCLUDE_DIRS "")
-#     foreach(INCLUDE_DIR_MATCH ${INCLUDE_DIRS_MATCHES})
-#         string(REGEX REPLACE "-I" "" INCLUDE_DIR_MATCH ${INCLUDE_DIR_MATCH})
-#         # Accumulate all include directories
-#         set(PYTHON_INCLUDE_DIRS "${PYTHON_INCLUDE_DIRS};${INCLUDE_DIR_MATCH}")
-#     endforeach()
-
-#     # get python version, something like python3.x
-#     execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
-#         OUTPUT_VARIABLE PYTHON_VERSION
-#         OUTPUT_STRIP_TRAILING_WHITESPACE
-#     )
-
-# endif()
 
 set (all_modules dbms)
 

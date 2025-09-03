@@ -17,7 +17,6 @@ namespace DB
 
 namespace ErrorCodes
 {
-extern const int NOT_IMPLEMENTED;
 extern const int PY_EXCEPTION_OCCURED;
 }
 
@@ -59,24 +58,7 @@ auto execWithGIL(Func func, Args &&... args) -> decltype(func(std::forward<Args>
     return func(std::forward<Args>(args)...);
 }
 
-// Helper function to convert Python 1,2,4 bytes unicode string to utf8 with icu4c
-// kind: 1 for 1-byte characters (Latin1/ASCII equivalent in ICU)
-//       2 for 2-byte characters (UTF-16 equivalent)
-//       4 for 4-byte characters (Assume UCS-4/UTF-32)
-const char * ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, size_t & output_size);
-
-size_t
-ConvertPyUnicodeToUtf8(const void * input, int kind, size_t codepoint_cnt, ColumnString::Offsets & offsets, ColumnString::Chars & chars);
-
-const char * GetPyUtf8StrData(PyObject * obj, size_t & buf_len);
-
 void FillColumnString(PyObject * obj, ColumnString * column);
-
-inline const char * GetPyUtf8StrDataWithGIL(PyObject * obj, size_t & buf_len)
-{
-    return execWithGIL([&]() { return GetPyUtf8StrData(obj, buf_len); });
-}
-
 
 // Helper function to check if an object's class is or inherits from PyReader with a maximum depth
 bool _isInheritsFromPyReader(const py::handle & obj);
