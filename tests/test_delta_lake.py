@@ -6,7 +6,7 @@ import platform
 import chdb
 from chdb import session
 
-@unittest.skipUnless(sys.platform.startswith("linux") and platform.machine() in ["x86_64", "AMD64"], "Runs only in the Linux x86 environment")
+@unittest.skipUnless(sys.platform.startswith("linux"), "Runs only on Linux platforms")
 class TestDeltaLake(unittest.TestCase):
     def setUp(self) -> None:
         return super().setUp()
