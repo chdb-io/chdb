@@ -828,26 +828,9 @@ void chdb_destroy_result(chdb_streaming_result * result)
 
 chdb_connection * chdb_connect(int argc, char ** argv)
 {
-    try
-    {
-        auto connection = connect_chdb(argc, argv);
-        return reinterpret_cast<chdb_connection *>(connection);
-    }
-    catch (const DB::Exception & e)
-    {
-        LOG_ERROR(&Poco::Logger::get("chdb_connect"), "Connection failed: {}", e.what());
-        return nullptr;
-    }
-    catch (const std::exception & e)
-    {
-        LOG_ERROR(&Poco::Logger::get("chdb_connect"), "Connection failed with std::exception: {}", e.what());
-        return nullptr;
-    }
-    catch (...)
-    {
-        LOG_ERROR(&Poco::Logger::get("chdb_connect"), "Connection failed with unknown exception");
-        return nullptr;
-    }
+    auto connection = connect_chdb(argc, argv);
+
+    return reinterpret_cast<chdb_connection *>(connection);
 }
 
 void chdb_close_conn(chdb_connection * conn)
