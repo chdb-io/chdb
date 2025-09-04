@@ -82,12 +82,22 @@ void different_error_types(const chdb::Connection & conn)
 
 int main() {
     try {
-        connection_error();
-        auto conn = chdb::connect(":memory:");
-        query_error(conn);
-        result_error_checking(conn);
-        different_error_types(conn);
-        std::cout << "\n=== Error Handling Demo Complete ===\n";
+        //connection_error();
+        {
+            auto conn = chdb::connect(":memory:");
+            query_error(conn);
+            //result_error_checking(conn);
+            //different_error_types(conn);
+            std::cout << "\n=== Error Handling Demo Complete ===\n";
+        }
+        {
+            auto conn = chdb::connect(":memory:");
+            query_error(conn);
+            //result_error_checking(conn);
+            //different_error_types(conn);
+            std::cout << "\n=== Error Handling Demo Complete ===\n";
+        }
+
         return 0;
         
     } catch (const std::exception& e) {
