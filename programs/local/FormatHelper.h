@@ -4,7 +4,7 @@
 
 namespace CHDB {
 
-void SetCurrentFormat(const char * format);
+void SetCurrentFormat(const char * format, size_t format_len);
 
 bool isJSONSupported();
 
