@@ -22,6 +22,7 @@ void query_error(const chdb::Connection & conn)
     try
     {
         auto result = conn.query("SELECT * FROM non_existent_table");
+        result.throw_if_error();
         std::cout << "Query successful: " << result.str() << std::endl;
     }
     catch (const chdb::ChdbError & e)
@@ -82,19 +83,19 @@ void different_error_types(const chdb::Connection & conn)
 
 int main() {
     try {
-        //connection_error();
+        connection_error();
         {
             auto conn = chdb::connect(":memory:");
             query_error(conn);
-            //result_error_checking(conn);
-            //different_error_types(conn);
+            result_error_checking(conn);
+            different_error_types(conn);
             std::cout << "\n=== Error Handling Demo Complete ===\n";
         }
         {
             auto conn = chdb::connect(":memory:");
             query_error(conn);
-            //result_error_checking(conn);
-            //different_error_types(conn);
+            result_error_checking(conn);
+            different_error_types(conn);
             std::cout << "\n=== Error Handling Demo Complete ===\n";
         }
 
