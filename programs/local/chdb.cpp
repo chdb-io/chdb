@@ -720,7 +720,7 @@ void close_conn(chdb_conn ** conn)
     {
         LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection mismatch during close_conn");
     }
-
+    global_conn_ptr = nullptr;
     delete *conn;
     *conn = nullptr;
 }
