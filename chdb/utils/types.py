@@ -5,32 +5,31 @@ import decimal
 
 
 def convert_to_columnar(items: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
-    """
-    Converts a list of dictionaries into a columnar format.
+    """Converts a list of dictionaries into a columnar format.
 
     This function takes a list of dictionaries and converts it into a dictionary
     where each key corresponds to a column and each value is a list of column values.
     Missing values in the dictionaries are represented as None.
 
-    Parameters:
-    - items (List[Dict[str, Any]]): A list of dictionaries to convert.
+    Args:
+        items (List[Dict[str, Any]]): A list of dictionaries to convert.
 
     Returns:
-    - Dict[str, List[Any]]: A dictionary with keys as column names and values as lists
-      of column values.
+        Dict[str, List[Any]]: A dictionary with keys as column names and values as lists
+            of column values.
 
     Example:
-    >>> items = [
-    ...     {"name": "Alice", "age": 30, "city": "New York"},
-    ...     {"name": "Bob", "age": 25},
-    ...     {"name": "Charlie", "city": "San Francisco"}
-    ... ]
-    >>> convert_to_columnar(items)
-    {
-        'name': ['Alice', 'Bob', 'Charlie'],
-        'age': [30, 25, None],
-        'city': ['New York', None, 'San Francisco']
-    }
+        >>> items = [
+        ...     {"name": "Alice", "age": 30, "city": "New York"},
+        ...     {"name": "Bob", "age": 25},
+        ...     {"name": "Charlie", "city": "San Francisco"}
+        ... ]
+        >>> convert_to_columnar(items)
+        {
+            'name': ['Alice', 'Bob', 'Charlie'],
+            'age': [30, 25, None],
+            'city': ['New York', None, 'San Francisco']
+        }
     """
     if not items:
         return {}
@@ -54,42 +53,41 @@ def convert_to_columnar(items: List[Dict[str, Any]]) -> Dict[str, List[Any]]:
 def flatten_dict(
     d: Dict[str, Any], parent_key: str = "", sep: str = "_"
 ) -> Dict[str, Any]:
-    """
-    Flattens a nested dictionary.
+    """Flattens a nested dictionary.
 
     This function takes a nested dictionary and flattens it, concatenating nested keys
     with a separator. Lists of dictionaries are serialized to JSON strings.
 
-    Parameters:
-    - d (Dict[str, Any]): The dictionary to flatten.
-    - parent_key (str, optional): The base key to prepend to each key. Defaults to "".
-    - sep (str, optional): The separator to use between concatenated keys. Defaults to "_".
+    Args:
+        d (Dict[str, Any]): The dictionary to flatten.
+        parent_key (str, optional): The base key to prepend to each key. Defaults to "".
+        sep (str, optional): The separator to use between concatenated keys. Defaults to "_".
 
     Returns:
-    - Dict[str, Any]: A flattened dictionary.
+        Dict[str, Any]: A flattened dictionary.
 
     Example:
-    >>> nested_dict = {
-    ...     "a": 1,
-    ...     "b": {
-    ...         "c": 2,
-    ...         "d": {
-    ...             "e": 3
-    ...         }
-    ...     },
-    ...     "f": [4, 5, {"g": 6}],
-    ...     "h": [{"i": 7}, {"j": 8}]
-    ... }
-    >>> flatten_dict(nested_dict)
-    {
-        'a': 1,
-        'b_c': 2,
-        'b_d_e': 3,
-        'f_0': 4,
-        'f_1': 5,
-        'f_2_g': 6,
-        'h': '[{"i": 7}, {"j": 8}]'
-    }
+        >>> nested_dict = {
+        ...     "a": 1,
+        ...     "b": {
+        ...         "c": 2,
+        ...         "d": {
+        ...             "e": 3
+        ...         }
+        ...     },
+        ...     "f": [4, 5, {"g": 6}],
+        ...     "h": [{"i": 7}, {"j": 8}]
+        ... }
+        >>> flatten_dict(nested_dict)
+        {
+            'a': 1,
+            'b_c': 2,
+            'b_d_e': 3,
+            'f_0': 4,
+            'f_1': 5,
+            'f_2_g': 6,
+            'h': '[{"i": 7}, {"j": 8}]'
+        }
     """
     items = []
     for k, v in d.items():
@@ -115,19 +113,20 @@ def flatten_dict(
 def infer_data_types(
     column_data: Dict[str, List[Any]], n_rows: int = 10000
 ) -> List[tuple]:
-    """
-    Infers data types for each column in a columnar data structure.
+    """Infers data types for each column in a columnar data structure.
 
     This function analyzes the values in each column and infers the most suitable
     data type for each column, based on a sample of the data.
 
-    Parameters:
-    - column_data (Dict[str, List[Any]]): A dictionary where keys are column names
-      and values are lists of column values.
-    - n_rows (int, optional): The number of rows to sample for type inference. Defaults to 10000.
+    Args:
+        column_data (Dict[str, List[Any]]): A dictionary where keys are column names
+            and values are lists of column values.
+        n_rows (int, optional): The number of rows to sample for type inference. 
+            Defaults to 10000.
 
     Returns:
-    - List[tuple]: A list of tuples, each containing a column name and its inferred data type.
+        List[tuple]: A list of tuples, each containing a column name and its 
+            inferred data type.
     """
     data_types = []
     for column, values in column_data.items():
@@ -138,28 +137,27 @@ def infer_data_types(
 
 
 def infer_data_type(values: List[Any]) -> str:
-    """
-    Infers the most suitable data type for a list of values.
+    """Infers the most suitable data type for a list of values.
 
     This function examines a list of values and determines the most appropriate
     data type that can represent all the values in the list. It considers integer,
     unsigned integer, decimal, and float types, and defaults to "string" if the
     values cannot be represented by any numeric type or if all values are None.
 
-    Parameters:
-    - values (List[Any]): A list of values to analyze. The values can be of any type.
+    Args:
+        values (List[Any]): A list of values to analyze. The values can be of any type.
 
     Returns:
-    - str: A string representing the inferred data type. Possible return values are:
-      "int8", "int16", "int32", "int64", "int128", "int256", "uint8", "uint16",
-      "uint32", "uint64", "uint128", "uint256", "decimal128", "decimal256",
-      "float32", "float64", or "string".
+        str: A string representing the inferred data type. Possible return values are:
+            "int8", "int16", "int32", "int64", "int128", "int256", "uint8", "uint16",
+            "uint32", "uint64", "uint128", "uint256", "decimal128", "decimal256",
+            "float32", "float64", or "string".
 
     Notes:
-    - If all values in the list are None, the function returns "string".
-    - If any value in the list is a string, the function immediately returns "string".
-    - The function assumes that numeric values can be represented as integers,
-      decimals, or floats based on their range and precision.
+        - If all values in the list are None, the function returns "string".
+        - If any value in the list is a string, the function immediately returns "string".
+        - The function assumes that numeric values can be represented as integers,
+          decimals, or floats based on their range and precision.
     """
 
     int_range = {

@@ -495,8 +495,8 @@ def connect(connection_string: str = ":memory:") -> Connection:
           Connection string can contain query params like "file:test.db?param1=value1&param2=value2"
           "param1=value1" will be passed to ClickHouse engine as start up args.
 
-          For more details, see `clickhouse local --help --verbose`
-          Some special args handling:
+        For more details, see `clickhouse local --help --verbose`
+        Some special args handling:
             - "mode=ro" would be "--readonly=1" for clickhouse (read-only mode)
 
     Returns:
