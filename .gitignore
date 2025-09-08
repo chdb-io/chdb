@@ -247,6 +247,11 @@ test_main
 /tests/data
 /examples/chdbStub
 /examples/chdbSimple
+/examples/chdbCppBasic
+/examples/chdbCppAdvanced
+/examples/chdbCppErrorHandling
+/examples/chdbCppStreaming
+/examples/:memory:
 /examples/chdbDlopen
 libchdb.so
 *.gz

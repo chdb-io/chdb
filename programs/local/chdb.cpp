@@ -727,7 +727,7 @@ void close_conn(chdb_conn ** conn)
     {
         LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection mismatch during close_conn");
     }
-
+    global_conn_ptr = nullptr;
     delete *conn;
     *conn = nullptr;
 }
@@ -957,13 +957,13 @@ chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * resul
 
     if (!conn)
     {
-        auto * query_result = new MaterializedQueryResult("Unexepected null connection");
+        auto * query_result = new MaterializedQueryResult("Unexpected null connection");
         return reinterpret_cast<chdb_result *>(query_result);
     }
 
     if (!result)
     {
-        auto * query_result = new MaterializedQueryResult("Unexepected null result");
+        auto * query_result = new MaterializedQueryResult("Unexpected null result");
         return reinterpret_cast<chdb_result *>(query_result);
     }
 
