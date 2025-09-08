@@ -92,6 +92,13 @@ class TestQueryPy(unittest.TestCase):
         ret = chdb.query("SELECT b, sum(a) FROM Python(reader) GROUP BY b ORDER BY b")
         self.assertEqual(str(ret), EXPECTED)
 
+    def test_string_with_null_character(self):
+        """Test basic string with null character in the middle"""
+        res = chdb.query("SELECT 'hello\0world' as test_string", "CSV")
+        self.assertFalse(res.has_error())
+        result_data = res.bytes().decode('utf-8')
+        self.assertIn('hello\0world', result_data)
+
     def test_query_df(self):
         df = pd.DataFrame(
             {

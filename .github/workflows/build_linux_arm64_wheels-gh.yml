@@ -169,6 +169,11 @@ jobs:
           sudo rm -f dist/*linux_aarch64.whl
           ls -lh dist
         shell: bash
+      - name: Setup core dump collection
+        run: |
+          mkdir -p tmp/core
+          echo "tmp/core/core.%p" | sudo tee /proc/sys/kernel/core_pattern
+          ulimit -c unlimited
       - name: Test wheel on all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -182,6 +187,25 @@ jobs:
             pyenv shell --unset
           done
         continue-on-error: false
+      - name: Check and upload core files if present
+        if: always()
+        run: |
+          if ls tmp/core/core.* >/dev/null 2>&1; then
+            echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
+            tar -czvf core-files-linux-aarch64.tar.gz tmp/core/core.*
+            echo "Core files tar created: core-files-linux-aarch64.tar.gz"
+            ls -lh core-files-linux-aarch64.tar.gz
+          else
+            echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
+            echo "No core files found in tmp/core"
+          fi
+        continue-on-error: true
+      - name:  Upload core files if present
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-files-linux-aarch64
+          path: core-files-linux-aarch64.tar.gz
       - name: Upload wheels to release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -191,11 +215,13 @@ jobs:
       - name: Packege libchdb.so
         run: |
           cp programs/local/chdb.h chdb.h
-          tar -czvf linux-aarch64-libchdb.tar.gz libchdb.so chdb.h
+          cp programs/local/chdb.hpp chdb.hpp
+          tar -czvf linux-aarch64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
       - name: Package libchdb.a
         run: |
           cp programs/local/chdb.h chdb.h
-          tar -czvf linux-aarch64-libchdb-static.tar.gz libchdb.a chdb.h
+          cp programs/local/chdb.hpp chdb.hpp
+          tar -czvf linux-aarch64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
       - name: Upload libchdb.so to release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |

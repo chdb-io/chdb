@@ -123,6 +123,21 @@ CHDB_EXPORT void close_conn(struct chdb_conn ** conn);
 CHDB_EXPORT struct local_result_v2 * query_conn(struct chdb_conn * conn, const char * query, const char * format);
 
 /**
+ * Executes a query on the given connection with explicit length parameters.
+ * @brief Thread-safe query execution with binary-safe string handling
+ * @param conn Connection to execute query on
+ * @param query SQL query string to execute (may contain null bytes)
+ * @param query_len Length of query string in bytes
+ * @param format Output format string (e.g., "CSV", default format)
+ * @param format_len Length of format string in bytes
+ * @return Query result structure containing output or error message
+ * @note Returns error result if connection is invalid or closed
+ * @note This function is binary-safe and can handle queries containing null bytes
+ */
+CHDB_EXPORT struct local_result_v2 *
+query_conn_n(struct chdb_conn * conn, const char * query, size_t query_len, const char * format, size_t format_len);
+
+/**
  * Executes a streaming query on the given connection.
  * @brief Initializes streaming query execution and returns result handle
  * @param conn Connection to execute query on
@@ -134,12 +149,28 @@ CHDB_EXPORT struct local_result_v2 * query_conn(struct chdb_conn * conn, const c
 CHDB_EXPORT chdb_streaming_result * query_conn_streaming(struct chdb_conn * conn, const char * query, const char * format);
 
 /**
+ * Executes a streaming query on the given connection with explicit length parameters.
+ * @brief Initializes streaming query execution with binary-safe string handling
+ * @param conn Connection to execute query on
+ * @param query SQL query string to execute (may contain null bytes)
+ * @param query_len Length of query string in bytes
+ * @param format Output format string (e.g., "CSV", default format)
+ * @param format_len Length of format string in bytes
+ * @return Streaming result handle containing query state or error message
+ * @note Returns error result if connection is invalid or closed
+ * @note This function is binary-safe and can handle queries containing null bytes
+ * @note Use chdb_streaming_fetch_result() to retrieve data chunks from the streaming query
+ */
+CHDB_EXPORT chdb_streaming_result *
+query_conn_streaming_n(struct chdb_conn * conn, const char * query, size_t query_len, const char * format, size_t format_len);
+
+/**
  * Retrieves error message from streaming result.
  * @brief Gets error message associated with streaming query execution
  * @param result Streaming result handle from query_conn_streaming()
  * @return Null-terminated error message string, or NULL if no error occurred
  */
- CHDB_EXPORT const char * chdb_streaming_result_error(chdb_streaming_result * result);
+CHDB_EXPORT const char * chdb_streaming_result_error(chdb_streaming_result * result);
 
 /**
  * Fetches next chunk of streaming results.
@@ -202,6 +233,21 @@ CHDB_EXPORT chdb_connection * chdb_connect(int argc, char ** argv);
 CHDB_EXPORT chdb_result * chdb_query(chdb_connection conn, const char * query, const char * format);
 
 /**
+ * Executes a query on the given connection with explicit length parameters.
+ * @brief Thread-safe query execution with binary-safe string handling
+ * @param conn Connection to execute query on
+ * @param query SQL query string to execute (may contain null bytes)
+ * @param query_len Length of query string in bytes
+ * @param format Output format string (e.g., "CSV", default format)
+ * @param format_len Length of format string in bytes
+ * @return Query result structure containing output or error message
+ * @note Returns error result if connection is invalid or closed
+ * @note This function is binary-safe and can handle queries containing null bytes
+ * @note Use chdb_result_* functions to access result data and metadata
+ */
+CHDB_EXPORT chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len);
+
+/**
  * @brief Execute a query with command-line interface
  * @param argc Argument count (same as main()'s argc)
  * @param argv Argument vector (same as main()'s argv)
@@ -219,6 +265,35 @@ CHDB_EXPORT chdb_result * chdb_query_cmdline(int argc, char ** argv);
  * @note Returns error result if connection is invalid or closed
  */
 CHDB_EXPORT chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const char * format);
+
+/**
+ * Executes a query with explicit string lengths (binary-safe).
+ * @brief Thread-safe function that handles query execution with specified buffer lengths
+ * @param conn Connection to execute query on
+ * @param query SQL query buffer (may contain null bytes)
+ * @param query_len Length of query buffer in bytes
+ * @param format Output format buffer (may contain null bytes)
+ * @param format_len Length of format buffer in bytes
+ * @return Query result structure containing output or error message
+ * @note Strings do not need to be null-terminated
+ * @note Use this function when dealing with queries/formats containing null bytes
+ */
+CHDB_EXPORT chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len);
+
+/**
+ * Executes a streaming query with explicit string lengths (binary-safe).
+ * @brief Initializes streaming query execution with specified buffer lengths
+ * @param conn Connection to execute query on
+ * @param query SQL query buffer (may contain null bytes)
+ * @param query_len Length of query buffer in bytes
+ * @param format Output format buffer (may contain null bytes)
+ * @param format_len Length of format buffer in bytes
+ * @return Streaming result handle containing query state or error message
+ * @note Strings do not need to be null-terminated
+ * @note Use this function when dealing with queries/formats containing null bytes
+ */
+CHDB_EXPORT chdb_result *
+chdb_stream_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len);
 
 /**
  * Fetches next chunk of streaming results.
