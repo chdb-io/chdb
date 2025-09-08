@@ -79,10 +79,13 @@ jobs:
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
           brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
+          brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
           which clang++
           clang++ --version
+          which go
+          go version
           ccache -s
       - uses: actions/checkout@v3
         with:
@@ -109,6 +112,17 @@ jobs:
           bash ./chdb/build.sh
           pyenv shell 3.8
           bash -x ./chdb/test_smoke.sh
+        continue-on-error: false
+      - name: Run chdb/build/build_static_lib.sh
+        timeout-minutes: 600
+        run: |
+          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export CC=$(brew --prefix llvm@19)/bin/clang
+          export CXX=$(brew --prefix llvm@19)/bin/clang++
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          bash ./chdb/build/build_static_lib.sh
+          pyenv shell --unset
         continue-on-error: false
       - name: Debug libchdb
         run: |
@@ -209,10 +223,21 @@ jobs:
           cp programs/local/chdb.h chdb.h
           cp programs/local/chdb.hpp chdb.hpp
           tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
+      - name: Package libchdb.a
+        run: |
+          cp programs/local/chdb.h chdb.h
+          cp programs/local/chdb.hpp chdb.hpp
+          tar -czvf macos-x86_64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
       - name: Upload libchdb.so to release
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
           gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Upload libchdb.a to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb-static.tar.gz --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
@@ -221,6 +246,7 @@ jobs:
           path: |
             ./dist/*.whl
             ./macos-x86_64-libchdb.tar.gz
+            ./macos-x86_64-libchdb-static.tar.gz
           overwrite: true
       - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
