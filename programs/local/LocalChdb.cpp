@@ -1,9 +1,10 @@
 #include "LocalChdb.h"
-#include "chdb.h"
-#include "chdb-internal.h"
+#include <cstring>
 #include "PythonImporter.h"
 #include "PythonTableCache.h"
 #include "StoragePython.h"
+#include "chdb-internal.h"
+#include "chdb.h"
 
 #include <pybind11/pybind11.h>
 #include <pybind11/detail/non_limited_api.h>
@@ -13,6 +14,8 @@
 namespace py = pybind11;
 
 extern bool inside_main = true;
+const static char * CURSOR_DEFAULT_FORMAT = "JSONCompactEachRowWithNamesAndTypes";
+const static size_t CURSOR_DEFAULT_FORMAT_LEN = strlen(CURSOR_DEFAULT_FORMAT);
 
 chdb_result * queryToBuffer(
     const std::string & queryStr,
@@ -256,14 +259,14 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
     py::gil_scoped_release release;
-    auto * result = chdb_query(*conn, query_str.c_str(), format.c_str());
+    auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
     if (chdb_result_length(result))
     {
         LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
     }
 
-    auto * error_msg = chdb_result_error(result);
-    if (error_msg)
+    auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
     {
         std::string msg_copy(error_msg);
         chdb_destroy_query_result(result);
@@ -277,9 +280,9 @@ streaming_query_result * connection_wrapper::send_query(const std::string & quer
     CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
     py::gil_scoped_release release;
-    auto * result = chdb_stream_query(*conn, query_str.c_str(), format.c_str());
-    auto * error_msg = chdb_result_error(result);
-    if (error_msg)
+    auto * result = chdb_stream_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+    auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
     {
         std::string msg_copy(error_msg);
         chdb_destroy_query_result(result);
@@ -301,8 +304,8 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
     if (chdb_result_length(result) == 0)
         LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
 
-    auto * error_msg = chdb_result_error(result);
-    if (error_msg)
+    const auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
     {
         std::string msg_copy(error_msg);
         chdb_destroy_query_result(result);
@@ -329,7 +332,7 @@ void cursor_wrapper::execute(const std::string & query_str)
 
     // Use JSONCompactEachRowWithNamesAndTypes format for better type support
     py::gil_scoped_release release;
-    current_result = chdb_query(conn->get_conn(), query_str.c_str(), "JSONCompactEachRowWithNamesAndTypes");
+    current_result = chdb_query_n(conn->get_conn(), query_str.data(), query_str.size(), CURSOR_DEFAULT_FORMAT, CURSOR_DEFAULT_FORMAT_LEN);
 }
 
 
