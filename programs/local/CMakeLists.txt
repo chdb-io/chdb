@@ -3,6 +3,12 @@ set (CLICKHOUSE_LOCAL_SOURCES
     LocalServer.cpp
 )
 
+# Add force function references only for static library builds
+if (CHDB_STATIC_LIBRARY_BUILD)
+    list(APPEND CLICKHOUSE_LOCAL_SOURCES ForceFunctionReferences.cpp)
+    add_compile_definitions(CHDB_STATIC_LIBRARY_BUILD)
+endif()
+
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
