@@ -20,7 +20,6 @@ Output:
 
 .. code-block:: text
 
-   id,message
    1,Hello World
 
 Connection-Based API (Recommended)
@@ -150,7 +149,7 @@ Query pandas DataFrames directly:
            region,
            sum(sales) as total_sales,
            avg(sales) as avg_sales
-       FROM df
+       FROM Python(df)
        GROUP BY product, region
        ORDER BY total_sales DESC
    """, "DataFrame")
@@ -218,24 +217,6 @@ Performance Tips
        result = cur.fetchone()
    
    conn.close()
-
-**Optimize Large Dataset Queries**
-
-.. code-block:: python
-
-   # Use LIMIT for exploration
-   result = chdb.query("""
-       SELECT * FROM file('large_file.csv', 'CSV')
-       LIMIT 1000
-   """)
-   
-   # Use appropriate data types
-   result = chdb.query("""
-       SELECT 
-           toUInt32(id) as id,
-           toString(name) as name
-       FROM file('data.csv', 'CSV')
-   """)
 
 Error Handling
 --------------

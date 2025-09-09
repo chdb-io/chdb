@@ -76,6 +76,9 @@ html_theme_options = {
 
 html_short_title = '%s-%s' % (project, version)
 
+# Static files directory
+html_static_path = ['_static']
+
 napoleon_use_ivar = True
 napoleon_use_rtype = False
 napoleon_use_param = False
@@ -85,8 +88,15 @@ autodoc_default_options = {
 }
 
 intersphinx_mapping = {
-    "python": ("https://docs.python.org/3", None),
-    "numpy": ("https://numpy.org/doc/stable/", None),
+    # Temporarily disable problematic external documentation links
+    # to avoid SSL/HTTP errors during documentation build
+    # "python": ("https://docs.python.org/3", None),
+    "numpy": ("https://numpy.org/doc/stable/", None), 
     "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
-    "pyarrow": ("https://arrow.apache.org/docs/", None),
+    # PyArrow official documentation (not ReadTheDocs)
+    # "pyarrow": ("https://arrow.apache.org/docs/", None),
 }
+
+# Configure intersphinx timeout and disable SSL verification if needed
+intersphinx_timeout = 30
+intersphinx_disabled_reftypes = []

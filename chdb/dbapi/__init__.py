@@ -13,20 +13,58 @@ paramstyle = "format"
 
 
 class DBAPISet(frozenset):
+    """Extended frozenset for DB-API 2.0 type comparison.
+    
+    This class extends frozenset to support DB-API 2.0 type comparison semantics.
+    It allows for flexible type checking where individual items can be compared
+    against the set using both equality and inequality operators.
+    
+    This is used for type constants like STRING, BINARY, NUMBER, etc. to enable
+    comparisons like "field_type == STRING" where field_type is a single type value.
+    
+    Examples:
+        >>> string_types = DBAPISet([FIELD_TYPE.STRING, FIELD_TYPE.VAR_STRING])
+        >>> FIELD_TYPE.STRING == string_types  # Returns True
+        >>> FIELD_TYPE.INT != string_types     # Returns True
+        >>> FIELD_TYPE.BLOB in string_types    # Returns False
+    """
 
     def __ne__(self, other):
+        """Check inequality with flexible type comparison.
+        
+        Args:
+            other: Value to compare against this set
+            
+        Returns:
+            bool: True if other is not in this set (for non-set types) or
+                  True if sets are not equal (for set types)
+        """
         if isinstance(other, set):
             return frozenset.__ne__(self, other)
         else:
             return other not in self
 
     def __eq__(self, other):
+        """Check equality with flexible type comparison.
+        
+        Args:
+            other: Value to compare against this set
+            
+        Returns:
+            bool: True if other is in this set (for non-set types) or
+                  True if sets are equal (for set types)
+        """
         if isinstance(other, frozenset):
             return frozenset.__eq__(self, other)
         else:
             return other in self
 
     def __hash__(self):
+        """Return hash value for the set.
+        
+        Returns:
+            int: Hash value of the underlying frozenset
+        """
         return frozenset.__hash__(self)
 
 
@@ -47,7 +85,17 @@ ROWID = DBAPISet()
 
 
 def Binary(x):
-    """Return x as a binary type."""
+    """Return x as a binary type.
+    
+    This function converts the input to bytes type for use with binary
+    database fields, following the DB-API 2.0 specification.
+    
+    Args:
+        x: Input data to convert to binary
+        
+    Returns:
+        bytes: The input converted to bytes
+    """
     return bytes(x)
 
 
@@ -65,7 +113,14 @@ if _orig_conn.Connection.__init__.__doc__ is not None:
 del _orig_conn
 
 
-def get_client_info():  # for MySQLdb compatibility
+def get_client_info():
+    """Get client version information.
+    
+    Returns the chDB client version as a string for MySQLdb compatibility.
+    
+    Returns:
+        str: Version string in format 'major.minor.patch'
+    """
     version = chdb_version
     if len(chdb_version) > 3 and chdb_version[3] is None:
         version = chdb_version[:3]

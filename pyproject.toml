@@ -52,11 +52,6 @@ build-backend = "setuptools.build_meta"
 [tool.cibuildwheel]
 build-frontend = "pip"
 build-verbosity = 1
-skip = [
-    "*i686*",  # Skip 32-bit builds
-    "pp*",     # Skip PyPy
-    "*win*",   # Skip Windows builds
-]
 
 [tool.pyright]
 include = ["chdb"]

@@ -40,10 +40,6 @@ docs:
 	@echo "Building documentation..."
 	@PYTHONPATH=src sphinx-build -b html docs build/docs --keep-going -v -E
 	@echo "Documentation built in build/docs/"
-
-serve-docs:
 	@echo "Starting documentation server on port 8000..."
 	@(sleep 1; python3 -c "import webbrowser; webbrowser.open('http://127.0.0.1:8000/')" 2>/dev/null &)
 	@cd build/docs && python3 -m http.server 8000
-
-docs-serve: docs serve-docs

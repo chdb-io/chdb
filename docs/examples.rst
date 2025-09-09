@@ -15,7 +15,7 @@ Basic Queries
    # Basic arithmetic
    result = chdb.query("SELECT 1 + 1 as result", "CSV")
    print(result)
-   # Output: result\n2
+   # Output: 2
 
    # String operations
    result = chdb.query("""
@@ -137,8 +137,145 @@ File Processing Examples
    """, "DataFrame")
    print(result)
 
+Connection-Based API
+---------------------
+
+**Recommended Approach for Database-like Operations**
+
+.. code-block:: python
+
+   import chdb
+   
+   # Create a connection (in-memory by default)
+   conn = chdb.connect(":memory:")
+   # Or use file-based: conn = chdb.connect("test.db")
+   
+   # Create a cursor
+   cur = conn.cursor()
+   
+   # Execute queries
+   cur.execute("SELECT number, toString(number) as str FROM system.numbers LIMIT 3")
+   
+   # Fetch data in different ways
+   print(cur.fetchone())    # Single row: (0, '0')
+   print(cur.fetchmany(2))  # Multiple rows: ((1, '1'), (2, '2'))
+   
+   # Get column information
+   print(cur.column_names())  # ['number', 'str']
+   print(cur.column_types())  # ['UInt64', 'String']
+   
+   # Use the cursor as an iterator
+   cur.execute("SELECT number FROM system.numbers LIMIT 3")
+   for row in cur:
+       print(row)
+   
+   # Always close resources when done
+   cur.close()
+   conn.close()
+
+**Memory-Efficient Processing with Batches**
+
+.. code-block:: python
+
+   # Process large results in batches for better memory usage
+   conn = chdb.connect()
+   cur = conn.cursor()
+   
+   cur.execute("""
+       SELECT user_id, action, timestamp, details
+       FROM file('large_log_file.csv', 'CSV')
+       WHERE timestamp >= '2024-01-01'
+       ORDER BY timestamp
+   """)
+   
+   batch_size = 1000
+   batch_count = 0
+   
+   while True:
+       rows = cur.fetchmany(batch_size)
+       if not rows:
+           break
+       
+       batch_count += 1
+       print(f"Processing batch {batch_count}: {len(rows)} rows")
+       
+       # Process each row in the batch
+       for row in rows:
+           user_id, action, timestamp, details = row
+           # Your processing logic here
+   
+   cur.close()
+   conn.close()
+
 DataFrame Integration
 ---------------------
+
+**Table Class with __table__ Syntax**
+
+.. code-block:: python
+
+   import chdb.dataframe as cdf
+   import pandas as pd
+   
+   # Create DataFrames for joining
+   df1 = pd.DataFrame({'a': [1, 2, 3], 'b': ["one", "two", "three"]})
+   df2 = pd.DataFrame({'c': [1, 2, 3], 'd': ["1", "2", "3"]})
+   
+   # Join using Table.queryStatic method
+   ret_tbl = cdf.query(sql="select * from __tbl1__ t1 join __tbl2__ t2 on t1.a = t2.c",
+                     tbl1=df1, tbl2=df2)
+   print("Join Results:")
+   print(ret_tbl)
+   
+   # Query on the resulting Table using __table__ syntax
+   summary = ret_tbl.query('select b, sum(a) from __table__ group by b')
+   print("\nAggregation Results:")
+   print(summary)
+   
+   # Alternative approach with chdb.query and Python() table engine
+   result = chdb.query("SELECT * FROM Python(df1) t1 JOIN Python(df2) t2 ON t1.a = t2.c")
+   print("\nDirect Python() engine approach:")
+   print(result)
+
+**Working with Table Class Features**
+
+.. code-block:: python
+
+   # Create a Table from DataFrame
+   df = pd.DataFrame({
+       'id': [1, 2, 3, 4, 5],
+       'name': ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve'],
+       'salary': [50000, 60000, 75000, 80000, 95000],
+       'department': ['Engineering', 'Marketing', 'Engineering', 'Sales', 'Engineering']
+   })
+   
+   table = cdf.Table(dataframe=df)
+   
+   # Basic filtering
+   result = table.query("SELECT * FROM __table__ WHERE salary > 70000")
+   print("High earners:")
+   print(result.to_pandas())
+   
+   # Aggregation with grouping
+   summary = table.query("""
+       SELECT 
+           department,
+           COUNT(*) as employee_count,
+           AVG(salary) as avg_salary,
+           MIN(salary) as min_salary,
+           MAX(salary) as max_salary
+       FROM __table__ 
+       GROUP BY department 
+       ORDER BY avg_salary DESC
+   """)
+   print("\nDepartment Summary:")
+   print(summary.to_pandas())
+   
+   # Get query statistics
+   print(f"\nQuery Statistics:")
+   print(f"Rows read: {summary.rows_read()}")
+   print(f"Bytes read: {summary.bytes_read()}")
+   print(f"Elapsed time: {summary.elapsed():.4f} seconds")
 
 **Advanced DataFrame Operations**
 
@@ -168,7 +305,7 @@ DataFrame Integration
            sum(quantity) as total_units_sold,
            min(price) as min_price,
            max(price) as max_price
-       FROM sales_df
+       FROM Python(sales_df)
        GROUP BY category, product_name
        ORDER BY total_revenue DESC
    """, "DataFrame")
@@ -183,7 +320,7 @@ DataFrame Integration
            sum(price * quantity) as daily_revenue,
            count(*) as transaction_count,
            avg(price * quantity) as avg_transaction_value
-       FROM sales_df
+       FROM Python(sales_df)
        GROUP BY sale_date
        ORDER BY sale_date
    """, "DataFrame")
@@ -220,8 +357,8 @@ DataFrame Integration
            p.cost * o.quantity as total_cost,
            (p.cost * o.quantity * 1.4) as expected_revenue,
            ((p.cost * o.quantity * 1.4) - (p.cost * o.quantity)) as expected_profit
-       FROM orders o
-       JOIN products p ON o.product_id = p.product_id
+       FROM Python(orders) o
+       JOIN Python(products) p ON o.product_id = p.product_id
        ORDER BY o.order_date, expected_profit DESC
    """, "DataFrame")
    
@@ -256,7 +393,7 @@ Text and String Processing
            length(text) as text_length,
            arrayJoin(splitByString(' ', text)) as word,
            length(arrayJoin(splitByString(' ', text))) as word_length
-       FROM text_data
+       FROM Python(text_data)
        WHERE length(arrayJoin(splitByString(' ', text))) > 4
        ORDER BY word_length DESC, category
    """, "DataFrame")
@@ -289,7 +426,7 @@ Text and String Processing
            extractAll(contact_info, '\\d{3}-\\d{3}-\\d{4}')[1] as phone,
            match(contact_info, '.*\\.edu.*') as is_university,
            match(contact_info, '.*\\.com.*') as is_commercial
-       FROM contact_data
+       FROM Python(contact_data)
        WHERE email != ''
    """, "DataFrame")
    
@@ -305,13 +442,14 @@ Advanced Analytics
 
    # Time series with window functions
    import pandas as pd
+   import numpy as np
    
    # Generate sample time series data
    dates = pd.date_range('2024-01-01', periods=30, freq='D')
    ts_data = pd.DataFrame({
        'date': dates,
-       'sales': [100 + i*5 + (i%7)*10 + pd.np.random.randint(-20, 20) for i in range(30)],
-       'visitors': [1000 + i*20 + (i%7)*50 + pd.np.random.randint(-100, 100) for i in range(30)]
+       'sales': [100 + i*5 + (i%7)*10 + np.random.randint(-20, 20) for i in range(30)],
+       'visitors': [1000 + i*20 + (i%7)*50 + np.random.randint(-100, 100) for i in range(30)]
    })
    
    result = chdb.query("""
@@ -335,7 +473,7 @@ Advanced Analytics
            
            -- Row numbers and ranking
            row_number() OVER (ORDER BY sales DESC) as sales_rank
-       FROM ts_data
+       FROM Python(ts_data)
        ORDER BY date
    """, "DataFrame")
    
@@ -353,7 +491,7 @@ Advanced Analytics
                sales,
                visitors,
                sales / visitors * 1000 as conversion_rate
-           FROM ts_data
+           FROM Python(ts_data)
        )
        SELECT 
            count(*) as n_observations,
@@ -425,7 +563,7 @@ Complex Data Transformations
            arrayMap(x -> toFloat64(x), splitByString(',', scores)) as scores_array,
            arrayReduce('avg', arrayMap(x -> toFloat64(x), splitByString(',', scores))) as avg_score,
            arrayReduce('max', arrayMap(x -> toFloat64(x), splitByString(',', scores))) as max_score
-       FROM array_data
+       FROM Python(array_data)
    """, "DataFrame")
    
    print("Array Operations Example:")
@@ -485,7 +623,7 @@ Complex Data Transformations
                'Regular Employee'
            ) as role_classification
            
-       FROM employee_data
+       FROM Python(employee_data)
        ORDER BY salary DESC, performance_score DESC
    """, "DataFrame")
    

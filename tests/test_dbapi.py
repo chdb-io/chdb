@@ -27,6 +27,16 @@ class TestDBAPI(unittest.TestCase):
         # print(description)
         print(data)
         self.assertRegex(data[0], expected_clickhouse_version_pattern)
+    def test1111(self):
+        import pandas as pd
+        import chdb
+
+        try:
+            result = chdb.query("SELECT invalid_column FROM non_existent_table")
+        except chdb.ChdbError as e:
+            print(f"Query error: {e}")
+        except Exception as e:
+            print(f"Unexpected error: {e}")
 
     def test_insert_and_read_data(self):
         # make a tmp dir context

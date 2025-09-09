@@ -1,29 +1,69 @@
 API Reference
 =============
 
-Core Functions
---------------
+Core Query Functions
+--------------------
 
 .. automodule:: chdb
-   :members: query, sql, to_df, to_arrowTable, chdb_version, engine_version
+   :members: query, sql, to_df, to_arrowTable
    :show-inheritance:
 
-Exception Classes
------------------
+Connection and Session
+----------------------
+
+.. autofunction:: chdb.connect
+
+.. seealso:: :doc:`session` - Complete session management documentation
+
+State Management
+----------------
+
+.. automodule:: chdb.state
+   :members: connect
+   :show-inheritance:
+
+.. automodule:: chdb.state.sqlitelike
+   :members: to_arrowTable, to_df, Connection, Cursor
+   :show-inheritance:
+
+DataFrame Integration
+---------------------
+
+.. automodule:: chdb.dataframe
+   :members: query, sql, pandas_read_parquet
+   :show-inheritance:
+
+.. autoclass:: chdb.dataframe.Table
+   :show-inheritance:
+   :no-index:
+
+Database API (DBAPI) Support
+-----------------------------
+
+.. seealso:: :doc:`dbapi` - Complete DB-API 2.0 interface documentation
+
+User-Defined Functions (UDF)
+-----------------------------
+
+.. seealso:: :doc:`udf` - Complete UDF documentation and examples
+
+Exception Handling
+------------------
 
 .. autoclass:: chdb.ChdbError
    :show-inheritance:
 
-PyReader Class
---------------
+Abstract Base Classes
+---------------------
 
-.. autoclass:: chdb.PyReader
+.. automodule:: chdb.rwabc
+   :members: PyReader, PyWriter
    :show-inheritance:
 
-Connection Functions
---------------------
+Utilities
+---------
 
-.. autofunction:: chdb.connect
+.. seealso:: :doc:`utils` - Complete utilities documentation and examples
 
 Version Information
 -------------------

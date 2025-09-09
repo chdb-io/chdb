@@ -38,14 +38,6 @@ This enables:
 - PyArrow table support
 - Efficient data interchange between formats
 
-**For Development:**
-
-.. code-block:: bash
-
-   pip install chdb[dev]
-
-This includes testing and development tools.
-
 Supported Platforms
 -------------------
 
@@ -72,7 +64,6 @@ System Requirements
 **Recommended:**
   - **RAM**: 2GB+ for processing large datasets
   - **Disk**: Additional space for data files and temporary storage
-  - **Python**: 3.8+ for optimal performance
 
 Verification
 ------------
@@ -99,7 +90,7 @@ You should see output similar to:
    chDB is working!
    
    chDB version: 3.6.0
-   ClickHouse engine: 24.1.1.1
+   ClickHouse engine: 25.5.2.1
 
 Troubleshooting
 ---------------
@@ -122,8 +113,7 @@ If you encounter import errors, ensure you have Python 3.8+ and a supported plat
 For better performance with large datasets:
 
 1. Ensure sufficient RAM is available
-2. Use SSD storage for data files
-3. Consider using chDB's connection-based API for repeated queries
+2. Consider using chDB's connection-based API for repeated queries
 
 **Getting Help**
 
@@ -136,18 +126,47 @@ If you encounter issues:
 Development Installation
 ------------------------
 
-For contributing to chDB development:
+For contributing to chDB development, you need to build from source. The build process compiles both a Python module and a standalone library.
+
+**Prerequisites:**
+
+- Python 3.8 or higher (required for compatibility)
+- CMake and Ninja build system
+- Platform-specific compilers:
+
+  - **macOS**: LLVM/Clang 19 (install via Homebrew: ``brew install llvm@19``)
+  - **Linux**: GCC or Clang with support for C++20
+
+**Build Process:**
 
 .. code-block:: bash
 
-   # Clone the repository
-   git clone https://github.com/chdb-io/chdb.git
+   # Clone the repository with submodules
+   git clone --recursive https://github.com/chdb-io/chdb.git
    cd chdb
    
-   # Install in development mode
-   pip install -e .[dev]
+   # Ensure Python 3.8 is active
+   python --version
    
+   # Build chDB (creates both Python module and libchdb.so)
+   bash chdb/build.sh
+
    # Run tests to verify installation
    python -m pytest tests/
 
-This installs chDB in editable mode with development dependencies.
+**Build Options:**
+
+- **Debug build**: ``bash chdb/build.sh Debug`` (includes debug symbols)
+- **Release build**: ``bash chdb/build.sh Release`` (default, optimized)
+
+**Build Outputs:**
+
+The build script generates:
+
+- ``_chdb*.so`` - Python extension module
+- ``libchdb.so`` - Standalone C++ library for external use
+
+**Platform Notes:**
+
+- **Linux x86_64**: Enables full feature set including Rust components and embedded compiler
+- **Linux ARM64**: Disables AVX instructions and embedded compiler for compatibility

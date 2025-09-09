@@ -8,11 +8,38 @@ from chdb import query as chdb_query
 
 
 class Table:
-    """
-    Table is a wrapper of multiple formats of data buffer, including parquet file path,
-    parquet bytes, and pandas dataframe.
-    if use_memfd is True, will try using memfd_create to create a temp file in memory, which is
-    only available on Linux. If failed, will fallback to use tempfile.mkstemp to create a temp file
+    """Wrapper for multiple data formats enabling SQL queries on DataFrames, Parquet files, and Arrow tables.
+
+    The Table class provides a unified interface for querying different data formats using SQL.
+    It supports pandas DataFrames, Parquet files (both on disk and in memory), and PyArrow Tables.
+    All data is internally converted to Parquet format for efficient querying with chDB.
+
+    Args:
+        parquet_path (str, optional): Path to an existing Parquet file
+        temp_parquet_path (str, optional): Path to a temporary Parquet file
+        parquet_memoryview (memoryview, optional): Parquet data in memory as memoryview
+        dataframe (pd.DataFrame, optional): pandas DataFrame to wrap
+        arrow_table (pa.Table, optional): PyArrow Table to wrap
+        use_memfd (bool, optional): Use memfd_create for temporary files (Linux only). Defaults to False.
+
+    Examples:
+        >>> # Create from pandas DataFrame
+        >>> import pandas as pd
+        >>> df = pd.DataFrame({'id': [1, 2], 'name': ['Alice', 'Bob']})
+        >>> table = Table(dataframe=df)
+        >>> result = table.query("SELECT * FROM __table__ WHERE id > 1")
+
+        >>> # Create from Parquet file
+        >>> table = Table(parquet_path="data.parquet")
+        >>> result = table.query("SELECT COUNT(*) FROM __table__")
+
+        >>> # Multi-table queries
+        >>> table1 = Table(dataframe=df1)
+        >>> table2 = Table(dataframe=df2)
+        >>> result = Table.queryStatic(
+        ...     "SELECT * FROM __table1__ JOIN __table2__ ON __table1__.id = __table2__.id",
+        ...     table1=table1, table2=table2
+        ... )
     """
 
     def __init__(
@@ -24,9 +51,18 @@ class Table:
         arrow_table: pa.Table = None,
         use_memfd: bool = False,
     ):
-        """
-        Initialize a Table object with one of parquet file path, parquet bytes, pandas dataframe or
-        parquet table.
+        """Initialize a Table object with one of the supported data formats.
+
+        Only one data source should be provided. The Table will wrap the provided data
+        and enable SQL querying capabilities.
+
+        Args:
+            parquet_path (str, optional): Path to existing Parquet file
+            temp_parquet_path (str, optional): Path to temporary Parquet file
+            parquet_memoryview (memoryview, optional): Parquet data in memory
+            dataframe (pd.DataFrame, optional): pandas DataFrame to wrap
+            arrow_table (pa.Table, optional): PyArrow Table to wrap
+            use_memfd (bool, optional): Use memory-based file descriptors on Linux
         """
         self._parquet_path = parquet_path
         self._temp_parquet_path = temp_parquet_path
@@ -46,15 +82,47 @@ class Table:
                 pass
 
     def rows_read(self):
+        """Get the number of rows read from the last query operation.
+
+        Returns:
+            int: Number of rows processed in the last query
+        """
         return self._rows_read
 
     def bytes_read(self):
+        """Get the number of bytes read from the last query operation.
+
+        Returns:
+            int: Number of bytes processed in the last query
+        """
         return self._bytes_read
 
     def elapsed(self):
+        """Get the elapsed time for the last query operation.
+
+        Returns:
+            float: Query execution time
+        """
         return self._elapsed
 
     def to_pandas(self) -> pd.DataFrame:
+        """Convert the Table data to a pandas DataFrame.
+
+        This method handles conversion from various internal formats (Parquet files,
+        memory buffers, Arrow tables) to a unified pandas DataFrame representation.
+
+        Returns:
+            pd.DataFrame: The table data as a pandas DataFrame
+
+        Raises:
+            ValueError: If no data source is available in the Table object
+
+        Example:
+            >>> table = Table(dataframe=df)
+            >>> result_table = table.query("SELECT * FROM __table__ LIMIT 5")
+            >>> df_result = result_table.to_pandas()
+            >>> print(df_result)
+        """
         if self._dataframe is None:
             if self._arrow_table is not None:
                 return self._arrow_table.to_pandas()
@@ -71,8 +139,20 @@ class Table:
         return self._dataframe
 
     def flush_to_disk(self):
-        """
-        Flush the data in memory to disk.
+        """Flush in-memory data to disk as a temporary Parquet file.
+
+        This method converts in-memory data (DataFrame, Arrow table, or memory buffer)
+        to a temporary Parquet file on disk. This can be useful for memory management
+        or when working with large datasets.
+
+        The method does nothing if data is already stored on disk.
+
+        Raises:
+            ValueError: If the Table object contains no data to flush
+
+        Example:
+            >>> table = Table(dataframe=large_df)
+            >>> table.flush_to_disk()  # Frees memory, keeps data accessible
         """
         if self._parquet_path is not None or self._temp_parquet_path is not None:
             return
@@ -112,10 +192,33 @@ class Table:
         return str(self.to_pandas())
 
     def query(self, sql: str, **kwargs) -> "Table":
-        """
-        Query on current Table object, return a new Table object.
-        The `FROM` table name in SQL should always be `__table__`. eg:
-            `SELECT * FROM __table__ WHERE ...`
+        """Execute SQL query on the current Table and return a new Table with results.
+
+        This method allows you to run SQL queries on the table data using chDB.
+        The table is referenced as '__table__' in the SQL statement.
+
+        Args:
+            sql (str): SQL query string. Must reference the table as '__table__'
+            **kwargs: Additional arguments passed to the chDB query engine
+
+        Returns:
+            Table: New Table object containing the query results
+
+        Raises:
+            ValueError: If SQL doesn't contain '__table__' reference or if Table is not initialized
+
+        Examples:
+            >>> table = Table(dataframe=df)
+            >>> # Filter rows
+            >>> result = table.query("SELECT * FROM __table__ WHERE age > 25")
+            >>>
+            >>> # Aggregate data
+            >>> summary = table.query("SELECT COUNT(*), AVG(salary) FROM __table__")
+            >>>
+            >>> # Complex operations
+            >>> processed = table.query(
+            ...     "SELECT name, age * 2 as double_age FROM __table__ ORDER BY age DESC"
+            ... )
         """
         self._validate_sql(sql)
 
@@ -138,6 +241,18 @@ class Table:
     sql = query
 
     def show(self):
+        """Display the Table data by printing the pandas DataFrame representation.
+
+        This is a convenience method for quickly viewing the table contents.
+        Equivalent to print(table.to_pandas()).
+
+        Example:
+            >>> table = Table(dataframe=df)
+            >>> table.show()
+               id    name
+            0   1   Alice
+            1   2     Bob
+        """
         print(self.to_pandas())
 
     def _query_on_path(self, path, sql, **kwargs):
@@ -220,12 +335,51 @@ class Table:
 
     @staticmethod
     def queryStatic(sql: str, **kwargs) -> "Table":
-        """
-        Query on multiple Tables, use Table variables as the table name in SQL
-        eg.
-            table1 = Table(...)
-            table2 = Table(...)
-            query("SELECT * FROM __table1__ JOIN __table2__ ON ...", table1=table1, table2=table2)
+        """Execute SQL query across multiple Table objects.
+
+        This static method enables complex queries involving multiple tables by referencing
+        them as '__tablename__' in the SQL and passing them as keyword arguments.
+
+        Args:
+            sql (str): SQL query with table references as '__name__' patterns
+            **kwargs: Table objects referenced in the SQL, where key matches the table name
+                     Can also include pandas DataFrames, which will be auto-converted to Tables
+
+        Returns:
+            Table: New Table object containing the query results
+
+        Raises:
+            ValueError: If referenced table names are missing from kwargs or have invalid types
+
+        Examples:
+            >>> users = Table(dataframe=users_df)
+            >>> orders = Table(dataframe=orders_df)
+            >>>
+            >>> # Join two tables
+            >>> result = Table.queryStatic(
+            ...     "SELECT u.name, COUNT(o.id) as order_count "
+            ...     "FROM __users__ u LEFT JOIN __orders__ o ON u.id = o.user_id "
+            ...     "GROUP BY u.name",
+            ...     users=users, orders=orders
+            ... )
+            >>>
+            >>> # Works with pandas DataFrames directly
+            >>> result = Table.queryStatic(
+            ...     "SELECT * FROM __df1__ UNION ALL SELECT * FROM __df2__",
+            ...     df1=dataframe1, df2=dataframe2
+            ... )
+            >>>
+            >>> # Complex multi-table operations
+            >>> analytics = Table.queryStatic(
+            ...     "SELECT p.category, AVG(o.amount) as avg_order "
+            ...     "FROM __products__ p "
+            ...     "JOIN __order_items__ oi ON p.id = oi.product_id "
+            ...     "JOIN __orders__ o ON oi.order_id = o.id "
+            ...     "GROUP BY p.category ORDER BY avg_order DESC",
+            ...     products=products_table,
+            ...     order_items=order_items_table,
+            ...     orders=orders_table
+            ... )
         """
         ansiTablePattern = re.compile(r"__([a-zA-Z][a-zA-Z0-9_]*)__")
         temp_paths = []
@@ -322,13 +476,47 @@ class Table:
 
 
 def pandas_read_parquet(path) -> pd.DataFrame:
+    """Read a Parquet file into a pandas DataFrame.
+
+    This is a convenience wrapper around pandas.read_parquet() for consistency
+    with the chdb.dataframe module interface.
+
+    Args:
+        path: File path or file-like object to read from
+
+    Returns:
+        pd.DataFrame: The loaded DataFrame
+    """
     return pd.read_parquet(path)
 
 
 def memfd_create(name: str = None) -> int:
-    """
-    Try to use memfd_create(2) to create a file descriptor with memory.
-    Only available on Linux 3.17 or newer with glibc 2.27 or newer.
+    """Create an in-memory file descriptor using memfd_create system call.
+
+    This function attempts to use the Linux-specific memfd_create(2) system call
+    to create a file descriptor that refers to an anonymous memory-backed file.
+    This provides better performance for temporary data operations.
+
+    Args:
+        name (str, optional): Name for the memory file (for debugging). Defaults to None.
+
+    Returns:
+        int: File descriptor on success, -1 on failure or if not supported
+
+    Note:
+        This function only works on Linux 3.17 or newer with glibc 2.27 or newer.
+        On other systems or if the call fails, it returns -1 and callers should
+        fall back to regular temporary files.
+
+    Example:
+        >>> fd = memfd_create("temp_data")
+        >>> if fd != -1:
+        ...     # Use memory-based file descriptor
+        ...     with os.fdopen(fd, 'wb') as f:
+        ...         f.write(data)
+        ... else:
+        ...     # Fall back to regular temp file
+        ...     fd, path = tempfile.mkstemp()
     """
     if hasattr(os, "memfd_create"):
         try:

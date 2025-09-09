@@ -11,6 +11,22 @@ import chdb
 
 
 def generate_udf(func_name, args, return_type, udf_body):
+    """Generate UDF configuration and executable script files.
+    
+    This function creates the necessary files for a User Defined Function (UDF) in chDB:
+    1. A Python executable script that processes input data
+    2. An XML configuration file that registers the UDF with ClickHouse
+    
+    Args:
+        func_name (str): Name of the UDF function
+        args (list): List of argument names for the function
+        return_type (str): ClickHouse return type for the function
+        udf_body (str): Python source code body of the UDF function
+    
+    Note:
+        This function is typically called by the @chdb_udf decorator and should not
+        be called directly by users.
+    """
     # generate python script
     with open(f"{chdb.g_udf_path}/{func_name}.py", "w") as f:
         f.write(f"#!{sys.executable}\n")

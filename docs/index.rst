@@ -1,5 +1,8 @@
-chDB Documentation
-==================
+.. image:: logo.svg
+    :target: https://clickhouse.com/chdb
+    :alt: chDB Logo
+    :width: 400px
+    :align: center
 
 chDB
 ====
@@ -20,6 +23,7 @@ Contents
    examples
    dbapi
    session
+   streaming
    udf
    utils
    troubleshooting
