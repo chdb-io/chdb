@@ -447,8 +447,8 @@ class Connection:
                 - "CSV" - Comma-separated values (string)
                 - "JSON" - JSON format (string)
                 - "Arrow" - Apache Arrow format (bytes)
-                - "dataframe" - Pandas DataFrame (requires pandas)
-                - "arrowtable" - PyArrow Table (requires pyarrow)
+                - "Dataframe" - Pandas DataFrame (requires pandas)
+                - "Arrowtable" - PyArrow Table (requires pyarrow)
 
         Returns:
             Query results in the specified format. Type depends on format:
