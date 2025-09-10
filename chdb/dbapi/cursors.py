@@ -123,10 +123,10 @@ class Cursor(object):
 
     def _get_db(self):
         """Internal method to get the database connection.
-        
+
         Returns:
             Connection: The database connection
-            
+
         Raises:
             ProgrammingError: If cursor is closed
         """
@@ -136,11 +136,11 @@ class Cursor(object):
 
     def _escape_args(self, args, conn):
         """Internal method to escape query arguments.
-        
+
         Args:
             args (tuple/list/dict): Arguments to escape
             conn (Connection): Database connection for escaping
-            
+
         Returns:
             Escaped arguments in the same structure as input
         """
@@ -438,7 +438,7 @@ class Cursor(object):
 
     def _check_executed(self):
         """Internal method to verify that execute() has been called.
-        
+
         Raises:
             ProgrammingError: If no query has been executed yet
         """
@@ -447,18 +447,18 @@ class Cursor(object):
 
     def fetchone(self):
         """Fetch the next row from the query result.
-        
+
         Returns:
             tuple or None: Next row as a tuple, or None if no more rows available
-            
+
         Raises:
             ProgrammingError: If execute() has not been called first
-            
+
         Example:
             >>> cursor.execute("SELECT id, name FROM users LIMIT 3")
             >>> row = cursor.fetchone()
             >>> print(row)  # (1, 'Alice')
-            >>> row = cursor.fetchone() 
+            >>> row = cursor.fetchone()
             >>> print(row)  # (2, 'Bob')
         """
         if not self._executed:
@@ -467,17 +467,17 @@ class Cursor(object):
 
     def fetchmany(self, size=1):
         """Fetch multiple rows from the query result.
-        
+
         Args:
             size (int, optional): Number of rows to fetch. Defaults to 1.
                                  If not specified, uses cursor.arraysize.
-                                 
+
         Returns:
             list: List of tuples representing the fetched rows
-            
+
         Raises:
             ProgrammingError: If execute() has not been called first
-            
+
         Example:
             >>> cursor.execute("SELECT id, name FROM users")
             >>> rows = cursor.fetchmany(3)
@@ -489,17 +489,17 @@ class Cursor(object):
 
     def fetchall(self):
         """Fetch all remaining rows from the query result.
-        
+
         Returns:
             list: List of tuples representing all remaining rows
-            
+
         Raises:
             ProgrammingError: If execute() has not been called first
-            
+
         Warning:
             This method can consume large amounts of memory for big result sets.
             Consider using fetchmany() for large datasets.
-            
+
         Example:
             >>> cursor.execute("SELECT id, name FROM users")
             >>> all_rows = cursor.fetchall()
@@ -511,10 +511,10 @@ class Cursor(object):
 
     def nextset(self):
         """Move to the next result set (not supported).
-        
+
         Returns:
             None: Always returns None as multiple result sets are not supported
-            
+
         Note:
             chDB/ClickHouse does not support multiple result sets from a single query.
             This method is provided for DB-API 2.0 compliance but always returns None.
@@ -524,10 +524,10 @@ class Cursor(object):
 
     def setinputsizes(self, *args):
         """Set input sizes for parameters (no-op implementation).
-        
+
         Args:
             *args: Parameter size specifications (ignored)
-            
+
         Note:
             This method does nothing but is required by DB-API 2.0 specification.
             chDB automatically handles parameter sizing internally.
@@ -535,10 +535,10 @@ class Cursor(object):
 
     def setoutputsizes(self, *args):
         """Set output column sizes (no-op implementation).
-        
+
         Args:
             *args: Column size specifications (ignored)
-            
+
         Note:
             This method does nothing but is required by DB-API 2.0 specification.
             chDB automatically handles output sizing internally.

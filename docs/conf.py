@@ -91,10 +91,9 @@ intersphinx_mapping = {
     # Temporarily disable problematic external documentation links
     # to avoid SSL/HTTP errors during documentation build
     # "python": ("https://docs.python.org/3", None),
-    "numpy": ("https://numpy.org/doc/stable/", None), 
     "pandas": ("https://pandas.pydata.org/pandas-docs/stable/", None),
     # PyArrow official documentation (not ReadTheDocs)
-    # "pyarrow": ("https://arrow.apache.org/docs/", None),
+    "pyarrow": ("https://arrow.apache.org/docs/", None),
 }
 
 # Configure intersphinx timeout and disable SSL verification if needed

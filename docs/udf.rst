@@ -10,7 +10,6 @@ Python UDFs in chDB provide:
 
 - **Custom Business Logic**: Implement domain-specific calculations and transformations
 - **External Library Integration**: Use any Python library within your SQL queries
-- **Data Processing**: Advanced text processing, JSON manipulation, and mathematical functions
 - **Stateless Operations**: Functions are called for each row of input data
 
 API Reference

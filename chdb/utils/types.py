@@ -121,11 +121,11 @@ def infer_data_types(
     Args:
         column_data (Dict[str, List[Any]]): A dictionary where keys are column names
             and values are lists of column values.
-        n_rows (int, optional): The number of rows to sample for type inference. 
+        n_rows (int, optional): The number of rows to sample for type inference.
             Defaults to 10000.
 
     Returns:
-        List[tuple]: A list of tuples, each containing a column name and its 
+        List[tuple]: A list of tuples, each containing a column name and its
             inferred data type.
     """
     data_types = []

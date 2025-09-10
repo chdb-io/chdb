@@ -529,7 +529,7 @@ A: chDB is optimized for analytical workloads (OLAP) while SQLite is better for 
 
 **Q: What file formats does chDB support?**
 
-A: chDB supports 60+ formats including Parquet, CSV, JSON, Arrow, ORC, and many more. See the `ClickHouse formats documentation <https://clickhouse.com/docs/en/interfaces/formats>`_ for the complete list.
+A: chDB supports 70+ formats including Parquet, CSV, JSON, Arrow, ORC, and many more. See the `ClickHouse formats documentation <https://clickhouse.com/docs/en/interfaces/formats>`_ for the complete list.
 
 **Q: Can I query Pandas DataFrames directly?**
 

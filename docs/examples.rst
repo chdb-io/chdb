@@ -12,12 +12,9 @@ Basic Queries
 
    import chdb
    
-   # Basic arithmetic
    result = chdb.query("SELECT 1 + 1 as result", "CSV")
    print(result)
-   # Output: 2
 
-   # String operations
    result = chdb.query("""
        SELECT 
            'Hello' || ' ' || 'World' as greeting,
@@ -30,7 +27,6 @@ Basic Queries
 
 .. code-block:: python
 
-   # Working with dates
    result = chdb.query("""
        SELECT 
            now() as current_timestamp,
@@ -39,16 +35,11 @@ Basic Queries
    """, "DataFrame")
    print(result)
 
-Working with Numbers
---------------------
-
-**Number Generation and Statistics**
+**Number Generation**
 
 .. code-block:: python
 
    import chdb
-   
-   # Generate sequence and calculate statistics
    result = chdb.query("""
        SELECT 
            count() as total_count,
@@ -61,22 +52,6 @@ Working with Numbers
    """, "DataFrame")
    print(result)
 
-**Mathematical Functions**
-
-.. code-block:: python
-
-   # Advanced mathematical operations
-   result = chdb.query("""
-       SELECT 
-           number,
-           power(number, 2) as squared,
-           sqrt(number) as square_root,
-           log(number + 1) as logarithm,
-           sin(number / 10.0) as sine_wave
-       FROM numbers(1, 10)
-   """, "DataFrame")
-   print(result)
-
 File Processing Examples
 ------------------------
 
@@ -84,7 +59,6 @@ File Processing Examples
 
 .. code-block:: python
 
-   # Comprehensive CSV analysis
    result = chdb.query("""
        SELECT 
            column1,
@@ -104,7 +78,6 @@ File Processing Examples
 
 .. code-block:: python
 
-   # Process JSON files
    result = chdb.query("""
        SELECT 
            JSONExtractString(json, 'user.name') as user_name,
@@ -121,7 +94,6 @@ File Processing Examples
 
 .. code-block:: python
 
-   # Efficient Parquet processing
    result = chdb.query("""
        SELECT 
            department,
@@ -146,30 +118,20 @@ Connection-Based API
 
    import chdb
    
-   # Create a connection (in-memory by default)
    conn = chdb.connect(":memory:")
-   # Or use file-based: conn = chdb.connect("test.db")
-   
-   # Create a cursor
    cur = conn.cursor()
    
-   # Execute queries
    cur.execute("SELECT number, toString(number) as str FROM system.numbers LIMIT 3")
    
-   # Fetch data in different ways
-   print(cur.fetchone())    # Single row: (0, '0')
-   print(cur.fetchmany(2))  # Multiple rows: ((1, '1'), (2, '2'))
+   print(cur.fetchone())
+   print(cur.fetchmany(2))
    
-   # Get column information
-   print(cur.column_names())  # ['number', 'str']
-   print(cur.column_types())  # ['UInt64', 'String']
-   
-   # Use the cursor as an iterator
+   print(cur.column_names())
+   print(cur.column_types())
    cur.execute("SELECT number FROM system.numbers LIMIT 3")
    for row in cur:
        print(row)
    
-   # Always close resources when done
    cur.close()
    conn.close()
 
@@ -177,7 +139,6 @@ Connection-Based API
 
 .. code-block:: python
 
-   # Process large results in batches for better memory usage
    conn = chdb.connect()
    cur = conn.cursor()
    
@@ -199,10 +160,8 @@ Connection-Based API
        batch_count += 1
        print(f"Processing batch {batch_count}: {len(rows)} rows")
        
-       # Process each row in the batch
        for row in rows:
            user_id, action, timestamp, details = row
-           # Your processing logic here
    
    cur.close()
    conn.close()
@@ -217,22 +176,18 @@ DataFrame Integration
    import chdb.dataframe as cdf
    import pandas as pd
    
-   # Create DataFrames for joining
    df1 = pd.DataFrame({'a': [1, 2, 3], 'b': ["one", "two", "three"]})
    df2 = pd.DataFrame({'c': [1, 2, 3], 'd': ["1", "2", "3"]})
    
-   # Join using Table.queryStatic method
    ret_tbl = cdf.query(sql="select * from __tbl1__ t1 join __tbl2__ t2 on t1.a = t2.c",
                      tbl1=df1, tbl2=df2)
    print("Join Results:")
    print(ret_tbl)
    
-   # Query on the resulting Table using __table__ syntax
    summary = ret_tbl.query('select b, sum(a) from __table__ group by b')
    print("\nAggregation Results:")
    print(summary)
    
-   # Alternative approach with chdb.query and Python() table engine
    result = chdb.query("SELECT * FROM Python(df1) t1 JOIN Python(df2) t2 ON t1.a = t2.c")
    print("\nDirect Python() engine approach:")
    print(result)
@@ -241,7 +196,6 @@ DataFrame Integration
 
 .. code-block:: python
 
-   # Create a Table from DataFrame
    df = pd.DataFrame({
        'id': [1, 2, 3, 4, 5],
        'name': ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve'],
@@ -251,12 +205,10 @@ DataFrame Integration
    
    table = cdf.Table(dataframe=df)
    
-   # Basic filtering
    result = table.query("SELECT * FROM __table__ WHERE salary > 70000")
    print("High earners:")
    print(result.to_pandas())
    
-   # Aggregation with grouping
    summary = table.query("""
        SELECT 
            department,
@@ -271,7 +223,6 @@ DataFrame Integration
    print("\nDepartment Summary:")
    print(summary.to_pandas())
    
-   # Get query statistics
    print(f"\nQuery Statistics:")
    print(f"Rows read: {summary.rows_read()}")
    print(f"Bytes read: {summary.bytes_read()}")
@@ -284,7 +235,6 @@ DataFrame Integration
    import pandas as pd
    import chdb
    
-   # Create sample sales data
    sales_df = pd.DataFrame({
        'product_id': [1, 2, 3, 1, 2, 3, 1, 2],
        'product_name': ['Laptop', 'Mouse', 'Keyboard', 'Laptop', 'Mouse', 'Keyboard', 'Laptop', 'Mouse'],
@@ -294,7 +244,6 @@ DataFrame Integration
        'sale_date': pd.date_range('2024-01-01', periods=8, freq='D')
    })
    
-   # Complex analytical query
    result = chdb.query("""
        SELECT 
            category,
@@ -313,7 +262,6 @@ DataFrame Integration
    print("Sales Analysis:")
    print(result)
    
-   # Time series analysis
    daily_sales = chdb.query("""
        SELECT 
            sale_date,
@@ -332,7 +280,6 @@ DataFrame Integration
 
 .. code-block:: python
 
-   # Create related datasets
    products = pd.DataFrame({
        'product_id': [1, 2, 3, 4],
        'product_name': ['Laptop', 'Mouse', 'Keyboard', 'Monitor'],
@@ -347,7 +294,6 @@ DataFrame Integration
        'order_date': ['2024-01-15', '2024-01-16', '2024-01-17', '2024-01-17', '2024-01-18']
    })
    
-   # Join analysis
    result = chdb.query("""
        SELECT 
            p.product_name,
@@ -372,7 +318,6 @@ Text and String Processing
 
 .. code-block:: python
 
-   # Text processing examples
    text_data = pd.DataFrame({
        'id': range(1, 6),
        'text': [
@@ -405,7 +350,6 @@ Text and String Processing
 
 .. code-block:: python
 
-   # Email validation and extraction
    contact_data = pd.DataFrame({
        'id': [1, 2, 3, 4, 5],
        'name': ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson'],
@@ -440,11 +384,8 @@ Advanced Analytics
 
 .. code-block:: python
 
-   # Time series with window functions
    import pandas as pd
    import numpy as np
-   
-   # Generate sample time series data
    dates = pd.date_range('2024-01-01', periods=30, freq='D')
    ts_data = pd.DataFrame({
        'date': dates,
@@ -457,21 +398,16 @@ Advanced Analytics
            date,
            sales,
            visitors,
-           -- Moving averages
            avg(sales) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as sales_7day_avg,
            avg(visitors) OVER (ORDER BY date ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as visitors_7day_avg,
            
-           -- Running totals
            sum(sales) OVER (ORDER BY date) as sales_cumulative,
            
-           -- Lag/Lead analysis
            lag(sales, 1) OVER (ORDER BY date) as prev_day_sales,
            sales - lag(sales, 1) OVER (ORDER BY date) as daily_sales_change,
            
            -- Percentiles
            percent_rank() OVER (ORDER BY sales) as sales_percentile,
-           
-           -- Row numbers and ranking
            row_number() OVER (ORDER BY sales DESC) as sales_rank
        FROM Python(ts_data)
        ORDER BY date
@@ -484,7 +420,6 @@ Advanced Analytics
 
 .. code-block:: python
 
-   # Statistical functions
    result = chdb.query("""
        WITH stats AS (
            SELECT 
@@ -496,19 +431,16 @@ Advanced Analytics
        SELECT 
            count(*) as n_observations,
            
-           -- Sales statistics
            avg(sales) as sales_mean,
            median(sales) as sales_median,
            stddevPop(sales) as sales_std,
            min(sales) as sales_min,
            max(sales) as sales_max,
            
-           -- Visitor statistics  
            avg(visitors) as visitors_mean,
            median(visitors) as visitors_median,
            stddevPop(visitors) as visitors_std,
            
-           -- Conversion rate statistics
            avg(conversion_rate) as avg_conversion_rate,
            stddevPop(conversion_rate) as conversion_rate_std,
            
@@ -516,14 +448,12 @@ Advanced Analytics
            quantile(0.25)(sales) as sales_q25,
            quantile(0.75)(sales) as sales_q75,
            quantile(0.95)(sales) as sales_q95,
-           
-           -- Correlation (approximation)
            corr(sales, visitors) as sales_visitors_correlation
        FROM stats
    """, "DataFrame")
    
    print("Statistical Summary:")
-   print(result.T)  # Transpose for better readability
+   print(result.T)
 
 Complex Data Transformations
 -----------------------------
@@ -532,7 +462,6 @@ Complex Data Transformations
 
 .. code-block:: python
 
-   # Working with arrays
    array_data = pd.DataFrame({
        'user_id': [1, 2, 3, 4, 5],
        'interests': [
@@ -573,7 +502,6 @@ Complex Data Transformations
 
 .. code-block:: python
 
-   # Complex conditional logic
    employee_data = pd.DataFrame({
        'employee_id': range(1, 11),
        'department': ['Sales', 'Engineering', 'Marketing', 'Sales', 'Engineering', 
@@ -591,7 +519,6 @@ Complex Data Transformations
            years_experience,
            performance_score,
            
-           -- Salary bands
            CASE 
                WHEN salary >= 80000 THEN 'Senior'
                WHEN salary >= 60000 THEN 'Mid-level'
@@ -599,7 +526,6 @@ Complex Data Transformations
                ELSE 'Entry-level'
            END as salary_band,
            
-           -- Performance categorization
            CASE 
                WHEN performance_score >= 4.5 THEN 'Exceptional'
                WHEN performance_score >= 4.0 THEN 'Excellent'
@@ -607,7 +533,6 @@ Complex Data Transformations
                ELSE 'Needs Improvement'
            END as performance_category,
            
-           -- Bonus calculation
            CASE 
                WHEN performance_score >= 4.5 AND salary >= 80000 THEN salary * 0.15
                WHEN performance_score >= 4.0 THEN salary * 0.10
@@ -615,7 +540,6 @@ Complex Data Transformations
                ELSE 0
            END as bonus_amount,
            
-           -- Department-specific analysis
            multiIf(
                department = 'Engineering' AND years_experience >= 8, 'Senior Engineer',
                department = 'Sales' AND performance_score >= 4.0, 'Top Performer',
@@ -637,9 +561,7 @@ Performance Optimization Examples
 
 .. code-block:: python
 
-   # Efficient processing of large datasets
    result = chdb.query("""
-       -- Optimize with proper filtering and indexing
        SELECT 
            toYYYYMM(date_column) as year_month,
            category,
@@ -660,11 +582,9 @@ Performance Optimization Examples
 
 .. code-block:: python
 
-   # Use connection-based API for memory efficiency
    conn = chdb.connect()
    cur = conn.cursor()
    
-   # Process large results in batches
    cur.execute("""
        SELECT user_id, action, timestamp, details
        FROM file('large_log_file.csv', 'CSV')
@@ -680,13 +600,10 @@ Performance Optimization Examples
        if not rows:
            break
        
-       # Process batch
        batch_count += 1
        print(f"Processing batch {batch_count}: {len(rows)} rows")
        
-       # Your processing logic here
        for row in rows:
-           # Process individual row
            pass
    
    conn.close()
@@ -702,7 +619,7 @@ Error Handling and Debugging
    import chdb
    
    def safe_query(sql, format="CSV", description=""):
-       """Execute query with proper error handling and logging"""
+       """Execute query with proper error handling"""
        try:
            print(f"Executing: {description}")
            print(f"SQL: {sql}")
@@ -718,7 +635,6 @@ Error Handling and Debugging
            print(f"Unexpected error: {e}")
            return None
    
-   # Example usage
    result = safe_query("""
        SELECT 
            count(*) as total_rows,
