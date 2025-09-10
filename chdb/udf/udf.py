@@ -11,6 +11,22 @@ import chdb
 
 
 def generate_udf(func_name, args, return_type, udf_body):
+    """Generate UDF configuration and executable script files.
+
+    This function creates the necessary files for a User Defined Function (UDF) in chDB:
+    1. A Python executable script that processes input data
+    2. An XML configuration file that registers the UDF with ClickHouse
+
+    Args:
+        func_name (str): Name of the UDF function
+        args (list): List of argument names for the function
+        return_type (str): ClickHouse return type for the function
+        udf_body (str): Python source code body of the UDF function
+
+    Note:
+        This function is typically called by the @chdb_udf decorator and should not
+        be called directly by users.
+    """
     # generate python script
     with open(f"{chdb.g_udf_path}/{func_name}.py", "w") as f:
         f.write(f"#!{sys.executable}\n")
@@ -49,31 +65,31 @@ def generate_udf(func_name, args, return_type, udf_body):
 
 
 def chdb_udf(return_type="String"):
-    """
-    Decorator for chDB Python UDF(User Defined Function).
-    1. The function should be stateless. So, only UDFs are supported, not UDAFs(User Defined Aggregation Function).
-    2. Default return type is String. If you want to change the return type, you can pass in the return type as an argument.
-        The return type should be one of the following: https://clickhouse.com/docs/en/sql-reference/data-types
-    3. The function should take in arguments of type String. As the input is TabSeparated, all arguments are strings.
-    4. The function will be called for each line of input. Something like this:
-        ```
-        def sum_udf(lhs, rhs):
-            return int(lhs) + int(rhs)
+    """Decorator for chDB Python UDF(User Defined Function).
 
-        for line in sys.stdin:
-            args = line.strip().split('\t')
-            lhs = args[0]
-            rhs = args[1]
-            print(sum_udf(lhs, rhs))
-            sys.stdout.flush()
-        ```
-    5. The function should be pure python function. You SHOULD import all python modules used IN THE FUNCTION.
-        ```
-        def func_use_json(arg):
-            import json
-            ...
-        ```
-    6. Python interpertor used is the same as the one used to run the script. Get from `sys.executable`
+    Args:
+        return_type (str): Return type of the function. Default is "String".
+            Should be one of the ClickHouse data types.
+
+    Notes:
+        1. The function should be stateless. Only UDFs are supported, not UDAFs.
+        2. Default return type is String. The return type should be one of the ClickHouse data types.
+        3. The function should take in arguments of type String. All arguments are strings.
+        4. The function will be called for each line of input.
+        5. The function should be pure python function. Import all modules used IN THE FUNCTION.
+        6. Python interpreter used is the same as the one used to run the script.
+
+    Example:
+        .. code-block:: python
+
+            @chdb_udf()
+            def sum_udf(lhs, rhs):
+                return int(lhs) + int(rhs)
+
+            @chdb_udf()
+            def func_use_json(arg):
+                import json
+                # ... use json module
     """
 
     def decorator(func):

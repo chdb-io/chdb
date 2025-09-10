@@ -81,6 +81,24 @@ class Session:
         self.close()
 
     def close(self):
+        """Close the session and cleanup resources.
+
+        This method closes the underlying connection and resets the global session state.
+        After calling this method, the session becomes invalid and cannot be used for
+        further queries.
+
+        .. note::
+            This method is automatically called when the session is used as a context manager
+            or when the session object is destroyed.
+
+        .. warning::
+            Any attempt to use the session after calling close() will result in an error.
+
+        Examples:
+            >>> session = Session("test.db")
+            >>> session.query("SELECT 1")
+            >>> session.close()  # Explicitly close the session
+        """
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -89,14 +107,102 @@ class Session:
         g_session_path = None
 
     def cleanup(self):
+        """Cleanup session resources with exception handling.
+
+        This method attempts to close the session while suppressing any exceptions
+        that might occur during the cleanup process. It's particularly useful in
+        error handling scenarios or when you need to ensure cleanup happens regardless
+        of the session state.
+
+        .. note::
+            This method will never raise an exception, making it safe to call in
+            finally blocks or destructors.
+
+        .. seealso::
+            :meth:`close` - For explicit session closing with error propagation
+
+        Examples:
+            >>> session = Session("test.db")
+            >>> try:
+            ...     session.query("INVALID SQL")
+            ... finally:
+            ...     session.cleanup()  # Safe cleanup regardless of errors
+        """
         try:
             self.close()
         except:  # noqa
             pass
 
     def query(self, sql, fmt="CSV", udf_path=""):
-        """
-        Execute a query.
+        """Execute a SQL query and return the results.
+
+        This method executes a SQL query against the session's database and returns
+        the results in the specified format. The method supports various output formats
+        and maintains session state between queries.
+
+        Args:
+            sql (str): SQL query string to execute
+            fmt (str, optional): Output format for results. Defaults to "CSV".
+                Available formats include:
+
+                - "CSV" - Comma-separated values
+                - "JSON" - JSON format
+                - "TabSeparated" - Tab-separated values
+                - "Pretty" - Pretty-printed table format
+                - "JSONCompact" - Compact JSON format
+                - "Arrow" - Apache Arrow format
+                - "Parquet" - Parquet format
+
+            udf_path (str, optional): Path to user-defined functions. Defaults to "".
+                If not specified, uses the UDF path from session initialization.
+
+        Returns:
+            Query results in the specified format. The exact return type depends on
+            the format parameter:
+
+            - String formats (CSV, JSON, etc.) return str
+            - Binary formats (Arrow, Parquet) return bytes
+
+        Raises:
+            RuntimeError: If the session is closed or invalid
+            ValueError: If the SQL query is malformed
+
+        .. note::
+            The "Debug" format is not supported and will be automatically converted
+            to "CSV" with a warning. For debugging, use connection string parameters
+            instead.
+
+        .. warning::
+            This method executes the query synchronously and loads all results into
+            memory. For large result sets, consider using :meth:`send_query` for
+            streaming results.
+
+        Examples:
+            >>> session = Session("test.db")
+            >>>
+            >>> # Basic query with default CSV format
+            >>> result = session.query("SELECT 1 as number")
+            >>> print(result)
+            number
+            1
+
+            >>> # Query with JSON format
+            >>> result = session.query("SELECT 1 as number", fmt="JSON")
+            >>> print(result)
+            {"number": "1"}
+
+            >>> # Complex query with table creation
+            >>> session.query("CREATE TABLE test (id INT, name String)")
+            >>> session.query("INSERT INTO test VALUES (1, 'Alice'), (2, 'Bob')")
+            >>> result = session.query("SELECT * FROM test ORDER BY id")
+            >>> print(result)
+            id,name
+            1,Alice
+            2,Bob
+
+        .. seealso::
+            :meth:`send_query` - For streaming query execution
+            :attr:`sql` - Alias for this method
         """
         if fmt == "Debug":
             warnings.warn(
@@ -111,8 +217,65 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
     sql = query
 
     def send_query(self, sql, fmt="CSV") -> StreamingResult:
-        """
-        Execute a streaming query.
+        """Execute a SQL query and return a streaming result iterator.
+
+        This method executes a SQL query against the session's database and returns
+        a streaming result object that allows you to iterate over the results without
+        loading everything into memory at once. This is particularly useful for large
+        result sets.
+
+        Args:
+            sql (str): SQL query string to execute
+            fmt (str, optional): Output format for results. Defaults to "CSV".
+                Available formats include:
+
+                - "CSV" - Comma-separated values
+                - "JSON" - JSON format
+                - "TabSeparated" - Tab-separated values
+                - "JSONCompact" - Compact JSON format
+                - "Arrow" - Apache Arrow format
+                - "Parquet" - Parquet format
+
+        Returns:
+            StreamingResult: A streaming result iterator that yields query results
+            incrementally. The iterator can be used in for loops or converted to
+            other data structures.
+
+        Raises:
+            RuntimeError: If the session is closed or invalid
+            ValueError: If the SQL query is malformed
+
+        .. note::
+            The "Debug" format is not supported and will be automatically converted
+            to "CSV" with a warning. For debugging, use connection string parameters
+            instead.
+
+        .. warning::
+            The returned StreamingResult object should be consumed promptly or stored
+            appropriately, as it maintains a connection to the database.
+
+        Examples:
+            >>> session = Session("test.db")
+            >>> session.query("CREATE TABLE big_table (id INT, data String)")
+            >>>
+            >>> # Insert large dataset
+            >>> for i in range(1000):
+            ...     session.query(f"INSERT INTO big_table VALUES ({i}, 'data_{i}')")
+            >>>
+            >>> # Stream results to avoid memory issues
+            >>> streaming_result = session.send_query("SELECT * FROM big_table ORDER BY id")
+            >>> for chunk in streaming_result:
+            ...     print(f"Processing chunk: {len(chunk)} bytes")
+            ...     # Process chunk without loading entire result set
+
+            >>> # Using with context manager
+            >>> with session.send_query("SELECT COUNT(*) FROM big_table") as stream:
+            ...     for result in stream:
+            ...         print(f"Count result: {result}")
+
+        .. seealso::
+            :meth:`query` - For non-streaming query execution
+            :class:`chdb.state.sqlitelike.StreamingResult` - Streaming result iterator
         """
         if fmt == "Debug":
             warnings.warn(

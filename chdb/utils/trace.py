@@ -7,6 +7,37 @@ from datetime import datetime
 enable_print = False
 
 
+def trace(func):
+    """Trace function execution with line-by-line debugging information.
+
+    This decorator enables line-by-line tracing of function execution, printing
+    each executed line along with local variable values. Tracing is only enabled
+    when the global `enable_print` variable is True.
+
+    Args:
+        func: The function to be traced
+
+    Returns:
+        The wrapped function with tracing capabilities
+
+    Note:
+        Set `enable_print = True` to enable tracing output. When disabled,
+        the function executes normally without any performance overhead.
+
+    Example:
+        .. code-block:: python
+
+            import chdb.utils.trace
+            chdb.utils.trace.enable_print = True
+
+            @chdb.utils.trace.trace
+            def my_function(x, y):
+                z = x + y
+                return z * 2
+    """
+    return print_lines(func)
+
+
 def print_lines(func):
     if not enable_print:
         return func
