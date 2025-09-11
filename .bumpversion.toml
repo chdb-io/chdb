@@ -1,0 +1,16 @@
+[tool.bumpversion]
+current_version = "3.6.0"
+commit = false
+tag = false
+allow_dirty = true
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+
+[[tool.bumpversion.files]]
+filename = "chdb/__init__.py"
+
+[[tool.bumpversion.files]]
+filename = "docs/conf.py"
+search = "version = release = '{current_version}'"
+replace = "version = release = '{new_version}'"
