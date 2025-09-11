@@ -69,6 +69,7 @@ else:
 
 chdb_version = tuple(__version__.split('.'))
 
+
 # return pyarrow table
 def to_arrowTable(res):
     """Convert query result to PyArrow Table.
