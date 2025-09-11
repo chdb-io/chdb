@@ -21,16 +21,18 @@ State Management
 .. automodule:: chdb.state
    :members: connect
    :show-inheritance:
+   :exclude-members: __init__
 
 .. automodule:: chdb.state.sqlitelike
    :members: to_arrowTable, to_df, Connection, Cursor
    :show-inheritance:
+   :exclude-members: __init__
 
 DataFrame Integration
 ---------------------
 
 .. automodule:: chdb.dataframe
-   :members: query, sql, pandas_read_parquet
+   :members:
    :show-inheritance:
 
 .. autoclass:: chdb.dataframe.Table
@@ -59,6 +61,7 @@ Abstract Base Classes
 .. automodule:: chdb.rwabc
    :members: PyReader, PyWriter
    :show-inheritance:
+   :exclude-members: __init__
 
 Utilities
 ---------

@@ -11,7 +11,13 @@ try:
 except ImportError:
     chdb = None
 
-autodoc_mock_imports = ["_chdb"]
+autodoc_mock_imports = [
+    "_chdb",
+    "chdb._chdb",
+    "pandas",
+    "pyarrow",
+    "chdb.dataframe",
+]
 autodoc_type_aliases = {
     'datetime': 'datetime.datetime',
 }
@@ -84,8 +90,13 @@ napoleon_use_rtype = False
 napoleon_use_param = False
 
 autodoc_default_options = {
-    'undoc-members': False
+    'undoc-members': False,
+    'show-inheritance': True,
 }
+
+# Add configuration to handle import issues during documentation build
+autodoc_preserve_defaults = True
+suppress_warnings = ['autodoc.mocked_object']
 
 intersphinx_mapping = {
     # Temporarily disable problematic external documentation links
