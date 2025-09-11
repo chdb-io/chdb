@@ -8,8 +8,13 @@ except ImportError as e:
     raise ImportError('Failed to import pyarrow or pandas') from None
 
 # check if pandas version >= 2.0.0
-if pd.__version__[0] < '2':
-    print('Please upgrade pandas to version 2.0.0 or higher to have better performance')
+try:
+    version_parts = pd.__version__.split('.')
+    major_version = int(version_parts[0])
+    if major_version < 2:
+        print('Please upgrade pandas to version 2.0.0 or higher to have better performance')
+except (ValueError, IndexError, AttributeError):
+    pass
 
 from .query import Table, pandas_read_parquet  # noqa: C0413
 
