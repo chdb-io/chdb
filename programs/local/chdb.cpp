@@ -467,7 +467,7 @@ const std::string & chdb_streaming_result_error_string(chdb_streaming_result * r
     return stream_query_result->getError();
 }
 
-chdb_conn ** connect_chdb_with_exception(int argc, char ** argv)
+chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
 {
     std::lock_guard<std::shared_mutex> global_lock(global_connection_mutex);
 
@@ -484,7 +484,7 @@ chdb_conn ** connect_chdb_with_exception(int argc, char ** argv)
     if (global_conn_ptr != nullptr)
     {
         if (path == global_db_path)
-            return &global_conn_ptr;
+            return reinterpret_cast<chdb_connection *>(&global_conn_ptr);
 
         throw DB::Exception(
             DB::ErrorCodes::BAD_ARGUMENTS,
@@ -613,7 +613,7 @@ chdb_conn ** connect_chdb_with_exception(int argc, char ** argv)
         }
     }
 
-    return &global_conn_ptr;
+    return reinterpret_cast<chdb_connection *>(&global_conn_ptr);
 }
 } // namespace CHDB
 
@@ -699,30 +699,12 @@ void free_result_v2(local_result_v2 * result)
 
 chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    try
+    auto * connection = chdb_connect(argc, argv);
+    if (!connection)
     {
-        return connect_chdb_with_exception(argc, argv);
-    }
-    catch (const DB::Exception & e)
-    {
-        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with DB::Exception: {}", DB::getExceptionMessage(e, false));
         return nullptr;
     }
-    catch (const boost::program_options::error & e)
-    {
-        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with bad arguments: {}", e.what());
-        return nullptr;
-    }
-    catch (const Poco::Exception & e)
-    {
-        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with Poco::Exception: {}", e.displayText());
-        return nullptr;
-    }
-    catch (...)
-    {
-        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with unknown exception: {}", DB::getCurrentExceptionMessage(true));
-        return nullptr;
-    }
+    return reinterpret_cast<chdb_conn **>(connection);
 }
 
 void close_conn(chdb_conn ** conn)
@@ -882,12 +864,30 @@ void chdb_destroy_result(chdb_streaming_result * result)
 
 chdb_connection * chdb_connect(int argc, char ** argv)
 {
-    auto connection = connect_chdb(argc, argv);
-
-    if (!connection)
+    try
+    {
+        return connect_chdb_with_exception(argc, argv);
+    }
+    catch (const DB::Exception & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with DB::Exception: {}", DB::getExceptionMessage(e, false));
         return nullptr;
-
-    return reinterpret_cast<chdb_connection *>(connection);
+    }
+    catch (const boost::program_options::error & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with bad arguments: {}", e.what());
+        return nullptr;
+    }
+    catch (const Poco::Exception & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with Poco::Exception: {}", e.displayText());
+        return nullptr;
+    }
+    catch (...)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with unknown exception: {}", DB::getCurrentExceptionMessage(true));
+        return nullptr;
+    }
 }
 
 void chdb_close_conn(chdb_connection * conn)
