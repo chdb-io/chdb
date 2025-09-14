@@ -110,6 +110,40 @@ class TestQueryPy(unittest.TestCase):
         ret = chdb.query("SELECT b, sum(a) FROM Python(df) GROUP BY b ORDER BY b")
         self.assertEqual(str(ret), EXPECTED)
 
+    def test_query_df_with_index(self):
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            },
+            index=[3, 1, 2, 4, 5, 6],
+        )
+
+        ret = chdb.query("SELECT * FROM Python(df)")
+        self.assertIn("tom", str(ret))
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            },
+            index=[0, 1, 2, 4, 5, 6],
+        )
+
+        ret = chdb.query("SELECT * FROM Python(df)")
+        self.assertIn("tom", str(ret))
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            },
+            index=['a', 1, 2, 4, 5, 6],
+        )
+
+        ret = chdb.query("SELECT * FROM Python(df)")
+        self.assertIn("tom", str(ret))
+
     def test_query_arrow(self):
         table = pa.table(
             {
