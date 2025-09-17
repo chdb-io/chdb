@@ -146,7 +146,7 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
         // chdb todo: need more type check
         if (row_count > 0)
         {
-            auto elem_type = obj.attr("__getitem__")(0).attr("__class__").attr("__name__").cast<std::string>();
+            auto elem_type = obj.attr("iloc").attr("__getitem__")(0).attr("__class__").attr("__name__").cast<std::string>();
             if (elem_type == "str" || elem_type == "unicode")
             {
                 result = array;
