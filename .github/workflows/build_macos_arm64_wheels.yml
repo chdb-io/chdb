@@ -87,6 +87,13 @@ jobs:
           which go
           go version
           ccache -s
+      - name: Upgrade Rust toolchain
+        run: |
+          rustup toolchain install nightly-2025-07-07
+          rustup default nightly-2025-07-07
+          rustup component add rust-src
+          rustc --version
+          cargo --version
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -104,6 +111,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          source ~/.cargo/env
           pyenv shell 3.8
           export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
@@ -118,6 +126,7 @@ jobs:
           export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
+          source ~/.cargo/env
           eval "$(pyenv init -)"
           pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
