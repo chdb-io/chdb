@@ -64,7 +64,7 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
+            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0 jupyter nbconvert
             pyenv shell --unset
           done
       - name: Remove /usr/local/bin/python3
@@ -190,6 +190,15 @@ jobs:
             make test
             pyenv shell --unset
           done
+        continue-on-error: false
+      - name: Run notebook tests
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          python -m pip install dist/*.whl --force-reinstall
+          jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
+          pyenv shell --unset
         continue-on-error: false
       - name: Check and upload core files if present
         if: always()
