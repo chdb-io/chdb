@@ -105,7 +105,7 @@ add_headers_and_sources(clickhouse_common_io IO/Protobuf)
 add_headers_and_sources(clickhouse_common_io IO/S3)
 add_headers_and_sources(clickhouse_common_io IO/AzureBlobStorage)
 add_headers_and_sources(clickhouse_common_io Disks/ObjectStorages/AzureBlobStorage)
-list (REMOVE_ITEM clickhouse_common_io_sources Common/malloc.cpp Common/mallocAdapt.c Common/stubFree.c Common/AllocationInterceptors.cpp)
+list (REMOVE_ITEM clickhouse_common_io_sources Common/malloc.cpp Common/stubFree.c Common/AllocationInterceptors.cpp)
 
 add_headers_and_sources(clickhouse_compression Compression)
 add_library(clickhouse_compression ${clickhouse_compression_headers} ${clickhouse_compression_sources})
@@ -212,9 +212,7 @@ if (SPLIT_SHARED_LIBRARIES)
 endif ()
     
 if (ENABLE_JEMALLOC)
-    add_library (clickhouse_malloc OBJECT Common/mallocAdapt.c Common/stubFree.c Common/malloc.cpp)
-    set_source_files_properties(Common/mallocAdapt.c PROPERTIES COMPILE_FLAGS "-DJEMALLOC_NO_RENAME")
-    set_source_files_properties(Common/mallocAdapt.c PROPERTIES COMPILE_FLAGS "-Wno-reserved-identifier") # suppress warning about __wrap_ functions
+    add_library (clickhouse_malloc OBJECT Common/stubFree.c Common/malloc.cpp)
     set_source_files_properties(Common/stubFree.c PROPERTIES COMPILE_FLAGS "-Wno-reserved-identifier") # suppress warning about __wrap_ functions
     if (TARGET ch_contrib::jemalloc)
         target_link_libraries (clickhouse_malloc PRIVATE ch_contrib::jemalloc)
