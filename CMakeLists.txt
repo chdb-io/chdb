@@ -533,11 +533,6 @@ macro (clickhouse_add_executable target)
             "LINKER:--wrap=valloc"
             "LINKER:--wrap=memalign"
             "LINKER:--wrap=reallocarray"
-            "LINKER:--wrap=mallocx"
-            "LINKER:--wrap=rallocx"
-            "LINKER:--wrap=sdallocx"
-            "LINKER:--wrap=mallctl"
-            "LINKER:--wrap=malloc_stats_print"
         )
         if (NOT USE_MUSL)
             target_link_options(${target} PRIVATE

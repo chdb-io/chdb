@@ -40,6 +40,13 @@ extern "C" void   __real_free(void * ptr);
 extern "C" void * __real_pvalloc(size_t size);
 #endif
 
+// jemalloc extended functions
+extern "C" void * mallocx(size_t size, int flags);
+extern "C" void * rallocx(void * ptr, size_t size, int flags);
+extern "C" void   sdallocx(void * ptr, size_t size, int flags);
+extern "C" int    mallctl(const char * name, void * oldp, size_t * oldlenp, void * newp, size_t newlen);
+extern "C" void   malloc_stats_print(void (*write_cb)(void *, const char *), void * cbopaque, const char * opts);
+
 #endif
 
 // NOLINTEND
