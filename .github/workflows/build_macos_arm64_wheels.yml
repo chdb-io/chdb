@@ -84,6 +84,12 @@ jobs:
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
           which clang++
           clang++ --version
+          # Ensure wasm-ld is available for WebAssembly compilation
+          if ! command -v wasm-ld &> /dev/null; then
+            echo "wasm-ld not found in PATH, creating symlink"
+            sudo ln -sf $(brew --prefix llvm@19)/bin/wasm-ld /usr/local/bin/wasm-ld || true
+          fi
+          which wasm-ld || echo "wasm-ld not found in PATH"
           which go
           go version
           ccache -s
