@@ -467,89 +467,7 @@ const std::string & chdb_streaming_result_error_string(chdb_streaming_result * r
     return stream_query_result->getError();
 }
 
-} // namespace CHDB
-
-using namespace CHDB;
-
-local_result * query_stable(int argc, char ** argv)
-{
-    ChdbDestructorGuard guard;
-
-    auto query_result = pyEntryClickHouseLocal(argc, argv);
-    if (!query_result->getError().empty() || query_result->result_buffer == nullptr)
-        return nullptr;
-
-    local_result * res = new local_result;
-    res->len = query_result->result_buffer->size();
-    res->buf = query_result->result_buffer->data();
-    res->_vec = query_result->result_buffer.release();
-    res->rows_read = query_result->rows_read;
-    res->bytes_read = query_result->bytes_read;
-    res->elapsed = query_result->elapsed;
-    return res;
-}
-
-void free_result(local_result * result)
-{
-    ChdbDestructorGuard guard;
-
-    if (!result)
-    {
-        return;
-    }
-    if (result->_vec)
-    {
-        std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
-        delete vec;
-        result->_vec = nullptr;
-    }
-    delete result;
-}
-
-local_result_v2 * query_stable_v2(int argc, char ** argv)
-{
-    ChdbDestructorGuard guard;
-
-    // pyEntryClickHouseLocal may throw some serious exceptions, although it's not likely
-    // to happen in the context of clickhouse-local. we catch them here and return an error
-    local_result_v2 * res = nullptr;
-    try
-    {
-        auto query_result = pyEntryClickHouseLocal(argc, argv);
-
-        return convert2LocalResultV2(query_result.get());
-    }
-    catch (const std::exception & e)
-    {
-        res = new local_result_v2();
-        res->error_message = new char[strlen(e.what()) + 1];
-        std::strcpy(res->error_message, e.what());
-    }
-    catch (...)
-    {
-        res = new local_result_v2();
-        const char * unknown_exception_msg = "Unknown exception";
-        size_t len = std::strlen(unknown_exception_msg) + 1;
-        res->error_message = new char[len];
-        std::strcpy(res->error_message, unknown_exception_msg);
-    }
-
-    return res;
-}
-
-void free_result_v2(local_result_v2 * result)
-{
-    ChdbDestructorGuard guard;
-
-    if (!result)
-        return;
-
-    delete reinterpret_cast<std::vector<char> *>(result->_vec);
-    delete[] result->error_message;
-    delete result;
-}
-
-chdb_conn ** connect_chdb(int argc, char ** argv)
+chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
 {
     std::lock_guard<std::shared_mutex> global_lock(global_connection_mutex);
 
@@ -566,7 +484,7 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
     if (global_conn_ptr != nullptr)
     {
         if (path == global_db_path)
-            return &global_conn_ptr;
+            return reinterpret_cast<chdb_connection *>(&global_conn_ptr);
 
         throw DB::Exception(
             DB::ErrorCodes::BAD_ARGUMENTS,
@@ -695,7 +613,98 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
         }
     }
 
-    return &global_conn_ptr;
+    return reinterpret_cast<chdb_connection *>(&global_conn_ptr);
+}
+} // namespace CHDB
+
+using namespace CHDB;
+
+local_result * query_stable(int argc, char ** argv)
+{
+    ChdbDestructorGuard guard;
+
+    auto query_result = pyEntryClickHouseLocal(argc, argv);
+    if (!query_result->getError().empty() || query_result->result_buffer == nullptr)
+        return nullptr;
+
+    local_result * res = new local_result;
+    res->len = query_result->result_buffer->size();
+    res->buf = query_result->result_buffer->data();
+    res->_vec = query_result->result_buffer.release();
+    res->rows_read = query_result->rows_read;
+    res->bytes_read = query_result->bytes_read;
+    res->elapsed = query_result->elapsed;
+    return res;
+}
+
+void free_result(local_result * result)
+{
+    ChdbDestructorGuard guard;
+
+    if (!result)
+    {
+        return;
+    }
+    if (result->_vec)
+    {
+        std::vector<char> * vec = reinterpret_cast<std::vector<char> *>(result->_vec);
+        delete vec;
+        result->_vec = nullptr;
+    }
+    delete result;
+}
+
+local_result_v2 * query_stable_v2(int argc, char ** argv)
+{
+    ChdbDestructorGuard guard;
+
+    // pyEntryClickHouseLocal may throw some serious exceptions, although it's not likely
+    // to happen in the context of clickhouse-local. we catch them here and return an error
+    local_result_v2 * res = nullptr;
+    try
+    {
+        auto query_result = pyEntryClickHouseLocal(argc, argv);
+
+        return convert2LocalResultV2(query_result.get());
+    }
+    catch (const std::exception & e)
+    {
+        res = new local_result_v2();
+        res->error_message = new char[strlen(e.what()) + 1];
+        std::strcpy(res->error_message, e.what());
+    }
+    catch (...)
+    {
+        res = new local_result_v2();
+        const char * unknown_exception_msg = "Unknown exception";
+        size_t len = std::strlen(unknown_exception_msg) + 1;
+        res->error_message = new char[len];
+        std::strcpy(res->error_message, unknown_exception_msg);
+    }
+
+    return res;
+}
+
+void free_result_v2(local_result_v2 * result)
+{
+    ChdbDestructorGuard guard;
+
+    if (!result)
+        return;
+
+    delete reinterpret_cast<std::vector<char> *>(result->_vec);
+    delete[] result->error_message;
+    delete result;
+}
+
+chdb_conn ** connect_chdb(int argc, char ** argv)
+{
+    auto * connection = chdb_connect(argc, argv);
+    if (!connection)
+    {
+        return nullptr;
+    }
+    return reinterpret_cast<chdb_conn **>(connection);
 }
 
 void close_conn(chdb_conn ** conn)
@@ -855,9 +864,30 @@ void chdb_destroy_result(chdb_streaming_result * result)
 
 chdb_connection * chdb_connect(int argc, char ** argv)
 {
-    auto connection = connect_chdb(argc, argv);
-
-    return reinterpret_cast<chdb_connection *>(connection);
+    try
+    {
+        return connect_chdb_with_exception(argc, argv);
+    }
+    catch (const DB::Exception & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with DB::Exception: {}", DB::getExceptionMessage(e, false));
+        return nullptr;
+    }
+    catch (const boost::program_options::error & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with bad arguments: {}", e.what());
+        return nullptr;
+    }
+    catch (const Poco::Exception & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with Poco::Exception: {}", e.displayText());
+        return nullptr;
+    }
+    catch (...)
+    {
+        LOG_ERROR(&Poco::Logger::get("LocalServer"), "Connection failed with unknown exception: {}", DB::getCurrentExceptionMessage(true));
+        return nullptr;
+    }
 }
 
 void chdb_close_conn(chdb_connection * conn)
