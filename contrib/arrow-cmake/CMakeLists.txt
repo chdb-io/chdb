@@ -449,8 +449,7 @@ set(ARROW_SRCS
 
 if (TARGET ch_contrib::jemalloc)
     SET(ARROW_SRCS "${LIBRARY_DIR}/memory_pool_jemalloc.cc" ${ARROW_SRCS})
-    include_directories("${CMAKE_SOURCE_DIR}/src/Common")
-    add_compile_options("-include" "${CMAKE_SOURCE_DIR}/src/Common/jemallocDeclarations.h")
+    add_compile_options("-include" "${CMAKE_SOURCE_DIR}/src/Common/JemallocDeclarations.h")
 endif()
 
 add_definitions(-DARROW_WITH_LZ4)
