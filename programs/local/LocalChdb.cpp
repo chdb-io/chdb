@@ -14,6 +14,12 @@
 namespace py = pybind11;
 
 extern bool inside_main = true;
+
+namespace CHDB
+{
+extern chdb_connection * connect_chdb_with_exception(int argc, char ** argv);
+}
+
 const static char * CURSOR_DEFAULT_FORMAT = "JSONCompactEachRowWithNamesAndTypes";
 const static size_t CURSOR_DEFAULT_FORMAT_LEN = strlen(CURSOR_DEFAULT_FORMAT);
 
@@ -223,7 +229,7 @@ connection_wrapper::connection_wrapper(const std::string & conn_str)
         argv_char.push_back(const_cast<char *>(arg.c_str()));
     }
 
-    conn = chdb_connect(argv_char.size(), argv_char.data());
+    conn = CHDB::connect_chdb_with_exception(argv_char.size(), argv_char.data());
     db_path = path;
     is_memory_db = (path == ":memory:");
 }
