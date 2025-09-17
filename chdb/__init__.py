@@ -50,7 +50,7 @@ _process_result_format_funs = {
 # UDF script path will be f"{g_udf_path}/{func_name}.py"
 g_udf_path = ""
 
-chdb_version = ('3', '6', '0')
+__version__ = "3.6.0"
 if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -67,12 +67,7 @@ if sys.version_info[:2] >= (3, 7):
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
 
-try:
-    # Change here if project is renamed and does not equal the package name
-    dist_name = __name__
-    __version__ = ".".join(map(str, chdb_version))
-except:  # noqa
-    __version__ = "unknown"
+chdb_version = tuple(__version__.split('.'))
 
 
 # return pyarrow table
