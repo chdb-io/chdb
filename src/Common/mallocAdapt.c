@@ -145,3 +145,18 @@ int mallctl(const char * name, void * oldp, size_t * oldlenp, void * newp, size_
     return je_mallctl(name, oldp, oldlenp, newp, newlen); // call je_mallctl function
 }
 
+void * mallocx(size_t size, int flags)
+{
+    return je_mallocx(size, flags); // call je_mallocx function
+}
+
+void * rallocx(void * ptr, size_t size, int flags)
+{
+    return je_rallocx(ptr, size, flags); // call je_rallocx function
+}
+
+void malloc_stats_print(void (*write_cb)(void *, const char *), void *cbopaque, const char *opts)
+{
+    je_malloc_stats_print(write_cb, cbopaque, opts); // call je_malloc_stats_print function
+}
+
