@@ -78,17 +78,12 @@ jobs:
           brew update
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
-          brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm
+          brew install git ccache ninja libtool gettext gcc binutils grep findutils nasm lld
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
           which clang++
           clang++ --version
-          # Ensure wasm-ld is available for WebAssembly compilation
-          if ! command -v wasm-ld &> /dev/null; then
-            echo "wasm-ld not found in PATH, creating symlink"
-            sudo ln -sf $(brew --prefix llvm@19)/bin/wasm-ld /usr/local/bin/wasm-ld || true
-          fi
           which wasm-ld || echo "wasm-ld not found in PATH"
           which go
           go version
