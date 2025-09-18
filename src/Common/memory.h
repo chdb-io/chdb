@@ -47,25 +47,6 @@ inline ALWAYS_INLINE size_t alignUp(size_t size, size_t align) noexcept
     return (size + align - 1) / align * align;
 }
 
-# if USE_JEMALLOC
-template <std::same_as<std::align_val_t>... TAlign>
-requires DB::OptionalArgument<TAlign...>
-inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
-{
-    void * ptr = nullptr;
-    if constexpr (sizeof...(TAlign) == 1)
-        ptr = je_aligned_alloc(alignToSizeT(align...), size);
-    else
-        ptr = je_malloc(size);
-
-    if (likely(ptr != nullptr))
-        return ptr;
-
-    /// @note no std::get_new_handler logic implemented
-    throw std::bad_alloc{};
-}
-
-# else
 
 template <std::same_as<std::align_val_t>... TAlign>
 requires DB::OptionalArgument<TAlign...>
@@ -83,25 +64,6 @@ inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
     /// @note no std::get_new_handler logic implemented
     throw std::bad_alloc{};
 }
-# endif
-
-# if USE_JEMALLOC
-inline ALWAYS_INLINE void * newNoExcept(std::size_t size) noexcept
-{
-    return je_malloc(size);
-}
-
-inline ALWAYS_INLINE void * newNoExcept(std::size_t size, std::align_val_t align) noexcept
-{
-    return je_aligned_alloc(static_cast<size_t>(align), size);
-}
-
-inline ALWAYS_INLINE void deleteImpl(void * ptr) noexcept
-{
-    je_free(ptr);
-}
-
-# else
 
 inline ALWAYS_INLINE void * newNoExcept(std::size_t size) noexcept
 {
@@ -117,8 +79,6 @@ inline ALWAYS_INLINE void deleteImpl(void * ptr) noexcept
 {
     __real_free(ptr);
 }
-
-# endif
 
 #if USE_JEMALLOC
 
