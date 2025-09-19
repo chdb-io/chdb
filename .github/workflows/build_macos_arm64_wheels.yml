@@ -78,7 +78,8 @@ jobs:
           brew update
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
-          brew install ccache git ninja libtool gettext gcc binutils grep findutils nasm lld
+          brew install git ninja libtool gettext gcc binutils grep findutils nasm lld
+          brew install --build-from-source ccache
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
