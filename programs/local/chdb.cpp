@@ -22,35 +22,10 @@ namespace DB
 #endif
 
 extern thread_local bool chdb_destructor_cleanup_in_progress;
+std::shared_mutex global_connection_mutex;
 
 namespace CHDB
 {
-
-/**
- * RAII guard for accurate memory tracking in chDB external interfaces
- *
- * When Python (or other programming language) threads call chDB-provided interfaces
- * such as chdb_destroy_query_result, the memory released cannot be accurately tracked
- * by ClickHouse's MemoryTracker, which may lead to false reports of insufficient memory.
- *
- * Therefore, for all externally exposed chDB interfaces, ChdbDestructorGuard must be
- * used at the beginning of execution to provide thread marking, enabling MemoryTracker
- * to accurately track memory changes.
- */
-class ChdbDestructorGuard
-{
-public:
-    ChdbDestructorGuard() { chdb_destructor_cleanup_in_progress = true; }
-
-    ~ChdbDestructorGuard() { chdb_destructor_cleanup_in_progress = false; }
-
-    ChdbDestructorGuard(const ChdbDestructorGuard &) = delete;
-    ChdbDestructorGuard & operator=(const ChdbDestructorGuard &) = delete;
-    ChdbDestructorGuard(ChdbDestructorGuard &&) = delete;
-    ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
-};
-
-static std::shared_mutex global_connection_mutex;
 static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
@@ -296,11 +271,6 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
     }
 
     return std::make_pair(std::move(query_result), is_end);
-}
-
-static bool checkConnectionValidity(chdb_conn * conn)
-{
-    return conn && conn->connected && conn->queue;
 }
 
 static QueryResultPtr executeQueryRequest(

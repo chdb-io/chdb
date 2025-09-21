@@ -3,6 +3,21 @@ set (CLICKHOUSE_LOCAL_SOURCES
     LocalServer.cpp
 )
 
+# Add ArrowStream table function sources when not using Python
+if (NOT USE_PYTHON)
+    set (CHDB_ARROW_SOURCES
+        chdb-arrow.cpp
+        ArrowStreamRegistry.h
+        ArrowStreamSource.cpp
+        ArrowStreamSource.h
+        StorageArrowStream.cpp
+        StorageArrowStream.h
+        TableFunctionArrowStream.cpp
+        TableFunctionArrowStream.h
+    )
+    set (CLICKHOUSE_LOCAL_SOURCES ${CLICKHOUSE_LOCAL_SOURCES} ${CHDB_ARROW_SOURCES})
+endif()
+
 # Add force function references only for static library builds
 if (CHDB_STATIC_LIBRARY_BUILD)
     list(APPEND CLICKHOUSE_LOCAL_SOURCES ForceFunctionReferences.cpp)
@@ -12,6 +27,9 @@ endif()
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
+        ArrowSchema.cpp
+        ArrowStreamWrapper.cpp
+        ArrowTableReader.cpp
         FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
@@ -20,6 +38,7 @@ if (USE_PYTHON)
         PandasAnalyzer.cpp
         PandasDataFrame.cpp
         PandasScan.cpp
+        PyArrowTable.cpp
         PybindWrapper.cpp
         PythonConversion.cpp
         PythonDict.cpp
@@ -116,6 +135,9 @@ if (TARGET ch_contrib::azure_sdk)
 endif()
 if (TARGET ch_contrib::utf8proc)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::utf8proc)
+endif()
+if (TARGET ch_contrib::arrow)
+    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::arrow)
 endif()
 if (TARGET ch_contrib::pybind11_stubs)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::pybind11_stubs)
