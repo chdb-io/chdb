@@ -2,6 +2,7 @@
 #include "FormatHelper.h"
 #include "PybindWrapper.h"
 #include "PythonSource.h"
+#include "PyArrowTable.h"
 
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDate.h>
@@ -30,6 +31,8 @@
 #include <Formats/FormatFactory.cpp>
 
 #include <any>
+
+using namespace CHDB;
 
 namespace DB
 {
@@ -80,11 +83,20 @@ Pipe StoragePython::read(
 
     prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
 
+    ArrowTableReaderPtr arrow_table_reader;
+    {
+        py::gil_scoped_acquire acquire;
+        if (PyArrowTable::isPyArrowTable(data_source))
+        {
+            arrow_table_reader = std::make_shared<ArrowTableReader>(data_source, sample_block,
+                format_settings, num_streams, max_block_size);
+        }
+    }
+
     Pipes pipes;
-    // num_streams = 32; // for chdb testing
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings));
+            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
     return Pipe::unitePipes(std::move(pipes));
 }
 

@@ -5,6 +5,8 @@
 #include "TableFunctionPython.h"
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Storages/StorageFactory.h>
+#else
+#include "TableFunctionArrowStream.h"
 #endif
 #include <Formats/FormatFactory.h>
 
@@ -645,9 +647,12 @@ try
         registerAggregateFunctions();
 
         registerTableFunctions();
-#if USE_PYTHON
+
         auto & table_function_factory = TableFunctionFactory::instance();
+#if USE_PYTHON
         registerTableFunctionPython(table_function_factory);
+#else
+        registerTableFunctionArrowStream(table_function_factory);
 #endif
 
         registerDatabases();
