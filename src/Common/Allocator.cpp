@@ -19,8 +19,8 @@ namespace DB
 
 namespace ErrorCodes
 {
-    extern const int CANNOT_ALLOCATE_MEMORY;
-    extern const int LOGICAL_ERROR;
+extern const int CANNOT_ALLOCATE_MEMORY;
+extern const int LOGICAL_ERROR;
 }
 
 }
@@ -77,17 +77,10 @@ void * allocNoTrack(size_t size, size_t alignment)
     void * buf;
     if (alignment <= MALLOC_MIN_ALIGNMENT)
     {
-#if USE_JEMALLOC
-        if constexpr (clear_memory)
-            buf = je_calloc(size, 1);
-        else
-            buf = je_malloc(size);
-#else
         if constexpr (clear_memory)
             buf = __real_calloc(size, 1);
         else
             buf = __real_malloc(size);
-#endif
 
         if (nullptr == buf)
             throw DB::ErrnoException(DB::ErrorCodes::CANNOT_ALLOCATE_MEMORY, "Allocator: Cannot malloc {}.", ReadableSize(size));
@@ -111,16 +104,10 @@ void * allocNoTrack(size_t size, size_t alignment)
     return buf;
 }
 
-
 void freeNoTrack(void * buf)
 {
-#if USE_JEMALLOC
-     je_free(buf);
-#else
     __real_free(buf);
-#endif
 }
-
 
 void checkSize(size_t size)
 {
@@ -185,11 +172,7 @@ void * Allocator<clear_memory_, populate>::realloc(void * buf, size_t old_size, 
         /// memory for all options
         auto trace_alloc = CurrentMemoryTracker::alloc(new_size);
 
-#if USE_JEMALLOC
-        void * new_buf = je_realloc(buf, new_size);
-#else
         void * new_buf = __real_realloc(buf, new_size);
-#endif
         if (nullptr == new_buf)
         {
             [[maybe_unused]] auto trace_free = CurrentMemoryTracker::free(new_size);
