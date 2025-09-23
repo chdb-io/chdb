@@ -1,31 +1,12 @@
 #pragma once
 
+#include "ArrowSchema.h"
+
 #include <memory>
 #include <arrow/c/abi.h>
-#include <pybind11/pybind11.h>
-#include <Core/Names.h>
 
 namespace CHDB
 {
-
-/// Wrapper for Arrow C Data Interface structures with RAII resource management
-class ArrowSchemaWrapper
-{
-public:
-    ArrowSchema arrow_schema;
-
-    ArrowSchemaWrapper() {
-        arrow_schema.release = nullptr;
-    }
-
-    ~ArrowSchemaWrapper();
-
-    /// Non-copyable but moveable
-    ArrowSchemaWrapper(const ArrowSchemaWrapper &) = delete;
-    ArrowSchemaWrapper & operator=(const ArrowSchemaWrapper &) = delete;
-    ArrowSchemaWrapper(ArrowSchemaWrapper && other) noexcept;
-    ArrowSchemaWrapper & operator=(ArrowSchemaWrapper && other) noexcept;
-};
 
 class ArrowArrayWrapper
 {
@@ -57,20 +38,21 @@ class ArrowArrayStreamWrapper
 public:
     ArrowArrayStream arrow_array_stream;
 
-    ArrowArrayStreamWrapper() {
+    explicit ArrowArrayStreamWrapper(bool should_release = true)
+        : should_release_on_destroy(should_release) {
         arrow_array_stream.release = nullptr;
     }
 
     ~ArrowArrayStreamWrapper();
 
-    // Non-copyable but moveable
+    /// Non-copyable but moveable
     ArrowArrayStreamWrapper(const ArrowArrayStreamWrapper&) = delete;
     ArrowArrayStreamWrapper& operator=(const ArrowArrayStreamWrapper&) = delete;
     ArrowArrayStreamWrapper(ArrowArrayStreamWrapper&& other) noexcept;
     ArrowArrayStreamWrapper& operator=(ArrowArrayStreamWrapper&& other) noexcept;
 
     /// Get schema from the stream
-    void getSchema(ArrowSchemaWrapper& schema);
+    void getSchema(ArrowSchemaWrapper & schema);
 
     /// Get next chunk from the stream
     std::unique_ptr<ArrowArrayWrapper> getNextChunk();
@@ -80,20 +62,15 @@ public:
 
     /// Check if stream is valid
     bool isValid() const { return arrow_array_stream.release != nullptr; }
-};
 
-/// Factory class for creating ArrowArrayStream from Python objects
-class PyArrowStreamFactory
-{
-public:
-    static std::unique_ptr<ArrowArrayStreamWrapper> createFromPyObject(
-        pybind11::object & py_obj,
-        const DB::Names & column_names);
+    /// Set whether to release on destruction
+    void setShouldRelease(bool should_release) { should_release_on_destroy = should_release; }
+
+    /// Get whether will release on destruction
+    bool getShouldRelease() const { return should_release_on_destroy; }
 
 private:
-    static std::unique_ptr<ArrowArrayStreamWrapper> createFromTable(
-        pybind11::object & table,
-        const DB::Names & column_names);
+    bool should_release_on_destroy = true;
 };
 
 } // namespace CHDB

@@ -9,7 +9,8 @@
 namespace CHDB
 {
 
-struct PrivateData {
+struct PrivateData
+{
     ArrowSchema * schema;
     ArrowArray * array;
     bool done = false;
@@ -72,11 +73,23 @@ void Release(struct ArrowArrayStream * stream)
 	stream->release = nullptr;
 }
 
+void chdb_destroy_arrow_stream(ArrowArrayStream * arrow_stream)
+{
+    if (!arrow_stream)
+        return;
+
+    if (arrow_stream->release)
+        arrow_stream->release(arrow_stream);
+    chassert(!arrow_stream->release);
+
+    delete arrow_stream;
+}
+
 } // namespace CHDB
 
-chdb_state chdb_arrow_scan(
+static chdb_state chdb_inner_arrow_scan(
     chdb_connection conn, const char * table_name,
-    chdb_arrow_stream arrow_stream)
+    chdb_arrow_stream arrow_stream, bool is_owner)
 {
     ChdbDestructorGuard guard;
 
@@ -104,10 +117,10 @@ chdb_state chdb_arrow_scan(
         child->release = CHDB::EmptySchemaRelease;
     }
 
+    bool success = false;
     try
     {
-        bool success = DB::ArrowStreamRegistry::instance().registerArrowStream(String(table_name), stream);
-        return success ? CHDBSuccess : CHDBError;
+        success = CHDB::ArrowStreamRegistry::instance().registerArrowStream(String(table_name), stream, is_owner);
     }
     catch (...)
     {
@@ -119,45 +132,33 @@ chdb_state chdb_arrow_scan(
         schema.children[i]->release = releases[i];
     }
 
-    return CHDBSuccess;
+    return success ? CHDBSuccess : CHDBError;
+}
+
+chdb_state chdb_arrow_scan(
+    chdb_connection conn, const char * table_name,
+    chdb_arrow_stream arrow_stream)
+{
+    return chdb_inner_arrow_scan(conn, table_name, arrow_stream, false);
 }
 
 chdb_state chdb_arrow_array_scan(
     chdb_connection conn, const char * table_name,
-    chdb_arrow_schema arrow_schema, chdb_arrow_array arrow_array,
-    chdb_arrow_stream * out_stream)
+    chdb_arrow_schema arrow_schema, chdb_arrow_array arrow_array)
 {
-    auto * private_data = new CHDB::PrivateData;
+    auto * private_data = new CHDB::PrivateData();
 	private_data->schema = reinterpret_cast<ArrowSchema *>(arrow_schema);
 	private_data->array = reinterpret_cast<ArrowArray *>(arrow_array);
 	private_data->done = false;
 
 	auto * stream = new ArrowArrayStream();
-	*out_stream = reinterpret_cast<chdb_arrow_stream>(stream);
 	stream->get_schema = CHDB::GetSchema;
 	stream->get_next = CHDB::GetNext;
 	stream->get_last_error = CHDB::GetLastError;
 	stream->release = CHDB::Release;
 	stream->private_data = private_data;
 
-	return chdb_arrow_scan(conn, table_name, reinterpret_cast<chdb_arrow_stream>(stream));
-}
-
-void chdb_destroy_arrow_stream(chdb_arrow_stream * arrow_stream)
-{
-    if (!arrow_stream)
-        return;
-
-    auto * stream = reinterpret_cast<ArrowArrayStream *>(*arrow_stream);
-	if (!stream)
-		return;
-
-	if (stream->release)
-		stream->release(stream);
-	chassert(!stream->release);
-
-	delete stream;
-	*arrow_stream = nullptr;
+	return chdb_inner_arrow_scan(conn, table_name, reinterpret_cast<chdb_arrow_stream>(stream), true);
 }
 
 chdb_state chdb_arrow_unregister_table(chdb_connection conn, const char * table_name)
@@ -175,7 +176,7 @@ chdb_state chdb_arrow_unregister_table(chdb_connection conn, const char * table_
 
     try
     {
-        DB::ArrowStreamRegistry::instance().unregisterArrowStream(String(table_name));
+        CHDB::ArrowStreamRegistry::instance().unregisterArrowStream(String(table_name));
         return CHDBSuccess;
     }
     catch (...)

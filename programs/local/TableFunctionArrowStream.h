@@ -1,44 +1,41 @@
 #pragma once
 
-#include "PybindWrapper.h"
+#include "ArrowStreamRegistry.h"
 
-#include <Storages/ColumnsDescription.h>
 #include <TableFunctions/ITableFunction.h>
+#include <Storages/ColumnsDescription.h>
 #include <Poco/Logger.h>
 
 namespace DB
 {
 
 class TableFunctionFactory;
-void registerTableFunctionPython(TableFunctionFactory & factory);
+void registerTableFunctionArrowStream(TableFunctionFactory & factory);
 
-class TableFunctionPython : public ITableFunction
+class TableFunctionArrowStream : public ITableFunction
 {
 public:
-    static constexpr auto name = "python";
+    static constexpr auto name = "arrowstream";
     std::string getName() const override { return name; }
-    ~TableFunctionPython() override
-    {
-        // Acquire the GIL before destroying the reader object
-        pybind11::gil_scoped_acquire acquire;
-        reader.dec_ref();
-        reader.release();
-    }
 
 private:
-    Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
+    Poco::Logger * logger = &Poco::Logger::get("TableFunctionArrowStream");
+
     StoragePtr executeImpl(
         const ASTPtr & ast_function,
         ContextPtr context,
         const std::string & table_name,
         ColumnsDescription cached_columns,
         bool is_insert_query) const override;
-    const char * getStorageTypeName() const override { return "Python"; }
+
+    const char * getStorageTypeName() const override { return "ArrowStream"; }
 
     void parseArguments(const ASTPtr & ast_function, ContextPtr context) override;
 
     ColumnsDescription getActualTableStructure(ContextPtr context, bool is_insert_query) const override;
-    pybind11::object reader;
+
+    String stream_name;
+    CHDB::ArrowStreamRegistry::ArrowStreamInfo stream_info;
 };
 
 }

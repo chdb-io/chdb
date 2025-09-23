@@ -3,69 +3,12 @@
 #include "PyArrowCacheItem.h"
 #include "PythonImporter.h"
 
-#include <Common/Exception.h>
 #include <Interpreters/Context.h>
-#include <DataTypes/DataTypesNumber.h>
-#include <DataTypes/DataTypeString.h>
-#include <DataTypes/DataTypeDate.h>
-#include <DataTypes/DataTypeDateTime.h>
-#include <arrow/c/bridge.h>
-#include <Processors/Formats/Impl/ArrowColumnToCHColumn.h>
-#include <Formats/FormatFactory.h>
-
-namespace DB
-{
-
-namespace ErrorCodes
-{
-extern const int BAD_ARGUMENTS;
-extern const int PY_EXCEPTION_OCCURED;
-}
-
-}
 
 using namespace DB;
 
 namespace CHDB
 {
-
-static void convertArrowSchema(
-    ArrowSchemaWrapper & schema,
-    NamesAndTypesList & names_and_types,
-    ContextPtr & context)
-{
-    if (!schema.arrow_schema.release)
-    {
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "ArrowSchema is already released");
-    }
-
-    /// Import ArrowSchema to arrow::Schema
-    auto arrow_schema_result = arrow::ImportSchema(&schema.arrow_schema);
-    if (!arrow_schema_result.ok())
-    {
-        throw Exception(ErrorCodes::BAD_ARGUMENTS,
-                        "Failed to import Arrow schema: {}", arrow_schema_result.status().message());
-    }
-
-    const auto & arrow_schema = arrow_schema_result.ValueOrDie();
-
-    const auto format_settings = getFormatSettings(context);
-
-    /// Convert Arrow schema to ClickHouse header
-    auto block = ArrowColumnToCHColumn::arrowSchemaToCHHeader(
-        *arrow_schema,
-        nullptr,
-        "Arrow",
-        format_settings.arrow.skip_columns_with_unsupported_types_in_schema_inference,
-        format_settings.schema_inference_make_columns_nullable != 0,
-        false,
-        format_settings.parquet.allow_geoparquet_parser);
-
-    for (const auto & column : block)
-    {
-        names_and_types.emplace_back(column.name, column.type);
-    }
-}
 
 PyArrowObjectType PyArrowTable::getArrowType(const py::object & obj)
 {
@@ -107,7 +50,7 @@ ColumnsDescription PyArrowTable::getActualTableStructure(const py::object & obje
 	ArrowSchemaWrapper schema;
 	export_to_c(reinterpret_cast<uint64_t>(&schema.arrow_schema));
 
-    convertArrowSchema(schema, names_and_types, context);
+    ArrowSchemaWrapper::convertArrowSchema(schema, names_and_types, context);
 
     return ColumnsDescription(names_and_types);
 }
