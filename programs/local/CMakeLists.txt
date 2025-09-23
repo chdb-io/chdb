@@ -1,19 +1,17 @@
 set (CLICKHOUSE_LOCAL_SOURCES
     chdb.cpp
+    ArrowSchema.cpp
+    ArrowStreamWrapper.cpp
+    ArrowTableReader.cpp
     LocalServer.cpp
 )
 
-# Add ArrowStream table function sources when not using Python
 if (NOT USE_PYTHON)
     set (CHDB_ARROW_SOURCES
         chdb-arrow.cpp
-        ArrowStreamRegistry.h
         ArrowStreamSource.cpp
-        ArrowStreamSource.h
         StorageArrowStream.cpp
-        StorageArrowStream.h
         TableFunctionArrowStream.cpp
-        TableFunctionArrowStream.h
     )
     set (CLICKHOUSE_LOCAL_SOURCES ${CLICKHOUSE_LOCAL_SOURCES} ${CHDB_ARROW_SOURCES})
 endif()
@@ -27,9 +25,6 @@ endif()
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
-        ArrowSchema.cpp
-        ArrowStreamWrapper.cpp
-        ArrowTableReader.cpp
         FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
@@ -38,6 +33,7 @@ if (USE_PYTHON)
         PandasAnalyzer.cpp
         PandasDataFrame.cpp
         PandasScan.cpp
+        PyArrowStreamFactory.cpp
         PyArrowTable.cpp
         PybindWrapper.cpp
         PythonConversion.cpp

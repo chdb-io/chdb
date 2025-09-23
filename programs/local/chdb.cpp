@@ -1,14 +1,11 @@
 #include "chdb.h"
-#include <cstddef>
-#include <cstring>
-#include "Common/MemoryTracker.h"
+#include "chdb-internal.h"
 #include "LocalServer.h"
 #include "QueryResult.h"
-#include "chdb-internal.h"
 
 #if USE_PYTHON
-#    include "FormatHelper.h"
-#    include "PythonTableCache.h"
+#include "FormatHelper.h"
+#include "PythonTableCache.h"
 #endif
 
 #ifdef CHDB_STATIC_LIBRARY_BUILD
@@ -26,6 +23,18 @@ std::shared_mutex global_connection_mutex;
 
 namespace CHDB
 {
+
+#if !USE_PYTHON
+extern "C"
+{
+    extern chdb_state chdb_arrow_scan(chdb_connection, const char *, chdb_arrow_stream);
+}
+
+[[maybe_unused]] void * force_link_arrow_functions[] = {
+    reinterpret_cast<void*>(chdb_arrow_scan)
+};
+#endif
+
 static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;

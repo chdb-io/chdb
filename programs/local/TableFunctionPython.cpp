@@ -1,3 +1,4 @@
+#include "TableFunctionPython.h"
 #include "StoragePython.h"
 #include "PandasDataFrame.h"
 #include "PyArrowTable.h"
@@ -5,10 +6,8 @@
 #include "PythonReader.h"
 #include "PythonTableCache.h"
 #include "PythonUtils.h"
-#include "TableFunctionPython.h"
 
 #include <Parsers/ASTLiteral.h>
-
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>

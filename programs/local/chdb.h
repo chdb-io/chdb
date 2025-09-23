@@ -89,21 +89,20 @@ typedef struct chdb_connection_
 	void * internal_data;
 } * chdb_connection;
 
-// Holds an arrow array stream. Wraps ArrowArrayStream for chdb usage.
-// Must be released with chdb_destroy_arrow_stream when no longer needed.
-typedef struct _chdb_arrow_stream
+// Holds an arrow array stream.
+typedef struct chdb_arrow_stream_
 {
 	void * internal_data;
 } * chdb_arrow_stream;
 
-// Holds an arrow schema. Wraps ArrowSchema for chdb usage.
-typedef struct _chdb_arrow_schema
+// Holds an arrow schema.
+typedef struct chdb_arrow_schema_
 {
 	void * internal_data;
 } * chdb_arrow_schema;
 
-// Holds an arrow array. Wraps ArrowArray for chdb usage.
-typedef struct _chdb_arrow_array
+// Holds an arrow array.
+typedef struct chdb_arrow_array_
 {
 	void * internal_data;
 } * chdb_arrow_array;
@@ -410,7 +409,6 @@ CHDB_EXPORT const char * chdb_result_error(chdb_result * result);
  * @param conn The connection on which to execute the registration
  * @param table_name Name to register for the arrow stream table function
  * @param arrow_stream chdb Arrow stream handle
- * @param arrow_schema chdb Arrow schema handle
  * @return CHDBSuccess on success, CHDBError on failure
  */
 CHDB_EXPORT chdb_state chdb_arrow_scan(
@@ -423,19 +421,11 @@ CHDB_EXPORT chdb_state chdb_arrow_scan(
  * @param table_name Name to register for the arrow stream table function
  * @param arrow_schema chdb Arrow schema handle
  * @param arrow_array chdb Arrow array handle
- * @param out_stream Optional output stream handle for result streaming
  * @return CHDBSuccess on success, CHDBError on failure
  */
 CHDB_EXPORT chdb_state chdb_arrow_array_scan(
     chdb_connection conn, const char * table_name,
-    chdb_arrow_schema arrow_schema, chdb_arrow_array arrow_array,
-    chdb_arrow_stream * out_stream);
-
-/**
- * Destroys and releases resources for an Arrow stream handle
- * @param arrow_stream Pointer to the Arrow stream handle to destroy
- */
-CHDB_EXPORT void chdb_destroy_arrow_stream(chdb_arrow_stream * arrow_stream);
+    chdb_arrow_schema arrow_schema, chdb_arrow_array arrow_array);
 
 /**
  * Unregisters an arrow stream table function that was previously registered via chdb_arrow_scan

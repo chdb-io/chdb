@@ -1,36 +1,15 @@
 #pragma once
 
+#include "ArrowScanState.h"
 #include "ArrowStreamWrapper.h"
 
 #include <Core/Block.h>
 #include <Processors/Chunk.h>
 #include <Formats/FormatSettings.h>
-#include <pybind11/pybind11.h>
 #include <arrow/type.h>
 
 namespace CHDB
 {
-
-/// Scan state for each stream
-struct ArrowScanState
-{
-    /// Current Arrow array being processed
-    std::unique_ptr<ArrowArrayWrapper> current_array;
-    /// Current offset within the array
-    size_t current_offset = 0;
-    /// Whether this stream is exhausted
-    bool exhausted = false;
-    /// Cached imported RecordBatch to avoid repeated imports
-    std::shared_ptr<arrow::RecordBatch> cached_record_batch;
-
-    void reset()
-    {
-        current_array.reset();
-        current_offset = 0;
-        exhausted = false;
-        cached_record_batch.reset();
-    }
-};
 
 class ArrowTableReader;
 using ArrowTableReaderPtr = std::shared_ptr<ArrowTableReader>;
@@ -39,7 +18,7 @@ class ArrowTableReader
 {
 public:
     ArrowTableReader(
-        pybind11::object & data_source_,
+        std::unique_ptr<ArrowArrayStreamWrapper> arrow_stream_,
         const DB::Block & sample_block_,
         const DB::FormatSettings & format_settings_,
         size_t num_streams_,
@@ -51,8 +30,8 @@ public:
     DB::Chunk readNextChunk(size_t stream_index);
 
 private:
-    /// Initialize the Arrow stream from Python object
-    void initializeStream(pybind11::object & data_source_);
+    /// Initialize the Arrow stream from ArrowArrayStreamWrapper
+    void initializeStream();
 
     /// Convert Arrow array slice to ClickHouse chunk
     DB::Chunk convertArrowArrayToChunk(const ArrowArrayWrapper & arrow_array, size_t offset, size_t count, size_t stream_index);
@@ -77,7 +56,6 @@ private:
 
     /// Global stream state
     bool global_stream_exhausted = false;
-    size_t total_rows_hint = 0;
 
     /// Mutex for thread-safe access to arrow_stream
     mutable std::mutex stream_mutex;

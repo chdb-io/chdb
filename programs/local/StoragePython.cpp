@@ -3,6 +3,7 @@
 #include "PybindWrapper.h"
 #include "PythonSource.h"
 #include "PyArrowTable.h"
+#include "PyArrowStreamFactory.h"
 
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDate.h>
@@ -81,17 +82,20 @@ Pipe StoragePython::read(
             std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
     }
 
-    prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
-
     ArrowTableReaderPtr arrow_table_reader;
     {
         py::gil_scoped_acquire acquire;
         if (PyArrowTable::isPyArrowTable(data_source))
         {
-            arrow_table_reader = std::make_shared<ArrowTableReader>(data_source, sample_block,
+            auto arrow_stream = PyArrowStreamFactory::createFromPyObject(data_source, sample_block.getNames());
+            arrow_table_reader = std::make_shared<ArrowTableReader>(
+                std::move(arrow_stream), sample_block,
                 format_settings, num_streams, max_block_size);
         }
     }
+
+    if (!arrow_table_reader)
+        prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
 
     Pipes pipes;
     for (size_t stream = 0; stream < num_streams; ++stream)

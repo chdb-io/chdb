@@ -4,57 +4,44 @@
 #include <Processors/Formats/Impl/ArrowColumnToCHColumn.h>
 #include <arrow/c/bridge.h>
 #include <base/defines.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/gil.h>
 
 namespace DB
 {
 
 namespace ErrorCodes
 {
-extern const int PY_EXCEPTION_OCCURED;
+extern const int BAD_ARGUMENTS;
 }
 
 }
 
-namespace py = pybind11;
 using namespace DB;
 
 namespace CHDB
 {
 
 ArrowTableReader::ArrowTableReader(
-    py::object & data_source_,
+    std::unique_ptr<ArrowArrayStreamWrapper> arrow_stream_,
     const DB::Block & sample_block_,
     const DB::FormatSettings & format_settings_,
     size_t num_streams_,
     size_t max_block_size_)
     : sample_block(sample_block_),
     format_settings(format_settings_),
+    arrow_stream(std::move(arrow_stream_)),
     num_streams(num_streams_),
     max_block_size(max_block_size_),
     scan_states(num_streams_)
 {
-    initializeStream(data_source_);
+    initializeStream();
 }
 
-void ArrowTableReader::initializeStream(py::object & data_source_)
+void ArrowTableReader::initializeStream()
 {
-    try
+    if (!arrow_stream || !arrow_stream->isValid())
     {
-        /// Create Arrow stream from Python object
-        arrow_stream = PyArrowStreamFactory::createFromPyObject(data_source_, sample_block.getNames());
-
-        if (!arrow_stream || !arrow_stream->isValid())
-        {
-            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED,
-                            "Failed to create valid ArrowArrayStream from Python object");
-        }
-    }
-    catch (const py::error_already_set & e)
-    {
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED,
-                        "Failed to initialize Arrow stream from Python object: {}", e.what());
+        throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                        "ArrowArrayStream is not valid");
     }
 
     /// Get schema from stream
@@ -62,7 +49,7 @@ void ArrowTableReader::initializeStream(py::object & data_source_)
     auto arrow_schema_result = arrow::ImportSchema(&schema.arrow_schema);
     if (!arrow_schema_result.ok())
     {
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED,
+        throw Exception(ErrorCodes::BAD_ARGUMENTS,
                         "Failed to import Arrow schema during initialization: {}", arrow_schema_result.status().message());
     }
     cached_arrow_schema = arrow_schema_result.ValueOrDie();
@@ -72,7 +59,7 @@ Chunk ArrowTableReader::readNextChunk(size_t stream_index)
 {
     if (stream_index >= num_streams)
     {
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED,
+        throw Exception(ErrorCodes::BAD_ARGUMENTS,
                         "Stream index {} is out of range [0, {})", stream_index, num_streams);
     }
 
@@ -148,8 +135,8 @@ std::unique_ptr<ArrowArrayWrapper> ArrowTableReader::getNextArrowArray()
 
 Chunk ArrowTableReader::convertArrowArrayToChunk(const ArrowArrayWrapper & arrow_array_wrapper, size_t offset, size_t count, size_t stream_index)
 {
-    chassert(arrow_array_wrapper.arrow_array.length && count && offset < arrow_array_wrapper.arrow_array.length);
-    chassert(count <= arrow_array_wrapper.arrow_array.length - offset);
+    chassert(arrow_array_wrapper.arrow_array.length && count && offset < static_cast<size_t>(arrow_array_wrapper.arrow_array.length));
+    chassert(count <= static_cast<size_t>(arrow_array_wrapper.arrow_array.length) - offset);
     chassert(stream_index < num_streams);
 
     auto & state = scan_states[stream_index];
@@ -174,7 +161,7 @@ Chunk ArrowTableReader::convertArrowArrayToChunk(const ArrowArrayWrapper & arrow
         auto arrow_batch_result = arrow::ImportRecordBatch(&array_copy, cached_arrow_schema);
         if (!arrow_batch_result.ok())
         {
-            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED,
+            throw Exception(ErrorCodes::BAD_ARGUMENTS,
                             "Failed to import Arrow RecordBatch: {}", arrow_batch_result.status().message());
         }
 

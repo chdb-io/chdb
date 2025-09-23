@@ -8,7 +8,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <string>
-#include <boost/iostreams/detail/select.hpp>
+#include <arrow/c/abi.h>
 
 namespace DB
 {
@@ -119,4 +119,7 @@ void cancelStreamQuery(DB::LocalServer * server, void * stream_result);
 const std::string & chdb_result_error_string(chdb_result * result);
 
 const std::string & chdb_streaming_result_error_string(chdb_streaming_result * result);
+
+void chdb_destroy_arrow_stream(ArrowArrayStream * arrow_stream);
+
 }

@@ -142,6 +142,9 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
+      - name: Run Arrow functions test in examples dir
+        run: |
+          bash -x ./examples/runArrowTest.sh
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
