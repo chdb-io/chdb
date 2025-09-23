@@ -10,9 +10,7 @@ import chdb
 from chdb import session
 from urllib.request import urlretrieve
 
-if os.path.exists(".test_chdb_arrow_table"):
-    shutil.rmtree(".test_chdb_arrow_table", ignore_errors=True)
-sess = session.Session(".test_chdb_arrow_table")
+# Clean up and create session in the test methods instead of globally
 
 class TestChDBArrowTable(unittest.TestCase):
     @classmethod
@@ -33,11 +31,16 @@ class TestChDBArrowTable(unittest.TestCase):
 
         print(f"Loaded Arrow table: {cls.num_rows} rows, {cls.num_columns} columns, {cls.table_size} bytes")
 
+        if os.path.exists(".test_chdb_arrow_table"):
+            shutil.rmtree(".test_chdb_arrow_table", ignore_errors=True)
+        cls.sess = session.Session(".test_chdb_arrow_table")
+
     @classmethod
     def tearDownClass(cls):
         # Clean up session directory
         if os.path.exists(".test_chdb_arrow_table"):
             shutil.rmtree(".test_chdb_arrow_table", ignore_errors=True)
+        cls.sess.close()
 
     def setUp(self):
         pass
@@ -54,7 +57,7 @@ class TestChDBArrowTable(unittest.TestCase):
     def test_arrow_table_count(self):
         """Test counting rows in Arrow table"""
         my_arrow_table = self.arrow_table
-        result = sess.query("SELECT COUNT(*) as row_count FROM Python(my_arrow_table)", "CSV")
+        result = self.sess.query("SELECT COUNT(*) as row_count FROM Python(my_arrow_table)", "CSV")
         lines = str(result).strip().split('\n')
         count = int(lines[0])
         self.assertEqual(count, self.num_rows, f"Count should match table rows: {self.num_rows}")
@@ -62,7 +65,7 @@ class TestChDBArrowTable(unittest.TestCase):
     def test_arrow_table_schema(self):
         """Test querying Arrow table schema information"""
         my_arrow_table = self.arrow_table
-        result = sess.query("DESCRIBE Python(my_arrow_table)", "CSV")
+        result = self.sess.query("DESCRIBE Python(my_arrow_table)", "CSV")
         # print(result)
         self.assertIn('WatchID', str(result))
         self.assertIn('URLHash', str(result))
@@ -70,7 +73,7 @@ class TestChDBArrowTable(unittest.TestCase):
     def test_arrow_table_limit(self):
         """Test LIMIT queries on Arrow table"""
         my_arrow_table = self.arrow_table
-        result = sess.query("SELECT * FROM Python(my_arrow_table) LIMIT 5", "CSV")
+        result = self.sess.query("SELECT * FROM Python(my_arrow_table) LIMIT 5", "CSV")
         lines = str(result).strip().split('\n')
         self.assertEqual(len(lines), 5, "Should have 5 data rows")
 
@@ -82,7 +85,7 @@ class TestChDBArrowTable(unittest.TestCase):
         first_col = schema.field(0).name
         second_col = schema.field(1).name if len(schema) > 1 else first_col
 
-        result = sess.query(f"SELECT {first_col}, {second_col} FROM Python(my_arrow_table) LIMIT 3", "CSV")
+        result = self.sess.query(f"SELECT {first_col}, {second_col} FROM Python(my_arrow_table) LIMIT 3", "CSV")
         lines = str(result).strip().split('\n')
         self.assertEqual(len(lines), 3, "Should have 3 data rows")
 
@@ -96,7 +99,7 @@ class TestChDBArrowTable(unittest.TestCase):
                 numeric_col = field.name
                 break
 
-        result = sess.query(f"SELECT COUNT(*) FROM Python(my_arrow_table) WHERE {numeric_col} > 1", "CSV")
+        result = self.sess.query(f"SELECT COUNT(*) FROM Python(my_arrow_table) WHERE {numeric_col} > 1", "CSV")
         lines = str(result).strip().split('\n')
         count = int(lines[0])
         self.assertEqual(count, 1000000)
@@ -111,7 +114,7 @@ class TestChDBArrowTable(unittest.TestCase):
                 string_col = field.name
                 break
 
-        result = sess.query(f"SELECT {string_col}, COUNT(*) as cnt FROM Python(my_arrow_table) GROUP BY {string_col} ORDER BY cnt DESC LIMIT 5", "CSV")
+        result = self.sess.query(f"SELECT {string_col}, COUNT(*) as cnt FROM Python(my_arrow_table) GROUP BY {string_col} ORDER BY cnt DESC LIMIT 5", "CSV")
         lines = str(result).strip().split('\n')
         self.assertEqual(len(lines), 5)
 
@@ -125,7 +128,7 @@ class TestChDBArrowTable(unittest.TestCase):
                 numeric_col = field.name
                 break
 
-        result = sess.query(f"SELECT AVG({numeric_col}) as avg_val, MIN({numeric_col}) as min_val, MAX({numeric_col}) as max_val FROM Python(my_arrow_table)", "CSV")
+        result = self.sess.query(f"SELECT AVG({numeric_col}) as avg_val, MIN({numeric_col}) as min_val, MAX({numeric_col}) as max_val FROM Python(my_arrow_table)", "CSV")
         lines = str(result).strip().split('\n')
         self.assertEqual(len(lines), 1)
 
@@ -135,14 +138,14 @@ class TestChDBArrowTable(unittest.TestCase):
         # Use first column for ordering
         first_col = self.arrow_table.schema.field(0).name
 
-        result = sess.query(f"SELECT {first_col} FROM Python(my_arrow_table) ORDER BY {first_col} LIMIT 10", "CSV")
+        result = self.sess.query(f"SELECT {first_col} FROM Python(my_arrow_table) ORDER BY {first_col} LIMIT 10", "CSV")
         lines = str(result).strip().split('\n')
         self.assertEqual(len(lines), 10)
 
     def test_arrow_table_subquery(self):
         """Test subqueries with Arrow table"""
         my_arrow_table = self.arrow_table
-        result = sess.query("""
+        result = self.sess.query("""
             SELECT COUNT(*) as total_count
             FROM (
                 SELECT * FROM Python(my_arrow_table)
@@ -161,7 +164,7 @@ class TestChDBArrowTable(unittest.TestCase):
         # Create a smaller subset table
         subset_table = my_arrow_table.slice(0, min(100, my_arrow_table.num_rows))
 
-        result = sess.query("""
+        result = self.sess.query("""
             SELECT
                 (SELECT COUNT(*) FROM Python(my_arrow_table)) as full_count,
                 (SELECT COUNT(*) FROM Python(subset_table)) as subset_count
