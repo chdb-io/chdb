@@ -78,10 +78,12 @@ jobs:
           brew update
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
+          # Install separate lld for wasm-ld linker
+          brew install lld
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
-          # Check if wasm-ld is available, if not link from lld
-          if ! which wasm-ld; then
-            ln -sf $(brew --prefix llvm@19)/bin/ld.lld $(brew --prefix llvm@19)/bin/wasm-ld || echo "Could not create wasm-ld symlink"
+          # Create wasm-ld symlink if it doesn't exist
+          if [ ! -f "$(brew --prefix llvm@19)/bin/wasm-ld" ]; then
+            ln -sf /opt/homebrew/bin/wasm-ld $(brew --prefix llvm@19)/bin/wasm-ld || echo "Could not create wasm-ld symlink"
           fi
           brew install git ninja libtool gettext gcc binutils grep findutils nasm
           brew install --build-from-source ccache || echo "ccache installation failed, continuing without it"
