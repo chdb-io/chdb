@@ -15,9 +15,7 @@ Python UDFs in chDB provide:
 API Reference
 -------------
 
-.. automodule:: chdb.udf
-   :members:
-   :show-inheritance:
+For the complete UDF API reference, see :doc:`api`.
 
 Creating UDFs
 --------------
@@ -516,7 +514,7 @@ Here's a comprehensive example that demonstrates multiple UDF concepts:
 See Also
 --------
 
+- :doc:`api` - Complete API reference including UDF module
 - :doc:`troubleshooting` - UDF troubleshooting and common issues
 - :doc:`examples` - More UDF examples and use cases  
-- :doc:`api` - Complete API reference
 - `ClickHouse Data Types <https://clickhouse.com/docs/en/sql-reference/data-types>`_ - Supported return types
