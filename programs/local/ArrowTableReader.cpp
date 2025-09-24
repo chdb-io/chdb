@@ -171,7 +171,13 @@ Chunk ArrowTableReader::convertArrowArrayToChunk(const ArrowArrayWrapper & arrow
     /// Use the cached RecordBatch and slice it
     record_batch = state.cached_record_batch;
     auto sliced_batch = record_batch->Slice(offset, count);
-    auto arrow_table = arrow::Table::FromRecordBatches({sliced_batch}).ValueOrDie();
+    auto table_result = arrow::Table::FromRecordBatches({sliced_batch});
+    if (!table_result.ok())
+    {
+        throw Exception(ErrorCodes::BAD_ARGUMENTS,
+                        "Failed to create Arrow table from RecordBatch: {}", table_result.status().ToString());
+    }
+    const auto & arrow_table = table_result.ValueOrDie();
 
     /// Use ArrowColumnToCHColumn to convert the batch
     ArrowColumnToCHColumn converter(

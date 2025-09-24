@@ -2,7 +2,8 @@
 
 set -e
 
-CXXFLAGS="-g -O0 -DDEBUG"
+# CXXFLAGS="-g -O0 -DDEBUG"
+CXXFLAGS="-std=c++17"
 
 # check current os type, and make ldd command
 if [ "$(uname)" == "Darwin" ]; then
