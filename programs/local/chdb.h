@@ -292,20 +292,6 @@ CHDB_EXPORT chdb_result * chdb_query_cmdline(int argc, char ** argv);
 CHDB_EXPORT chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const char * format);
 
 /**
- * Executes a query with explicit string lengths (binary-safe).
- * @brief Thread-safe function that handles query execution with specified buffer lengths
- * @param conn Connection to execute query on
- * @param query SQL query buffer (may contain null bytes)
- * @param query_len Length of query buffer in bytes
- * @param format Output format buffer (may contain null bytes)
- * @param format_len Length of format buffer in bytes
- * @return Query result structure containing output or error message
- * @note Strings do not need to be null-terminated
- * @note Use this function when dealing with queries/formats containing null bytes
- */
-CHDB_EXPORT chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len);
-
-/**
  * Executes a streaming query with explicit string lengths (binary-safe).
  * @brief Initializes streaming query execution with specified buffer lengths
  * @param conn Connection to execute query on
