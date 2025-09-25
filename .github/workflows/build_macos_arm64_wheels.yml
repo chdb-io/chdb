@@ -78,6 +78,7 @@ jobs:
           brew update
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
+          echo "now install other tools"
           brew install git ninja libtool gettext gcc binutils grep findutils nasm lld@19
           brew install --build-from-source ccache || echo "ccache installation failed, continuing without it"
           brew install go
