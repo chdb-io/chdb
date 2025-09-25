@@ -37,7 +37,6 @@ jobs:
           else
             echo "This is an x86_64 (Intel) machine"
           fi
-    steps:
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
