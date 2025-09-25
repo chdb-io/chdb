@@ -24,6 +24,21 @@ jobs:
     name: Build Universal Wheel (macOS ARM64)
     runs-on: macos-13-xlarge
     steps:
+      - name: Check machine architecture
+        run: |
+          echo "=== Machine Architecture Information ==="
+          echo "Machine type: $(uname -m)"
+          echo "Architecture: $(arch)"
+          echo "System info: $(uname -a)"
+          echo "Hardware info:"
+          system_profiler SPHardwareDataType | grep "Chip\|Processor"
+          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
+            echo "This is an ARM64 (Apple Silicon) machine"
+          else
+            echo "This is an x86_64 (Intel) machine"
+          fi
+          echo "========================================"
+    steps:
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
