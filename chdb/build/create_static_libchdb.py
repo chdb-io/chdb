@@ -145,6 +145,15 @@ def create_static_library(obj_files, lib_files):
         # Extract objects from static libraries
         extracted_objects = []
 
+        # Add libiconv.a to the list of libraries to extract on macOS
+        if IS_MACOS:
+            libiconv_path = "/opt/homebrew/opt/libiconv/lib/libiconv.a"
+            if os.path.exists(libiconv_path):
+                lib_files.append(libiconv_path)
+                print(f"Added libiconv.a for static linking: {libiconv_path}")
+            else:
+                print(f"Warning: libiconv.a not found at {libiconv_path}")
+
         for lib_file in lib_files:
             if not need_extract:
                 continue
@@ -164,6 +173,10 @@ def create_static_library(obj_files, lib_files):
             elif 'clickhouse-local-lib.a' in lib_file:
                 lib_prefix = "chdb_local"
                 print(f"Local library detected: {lib_basename} -> prefix: {lib_prefix}")
+            # Special handling for libiconv.a
+            elif 'libiconv.a' in lib_file:
+                lib_prefix = "chdb_iconv"
+                print(f"iconv library detected: {lib_basename} -> prefix: {lib_prefix}")
             else:
                 lib_prefix = lib_name
 
