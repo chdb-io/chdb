@@ -154,6 +154,7 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
+          bash -x ./examples/runArrowTestC.sh
       - name: Run Arrow functions test in examples dir
         run: |
           bash -x ./examples/runArrowTest.sh
