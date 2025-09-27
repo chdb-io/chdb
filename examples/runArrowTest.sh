@@ -2,8 +2,7 @@
 
 set -e
 
-# CXXFLAGS="-g -O0 -DDEBUG"
-CXXFLAGS="-std=c++17"
+CFLAGS="-std=c99"
 
 # check current os type, and make ldd command
 if [ "$(uname)" == "Darwin" ]; then
@@ -21,8 +20,8 @@ fi
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd $DIR
 
-echo "Compile and link chdbArrowTest"
-clang++ $CXXFLAGS chdbArrowTest.cpp -o chdbArrowTest \
+echo "Compile and link chdbArrowTest (C version)"
+clang $CFLAGS chdbArrowTest.c -o chdbArrowTest \
     -I../programs/local/ \
     -I../contrib/arrow/cpp/src \
     -I../contrib/arrow-cmake/cpp/src \
@@ -32,5 +31,5 @@ clang++ $CXXFLAGS chdbArrowTest.cpp -o chdbArrowTest \
 export ${LIB_PATH}=..
 ${LDD} chdbArrowTest
 
-echo "Run Arrow API tests:"
+echo "Run Arrow API tests (C version):"
 ./chdbArrowTest

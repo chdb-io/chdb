@@ -19,7 +19,8 @@ typedef struct CustomStreamData
 } CustomStreamData;
 
 // Function to initialize CustomStreamData
-static void init_custom_stream_data(CustomStreamData* data) {
+static void init_custom_stream_data(CustomStreamData * data)
+{
     data->schema_sent = false;
     data->current_row = 0;
     data->total_rows = 1000000;
@@ -28,7 +29,7 @@ static void init_custom_stream_data(CustomStreamData* data) {
 }
 
 // Reset the stream to allow reading from the beginning
-static void reset_custom_stream_data(CustomStreamData* data)
+static void reset_custom_stream_data(CustomStreamData * data)
 {
     data->current_row = 0;
     if (data->last_error) {
@@ -38,27 +39,32 @@ static void reset_custom_stream_data(CustomStreamData* data)
 }
 
 // Release function prototypes
-static void release_schema_child(struct ArrowSchema* s);
-static void release_schema_main(struct ArrowSchema* s);
-static void release_id_array(struct ArrowArray* arr);
-static void release_string_array(struct ArrowArray* arr);
-static void release_main_array(struct ArrowArray* arr);
+static void release_schema_child(struct ArrowSchema * s);
+static void release_schema_main(struct ArrowSchema * s);
+static void release_id_array(struct ArrowArray * arr);
+static void release_string_array(struct ArrowArray * arr);
+static void release_main_array(struct ArrowArray * arr);
 
 // Helper function to find minimum of two values
-static size_t min_size_t(size_t a, size_t b) {
+static size_t min_size_t(size_t a, size_t b)
+{
     return (a < b) ? a : b;
 }
 
 // Release function implementations
-static void release_schema_child(struct ArrowSchema* s) {
+static void release_schema_child(struct ArrowSchema * s)
+{
     s->release = NULL;
 }
 
-static void release_schema_main(struct ArrowSchema* s)
+static void release_schema_main(struct ArrowSchema * s)
 {
-    if (s->children) {
-        for (int64_t i = 0; i < s->n_children; i++) {
-            if (s->children[i] && s->children[i]->release) {
+    if (s->children)
+    {
+        for (int64_t i = 0; i < s->n_children; i++)
+        {
+            if (s->children[i] && s->children[i]->release)
+            {
                 s->children[i]->release(s->children[i]);
             }
             free(s->children[i]);
@@ -68,18 +74,20 @@ static void release_schema_main(struct ArrowSchema* s)
     s->release = NULL;
 }
 
-static void release_id_array(struct ArrowArray* arr) 
+static void release_id_array(struct ArrowArray * arr)
 {
-    if (arr->buffers) {
+    if (arr->buffers)
+    {
         free((void*)(uintptr_t)arr->buffers[1]);  // free data buffer
         free((void**)(uintptr_t)arr->buffers);
     }
     arr->release = NULL;
 }
 
-static void release_string_array(struct ArrowArray* arr) 
+static void release_string_array(struct ArrowArray * arr)
 {
-    if (arr->buffers) {
+    if (arr->buffers)
+    {
         free((void*)(uintptr_t)arr->buffers[1]);  // free offset buffer
         free((void*)(uintptr_t)arr->buffers[2]);  // free data buffer
         free((void**)(uintptr_t)arr->buffers);
@@ -87,10 +95,14 @@ static void release_string_array(struct ArrowArray* arr)
     arr->release = NULL;
 }
 
-static void release_main_array(struct ArrowArray* arr) {
-    if (arr->children) {
-        for (int64_t i = 0; i < arr->n_children; i++) {
-            if (arr->children[i] && arr->children[i]->release) {
+static void release_main_array(struct ArrowArray * arr)
+{
+    if (arr->children)
+    {
+        for (int64_t i = 0; i < arr->n_children; i++)
+        {
+            if (arr->children[i] && arr->children[i]->release)
+            {
                 arr->children[i]->release(arr->children[i]);
             }
             free(arr->children[i]);
@@ -104,7 +116,8 @@ static void release_main_array(struct ArrowArray* arr) {
 }
 
 // Helper function to create schema with 2 columns: id(int64), value(string)
-static void create_schema(struct ArrowSchema* schema) {
+static void create_schema(struct ArrowSchema * schema)
+{
     schema->format = "+s";  // struct format
     schema->name = NULL;
     schema->metadata = NULL;
@@ -138,15 +151,15 @@ static void create_schema(struct ArrowSchema* schema) {
 }
 
 // Helper function to create a batch of data
-static void create_batch(struct ArrowArray* array, size_t start_row, size_t batch_size)
+static void create_batch(struct ArrowArray * array, size_t start_row, size_t batch_size)
 {
-    struct ArrowArray* id_array;
-    struct ArrowArray* str_array;
-    int64_t* id_data;
-    int32_t* offsets;
+    struct ArrowArray * id_array;
+    struct ArrowArray * str_array;
+    int64_t * id_data;
+    int32_t * offsets;
     size_t total_str_len;
-    char** strings;
-    char* str_data;
+    char ** strings;
+    char * str_data;
     size_t pos;
     size_t i;
 
@@ -156,24 +169,24 @@ static void create_batch(struct ArrowArray* array, size_t start_row, size_t batc
     array->offset = 0;
     array->n_buffers = 1;
     array->n_children = 2;
-    array->buffers = (const void**)malloc(1 * sizeof(void*));
+    array->buffers = (const void **)malloc(1 * sizeof(void *));
     array->buffers[0] = NULL;  // validity buffer (no nulls)
-    array->children = (struct ArrowArray**)malloc(2 * sizeof(struct ArrowArray*));
+    array->children = (struct ArrowArray **)malloc(2 * sizeof(struct ArrowArray *));
     array->dictionary = NULL;
 
     // Create id column (int64)
-    array->children[0] = (struct ArrowArray*)malloc(sizeof(struct ArrowArray));
+    array->children[0] = (struct ArrowArray *)malloc(sizeof(struct ArrowArray));
     id_array = array->children[0];
     id_array->length = batch_size;
     id_array->null_count = 0;
     id_array->offset = 0;
     id_array->n_buffers = 2;
     id_array->n_children = 0;
-    id_array->buffers = (const void**)malloc(2 * sizeof(void*));
+    id_array->buffers = (const void **)malloc(2 * sizeof(void *));
     id_array->buffers[0] = NULL;  // validity buffer
 
     // Allocate and fill id data
-    id_data = (int64_t*)malloc(batch_size * sizeof(int64_t));
+    id_data = (int64_t *)malloc(batch_size * sizeof(int64_t));
     for (i = 0; i < batch_size; i++)
         id_data[i] = start_row + i;
 
@@ -183,23 +196,23 @@ static void create_batch(struct ArrowArray* array, size_t start_row, size_t batc
     id_array->release = release_id_array;
 
     // Create value column (string)
-    array->children[1] = (struct ArrowArray*)malloc(sizeof(struct ArrowArray));
+    array->children[1] = (struct ArrowArray *)malloc(sizeof(struct ArrowArray));
     str_array = array->children[1];
     str_array->length = batch_size;
     str_array->null_count = 0;
     str_array->offset = 0;
     str_array->n_buffers = 3;
     str_array->n_children = 0;
-    str_array->buffers = (const void**)malloc(3 * sizeof(void*));
+    str_array->buffers = (const void **)malloc(3 * sizeof(void *));
     str_array->buffers[0] = NULL;  // validity buffer
 
     // Create offset buffer (int32)
-    offsets = (int32_t*)malloc((batch_size + 1) * sizeof(int32_t));
+    offsets = (int32_t *)malloc((batch_size + 1) * sizeof(int32_t));
     offsets[0] = 0;
 
     // Calculate total string length and create strings
     total_str_len = 0;
-    strings = (char**)malloc(batch_size * sizeof(char*));
+    strings = (char **)malloc(batch_size * sizeof(char *));
     for (i = 0; i < batch_size; i++)
     {
         char buffer[64];
@@ -243,13 +256,13 @@ static int custom_get_schema(struct ArrowArrayStream* stream, struct ArrowSchema
 }
 
 // Callback function to get next array
-static int custom_get_next(struct ArrowArrayStream* stream, struct ArrowArray* out)
+static int custom_get_next(struct ArrowArrayStream * stream, struct ArrowArray * out)
 {
-    CustomStreamData* data;
+    CustomStreamData * data;
     size_t remaining_rows;
     size_t batch_size;
-    
-    data = (CustomStreamData*)stream->private_data;
+
+    data = (CustomStreamData *)stream->private_data;
     if (!data)
         return EINVAL;
 
@@ -273,8 +286,9 @@ static int custom_get_next(struct ArrowArrayStream* stream, struct ArrowArray* o
 }
 
 // Callback function to get last error
-static const char* custom_get_last_error(struct ArrowArrayStream* stream) {
-    CustomStreamData* data = (CustomStreamData*)stream->private_data;
+static const char * custom_get_last_error(struct ArrowArrayStream * stream)
+{
+    CustomStreamData * data = (CustomStreamData *)stream->private_data;
     if (!data || !data->last_error)
         return NULL;
 
@@ -282,11 +296,13 @@ static const char* custom_get_last_error(struct ArrowArrayStream* stream) {
 }
 
 // Callback function to release stream resources
-static void custom_release(struct ArrowArrayStream* stream) {
+static void custom_release(struct ArrowArrayStream * stream)
+{
     if (stream->private_data)
     {
-        CustomStreamData* data = (CustomStreamData*)stream->private_data;
-        if (data->last_error) {
+        CustomStreamData * data = (CustomStreamData *)stream->private_data;
+        if (data->last_error)
+        {
             free(data->last_error);
         }
         free(data);
@@ -296,11 +312,11 @@ static void custom_release(struct ArrowArrayStream* stream) {
 }
 
 // Helper function to reset the ArrowArrayStream for reuse
-static void reset_arrow_stream(struct ArrowArrayStream* stream)
+static void reset_arrow_stream(struct ArrowArrayStream * stream)
 {
     if (stream && stream->private_data)
     {
-        CustomStreamData* data = (CustomStreamData*)stream->private_data;
+        CustomStreamData * data = (CustomStreamData *)stream->private_data;
         reset_custom_stream_data(data);
         printf("✓ ArrowArrayStream has been reset, ready for re-reading\n");
     }
@@ -310,7 +326,7 @@ static void reset_arrow_stream(struct ArrowArrayStream* stream)
 // Unit Test Utilities
 //===--------------------------------------------------------------------===//
 
-static void test_assert(bool condition, const char* test_name, const char* message)
+static void test_assert(bool condition, const char * test_name, const char * message)
 {
     if (condition)
     {
@@ -328,50 +344,56 @@ static void test_assert(bool condition, const char* test_name, const char* messa
     }
 }
 
-static void test_assert_chdb_state(chdb_state state, const char* operation_name)
+static void test_assert_chdb_state(chdb_state state, const char * operation_name)
 {
     char message[256];
-    if (state == CHDBError) {
+    if (state == CHDBError)
+    {
         strcpy(message, "Operation failed");
-    } else {
+    }
+    else
+    {
         strcpy(message, "Unknown state");
     }
-    
+
     test_assert(state == CHDBSuccess, operation_name, 
                 state == CHDBError ? message : NULL);
 }
 
-static void test_assert_not_null(void* ptr, const char* test_name)
+static void test_assert_not_null(void * ptr, const char * test_name)
 {
     test_assert(ptr != NULL, test_name, "Pointer is null");
 }
 
-static void test_assert_no_error(chdb_result* result, const char* query_name)
+static void test_assert_no_error(chdb_result * result, const char * query_name)
 {
     char full_test_name[512];
-    const char* error;
-    
+    const char * error;
+
     snprintf(full_test_name, sizeof(full_test_name), "%s - Result is not null", query_name);
     test_assert_not_null(result, full_test_name);
 
     error = chdb_result_error(result);
     snprintf(full_test_name, sizeof(full_test_name), "%s - No query error", query_name);
-    
-    if (error) {
+
+    if (error)
+    {
         char error_message[512];
         snprintf(error_message, sizeof(error_message), "Error: %s", error);
         test_assert(error == NULL, full_test_name, error_message);
-    } else {
+    }
+    else
+    {
         test_assert(error == NULL, full_test_name, NULL);
     }
 }
 
-static void test_assert_query_result_contains(chdb_result* result, const char* expected_content, const char* query_name)
+static void test_assert_query_result_contains(chdb_result * result, const char * expected_content, const char * query_name)
 {
-    char* buffer;
+    char * buffer;
     char full_test_name[512];
     bool contains;
-    
+
     test_assert_no_error(result, query_name);
 
     buffer = chdb_result_buffer(result);
@@ -379,25 +401,28 @@ static void test_assert_query_result_contains(chdb_result* result, const char* e
     test_assert_not_null(buffer, full_test_name);
 
     snprintf(full_test_name, sizeof(full_test_name), "%s - Result contains expected content", query_name);
-    
+
     contains = strstr(buffer, expected_content) != NULL;
-    if (!contains) {
+    if (!contains)
+    {
         char error_message[1024];
         snprintf(error_message, sizeof(error_message), "Expected: %s, Actual: %s", expected_content, buffer);
         test_assert(contains, full_test_name, error_message);
-    } else {
+    }
+    else
+    {
         test_assert(contains, full_test_name, NULL);
     }
 }
 
-static void test_assert_row_count(chdb_result* result, uint64_t expected_rows, const char* query_name)
+static void test_assert_row_count(chdb_result * result, uint64_t expected_rows, const char * query_name)
 {
-    char* buffer;
+    char * buffer;
     char full_test_name[512];
-    char* result_str;
-    char* end;
+    char * result_str;
+    char * end;
     uint64_t actual_rows;
-    
+
     test_assert_no_error(result, query_name);
 
     buffer = chdb_result_buffer(result);
@@ -407,7 +432,7 @@ static void test_assert_row_count(chdb_result* result, uint64_t expected_rows, c
     /* Parse the count result (assuming CSV format with just the number) */
     result_str = (char*)malloc(strlen(buffer) + 1);
     strcpy(result_str, buffer);
-    
+
     /* Remove trailing whitespace/newlines */
     end = result_str + strlen(result_str) - 1;
     while (end > result_str && (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r' || *end == '\f' || *end == '\v')) {
@@ -416,18 +441,21 @@ static void test_assert_row_count(chdb_result* result, uint64_t expected_rows, c
     }
 
     actual_rows = strtoull(result_str, NULL, 10);
-    
+
     snprintf(full_test_name, sizeof(full_test_name), "%s - Row count matches", query_name);
-    
-    if (actual_rows != expected_rows) {
+
+    if (actual_rows != expected_rows)
+    {
         char error_message[256];
-        snprintf(error_message, sizeof(error_message), "Expected: %llu, Actual: %llu", 
+        snprintf(error_message, sizeof(error_message), "Expected: %llu, Actual: %llu",
                  (unsigned long long)expected_rows, (unsigned long long)actual_rows);
         test_assert(actual_rows == expected_rows, full_test_name, error_message);
-    } else {
+    }
+    else
+    {
         test_assert(actual_rows == expected_rows, full_test_name, NULL);
     }
-    
+
     free(result_str);
 }
 
@@ -436,9 +464,9 @@ void test_arrow_scan(chdb_connection conn)
     struct ArrowArrayStream stream;
     struct ArrowArrayStream stream2;
     struct ArrowArrayStream stream3;
-    CustomStreamData* stream_data;
-    CustomStreamData* stream_data2;
-    CustomStreamData* stream_data3;
+    CustomStreamData * stream_data;
+    CustomStreamData * stream_data2;
+    CustomStreamData * stream_data3;
     const char* table_name = "test_arrow_table";
     const char* non_exist_table_name = "non_exist_table";
     const char* table_name2 = "test_arrow_table_2";
@@ -447,19 +475,19 @@ void test_arrow_scan(chdb_connection conn)
     chdb_arrow_stream arrow_stream2;
     chdb_arrow_stream arrow_stream3;
     chdb_state result;
-    chdb_result* count_result;
-    chdb_result* sample_result;
-    chdb_result* last_result;
-    chdb_result* count1_result;
-    chdb_result* count2_result;
-    chdb_result* count3_result;
-    chdb_result* join_result;
-    chdb_result* union_result;
-    chdb_result* unregister_result;
-    const char* error;
+    chdb_result * count_result;
+    chdb_result * sample_result;
+    chdb_result * last_result;
+    chdb_result * count1_result;
+    chdb_result * count2_result;
+    chdb_result * count3_result;
+    chdb_result * join_result;
+    chdb_result * union_result;
+    chdb_result * unregister_result;
+    const char * error;
     char error_message[512];
 
-    printf("\n=== Creating Custom ArrowArrayStream ===\n");
+    printf("\n=== Testing ArrowArrayStream Scan Functions ===\n");
     printf("Data specification: 1,000,000 rows × 2 columns (id: int64, value: string)\n");
 
     memset(&stream, 0, sizeof(stream));
@@ -510,7 +538,7 @@ void test_arrow_scan(chdb_connection conn)
     /* Test 6: Multiple table registration tests */
     /* Create second ArrowArrayStream with different data (500,000 rows) */
     memset(&stream2, 0, sizeof(stream2));
-    stream_data2 = (CustomStreamData*)malloc(sizeof(CustomStreamData));
+    stream_data2 = (CustomStreamData *)malloc(sizeof(CustomStreamData));
     init_custom_stream_data(stream_data2);
     stream_data2->total_rows = 500000;  /* Different row count */
     stream_data2->current_row = 0;
@@ -522,7 +550,7 @@ void test_arrow_scan(chdb_connection conn)
 
     /* Create third ArrowArrayStream with different data (100,000 rows) */
     memset(&stream3, 0, sizeof(stream3));
-    stream_data3 = (CustomStreamData*)malloc(sizeof(CustomStreamData));
+    stream_data3 = (CustomStreamData *)malloc(sizeof(CustomStreamData));
     init_custom_stream_data(stream_data3);
     stream_data3->total_rows = 100000;  /* Different row count */
     stream_data3->current_row = 0;
@@ -597,11 +625,14 @@ void test_arrow_scan(chdb_connection conn)
     reset_arrow_stream(&stream);
     unregister_result = chdb_query(conn, "SELECT * FROM arrowstream(test_arrow_table) ORDER BY id DESC LIMIT 5", "CSV");
     error = chdb_result_error(unregister_result);
-    
-    if (error) {
+
+    if (error)
+    {
         snprintf(error_message, sizeof(error_message), "Got expected error: %s", error);
         test_assert(error != NULL, "Query after unregister should fail", error_message);
-    } else {
+    }
+    else
+    {
         test_assert(error != NULL, "Query after unregister should fail", "No error returned when error was expected");
     }
     chdb_destroy_query_result(unregister_result);
@@ -619,8 +650,10 @@ static void release_array_child_id(struct ArrowArray* a)
 }
 
 // Release function for array children (string) in create_arrow_array
-static void release_array_child_string(struct ArrowArray* a) {
-    if (a->buffers) {
+static void release_array_child_string(struct ArrowArray* a)
+{
+    if (a->buffers)
+    {
         free((void*)(uintptr_t)a->buffers[1]); // offsets
         free((void*)(uintptr_t)a->buffers[2]); // string data
         free((void**)(uintptr_t)a->buffers);
@@ -629,7 +662,7 @@ static void release_array_child_string(struct ArrowArray* a) {
 }
 
 // Release function for main array in create_arrow_array
-static void release_arrow_array_main(struct ArrowArray* a)
+static void release_arrow_array_main(struct ArrowArray * a)
 {
     if (a->children)
     {
@@ -642,23 +675,25 @@ static void release_arrow_array_main(struct ArrowArray* a)
         }
         free(a->children);
     }
-    if (a->buffers) {
+
+    if (a->buffers)
+    {
         free((void**)(uintptr_t)a->buffers);
     }
 }
 
 // Helper function to create ArrowArray with specified row count
-static void create_arrow_array(struct ArrowArray* array, uint64_t row_count)
+static void create_arrow_array(struct ArrowArray * array, uint64_t row_count)
 {
-    struct ArrowArray* id_array;
-    struct ArrowArray* value_array;
-    int64_t* id_data;
-    int32_t* offsets;
+    struct ArrowArray * id_array;
+    struct ArrowArray * value_array;
+    int64_t * id_data;
+    int32_t * offsets;
     size_t total_string_size;
-    char* string_data;
+    char * string_data;
     size_t current_pos;
     uint64_t i;
-    
+
     array->length = row_count;
     array->null_count = 0;
     array->offset = 0;
@@ -725,7 +760,7 @@ static void create_arrow_array(struct ArrowArray* array, uint64_t row_count)
     value_array->buffers[1] = offsets;
 
     // Allocate and populate string data
-    string_data = (char*)malloc(total_string_size);
+    string_data = (char *)malloc(total_string_size);
     current_pos = 0;
     for (i = 0; i < row_count; i++) {
         char value_str[64];
@@ -750,10 +785,10 @@ void test_arrow_array_scan(chdb_connection conn)
     struct ArrowArray array2;
     struct ArrowSchema schema3;
     struct ArrowArray array3;
-    const char* table_name = "test_arrow_array_table";
-    const char* non_exist_table_name = "non_exist_array_table";
-    const char* table_name2 = "test_arrow_array_table_2";
-    const char* table_name3 = "test_arrow_array_table_3";
+    const char * table_name = "test_arrow_array_table";
+    const char * non_exist_table_name = "non_exist_array_table";
+    const char * table_name2 = "test_arrow_array_table_2";
+    const char * table_name3 = "test_arrow_array_table_3";
     chdb_arrow_schema arrow_schema;
     chdb_arrow_array arrow_array;
     chdb_arrow_schema arrow_schema2;
@@ -761,15 +796,15 @@ void test_arrow_array_scan(chdb_connection conn)
     chdb_arrow_schema arrow_schema3;
     chdb_arrow_array arrow_array3;
     chdb_state result;
-    chdb_result* count_result;
-    chdb_result* sample_result;
-    chdb_result* last_result;
-    chdb_result* count2_result;
-    chdb_result* count3_result;
-    chdb_result* join_result;
-    chdb_result* union_result;
-    chdb_result* unregister_result;
-    const char* error;
+    chdb_result * count_result;
+    chdb_result * sample_result;
+    chdb_result * last_result;
+    chdb_result * count2_result;
+    chdb_result * count3_result;
+    chdb_result * join_result;
+    chdb_result * union_result;
+    chdb_result * unregister_result;
+    const char * error;
     char error_message[512];
 
     printf("\n=== Testing ArrowArray Scan Functions ===\n");
@@ -912,11 +947,14 @@ void test_arrow_array_scan(chdb_connection conn)
     // Test 8: Query after unregister should fail
     unregister_result = chdb_query(conn, "SELECT * FROM arrowstream(test_arrow_array_table) ORDER BY id DESC LIMIT 5", "CSV");
     error = chdb_result_error(unregister_result);
-    
-    if (error) {
+
+    if (error)
+    {
         snprintf(error_message, sizeof(error_message), "Got expected error: %s", error);
         test_assert(error != NULL, "Array query after unregister should fail", error_message);
-    } else {
+    }
+    else
+    {
         test_assert(error != NULL, "Array query after unregister should fail", "No error returned when error was expected");
     }
     chdb_destroy_query_result(unregister_result);
@@ -932,9 +970,9 @@ void test_arrow_array_scan(chdb_connection conn)
 
 int main(void)
 {
-    char* argv[] = {"clickhouse", "--multiquery"};
+    char * argv[] = {"clickhouse", "--multiquery"};
     int argc = sizeof(argv) / sizeof(argv[0]);
-    chdb_connection* conn_ptr;
+    chdb_connection * conn_ptr;
     chdb_connection conn;
 
     printf("=== chDB Arrow Functions Test ===\n");
@@ -943,7 +981,7 @@ int main(void)
     conn_ptr = chdb_connect(argc, argv);
     if (!conn_ptr || !*conn_ptr) {
         printf("Failed to create chDB connection\n");
-        return 1;
+        exit(1);
     }
 
     conn = *conn_ptr;
