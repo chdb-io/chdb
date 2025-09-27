@@ -91,8 +91,6 @@ static chdb_state chdb_inner_arrow_scan(
     chdb_connection conn, const char * table_name,
     chdb_arrow_stream arrow_stream, bool is_owner)
 {
-    ChdbDestructorGuard guard;
-
     std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
 
     if (!table_name || !arrow_stream)
@@ -139,6 +137,7 @@ chdb_state chdb_arrow_scan(
     chdb_connection conn, const char * table_name,
     chdb_arrow_stream arrow_stream)
 {
+    ChdbDestructorGuard guard;
     return chdb_inner_arrow_scan(conn, table_name, arrow_stream, false);
 }
 
@@ -146,6 +145,8 @@ chdb_state chdb_arrow_array_scan(
     chdb_connection conn, const char * table_name,
     chdb_arrow_schema arrow_schema, chdb_arrow_array arrow_array)
 {
+    ChdbDestructorGuard guard;
+
     auto * private_data = new CHDB::PrivateData();
 	private_data->schema = reinterpret_cast<ArrowSchema *>(arrow_schema);
 	private_data->array = reinterpret_cast<ArrowArray *>(arrow_array);
