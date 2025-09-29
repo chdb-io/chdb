@@ -254,6 +254,17 @@ class TestQueryPy(unittest.TestCase):
             },
         )
 
+    def test_query_arrow_null_type(self):
+        null_array = pa.array([None, None, None])
+        table = pa.table([null_array], names=["null_col"])
+        ret = chdb.query("SELECT * FROM Python(table)")
+        self.assertEqual(str(ret), "\\N\n\\N\n\\N\n")
+
+        null_array = pa.array([None, 1, None])
+        table = pa.table([null_array], names=["null_col"])
+        ret = chdb.query("SELECT * FROM Python(table)")
+        self.assertEqual(str(ret), "\\N\n1\n\\N\n")
+
     def test_random_float(self):
         x = {"col1": [random.uniform(0, 1) for _ in range(0, 100000)]}
         ret = chdb.sql(
