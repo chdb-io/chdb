@@ -1220,13 +1220,9 @@ static ColumnWithTypeAndName readNonNullableColumnFromArrowColumn(
             // TODO: read UUID as a string?
         case arrow::Type::NA:
         {
-            if (settings.allow_arrow_null_type)
-            {
-                auto type = std::make_shared<DataTypeNothing>();
-                auto column = ColumnNothing::create(arrow_column->length());
-                return {std::move(column), type, column_name};
-            }
-            [[fallthrough]];
+            auto type = std::make_shared<DataTypeNothing>();
+            auto column = ColumnNothing::create(arrow_column->length());
+            return {std::move(column), type, column_name};
         }
         default:
         {

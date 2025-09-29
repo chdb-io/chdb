@@ -301,7 +301,7 @@ Skip columns with unsupported types while schema inference for format CapnProto
     DECLARE(Bool, input_format_orc_skip_columns_with_unsupported_types_in_schema_inference, false, R"(
 Skip columns with unsupported types while schema inference for format ORC
 )", 0) \
-    DECLARE(Bool, input_format_arrow_skip_columns_with_unsupported_types_in_schema_inference, true, R"(
+    DECLARE(Bool, input_format_arrow_skip_columns_with_unsupported_types_in_schema_inference, false, R"(
 Skip columns with unsupported types while schema inference for format Arrow
 )", 0) \
     DECLARE(String, column_names_for_schema_inference, "", R"(
