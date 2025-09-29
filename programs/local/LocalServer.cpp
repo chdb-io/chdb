@@ -1,13 +1,12 @@
 #include "LocalServer.h"
-
 #include "chdb-internal.h"
 #if USE_PYTHON
+#include "ChunkCollectorOutputFormat.h"
 #include "TableFunctionPython.h"
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Storages/StorageFactory.h>
 #endif
 #include <Formats/FormatFactory.h>
-
 #include <sys/resource.h>
 #include <Common/Config/getLocalConfigPath.h>
 #include <Common/logger_useful.h>
@@ -656,6 +655,7 @@ try
 #if USE_PYTHON
         auto & storage_factory = StorageFactory::instance();
         registerStoragePython(storage_factory);
+        registerDataFrameOutputFormat();
 #endif
 
         registerDictionaries();

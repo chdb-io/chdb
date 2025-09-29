@@ -41,4 +41,16 @@ private:
     static NullWriteBuffer out;
 };
 
+/// Registration function to be called during initialization
+void registerDataFrameOutputFormat();
+
+/// Get the global dataframe builder
+PandasDataFrameBuilder * getGlobalDataFrameBuilder();
+
+/// Set the global dataframe builder
+void setGlobalDataFrameBuilder(std::unique_ptr<PandasDataFrameBuilder> builder);
+
+/// Reset the global dataframe builder
+void resetGlobalDataFrameBuilder();
+
 }

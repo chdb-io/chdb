@@ -38,9 +38,8 @@ class ChdbError(Exception):
     """
 
 
-_arrow_format = set({"dataframe", "arrowtable"})
+_arrow_format = set({"arrowtable"})
 _process_result_format_funs = {
-    "dataframe": lambda x: to_df(x),
     "arrowtable": lambda x: to_arrowTable(x),
 }
 
@@ -104,33 +103,6 @@ def to_arrowTable(res):
     if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
     return pa.RecordBatchFileReader(res.bytes()).read_all()
-
-
-# return pandas dataframe
-def to_df(r):
-    """Convert query result to pandas DataFrame.
-
-    Converts a chDB query result to a pandas DataFrame by first converting to
-    PyArrow Table and then to pandas using multi-threading for better performance.
-
-    Args:
-        r: chDB query result object containing binary Arrow data
-
-    Returns:
-        pd.DataFrame: pandas DataFrame containing the query results
-
-    Raises:
-        ImportError: If pyarrow or pandas are not installed
-
-    Example:
-        >>> result = chdb.query("SELECT 1 as id, 'hello' as msg", "Arrow")
-        >>> df = chdb.to_df(result)
-        >>> print(df)
-           id    msg
-        0   1  hello
-    """
-    t = to_arrowTable(r)
-    return t.to_pandas(use_threads=True)
 
 
 # global connection lock, for multi-threading use of legacy chdb.query()

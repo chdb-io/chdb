@@ -10,9 +10,8 @@ except ImportError as e:
     raise ImportError("Failed to import pyarrow") from None
 
 
-_arrow_format = set({"dataframe", "arrowtable"})
+_arrow_format = set({"arrowtable"})
 _process_result_format_funs = {
-    "dataframe": lambda x: to_df(x),
     "arrowtable": lambda x: to_arrowTable(x),
 }
 
@@ -63,47 +62,6 @@ def to_arrowTable(res):
     if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
     return pa.RecordBatchFileReader(res.bytes()).read_all()
-
-
-# return pandas dataframe
-def to_df(r):
-    """Convert query result to Pandas DataFrame.
-
-    This function converts chdb query results to a Pandas DataFrame format
-    by first converting to PyArrow Table and then to DataFrame. This provides
-    convenient data analysis capabilities with Pandas API.
-
-    Args:
-        r: Query result object from chdb containing Arrow format data
-
-    Returns:
-        pandas.DataFrame: DataFrame containing the query results with
-        appropriate column names and data types
-
-    Raises:
-        ImportError: If pyarrow or pandas packages are not installed
-
-    .. note::
-        This function uses multi-threading for the Arrow to Pandas conversion
-        to improve performance on large datasets.
-
-    .. seealso::
-        :func:`to_arrowTable` - For PyArrow Table format conversion
-
-    Examples:
-        >>> import chdb
-        >>> result = chdb.query("SELECT 1 as num, 'hello' as text", "Arrow")
-        >>> df = to_df(result)
-        >>> print(df)
-           num   text
-        0    1  hello
-        >>> print(df.dtypes)
-        num      int64
-        text    object
-        dtype: object
-    """
-    t = to_arrowTable(r)
-    return t.to_pandas(use_threads=True)
 
 
 class StreamingResult:

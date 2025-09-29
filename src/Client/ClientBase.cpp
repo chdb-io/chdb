@@ -138,6 +138,9 @@ namespace ErrorCodes
     extern const int CANNOT_WRITE_TO_FILE;
 }
 
+/// Custom DataFrame format creator function pointer
+static CustomOutputFormatCreator g_dataframe_format_creator = nullptr;
+
 }
 
 namespace ProfileEvents
@@ -615,6 +618,22 @@ try
 {
     if (!output_format)
     {
+#if USE_PYTHON
+        if (default_output_format == "dataframe")
+        {
+            auto creator = getDataFrameFormatCreator();
+            if (creator)
+            {
+                output_format = creator(block);
+                return;
+            }
+            else
+            {
+                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "DataFrame output format creator not set");
+            }
+        }
+#endif
+
         /// Ignore all results when fuzzing as they can be huge.
         if (query_fuzzer_runs)
         {
@@ -3754,5 +3773,17 @@ void ClientBase::showClientVersion()
 {
     output_stream << VERSION_NAME << " " + getName() + " version " << VERSION_STRING << VERSION_OFFICIAL << "." << std::endl;
 }
+
+#if USE_PYTHON
+void ClientBase::setDataFrameFormatCreator(CustomOutputFormatCreator creator)
+{
+    g_dataframe_format_creator = std::move(creator);
+}
+
+CustomOutputFormatCreator ClientBase::getDataFrameFormatCreator()
+{
+    return g_dataframe_format_creator;
+}
+#endif
 
 }

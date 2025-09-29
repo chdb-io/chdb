@@ -12,6 +12,7 @@ endif()
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
+        ChunkCollectorOutputFormat.cpp
         FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
@@ -19,6 +20,7 @@ if (USE_PYTHON)
         NumpyType.cpp
         PandasAnalyzer.cpp
         PandasDataFrame.cpp
+        PandasDataFrameBuilder.cpp
         PandasScan.cpp
         PybindWrapper.cpp
         PythonConversion.cpp
