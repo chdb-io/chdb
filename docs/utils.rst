@@ -16,9 +16,7 @@ The utils module includes:
 API Reference
 -------------
 
-.. automodule:: chdb.utils
-   :members:
-   :show-inheritance:
+For the complete utilities API reference, see :doc:`api`.
 
 Data Processing Utilities
 -------------------------
@@ -532,6 +530,6 @@ Utility Functions
 See Also
 --------
 
-- :doc:`api` - Complete API reference
+- :doc:`api` - Complete API reference including utilities module
 - :doc:`troubleshooting` - Troubleshooting and performance tips
 - :doc:`examples` - More utility examples and use cases
