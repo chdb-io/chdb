@@ -231,4 +231,119 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 	}
 }
 
+String DataTypeToNumpyTypeStr(const std::shared_ptr<DB::IDataType> & data_type)
+{
+    if (!data_type)
+        return "object";
+
+    /// First, try to handle most types efficiently using getTypeId()
+    TypeIndex type_id = data_type->getTypeId();
+    switch (type_id)
+    {
+        case TypeIndex::Int8:
+            return "int8";
+        case TypeIndex::UInt8:
+            /// Special case: UInt8 could be Bool type, need to check getName()
+            {
+                const String & type_name = data_type->getName();
+                return (type_name == "Bool") ? "bool" : "uint8";
+            }
+        case TypeIndex::Int16:
+            return "int16";
+        case TypeIndex::UInt16:
+            return "uint16";
+        case TypeIndex::Int32:
+            return "int32";
+        case TypeIndex::UInt32:
+            return "uint32";
+        case TypeIndex::Int64:
+            return "int64";
+        case TypeIndex::UInt64:
+            return "uint64";
+        case TypeIndex::Float32:
+            return "float32";
+        case TypeIndex::Float64:
+            return "float64";
+        case TypeIndex::String:
+        case TypeIndex::FixedString:
+            return "object";
+        case TypeIndex::DateTime:
+            return "datetime64[s]";
+        case TypeIndex::DateTime64:
+            // DateTime64 needs precision info from the actual type
+            {
+                if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(data_type.get()))
+                {
+                    UInt32 scale = dt64->getScale();
+                    if (scale == 0)
+                        return "datetime64[s]";
+                    else if (scale == 3) 
+                        return "datetime64[ms]";
+                    else if (scale == 6)
+                        return "datetime64[us]";
+                    else if (scale == 9)
+                        return "datetime64[ns]";
+                    else
+                        return "datetime64[ns]"; // Default to nanoseconds
+                }
+                return "datetime64[ns]"; // Default fallback
+            }
+        case TypeIndex::Date:
+        case TypeIndex::Date32:
+            return "datetime64[D]";
+        case TypeIndex::UUID:
+        case TypeIndex::IPv4:
+        case TypeIndex::IPv6:
+            return "object";
+        case TypeIndex::Decimal32:
+        case TypeIndex::Decimal64:
+        case TypeIndex::Decimal128:
+        case TypeIndex::Decimal256:
+            return "float64"; // Decimals are converted to float64
+        case TypeIndex::Array:
+        case TypeIndex::Tuple:
+        case TypeIndex::Map:
+            return "object";
+        case TypeIndex::Nullable:
+            // Handle Nullable types - need to check inner type
+            {
+                const String & type_name = data_type->getName();
+                if (startsWith(type_name, "Nullable("))
+                {
+                    // Extract the inner type from "Nullable(InnerType)"
+                    size_t start = 9; // Length of "Nullable("
+                    size_t end = type_name.length() - 1; // Exclude the closing ")"
+                    if (end > start)
+                    {
+                        String inner_type_name = type_name.substr(start, end - start);
+                        // Nullable integers become float64 in pandas
+                        if (inner_type_name == "Int64" || inner_type_name == "Int32" || 
+                            inner_type_name == "Int16" || inner_type_name == "Int8" ||
+                            inner_type_name == "UInt64" || inner_type_name == "UInt32" ||
+                            inner_type_name == "UInt16" || inner_type_name == "UInt8")
+                            return "float64";
+                        else if (inner_type_name == "Float64")
+                            return "float64";
+                        else if (inner_type_name == "Float32")
+                            return "float32";
+                        else if (inner_type_name == "String")
+                            return "object";
+                    }
+                }
+                return "object";
+            }
+        default:
+            // For other complex types, fall back to getName() parsing
+            {
+                const String & type_name = data_type->getName();
+                if (startsWith(type_name, "Array(") || startsWith(type_name, "Tuple(") || 
+                    startsWith(type_name, "Map("))
+                    return "object";
+
+                // Default fallback for unknown types
+                return "object";
+            }
+    }
+}
+
 } // namespace CHDB
