@@ -22,7 +22,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
-    runs-on: macos-13-xlarge
+    runs-on: macos-14-xlarge
     steps:
       - name: Setup pyenv
         run: |
@@ -76,7 +76,7 @@ jobs:
           uname -a
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew update
-          brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
+          brew install ca-certificates lz4 mpdecimal openssl@3 readline xz z3 zstd
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext gcc binutils grep findutils nasm
           brew install --build-from-source ccache
@@ -97,7 +97,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: macos-13-xlarge
+          key: macos-14-xlarge
           max-size: 5G
           append-timestamp: true
       - name: Run chdb/build.sh
