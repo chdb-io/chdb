@@ -59,7 +59,7 @@ PythonSource::PythonSource(
     size_t stream_index,
     size_t num_streams,
     const FormatSettings & format_settings_)
-    : ISource(sample_block_.cloneEmpty())
+    : ISource(std::make_shared<Block>(sample_block_.cloneEmpty()))
     , data_source(data_source_)
     , isInheritsFromPyReader(isInheritsFromPyReader_)
     , sample_block(sample_block_)

@@ -38,9 +38,9 @@ if (OS_LINUX)
     # chdb: set background_thread true will cause Python 3.8 assert error on Linux aarch64:
     #   <jemalloc>: contrib/jemalloc/src/jemalloc.c:4201: Failed assertion: "malloc_initialized()"
     # so, disable it for now.
-    set (JEMALLOC_CONFIG_MALLOC_CONF "percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:5000,prof:true,prof_active:false,background_thread:false")
+    set (JEMALLOC_CONFIG_MALLOC_CONF "percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:5000,prof:true,prof_active:false,background_thread:false,lg_extent_max_active_fit:8")
 else()
-    set (JEMALLOC_CONFIG_MALLOC_CONF "oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:5000")
+    set (JEMALLOC_CONFIG_MALLOC_CONF "oversize_threshold:0,muzzy_decay_ms:0,dirty_decay_ms:5000,lg_extent_max_active_fit:8")
 endif()
 # CACHE variable is empty to allow changing defaults without the necessity
 # to purge cache

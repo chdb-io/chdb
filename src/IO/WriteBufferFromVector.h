@@ -63,10 +63,28 @@ public:
 protected:
     void finalizeImpl() override
     {
-        vector.resize(
-            ((position() - reinterpret_cast<Position>(vector.data())) /// NOLINT
-                + sizeof(ValueType) - 1)  /// Align up. /// NOLINT
-            / sizeof(ValueType));
+        auto pos = position();
+        auto vector_start = reinterpret_cast<Position>(vector.data());
+        if (pos < vector_start || pos > vector_start + vector.size())
+        {
+            auto logical_size = count();
+            vector.resize(logical_size / sizeof(ValueType) + (logical_size % sizeof(ValueType) ? 1 : 0));
+        }
+        else
+        {
+            auto byte_offset = pos - vector_start;
+            auto new_size = (byte_offset + sizeof(ValueType) - 1) / sizeof(ValueType);
+
+            if (new_size >= 0)
+            {
+                vector.resize(new_size);
+            }
+            else
+            {
+                auto logical_size = count();
+                vector.resize(logical_size / sizeof(ValueType) + (logical_size % sizeof(ValueType) ? 1 : 0));
+            }
+        }
 
         /// Prevent further writes.
         set(nullptr, 0);

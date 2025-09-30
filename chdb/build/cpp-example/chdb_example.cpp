@@ -39,7 +39,7 @@ int main(void) {
     int argc = 1;
 
     // 2. Create database connection
-    chdb_connection *conn = chdb_connect(argc, const_cast<char**>(argv));
+    chdb_connection * conn = chdb_connect(argc, const_cast<char **>(argv));
     if (!conn) {
         fprintf(stderr, "Failed to create database connection\n");
         return EXIT_FAILURE;
@@ -74,7 +74,7 @@ int main(void) {
     }
 
     // 5. Process query results
-    printf("Query executed successfully. Retrieved %lu rows\n", chdb_result_rows_read(result));
+    printf("Query executed successfully. Retrieved %llu rows\n", chdb_result_rows_read(result));
 
     char *data = chdb_result_buffer(result);
     size_t data_len = chdb_result_length(result);

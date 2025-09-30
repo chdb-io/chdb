@@ -130,13 +130,13 @@ def create_static_library(obj_files, lib_files):
 
     need_extract = True
 
-    # Reuse tmp directory if it exists, otherwise create it
+    # Always create fresh tmp directory to ensure extraction
     if os.path.exists(temp_dir):
-        print(f"Reusing existing temporary directory: {os.path.abspath(temp_dir)}")
-        need_extract = False
-    else:
-        os.makedirs(temp_dir, exist_ok=True)
-        print(f"Created temporary directory: {os.path.abspath(temp_dir)}")
+        shutil.rmtree(temp_dir)
+        print(f"Removed existing temporary directory: {os.path.abspath(temp_dir)}")
+
+    os.makedirs(temp_dir, exist_ok=True)
+    print(f"Created temporary directory: {os.path.abspath(temp_dir)}")
 
     print(f"Using temporary directory: {os.path.abspath(temp_dir)}")
 
@@ -144,6 +144,15 @@ def create_static_library(obj_files, lib_files):
 
         # Extract objects from static libraries
         extracted_objects = []
+
+        # Add libiconv.a to the list of libraries to extract on macOS
+        if IS_MACOS:
+            libiconv_path = "/opt/homebrew/opt/libiconv/lib/libiconv.a"
+            if os.path.exists(libiconv_path):
+                lib_files.append(libiconv_path)
+                print(f"Added libiconv.a for static linking: {libiconv_path}")
+            else:
+                print(f"Warning: libiconv.a not found at {libiconv_path}")
 
         for lib_file in lib_files:
             if not need_extract:
@@ -160,6 +169,14 @@ def create_static_library(obj_files, lib_files):
             if 'src/Functions' in lib_file:
                 lib_prefix = f"chdb_func_{lib_name}"
                 print(f"Functions library detected: {lib_basename} -> prefix: {lib_prefix}")
+            # Special handling for clickhouse-local-lib.a which contains chdb.cpp.o
+            elif 'clickhouse-local-lib.a' in lib_file:
+                lib_prefix = "chdb_local"
+                print(f"Local library detected: {lib_basename} -> prefix: {lib_prefix}")
+            # Special handling for libiconv.a
+            elif 'libiconv.a' in lib_file:
+                lib_prefix = "chdb_iconv"
+                print(f"iconv library detected: {lib_basename} -> prefix: {lib_prefix}")
             else:
                 lib_prefix = lib_name
 
@@ -226,8 +243,12 @@ def create_static_library(obj_files, lib_files):
                         for filename in unique_files:
                             original_path = os.path.join(lib_temp_dir, filename)
                             if os.path.exists(original_path):
-                                # Generate prefixed filename
-                                if filename.startswith(f"{lib_prefix}__"):
+                                # Special handling for chdb.cpp.o - keep original name
+                                if filename == "chdb.cpp.o" and 'clickhouse-local-lib' in lib_file:
+                                    unique_filename = filename
+                                    print(f"Special handling for chdb.cpp.o - keeping original name")
+                                # Generate prefixed filename for other files
+                                elif filename.startswith(f"{lib_prefix}__"):
                                     unique_filename = filename
                                 else:
                                     unique_filename = f"{lib_prefix}__{filename}"
@@ -265,8 +286,13 @@ def create_static_library(obj_files, lib_files):
                                 return False
 
                             # Generate unique filename: originalname_X.o format
-                            name_part = target_filename.replace('.o', '')
-                            unique_filename = f"{lib_prefix}__{name_part}_{file_index}.o"
+                            # Special handling for chdb.cpp.o - keep original name for first occurrence
+                            if target_filename == "chdb.cpp.o" and 'clickhouse-local-lib' in lib_file and file_index == 1:
+                                unique_filename = target_filename
+                                print(f"Special handling for chdb.cpp.o - keeping original name")
+                            else:
+                                name_part = target_filename.replace('.o', '')
+                                unique_filename = f"{lib_prefix}__{name_part}_{file_index}.o"
 
                             # Write extracted content
                             unique_path = os.path.join(lib_temp_dir, unique_filename)

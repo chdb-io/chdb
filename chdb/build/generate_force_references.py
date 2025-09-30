@@ -54,7 +54,14 @@ def extract_register_functions(functions_dir):
         'ULIDStringToDateTime',
         'SeriesPeriodDetectFFT',
         'AddressToLineWithInlines',
-        'DetectProgrammingLanguage'
+        'DetectProgrammingLanguage',
+        'GenerateUUIDv7',
+        'ToTime',
+        'ToTimeWithFixedDate',
+        'Bech32Repr',
+        'DateTimeToUUIDv7',
+        'GenerateULID',
+        'ULIDStringToDateTime'
     }
 
     # Walk through all subdirectories

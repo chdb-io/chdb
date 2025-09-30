@@ -231,6 +231,22 @@ assignmentValue
     : literal
     ;
 
+// DELETE statement
+
+deleteStmt
+    : DELETE FROM nestedIdentifier clusterClause? inPartitionClause? whereClause
+    ;
+
+inPartitionClause
+    : IN PARTITION columnExpr
+    ;
+
+// UPDATE statement
+
+updateStmt
+    : UPDATE nestedIdentifier SET assignmentExprList clusterClause? inPartitionClause? whereClause
+    ;
+
 // KILL statement
 
 killStmt
@@ -405,7 +421,6 @@ columnExpr
     | identifier (LPAREN columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList? RPAREN  # ColumnExprFunction
     | literal                                                                             # ColumnExprLiteral
 
-    // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | DASH columnExpr                                                                     # ColumnExprNegate

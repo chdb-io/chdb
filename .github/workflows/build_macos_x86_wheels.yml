@@ -78,16 +78,23 @@ jobs:
           brew update
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
-          brew install git ninja libtool gettext gcc binutils grep findutils nasm
-          brew install --build-from-source ccache
+          brew install git ninja libtool gettext gcc binutils grep findutils nasm lld@19 libiconv
+          brew install --build-from-source ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
-          export PATH=$(brew --prefix llvm@19)/bin:$PATH
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
           which clang++
           clang++ --version
           which go
           go version
           ccache -s
+      - name: Upgrade Rust toolchain
+        run: |
+          rustup toolchain install nightly-2025-07-07
+          rustup default nightly-2025-07-07
+          rustup component add rust-src
+          rustc --version
+          cargo --version
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -105,8 +112,9 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          source ~/.cargo/env
           pyenv shell 3.8
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
@@ -117,9 +125,10 @@ jobs:
       - name: Run chdb/build/build_static_lib.sh
         timeout-minutes: 600
         run: |
-          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
+          source ~/.cargo/env
           eval "$(pyenv init -)"
           pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
@@ -156,12 +165,13 @@ jobs:
           ls -lh chdb
           df -h
         env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
+          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
       - name: Build wheels
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          source ~/.cargo/env
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.8

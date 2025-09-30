@@ -5,6 +5,7 @@
 #include <Functions/FunctionConstantBase.h>
 #include <Common/FunctionDocumentation.h>
 #include <Core/Field.h>
+#include <Interpreters/Context.h>
 
 namespace DB
 {

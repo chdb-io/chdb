@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstring>
 #include "Common/MemoryTracker.h"
+#include "Common/ThreadStatus.h"
 #include "LocalServer.h"
 #include "QueryResult.h"
 #include "chdb-internal.h"
@@ -420,6 +421,7 @@ std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char *
     try
     {
         std::lock_guard<std::mutex> lock(CHDB_MUTEX);
+        DB::ThreadStatus thread_status;
         DB::LocalServer app;
         app.init(argc, argv);
         int ret = app.run();
@@ -512,6 +514,7 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
             std::unique_ptr<DB::LocalServer> server;
             try
             {
+                DB::ThreadStatus thread_status;
                 server = bgClickHouseLocal(argc, argv);
                 conn->server = nullptr;
                 conn->connected = true;
