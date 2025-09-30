@@ -3,6 +3,7 @@
 #include "DatetimeCacheItem.h"
 #include "DecimalCacheItem.h"
 #include "PandasCacheItem.h"
+#include "PyArrowCacheItem.h"
 #include "PythonImportCacheItem.h"
 
 #include <vector>
@@ -18,12 +19,11 @@ public:
 
 	~PythonImportCache();
 
-public:
 	PandasCacheItem pandas;
+	PyarrowCacheItem pyarrow;
 	DatetimeCacheItem datetime;
 	DecimalCacheItem decimal;
 
-public:
 	py::handle AddCache(py::object item);
 
 private:

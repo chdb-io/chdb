@@ -22,8 +22,21 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
-    runs-on: macos-13-xlarge
+    runs-on: macos-14-xlarge
     steps:
+      - name: Check machine architecture
+        run: |
+          echo "=== Machine Architecture Information ==="
+          echo "Machine type: $(uname -m)"
+          echo "Architecture: $(arch)"
+          echo "System info: $(uname -a)"
+          echo "Hardware info:"
+          system_profiler SPHardwareDataType | grep "Chip\|Processor"
+          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
+            echo "This is an ARM64 (Apple Silicon) machine"
+          else
+            echo "This is an x86_64 (Intel) machine"
+          fi
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -79,7 +92,7 @@ jobs:
           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext gcc binutils grep findutils nasm
-          brew install --build-from-source ccache
+          brew install ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
@@ -97,7 +110,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: macos-13-xlarge
+          key: macos-14-xlarge
           max-size: 5G
           append-timestamp: true
       - name: Run chdb/build.sh
@@ -141,6 +154,7 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
+          bash -x ./examples/runArrowTest.sh
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |

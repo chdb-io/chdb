@@ -22,13 +22,6 @@ using namespace DB;
 
 namespace CHDB {
 
-template <typename T>
-static bool ModuleIsLoaded()
-{
-    auto dict = pybind11::module_::import("sys").attr("modules");
-    return dict.contains(py::str(T::Name));
-}
-
 struct PandasBindColumn {
 public:
     PandasBindColumn(py::handle name, py::handle type, py::object column)
@@ -92,6 +85,8 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
 
 ColumnsDescription PandasDataFrame::getActualTableStructure(const py::object & object, ContextPtr & context)
 {
+    chassert(py::gil_check());
+
     NamesAndTypesList names_and_types;
 
     PandasDataFrameBind df(object);
@@ -116,6 +111,8 @@ ColumnsDescription PandasDataFrame::getActualTableStructure(const py::object & o
 
 bool PandasDataFrame::isPandasDataframe(const py::object & object)
 {
+    chassert(py::gil_check());
+
     if (!ModuleIsLoaded<PandasCacheItem>())
 		return false;
 

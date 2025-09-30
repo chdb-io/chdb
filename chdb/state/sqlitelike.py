@@ -62,7 +62,9 @@ def to_arrowTable(res):
         raise ImportError("Failed to import pyarrow or pandas") from None
     if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
-    return pa.RecordBatchFileReader(res.bytes()).read_all()
+
+    memview = res.get_memview()
+    return pa.RecordBatchFileReader(memview.view()).read_all()
 
 
 # return pandas dataframe

@@ -416,11 +416,7 @@ chDB automatically converts Python dictionary objects to ClickHouse JSON types f
       ```
     - Columns are converted to `String` if sampling finds non-dictionary values.
 
-2. **Arrow Table**
-    - `struct` type columns are automatically mapped to JSON columns.
-    - Nested structures preserve type information.
-
-3. **chdb.PyReader**
+2. **chdb.PyReader**
     - Implement custom schema mapping in `get_schema()`:
       ```python
       def get_schema(self):

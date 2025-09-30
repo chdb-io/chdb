@@ -21,6 +21,9 @@ EXPECTED1 = """"['urgent','important']",100.3,"[]"
 \\N,\\N,"[1,666]"
 """
 EXPECTED2 = '"apple1",3,\\N\n\\N,4,2\n'
+EXPECTED3 = """"['urgent','important']",100.3,"[]"
+"[]",0,"[1,666]"
+"""
 
 dict1 = {
     "c1": [1, 2, 3, 4, 5, 6, 7, 8],
@@ -389,9 +392,9 @@ class TestQueryJSON(unittest.TestCase):
         self.assertEqual(str(ret), '"2025-05-30 20:08:08.123000000"\n')
 
     def test_query_pyarrow_table1(self):
-        ret = self.sess.query("SELECT c4.tags, c3.deep.level2.level3, c3.mixed_list[].a FROM Python(arrow_table1) WHERE c1 <= 2 ORDER BY c1")
+        ret = self.sess.query("SELECT c4.tags, c3.deep.level2.level3, c3.mixed_list.a FROM Python(arrow_table1) WHERE c1 <= 2 ORDER BY c1")
 
-        self.assertEqual(str(ret), EXPECTED1)
+        self.assertEqual(str(ret), EXPECTED3)
 
     def test_pyarrow_complex_types(self):
         struct_type = pa.struct([
