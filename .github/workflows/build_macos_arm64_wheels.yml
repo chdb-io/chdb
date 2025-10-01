@@ -80,8 +80,8 @@ jobs:
           brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext binutils grep findutils nasm
-          brew install gcc || echo "GCC install failed, continuing..."
-          brew install ccache || echo "ccache installation failed, continuing without it"
+          # brew install gcc || echo "GCC install failed, continuing..."
+          # brew install ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
@@ -89,7 +89,7 @@ jobs:
           clang++ --version
           which go
           go version
-          ccache -s
+          ccache -s || echo "ccache not available yet"
       - name: Scan SQLite vulnerabilities with grype
         run: |
           # Install grype
@@ -205,12 +205,12 @@ jobs:
         run: |
           sleep 60
           while ps -ef | grep ccache | grep -v grep; do \
-            killall ccache; \
+            killall ccache || true; \
             sleep 10; \
           done
       - name: Check ccache statistics
         run: |
-          ccache -s
+          ccache -s || echo "ccache not available"
           ls -lh chdb
           df -h
         env:
