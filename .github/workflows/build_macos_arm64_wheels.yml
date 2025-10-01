@@ -81,7 +81,7 @@ jobs:
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext binutils grep findutils nasm
           brew install gcc || echo "GCC install failed, continuing..."
-          brew install --build-from-source ccache
+          brew install ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$PATH
@@ -165,6 +165,38 @@ jobs:
           cat buildlib/pychdb_cmd.sh
           echo "libchdb_cmd.sh:"
           cat buildlib/libchdb_cmd.sh
+      - name: Scan chdb libraries with grype
+        run: |
+          echo "Scanning chdb libraries for vulnerabilities..."
+
+          # Files to scan
+          FILES_TO_SCAN=""
+          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
+          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
+          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
+
+          SQLITE_VULNERABILITIES_FOUND=false
+
+          for file in $FILES_TO_SCAN; do
+            if [ -f "$file" ]; then
+              echo "=== Scanning $file ==="
+              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+              echo "$SCAN_OUTPUT"
+
+              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+                echo "❌ SQLite vulnerability found in $file"
+                SQLITE_VULNERABILITIES_FOUND=true
+              fi
+            fi
+          done
+
+          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
+            exit 1
+          else
+            echo "✅ No SQLite vulnerabilities found in chdb libraries"
+          fi
+        continue-on-error: false
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
