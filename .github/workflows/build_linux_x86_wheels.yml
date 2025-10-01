@@ -34,31 +34,39 @@ jobs:
             libffi-dev liblzma-dev
       - name: Scan SQLite vulnerabilities with grype
         run: |
-          # Install grype
+          # Install grype and required tools
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          sudo apt-get update && sudo apt-get install -y jq lsb-release
+
+          # Detect OS distribution info
+          DISTRO_ID=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+          DISTRO_VERSION=$(lsb_release -sr)
+          echo "Detected OS: $DISTRO_ID:$DISTRO_VERSION"
 
           # Update grype vulnerability database
           grype db update
 
-          # Scan SQLite packages and libraries
+          # Scan SQLite packages with proper distro specification
           echo "Scanning SQLite packages for vulnerabilities..."
-          grype dir:/var/lib/dpkg --scope all-layers | grep -i sqlite || echo "No SQLite vulnerabilities found in packages"
+          grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null | grep -i sqlite || echo "No SQLite vulnerabilities found in packages"
 
           # Scan SQLite library files directly
           echo "Scanning SQLite library files..."
           find /usr/lib -name "*sqlite*" -type f 2>/dev/null | while read sqlite_file; do
             echo "Scanning: $sqlite_file"
-            grype file:"$sqlite_file" --severity critical,high || echo "No critical/high vulnerabilities in $sqlite_file"
+            grype file:"$sqlite_file" 2>/dev/null || echo "No vulnerabilities in $sqlite_file"
           done
 
-          # Check if critical vulnerabilities exist and fail build if needed
-          CRITICAL_VULNS=$(grype dir:/var/lib/dpkg --severity critical --output json | jq '.matches | length')
-          if [ "$CRITICAL_VULNS" -gt 0 ]; then
-            echo "❌ Critical vulnerabilities found in SQLite! Build should be reviewed."
-            echo "Found $CRITICAL_VULNS critical vulnerabilities"
+          # Check if any vulnerabilities exist and fail build if needed
+          TOTAL_VULNS=$(grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --output json 2>/dev/null | jq '.matches | length')
+          if [ "$TOTAL_VULNS" -gt 0 ]; then
+            echo "❌ Vulnerabilities found! Build should be reviewed."
+            echo "Found $TOTAL_VULNS total vulnerabilities"
+            # Show detailed scan results
+            grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" 2>/dev/null | grep -i sqlite
             exit 1
           else
-            echo "✅ No critical SQLite vulnerabilities found"
+            echo "✅ No vulnerabilities found"
           fi
         continue-on-error: false
       - name: Setup pyenv
