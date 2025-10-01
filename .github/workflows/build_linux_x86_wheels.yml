@@ -29,9 +29,38 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
-            libbz2-dev libreadline-dev wget curl llvm \
+            libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
             libffi-dev liblzma-dev
+      - name: Scan SQLite vulnerabilities with grype
+        run: |
+          # Install grype
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+          # Update grype vulnerability database
+          grype db update
+
+          # Scan SQLite packages and libraries
+          echo "Scanning SQLite packages for vulnerabilities..."
+          grype dir:/var/lib/dpkg --scope all-layers | grep -i sqlite || echo "No SQLite vulnerabilities found in packages"
+
+          # Scan SQLite library files directly
+          echo "Scanning SQLite library files..."
+          find /usr/lib -name "*sqlite*" -type f 2>/dev/null | while read sqlite_file; do
+            echo "Scanning: $sqlite_file"
+            grype file:"$sqlite_file" --severity critical,high || echo "No critical/high vulnerabilities in $sqlite_file"
+          done
+
+          # Check if critical vulnerabilities exist and fail build if needed
+          CRITICAL_VULNS=$(grype dir:/var/lib/dpkg --severity critical --output json | jq '.matches | length')
+          if [ "$CRITICAL_VULNS" -gt 0 ]; then
+            echo "❌ Critical vulnerabilities found in SQLite! Build should be reviewed."
+            echo "Found $CRITICAL_VULNS critical vulnerabilities"
+            exit 1
+          else
+            echo "✅ No critical SQLite vulnerabilities found"
+          fi
+        continue-on-error: false
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
