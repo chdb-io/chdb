@@ -76,7 +76,7 @@ jobs:
           uname -a
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew update
-          brew install ca-certificates lz4 mpdecimal readline xz z3 zstd
+          brew install ca-certificates lz4 mpdecimal readline sqlite xz z3 zstd
           brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext binutils grep findutils nasm
@@ -90,6 +90,49 @@ jobs:
           which go
           go version
           ccache -s
+      - name: Scan SQLite vulnerabilities with grype
+        run: |
+          # Install grype
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
+          # Update grype vulnerability database
+          grype db update
+
+          # Scan SQLite packages with Homebrew
+          echo "Scanning SQLite packages for vulnerabilities..."
+          SQLITE_SCAN_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null | grep -i sqlite || true)
+
+          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
+            echo "SQLite vulnerabilities found:"
+            echo "$SQLITE_SCAN_OUTPUT"
+            exit 1
+          else
+            echo "No SQLite vulnerabilities found in packages"
+          fi
+
+          # Scan SQLite library files directly
+          echo "Scanning SQLite library files..."
+          find /opt/homebrew/lib -name "*sqlite*" -type f 2>/dev/null | while read sqlite_file; do
+            echo "Scanning: $sqlite_file"
+            SQLITE_FILE_SCAN=$(grype file:"$sqlite_file" 2>/dev/null || true)
+            if [ -n "$SQLITE_FILE_SCAN" ]; then
+              echo "$SQLITE_FILE_SCAN"
+              exit 1
+            else
+              echo "No vulnerabilities in $sqlite_file"
+            fi
+          done
+
+          # Check only SQLite vulnerabilities and fail build if needed
+          SQLITE_VULNS=$(grype dir:/opt/homebrew --output json 2>/dev/null | jq -r '[.matches[] | select(.artifact.name | test("sqlite"; "i"))] | length')
+          if [ "$SQLITE_VULNS" -gt 0 ]; then
+            echo "❌ SQLite vulnerabilities found! Build should be reviewed."
+            echo "Found $SQLITE_VULNS SQLite vulnerabilities"
+            exit 1
+          else
+            echo "✅ No SQLite vulnerabilities found"
+          fi
+        continue-on-error: false
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
