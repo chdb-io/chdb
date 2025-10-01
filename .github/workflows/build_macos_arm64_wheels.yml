@@ -79,7 +79,8 @@ jobs:
           brew install ca-certificates lz4 mpdecimal readline xz z3 zstd
           brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
-          brew install git ninja libtool gettext gcc binutils grep findutils nasm
+          brew install git ninja libtool gettext binutils grep findutils nasm
+          brew install gcc || echo "GCC install failed, continuing..."
           brew install --build-from-source ccache
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
