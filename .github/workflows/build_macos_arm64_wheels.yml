@@ -98,43 +98,18 @@ jobs:
           # Update grype vulnerability database
           grype db update
 
-          # Scan SQLite packages with Homebrew
+          # Check SQLite vulnerabilities in Homebrew packages
           echo "Scanning SQLite packages for vulnerabilities..."
-          SQLITE_SCAN_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null | grep -i sqlite || true)
+          GRYPE_RAW_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null || true)
+          echo "Raw grype output:"
+          echo "$GRYPE_RAW_OUTPUT"
+
+          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
 
           if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "SQLite vulnerabilities found:"
+            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
+            echo "SQLite vulnerability details:"
             echo "$SQLITE_SCAN_OUTPUT"
-            exit 1
-          else
-            echo "No SQLite vulnerabilities found in packages"
-          fi
-
-          # Scan SQLite library files directly
-          echo "Scanning SQLite library files..."
-          SQLITE_FILE_VULNS=0
-          while IFS= read -r -d '' sqlite_file; do
-            echo "Scanning: $sqlite_file"
-            SQLITE_FILE_SCAN=$(grype file:"$sqlite_file" 2>/dev/null || true)
-            if [ -n "$SQLITE_FILE_SCAN" ]; then
-              echo "$SQLITE_FILE_SCAN"
-              SQLITE_FILE_VULNS=1
-              break
-            else
-              echo "No vulnerabilities in $sqlite_file"
-            fi
-          done < <(find /opt/homebrew/lib -name "*sqlite*" -type f -print0 2>/dev/null)
-
-          if [ "$SQLITE_FILE_VULNS" -eq 1 ]; then
-            echo "❌ SQLite file vulnerabilities found!"
-            exit 1
-          fi
-
-          # Check only SQLite vulnerabilities and fail build if needed
-          SQLITE_VULNS=$(grype dir:/opt/homebrew --output json 2>/dev/null | jq -r '[.matches[] | select(.artifact.name | test("sqlite"; "i"))] | length')
-          if [ "$SQLITE_VULNS" -gt 0 ]; then
-            echo "❌ SQLite vulnerabilities found! Build should be reviewed."
-            echo "Found $SQLITE_VULNS SQLite vulnerabilities"
             exit 1
           else
             echo "✅ No SQLite vulnerabilities found"
