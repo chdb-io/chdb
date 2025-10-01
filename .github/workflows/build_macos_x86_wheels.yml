@@ -110,16 +110,23 @@ jobs:
 
           # Scan SQLite library files directly
           echo "Scanning SQLite library files..."
-          find /opt/homebrew/lib -name "*sqlite*" -type f 2>/dev/null | while read sqlite_file; do
+          SQLITE_FILE_VULNS=0
+          while IFS= read -r -d '' sqlite_file; do
             echo "Scanning: $sqlite_file"
             SQLITE_FILE_SCAN=$(grype file:"$sqlite_file" 2>/dev/null || true)
             if [ -n "$SQLITE_FILE_SCAN" ]; then
               echo "$SQLITE_FILE_SCAN"
-              exit 1
+              SQLITE_FILE_VULNS=1
+              break
             else
               echo "No vulnerabilities in $sqlite_file"
             fi
-          done
+          done < <(find /opt/homebrew/lib -name "*sqlite*" -type f -print0 2>/dev/null)
+
+          if [ "$SQLITE_FILE_VULNS" -eq 1 ]; then
+            echo "❌ SQLite file vulnerabilities found!"
+            exit 1
+          fi
 
           # Check only SQLite vulnerabilities and fail build if needed
           SQLITE_VULNS=$(grype dir:/opt/homebrew --output json 2>/dev/null | jq -r '[.matches[] | select(.artifact.name | test("sqlite"; "i"))] | length')
