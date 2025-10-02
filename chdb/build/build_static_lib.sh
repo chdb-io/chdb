@@ -25,6 +25,9 @@ if [ "$(uname)" == "Darwin" ]; then
     MYSQL="-DENABLE_MYSQL=0"
     ICU="-DENABLE_ICU=0"
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    if [ "$(uname -m)" == "arm64" ]; then
+        COMPILER_CACHE="-DCOMPILER_CACHE=disabled"
+    else
 elif [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
     UNWIND="-DUSE_UNWIND=1"
@@ -66,6 +69,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     ${CPU_FEATURES} \
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DENABLE_LIBFIU=1 \
+    ${COMPILER_CACHE} \
     -DCHDB_VERSION=${CHDB_VERSION} \
     "
 
