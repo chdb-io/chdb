@@ -29,7 +29,7 @@ if [ "$(uname)" == "Darwin" ]; then
     SED_INPLACE="sed -i ''"
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
-        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DCOMPILER_CACHE=disabled"
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
     else
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
