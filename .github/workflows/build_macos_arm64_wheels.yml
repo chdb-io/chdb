@@ -121,12 +121,12 @@ jobs:
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
-      - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: macos-13-xlarge
-          max-size: 5G
-          append-timestamp: true
+      # - name: ccache
+      #   uses: hendrikmuhs/ccache-action@v1.2
+      #   with:
+      #     key: macos-13-xlarge
+      #     max-size: 5G
+      #     append-timestamp: true
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
@@ -200,21 +200,21 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
-      - name: Keep killall ccache and wait for ccache to finish
-        if: always()
-        run: |
-          sleep 60
-          while ps -ef | grep ccache | grep -v grep; do \
-            killall ccache || true; \
-            sleep 10; \
-          done
-      - name: Check ccache statistics
-        run: |
-          ccache -s || echo "ccache not available"
-          ls -lh chdb
-          df -h
-        env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
+      # - name: Keep killall ccache and wait for ccache to finish
+      #   if: always()
+      #   run: |
+      #     sleep 60
+      #     while ps -ef | grep ccache | grep -v grep; do \
+      #       killall ccache || true; \
+      #       sleep 10; \
+      #     done
+      # - name: Check ccache statistics
+      #   run: |
+      #     ccache -s || echo "ccache not available"
+      #     ls -lh chdb
+      #     df -h
+      #   env:
+      #     CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
       - name: Build wheels
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
