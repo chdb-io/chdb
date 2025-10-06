@@ -125,13 +125,6 @@ void * operator new[](std::size_t size, std::align_val_t align, const std::nothr
 
 extern "C" void __real_free(void * ptr);
 
-/// Check if memory was allocated by jemalloc without freeing it.
-/// Returns true if the memory was allocated by jemalloc, false otherwise.
-inline ALWAYS_INLINE bool isJemallocMemory(void * ptr)
-{
-    int arena_ind = je_mallctl("arenas.lookup", nullptr, nullptr, &ptr, sizeof(ptr));
-    return arena_ind == 0; // arena_ind == 0 means jemalloc memory
-}
 
 /// Safely handle memory that may not have been allocated by jemalloc.
 ///
@@ -175,10 +168,6 @@ inline ALWAYS_INLINE bool tryFreeNonJemallocMemory(void * ptr)
 
 void operator delete(void * ptr) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace);
     trace.onFree(ptr, actual_size);
@@ -187,10 +176,6 @@ void operator delete(void * ptr) noexcept
 
 void operator delete(void * ptr, std::align_val_t align) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace, 0, align);
     trace.onFree(ptr, actual_size);
@@ -199,10 +184,6 @@ void operator delete(void * ptr, std::align_val_t align) noexcept
 
 void operator delete[](void * ptr) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace);
     trace.onFree(ptr, actual_size);
@@ -211,10 +192,6 @@ void operator delete[](void * ptr) noexcept
 
 void operator delete[](void * ptr, std::align_val_t align) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace, 0, align);
     trace.onFree(ptr, actual_size);
@@ -223,10 +200,6 @@ void operator delete[](void * ptr, std::align_val_t align) noexcept
 
 void operator delete(void * ptr, std::size_t size) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace, size);
     trace.onFree(ptr, actual_size);
@@ -235,10 +208,6 @@ void operator delete(void * ptr, std::size_t size) noexcept
 
 void operator delete(void * ptr, std::size_t size, std::align_val_t align) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace, size, align);
     trace.onFree(ptr, actual_size);
@@ -247,10 +216,6 @@ void operator delete(void * ptr, std::size_t size, std::align_val_t align) noexc
 
 void operator delete[](void * ptr, std::size_t size) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace, size);
     trace.onFree(ptr, actual_size);
@@ -259,10 +224,6 @@ void operator delete[](void * ptr, std::size_t size) noexcept
 
 void operator delete[](void * ptr, std::size_t size, std::align_val_t align) noexcept
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     std::size_t actual_size = Memory::untrackMemory(ptr, trace, size, align);
     trace.onFree(ptr, actual_size);
@@ -276,7 +237,11 @@ extern "C" void * __wrap_malloc(size_t size) // NOLINT
 {
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace);
+#if USE_JEMALLOC
+    void * ptr = je_malloc(size);
+#else
     void * ptr = __real_malloc(size);
+#endif
     if (unlikely(!ptr))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -294,7 +259,11 @@ extern "C" void * __wrap_calloc(size_t number_of_members, size_t size) // NOLINT
 
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(real_size, trace);
+#if USE_JEMALLOC
+    void * res = je_calloc(number_of_members, size);
+#else
     void * res = __real_calloc(number_of_members, size);
+#endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -308,19 +277,17 @@ extern "C" void * __wrap_realloc(void * ptr, size_t size) // NOLINT
 {
     if (ptr)
     {
-#if USE_JEMALLOC
-        if (!isJemallocMemory(ptr))
-        {
-            return __real_realloc(ptr, size);
-        }
-#endif
         AllocationTrace trace;
         size_t actual_size = Memory::untrackMemory(ptr, trace);
         trace.onFree(ptr, actual_size);
     }
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(size, trace);
+#if USE_JEMALLOC
+    void * res = je_realloc(ptr, size);
+#else
     void * res = __real_realloc(ptr, size);
+#endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -334,7 +301,11 @@ extern "C" int __wrap_posix_memalign(void ** memptr, size_t alignment, size_t si
 {
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(size, trace, static_cast<std::align_val_t>(alignment));
+#if USE_JEMALLOC
+    int res = je_posix_memalign(memptr, alignment, size);
+#else
     int res = __real_posix_memalign(memptr, alignment, size);
+#endif
     if (unlikely(res != 0))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -348,7 +319,11 @@ extern "C" void * __wrap_aligned_alloc(size_t alignment, size_t size) // NOLINT
 {
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(size, trace, static_cast<std::align_val_t>(alignment));
+#if USE_JEMALLOC
+    void * res = je_aligned_alloc(alignment, size);
+#else
     void * res = __real_aligned_alloc(alignment, size);
+#endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -362,7 +337,11 @@ extern "C" void * __wrap_valloc(size_t size) // NOLINT
 {
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(size, trace);
+#if USE_JEMALLOC
+    void * res = je_valloc(size);
+#else
     void * res = __real_valloc(size);
+#endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -376,7 +355,11 @@ extern "C" void * __wrap_memalign(size_t alignment, size_t size) // NOLINT
 {
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(size, trace, static_cast<std::align_val_t>(alignment));
+#if USE_JEMALLOC
+    void * res = je_memalign(alignment, size);
+#else
     void * res = __real_memalign(alignment, size);
+#endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
@@ -391,20 +374,25 @@ extern "C" void * __wrap_reallocarray(void * ptr, size_t number_of_members, size
     size_t real_size = 0;
     if (__builtin_mul_overflow(number_of_members, size, &real_size))
         return nullptr;
-
+#if USE_JEMALLOC
+    return je_realloc(ptr, real_size);
+#else
     return __wrap_realloc(ptr, real_size);
+#endif
 }
 
 extern "C" void __wrap_free(void * ptr) // NOLINT
 {
-#if USE_JEMALLOC
-    if (tryFreeNonJemallocMemory(ptr))
-        return;
-#endif
     AllocationTrace trace;
     size_t actual_size = Memory::untrackMemory(ptr, trace);
     trace.onFree(ptr, actual_size);
+#if USE_JEMALLOC
+    if (tryFreeNonJemallocMemory(ptr))
+        return;
+    je_free(ptr);
+#else
     __real_free(ptr);
+#endif
 }
 
 #if !defined(USE_MUSL) && defined(OS_LINUX)
@@ -412,7 +400,11 @@ extern "C" void * __wrap_pvalloc(size_t size) // NOLINT
 {
     AllocationTrace trace;
     size_t actual_size = Memory::trackMemory(size, trace);
+#    if USE_JEMALLOC
+    void * res = je_pvalloc(size);
+#    else
     void * res = __real_pvalloc(size);
+#    endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
