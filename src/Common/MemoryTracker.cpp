@@ -614,7 +614,7 @@ void MemoryTracker::updateAllocated(Int64 allocated_, bool log_change)
 {
     Int64 new_amount = allocated_;
     if (log_change)
-        LOG_INFO(
+        LOG_DEBUG(
             getLogger("MemoryTracker"),
             "Correcting the value of global memory tracker from {} to {}",
             ReadableSize(total_memory_tracker.amount.load(std::memory_order_relaxed)),
