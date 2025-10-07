@@ -45,11 +45,17 @@ class DataStore:
             **kwargs: Additional parameters (path, url, format, host, etc.)
 
         Examples:
-            >>> # Local file
+            >>> # Local file (auto-detect format)
+            >>> ds = DataStore("file", path="data.parquet")
+
+            >>> # Local file (explicit format)
             >>> ds = DataStore("file", path="data.csv", format="CSV")
 
-            >>> # S3 data
-            >>> ds = DataStore("s3", path="s3://bucket/data.parquet",
+            >>> # S3 data (auto-detect format)
+            >>> ds = DataStore("s3", url="s3://bucket/data.parquet", nosign=True)
+
+            >>> # S3 data (with credentials and explicit format)
+            >>> ds = DataStore("s3", url="s3://bucket/data.parquet",
             ...                access_key_id="KEY", secret_access_key="SECRET",
             ...                format="Parquet")
 
@@ -310,18 +316,24 @@ class DataStore:
         )
 
     @classmethod
-    def from_url(cls, url: str, format: str, structure: str = None, headers: List[str] = None, **kwargs) -> 'DataStore':
+    def from_url(
+        cls, url: str, format: str = None, structure: str = None, headers: List[str] = None, **kwargs
+    ) -> 'DataStore':
         """
         Create DataStore from HTTP/HTTPS URL.
 
         Args:
             url: HTTP(S) URL to the data
-            format: Data format
+            format: Data format (optional, auto-detected from URL if not provided)
             structure: Optional table structure
             headers: Optional HTTP headers
             **kwargs: Additional parameters
 
         Example:
+            >>> # Auto-detect format from URL
+            >>> ds = DataStore.from_url("https://example.com/data.json")
+            >>>
+            >>> # Explicit format
             >>> ds = DataStore.from_url("https://example.com/data.json",
             ...                         format="JSONEachRow")
         """

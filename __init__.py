@@ -15,13 +15,21 @@ Key Features:
 Example:
     >>> from chdb_ds import DataStore
     >>>
-    >>> # Query a local file
-    >>> ds = DataStore("file", path="data.csv", format="CSV")
+    >>> # Query a local file (auto-detect format)
+    >>> ds = DataStore("file", path="data.parquet")
     >>> ds.connect()
     >>> result = ds.select("name", "age").filter(ds.age > 18).execute()
     >>>
-    >>> # Query S3 data
-    >>> ds = DataStore("s3", path="s3://bucket/data.parquet",
+    >>> # Query a local file (explicit format)
+    >>> ds = DataStore("file", path="data.csv", format="CSV")
+    >>> result = ds.select("name", "age").filter(ds.age > 18).execute()
+    >>>
+    >>> # Query S3 data (auto-detect format)
+    >>> ds = DataStore("s3", url="s3://bucket/data.parquet", nosign=True)
+    >>> result = ds.select("*").execute()
+    >>>
+    >>> # Query S3 data (with credentials and explicit format)
+    >>> ds = DataStore("s3", url="s3://bucket/data.parquet",
     ...                access_key_id="KEY", secret_access_key="SECRET",
     ...                format="Parquet")
     >>> result = ds.select("*").execute()
