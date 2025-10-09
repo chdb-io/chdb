@@ -3,10 +3,12 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
-#include <Common/memory.h>
-#include <DataTypes/DataTypesNumber.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
+#include <DataTypes/DataTypesNumber.h>
 
 namespace DB
 {

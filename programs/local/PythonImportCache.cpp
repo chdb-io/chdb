@@ -2,7 +2,9 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
-#include <Common/memory.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <stack>
 
 namespace DB
