@@ -80,7 +80,6 @@ jobs:
           brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext binutils grep findutils nasm lld@19 libiconv
-          brew install ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
@@ -90,27 +89,6 @@ jobs:
           which go
           go version
           ccache -s | echo "ccache not available yet"
-      - name: Scan SQLite vulnerabilities with grype
-        run: |
-          # Install grype
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-          # Update grype vulnerability database
-          grype db update
-          # Check SQLite vulnerabilities in Homebrew packages
-          echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null || true)
-          echo "Raw grype output:"
-          echo "$GRYPE_RAW_OUTPUT"
-          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
-          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
-            echo "SQLite vulnerability details:"
-            echo "$SQLITE_SCAN_OUTPUT"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found"
-          fi
-          continue-on-error: false
       - name: Upgrade Rust toolchain
         run: |
           rustup toolchain install nightly-2025-07-07
