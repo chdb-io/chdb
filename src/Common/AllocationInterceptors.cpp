@@ -3,8 +3,8 @@
 #include "config.h"
 
 #include <Common/AllocationInterceptors.h>
+#include <Common/CurrentThread.h>
 #include <Common/memory.h>
-
 
 #if defined(OS_DARWIN) && (USE_JEMALLOC)
 /// In case of OSX jemalloc register itself as a default zone allocator.
@@ -162,7 +162,7 @@ inline ALWAYS_INLINE bool tryFreeNonJemallocMemory(void * ptr)
 
 namespace Memory
 {
-thread_local bool disable_memory_check{true};
+thread_local bool disable_memory_check{false};
 }
 
 inline ALWAYS_INLINE bool tryFreeNonJemallocMemoryConditional(void * ptr)
@@ -170,7 +170,7 @@ inline ALWAYS_INLINE bool tryFreeNonJemallocMemoryConditional(void * ptr)
     if (unlikely(ptr == nullptr))
         return true;
 
-    if (likely(Memory::disable_memory_check))
+    if (likely(DB::CurrentThread::isInitialized() || Memory::disable_memory_check))
         return false;
 
     int arena_ind = je_mallctl("arenas.lookup", nullptr, nullptr, &ptr, sizeof(ptr));
