@@ -1,6 +1,8 @@
 #include "PythonReader.h"
 #include "StoragePython.h"
-#include <Common/memory.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 namespace DB
 {

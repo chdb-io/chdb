@@ -4,7 +4,9 @@
 #include <pybind11/detail/non_limited_api.h>
 
 #include <Common/Exception.h>
-#include <Common/memory.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <IO/ReadBuffer.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>

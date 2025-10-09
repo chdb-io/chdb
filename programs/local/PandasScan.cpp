@@ -5,7 +5,9 @@
 #include <DataTypes/IDataType.h>
 #include <DataTypes/Serializations/SerializationJSON.h>
 #include <IO/WriteHelpers.h>
-#include <Common/memory.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 namespace DB
 {

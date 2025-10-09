@@ -22,21 +22,23 @@
 #include <Common/Exception.h>
 #include "PythonUtils.h"
 #include <Common/logger_useful.h>
-#include <Common/memory.h>
-#include <Common/typeid_cast.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDecimalBase.h>
+#include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <DataTypes/DataTypeObject.h>
 #include <Interpreters/ExpressionActions.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
 #include <base/types.h>
+#include <Common/typeid_cast.h>
 
 namespace DB
 {

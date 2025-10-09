@@ -5,7 +5,9 @@
 #include "PythonTableCache.h"
 #include "PythonUtils.h"
 #include "TableFunctionPython.h"
-#include <Common/memory.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 #include <Parsers/ASTLiteral.h>
 
