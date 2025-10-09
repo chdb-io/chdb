@@ -32,6 +32,37 @@ jobs:
             libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
             libffi-dev liblzma-dev
+      - name: Scan SQLite vulnerabilities with grype
+        run: |
+          # Install grype and required tools
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          sudo apt-get update && sudo apt-get install -y jq lsb-release
+
+          # Detect OS distribution info
+          DISTRO_ID=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
+          DISTRO_VERSION=$(lsb_release -sr)
+          echo "Detected OS: $DISTRO_ID:$DISTRO_VERSION"
+
+          # Update grype vulnerability database
+          grype db update
+
+          # Check SQLite vulnerabilities in installed packages
+          echo "Scanning SQLite packages for vulnerabilities..."
+          GRYPE_RAW_OUTPUT=$(grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null || true)
+          echo "Raw grype output:"
+          echo "$GRYPE_RAW_OUTPUT"
+
+          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
+
+          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
+            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
+            echo "SQLite vulnerability details:"
+            echo "$SQLITE_SCAN_OUTPUT"
+            exit 1
+          else
+            echo "✅ No SQLite vulnerabilities found"
+          fi
+        continue-on-error: false
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -150,6 +181,38 @@ jobs:
           pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
           pyenv shell --unset
+        continue-on-error: false
+      - name: Scan chdb libraries with grype
+        run: |
+          echo "Scanning chdb libraries for vulnerabilities..."
+
+          # Files to scan
+          FILES_TO_SCAN=""
+          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
+          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
+          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
+
+          SQLITE_VULNERABILITIES_FOUND=false
+
+          for file in $FILES_TO_SCAN; do
+            if [ -f "$file" ]; then
+              echo "=== Scanning $file ==="
+              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+              echo "$SCAN_OUTPUT"
+
+              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+                echo "❌ SQLite vulnerability found in $file"
+                SQLITE_VULNERABILITIES_FOUND=true
+              fi
+            fi
+          done
+
+          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
+            exit 1
+          else
+            echo "✅ No SQLite vulnerabilities found in chdb libraries"
+          fi
         continue-on-error: false
       - name: Run libchdb stub in examples dir
         run: |
