@@ -117,6 +117,14 @@ void * allocNoTrack(size_t size, size_t alignment)
 void freeNoTrack(void * buf)
 {
 #if USE_JEMALLOC
+    if (unlikely(buf == nullptr))
+        return;
+    int arena_ind = je_mallctl("arenas.lookup", nullptr, nullptr, &buf, sizeof(buf));
+    if (unlikely(arena_ind != 0))
+    {
+        __real_free(buf);
+        return;
+    }
     je_free(buf);
 #else
     __real_free(buf);
