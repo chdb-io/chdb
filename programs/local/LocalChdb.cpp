@@ -395,9 +395,6 @@ int main()
 #    else
 PYBIND11_MODULE(_chdb, m)
 {
-#    if USE_JEMALLOC
-    Memory::disable_memory_check = false;
-#    endif
     m.doc() = "chDB module for query function";
 
     py::class_<memoryview_wrapper>(m, "memoryview_wrapper")
