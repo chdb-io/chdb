@@ -5,6 +5,7 @@
 #include <DataTypes/IDataType.h>
 #include <DataTypes/Serializations/SerializationJSON.h>
 #include <IO/WriteHelpers.h>
+#include <Common/memory.h>
 
 namespace DB
 {
@@ -62,6 +63,9 @@ void PandasScan::innerScanObject(
     MutableColumnPtr & column)
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope;
+#endif
 
     for (size_t i = cursor; i < cursor + count; ++i)
     {

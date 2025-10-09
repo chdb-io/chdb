@@ -22,6 +22,7 @@
 #include <Common/Exception.h>
 #include "PythonUtils.h"
 #include <Common/logger_useful.h>
+#include <Common/memory.h>
 #include <Common/typeid_cast.h>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
@@ -77,6 +78,9 @@ template <typename T>
 void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr & column)
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope;
+#endif
     for (auto && item : obj)
     {
         if constexpr (std::is_same_v<T, UInt8>)
