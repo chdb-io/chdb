@@ -3,6 +3,7 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
+#include <Common/memory.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
@@ -34,6 +35,9 @@ PandasAnalyzer::PandasAnalyzer(const DB::Settings & settings)
 }
 
 bool PandasAnalyzer::Analyze(py::object column) {
+#if USE_JEMALLOC
+	::Memory::MemoryCheckScope memory_check_scope; 
+#endif
 	if (sample_size == 0)
 		return false;
 
