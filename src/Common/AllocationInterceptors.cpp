@@ -170,7 +170,7 @@ inline ALWAYS_INLINE bool tryFreeNonJemallocMemoryConditional(void * ptr)
     if (unlikely(ptr == nullptr))
         return true;
 
-    if (likely(DB::CurrentThread::isInitialized() || Memory::disable_memory_check))
+    if (likely(Memory::disable_memory_check))
         return false;
 
     int arena_ind = je_mallctl("arenas.lookup", nullptr, nullptr, &ptr, sizeof(ptr));

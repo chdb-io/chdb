@@ -5,6 +5,7 @@
 #include "PythonTableCache.h"
 #include "PythonUtils.h"
 #include "TableFunctionPython.h"
+#include <Common/memory.h>
 
 #include <Parsers/ASTLiteral.h>
 
@@ -108,6 +109,9 @@ StoragePtr TableFunctionPython::executeImpl(
 ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr context, bool /*is_insert_query*/) const
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    Memory::MemoryCheckScope memory_check_scope;  // Enable memory checking for Python calls
+#endif
 
     if (!reader)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python reader not initialized");
