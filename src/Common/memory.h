@@ -38,6 +38,24 @@ namespace Memory
 {
 #if USE_JEMALLOC
 extern thread_local bool disable_memory_check;
+
+class MemoryCheckScope
+{
+public:
+    MemoryCheckScope() noexcept
+        : old_value(disable_memory_check)
+    {
+        disable_memory_check = false;
+    }
+
+    ~MemoryCheckScope() noexcept { disable_memory_check = old_value; }
+
+    MemoryCheckScope(const MemoryCheckScope &) = delete;
+    MemoryCheckScope & operator=(const MemoryCheckScope &) = delete;
+
+private:
+    bool old_value;
+};
 #endif
 
 inline ALWAYS_INLINE size_t alignToSizeT(std::align_val_t align) noexcept
