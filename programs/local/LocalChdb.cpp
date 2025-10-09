@@ -6,10 +6,13 @@
 #include "chdb-internal.h"
 #include "chdb.h"
 
-#include <pybind11/pybind11.h>
 #include <pybind11/detail/non_limited_api.h>
+#include <pybind11/pybind11.h>
 
 #include <Common/logger_useful.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 namespace py = pybind11;
 
@@ -392,6 +395,9 @@ int main()
 #    else
 PYBIND11_MODULE(_chdb, m)
 {
+#    if USE_JEMALLOC
+    Memory::disable_memory_check = false;
+#    endif
     m.doc() = "chDB module for query function";
 
     py::class_<memoryview_wrapper>(m, "memoryview_wrapper")

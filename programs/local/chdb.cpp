@@ -12,6 +12,10 @@
 #    include "PythonTableCache.h"
 #endif
 
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
+
 #ifdef CHDB_STATIC_LIBRARY_BUILD
 /// Force reference to ensure function registration object is linked
 namespace DB
@@ -510,6 +514,9 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
     std::thread(
         [&]()
         {
+#if USE_JEMALLOC
+            Memory::disable_memory_check = false;
+#endif
             auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
             std::unique_ptr<DB::LocalServer> server;
             try
@@ -529,7 +536,9 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
                     init_done = true;
                 }
                 init_cv.notify_one();
-
+#if USE_JEMALLOC
+                Memory::disable_memory_check = true;
+#endif
                 while (true)
                 {
                     {

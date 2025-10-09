@@ -36,6 +36,9 @@ void memoryGuardRemove(void *addr, size_t len);
 
 namespace Memory
 {
+#if USE_JEMALLOC
+extern thread_local bool disable_memory_check;
+#endif
 
 inline ALWAYS_INLINE size_t alignToSizeT(std::align_val_t align) noexcept
 {
