@@ -1,0 +1,40 @@
+name: Build Linux(musllinux) x86
+
+on:
+  workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: 'Release Version Tag'
+        required: true
+  release:
+    types: [created]
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
+
+jobs:
+  build_musllinux_wheels:
+    name: Build musllinux wheels (Alpine Linux)
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/pypa/musllinux_1_2_x86_64
+      options: --privileged
+    steps:
+      - name: Check system info
+        run: |
+          echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+          if [ -f /lib/ld-musl-x86_64.so.1 ]; then
+            echo "musl libc x86_64"
+          elif [ -f /lib/libc.musl-x86_64.so.1 ]; then
+            echo "musl libc x86_64"
+          else
+            echo "Not musl libc"
+          fi
