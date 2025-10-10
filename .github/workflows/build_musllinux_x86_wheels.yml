@@ -23,7 +23,7 @@ on:
 jobs:
   build_musllinux_wheels:
     name: Build musllinux wheels (Alpine Linux x86_64)
-    runs-on: ubuntu-latest
+    runs-on: gh-64c
     container:
       image: quay.io/pypa/musllinux_1_2_x86_64
       options: --privileged
