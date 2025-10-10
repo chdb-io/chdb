@@ -123,6 +123,10 @@ jobs:
         run: |
           apk add --no-cache make cmake ccache ninja yasm gawk wget
           apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
+          # Install Rust toolchain
+          apk add --no-cache rust cargo
+          rustc --version
+          cargo --version
           ccache -s
       - name: Update git
         run: |
