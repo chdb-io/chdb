@@ -123,8 +123,11 @@ jobs:
         run: |
           apk add --no-cache make cmake ccache ninja yasm gawk wget
           apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
-          # Install Rust toolchain
-          apk add --no-cache rust cargo
+          # Install Rust toolchain via rustup for proper target management
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          source $HOME/.cargo/env
+          # Add the correct musl target for Alpine
+          rustup target add x86_64-unknown-linux-musl
           rustc --version
           cargo --version
           ccache -s
@@ -158,6 +161,8 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          # Setup Rust environment
+          source $HOME/.cargo/env
           pyenv shell 3.8
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
