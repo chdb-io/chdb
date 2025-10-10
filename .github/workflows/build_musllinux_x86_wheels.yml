@@ -123,8 +123,12 @@ jobs:
         run: |
           pwd
           uname -a
-          apk add --no-cache clang19 clang19-dev llvm19 llvm19-dev
+          # Install build tools first
           apk add --no-cache make cmake ccache ninja yasm gawk wget
+          # Install LLVM 19 packages explicitly, excluding test utilities to avoid conflicts
+          apk add --no-cache clang19 clang19-dev llvm19 llvm19-dev --no-install-recommends
+          # Verify no LLVM 20 packages are installed
+          apk list | grep llvm20 || echo "No LLVM 20 packages found (good)"
           ccache -s
       - name: Update git
         run: |
