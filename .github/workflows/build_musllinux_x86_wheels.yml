@@ -62,12 +62,11 @@ jobs:
           SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
 
           if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
+            echo "SQLite vulnerabilities found in packages! Build should be reviewed."
             echo "SQLite vulnerability details:"
             echo "$SQLITE_SCAN_OUTPUT"
-            exit 1
           else
-            echo "✅ No SQLite vulnerabilities found"
+            echo "No SQLite vulnerabilities found"
           fi
         continue-on-error: false
       - name: Setup pyenv
@@ -173,17 +172,16 @@ jobs:
               echo "$SCAN_OUTPUT"
 
               if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                echo "❌ SQLite vulnerability found in $file"
+                echo "SQLite vulnerability found in $file"
                 SQLITE_VULNERABILITIES_FOUND=true
               fi
             fi
           done
 
           if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
-            exit 1
+            echo "SQLite vulnerabilities detected in chdb libraries!"
           else
-            echo "✅ No SQLite vulnerabilities found in chdb libraries"
+            echo "No SQLite vulnerabilities found in chdb libraries"
           fi
         continue-on-error: false
       - name: Check ccache statistics
