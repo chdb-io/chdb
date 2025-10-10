@@ -112,9 +112,15 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install "setuptools<65" tox pyarrow twine psutil deltalake wheel
+            # Install numpy first to avoid build dependency issues
             pip install numpy>=1.21.0
-            pip install --only-binary=pandas pandas>=2.1.0
+            # Install all packages using binary wheels only to avoid source compilation issues
+            python -m pip install --only-binary=all "setuptools<65" tox twine psutil wheel || \
+            python -m pip install "setuptools<65" tox twine psutil wheel
+            # Install arrow packages with binary preference
+            pip install --only-binary=pyarrow pyarrow || pip install pyarrow --no-build-isolation
+            pip install --only-binary=pandas pandas>=2.1.0 || pip install pandas>=2.1.0 --no-build-isolation
+            pip install --only-binary=deltalake deltalake || pip install deltalake --no-build-isolation
             pyenv shell --unset
           done
       - name: Install clang++ for Alpine
