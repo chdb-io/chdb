@@ -564,6 +564,28 @@ class Connection:
         c_stream_result = self._conn.send_query(query, format)
         return StreamingResult(c_stream_result, self._conn, result_func, supports_record_batch)
 
+    def __enter__(self):
+        """Enter the context manager and return the connection.
+
+        Returns:
+            Connection: The connection object itself
+        """
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit the context manager and close the connection.
+
+        Args:
+            exc_type: Exception type if an exception was raised
+            exc_val: Exception value if an exception was raised
+            exc_tb: Exception traceback if an exception was raised
+
+        Returns:
+            False to propagate any exception that occurred
+        """
+        self.close()
+        return False
+
     def close(self) -> None:
         """Close the connection and cleanup resources.
 
