@@ -75,13 +75,13 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv install 3.8:latest
-          # pyenv install 3.9:latest
+          pyenv install 3.9:latest
           # pyenv install 3.10:latest
           # pyenv install 3.11:latest
           # pyenv install 3.12:latest
           # pyenv install 3.13:latest
           # pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
-          pyenv global 3.8
+          pyenv global 3.8 3.9
 
           # Verify installations
           echo "Installed versions:"
@@ -95,7 +95,7 @@ jobs:
           echo ""
           echo "Verifying all required Python versions are available:"
           # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-          for version in 3.8; do
+          for version in 3.8 3.9; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -108,19 +108,15 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-          for version in 3.8; do
+          for version in 3.8 3.9; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            # Install numpy first to avoid build dependency issues
-            pip install numpy>=1.21.0
-            # Install all packages using binary wheels only to avoid source compilation issues
-            python -m pip install --only-binary=all "setuptools<65" tox twine psutil wheel || \
-            python -m pip install "setuptools<65" tox twine psutil wheel
-            # Install arrow packages with binary preference
-            pip install --only-binary=pyarrow pyarrow || pip install pyarrow --no-build-isolation
-            pip install --only-binary=pandas pandas>=2.1.0 || pip install pandas>=2.1.0 --no-build-isolation
-            pip install --only-binary=deltalake deltalake || pip install deltalake --no-build-isolation
+            if [ "$version" = "3.8" ]; then
+              python -m pip install setuptools tox twine psutil wheel
+            else
+              python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+            fi
             pyenv shell --unset
           done
       - name: Install clang++ for Alpine
@@ -230,7 +226,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-          for version in 3.8; do
+          for version in 3.9; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
