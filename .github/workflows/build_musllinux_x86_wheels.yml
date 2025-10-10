@@ -28,107 +28,101 @@ jobs:
       image: quay.io/pypa/musllinux_1_2_x86_64
       options: --privileged
     steps:
-      - name: Check system info
-        run: |
-          echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
-          if [ -f /lib/ld-musl-x86_64.so.1 ]; then
-            echo "musl libc x86_64"
-          elif [ -f /lib/libc.musl-x86_64.so.1 ]; then
-            echo "musl libc x86_64"
-          else
-            echo "Not musl libc"
-          fi
-      - name: Install Python build dependencies
-        run: |
-          apk update
-          apk add --no-cache make build-base openssl-dev zlib-dev \
-            bzip2-dev readline-dev sqlite-dev wget curl llvm \
-            ncurses-dev xz-dev tk-dev libxml2-dev \
-            libffi-dev linux-headers
-      - name: Scan SQLite vulnerabilities with grype
-        run: |
-          # Install grype and required tools
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+      # - name: Check system info
+      #   run: |
+      #     echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+      #     if [ -f /lib/ld-musl-x86_64.so.1 ]; then
+      #       echo "musl libc x86_64"
+      #     elif [ -f /lib/libc.musl-x86_64.so.1 ]; then
+      #       echo "musl libc x86_64"
+      #     else
+      #       echo "Not musl libc"
+      #     fi
+      # - name: Install Python build dependencies
+      #   run: |
+      #     apk update
+      #     apk add --no-cache make build-base openssl-dev zlib-dev \
+      #       bzip2-dev readline-dev sqlite-dev wget curl llvm \
+      #       ncurses-dev xz-dev tk-dev libxml2-dev \
+      #       libffi-dev linux-headers
+      # - name: Scan SQLite vulnerabilities with grype
+      #   run: |
+      #     # Install grype and required tools
+      #     curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-          # Update grype vulnerability database
-          grype db update
+      #     # Update grype vulnerability database
+      #     grype db update
 
-          # Check SQLite vulnerabilities in installed packages
-          echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$(grype dir:/lib/apk/db --scope all-layers 2>/dev/null || true)
-          echo "Raw grype output:"
-          echo "$GRYPE_RAW_OUTPUT"
+      #     # Check SQLite vulnerabilities in installed packages
+      #     echo "Scanning SQLite packages for vulnerabilities..."
+      #     GRYPE_RAW_OUTPUT=$(grype dir:/lib/apk/db --scope all-layers 2>/dev/null || true)
+      #     echo "Raw grype output:"
+      #     echo "$GRYPE_RAW_OUTPUT"
 
-          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
+      #     SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
 
-          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "SQLite vulnerabilities found in packages! Build should be reviewed."
-            echo "SQLite vulnerability details:"
-            echo "$SQLITE_SCAN_OUTPUT"
-          else
-            echo "No SQLite vulnerabilities found"
-          fi
-        continue-on-error: false
-      - name: Setup pyenv
-        run: |
-          curl https://pyenv.run | bash
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv install 3.8:latest
-          pyenv install 3.9:latest
-          # pyenv install 3.10:latest
-          # pyenv install 3.11:latest
-          # pyenv install 3.12:latest
-          # pyenv install 3.13:latest
-          # pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
-          pyenv global 3.8 3.9
+      #     if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
+      #       echo "SQLite vulnerabilities found in packages! Build should be reviewed."
+      #       echo "SQLite vulnerability details:"
+      #       echo "$SQLITE_SCAN_OUTPUT"
+      #     else
+      #       echo "No SQLite vulnerabilities found"
+      #     fi
+      #   continue-on-error: false
+      # - name: Setup pyenv
+      #   run: |
+      #     curl https://pyenv.run | bash
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     pyenv install 3.8:latest
+      #     pyenv install 3.9:latest
+      #     # pyenv install 3.10:latest
+      #     # pyenv install 3.11:latest
+      #     # pyenv install 3.12:latest
+      #     # pyenv install 3.13:latest
+      #     # pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+      #     pyenv global 3.8 3.9
 
-          # Verify installations
-          echo "Installed versions:"
-          pyenv versions
-      - name: Verify pyenv installations
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          echo "Installed Python versions:"
-          pyenv versions
-          echo ""
-          echo "Verifying all required Python versions are available:"
-          # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-          for version in 3.8 3.9; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
-              echo "ERROR: Python $version is not installed!"
-              exit 1
-            fi
-            echo "✓ Python $version is installed"
-          done
-          echo "All Python versions verified successfully!"
-      - name: Install dependencies for all Python versions
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-          for version in 3.8 3.9; do
-            echo "Installing dependencies for Python $version"
-            pyenv shell $version
-            python -m pip install --upgrade pip
-            if [ "$version" = "3.8" ]; then
-              python -m pip install setuptools tox twine psutil wheel
-            else
-              python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
-            fi
-            pyenv shell --unset
-          done
+      #     # Verify installations
+      #     echo "Installed versions:"
+      #     pyenv versions
+      # - name: Verify pyenv installations
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     echo "Installed Python versions:"
+      #     pyenv versions
+      #     echo ""
+      #     echo "Verifying all required Python versions are available:"
+      #     # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+      #     for version in 3.8 3.9; do
+      #       if ! pyenv versions --bare | grep -q "^$version"; then
+      #         echo "ERROR: Python $version is not installed!"
+      #         exit 1
+      #       fi
+      #       echo "✓ Python $version is installed"
+      #     done
+      #     echo "All Python versions verified successfully!"
+      # - name: Install dependencies for all Python versions
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+      #     for version in 3.8 3.9; do
+      #       echo "Installing dependencies for Python $version"
+      #       pyenv shell $version
+      #       python -m pip install --upgrade pip
+      #       if [ "$version" = "3.8" ]; then
+      #         python -m pip install setuptools tox twine psutil wheel
+      #       else
+      #         python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+      #       fi
+      #       pyenv shell --unset
+      #     done
       - name: Install clang++ for Alpine
         run: |
-          pwd
-          uname -a
-          # Install build tools first
           apk add --no-cache make cmake ccache ninja yasm gawk wget
-          # Install LLVM 19 packages explicitly
-          apk add --no-cache clang19 clang19-dev llvm19 llvm19-dev
-          # Verify no LLVM 20 packages are installed
-          apk list | grep llvm20 || echo "No LLVM 20 packages found (good)"
+          apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev
           ccache -s
       - name: Update git
         run: |
@@ -146,10 +140,10 @@ jobs:
           key: musllinux-1-2-x86_64
           max-size: 5G
           append-timestamp: true
-      - name: setup clang and link clang-19 to clang
+      - name: setup clang and link clang-20 to clang
         run: |
-          ln -sf /usr/bin/clang-19 /usr/bin/clang
-          ln -sf /usr/bin/clang++-19 /usr/bin/clang++
+          ln -sf /usr/bin/clang-20 /usr/bin/clang
+          ln -sf /usr/bin/clang++-20 /usr/bin/clang++
           which clang++
           clang++ --version
       - name: Run chdb/build.sh
