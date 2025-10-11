@@ -315,8 +315,8 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
 fi
 echo -e "\nStripe the binary:"
 
