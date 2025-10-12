@@ -152,4 +152,3 @@ def format_alias(sql: str, alias: str = None, quote_char: str = '"', use_as: boo
     as_keyword = ' AS ' if use_as else ' '
     quoted_alias = format_identifier(alias, quote_char)
     return f"{sql}{as_keyword}{quoted_alias}"
-

@@ -46,4 +46,3 @@ class ValidationError(DataStoreError):
     """Raised when data validation fails."""
 
     pass
-
