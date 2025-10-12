@@ -2,11 +2,14 @@
 Expression system for DataStore - inspired by pypika but independent implementation
 """
 
-from typing import Any, Optional, Union, Iterator, List, Type
+from typing import Any, Optional, Union, Iterator, List, Type, TYPE_CHECKING
 from copy import copy
 
 from .utils import immutable, ignore_copy, format_identifier, format_alias
 from .exceptions import ValidationError
+
+if TYPE_CHECKING:
+    from .conditions import BinaryCondition, Condition
 
 __all__ = ['Node', 'Expression', 'Field', 'Literal', 'ArithmeticExpression']
 
