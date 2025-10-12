@@ -12,6 +12,7 @@ from .exceptions import DataStoreError, QueryError, ConnectionError, ExecutionEr
 from .connection import Connection, QueryResult
 from .executor import Executor
 from .table_functions import create_table_function, TableFunction
+from .uri_parser import parse_uri
 
 __all__ = ['DataStore']
 
@@ -534,6 +535,68 @@ class DataStore:
             max_array_length=max_array_length,
             **kwargs,
         )
+
+    @classmethod
+    def uri(cls, uri: str, **kwargs) -> 'DataStore':
+        """
+        Create DataStore from a URI string with automatic type inference.
+
+        This is the simplest way to create a DataStore - just provide a URI
+        and the source type and parameters will be automatically inferred.
+
+        Args:
+            uri: Connection URI string
+            **kwargs: Additional parameters to override auto-detected values
+
+        Supported URI formats:
+            - Local files: "file:///path/to/data.csv" or "/path/to/data.csv"
+            - S3: "s3://bucket/key?access_key_id=KEY&secret_access_key=SECRET"
+            - Google Cloud Storage: "gs://bucket/path?hmac_key=KEY&hmac_secret=SECRET"
+            - Azure Blob Storage: "az://container/blob?account_name=NAME&account_key=KEY"
+            - HDFS: "hdfs://namenode:port/path"
+            - HTTP/HTTPS: "https://example.com/data.json"
+            - MySQL: "mysql://user:pass@host:port/database/table"
+            - PostgreSQL: "postgresql://user:pass@host:port/database/table"
+            - MongoDB: "mongodb://user:pass@host:port/database.collection"
+            - SQLite: "sqlite:///path/to/db.db?table=tablename"
+            - Redis: "redis://host:port/db?key=mykey&password=pass"
+            - ClickHouse: "clickhouse://host:port/database/table?user=USER&password=PASS"
+            - Iceberg: "iceberg://catalog/namespace/table"
+            - Delta Lake: "deltalake:///path/to/table"
+            - Hudi: "hudi:///path/to/table"
+
+        Examples:
+            >>> # Simple local file
+            >>> ds = DataStore.uri("/path/to/data.csv")
+            >>> ds.connect()
+            >>> result = ds.select("*").execute()
+
+            >>> # S3 with auto-detection
+            >>> ds = DataStore.uri("s3://mybucket/data.parquet?nosign=true")
+            >>> result = ds.select("*").execute()
+
+            >>> # MySQL with full connection string
+            >>> ds = DataStore.uri("mysql://root:pass@localhost:3306/mydb/users")
+            >>> result = ds.select("name", "email").filter(ds.age > 18).execute()
+
+            >>> # PostgreSQL
+            >>> ds = DataStore.uri("postgresql://user:pass@localhost:5432/mydb/products")
+            >>> result = ds.select("*").limit(10).execute()
+
+            >>> # Override auto-detected parameters
+            >>> ds = DataStore.uri("s3://bucket/data.csv", format="CSV")
+        """
+        # Parse the URI to get source_type and connection parameters
+        source_type, parsed_kwargs = parse_uri(uri)
+
+        # Merge parsed kwargs with user-provided kwargs (user kwargs take precedence)
+        final_kwargs = {**parsed_kwargs, **kwargs}
+
+        # Extract table name if present (for database sources)
+        table = final_kwargs.pop('table', None)
+
+        # Create and return DataStore
+        return cls(source_type=source_type, table=table, **final_kwargs)
 
     # ========== Data Source Operations ==========
 

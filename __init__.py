@@ -15,26 +15,39 @@ Key Features:
 Example:
     >>> from chdb_ds import DataStore
     >>>
-    >>> # Query a local file (auto-detect format)
+    >>> # Simplest way: Use URI with automatic type inference
+    >>> ds = DataStore.uri("/path/to/data.csv")
+    >>> ds.connect()
+    >>> result = ds.select("name", "age").filter(ds.age > 18).execute()
+    >>>
+    >>> # S3 with URI
+    >>> ds = DataStore.uri("s3://bucket/data.parquet?nosign=true")
+    >>> result = ds.select("*").execute()
+    >>>
+    >>> # MySQL with URI
+    >>> ds = DataStore.uri("mysql://root:pass@localhost:3306/mydb/users")
+    >>> result = ds.select("*").filter(ds.age > 18).execute()
+    >>>
+    >>> # Traditional way: Query a local file (auto-detect format)
     >>> ds = DataStore("file", path="data.parquet")
     >>> ds.connect()
     >>> result = ds.select("name", "age").filter(ds.age > 18).execute()
     >>>
-    >>> # Query a local file (explicit format)
+    >>> # Traditional way: Query a local file (explicit format)
     >>> ds = DataStore("file", path="data.csv", format="CSV")
     >>> result = ds.select("name", "age").filter(ds.age > 18).execute()
     >>>
-    >>> # Query S3 data (auto-detect format)
+    >>> # Traditional way: Query S3 data (auto-detect format)
     >>> ds = DataStore("s3", url="s3://bucket/data.parquet", nosign=True)
     >>> result = ds.select("*").execute()
     >>>
-    >>> # Query S3 data (with credentials and explicit format)
+    >>> # Traditional way: Query S3 data (with credentials and explicit format)
     >>> ds = DataStore("s3", url="s3://bucket/data.parquet",
     ...                access_key_id="KEY", secret_access_key="SECRET",
     ...                format="Parquet")
     >>> result = ds.select("*").execute()
     >>>
-    >>> # Query MySQL
+    >>> # Traditional way: Query MySQL
     >>> ds = DataStore("mysql", host="localhost:3306",
     ...                database="mydb", table="users",
     ...                user="root", password="pass")
