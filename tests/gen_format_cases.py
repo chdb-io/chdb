@@ -33,6 +33,14 @@ for fmt in formats:
         data = reset_elapsed(f"{res}")
     else:
         data = reset_elapsed(res.bytes())
+
+    if fmt in ("JSONEachRowWithProgress", "JSONStringsEachRowWithProgress"):
+        data_str = str(data)
+        lines = data_str.split('\n')
+        if len(lines) >= 3:
+            extracted_lines = lines[1] + '\n' + lines[2] + '\n'
+            data = extracted_lines
+
     print("format: " + fmt + " size: " + str(len(data)))
     format_output[fmt] = {"len": len(data), "data": data}
 
