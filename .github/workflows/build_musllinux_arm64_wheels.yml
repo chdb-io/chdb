@@ -1,4 +1,4 @@
-name: Build Linux(musllinux) x86
+name: Build Linux(musllinux) ARM64
 
 on:
   workflow_dispatch:
@@ -22,19 +22,19 @@ on:
 
 jobs:
   build_musllinux_wheels:
-    name: Build musllinux wheels (Alpine Linux x86_64)
-    runs-on: gh-64c
+    name: Build musllinux wheels (Alpine Linux aarch64)
+    runs-on: GH-Linux-ARM64
     container:
-      image: quay.io/pypa/musllinux_1_2_x86_64
+      image: quay.io/pypa/musllinux_1_2_aarch64
       options: --privileged
     steps:
       - name: Check system info
         run: |
           echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
-          if [ -f /lib/ld-musl-x86_64.so.1 ]; then
-            echo "musl libc x86_64"
-          elif [ -f /lib/libc.musl-x86_64.so.1 ]; then
-            echo "musl libc x86_64"
+          if [ -f /lib/ld-musl-aarch64.so.1 ]; then
+            echo "musl libc aarch64"
+          elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
+            echo "musl libc aarch64"
           else
             echo "Not musl libc"
           fi
@@ -144,7 +144,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: musllinux-1-2-x86_64
+          key: musllinux-1-2-aarch64
           max-size: 5G
           append-timestamp: true
       - name: setup clang and link clang-20 to clang
@@ -158,6 +158,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          # Setup Rust environment
           source $HOME/.cargo/env
           pyenv shell 3.8
           export CC=/usr/bin/clang
@@ -208,7 +209,7 @@ jobs:
           make wheel
       - name: Install patchelf from github
         run: |
-          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-x86_64.tar.gz -O patchelf.tar.gz
+          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
           tar -xvf patchelf.tar.gz
           cp bin/patchelf /usr/bin/
           chmod +x /usr/bin/patchelf
@@ -219,11 +220,11 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.13
           python -m pip install auditwheel
-          auditwheel -v repair -w dist/ --plat musllinux_1_2_x86_64 dist/*.whl
+          auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
         continue-on-error: false
       - name: Show files
         run: |
-          rm -f dist/*-linux_x86_64.whl
+          rm -f dist/*-linux_aarch64.whl
           ls -lh dist
         shell: bash
       - name: Test wheel on all Python versions
@@ -247,7 +248,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: chdb-artifacts-musllinux-x86_64
+          name: chdb-artifacts-musllinux-aarch64
           path: |
             ./dist/*.whl
           overwrite: true
