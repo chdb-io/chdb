@@ -145,8 +145,7 @@ if __name__ == "__main__":
             ),
         ]
         # fix the version in chdb/__init__.py
-        # versionStr = get_latest_git_tag()
-        versionStr = "3.6.0"
+        versionStr = get_latest_git_tag()
         # Call the function to update pyproject.toml
         # update_pyproject_version(versionStr)
 

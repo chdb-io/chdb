@@ -1,298 +1,298 @@
-name: Build macOS X86
+# name: Build macOS X86
 
-on:
-  workflow_dispatch:
-    inputs:
-      TAG_NAME:
-        description: 'Release Version Tag'
-        required: true
-  release:
-    types: [created]
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       TAG_NAME:
+#         description: 'Release Version Tag'
+#         required: true
+#   release:
+#     types: [created]
+#   push:
+#     branches:
+#       - main
+#     paths-ignore:
+#       - '**/*.md'
+#   pull_request:
+#     branches:
+#       - main
+#     paths-ignore:
+#       - '**/*.md'
 
-jobs:
-  build_universal_wheel:
-    name: Build Universal Wheel (macOS x86_64)
-    runs-on: macos-14-large
-    steps:
-      - name: Setup pyenv
-        run: |
-          curl https://pyenv.run | bash
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
+# jobs:
+#   build_universal_wheel:
+#     name: Build Universal Wheel (macOS x86_64)
+#     runs-on: macos-14-large
+#     steps:
+#       - name: Setup pyenv
+#         run: |
+#           curl https://pyenv.run | bash
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
 
-          pyenv install 3.8:latest
-          pyenv install 3.9:latest
-          pyenv install 3.10:latest
-          pyenv install 3.11:latest
-          pyenv install 3.12:latest
-          pyenv install 3.13:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+#           pyenv install 3.8:latest
+#           pyenv install 3.9:latest
+#           pyenv install 3.10:latest
+#           pyenv install 3.11:latest
+#           pyenv install 3.12:latest
+#           pyenv install 3.13:latest
+#           pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
 
-          echo "Installed versions:"
-          pyenv versions
-      - name: Verify pyenv installations
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          echo "Installed Python versions:"
-          pyenv versions
-          echo ""
-          echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
-              echo "ERROR: Python $version is not installed!"
-              exit 1
-            fi
-            echo "✓ Python $version is installed"
-          done
-          echo "All Python versions verified successfully!"
-      - name: Install dependencies for all Python versions
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            echo "Installing dependencies for Python $version"
-            pyenv shell $version
-            python -m pip install --upgrade pip
-            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
-            pyenv shell --unset
-          done
-      - name: Remove /usr/local/bin/python3
-        run: |
-          sudo rm -f /usr/local/bin/python3
-      - name: Install clang++ for macOS
-        run: |
-          pwd
-          uname -a
-          export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
-          brew update
-          brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
-          brew install --ignore-dependencies llvm@19
-          brew install git ninja libtool gettext gcc binutils grep findutils nasm lld@19 libiconv
-          brew install ccache || echo "ccache installation failed, continuing without it"
-          brew install go
-          cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
-          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
-          which clang++
-          clang++ --version
-          which go
-          go version
-          ccache -s || echo "ccache not available yet"
-      - name: Scan SQLite vulnerabilities with grype
-        run: |
-          # Install grype
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-          # Update grype vulnerability database
-          grype db update
-          # Check SQLite vulnerabilities in Homebrew packages
-          echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null || true)
-          echo "Raw grype output:"
-          echo "$GRYPE_RAW_OUTPUT"
-          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
-          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
-            echo "SQLite vulnerability details:"
-            echo "$SQLITE_SCAN_OUTPUT"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found"
-          fi
-        continue-on-error: false
-      - name: Upgrade Rust toolchain
-        run: |
-          rustup toolchain install nightly-2025-07-07
-          rustup default nightly-2025-07-07
-          rustup component add rust-src
-          rustc --version
-          cargo --version
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Update submodules
-        run: |
-          git submodule update --init --recursive --jobs 4
-      - name: Run chdb/build.sh
-        timeout-minutes: 600
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          source ~/.cargo/env
-          pyenv shell 3.8
-          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          bash gen_manifest.sh
-          bash ./chdb/build.sh
-          pyenv shell 3.8
-          bash -x ./chdb/test_smoke.sh
-        continue-on-error: false
-      - name: Run chdb/build/build_static_lib.sh
-        timeout-minutes: 600
-        run: |
-          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          source ~/.cargo/env
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          bash ./chdb/build/build_static_lib.sh
-          pyenv shell --unset
-        continue-on-error: false
-      - name: Debug libchdb
-        run: |
-          ls -lh
-          llvm-nm libchdb.so | grep query_stable || true
-          echo "Global Symbol in libchdb.so:"
-          llvm-nm -g libchdb.so || true
-          echo "Global Symbol in libclickhouse-local-chdb.a:"
-          llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
-          echo "Global Symbol in libclickhouse-local-lib.a:"
-          llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
-          echo "pychdb_cmd.sh:"
-          cat buildlib/pychdb_cmd.sh
-          echo "libchdb_cmd.sh:"
-          cat buildlib/libchdb_cmd.sh
-      - name: Scan chdb libraries with grype
-        run: |
-          echo "Scanning chdb libraries for vulnerabilities..."
-          # Files to scan
-          FILES_TO_SCAN=""
-          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
-          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
-          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
-          SQLITE_VULNERABILITIES_FOUND=false
-          for file in $FILES_TO_SCAN; do
-            if [ -f "$file" ]; then
-              echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-              echo "$SCAN_OUTPUT"
-              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                echo "❌ SQLite vulnerability found in $file"
-                SQLITE_VULNERABILITIES_FOUND=true
-              fi
-            fi
-          done
-          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found in chdb libraries"
-          fi
-        continue-on-error: false
-      - name: Run libchdb stub in examples dir
-        run: |
-          bash -x ./examples/runStub.sh
-      - name: Build wheels
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          source ~/.cargo/env
-          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          pyenv shell 3.8
-          make wheel
-      - name: Fix wheel platform tag
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
-      - name: Setup core dump collection
-        run: |
-          mkdir -p tmp/core
-          sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
-          sudo sysctl kern.coredump=1
-          ulimit -c unlimited
-      - name: Test wheel on all Python versions
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            echo "Testing chdb on Python $version"
-            pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
-            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-            make test
-            pyenv shell --unset
-          done
-        continue-on-error: false
-      - name: Check and upload core files if present
-        if: always()
-        run: |
-          if ls tmp/core/core.* >/dev/null 2>&1; then
-            echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
-            tar -czvf core-files-macos-x86_64.tar.gz tmp/core/core.*
-            echo "Core files tar created: core-files-macos-x86_64.tar.gz"
-            ls -lh core-files-macos-x86_64.tar.gz
-          else
-            echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
-            echo "No core files found in tmp/core"
-          fi
-        continue-on-error: true
-      - name: Upload core files artifact
-        if: always() && env.CORE_FILES_FOUND == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-files-macos-x86_64
-          path: core-files-macos-x86_64.tar.gz
-      - name: Show files
-        run: ls -lh dist
-        shell: bash
-      - name: Upload wheels to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Packege libchdb.so
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
-      - name: Package libchdb.a
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf macos-x86_64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
-      - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb-static.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chdb-artifacts-macos-x86_64
-          path: |
-            ./dist/*.whl
-            ./macos-x86_64-libchdb.tar.gz
-            ./macos-x86_64-libchdb-static.tar.gz
-          overwrite: true
-      - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m twine upload dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+#           echo "Installed versions:"
+#           pyenv versions
+#       - name: Verify pyenv installations
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           echo "Installed Python versions:"
+#           pyenv versions
+#           echo ""
+#           echo "Verifying all required Python versions are available:"
+#           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+#             if ! pyenv versions --bare | grep -q "^$version"; then
+#               echo "ERROR: Python $version is not installed!"
+#               exit 1
+#             fi
+#             echo "✓ Python $version is installed"
+#           done
+#           echo "All Python versions verified successfully!"
+#       - name: Install dependencies for all Python versions
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+#             echo "Installing dependencies for Python $version"
+#             pyenv shell $version
+#             python -m pip install --upgrade pip
+#             python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
+#             pyenv shell --unset
+#           done
+#       - name: Remove /usr/local/bin/python3
+#         run: |
+#           sudo rm -f /usr/local/bin/python3
+#       - name: Install clang++ for macOS
+#         run: |
+#           pwd
+#           uname -a
+#           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
+#           brew update
+#           brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
+#           brew install --ignore-dependencies llvm@19
+#           brew install git ninja libtool gettext gcc binutils grep findutils nasm lld@19 libiconv
+#           brew install ccache || echo "ccache installation failed, continuing without it"
+#           brew install go
+#           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
+#           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
+#           which clang++
+#           clang++ --version
+#           which go
+#           go version
+#           ccache -s || echo "ccache not available yet"
+#       - name: Scan SQLite vulnerabilities with grype
+#         run: |
+#           # Install grype
+#           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+#           # Update grype vulnerability database
+#           grype db update
+#           # Check SQLite vulnerabilities in Homebrew packages
+#           echo "Scanning SQLite packages for vulnerabilities..."
+#           GRYPE_RAW_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null || true)
+#           echo "Raw grype output:"
+#           echo "$GRYPE_RAW_OUTPUT"
+#           SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
+#           if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
+#             echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
+#             echo "SQLite vulnerability details:"
+#             echo "$SQLITE_SCAN_OUTPUT"
+#             exit 1
+#           else
+#             echo "✅ No SQLite vulnerabilities found"
+#           fi
+#         continue-on-error: false
+#       - name: Upgrade Rust toolchain
+#         run: |
+#           rustup toolchain install nightly-2025-07-07
+#           rustup default nightly-2025-07-07
+#           rustup component add rust-src
+#           rustc --version
+#           cargo --version
+#       - uses: actions/checkout@v3
+#         with:
+#           fetch-depth: 0
+#       - name: Update submodules
+#         run: |
+#           git submodule update --init --recursive --jobs 4
+#       - name: Run chdb/build.sh
+#         timeout-minutes: 600
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           source ~/.cargo/env
+#           pyenv shell 3.8
+#           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+#           export CC=$(brew --prefix llvm@19)/bin/clang
+#           export CXX=$(brew --prefix llvm@19)/bin/clang++
+#           bash gen_manifest.sh
+#           bash ./chdb/build.sh
+#           pyenv shell 3.8
+#           bash -x ./chdb/test_smoke.sh
+#         continue-on-error: false
+#       - name: Run chdb/build/build_static_lib.sh
+#         timeout-minutes: 600
+#         run: |
+#           export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+#           export CC=$(brew --prefix llvm@19)/bin/clang
+#           export CXX=$(brew --prefix llvm@19)/bin/clang++
+#           source ~/.cargo/env
+#           eval "$(pyenv init -)"
+#           pyenv shell 3.8
+#           bash ./chdb/build/build_static_lib.sh
+#           pyenv shell --unset
+#         continue-on-error: false
+#       - name: Debug libchdb
+#         run: |
+#           ls -lh
+#           llvm-nm libchdb.so | grep query_stable || true
+#           echo "Global Symbol in libchdb.so:"
+#           llvm-nm -g libchdb.so || true
+#           echo "Global Symbol in libclickhouse-local-chdb.a:"
+#           llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
+#           echo "Global Symbol in libclickhouse-local-lib.a:"
+#           llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
+#           echo "pychdb_cmd.sh:"
+#           cat buildlib/pychdb_cmd.sh
+#           echo "libchdb_cmd.sh:"
+#           cat buildlib/libchdb_cmd.sh
+#       - name: Scan chdb libraries with grype
+#         run: |
+#           echo "Scanning chdb libraries for vulnerabilities..."
+#           # Files to scan
+#           FILES_TO_SCAN=""
+#           [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
+#           [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
+#           FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
+#           SQLITE_VULNERABILITIES_FOUND=false
+#           for file in $FILES_TO_SCAN; do
+#             if [ -f "$file" ]; then
+#               echo "=== Scanning $file ==="
+#               SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+#               echo "$SCAN_OUTPUT"
+#               if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+#                 echo "❌ SQLite vulnerability found in $file"
+#                 SQLITE_VULNERABILITIES_FOUND=true
+#               fi
+#             fi
+#           done
+#           if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+#             echo "❌ SQLite vulnerabilities detected in chdb libraries!"
+#             exit 1
+#           else
+#             echo "✅ No SQLite vulnerabilities found in chdb libraries"
+#           fi
+#         continue-on-error: false
+#       - name: Run libchdb stub in examples dir
+#         run: |
+#           bash -x ./examples/runStub.sh
+#       - name: Build wheels
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           source ~/.cargo/env
+#           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+#           export CC=$(brew --prefix llvm@19)/bin/clang
+#           export CXX=$(brew --prefix llvm@19)/bin/clang++
+#           pyenv shell 3.8
+#           make wheel
+#       - name: Fix wheel platform tag
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           pyenv shell 3.8
+#           python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+#       - name: Setup core dump collection
+#         run: |
+#           mkdir -p tmp/core
+#           sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
+#           sudo sysctl kern.coredump=1
+#           ulimit -c unlimited
+#       - name: Test wheel on all Python versions
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+#             echo "Testing chdb on Python $version"
+#             pyenv shell $version
+#             python -m pip install dist/*.whl --force-reinstall
+#             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+#             make test
+#             pyenv shell --unset
+#           done
+#         continue-on-error: false
+#       - name: Check and upload core files if present
+#         if: always()
+#         run: |
+#           if ls tmp/core/core.* >/dev/null 2>&1; then
+#             echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
+#             tar -czvf core-files-macos-x86_64.tar.gz tmp/core/core.*
+#             echo "Core files tar created: core-files-macos-x86_64.tar.gz"
+#             ls -lh core-files-macos-x86_64.tar.gz
+#           else
+#             echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
+#             echo "No core files found in tmp/core"
+#           fi
+#         continue-on-error: true
+#       - name: Upload core files artifact
+#         if: always() && env.CORE_FILES_FOUND == 'true'
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: core-files-macos-x86_64
+#           path: core-files-macos-x86_64.tar.gz
+#       - name: Show files
+#         run: ls -lh dist
+#         shell: bash
+#       - name: Upload wheels to release
+#         if: startsWith(github.ref, 'refs/tags/v')
+#         run: |
+#           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+#       - name: Packege libchdb.so
+#         run: |
+#           cp programs/local/chdb.h chdb.h
+#           cp programs/local/chdb.hpp chdb.hpp
+#           tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
+#       - name: Package libchdb.a
+#         run: |
+#           cp programs/local/chdb.h chdb.h
+#           cp programs/local/chdb.hpp chdb.hpp
+#           tar -czvf macos-x86_64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
+#       - name: Upload libchdb.so to release
+#         if: startsWith(github.ref, 'refs/tags/v')
+#         run: |
+#           gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+#       - name: Upload libchdb.a to release
+#         if: startsWith(github.ref, 'refs/tags/v')
+#         run: |
+#           gh release upload ${{ github.ref_name }} macos-x86_64-libchdb-static.tar.gz --clobber
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+#       - uses: actions/upload-artifact@v4
+#         with:
+#           name: chdb-artifacts-macos-x86_64
+#           path: |
+#             ./dist/*.whl
+#             ./macos-x86_64-libchdb.tar.gz
+#             ./macos-x86_64-libchdb-static.tar.gz
+#           overwrite: true
+#       - name: Upload pypi
+#         if: startsWith(github.ref, 'refs/tags/v')
+#         run: |
+#           export PATH="$HOME/.pyenv/bin:$PATH"
+#           eval "$(pyenv init -)"
+#           pyenv shell 3.8
+#           python -m twine upload dist/*.whl
+#         env:
+#           TWINE_USERNAME: __token__
+#           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
