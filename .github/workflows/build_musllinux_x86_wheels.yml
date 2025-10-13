@@ -123,8 +123,8 @@ jobs:
           # Install Rust toolchain via rustup for proper target management
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
           source $HOME/.cargo/env
-          # Add the correct musl target for Alpine
-          rustup target add x86_64-unknown-linux-musl
+          rustup toolchain install nightly-2025-07-07
+          rustup component add --toolchain nightly-2025-07-07 rust-src
           rustc --version
           cargo --version
           ccache -s
