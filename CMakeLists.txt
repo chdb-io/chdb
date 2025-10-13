@@ -163,7 +163,6 @@ if (CMAKE_BUILD_TYPE_UC STREQUAL "DEBUG" OR CMAKE_BUILD_TYPE_UC STREQUAL "RELWIT
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Xclang -fuse-ctor-homing")
 endif()
 
-# Fix TLS model for MUSL to avoid initial-exec TLS relocation errors
 if (USE_MUSL)
     add_definitions(-DUSE_MUSL=1 -D__MUSL__=1)
     set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftls-model=global-dynamic")

@@ -44,65 +44,6 @@ static struct InitializeJemallocZoneAllocatorForOSX
 } initializeJemallocZoneAllocatorForOSX;
 #endif
 
-#if USE_JEMALLOC
-
-namespace Memory
-{
-    thread_local bool disable_memory_check = false;
-}
-
-#endif
-
-ALWAYS_INLINE void * tryNewNonJemallocMemoryConditional(std::size_t size)
-{
-#if USE_JEMALLOC
-    if (likely(!Memory::disable_memory_check))
-    {
-        return Memory::realNewImpl(size);
-    }
-#endif
-    (void)size;
-    return nullptr;
-}
-
-ALWAYS_INLINE void * tryNewNonJemallocMemoryConditional(std::size_t size, std::align_val_t align)
-{
-#if USE_JEMALLOC
-    if (likely(!Memory::disable_memory_check))
-    {
-        return Memory::realNewImpl(size, align);
-    }
-#endif
-    (void)size;
-    (void)align;
-    return nullptr;
-}
-
-ALWAYS_INLINE void * tryNewNoExceptNonJemallocMemoryConditional(std::size_t size)
-{
-#if USE_JEMALLOC
-    if (likely(!Memory::disable_memory_check))
-    {
-        return Memory::realNewNoExcept(size);
-    }
-#endif
-    (void)size;
-    return nullptr;
-}
-
-ALWAYS_INLINE void * tryNewNoExceptNonJemallocMemoryConditional(std::size_t size, std::align_val_t align)
-{
-#if USE_JEMALLOC
-    if (likely(!Memory::disable_memory_check))
-    {
-        return Memory::realNewNoExcept(size, align);
-    }
-#endif
-    (void)size;
-    (void)align;
-    return nullptr;
-}
-
 /// Replace default new/delete with memory tracking versions.
 /// @sa https://en.cppreference.com/w/cpp/memory/new/operator_new
 ///     https://en.cppreference.com/w/cpp/memory/new/operator_delete
@@ -111,9 +52,6 @@ ALWAYS_INLINE void * tryNewNoExceptNonJemallocMemoryConditional(std::size_t size
 
 void * operator new(std::size_t size)
 {
-    if (void * ptr = tryNewNonJemallocMemoryConditional(size))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace);
     void * ptr = Memory::newImpl(size);
@@ -123,9 +61,6 @@ void * operator new(std::size_t size)
 
 void * operator new(std::size_t size, std::align_val_t align)
 {
-    if (void * ptr = tryNewNonJemallocMemoryConditional(size, align))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace, align);
     void * ptr = Memory::newImpl(size, align);
@@ -135,9 +70,6 @@ void * operator new(std::size_t size, std::align_val_t align)
 
 void * operator new[](std::size_t size)
 {
-    if (void * ptr = tryNewNonJemallocMemoryConditional(size))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace);
     void * ptr =  Memory::newImpl(size);
@@ -147,9 +79,6 @@ void * operator new[](std::size_t size)
 
 void * operator new[](std::size_t size, std::align_val_t align)
 {
-    if (void * ptr = tryNewNonJemallocMemoryConditional(size, align))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace, align);
     void * ptr = Memory::newImpl(size, align);
@@ -159,9 +88,6 @@ void * operator new[](std::size_t size, std::align_val_t align)
 
 void * operator new(std::size_t size, const std::nothrow_t &) noexcept
 {
-    if (void * ptr = tryNewNoExceptNonJemallocMemoryConditional(size))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace);
     void * ptr = Memory::newNoExcept(size);
@@ -171,9 +97,6 @@ void * operator new(std::size_t size, const std::nothrow_t &) noexcept
 
 void * operator new[](std::size_t size, const std::nothrow_t &) noexcept
 {
-    if (void * ptr = tryNewNoExceptNonJemallocMemoryConditional(size))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace);
     void * ptr = Memory::newNoExcept(size);
@@ -183,9 +106,6 @@ void * operator new[](std::size_t size, const std::nothrow_t &) noexcept
 
 void * operator new(std::size_t size, std::align_val_t align, const std::nothrow_t &) noexcept
 {
-    if (void * ptr = tryNewNoExceptNonJemallocMemoryConditional(size, align))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace, align);
     void * ptr = Memory::newNoExcept(size, align);
@@ -195,9 +115,6 @@ void * operator new(std::size_t size, std::align_val_t align, const std::nothrow
 
 void * operator new[](std::size_t size, std::align_val_t align, const std::nothrow_t &) noexcept
 {
-    if (void * ptr = tryNewNoExceptNonJemallocMemoryConditional(size, align))
-        return ptr;
-
     AllocationTrace trace;
     std::size_t actual_size = Memory::trackMemory(size, trace, align);
     void * ptr = Memory::newNoExcept(size, align);
@@ -209,7 +126,7 @@ void * operator new[](std::size_t size, std::align_val_t align, const std::nothr
 
 extern "C" void __real_free(void * ptr);
 
-ALWAYS_INLINE bool isJemallocMemory(void * ptr)
+inline ALWAYS_INLINE bool isJemallocMemory(void * ptr)
 {
     int arena_ind = je_mallctl("arenas.lookup", nullptr, nullptr, &ptr, sizeof(ptr));
     return arena_ind == 0; // arena_ind == 0 means jemalloc memory
@@ -228,7 +145,7 @@ ALWAYS_INLINE bool isJemallocMemory(void * ptr)
 ///
 /// Note: We don't update memory tracking for non-jemalloc memory since it was likely
 /// never tracked by our system in the first place.
-ALWAYS_INLINE bool tryFreeNonJemallocMemory(void * ptr)
+inline ALWAYS_INLINE bool tryFreeNonJemallocMemory(void * ptr)
 {
     if (unlikely(ptr == nullptr))
         return true;
@@ -243,7 +160,12 @@ ALWAYS_INLINE bool tryFreeNonJemallocMemory(void * ptr)
     return false; // Not handled - should continue with jemalloc path
 }
 
-ALWAYS_INLINE bool tryFreeNonJemallocMemoryConditional(void * ptr)
+namespace Memory
+{
+thread_local bool disable_memory_check{false};
+}
+
+inline ALWAYS_INLINE bool tryFreeNonJemallocMemoryConditional(void * ptr)
 {
     if (unlikely(ptr == nullptr))
         return true;
