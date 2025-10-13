@@ -6,7 +6,8 @@ CHDB_DIR="$PROJ_DIR/chdb" # chdb directory
 CHDB_PY_MOD="_chdb"
 CHDB_PY_MODULE="${CHDB_PY_MOD}.abi3.so"
 pushd ${PROJ_DIR}
-CHDB_VERSION=$(python3 -c 'import setup; print(setup.get_latest_git_tag())')
+# CHDB_VERSION=$(python3 -c 'import setup; print(setup.get_latest_git_tag())')
+CHDB_VERSION='3.6.0'
 popd
 
 # try to use largest llvm-strip version
