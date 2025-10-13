@@ -2,19 +2,12 @@
 
 import unittest
 import shutil
-import platform
+import os
 from chdb import session
 
 
 test_dir1 = ".test_open_session_after_failure"
 test_dir2 = "/usr/bin"
-
-
-def is_musl_env():
-    if 'musl' in platform.platform().lower():
-        return True
-
-    return False
 
 
 class TestStateful(unittest.TestCase):
@@ -28,7 +21,7 @@ class TestStateful(unittest.TestCase):
 
     def test_path(self):
         # Test that creating session with invalid path (read-only directory) raises exception
-        if not is_musl_env():
+        if not os.access(test_dir2, os.W_OK):
             with self.assertRaises(Exception):
                 sess = session.Session(test_dir2)
 
