@@ -1,7 +1,8 @@
+#include <Core/Field.h>
 #include <IO/SharedThreadPools.h>
 #include <Common/CurrentMetrics.h>
 #include <Common/ThreadPool.h>
-#include <Core/Field.h>
+#include <Common/getNumberOfCPUCoresToUse.h>
 
 namespace CurrentMetrics
 {
@@ -35,6 +36,9 @@ namespace CurrentMetrics
     extern const Metric MergeTreeSubcolumnsReaderThreads;
     extern const Metric MergeTreeSubcolumnsReaderThreadsActive;
     extern const Metric MergeTreeSubcolumnsReaderThreadsScheduled;
+    extern const Metric FormatParsingThreads;
+    extern const Metric FormatParsingThreadsActive;
+    extern const Metric FormatParsingThreadsScheduled;
 }
 
 namespace DB
@@ -63,7 +67,22 @@ void StaticThreadPool::initialize(size_t max_threads, size_t max_free_threads, s
     if (instance)
         // throw Exception(ErrorCodes::LOGICAL_ERROR, "The {} is initialized twice", name);
         return;
+    std::call_once(init_flag, [&] { initializeImpl(max_threads, max_free_threads, queue_size); });
+}
 
+void StaticThreadPool::initializeWithDefaultSettingsIfNotInitialized()
+{
+    std::call_once(
+        init_flag,
+        [&]
+        {
+            size_t max_threads = getNumberOfCPUCoresToUse();
+            initializeImpl(max_threads, /*max_free_threads*/ 0, /*queue_size*/ 10000);
+        });
+}
+
+void StaticThreadPool::initializeImpl(size_t max_threads, size_t max_free_threads, size_t queue_size)
+{
     /// By default enabling "turbo mode" won't affect the number of threads anyhow
     max_threads_turbo = max_threads;
     max_threads_normal = max_threads;
@@ -200,4 +219,13 @@ StaticThreadPool & getMergeTreePrefixesDeserializationThreadPool()
     return instance;
 }
 
+StaticThreadPool & getFormatParsingThreadPool()
+{
+    static StaticThreadPool instance(
+        "FormatParsingThreadPool",
+        CurrentMetrics::FormatParsingThreads,
+        CurrentMetrics::FormatParsingThreadsActive,
+        CurrentMetrics::FormatParsingThreadsScheduled);
+    return instance;
+}
 }

@@ -106,6 +106,13 @@ jobs:
             python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel jupyter nbconvert
             pyenv shell --unset
           done
+      - name: Upgrade Rust toolchain
+        run: |
+          rustup toolchain install nightly-2025-07-07
+          rustup default nightly-2025-07-07
+          rustup component add rust-src
+          rustc --version
+          cargo --version
       - name: Install clang++ for Ubuntu
         run: |
           pwd
@@ -116,6 +123,13 @@ jobs:
           which clang++-19
           clang++-19 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
+          # Install WebAssembly linker (wasm-ld) 
+          sudo apt-get install -y lld-19
+          # Create symlink for wasm-ld
+          if ! command -v wasm-ld &> /dev/null; then
+            sudo ln -sf /usr/bin/wasm-ld-19 /usr/bin/wasm-ld || true
+          fi
+          which wasm-ld || echo "wasm-ld not found in PATH"
           ccache -s
       - name: Update git
         run: |
@@ -148,6 +162,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          source ~/.cargo/env
           pyenv shell 3.8
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
@@ -161,6 +176,7 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           export PATH="$HOME/.pyenv/bin:$PATH"
+          source ~/.cargo/env
           eval "$(pyenv init -)"
           pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
