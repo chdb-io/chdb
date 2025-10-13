@@ -103,6 +103,12 @@ jobs:
           echo "All Python versions verified successfully!"
       - name: Install dependencies for all Python versions
         run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+          source $HOME/.cargo/env
+          rustup toolchain install nightly-2025-07-07
+          rustup component add --toolchain nightly-2025-07-07 rust-src
+          rustc --version
+          cargo --version
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
@@ -120,13 +126,6 @@ jobs:
         run: |
           apk add --no-cache make cmake ccache ninja yasm gawk wget
           apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
-          # Install Rust toolchain via rustup for proper target management
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          source $HOME/.cargo/env
-          rustup toolchain install nightly-2025-07-07
-          rustup component add --toolchain nightly-2025-07-07 rust-src
-          rustc --version
-          cargo --version
           ccache -s
       - name: Update git
         run: |
