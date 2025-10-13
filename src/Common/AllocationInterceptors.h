@@ -8,7 +8,7 @@
 
 // NOLINTBEGIN
 
-#if defined(SANITIZER) || defined(SANITIZE_COVERAGE) || defined(OS_DARWIN) || defined(OS_FREEBSD) || !USE_JEMALLOC || !defined(USE_MUSL)
+#if defined(SANITIZER) || defined(SANITIZE_COVERAGE) || defined(OS_DARWIN) || defined(OS_FREEBSD) || (!USE_JEMALLOC && !defined(USE_MUSL))
 
 #define __real_malloc(size) ::malloc(size)
 #define __real_calloc(nmemb, size) ::calloc(nmemb, size)
