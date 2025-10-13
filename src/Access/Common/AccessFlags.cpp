@@ -266,15 +266,8 @@ namespace
             start_node->aliases.emplace_back(start_node->keyword);
             for (auto & alias : start_node->aliases)
             {
-                // boost::to_upper(alias);
-                // keyword_to_flags_map[alias] = start_node->flags;
-                std::string upper_alias = alias;
-                for (char & c : upper_alias)
-                {
-                    if (c >= 'a' && c <= 'z')
-                        c = c - 'a' + 'A';
-                }
-                keyword_to_flags_map[upper_alias] = start_node->flags;
+                boost::to_upper(alias);
+                keyword_to_flags_map[alias] = start_node->flags;
             }
 
             for (auto & child : start_node->children)

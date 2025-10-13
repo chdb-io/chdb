@@ -140,8 +140,7 @@
 /* #undef JEMALLOC_MUTEX_INIT_CB */
 
 /* Non-empty if the tls_model attribute is supported. */
-// #define JEMALLOC_TLS_MODEL __attribute__((tls_model("initial-exec")))
-#define JEMALLOC_TLS_MODEL __attribute__((tls_model("global-dynamic")))
+#define JEMALLOC_TLS_MODEL __attribute__((tls_model("initial-exec")))
 
 /*
  * JEMALLOC_DEBUG enables assertions and other sanity checks, and disables
@@ -376,10 +375,10 @@
 #define LG_SIZEOF_INTMAX_T 3
 
 /* glibc malloc hooks (__malloc_hook, __realloc_hook, __free_hook). */
-// #define JEMALLOC_GLIBC_MALLOC_HOOK
+#define JEMALLOC_GLIBC_MALLOC_HOOK
 
 /* glibc memalign hook. */
-// #define JEMALLOC_GLIBC_MEMALIGN_HOOK
+#define JEMALLOC_GLIBC_MEMALIGN_HOOK
 
 /* pthread support */
 #define JEMALLOC_HAVE_PTHREAD
