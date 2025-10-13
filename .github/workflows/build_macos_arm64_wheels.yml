@@ -22,7 +22,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
-    runs-on: macos-13-xlarge
+    runs-on: macos-14-xlarge
     steps:
       - name: Setup pyenv
         run: |
