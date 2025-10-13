@@ -164,7 +164,7 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build-musl.sh
-          pyenv shell 3.8
+          pyenv shell 3.9
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Scan chdb libraries with grype
