@@ -24,7 +24,7 @@ jobs:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: GH-Linux-ARM64
     steps:
-      - uses: taiki-e/checkout-action@v1
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -50,7 +50,7 @@ jobs:
             echo "=== Configure git safe directory ==="
             git config --global --add safe.directory /workspace
             git describe --tags
-            python3 -c "import sys; sys.path.append('.'); from setup import get_latest_git_tag; print('setup.get_latest_git_tag():', get_latest_git_tag())"
+            python3 -c "import sys; sys.path.append('.'); from setup import get_latest_git_tag; print('version:', get_latest_git_tag())"
 
             # 1. Check system info
             echo "=== Container System Info ==="
