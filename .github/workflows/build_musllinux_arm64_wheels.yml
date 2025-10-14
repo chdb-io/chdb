@@ -19,310 +19,229 @@ on:
     paths-ignore:
       - '**/*.md'
 
-
 jobs:
-  prepare_host:
-    name: Prepare host environment
-    runs-on: GH-Linux-ARM64
-    outputs:
-      artifacts_dir: ${{ steps.create_dir.outputs.artifacts_dir }}
-    steps:
-      - name: Create artifacts directory
-        id: create_dir
-        run: |
-          ARTIFACTS_DIR="/tmp/chdb-artifacts-${{ github.run_id }}"
-          sudo mkdir -p "$ARTIFACTS_DIR"
-          sudo chmod 777 "$ARTIFACTS_DIR"
-          echo "Created unique artifacts directory: $ARTIFACTS_DIR"
-          echo "artifacts_dir=$ARTIFACTS_DIR" >> $GITHUB_OUTPUT
-          ls -la "$ARTIFACTS_DIR"
-
   build_musllinux_wheels:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: GH-Linux-ARM64
-    needs: prepare_host
-    container:
-      image: quay.io/pypa/musllinux_1_2_aarch64
-      options: --privileged
-      volumes:
-        - ${{ needs.prepare_host.outputs.artifacts_dir }}:/host-artifacts
     steps:
-      # - name: Check system info
-      #   run: |
-      #     echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
-      #     if [ -f /lib/ld-musl-aarch64.so.1 ]; then
-      #       echo "musl libc aarch64"
-      #     elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
-      #       echo "musl libc aarch64"
-      #     else
-      #       echo "Not musl libc"
-      #     fi
-      # - name: Install Python build dependencies
-      #   run: |
-      #     apk update
-      #     apk add --no-cache make build-base openssl-dev zlib-dev \
-      #       bzip2-dev readline-dev sqlite-dev wget curl llvm \
-      #       ncurses-dev xz-dev tk-dev libxml2-dev \
-      #       libffi-dev linux-headers
-      # - name: Scan SQLite vulnerabilities with grype
-      #   run: |
-      #     # Install grype and required tools
-      #     curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-
-      #     # Update grype vulnerability database
-      #     grype db update
-
-      #     # Check SQLite vulnerabilities in installed packages
-      #     echo "Scanning SQLite packages for vulnerabilities..."
-      #     GRYPE_RAW_OUTPUT=$(grype dir:/lib/apk/db --scope all-layers 2>/dev/null || true)
-      #     echo "Raw grype output:"
-      #     echo "$GRYPE_RAW_OUTPUT"
-
-      #     SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
-
-      #     if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-      #       echo "SQLite vulnerabilities found in packages! Build should be reviewed."
-      #       echo "SQLite vulnerability details:"
-      #       echo "$SQLITE_SCAN_OUTPUT"
-      #     else
-      #       echo "No SQLite vulnerabilities found"
-      #     fi
-      #   continue-on-error: false
-      # - name: Setup pyenv
-      #   run: |
-      #     curl https://pyenv.run | bash
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     pyenv install 3.8:latest
-      #     pyenv install 3.9:latest
-      #     pyenv install 3.10:latest
-      #     pyenv install 3.11:latest
-      #     pyenv install 3.12:latest
-      #     pyenv install 3.13:latest
-      #     pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
-
-      #     # Verify installations
-      #     echo "Installed versions:"
-      #     pyenv versions
-      # - name: Verify pyenv installations
-      #   run: |
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     echo "Installed Python versions:"
-      #     pyenv versions
-      #     echo ""
-      #     echo "Verifying all required Python versions are available:"
-      #     for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-      #       if ! pyenv versions --bare | grep -q "^$version"; then
-      #         echo "ERROR: Python $version is not installed!"
-      #         exit 1
-      #       fi
-      #       echo "✓ Python $version is installed"
-      #     done
-      #     echo "All Python versions verified successfully!"
-      # - name: Install dependencies for all Python versions
-      #   run: |
-      #     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-      #     source $HOME/.cargo/env
-      #     rustup toolchain install nightly-2025-07-07
-      #     rustup component add --toolchain nightly-2025-07-07 rust-src
-      #     rustc --version
-      #     cargo --version
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-      #       echo "Installing dependencies for Python $version"
-      #       pyenv shell $version
-      #       python -m pip install --upgrade pip
-      #       if [ "$version" = "3.8" ]; then
-      #         python -m pip install setuptools tox twine psutil wheel
-      #       else
-      #         python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
-      #       fi
-      #       pyenv shell --unset
-      #     done
-      # - name: Install clang++ for Alpine
-      #   run: |
-      #     apk add --no-cache make cmake ccache ninja yasm gawk wget
-      #     apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
-      #     ccache -s
-      # - name: Update git
-      #   run: |
-      #     apk add --no-cache git
-      #     git --version
       # - uses: taiki-e/checkout-action@v1
       #   with:
       #     fetch-depth: 0
+
       # - name: Configure git safe directory
       #   run: |
       #     git config --global --add safe.directory '*'
+
       # - name: Update submodules
       #   run: |
       #     git submodule update --init --recursive --jobs 4
-      # # - name: ccache
-      # #   uses: hendrikmuhs/ccache-action@v1.2
-      # #   with:
-      # #     key: musllinux-1-2-aarch64
-      # #     max-size: 5G
-      # #     append-timestamp: true
-      # - name: setup clang and link clang-20 to clang
-      #   run: |
-      #     ln -sf /usr/bin/clang-20 /usr/bin/clang
-      #     ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-      #     which clang++
-      #     clang++ --version
-      # - name: Run chdb/build-musl.sh
-      #   timeout-minutes: 600
-      #   run: |
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     # Setup Rust environment
-      #     source $HOME/.cargo/env
-      #     pyenv shell 3.8
-      #     export CC=/usr/bin/clang
-      #     export CXX=/usr/bin/clang++
-      #     bash ./chdb/build-musl.sh
-      #     pyenv shell 3.9
-      #     bash -x ./chdb/test_smoke.sh
-      #   continue-on-error: false
-      # - name: Scan chdb libraries with grype
-      #   run: |
-      #     echo "Scanning chdb libraries for vulnerabilities..."
 
-      #     FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
+      - name: Build chdb wheels in container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: quay.io/pypa/musllinux_1_2_aarch64
+          options: -v ${{ github.workspace }}:/workspace --privileged
+          run: |
+            cd /workspace
 
-      #     SQLITE_VULNERABILITIES_FOUND=false
+            echo "awq" > ./acd.txt
 
-      #     for file in $FILES_TO_SCAN; do
-      #       if [ -f "$file" ]; then
-      #         echo "=== Scanning $file ==="
-      #         SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-      #         echo "$SCAN_OUTPUT"
+            # # 1. Check system info
+            # echo "=== Container System Info ==="
+            # echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+            # if [ -f /lib/ld-musl-aarch64.so.1 ]; then
+            #   echo "musl libc aarch64"
+            # elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
+            #   echo "musl libc aarch64"
+            # else
+            #   echo "Not musl libc"
+            # fi
+            # echo "Workspace mounted at: /workspace"
+            # ls -la /workspace
 
-      #         if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-      #           echo "SQLite vulnerability found in $file"
-      #           SQLITE_VULNERABILITIES_FOUND=true
-      #         fi
-      #       fi
-      #     done
+            # # 2. Install build dependencies
+            # echo "=== Installing build dependencies ==="
+            # apk update
+            # apk add --no-cache make build-base openssl-dev zlib-dev \
+            #   bzip2-dev readline-dev sqlite-dev wget curl llvm \
+            #   ncurses-dev xz-dev tk-dev libxml2-dev \
+            #   libffi-dev linux-headers git
+            # apk add --no-cache make cmake ccache ninja yasm gawk
+            # apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
 
-      #     if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-      #       echo "SQLite vulnerabilities detected in chdb libraries!"
-      #     else
-      #       echo "No SQLite vulnerabilities found in chdb libraries"
-      #     fi
-      #   continue-on-error: false
-      # - name: Check ccache statistics
-      #   run: |
-      #     ccache -s
-      #     ls -lh chdb
-      #     df -h
-      # - name: Build wheels
-      #   run: |
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     export CC=/usr/bin/clang
-      #     export CXX=/usr/bin/clang++
-      #     pyenv shell 3.8
-      #     make wheel
-      # - name: Install patchelf from github
-      #   run: |
-      #     wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
-      #     tar -xvf patchelf.tar.gz
-      #     cp bin/patchelf /usr/bin/
-      #     chmod +x /usr/bin/patchelf
-      #     patchelf --version
-      # - name: Audit wheels
-      #   run: |
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     pyenv shell 3.13
-      #     python -m pip install auditwheel
-      #     auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
-      #   continue-on-error: false
-      # - name: Show files
-      #   run: |
-      #     rm -f dist/*-linux_aarch64.whl
-      #     ls -lh dist
-      #   shell: bash
-      # - name: Test wheel on all Python versions
-      #   run: |
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     for version in 3.9 3.10 3.11 3.12 3.13; do
-      #       echo "Testing chdb on Python $version"
-      #       pyenv shell $version
-      #       python -m pip install dist/*.whl --force-reinstall
-      #       python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-      #       make test
-      #       pyenv shell --unset
-      #     done
-      #   continue-on-error: false
-      # - name: Upload wheels to release
-      #   if: startsWith(github.ref, 'refs/tags/v')
-      #   run: |
-      #     gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Create test file and copy artifacts
+            # # 3. Scan SQLite vulnerabilities
+            # echo "=== Scanning SQLite vulnerabilities ==="
+            # # Install grype
+            # curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+            # grype db update
+
+            # # Check SQLite vulnerabilities
+            # echo "Scanning SQLite packages for vulnerabilities..."
+            # GRYPE_RAW_OUTPUT=$(grype dir:/lib/apk/db --scope all-layers 2>/dev/null || true)
+            # echo "Raw grype output:"
+            # echo "$GRYPE_RAW_OUTPUT"
+
+            # SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
+            # if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
+            #   echo "SQLite vulnerabilities found in packages! Build should be reviewed."
+            #   echo "SQLite vulnerability details:"
+            #   echo "$SQLITE_SCAN_OUTPUT"
+            # else
+            #   echo "No SQLite vulnerabilities found"
+            # fi
+
+            # # 4. Setup Python environments
+            # echo "=== Setting up Python environments ==="
+            # # Setup pyenv
+            # curl https://pyenv.run | bash
+            # export PATH="$HOME/.pyenv/bin:$PATH"
+            # eval "$(pyenv init -)"
+
+            # # Install Python versions
+            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            #   echo "Installing Python $version"
+            #   pyenv install $version:latest
+            # done
+            # pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+
+            # # Verify installations
+            # echo "Installed Python versions:"
+            # pyenv versions
+
+            # # Install Rust
+            # curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            # source $HOME/.cargo/env
+            # rustup toolchain install nightly-2025-07-07
+            # rustup component add --toolchain nightly-2025-07-07 rust-src
+
+            # # Install Python dependencies
+            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            #   echo "Installing dependencies for Python $version"
+            #   pyenv shell $version
+            #   python -m pip install --upgrade pip
+            #   if [ "$version" = "3.8" ]; then
+            #     python -m pip install setuptools tox twine psutil wheel
+            #   else
+            #     python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+            #   fi
+            #   pyenv shell --unset
+            # done
+
+            # # 5. Build chdb
+            # echo "=== Building chdb ==="
+            # # Setup clang
+            # ln -sf /usr/bin/clang-20 /usr/bin/clang
+            # ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+            # export CC=/usr/bin/clang
+            # export CXX=/usr/bin/clang++
+
+            # # Build
+            # pyenv shell 3.8
+            # bash ./chdb/build-musl.sh
+
+            # # Test
+            # pyenv shell 3.9
+            # bash -x ./chdb/test_smoke.sh
+
+            # # Check build results
+            # ccache -s
+            # ls -lh chdb
+
+            # # 6. Create and audit wheels
+            # echo "=== Creating and auditing wheels ==="
+            # # Build wheels
+            # pyenv shell 3.8
+            # make wheel
+
+            # # Install patchelf
+            # wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
+            # tar -xvf patchelf.tar.gz
+            # cp bin/patchelf /usr/bin/
+            # chmod +x /usr/bin/patchelf
+
+            # # Audit wheels
+            # pyenv shell 3.13
+            # python -m pip install auditwheel
+            # auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
+
+            # # Clean up non-musllinux wheels
+            # rm -f dist/*-linux_aarch64.whl
+            # ls -lh dist
+
+            # # 7. Test wheels
+            # echo "=== Testing wheels ==="
+            # for version in 3.9 3.10 3.11 3.12 3.13; do
+            #   echo "Testing chdb on Python $version"
+            #   pyenv shell $version
+            #   python -m pip install dist/*.whl --force-reinstall
+            #   python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+            #   make test
+            #   pyenv shell --unset
+            # done
+
+            # # 8. Scan chdb libraries
+            # echo "=== Scanning chdb libraries ==="
+            # FILES_TO_SCAN="$(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
+            # SQLITE_VULNERABILITIES_FOUND=false
+
+            # for file in $FILES_TO_SCAN; do
+            #   if [ -f "$file" ]; then
+            #     echo "=== Scanning $file ==="
+            #     SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+            #     echo "$SCAN_OUTPUT"
+
+            #     if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+            #       echo "SQLite vulnerability found in $file"
+            #       SQLITE_VULNERABILITIES_FOUND=true
+            #     fi
+            #   fi
+            # done
+
+            # if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+            #   echo "SQLite vulnerabilities detected in chdb libraries!"
+            # else
+            #   echo "No SQLite vulnerabilities found in chdb libraries"
+            # fi
+
+            # # Show final results
+            # echo "=== Final wheel files ==="
+            # ls -la ./dist/
+
+      # Upload wheels to release
+      - name: Upload wheels to release
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          # mkdir -p /host-artifacts
-          # cp ./dist/*.whl /host-artifacts/
-          # ls -la /host-artifacts/
-          echo "Test file created and artifacts copied" > /host-artifacts/test.whl
-      # - name: Upload pypi
-      #   if: startsWith(github.ref, 'refs/tags/v')
-      #   run: |
-      #     export PATH="$HOME/.pyenv/bin:$PATH"
-      #     eval "$(pyenv init -)"
-      #     pyenv shell 3.13
-      #     python -m twine upload dist/*.whl
-      #   env:
-      #     TWINE_USERNAME: __token__
-      #     TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+          echo "=== Uploading wheels to release ==="
+          ls -la ./dist/
+          gh release upload ${{ github.ref_name }} ./dist/*.whl --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
 
-  upload_artifacts:
-    name: Upload build artifacts
-    runs-on: GH-Linux-ARM64
-    needs: [prepare_host, build_musllinux_wheels]
-    steps:
-      - name: Check artifacts directory
-        run: |
-          ARTIFACTS_DIR="${{ needs.prepare_host.outputs.artifacts_dir }}"
-          echo "Checking artifacts in directory: $ARTIFACTS_DIR"
-          ls -la "$ARTIFACTS_DIR" || echo "No artifacts directory found"
-      - name: Upload artifacts
+      # Upload to PyPI
+      - name: Upload to PyPI
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: addnab/docker-run-action@v3
+        with:
+          image: quay.io/pypa/musllinux_1_2_aarch64
+          options: -v ${{ github.workspace }}:/workspace
+          run: |
+            cd /workspace
+            echo "=== Uploading to PyPI ==="
+
+            export PATH="$HOME/.pyenv/bin:$PATH"
+            eval "$(pyenv init -)"
+            pyenv shell 3.13
+            python -m twine upload ./dist/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+
+      # Upload artifacts
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: chdb-artifacts-musllinux-aarch64-${{ github.run_id }}
+          name: chdb-artifacts-musllinux-aarch64
           path: |
-            ${{ needs.prepare_host.outputs.artifacts_dir }}/*.whl
+            # ./dist/*.whl
+            ./acd.txt
           overwrite: true
-
-  cleanup:
-    name: Cleanup temporary directories
-    runs-on: GH-Linux-ARM64
-    needs: [prepare_host, build_musllinux_wheels, upload_artifacts]
-    if: always()
-    steps:
-      - name: Remove temporary artifacts directory
-        run: |
-          ARTIFACTS_DIR="${{ needs.prepare_host.outputs.artifacts_dir }}"
-          echo "Cleaning up temporary directory: $ARTIFACTS_DIR"
-
-          if [ -d "$ARTIFACTS_DIR" ]; then
-            echo "Directory contents before cleanup:"
-            ls -la "$ARTIFACTS_DIR"
-
-            sudo rm -rf "$ARTIFACTS_DIR"
-            echo "Successfully removed $ARTIFACTS_DIR"
-          else
-            echo "Directory $ARTIFACTS_DIR not found, nothing to clean"
-          fi
-
-          if [ ! -d "$ARTIFACTS_DIR" ]; then
-            echo "✅ Cleanup successful - directory removed"
-          else
-            echo "❌ Cleanup failed - directory still exists"
-            exit 1
-          fi
