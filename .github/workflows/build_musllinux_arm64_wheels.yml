@@ -24,7 +24,7 @@ jobs:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: GH-Linux-ARM64
     steps:
-      - uses: actions/checkout@v3
+      - uses: taiki-e/checkout-action@v1
         with:
           fetch-depth: 0
 
