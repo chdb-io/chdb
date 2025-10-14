@@ -151,17 +151,15 @@ jobs:
             echo "Current directory: $(pwd)"
             echo "Available disk space: $(df -h .)"
 
-            # Setup clang and lld
-            echo "Setting up clang compiler and lld linker..."
+            # Setup clang
+            echo "Setting up clang compiler..."
             ln -sf /usr/bin/clang-20 /usr/bin/clang
             ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-            ln -sf /usr/bin/ld.lld-20 /usr/bin/ld.lld
             export CC=/usr/bin/clang
             export CXX=/usr/bin/clang++
-            echo "Compiler and linker versions:"
+            echo "Compiler versions:"
             $CC --version
             $CXX --version
-            /usr/bin/ld.lld --version
 
             # Build
             echo "Starting chdb build with Python 3.8..."

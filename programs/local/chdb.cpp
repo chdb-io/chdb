@@ -7,6 +7,17 @@
 #include "QueryResult.h"
 #include "chdb-internal.h"
 
+#if defined(USE_MUSL) && defined(__aarch64__)
+void musl_compile_stub(int arg)
+{
+    jmp_buf buf1;
+    sigjmp_buf buf2;
+
+    setjmp(buf1);
+    sigsetjmp(buf2, arg);
+}
+#endif
+
 #if USE_PYTHON
 #    include "FormatHelper.h"
 #    include "PythonTableCache.h"
