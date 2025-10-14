@@ -78,8 +78,9 @@ if(Python_FOUND)
     target_link_libraries(${PYBIND11_NONLIMITEDAPI_LIBNAME} PUBLIC ch_contrib::pybind11_stubs)
 
     if (USE_MUSL AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-        target_link_libraries(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -lgcc)
-        message(STATUS "Linking libgcc for ARM64+musl to provide compiler runtime symbols")
+        # Force linking entire libgcc archive to ensure __floatunsitf is included
+        target_link_libraries(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -Wl,--whole-archive -lgcc -Wl,--no-whole-archive)
+        message(STATUS "Linking whole libgcc archive for ARM64+musl to provide all compiler runtime symbols")
     endif()
 
     if (APPLE)
