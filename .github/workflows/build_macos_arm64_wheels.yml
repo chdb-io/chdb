@@ -216,6 +216,12 @@ jobs:
           sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
           sudo sysctl kern.coredump=1
           ulimit -c unlimited
+      - name: Free up disk space
+        run: |
+          # Clean more build artifacts
+          rm -rf buildlib/contrib 2>/dev/null || true
+          rm -rf buildlib/base 2>/dev/null || true
+          rm -rf buildlib/src 2>/dev/null || true
       - name: Test wheel on all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -223,9 +229,10 @@ jobs:
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
+            python -m pip install dist/*.whl --force-reinstall --no-cache-dir
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
             make test
+            python -m pip uninstall -y chdb
             pyenv shell --unset
           done
         continue-on-error: false
