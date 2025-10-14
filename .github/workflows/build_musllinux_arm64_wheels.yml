@@ -43,7 +43,6 @@ jobs:
           options: -v ${{ github.workspace }}:/workspace --privileged
           run: |
             cd /workspace
-            set -e
 
             # Configure git safe directory in container
             apk update
@@ -234,6 +233,7 @@ jobs:
 
             TOTAL_TESTS=5
             CURRENT_TEST=0
+            TEST_FAILED=false
 
             for version in 3.9 3.10 3.11 3.12 3.13; do
               CURRENT_TEST=$((CURRENT_TEST + 1))
@@ -256,8 +256,13 @@ jobs:
               python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
 
               echo "Running full test suite..."
-              make test
-              echo "Test suite completed for Python $version at: $(date)"
+              if make test; then
+                echo "Test suite PASSED for Python $version at: $(date)"
+              else
+                echo "Test suite FAILED for Python $version at: $(date)"
+                TEST_FAILED=true
+                break
+              fi
 
               pyenv shell --unset
               echo "Test $CURRENT_TEST/$TOTAL_TESTS completed successfully"
@@ -265,6 +270,19 @@ jobs:
             done
 
             echo "All wheel tests completed at: $(date)"
+
+            # Check if any tests failed
+            if [ "$TEST_FAILED" = true ]; then
+              echo "ERROR: One or more test suites failed!"
+              echo "Test failure detected - aborting build process"
+              exit 1
+            fi
+
+            # Create test success marker file only if all tests passed
+            echo "All tests passed successfully!"
+            echo "Creating test success marker..."
+            touch /workspace/.test_success_marker
+            echo "Test success marker created at: $(date)"
 
             # 8. Scan chdb libraries
             echo "=== Scanning chdb libraries ==="
@@ -294,6 +312,18 @@ jobs:
             echo "=== Final wheel files ==="
             ls -la ./dist/
         continue-on-error: false
+      # Check test success before upload
+      - name: Verify test completion
+        run: |
+          echo "=== Verifying test completion ==="
+          if [ ! -f ".test_success_marker" ]; then
+            echo "ERROR: Test success marker file not found!"
+            echo "This indicates that the wheel testing did not complete successfully."
+            echo "Aborting upload process."
+            exit 1
+          fi
+          echo "Test success marker found. All tests completed successfully."
+          echo "Proceeding with wheel upload..."
       # Upload wheels to release
       - name: Upload wheels to release
         if: startsWith(github.ref, 'refs/tags/v')
