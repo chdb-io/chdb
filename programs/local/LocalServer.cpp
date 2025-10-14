@@ -71,6 +71,16 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+#if defined(USE_MUSL) && defined(__aarch64__)
+void local_server_musl_compile_stub(int arg)
+{
+    jmp_buf buf1;
+    sigjmp_buf buf2;
+
+    setjmp(buf1);
+    sigsetjmp(buf2, arg);
+}
+#endif
 
 namespace fs = std::filesystem;
 
