@@ -44,9 +44,6 @@ jobs:
           run: |
             cd /workspace
 
-            # Configure git safe directory in container
-            git config --global --add safe.directory /workspace
-
             # 1. Check system info
             echo "=== Container System Info ==="
             echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
@@ -135,6 +132,10 @@ jobs:
               fi
               pyenv shell --unset
             done
+
+            # Configure git safe directory in container
+            echo "=== Configure git safe directory ==="
+            git config --global --add safe.directory /workspace
 
             # 5. Build chdb
             echo "=== Building chdb ==="
