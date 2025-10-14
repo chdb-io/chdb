@@ -64,6 +64,17 @@ const char * __ubsan_default_options()
 #pragma clang diagnostic pop
 #endif
 
+#if defined(USE_MUSL) && defined(__aarch64__)
+void main_musl_compile_stub(int arg)
+{
+    jmp_buf buf1;
+    sigjmp_buf buf2;
+
+    setjmp(buf1);
+    sigsetjmp(buf2, arg);
+}
+#endif
+
 /// Universal executable for various clickhouse applications
 int mainEntryClickHouseBenchmark(int argc, char ** argv);
 int mainEntryClickHouseCheckMarks(int argc, char ** argv);
