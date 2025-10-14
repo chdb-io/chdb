@@ -43,6 +43,7 @@ jobs:
           options: -v ${{ github.workspace }}:/workspace --privileged
           run: |
             cd /workspace
+            set -e
 
             # Configure git safe directory in container
             apk update
