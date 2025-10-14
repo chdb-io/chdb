@@ -46,7 +46,7 @@ jobs:
 
             # Configure git safe directory in container
             apk update
-            apk add --no-cache git
+            apk add --no-cache git python3 py3-pip py3-setuptools
             echo "=== Configure git safe directory ==="
             git config --global --add safe.directory /workspace
             git describe --tags
