@@ -103,16 +103,19 @@ jobs:
             eval "$(pyenv init -)"
 
             # Install Python versions
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9; do
               echo "Installing Python $version"
               pyenv install $version:latest
             done
-            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+            # pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+            pyenv global 3.8 3.9
 
             # Verify installations
             echo "Installed versions:"
             pyenv versions
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9; do
               if ! pyenv versions --bare | grep -q "^$version"; then
                 echo "ERROR: Python $version is not installed!"
                 exit 1
@@ -128,14 +131,16 @@ jobs:
             rustup component add --toolchain nightly-2025-07-07 rust-src
 
             # Install Python dependencies
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9; do
               echo "Installing dependencies for Python $version"
               pyenv shell $version
               python -m pip install --upgrade pip
               if [ "$version" = "3.8" ]; then
                 python -m pip install setuptools tox twine psutil wheel
               else
-                python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+                # python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+                python -m pip install setuptools tox pandas pyarrow twine psutil wheel
               fi
               pyenv shell --unset
             done
@@ -146,15 +151,17 @@ jobs:
             echo "Current directory: $(pwd)"
             echo "Available disk space: $(df -h .)"
 
-            # Setup clang
-            echo "Setting up clang compiler..."
+            # Setup clang and lld
+            echo "Setting up clang compiler and lld linker..."
             ln -sf /usr/bin/clang-20 /usr/bin/clang
             ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+            ln -sf /usr/bin/ld.lld-20 /usr/bin/ld.lld
             export CC=/usr/bin/clang
             export CXX=/usr/bin/clang++
-            echo "Compiler versions:"
+            echo "Compiler and linker versions:"
             $CC --version
             $CXX --version
+            /usr/bin/ld.lld --version
 
             # Build
             echo "Starting chdb build with Python 3.8..."
