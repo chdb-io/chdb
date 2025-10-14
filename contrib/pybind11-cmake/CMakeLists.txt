@@ -76,6 +76,12 @@ if(Python_FOUND)
     target_include_directories(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE ${PYBIND11_INCLUDE_DIR})
     target_include_directories(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE ${Python_INCLUDE_DIRS})
     target_link_libraries(${PYBIND11_NONLIMITEDAPI_LIBNAME} PUBLIC ch_contrib::pybind11_stubs)
+
+    if (USE_MUSL AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+        target_link_libraries(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -lgcc)
+        message(STATUS "Linking libgcc for ARM64+musl to provide compiler runtime symbols")
+    endif()
+
     if (APPLE)
         target_link_options(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -undefined dynamic_lookup)
     else()
