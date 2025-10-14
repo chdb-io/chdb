@@ -254,9 +254,6 @@ jobs:
               python -m pip install dist/*.whl --force-reinstall
               echo "Installation completed at: $(date)"
 
-              echo "Verifying chdb installation..."
-              python -c "import chdb; print(f'chdb imported successfully'); print(f'chdb version: {getattr(chdb, '__version__', 'unknown')}')"
-
               echo "Running basic query test..."
               python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
 
@@ -361,6 +358,7 @@ jobs:
 
       # Upload artifacts
       - name: Upload build artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: chdb-artifacts-musllinux-aarch64
