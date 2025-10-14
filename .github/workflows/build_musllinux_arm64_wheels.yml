@@ -21,12 +21,31 @@ on:
 
 
 jobs:
+  prepare_host:
+    name: Prepare host environment
+    runs-on: GH-Linux-ARM64
+    outputs:
+      artifacts_dir: ${{ steps.create_dir.outputs.artifacts_dir }}
+    steps:
+      - name: Create artifacts directory
+        id: create_dir
+        run: |
+          ARTIFACTS_DIR="/tmp/chdb-artifacts-${{ github.run_id }}"
+          sudo mkdir -p "$ARTIFACTS_DIR"
+          sudo chmod 777 "$ARTIFACTS_DIR"
+          echo "Created unique artifacts directory: $ARTIFACTS_DIR"
+          echo "artifacts_dir=$ARTIFACTS_DIR" >> $GITHUB_OUTPUT
+          ls -la "$ARTIFACTS_DIR"
+
   build_musllinux_wheels:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: GH-Linux-ARM64
+    needs: prepare_host
     container:
       image: quay.io/pypa/musllinux_1_2_aarch64
       options: --privileged
+      volumes:
+        - ${{ needs.prepare_host.outputs.artifacts_dir }}:/host-artifacts
     steps:
       # - name: Check system info
       #   run: |
@@ -131,133 +150,179 @@ jobs:
       #   run: |
       #     apk add --no-cache git
       #     git --version
-      - uses: taiki-e/checkout-action@v1
+      # - uses: taiki-e/checkout-action@v1
+      #   with:
+      #     fetch-depth: 0
+      # - name: Configure git safe directory
+      #   run: |
+      #     git config --global --add safe.directory '*'
+      # - name: Update submodules
+      #   run: |
+      #     git submodule update --init --recursive --jobs 4
+      # # - name: ccache
+      # #   uses: hendrikmuhs/ccache-action@v1.2
+      # #   with:
+      # #     key: musllinux-1-2-aarch64
+      # #     max-size: 5G
+      # #     append-timestamp: true
+      # - name: setup clang and link clang-20 to clang
+      #   run: |
+      #     ln -sf /usr/bin/clang-20 /usr/bin/clang
+      #     ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+      #     which clang++
+      #     clang++ --version
+      # - name: Run chdb/build-musl.sh
+      #   timeout-minutes: 600
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     # Setup Rust environment
+      #     source $HOME/.cargo/env
+      #     pyenv shell 3.8
+      #     export CC=/usr/bin/clang
+      #     export CXX=/usr/bin/clang++
+      #     bash ./chdb/build-musl.sh
+      #     pyenv shell 3.9
+      #     bash -x ./chdb/test_smoke.sh
+      #   continue-on-error: false
+      # - name: Scan chdb libraries with grype
+      #   run: |
+      #     echo "Scanning chdb libraries for vulnerabilities..."
+
+      #     FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
+
+      #     SQLITE_VULNERABILITIES_FOUND=false
+
+      #     for file in $FILES_TO_SCAN; do
+      #       if [ -f "$file" ]; then
+      #         echo "=== Scanning $file ==="
+      #         SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+      #         echo "$SCAN_OUTPUT"
+
+      #         if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+      #           echo "SQLite vulnerability found in $file"
+      #           SQLITE_VULNERABILITIES_FOUND=true
+      #         fi
+      #       fi
+      #     done
+
+      #     if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+      #       echo "SQLite vulnerabilities detected in chdb libraries!"
+      #     else
+      #       echo "No SQLite vulnerabilities found in chdb libraries"
+      #     fi
+      #   continue-on-error: false
+      # - name: Check ccache statistics
+      #   run: |
+      #     ccache -s
+      #     ls -lh chdb
+      #     df -h
+      # - name: Build wheels
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     export CC=/usr/bin/clang
+      #     export CXX=/usr/bin/clang++
+      #     pyenv shell 3.8
+      #     make wheel
+      # - name: Install patchelf from github
+      #   run: |
+      #     wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
+      #     tar -xvf patchelf.tar.gz
+      #     cp bin/patchelf /usr/bin/
+      #     chmod +x /usr/bin/patchelf
+      #     patchelf --version
+      # - name: Audit wheels
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     pyenv shell 3.13
+      #     python -m pip install auditwheel
+      #     auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
+      #   continue-on-error: false
+      # - name: Show files
+      #   run: |
+      #     rm -f dist/*-linux_aarch64.whl
+      #     ls -lh dist
+      #   shell: bash
+      # - name: Test wheel on all Python versions
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     for version in 3.9 3.10 3.11 3.12 3.13; do
+      #       echo "Testing chdb on Python $version"
+      #       pyenv shell $version
+      #       python -m pip install dist/*.whl --force-reinstall
+      #       python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+      #       make test
+      #       pyenv shell --unset
+      #     done
+      #   continue-on-error: false
+      # - name: Upload wheels to release
+      #   if: startsWith(github.ref, 'refs/tags/v')
+      #   run: |
+      #     gh release upload ${{ github.ref_name }} dist/*.whl --clobber
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+      - name: Create test file and copy artifacts
+        run: |
+          # mkdir -p /host-artifacts
+          # cp ./dist/*.whl /host-artifacts/
+          # ls -la /host-artifacts/
+          echo "Test file created and artifacts copied" > /host-artifacts/test.whl
+      # - name: Upload pypi
+      #   if: startsWith(github.ref, 'refs/tags/v')
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     pyenv shell 3.13
+      #     python -m twine upload dist/*.whl
+      #   env:
+      #     TWINE_USERNAME: __token__
+      #     TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+
+  upload_artifacts:
+    name: Upload build artifacts
+    runs-on: GH-Linux-ARM64
+    needs: [prepare_host, build_musllinux_wheels]
+    steps:
+      - name: Check artifacts directory
+        run: |
+          ARTIFACTS_DIR="${{ needs.prepare_host.outputs.artifacts_dir }}"
+          echo "Checking artifacts in directory: $ARTIFACTS_DIR"
+          ls -la "$ARTIFACTS_DIR" || echo "No artifacts directory found"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 0
-      - name: Configure git safe directory
-        run: |
-          git config --global --add safe.directory '*'
-      - name: Update submodules
-        run: |
-          git submodule update --init --recursive --jobs 4
-      - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2
-        with:
-          key: musllinux-1-2-aarch64
-          max-size: 5G
-          append-timestamp: true
-      - name: setup clang and link clang-20 to clang
-        run: |
-          ln -sf /usr/bin/clang-20 /usr/bin/clang
-          ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-          which clang++
-          clang++ --version
-      - name: Run chdb/build-musl.sh
-        timeout-minutes: 600
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          # Setup Rust environment
-          source $HOME/.cargo/env
-          pyenv shell 3.8
-          export CC=/usr/bin/clang
-          export CXX=/usr/bin/clang++
-          bash ./chdb/build-musl.sh
-          pyenv shell 3.9
-          bash -x ./chdb/test_smoke.sh
-        continue-on-error: false
-      - name: Scan chdb libraries with grype
-        run: |
-          echo "Scanning chdb libraries for vulnerabilities..."
-
-          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
-
-          SQLITE_VULNERABILITIES_FOUND=false
-
-          for file in $FILES_TO_SCAN; do
-            if [ -f "$file" ]; then
-              echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-              echo "$SCAN_OUTPUT"
-
-              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                echo "SQLite vulnerability found in $file"
-                SQLITE_VULNERABILITIES_FOUND=true
-              fi
-            fi
-          done
-
-          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-            echo "SQLite vulnerabilities detected in chdb libraries!"
-          else
-            echo "No SQLite vulnerabilities found in chdb libraries"
-          fi
-        continue-on-error: false
-      - name: Check ccache statistics
-        run: |
-          ccache -s
-          ls -lh chdb
-          df -h
-      - name: Build wheels
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          export CC=/usr/bin/clang
-          export CXX=/usr/bin/clang++
-          pyenv shell 3.8
-          make wheel
-      - name: Install patchelf from github
-        run: |
-          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
-          tar -xvf patchelf.tar.gz
-          cp bin/patchelf /usr/bin/
-          chmod +x /usr/bin/patchelf
-          patchelf --version
-      - name: Audit wheels
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.13
-          python -m pip install auditwheel
-          auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
-        continue-on-error: false
-      - name: Show files
-        run: |
-          rm -f dist/*-linux_aarch64.whl
-          ls -lh dist
-        shell: bash
-      - name: Test wheel on all Python versions
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          for version in 3.9 3.10 3.11 3.12 3.13; do
-            echo "Testing chdb on Python $version"
-            pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
-            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-            make test
-            pyenv shell --unset
-          done
-        continue-on-error: false
-      - name: Upload wheels to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chdb-artifacts-musllinux-aarch64
+          name: chdb-artifacts-musllinux-aarch64-${{ github.run_id }}
           path: |
-            ./dist/*.whl
+            ${{ needs.prepare_host.outputs.artifacts_dir }}/*.whl
           overwrite: true
-      - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
+
+  cleanup:
+    name: Cleanup temporary directories
+    runs-on: GH-Linux-ARM64
+    needs: [prepare_host, build_musllinux_wheels, upload_artifacts]
+    if: always()
+    steps:
+      - name: Remove temporary artifacts directory
         run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.13
-          python -m twine upload dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+          ARTIFACTS_DIR="${{ needs.prepare_host.outputs.artifacts_dir }}"
+          echo "Cleaning up temporary directory: $ARTIFACTS_DIR"
+
+          if [ -d "$ARTIFACTS_DIR" ]; then
+            echo "Directory contents before cleanup:"
+            ls -la "$ARTIFACTS_DIR"
+
+            sudo rm -rf "$ARTIFACTS_DIR"
+            echo "Successfully removed $ARTIFACTS_DIR"
+          else
+            echo "Directory $ARTIFACTS_DIR not found, nothing to clean"
+          fi
+
+          if [ ! -d "$ARTIFACTS_DIR" ]; then
+            echo "✅ Cleanup successful - directory removed"
+          else
+            echo "❌ Cleanup failed - directory still exists"
+            exit 1
+          fi
