@@ -44,6 +44,9 @@ jobs:
           run: |
             cd /workspace
 
+            # Configure git safe directory in container
+            git config --global --add safe.directory /workspace
+
             # 1. Check system info
             echo "=== Container System Info ==="
             echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
@@ -135,55 +138,128 @@ jobs:
 
             # 5. Build chdb
             echo "=== Building chdb ==="
+            echo "Timestamp: $(date)"
+            echo "Current directory: $(pwd)"
+            echo "Available disk space: $(df -h .)"
+
             # Setup clang
+            echo "Setting up clang compiler..."
             ln -sf /usr/bin/clang-20 /usr/bin/clang
             ln -sf /usr/bin/clang++-20 /usr/bin/clang++
             export CC=/usr/bin/clang
             export CXX=/usr/bin/clang++
+            echo "Compiler versions:"
+            $CC --version
+            $CXX --version
 
             # Build
+            echo "Starting chdb build with Python 3.8..."
             pyenv shell 3.8
+            python --version
+            echo "Build start time: $(date)"
             bash ./chdb/build-musl.sh
+            echo "Build end time: $(date)"
 
             # Test
+            echo "Running smoke test with Python 3.9..."
             pyenv shell 3.9
+            python --version
+            echo "Test start time: $(date)"
             bash -x ./chdb/test_smoke.sh
+            echo "Test end time: $(date)"
 
             # Check build results
+            echo "Build results summary:"
             ccache -s
+            echo "chdb directory contents:"
             ls -lh chdb
+            echo "Build artifacts size:"
+            du -sh chdb
 
             # 6. Create and audit wheels
             echo "=== Creating and auditing wheels ==="
+            echo "Wheel creation start time: $(date)"
+            echo "Available disk space before wheel build: $(df -h .)"
+
             # Build wheels
+            echo "Building wheels with Python 3.8..."
             pyenv shell 3.8
+            python --version
+            echo "Running make wheel..."
             make wheel
+            echo "Wheel build completed at: $(date)"
+            echo "Initial wheel files:"
+            ls -lh dist/ || echo "No dist directory yet"
 
             # Install patchelf
+            echo "Installing patchelf for wheel auditing..."
             wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
             tar -xvf patchelf.tar.gz
             cp bin/patchelf /usr/bin/
             chmod +x /usr/bin/patchelf
+            echo "patchelf version: $(patchelf --version)"
 
             # Audit wheels
+            echo "Auditing wheels with Python 3.13..."
             pyenv shell 3.13
+            python --version
             python -m pip install auditwheel
+            echo "auditwheel version: $(auditwheel --version)"
+            echo "Starting wheel audit at: $(date)"
             auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
+            echo "Wheel audit completed at: $(date)"
 
             # Clean up non-musllinux wheels
+            echo "Cleaning up non-musllinux wheels..."
+            echo "Before cleanup:"
+            ls -lh dist/
             rm -f dist/*-linux_aarch64.whl
-            ls -lh dist
+            echo "After cleanup:"
+            ls -lh dist/
+            echo "Final wheel sizes:"
+            du -sh dist/*
 
             # 7. Test wheels
             echo "=== Testing wheels ==="
+            echo "Wheel testing start time: $(date)"
+            echo "Available wheels for testing:"
+            ls -lh dist/*.whl
+            echo "Wheel file details:"
+            file dist/*.whl
+
+            TOTAL_TESTS=5
+            CURRENT_TEST=0
+
             for version in 3.9 3.10 3.11 3.12 3.13; do
-              echo "Testing chdb on Python $version"
+              CURRENT_TEST=$((CURRENT_TEST + 1))
+              echo "=== Test $CURRENT_TEST/$TOTAL_TESTS: Python $version ==="
+              echo "Test start time: $(date)"
+
+              echo "Switching to Python $version..."
               pyenv shell $version
+              python --version
+              echo "pip version: $(python -m pip --version)"
+
+              echo "Installing chdb wheel..."
               python -m pip install dist/*.whl --force-reinstall
+              echo "Installation completed at: $(date)"
+
+              echo "Verifying chdb installation..."
+              python -c "import chdb; print(f'chdb imported successfully'); print(f'chdb version: {getattr(chdb, '__version__', 'unknown')}')"
+
+              echo "Running basic query test..."
               python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+
+              echo "Running full test suite..."
               make test
+              echo "Test suite completed for Python $version at: $(date)"
+
               pyenv shell --unset
+              echo "Test $CURRENT_TEST/$TOTAL_TESTS completed successfully"
+              echo ""
             done
+
+            echo "All wheel tests completed at: $(date)"
 
             # 8. Scan chdb libraries
             echo "=== Scanning chdb libraries ==="
