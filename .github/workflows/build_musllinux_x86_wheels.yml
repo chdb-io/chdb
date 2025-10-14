@@ -89,16 +89,13 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          echo "Installed Python versions:"
-          pyenv versions
-          echo ""
           echo "Verifying all required Python versions are available:"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
             fi
-            echo "✓ Python $version is installed"
+            echo "Python $version is installed"
           done
           echo "All Python versions verified successfully!"
       - name: Install dependencies for all Python versions

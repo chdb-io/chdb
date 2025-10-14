@@ -103,8 +103,16 @@ jobs:
             pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
 
             # Verify installations
-            echo "Installed Python versions:"
+            echo "Installed versions:"
             pyenv versions
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+              if ! pyenv versions --bare | grep -q "^$version"; then
+                echo "ERROR: Python $version is not installed!"
+                exit 1
+              fi
+              echo "Python $version is installed"
+            done
+            echo "All Python versions verified successfully!"
 
             # Install Rust
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
