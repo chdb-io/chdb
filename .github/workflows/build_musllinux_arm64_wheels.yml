@@ -24,7 +24,7 @@ jobs:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: GH-Linux-ARM64
     steps:
-      - uses: taiki-e/checkout-action@v1
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
@@ -32,9 +32,9 @@ jobs:
         run: |
           git config --global --add safe.directory '*'
 
-      - name: Update submodules
-        run: |
-          git submodule update --init --recursive --jobs 4
+      # - name: Update submodules
+      #   run: |
+      #     git submodule update --init --recursive --jobs 4
 
       - name: Build chdb wheels in container
         uses: addnab/docker-run-action@v3
@@ -43,6 +43,13 @@ jobs:
           options: -v ${{ github.workspace }}:/workspace --privileged
           run: |
             cd /workspace
+
+            # Configure git safe directory in container
+            apk update
+            apk add --no-cache git
+            echo "=== Configure git safe directory ==="
+            git config --global --add safe.directory /workspace
+            git describe --tags
 
             # 1. Check system info
             echo "=== Container System Info ==="
@@ -59,11 +66,10 @@ jobs:
 
             # 2. Install build dependencies
             echo "=== Installing build dependencies ==="
-            apk update
             apk add --no-cache make build-base openssl-dev zlib-dev \
               bzip2-dev readline-dev sqlite-dev wget curl llvm \
               ncurses-dev xz-dev tk-dev libxml2-dev \
-              libffi-dev linux-headers git
+              libffi-dev linux-headers
             apk add --no-cache make cmake ccache ninja yasm gawk
             apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
 
@@ -132,10 +138,6 @@ jobs:
               fi
               pyenv shell --unset
             done
-
-            # Configure git safe directory in container
-            echo "=== Configure git safe directory ==="
-            git config --global --add safe.directory /workspace
 
             # 5. Build chdb
             echo "=== Building chdb ==="
