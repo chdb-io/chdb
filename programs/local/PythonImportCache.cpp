@@ -2,6 +2,9 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <stack>
 
 namespace DB
@@ -49,6 +52,9 @@ py::handle PythonImportCacheItem::AddCache(PythonImportCache & cache, py::object
 
 void PythonImportCacheItem::LoadModule(PythonImportCache & cache)
 {
+#if USE_JEMALLOC
+	::Memory::MemoryCheckScope memory_check_scope; 
+#endif
 	try
 	{
 		py::gil_assert();
@@ -69,6 +75,9 @@ void PythonImportCacheItem::LoadModule(PythonImportCache & cache)
 
 void PythonImportCacheItem::LoadAttribute(PythonImportCache & cache, py::handle source)
 {
+#if USE_JEMALLOC
+	::Memory::MemoryCheckScope memory_check_scope;
+#endif
 	if (py::hasattr(source, name.c_str()))
 		object = AddCache(cache, std::move(source.attr(name.c_str())));
 	else
@@ -96,6 +105,9 @@ PythonImportCache::~PythonImportCache()
 	try
 	{
 		py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+		::Memory::MemoryCheckScope memory_check_scope;
+#endif
 		owned_objects.clear();
 	}
 	catch (...)

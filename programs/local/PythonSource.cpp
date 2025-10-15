@@ -19,20 +19,23 @@
 #include <Common/COW.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
-#include <Common/typeid_cast.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDecimalBase.h>
+#include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <DataTypes/DataTypeObject.h>
 #include <Interpreters/ExpressionActions.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
 #include <base/types.h>
+#include <Common/typeid_cast.h>
 
 using namespace CHDB;
 
@@ -59,7 +62,7 @@ PythonSource::PythonSource(
     size_t num_streams,
     const FormatSettings & format_settings_,
     ArrowTableReaderPtr arrow_table_reader_)
-    : ISource(sample_block_.cloneEmpty())
+    : ISource(std::make_shared<Block>(sample_block_.cloneEmpty()))
     , data_source(data_source_)
     , isInheritsFromPyReader(isInheritsFromPyReader_)
     , sample_block(sample_block_)
@@ -78,6 +81,9 @@ template <typename T>
 void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr & column)
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope;
+#endif
     for (auto && item : obj)
     {
         if constexpr (std::is_same_v<T, UInt8>)
