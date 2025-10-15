@@ -38,6 +38,16 @@ jobs:
           else
             echo "Not musl libc"
           fi
+
+          echo "=== CPU Information ==="
+          cat /proc/cpuinfo
+          echo ""
+          echo "=== Checking CPU requirements ==="
+          if grep -P "^(?=.*ssse3)(?=.*sse4_1)(?=.*sse4_2)" /proc/cpuinfo > /dev/null; then
+            echo "CPU meets minimum requirements"
+          else
+            echo "CPU does not meet minimum requirements"
+          fi
       - name: Install Python build dependencies
         run: |
           apk update
