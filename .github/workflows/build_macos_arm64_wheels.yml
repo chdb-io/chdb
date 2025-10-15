@@ -64,7 +64,7 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install setuptools wheel tox pandas pyarrow twine psutil deltalake wheel>=0.40.0
+            python -m pip install setuptools wheel tox twine psutil deltalake wheel>=0.40.0
             pyenv shell --unset
           done
       - name: Remove /usr/local/bin/python3
@@ -202,7 +202,17 @@ jobs:
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+
+            # First test: without optional dependencies
+            echo "Testing without pandas and pyarrow..."
+            python -m pip uninstall -y pandas pyarrow || true
             make test
+
+            # Second test: with optional dependencies
+            echo "Testing with pandas and pyarrow..."
+            python -m pip install pandas pyarrow
+            make test
+
             pyenv shell --unset
           done
         continue-on-error: false

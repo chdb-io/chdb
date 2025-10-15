@@ -13,6 +13,25 @@ class Colors:
 test_loader = unittest.TestLoader()
 test_suite = test_loader.discover('./')
 
+# Print all test files that will be executed
+print(f"\n{Colors.BOLD}Discovered Test Files:{Colors.END}")
+test_files = set()
+def extract_test_files(suite):
+    for test in suite:
+        if hasattr(test, '_tests'):
+            extract_test_files(test)
+        elif hasattr(test, '__module__'):
+            test_files.add(test.__module__)
+
+extract_test_files(test_suite)
+
+# Filter out system modules, only show actual test files
+filtered_test_files = {f for f in test_files if f != "unittest.loader"}
+
+for test_file in sorted(filtered_test_files):
+    print(f"  • {test_file}")
+print(f"\nTotal test files: {len(filtered_test_files)}\n")
+
 test_runner = unittest.TextTestRunner(verbosity=2)
 ret = test_runner.run(test_suite)
 

@@ -175,9 +175,12 @@ if __name__ == "__main__":
             ext_modules=ext_modules,
             python_requires=">=3.8",
             install_requires=[
-                "pyarrow>=13.0.0",
-                "pandas>=2.0.0",
             ],
+            extras_require={
+                "arrow": ["pandas>=2.0.0", "pyarrow>=13.0.0"],
+                "pandas": ["pandas>=2.0.0", "pyarrow>=13.0.0"],
+                "all": ["pandas>=2.0.0", "pyarrow>=13.0.0"],
+            },
             cmdclass={"build_ext": BuildExt},
             test_suite="tests",
             zip_safe=False,

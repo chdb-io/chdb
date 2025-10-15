@@ -103,7 +103,7 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+            python -m pip install setuptools tox twine psutil deltalake wheel
             pyenv shell --unset
           done
       - name: Upgrade Rust toolchain
@@ -123,7 +123,7 @@ jobs:
           which clang++-19
           clang++-19 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
-          # Install WebAssembly linker (wasm-ld) 
+          # Install WebAssembly linker (wasm-ld)
           sudo apt-get install -y lld-19
           # Create symlink for wasm-ld
           if ! command -v wasm-ld &> /dev/null; then
@@ -262,7 +262,17 @@ jobs:
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+
+            # First test: without optional dependencies
+            echo "Testing without pandas and pyarrow..."
+            python -m pip uninstall -y pandas pyarrow || true
             make test
+
+            # Second test: with optional dependencies
+            echo "Testing with pandas and pyarrow..."
+            python -m pip install pandas pyarrow
+            make test
+
             pyenv shell --unset
           done
         continue-on-error: false

@@ -96,11 +96,10 @@ def to_arrowTable(res):
     # try import pyarrow and pandas, if failed, raise ImportError with suggestion
     try:
         import pyarrow as pa  # noqa
-        import pandas as pd  # noqa
     except ImportError as e:
         print(f"ImportError: {e}")
-        print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
-        raise ImportError("Failed to import pyarrow or pandas") from None
+        print('Please install pyarrow via "pip install pyarrow"')
+        raise ImportError("Failed to import pyarrow") from None
     if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
     return pa.RecordBatchFileReader(res.bytes()).read_all()
