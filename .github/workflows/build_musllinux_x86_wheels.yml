@@ -43,7 +43,7 @@ jobs:
           cat /proc/cpuinfo
           echo ""
           echo "=== Checking CPU requirements ==="
-          if grep -P "^(?=.*ssse3)(?=.*sse4_1)(?=.*sse4_2)" /proc/cpuinfo > /dev/null; then
+          if grep -q "ssse3" /proc/cpuinfo && grep -q "sse4_1" /proc/cpuinfo && grep -q "sse4_2" /proc/cpuinfo; then
             echo "CPU meets minimum requirements"
           else
             echo "CPU does not meet minimum requirements"
