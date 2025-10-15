@@ -18,6 +18,7 @@ class TestInsertErrorHandling(unittest.TestCase):
     def tearDown(self) -> None:
         """Clean up test environment."""
         shutil.rmtree(test_dir, ignore_errors=True)
+        self.sess.close()
         return super().tearDown()
 
     def test_incomplete_insert_values_throws_error(self):

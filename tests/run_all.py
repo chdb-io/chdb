@@ -55,6 +55,7 @@ def main():
         'test_materialize.py',
         'test_multiple_query.py',
         'test_open_session_after_failure.py',
+        'test_optional_dependencies.py',
         'test_signal_handler.py',
         'test_statistics.py',
         'test_streaming_query.py',
