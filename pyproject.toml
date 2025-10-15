@@ -1,10 +1,61 @@
+[project]
+name = "chdb"
+requires-python = ">=3.8"
+version = "3.6.0"
+description = "chDB is an in-process OLAP SQL Engine powered by ClickHouse"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+authors = [
+    {name = "chDB Team", email = "auxten@clickhouse.com"},
+]
+keywords = ["chdb", "clickhouse", "olap", "analytics", "database", "sql"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Plugins", 
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: C++",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering",
+]
+
+[project.optional-dependencies]
+dataframe = ["pandas>=2.0.0", "pyarrow>=13.0.0"]
+dev = ["pytest", "pytest-cov"]
+ci = ["cibuildwheel"]
+publish = ["twine", "wheel"]
+
+[project.urls]
+Homepage = "https://clickhouse.com/chdb"
+Documentation = "https://chdb.readthedocs.io/en/latest/index.html"
+Repository = "https://github.com/chdb-io/chdb"
+Changelog = "https://github.com/chdb-io/chdb/releases"
+Issues = "https://github.com/chdb-io/chdb/issues"
+
 [build-system]
-requires = ["setuptools>=46.1.0", "pybind11>=2.6"]
+requires = [
+    "setuptools>=46.1.0",
+    "pybind11>=2.6",
+    "wheel",
+]
 build-backend = "setuptools.build_meta"
 
 [tool.cibuildwheel]
 build-frontend = "pip"
+build-verbosity = 1
 
 [tool.pyright]
 include = ["chdb"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
+pythonVersion = "3.8"
+typeCheckingMode = "basic"

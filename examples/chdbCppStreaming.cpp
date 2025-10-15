@@ -1,0 +1,86 @@
+#include "../programs/local/chdb.hpp"
+#include <iostream>
+#include <string>
+
+int main() {
+    try {
+        auto conn = chdb::connect(":memory:");
+        conn.query(R"(
+            CREATE TABLE large_dataset (
+                id UInt64,
+                value String,
+                timestamp DateTime
+            ) ENGINE = Memory
+        )");
+        conn.query(R"(
+            INSERT INTO large_dataset 
+            SELECT 
+                number as id,
+                concat('value_', toString(number)) as value,
+                now() - interval number second as timestamp
+            FROM numbers(200000)
+        )");
+        
+        std::cout << "\n=== Regular Query (loads all data at once) ===\n";
+        auto regular_result = conn.query("SELECT id, value FROM large_dataset WHERE id < 10 ORDER BY id");
+        std::cout << "Regular query result size: " << regular_result.size() << " bytes\n";
+        std::cout << "\n=== Streaming Query (processes data in chunks) ===\n";
+        auto stream_result = conn.stream_query("SELECT id, value FROM large_dataset ORDER BY id");
+        
+        std::cout << "Processing streaming results:\n";
+        int batch_count = 0;
+        size_t total_size = 0;
+        while (true) {
+            try {
+                auto chunk = conn.stream_fetch(stream_result);
+                chunk.throw_if_error();
+                if (chunk.rows_read() == 0)
+                {
+                    std::cout << "Stream ended (no more data)\n";
+                    break;
+                }
+
+                batch_count++;
+                total_size += chunk.rows_read();
+                
+                std::cout << "Batch " << batch_count << " (size: " << chunk.size() << " bytes):\n";                
+                if (batch_count >= 3) {
+                    std::cout << "Stopping early (processed 3 batches)\n";
+                    conn.stream_cancel(stream_result);
+                    break;
+                }
+                
+            } catch (const chdb::ChdbError& e) {
+                std::cout << "Stream error: " << e.what() << std::endl;
+                break;
+        }
+        }
+        
+        std::cout << "\nStreaming summary:\n";
+        std::cout << "Total batches processed: " << batch_count << std::endl;
+        std::cout << "Total rows processed: " << total_size << "\n";
+        
+        std::cout << "\n=== Using Stream Iterator (C++ range-based for loop) ===\n";
+        auto stream_result2 = conn.stream_query("SELECT id, value FROM large_dataset ORDER BY id");
+        chdb::Stream stream(conn, stream_result2);
+        int item_count = 0;
+        for (auto& chunk : stream) {
+            item_count++;
+            std::cout << "Batch " << item_count << " (size: " << chunk.size() << " bytes):\n";
+
+            if (item_count >= 3) {
+                conn.stream_cancel(stream_result2);
+                std::cout << "Breaking early from iterator loop\n";
+                break;
+            }
+        }
+        return 0;
+        
+    } catch (const chdb::ChdbError& e) {
+        std::cerr << "ChDB Error: " << e.what() << std::endl;
+        return 1;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << std::endl;
+        return 1;
+    }
+}

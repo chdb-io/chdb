@@ -92,6 +92,13 @@ class TestQueryPy(unittest.TestCase):
         ret = chdb.query("SELECT b, sum(a) FROM Python(reader) GROUP BY b ORDER BY b")
         self.assertEqual(str(ret), EXPECTED)
 
+    def test_string_with_null_character(self):
+        """Test basic string with null character in the middle"""
+        res = chdb.query("SELECT 'hello\0world' as test_string", "CSV")
+        self.assertFalse(res.has_error())
+        result_data = res.bytes().decode('utf-8')
+        self.assertIn('hello\0world', result_data)
+
     def test_query_df(self):
         df = pd.DataFrame(
             {
@@ -102,6 +109,40 @@ class TestQueryPy(unittest.TestCase):
 
         ret = chdb.query("SELECT b, sum(a) FROM Python(df) GROUP BY b ORDER BY b")
         self.assertEqual(str(ret), EXPECTED)
+
+    def test_query_df_with_index(self):
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            },
+            index=[3, 1, 2, 4, 5, 6],
+        )
+
+        ret = chdb.query("SELECT * FROM Python(df)")
+        self.assertIn("tom", str(ret))
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            },
+            index=[0, 1, 2, 4, 5, 6],
+        )
+
+        ret = chdb.query("SELECT * FROM Python(df)")
+        self.assertIn("tom", str(ret))
+
+        df = pd.DataFrame(
+            {
+                "a": [1, 2, 3, 4, 5, 6],
+                "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
+            },
+            index=['a', 1, 2, 4, 5, 6],
+        )
+
+        ret = chdb.query("SELECT * FROM Python(df)")
+        self.assertIn("tom", str(ret))
 
     def test_query_arrow(self):
         table = pa.table(
