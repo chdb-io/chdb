@@ -98,14 +98,20 @@ elseif (ARCH_AARCH64)
     # and the build machine is too old, i.e. doesn't satisfy above modern profile, then these intermediate binaries will not run (dump
     # SIGILL). Even if they could run, the build machine wouldn't be able to run the ClickHouse binary. In that case, suggest to run the
     # build with the compat profile.
-    if (OS_LINUX AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)" AND NOT NO_ARMV81_OR_HIGHER AND NOT USE_MUSL)
+    if (OS_LINUX AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(aarch64.*|AARCH64.*|arm64.*|ARM64.*)" AND NOT NO_ARMV81_OR_HIGHER)
         # CPU features in /proc/cpuinfo and compiler flags don't align :( ... pick some obvious flags contained in the modern but not in the
         # legacy profile (full Graviton 3 /proc/cpuinfo is "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm
         # jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm dit uscat ilrcpc flagm ssbs paca pacg dcpodp svei8mm svebf16 i8mm
         # bf16 dgh rng")
-        execute_process(
-            COMMAND grep -P "^(?=.*atomic)(?=.*ssbs)" /proc/cpuinfo
-            OUTPUT_VARIABLE FLAGS)
+        if (USE_MUSL)
+            execute_process(
+                COMMAND grep -q "atomic" /proc/cpuinfo && grep -q "ssbs" /proc/cpuinfo
+                OUTPUT_VARIABLE FLAGS)
+        else()
+            execute_process(
+                COMMAND grep -P "^(?=.*atomic)(?=.*ssbs)" /proc/cpuinfo
+                OUTPUT_VARIABLE FLAGS)
+        endif()
         if (NOT FLAGS)
             MESSAGE(FATAL_ERROR "The build machine does not satisfy the minimum CPU requirements, try to run cmake with -DNO_ARMV81_OR_HIGHER=1")
         endif()
@@ -163,9 +169,15 @@ elseif (ARCH_AMD64)
         # tsc_known_freq pni pclmulqdq monitor ssse3 fma cx16 pcid sse4_1 sse4_2 x2apic movbe popcnt tsc_deadline_timer aes xsave avx f16c
         # rdrand hypervisor lahf_lm abm 3dnowprefetch invpcid_single pti fsgsbase tsc_adjust bmi1 hle avx2 smep bmi2 erms invpcid rtm mpx
         # avx512f avx512dq rdseed adx smap clflushopt clwb avx512cd avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves ida arat pku ospke""
-        execute_process(
-            COMMAND grep -P "^(?=.*ssse3)(?=.*sse4_1)(?=.*sse4_2)" /proc/cpuinfo
-            OUTPUT_VARIABLE FLAGS)
+        if (USE_MUSL)
+            execute_process(
+                COMMAND grep -q "ssse3" /proc/cpuinfo && grep -q "sse4_1" /proc/cpuinfo && grep -q "sse4_2" /proc/cpuinfo
+                OUTPUT_VARIABLE FLAGS)
+        else()
+            execute_process(
+                COMMAND grep -P "^(?=.*ssse3)(?=.*sse4_1)(?=.*sse4_2)" /proc/cpuinfo
+                OUTPUT_VARIABLE FLAGS)
+        endif()
         if (NOT FLAGS)
             MESSAGE(FATAL_ERROR "The build machine does not satisfy the minimum CPU requirements, try to run cmake with -DNO_SSE3_OR_HIGHER=1")
         endif()
