@@ -1,9 +1,10 @@
 #include "chdb.h"
 #include <cstddef>
 #include <cstring>
+#include <ChdbClient.h>
+#include <EmbeddedServer.h>
 #include "Common/MemoryTracker.h"
 #include "Common/ThreadStatus.h"
-#include "LocalServer.h"
 #include "QueryResult.h"
 #include "chdb-internal.h"
 
@@ -60,30 +61,29 @@ static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
 
-static std::unique_ptr<DB::LocalServer> bgClickHouseLocal(int argc, char ** argv)
+static std::unique_ptr<DB::EmbeddedServer> bgClickHouseEmbedded(int argc, char ** argv)
 {
-    std::unique_ptr<DB::LocalServer> app;
+    std::unique_ptr<DB::EmbeddedServer> app;
     try
     {
-        app = std::make_unique<DB::LocalServer>();
-        app->setBackground(true);
+        app = std::make_unique<DB::EmbeddedServer>();
         app->init(argc, argv);
         int ret = app->run();
         if (ret != 0)
         {
             auto err_msg = app->getErrorMsg();
-            LOG_ERROR(&app->logger(), "Error running bgClickHouseLocal: {}", err_msg);
-            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseLocal: {}", err_msg);
+            LOG_ERROR(&app->logger(), "Error running bgClickHouseEmbedded: {}", err_msg);
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error running bgClickHouseEmbedded: {}", err_msg);
         }
         return app;
     }
     catch (const DB::Exception & e)
     {
-        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", DB::getExceptionMessage(e, false));
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseEmbedded {}", DB::getExceptionMessage(e, false));
     }
     catch (const Poco::Exception & e)
     {
-        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseLocal {}", e.displayText());
+        throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "bgClickHouseEmbedded {}", e.displayText());
     }
     catch (const std::exception & e)
     {
@@ -139,26 +139,26 @@ static local_result_v2 * createErrorLocalResultV2(const String & error)
     return local_result;
 }
 
-static QueryResultPtr createMaterializedLocalQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+static QueryResultPtr createMaterializedLocalQueryResult(DB::ChdbClient * client, const CHDB::QueryRequestBase & req)
 {
     QueryResultPtr query_result;
     const auto & materialized_request = static_cast<const CHDB::MaterializedQueryRequest &>(req);
 
     try
     {
-        if (!server->parseQueryTextWithOutputFormat(materialized_request.query, materialized_request.format))
+        if (!client->parseQueryTextWithOutputFormat(materialized_request.query, materialized_request.format))
         {
-            query_result = std::make_unique<MaterializedQueryResult>(server->getErrorMsg());
+            query_result = std::make_unique<MaterializedQueryResult>(client->getErrorMsg());
         }
         else
         {
             query_result = std::make_unique<MaterializedQueryResult>(
-                ResultBuffer(server->stealQueryOutputVector()),
-                server->getElapsedTime(),
-                server->getProcessedRows(),
-                server->getProcessedBytes(),
-                server->getStorgaeRowsRead(),
-                server->getStorageBytesRead());
+                ResultBuffer(client->stealQueryOutputVector()),
+                client->getElapsedTime(),
+                client->getProcessedRows(),
+                client->getProcessedBytes(),
+                client->getStorageRowsRead(),
+                client->getStorageBytesRead());
         }
     }
     catch (const DB::Exception & e)
@@ -171,20 +171,20 @@ static QueryResultPtr createMaterializedLocalQueryResult(DB::LocalServer * serve
         query_result = std::make_unique<MaterializedQueryResult>(error_message);
     }
 
-    server->resetQueryOutputVector();
+    client->resetQueryOutputVector();
 
     return query_result;
 }
 
-static QueryResultPtr createStreamingQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+static QueryResultPtr createStreamingQueryResult(DB::ChdbClient * client, const CHDB::QueryRequestBase & req)
 {
     QueryResultPtr query_result;
     const auto & streaming_init_request = static_cast<const CHDB::StreamingInitRequest &>(req);
 
     try
     {
-        if (!server->parseQueryTextWithOutputFormat(streaming_init_request.query, streaming_init_request.format))
-            query_result = std::make_unique<StreamQueryResult>(server->getErrorMsg());
+        if (!client->parseQueryTextWithOutputFormat(streaming_init_request.query, streaming_init_request.format))
+            query_result = std::make_unique<StreamQueryResult>(client->getErrorMsg());
         else
             query_result = std::make_unique<StreamQueryResult>();
     }
@@ -201,34 +201,34 @@ static QueryResultPtr createStreamingQueryResult(DB::LocalServer * server, const
     return query_result;
 }
 
-static QueryResultPtr createStreamingIterateQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+static QueryResultPtr createStreamingIterateQueryResult(DB::ChdbClient * client, const CHDB::QueryRequestBase & req)
 {
     QueryResultPtr query_result;
     const auto & streaming_iter_request = static_cast<const CHDB::StreamingIterateRequest &>(req);
-    const auto old_processed_rows = server->getProcessedRows();
-    const auto old_processed_bytes = server->getProcessedBytes();
-    const auto old_storage_rows_read = server->getStorgaeRowsRead();
-    const auto old_storage_bytes_read = server->getStorageBytesRead();
-    const auto old_elapsed_time = server->getElapsedTime();
+    const auto old_processed_rows = client->getProcessedRows();
+    const auto old_processed_bytes = client->getProcessedBytes();
+    const auto old_storage_rows_read = client->getStorageRowsRead();
+    const auto old_storage_bytes_read = client->getStorageBytesRead();
+    const auto old_elapsed_time = client->getElapsedTime();
 
     try
     {
-        if (!server->processStreamingQuery(streaming_iter_request.streaming_result, streaming_iter_request.is_canceled))
+        if (!client->processStreamingQuery(streaming_iter_request.streaming_result, streaming_iter_request.is_canceled))
         {
-            query_result = std::make_unique<MaterializedQueryResult>(server->getErrorMsg());
+            query_result = std::make_unique<MaterializedQueryResult>(client->getErrorMsg());
         }
         else
         {
-            const auto processed_rows = server->getProcessedRows();
-            const auto processed_bytes = server->getProcessedBytes();
-            const auto storage_rows_read = server->getStorgaeRowsRead();
-            const auto storage_bytes_read = server->getStorageBytesRead();
-            const auto elapsed_time = server->getElapsedTime();
+            const auto processed_rows = client->getProcessedRows();
+            const auto processed_bytes = client->getProcessedBytes();
+            const auto storage_rows_read = client->getStorageRowsRead();
+            const auto storage_bytes_read = client->getStorageBytesRead();
+            const auto elapsed_time = client->getElapsedTime();
             if (processed_rows <= old_processed_rows)
                 query_result = std::make_unique<MaterializedQueryResult>(nullptr, 0.0, 0, 0, 0, 0);
             else
                 query_result = std::make_unique<MaterializedQueryResult>(
-                    ResultBuffer(server->stealQueryOutputVector()),
+                    ResultBuffer(client->stealQueryOutputVector()),
                     elapsed_time - old_elapsed_time,
                     processed_rows - old_processed_rows,
                     processed_bytes - old_processed_bytes,
@@ -246,33 +246,33 @@ static QueryResultPtr createStreamingIterateQueryResult(DB::LocalServer * server
         query_result = std::make_unique<MaterializedQueryResult>(error_message);
     }
 
-    server->resetQueryOutputVector();
+    client->resetQueryOutputVector();
 
     return query_result;
 }
 
-static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * server, const CHDB::QueryRequestBase & req)
+static std::pair<QueryResultPtr, bool> createQueryResult(DB::ChdbClient * client, const CHDB::QueryRequestBase & req)
 {
     QueryResultPtr query_result;
     bool is_end = false;
 
     if (!req.isStreaming())
     {
-        query_result = createMaterializedLocalQueryResult(server, req);
+        query_result = createMaterializedLocalQueryResult(client, req);
         is_end = true;
     }
     else if (!req.isIteration())
     {
-        server->streaming_query_context = std::make_shared<DB::StreamingQueryContext>();
-        query_result = createStreamingQueryResult(server, req);
+        client->streaming_query_context = std::make_shared<DB::StreamingQueryContext>();
+        query_result = createStreamingQueryResult(client, req);
         is_end = !query_result->getError().empty();
 
         if (!is_end)
-            server->streaming_query_context->streaming_result = query_result.get();
+            client->streaming_query_context->streaming_result = query_result.get();
     }
     else
     {
-        query_result = createStreamingIterateQueryResult(server, req);
+        query_result = createStreamingIterateQueryResult(client, req);
         const auto & streaming_iter_request = static_cast<const CHDB::StreamingIterateRequest &>(req);
         auto materialized_query_result_ptr = static_cast<CHDB::MaterializedQueryResult *>(query_result.get());
 
@@ -282,12 +282,12 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
 
     if (is_end)
     {
-        if (server->streaming_query_context)
+        if (client->streaming_query_context)
         {
-            server->streaming_query_context.reset();
+            client->streaming_query_context.reset();
         }
 #if USE_PYTHON
-        if (auto * local_connection = static_cast<DB::LocalConnection *>(server->connection.get()))
+        if (auto * local_connection = static_cast<DB::LocalConnection *>(client->connection.get()))
         {
             /// Must clean up Context objects whether the query succeeds or fails.
             /// During process exit, if LocalServer destructor triggers while cached PythonStorage
@@ -305,7 +305,7 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
 
 static bool checkConnectionValidity(chdb_conn * conn)
 {
-    return conn && conn->connected && conn->queue;
+    return conn && conn->connected;
 }
 
 static QueryResultPtr executeQueryRequest(
@@ -515,11 +515,11 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
         [&]()
         {
             auto * queue = static_cast<CHDB::QueryQueue *>(conn->queue);
-            std::unique_ptr<DB::LocalServer> server;
+            std::unique_ptr<DB::EmbeddedServer> server;
             try
             {
                 DB::ThreadStatus thread_status;
-                server = bgClickHouseLocal(argc, argv);
+                server = bgClickHouseEmbedded(argc, argv);
                 conn->server = nullptr;
                 conn->connected = true;
 

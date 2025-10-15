@@ -3,15 +3,12 @@
 #include "chdb.h"
 #include "QueryResult.h"
 
-#include <condition_variable>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <boost/iostreams/detail/select.hpp>
 
 namespace DB
 {
-    class LocalServer;
+    class ChdbClient;
 }
 
 namespace CHDB
@@ -63,32 +60,11 @@ struct StreamingIterateRequest : QueryRequestBase
     bool isIteration() const override { return true; }
 };
 
-enum class QueryType : uint8_t
-{
-    TYPE_MATERIALIZED = 0,
-    TYPE_STREAMING_INIT = 1,
-    TYPE_STREAMING_ITER = 2
-};
-
-struct QueryQueue
-{
-    std::mutex mutex;
-    std::condition_variable query_cv; // For query submission
-    std::condition_variable result_cv; // For query result retrieval
-    std::unique_ptr<QueryRequestBase> current_query;
-    QueryResultPtr current_result;
-    bool has_result = false;
-    bool has_query = false;
-    bool has_streaming_query = false;
-    bool shutdown = false;
-    bool cleanup_done = false;
-};
-
 std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char ** argv);
 
 void chdbCleanupConnection();
 
-void cancelStreamQuery(DB::LocalServer * server, void * stream_result);
+void cancelStreamQuery(DB::ChdbClient * client, void * stream_result);
 
 const std::string & chdb_result_error_string(chdb_result * result);
 

@@ -31,6 +31,10 @@ public:
 
     int main(const std::vector<String> & /*args*/) override;
 
+    ContextMutablePtr getGlobalContext() { return global_context; }
+
+    std::string getErrorMsg() const { return error_message_oss.str(); }
+
 private:
     void tryInitPath();
     void setupUsers();
