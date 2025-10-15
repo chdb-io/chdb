@@ -156,7 +156,7 @@ elseif (ARCH_AMD64)
     endif()
 
     # Same best-effort check for x86 as above for ARM.
-    if (OS_LINUX AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "amd64|x86_64" AND NOT NO_SSE3_OR_HIGHER)
+    if (OS_LINUX AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "amd64|x86_64" AND NOT NO_SSE3_OR_HIGHER AND NOT USE_MUSL)
         # Test for flags in standard profile but not in NO_SSE3_OR_HIGHER profile.
         # /proc/cpuid for Intel Xeon 8124: "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse
         # sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon rep_good nopl xtopology nonstop_tsc cpuid aperfmperf
