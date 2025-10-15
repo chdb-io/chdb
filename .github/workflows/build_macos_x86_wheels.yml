@@ -22,7 +22,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS x86_64)
-    runs-on: macos-14-xlarge
+    runs-on: macos-14-large
     steps:
       - name: Free up disk space (Initial)
         run: |
