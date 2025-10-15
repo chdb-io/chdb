@@ -50,13 +50,12 @@ struct local_result_v2
 
 /**
  * Connection structure for chDB
- * Contains server instance, connection state, and query processing queue
+ * Contains ChdbClient instance and connection state
  */
 struct chdb_conn
 {
-    void * server; /* ClickHouse LocalServer instance */
+    void * server; /* ChdbClient instance */
     bool connected; /* Connection state flag */
-    void * queue; /* Query processing queue */
 };
 
 typedef struct

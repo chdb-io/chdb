@@ -1,6 +1,8 @@
 set (CLICKHOUSE_LOCAL_SOURCES
     chdb.cpp
     LocalServer.cpp
+    EmbeddedServer.cpp
+    ChdbClient.cpp
 )
 
 # Add force function references only for static library builds
@@ -16,6 +18,8 @@ if (USE_PYTHON)
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp
+        EmbeddedServer.cpp
+        ChdbClient.cpp
         NumpyType.cpp
         PandasAnalyzer.cpp
         PandasDataFrame.cpp
