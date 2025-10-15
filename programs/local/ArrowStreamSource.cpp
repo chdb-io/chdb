@@ -15,7 +15,7 @@ ArrowStreamSource::ArrowStreamSource(
     const Block & sample_block_,
     CHDB::ArrowTableReaderPtr arrow_table_reader_,
     size_t stream_index_)
-    : ISource(sample_block_.cloneEmpty())
+    : ISource(std::make_shared<Block>(sample_block_.cloneEmpty()))
     , arrow_table_reader(arrow_table_reader_)
     , sample_block(sample_block_)
     , stream_index(stream_index_)
