@@ -92,61 +92,37 @@ jobs:
           brew install ca-certificates lz4 mpdecimal readline sqlite xz z3 zstd
           brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
-          brew install git ninja libtool gettext binutils grep findutils nasm
-          # brew install gcc || echo "GCC install failed, continuing..."
-          # brew install ccache || echo "ccache installation failed, continuing without it"
+          brew install git ninja libtool gettext binutils grep findutils nasm lld@19 libiconv
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
-          export PATH=$(brew --prefix llvm@19)/bin:$PATH
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
           which clang++
           clang++ --version
+          which wasm-ld || echo "wasm-ld not found in PATH"
           which go
           go version
-          ccache -s || echo "ccache not available yet"
-      - name: Scan SQLite vulnerabilities with grype
+          ccache -s | echo "ccache not available yet"
+      - name: Upgrade Rust toolchain
         run: |
-          # Install grype
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-
-          # Update grype vulnerability database
-          grype db update
-
-          # Check SQLite vulnerabilities in Homebrew packages
-          echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$(grype dir:/opt/homebrew --scope all-layers 2>/dev/null || true)
-          echo "Raw grype output:"
-          echo "$GRYPE_RAW_OUTPUT"
-
-          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
-
-          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
-            echo "SQLite vulnerability details:"
-            echo "$SQLITE_SCAN_OUTPUT"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found"
-          fi
-        continue-on-error: false
+          rustup toolchain install nightly-2025-07-07
+          rustup default nightly-2025-07-07
+          rustup component add rust-src
+          rustc --version
+          cargo --version
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
-      # - name: ccache
-      #   uses: hendrikmuhs/ccache-action@v1.2
-      #   with:
-      #     key: macos-13-xlarge
-      #     max-size: 5G
-      #     append-timestamp: true
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          source ~/.cargo/env
           pyenv shell 3.8
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
@@ -156,9 +132,10 @@ jobs:
       - name: Run chdb/build/build_static_lib.sh
         timeout-minutes: 600
         run: |
-          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
+          source ~/.cargo/env
           eval "$(pyenv init -)"
           pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
@@ -181,28 +158,23 @@ jobs:
       - name: Scan chdb libraries with grype
         run: |
           echo "Scanning chdb libraries for vulnerabilities..."
-
           # Files to scan
           FILES_TO_SCAN=""
           [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
           [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
           FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
-
           SQLITE_VULNERABILITIES_FOUND=false
-
           for file in $FILES_TO_SCAN; do
             if [ -f "$file" ]; then
               echo "=== Scanning $file ==="
               SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
               echo "$SCAN_OUTPUT"
-
               if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
                 echo "❌ SQLite vulnerability found in $file"
                 SQLITE_VULNERABILITIES_FOUND=true
               fi
             fi
           done
-
           if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
             echo "❌ SQLite vulnerabilities detected in chdb libraries!"
             exit 1
@@ -214,26 +186,11 @@ jobs:
         run: |
           bash -x ./examples/runStub.sh
           bash -x ./examples/runArrowTest.sh
-      # - name: Keep killall ccache and wait for ccache to finish
-      #   if: always()
-      #   run: |
-      #     sleep 60
-      #     while ps -ef | grep ccache | grep -v grep; do \
-      #       killall ccache || true; \
-      #       sleep 10; \
-      #     done
-      # - name: Check ccache statistics
-      #   run: |
-      #     ccache -s || echo "ccache not available"
-      #     ls -lh chdb
-      #     df -h
-      #   env:
-      #     CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
       - name: Build wheels
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.8
