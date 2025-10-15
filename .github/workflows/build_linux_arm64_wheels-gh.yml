@@ -23,8 +23,22 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux ARM64)
-    runs-on: [self-hosted, linux, arm64, amazon]
+    runs-on: GH-Linux-ARM64
     steps:
+      - name: Check CPU capabilities and requirements
+        run: |
+          echo "=== CPU Information ==="
+          cat /proc/cpuinfo
+          echo ""
+          echo "=== Checking CPU requirements ==="
+
+          if grep -P "^(?=.*atomic)(?=.*ssbs)" /proc/cpuinfo > /dev/null; then
+            echo "CPU meets minimum requirements (atomic and ssbs flags found)"
+          else
+            echo "CPU does not meet minimum requirements"
+            echo "Missing required flags: atomic and/or ssbs"
+            echo "This may cause build failures. Consider using -DNO_ARMV81_OR_HIGHER=1"
+          fi
       - name: Install Python build dependencies
         run: |
           sudo apt-get update
