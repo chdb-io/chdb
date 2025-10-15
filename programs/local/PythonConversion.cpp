@@ -285,12 +285,15 @@ void convert_to_json_str(const py::handle & obj, String & ret)
     d.SetObject();
     rapidjson::Document::AllocatorType & allocator = d.GetAllocator();
 
+    auto sys_modules = py::module_::import("sys").attr("modules");
+    bool has_numpy = sys_modules.contains(py::str("numpy"));
+
     std::function<void(const py::handle &, rapidjson::Value &)> convert;
     convert = [&](const py::handle & obj, rapidjson::Value & json_value) {
         if (py::isinstance<py::dict>(obj))
         {
             json_value.SetObject();
-            for (auto & item : py::cast<py::dict>(obj))
+            for (const auto & item : py::cast<py::dict>(obj))
             {
                 rapidjson::Value key;
                 auto key_str = py::str(item.first).cast<std::string>();
@@ -306,7 +309,7 @@ void convert_to_json_str(const py::handle & obj, String & ret)
         {
             json_value.SetArray();
             auto tmp_list = py::cast<py::list>(obj);
-            for (auto & item : tmp_list)
+            for (const auto & item : tmp_list)
             {
                 rapidjson::Value element;
                 convert(item, element);
@@ -317,14 +320,14 @@ void convert_to_json_str(const py::handle & obj, String & ret)
         {
             json_value.SetArray();
             auto tmp_tuple = py::cast<py::tuple>(obj);
-            for (auto & item : tmp_tuple)
+            for (const auto & item : tmp_tuple)
             {
                 rapidjson::Value element;
                 convert(item, element);
                 json_value.PushBack(element, allocator);
             }
         }
-        else if (py::isinstance<py::array>(obj))
+        else if (has_numpy && py::isinstance<py::array>(obj))
         {
             auto arr = py::cast<py::array>(obj);
             json_value.SetArray();
@@ -337,7 +340,7 @@ void convert_to_json_str(const py::handle & obj, String & ret)
                 auto item = my_list.attr("__getitem__")(i);
                 convert(item, element);
                 json_value.PushBack(element, allocator);
-		    }
+            }
         }
         else
         {

@@ -6,6 +6,7 @@
 
 namespace pybind11 {
 
+bool gil_check();
 void gil_assert();
 
 }
