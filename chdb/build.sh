@@ -30,6 +30,7 @@ if [ "$(uname)" == "Darwin" ]; then
     # if Darwin ARM64 (M1, M2), disable AVX
     if [ "$(uname -m)" == "arm64" ]; then
         CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        COMPILER_CACHE="-DCOMPILER_CACHE=disabled"
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
     else
         LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
@@ -109,6 +110,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     ${CPU_FEATURES} \
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DENABLE_LIBFIU=1 \
+    ${COMPILER_CACHE} \
     -DCHDB_VERSION=${CHDB_VERSION} \
     "
 
@@ -313,8 +315,8 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
 fi
 echo -e "\nStripe the binary:"
 

@@ -6,6 +6,9 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <Interpreters/Context.h>
 
 namespace DB
@@ -92,6 +95,9 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
 
 ColumnsDescription PandasDataFrame::getActualTableStructure(const py::object & object, ContextPtr & context)
 {
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope; 
+#endif
     NamesAndTypesList names_and_types;
 
     PandasDataFrameBind df(object);
@@ -116,6 +122,9 @@ ColumnsDescription PandasDataFrame::getActualTableStructure(const py::object & o
 
 bool PandasDataFrame::isPandasDataframe(const py::object & object)
 {
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope;
+#endif
     if (!ModuleIsLoaded<PandasCacheItem>())
 		return false;
 

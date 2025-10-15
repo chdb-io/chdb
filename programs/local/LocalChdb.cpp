@@ -6,10 +6,13 @@
 #include "chdb-internal.h"
 #include "chdb.h"
 
-#include <pybind11/pybind11.h>
 #include <pybind11/detail/non_limited_api.h>
+#include <pybind11/pybind11.h>
 
 #include <Common/logger_useful.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 namespace py = pybind11;
 

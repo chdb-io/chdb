@@ -3,10 +3,11 @@
 #include <new>
 #include <base/defines.h>
 
+#include <Common/AllocationInterceptors.h>
 #include <Common/Concepts.h>
 #include <Common/CurrentMemoryTracker.h>
 #include <Common/ProfileEvents.h>
-#include <Common/GWPAsan.h>
+
 #include "config.h"
 
 #if USE_JEMALLOC
@@ -23,13 +24,6 @@
 #    include <malloc/malloc.h>
 #endif
 
-namespace ProfileEvents
-{
-    extern const Event GWPAsanAllocateSuccess;
-    extern const Event GWPAsanAllocateFailed;
-    extern const Event GWPAsanFree;
-}
-
 /// Guard pages interface.
 ///
 /// Uses MADV_GUARD_INSTALL/MADV_GUARD_REMOVE (since Linux 6.13+) which does
@@ -42,13 +36,40 @@ void memoryGuardRemove(void *addr, size_t len);
 
 namespace Memory
 {
+#if USE_JEMALLOC
+extern thread_local bool disable_memory_check;
+
+class MemoryCheckScope
+{
+public:
+    MemoryCheckScope() noexcept
+        : old_value(disable_memory_check)
+    {
+        disable_memory_check = false;
+    }
+
+    ~MemoryCheckScope() noexcept { disable_memory_check = old_value; }
+
+    MemoryCheckScope(const MemoryCheckScope &) = delete;
+    MemoryCheckScope & operator=(const MemoryCheckScope &) = delete;
+
+private:
+    bool old_value;
+};
+#endif
 
 inline ALWAYS_INLINE size_t alignToSizeT(std::align_val_t align) noexcept
 {
     return static_cast<size_t>(align);
 }
 
-# if USE_JEMALLOC
+inline ALWAYS_INLINE size_t alignUp(size_t size, size_t align) noexcept
+{
+    return (size + align - 1) / align * align;
+}
+
+
+#if USE_JEMALLOC
 template <std::same_as<std::align_val_t>... TAlign>
 requires DB::OptionalArgument<TAlign...>
 inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
@@ -66,43 +87,16 @@ inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
     throw std::bad_alloc{};
 }
 
-# else
-
+#else
 template <std::same_as<std::align_val_t>... TAlign>
 requires DB::OptionalArgument<TAlign...>
 inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
 {
-#if USE_GWP_ASAN
-    if (unlikely(GWPAsan::shouldSample()))
-    {
-        if constexpr (sizeof...(TAlign) == 1)
-        {
-            if (void * ptr = GWPAsan::GuardedAlloc.allocate(size, alignToSizeT(align...)))
-            {
-                ProfileEvents::increment(ProfileEvents::GWPAsanAllocateSuccess);
-                return ptr;
-            }
-
-            ProfileEvents::increment(ProfileEvents::GWPAsanAllocateFailed);
-        }
-        else
-        {
-            if (void * ptr = GWPAsan::GuardedAlloc.allocate(size))
-            {
-                ProfileEvents::increment(ProfileEvents::GWPAsanAllocateSuccess);
-                return ptr;
-            }
-
-            ProfileEvents::increment(ProfileEvents::GWPAsanAllocateFailed);
-        }
-    }
-#endif
-
     void * ptr = nullptr;
     if constexpr (sizeof...(TAlign) == 1)
-        ptr = aligned_alloc(alignToSizeT(align...), size);
+        ptr = __real_aligned_alloc(alignToSizeT(align...), alignUp(size, alignToSizeT(align...)));
     else
-        ptr = malloc(size);
+        ptr = __real_malloc(size);
 
     if (likely(ptr != nullptr))
         return ptr;
@@ -110,9 +104,9 @@ inline ALWAYS_INLINE void * newImpl(std::size_t size, TAlign... align)
     /// @note no std::get_new_handler logic implemented
     throw std::bad_alloc{};
 }
-# endif
+#endif
 
-# if USE_JEMALLOC
+#if USE_JEMALLOC
 inline ALWAYS_INLINE void * newNoExcept(std::size_t size) noexcept
 {
     return je_malloc(size);
@@ -128,56 +122,24 @@ inline ALWAYS_INLINE void deleteImpl(void * ptr) noexcept
     je_free(ptr);
 }
 
-# else
+#else
 
 inline ALWAYS_INLINE void * newNoExcept(std::size_t size) noexcept
- {
- #if USE_GWP_ASAN
-    if (unlikely(GWPAsan::shouldSample()))
-    {
-        if (void * ptr = GWPAsan::GuardedAlloc.allocate(size))
-        {
-            ProfileEvents::increment(ProfileEvents::GWPAsanAllocateSuccess);
-             return ptr;
-        }
+{
+    return __real_malloc(size);
+}
 
-        ProfileEvents::increment(ProfileEvents::GWPAsanAllocateFailed);
-     }
- #endif
-     return malloc(size);
- }
- 
 inline ALWAYS_INLINE void * newNoExcept(std::size_t size, std::align_val_t align) noexcept
- {
- #if USE_GWP_ASAN
-    if (unlikely(GWPAsan::shouldSample()))
-     {
-        if (void * ptr = GWPAsan::GuardedAlloc.allocate(size, alignToSizeT(align)))
-        {
-            ProfileEvents::increment(ProfileEvents::GWPAsanAllocateSuccess);
-             return ptr;
-        }
-
-        ProfileEvents::increment(ProfileEvents::GWPAsanAllocateFailed);
-     }
-#endif
-    return aligned_alloc(static_cast<size_t>(align), size);
+{
+    return __real_aligned_alloc(static_cast<size_t>(align), size);
 }
 
 inline ALWAYS_INLINE void deleteImpl(void * ptr) noexcept
 {
-#if USE_GWP_ASAN
-    if (unlikely(GWPAsan::GuardedAlloc.pointerIsMine(ptr)))
-    {
-        ProfileEvents::increment(ProfileEvents::GWPAsanFree);
-        GWPAsan::GuardedAlloc.deallocate(ptr);
-        return;
-    }
-#endif
-    free(ptr);
+    __real_free(ptr);
 }
+#endif
 
-# endif
 
 #if USE_JEMALLOC
 
@@ -187,16 +149,6 @@ inline ALWAYS_INLINE void deleteSized(void * ptr, std::size_t size, TAlign... al
 {
     if (unlikely(ptr == nullptr))
         return;
-
-#if USE_GWP_ASAN
-    if (unlikely(GWPAsan::GuardedAlloc.pointerIsMine(ptr)))
-    {
-        ProfileEvents::increment(ProfileEvents::GWPAsanFree);
-        GWPAsan::GuardedAlloc.deallocate(ptr);
-        return;
-    }
-#endif
-
     if constexpr (sizeof...(TAlign) == 1)
         je_sdallocx(ptr, size, MALLOCX_ALIGN(alignToSizeT(align...)));
     else
@@ -209,15 +161,7 @@ template <std::same_as<std::align_val_t>... TAlign>
 requires DB::OptionalArgument<TAlign...>
 inline ALWAYS_INLINE void deleteSized(void * ptr, std::size_t size [[maybe_unused]], TAlign... /* align */) noexcept
 {
-#if USE_GWP_ASAN
-    if (unlikely(GWPAsan::GuardedAlloc.pointerIsMine(ptr)))
-    {
-        ProfileEvents::increment(ProfileEvents::GWPAsanFree);
-        GWPAsan::GuardedAlloc.deallocate(ptr);
-        return;
-    }
-#endif
-    free(ptr);
+    __real_free(ptr);
 }
 
 #endif
@@ -257,16 +201,6 @@ requires DB::OptionalArgument<TAlign...>
 inline ALWAYS_INLINE size_t untrackMemory(void * ptr [[maybe_unused]], AllocationTrace & trace, std::size_t size [[maybe_unused]] = 0, TAlign... align [[maybe_unused]]) noexcept
 {
     std::size_t actual_size = 0;
-
-#if USE_GWP_ASAN
-    if (unlikely(GWPAsan::GuardedAlloc.pointerIsMine(ptr)))
-    {
-        if (!size)
-            size = GWPAsan::GuardedAlloc.getSize(ptr);
-        trace = CurrentMemoryTracker::free(size);
-        return size;
-    }
-#endif
 
     try
     {
