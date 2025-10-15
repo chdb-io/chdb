@@ -75,6 +75,7 @@ void ArrowSchemaWrapper::convertArrowSchema(
         *arrow_schema,
         nullptr,
         "Arrow",
+        format_settings,
         format_settings.arrow.skip_columns_with_unsupported_types_in_schema_inference,
         format_settings.schema_inference_make_columns_nullable != 0,
         false,

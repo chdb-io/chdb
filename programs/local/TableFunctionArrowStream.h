@@ -28,7 +28,7 @@ private:
         ColumnsDescription cached_columns,
         bool is_insert_query) const override;
 
-    const char * getStorageTypeName() const override { return "ArrowStream"; }
+    const char * getStorageEngineName() const override { return "ArrowStream"; }
 
     void parseArguments(const ASTPtr & ast_function, ContextPtr context) override;
 
