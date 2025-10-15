@@ -103,19 +103,16 @@ jobs:
             eval "$(pyenv init -)"
 
             # Install Python versions
-            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            for version in 3.8 3.9; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
               echo "Installing Python $version"
               pyenv install $version:latest
             done
-            # pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
-            pyenv global 3.8 3.9
+            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
 
             # Verify installations
             echo "Installed versions:"
             pyenv versions
-            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            for version in 3.8 3.9; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
               if ! pyenv versions --bare | grep -q "^$version"; then
                 echo "ERROR: Python $version is not installed!"
                 exit 1
@@ -131,16 +128,14 @@ jobs:
             rustup component add --toolchain nightly-2025-07-07 rust-src
 
             # Install Python dependencies
-            # for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
-            for version in 3.8 3.9; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
               echo "Installing dependencies for Python $version"
               pyenv shell $version
               python -m pip install --upgrade pip
               if [ "$version" = "3.8" ]; then
                 python -m pip install setuptools tox twine psutil wheel
               else
-                # python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
-                python -m pip install setuptools tox pandas pyarrow twine psutil wheel
+                python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
               fi
               pyenv shell --unset
             done
