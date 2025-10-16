@@ -24,17 +24,6 @@ jobs:
     name: Build Universal Wheel (macOS x86_64)
     runs-on: macos-14-large
     steps:
-      - name: Free up disk space (Initial)
-        run: |
-          # Clean Homebrew cache
-          brew cleanup -s 2>/dev/null || true
-          rm -rf "$(brew --cache)" 2>/dev/null || true
-          sudo rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
-          sudo rm -rf ~/Library/Caches/com.apple.dt.Xcode 2>/dev/null || true
-          sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
-          sudo rm -rf /tmp/* 2>/dev/null || true
-          echo "=== Disk usage after cleanup ==="
-          df -h
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -133,17 +122,6 @@ jobs:
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
-      - name: Free up disk space (Before compilation)
-        run: |
-          echo "=== Disk usage before compilation cleanup ==="
-          df -h
-          brew cleanup -s 2>/dev/null || true
-          rm -rf "$(brew --cache)" 2>/dev/null || true
-          rm -rf ~/.cache/pip 2>/dev/null || true
-          rm -rf ~/.pyenv/.cache 2>/dev/null || true
-          rm -rf ~/.cargo/registry/cache 2>/dev/null || true
-          echo "=== Disk usage after cleanup ==="
-          df -h
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
