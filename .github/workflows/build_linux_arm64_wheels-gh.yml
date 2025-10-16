@@ -74,7 +74,8 @@ jobs:
           pyenv install 3.11:latest
           pyenv install 3.12:latest
           pyenv install 3.13:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+          pyenv install 3.14:latest
+          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
 
           # Verify installations
           echo "Installed versions:"
@@ -87,7 +88,7 @@ jobs:
           pyenv versions
           echo ""
           echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -99,7 +100,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
@@ -257,7 +258,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
