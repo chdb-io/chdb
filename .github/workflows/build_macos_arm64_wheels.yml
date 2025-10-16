@@ -125,6 +125,12 @@ jobs:
           rm -rf ~/.cargo/registry/cache 2>/dev/null || true
           echo "=== Disk usage after cleanup ==="
           df -h
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.os }}
+          max-size: 5G
+          append-timestamp: true
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
