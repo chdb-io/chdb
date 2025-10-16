@@ -63,7 +63,7 @@ build_pybind11_nonlimitedapi() {
 }
 
 build_all_pybind11_nonlimitedapi() {
-    local python_versions=("3.8" "3.9" "3.10" "3.11" "3.12" "3.13")
+    local python_versions=("3.8" "3.9" "3.10" "3.11" "3.12" "3.13" "3.14")
 
     echo "Building pybind11 nonlimitedapi libraries for all Python versions..."
 
