@@ -30,13 +30,12 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          pyenv install 3.8:latest
           pyenv install 3.9:latest
           pyenv install 3.10:latest
           pyenv install 3.11:latest
           pyenv install 3.12:latest
           pyenv install 3.13:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+          pyenv global 3.9 3.10 3.11 3.12 3.13
 
           echo "Installed versions:"
           pyenv versions
@@ -48,7 +47,7 @@ jobs:
           pyenv versions
           echo ""
           echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.9 3.10 3.11 3.12 3.13; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -60,7 +59,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.9 3.10 3.11 3.12 3.13; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
@@ -128,13 +127,13 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           source ~/.cargo/env
-          pyenv shell 3.8
+          pyenv shell 3.9
           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
           bash ./chdb/build.sh
-          pyenv shell 3.8
+          pyenv shell 3.9
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Run chdb/build/build_static_lib.sh
@@ -145,7 +144,7 @@ jobs:
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           source ~/.cargo/env
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           bash ./chdb/build/build_static_lib.sh
           pyenv shell --unset
         continue-on-error: false
@@ -201,13 +200,13 @@ jobs:
           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
-          pyenv shell 3.8
+          pyenv shell 3.9
           make wheel
       - name: Fix wheel platform tag
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
       - name: Setup core dump collection
         run: |
@@ -225,7 +224,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
@@ -297,7 +296,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           python -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
