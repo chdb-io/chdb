@@ -121,6 +121,12 @@ jobs:
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-x86_64-ccache
+          max-size: 5G
+          append-timestamp: true
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
