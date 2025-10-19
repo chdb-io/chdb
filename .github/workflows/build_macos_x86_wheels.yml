@@ -25,6 +25,10 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 720 
     steps:
+      - name: debug
+        run: |
+          uname
+          uname -m
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
