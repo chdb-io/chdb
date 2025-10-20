@@ -70,10 +70,13 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     "
 
 cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 -DCHDB_STATIC_LIBRARY_BUILD=1 ..
-ninja -d keeprsp -v 2>&1 | tee build.log || true
+ninja -d keeprsp
 
 BINARY=${BUILD_DIR}/programs/clickhouse
 rm -f ${BINARY}
+
+cd ${BUILD_DIR}
+ninja -d keeprsp -v > build.log || true
 
 ccache -s || true
 
