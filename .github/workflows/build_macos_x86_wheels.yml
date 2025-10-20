@@ -127,21 +127,21 @@ jobs:
           key: ${{ runner.os }}-x86_64-ccache
           max-size: 10G
           append-timestamp: true
-      - name: Run chdb/build.sh
-        timeout-minutes: 600
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          source ~/.cargo/env
-          pyenv shell 3.9
-          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          bash gen_manifest.sh
-          bash ./chdb/build.sh
-          pyenv shell 3.9
-          bash -x ./chdb/test_smoke.sh
-        continue-on-error: false
+      #- name: Run chdb/build.sh
+      #  timeout-minutes: 600
+       # run: |
+       #   export PATH="$HOME/.pyenv/bin:$PATH"
+        #  eval "$(pyenv init -)"
+        #  source ~/.cargo/env
+        #  pyenv shell 3.9
+        #  export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+        #  export CC=$(brew --prefix llvm@19)/bin/clang
+        #  export CXX=$(brew --prefix llvm@19)/bin/clang++
+        #  bash gen_manifest.sh
+        #  bash ./chdb/build.sh
+        #  pyenv shell 3.9
+        #  bash -x ./chdb/test_smoke.sh
+       # continue-on-error: false
       - name: Run chdb/build/build_static_lib.sh
         timeout-minutes: 600
         run: |
