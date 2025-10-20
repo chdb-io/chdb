@@ -23,7 +23,6 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS x86_64)
     runs-on: macos-15-intel
-    timeout-minutes: 720 
     steps:
       - name: Setup pyenv
         run: |
@@ -129,6 +128,7 @@ jobs:
           max-size: 10G
           append-timestamp: true
       - name: Run chdb/build.sh
+        timeout-minutes: 600
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -143,6 +143,7 @@ jobs:
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Run chdb/build/build_static_lib.sh
+        timeout-minutes: 600
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
