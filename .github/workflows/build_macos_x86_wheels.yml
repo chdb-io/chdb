@@ -32,7 +32,7 @@ jobs:
           max-size: 10G
           append-timestamp: true
         env:
-          CCACHE_HASHDIR: "false"
+          CCACHE_NOHASHDIR: "true"
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
