@@ -126,7 +126,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ runner.os }}-x86_64-ccache
-          max-size: 5G
+          max-size: 10G
           append-timestamp: true
       - name: Run chdb/build.sh
         run: |
