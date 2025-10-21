@@ -1,11 +1,12 @@
 #include <ChdbClient.h>
-#include <chdb-internal.h>
+#include <EmbeddedServer.h>
+#include <Client/Connection.h>
 #include <Interpreters/Context.h>
 #include <Interpreters/Session.h>
 #include <base/getFQDNOrHostName.h>
+#include <chdb-internal.h>
 #include <Common/Config/ConfigHelper.h>
 #include <Common/Exception.h>
-#include <EmbeddedServer.h>
 
 #if USE_PYTHON
 #include <PythonTableCache.h>
@@ -20,9 +21,9 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
-ChdbClient::ChdbClient(EmbeddedServer & server)
+ChdbClient::ChdbClient(EmbeddedServer & _server)
     : ClientBase()
-    , server(server)
+    , server(_server)
 {
     session = std::make_unique<Session>(server.getGlobalContext(), ClientInfo::Interface::LOCAL);
     global_context = session->makeSessionContext();
@@ -110,6 +111,39 @@ size_t ChdbClient::getStorageBytesRead() const
     return 0;
 }
 
+#if USE_PYTHON
+static bool isJSONSupported(const char * format, size_t format_len)
+{
+    if (format)
+    {
+        String lower_format{format, format_len};
+        std::transform(lower_format.begin(), lower_format.end(), lower_format.begin(), ::tolower);
+
+        return !(
+            lower_format == "arrow" || lower_format == "parquet" || lower_format == "arrowstream" || lower_format == "protobuf"
+            || lower_format == "protobuflist" || lower_format == "protobufsingle");
+    }
+
+    return true;
+}
+#endif
+
+bool ChdbClient::parseQueryTextWithOutputFormat(const String & query, const String & format)
+{
+    if (!format.empty())
+    {
+        client_context->setDefaultFormat(format);
+        setDefaultFormat(format);
+    }
+
+    if (!connection->checkConnected(connection_parameters.timeouts))
+        connect();
+#if USE_PYTHON
+    (static_cast<DB::LocalConnection *>(connection.get()))->getSession().setJSONSupport(isJSONSupported(format.c_str(), format.size()));
+#endif
+    return processQueryText(query);
+}
+
 CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
     const char * query, size_t query_len,
     const char * format, size_t format_len)
@@ -175,41 +209,21 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingInit(
     }
 }
 
-/** 
+
 CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result, bool is_canceled)
 {
     if (!streaming_query_context)
         return std::make_unique<CHDB::MaterializedQueryResult>("No active streaming query");
 
-    // Handle cancellation
-    if (is_canceled)
-    {
-        streaming_query_context.reset();
-#if USE_PYTHON
-        if (connection)
-        {
-            auto * local_connection = static_cast<LocalConnection *>(connection.get());
-            local_connection->resetQueryContext();
-        }
-        CHDB::PythonTableCache::clear();
-#endif
-        return std::make_unique<CHDB::MaterializedQueryResult>(nullptr, 0.0, 0, 0, 0, 0);
-    }
-
     try
     {
-        // TODO: Implement proper streaming using ClientBase's streaming methods
-        // For now, this is a placeholder that returns end-of-stream
-        // In the future, we should:
-        // 1. Use processStreamingQuery() or similar ClientBase method
-        // 2. Fetch data in batches
-        // 3. Return each batch until end-of-stream
-
-        bool is_end = true;
-
+        processStreamingQuery(streaming_result, is_canceled);
+        size_t storage_rows_read = getStorageRowsRead();
+        size_t storage_bytes_read = getStorageBytesRead();
+        bool is_end = is_canceled || !streaming_query_context;
         if (is_end)
         {
-            // End of stream reached, cleanup
+            // End of stream reached or cancelled, cleanup
             streaming_query_context.reset();
 #if USE_PYTHON
             if (connection)
@@ -221,11 +235,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
 #endif
         }
 
-        // Get statistics
-        size_t storage_rows_read = getStorageRowsRead();
-        size_t storage_bytes_read = getStorageBytesRead();
-
-        // Return batch result
+        // Return the result with the batch data
         return std::make_unique<CHDB::MaterializedQueryResult>(
             CHDB::ResultBuffer(stealQueryOutputVector()),
             getElapsedTime(),
@@ -237,11 +247,27 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
     catch (const Exception & e)
     {
         streaming_query_context.reset();
+#if USE_PYTHON
+        if (connection)
+        {
+            auto * local_connection = static_cast<LocalConnection *>(connection.get());
+            local_connection->resetQueryContext();
+        }
+        CHDB::PythonTableCache::clear();
+#endif
         return std::make_unique<CHDB::MaterializedQueryResult>(getExceptionMessage(e, false));
     }
     catch (...)
     {
         streaming_query_context.reset();
+#if USE_PYTHON
+        if (connection)
+        {
+            auto * local_connection = static_cast<LocalConnection *>(connection.get());
+            local_connection->resetQueryContext();
+        }
+        CHDB::PythonTableCache::clear();
+#endif
         return std::make_unique<CHDB::MaterializedQueryResult>(getCurrentExceptionMessage(true));
     }
 }
@@ -250,6 +276,18 @@ void ChdbClient::cancelStreamingQuery(void * streaming_result)
 {
     if (streaming_query_context)
     {
+        try
+        {
+            // Process the cancellation through ClientBase's streaming query method
+            processStreamingQuery(streaming_result, true);
+        }
+        catch (...)
+        {
+            // Ignore errors during cancellation
+            tryLogCurrentException(__PRETTY_FUNCTION__);
+        }
+
+        // Ensure cleanup happens
         streaming_query_context.reset();
 #if USE_PYTHON
         if (connection)
@@ -261,6 +299,6 @@ void ChdbClient::cancelStreamingQuery(void * streaming_result)
 #endif
     }
 }
-*/
+
 
 } // namespace DB

@@ -76,7 +76,7 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
 
     if (numpy_type.type == NumpyNullableType::OBJECT)
     {
-        if (!isJSONSupported())
+        if (!context->isJSONSupported())
         {
             numpy_type.type = NumpyNullableType::STRING;
             return NumpyToDataType(numpy_type);

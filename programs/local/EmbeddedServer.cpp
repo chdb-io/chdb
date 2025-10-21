@@ -523,7 +523,6 @@ try
 #endif
 
             registerDatabases();
-
             registerStorages();
 #if USE_PYTHON
             auto & storage_factory = StorageFactory::instance();
@@ -868,53 +867,3 @@ void EmbeddedServer::applyCmdOptions(ContextMutablePtr context)
             "output-format", config().getString("format",  "TSV")));
 }
 } // namespace DB
-
-#pragma clang diagnostic ignored "-Wunused-function"
-#pragma clang diagnostic ignored "-Wmissing-declarations"
-
-
-/**
- * The dummy_calls function is used to prevent certain functions from being optimized out by the compiler.
- * It includes calls to 'query_stable' and 'free_result' within a condition that is always false.
- * This approach ensures these functions are recognized as used by the compiler, particularly under high
- * optimization levels like -O3, where unused functions might otherwise be discarded.
- *
- * Without this the Github runner macOS 12 builder will fail to find query_stable and free_result.
- * It is strange because the same code works fine on my own macOS 12 x86_64 and arm64 machines.
- *
- * To prevent further clang or ClickHouse compile flags from affecting this, the function is defined here
- * and called from mainEntryClickHouseLocal.
- */
-bool always_false = false;
-void dummy_calls()
-{
-    if (always_false)
-    {
-        struct local_result * result = query_stable(0, nullptr);
-        free_result(result);
-    }
-}
-
-void dummy_calls_v2()
-{
-    if (always_false)
-    {
-        struct local_result_v2 * result = query_stable_v2(0, nullptr);
-        free_result_v2(result);
-    }
-}
-
-int mainEntryClickHouseLocal(int argc, char ** argv)
-{
-    dummy_calls();
-    auto result = CHDB::pyEntryClickHouseLocal(argc, argv);
-    if (result)
-    {
-        std::cout << result->string() << std::endl;
-        return 0;
-    }
-    else
-    {
-        return 1;
-    }
-}

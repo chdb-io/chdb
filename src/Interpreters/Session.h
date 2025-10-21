@@ -103,6 +103,12 @@ public:
 
     /// Closes and removes session
     void closeSession(const String & session_id);
+
+#if USE_PYTHON
+    bool isJSONSupported() const { return is_json_supported; }
+    void setJSONSupport(bool support) { is_json_supported = support; }
+#endif
+
 private:
     std::shared_ptr<SessionLog> getSessionLog() const;
     ContextMutablePtr makeQueryContextImpl(const ClientInfo * client_info_to_copy, ClientInfo * client_info_to_move) const;
@@ -133,6 +139,10 @@ private:
     SettingsChanges settings_from_auth_server;
 
     LoggerPtr log = nullptr;
+
+#if USE_PYTHON
+    bool is_json_supported = true;
+#endif
 };
 
 }

@@ -798,12 +798,10 @@ void LocalServer::processConfig()
         getClientConfiguration().setString("logger.level", logging ? level : "fatal");
         buildLoggers(getClientConfiguration(), logger(), "clickhouse-local");
     }
-
     shared_context = Context::createSharedHolder();
     global_context = Context::createGlobal(shared_context.get());
     global_context->makeGlobalContext();
     global_context->setApplicationType(Context::ApplicationType::LOCAL);
-
     tryInitPath();
 
     LoggerRawPtr log = &logger();
