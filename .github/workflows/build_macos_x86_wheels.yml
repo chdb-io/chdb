@@ -23,6 +23,7 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS x86_64)
     runs-on: macos-15-intel
+    timeout-minutes: 600
     steps:
       - name: Setup pyenv
         run: |
@@ -127,6 +128,8 @@ jobs:
           key: ${{ runner.os }}-x86_64-ccache
           max-size: 10G
           append-timestamp: true
+        env:
+          CCACHE_NOHASHDIR: "true"
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
