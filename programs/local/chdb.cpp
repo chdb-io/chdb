@@ -2,6 +2,7 @@
 #include <cstddef>
 #include <cstring>
 #include "Common/MemoryTracker.h"
+#include "Common/ThreadStatus.h"
 #include "LocalServer.h"
 #include "QueryResult.h"
 #include "chdb-internal.h"
@@ -9,6 +10,10 @@
 #if USE_PYTHON
 #    include "FormatHelper.h"
 #    include "PythonTableCache.h"
+#endif
+
+#if USE_JEMALLOC
+#    include <Common/memory.h>
 #endif
 
 #ifdef CHDB_STATIC_LIBRARY_BUILD
@@ -420,6 +425,7 @@ std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char *
     try
     {
         std::lock_guard<std::mutex> lock(CHDB_MUTEX);
+        DB::ThreadStatus thread_status;
         DB::LocalServer app;
         app.init(argc, argv);
         int ret = app.run();
@@ -512,6 +518,7 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
             std::unique_ptr<DB::LocalServer> server;
             try
             {
+                DB::ThreadStatus thread_status;
                 server = bgClickHouseLocal(argc, argv);
                 conn->server = nullptr;
                 conn->connected = true;
@@ -526,7 +533,6 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
                     init_done = true;
                 }
                 init_cv.notify_one();
-
                 while (true)
                 {
                     {

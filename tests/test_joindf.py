@@ -12,7 +12,7 @@ class TestJoinDf(unittest.TestCase):
         ret1 = cdf.query(sql="select * from __tbl1__", tbl1=cdf1)
         self.assertEqual(str(ret1), str(df1))
         self.assertEqual(ret1.rows_read(), 3)
-        self.assertEqual(ret1.bytes_read(), 68)
+        self.assertEqual(ret1.bytes_read(), 65)
         self.assertGreater(ret1.elapsed(), 0.000001)
 
     def test_2df(self):
@@ -45,7 +45,7 @@ class TestJoinDf(unittest.TestCase):
             str(pd.DataFrame({"b": ["one", "two", "three"], "s": [2, 4, 6]})),
         )
         self.assertEqual(ret_tbl2.rows_read(), 3)
-        self.assertEqual(ret_tbl2.bytes_read(), 68)
+        self.assertEqual(ret_tbl2.bytes_read(), 65)
         self.assertGreater(ret_tbl2.elapsed(), 0.000001)
 
 
