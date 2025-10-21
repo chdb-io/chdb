@@ -27,10 +27,10 @@ MemoryTracker * getMemoryTracker()
     if (auto * thread_memory_tracker = DB::CurrentThread::getMemoryTracker())
         return thread_memory_tracker;
 
-    /// Once the main thread is initialized,
-    /// total_memory_tracker is initialized too.
-    /// And can be used, since MainThreadStatus is required for profiling.
-    if (DB::MainThreadStatus::get())
+    /// Note, we cannot use total_memory_tracker earlier (i.e. just after static variable initialized without this check),
+    /// since the initialization order of static objects is not defined, and total_memory_tracker may not be initialized yet.
+    /// So here we relying on MainThreadStatus initialization.
+    if (DB::MainThreadStatus::initialized()) 
         return &total_memory_tracker;
 
     if (chdb_destructor_cleanup_in_progress)
@@ -69,12 +69,19 @@ AllocationTrace CurrentMemoryTracker::allocImpl(Int64 size, bool throw_if_memory
         ///    incorrectly increased by 5 MB instead of 3 MB.
         ///    (Alternatively, we could maintain `untracked_memory` value separately for each
         ///     possible blocker state, i.e. per VariableContext.)
-        if (!current_thread || MemoryTrackerBlockerInThread::isBlockedAny())
+        if (!current_thread)
         {
+            /// total_memory_tracker only, ignore untracked_memory
             return memory_tracker->allocImpl(size, throw_if_memory_exceeded);
         }
         else
         {
+            VariableContext blocker_level = MemoryTrackerBlockerInThread::getLevel();
+            if (blocker_level != current_thread->untracked_memory_blocker_level) 
+            {
+                current_thread->flushUntrackedMemory();
+            }
+            current_thread->untracked_memory_blocker_level = blocker_level;
             Int64 previous_untracked_memory = current_thread->untracked_memory;
             current_thread->untracked_memory += size;
             if (current_thread->untracked_memory > current_thread->untracked_memory_limit)
@@ -122,19 +129,24 @@ AllocationTrace CurrentMemoryTracker::free(Int64 size)
 {
     if (auto * memory_tracker = getMemoryTracker())
     {
-        if (!current_thread || MemoryTrackerBlockerInThread::isBlockedAny())
+        if (!current_thread)
         {
             return memory_tracker->free(size);
         }
-        else
+
+        VariableContext blocker_level = MemoryTrackerBlockerInThread::getLevel();
+        if (blocker_level != current_thread->untracked_memory_blocker_level)
         {
-            current_thread->untracked_memory -= size;
-            if (current_thread->untracked_memory < -current_thread->untracked_memory_limit)
-            {
-                Int64 untracked_memory = current_thread->untracked_memory;
-                current_thread->untracked_memory = 0;
-                return memory_tracker->free(-untracked_memory);
-            }
+            current_thread->flushUntrackedMemory();
+        }
+        current_thread->untracked_memory_blocker_level = blocker_level;
+
+        current_thread->untracked_memory -= size;
+        if (current_thread->untracked_memory < -current_thread->untracked_memory_limit)
+        {
+            Int64 untracked_memory = current_thread->untracked_memory;
+            current_thread->untracked_memory = 0;
+            return memory_tracker->free(-untracked_memory);
         }
 
         return AllocationTrace(memory_tracker->getSampleProbability(size));
@@ -148,4 +160,3 @@ void CurrentMemoryTracker::injectFault()
     if (auto * memory_tracker = getMemoryTracker())
         memory_tracker->injectFault();
 }
-
