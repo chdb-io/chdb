@@ -29,7 +29,9 @@ public:
 
     CHDB::QueryResultPtr executeStreamingInit(const char * query, size_t query_len, const char * format, size_t format_len);
 
-    //CHDB::QueryResultPtr executeStreamingIterate(void * streaming_result, bool is_canceled = false);
+    CHDB::QueryResultPtr executeStreamingIterate(void * streaming_result, bool is_canceled = false);
+
+    void cancelStreamingQuery(void * streaming_result);
 
     bool hasStreamingQuery() const { return streaming_query_context != nullptr; }
 
@@ -52,6 +54,7 @@ protected:
 
 private:
     void cleanup();
+    bool parseQueryTextWithOutputFormat(const String & query, const String & format);
 
     EmbeddedServer & server;
     std::unique_ptr<Session> session;

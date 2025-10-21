@@ -14,7 +14,6 @@ endif()
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
-        FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp

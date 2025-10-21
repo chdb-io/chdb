@@ -31,6 +31,8 @@ public:
 
     int main(const std::vector<String> & /*args*/) override;
 
+    std::vector<String> getAllRegisteredNames() const override { return {}; }
+
     ContextMutablePtr getGlobalContext() { return global_context; }
 
     std::string getErrorMsg() const { return error_message_oss.str(); }
