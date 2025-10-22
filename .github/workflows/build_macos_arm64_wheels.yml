@@ -22,8 +22,19 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
-    runs-on: macos-13-xlarge
+    runs-on: macos-14-xlarge
     steps:
+      - name: Free up disk space (Initial)
+        run: |
+          # Clean Homebrew cache
+          brew cleanup -s 2>/dev/null || true
+          rm -rf "$(brew --cache)" 2>/dev/null || true
+          sudo rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
+          sudo rm -rf ~/Library/Caches/com.apple.dt.Xcode 2>/dev/null || true
+          sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
+          sudo rm -rf /tmp/* 2>/dev/null || true
+          echo "=== Disk usage after cleanup ==="
+          df -h
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -80,6 +91,7 @@ jobs:
           brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
           brew install git ninja libtool gettext binutils grep findutils nasm lld@19 libiconv
+          brew install ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
@@ -102,6 +114,23 @@ jobs:
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
+      - name: Free up disk space (Before compilation)
+        run: |
+          echo "=== Disk usage before compilation cleanup ==="
+          df -h
+          brew cleanup -s 2>/dev/null || true
+          rm -rf "$(brew --cache)" 2>/dev/null || true
+          rm -rf ~/.cache/pip 2>/dev/null || true
+          rm -rf ~/.pyenv/.cache 2>/dev/null || true
+          rm -rf ~/.cargo/registry/cache 2>/dev/null || true
+          echo "=== Disk usage after cleanup ==="
+          df -h
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-arm64-ccache
+          max-size: 5G
+          append-timestamp: true
       - name: Run chdb/build.sh
         timeout-minutes: 600
         run: |
@@ -193,6 +222,12 @@ jobs:
           sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
           sudo sysctl kern.coredump=1
           ulimit -c unlimited
+      - name: Free up disk space
+        run: |
+          # Clean more build artifacts
+          rm -rf buildlib/contrib 2>/dev/null || true
+          rm -rf buildlib/base 2>/dev/null || true
+          rm -rf buildlib/src 2>/dev/null || true
       - name: Test wheel on all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -200,7 +235,7 @@ jobs:
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
+            python -m pip install dist/*.whl --force-reinstall --no-cache-dir
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
 
             # First test: without optional dependencies
@@ -212,7 +247,7 @@ jobs:
             echo "Testing with pandas and pyarrow..."
             python -m pip install pandas pyarrow
             make test
-
+            python -m pip uninstall -y chdb
             pyenv shell --unset
           done
         continue-on-error: false
