@@ -163,6 +163,12 @@ if (CMAKE_BUILD_TYPE_UC STREQUAL "DEBUG" OR CMAKE_BUILD_TYPE_UC STREQUAL "RELWIT
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Xclang -fuse-ctor-homing")
 endif()
 
+if (USE_MUSL)
+    add_definitions(-DUSE_MUSL=1 -D__MUSL__=1)
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ftls-model=global-dynamic")
+    set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -ftls-model=global-dynamic")
+endif()
+
 option(ENABLE_TESTS "Provide unit_test_dbms target with Google.Test unit tests" ON)
 option(ENABLE_EXAMPLES "Build all example programs in 'examples' subdirectories" OFF)
 option(ENABLE_BENCHMARKS "Build all benchmark programs in 'benchmarks' subdirectories" OFF)
@@ -396,7 +402,7 @@ option(ENABLE_LIBRARIES "Enable all external libraries by default" ON)
 
 # Increase stack size on Musl. We need big stack for our recursive-descend parser.
 if (USE_MUSL)
-    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-stack_size,2097152")
+    set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-z,stack-size=2097152")
 endif ()
 
 include(cmake/dbms_glob_sources.cmake)
