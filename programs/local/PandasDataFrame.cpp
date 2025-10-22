@@ -1,5 +1,4 @@
 #include "PandasDataFrame.h"
-#include "FormatHelper.h"
 #include "NumpyType.h"
 #include "PandasAnalyzer.h"
 #include "PandasCacheItem.h"

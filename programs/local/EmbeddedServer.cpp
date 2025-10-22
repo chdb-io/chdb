@@ -152,7 +152,7 @@ extern const int FILE_ALREADY_EXISTS;
 extern const int UNKNOWN_FORMAT;
 }
 
-void applySettingsOverridesForLocal(ContextMutablePtr context)
+static void applySettingsOverridesForLocal(ContextMutablePtr context)
 {
     Settings settings = context->getSettingsCopy();
 
