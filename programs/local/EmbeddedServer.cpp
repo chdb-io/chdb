@@ -866,4 +866,83 @@ void EmbeddedServer::applyCmdOptions(ContextMutablePtr context)
         config().getString(
             "output-format", config().getString("format",  "TSV")));
 }
+
+std::weak_ptr<EmbeddedServer> EmbeddedServer::global_instance;
+std::mutex EmbeddedServer::instance_mutex;
+
+std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** argv)
+{
+    std::lock_guard<std::mutex> lock(instance_mutex);
+
+    auto instance = global_instance.lock();
+    if (instance)
+    {
+        if (argc > 0 && argv)
+        {
+            std::string path = ":memory:"; // Default path
+            for (int i = 1; i < argc; i++)
+            {
+                if (strncmp(argv[i], "--path=", 7) == 0)
+                {
+                    path = argv[i] + 7;
+                    break;
+                }
+            }
+            if (!instance->db_path.empty() && instance->db_path != path)
+            {
+                throw DB::Exception(
+                    ErrorCodes::BAD_ARGUMENTS,
+                    "EmbeddedServer already initialized with path '{}', cannot connect with different path '{}'",
+                    instance->db_path,
+                    path);
+            }
+        }
+        return instance;
+    }
+
+    instance = std::make_shared<EmbeddedServer>();
+
+    if (argc > 0 && argv)
+    {
+        instance->initializeWithArgs(argc, argv);
+    }
+
+    global_instance = instance;
+    return instance;
+}
+
+void EmbeddedServer::initializeWithArgs(int argc, char ** argv)
+{
+    db_path = ":memory:"; // Default path
+    for (int i = 1; i < argc; i++)
+    {
+        if (strncmp(argv[i], "--path=", 7) == 0)
+        {
+            db_path = argv[i] + 7;
+            break;
+        }
+    }
+
+    try
+    {
+        std::vector<std::string> args;
+        for (int i = 0; i < argc; ++i)
+        {
+            args.push_back(argv[i]);
+        }
+        initialize(*this);
+        int ret = main(args);
+        if (ret != 0)
+        {
+            auto err_msg = getErrorMsg();
+            LOG_ERROR(&logger(), "Error initializing EmbeddedServer: {}", err_msg);
+            throw DB::Exception(ErrorCodes::BAD_ARGUMENTS, "Error initializing EmbeddedServer: {}", err_msg);
+        }
+    }
+    catch (const std::exception & e)
+    {
+        LOG_ERROR(&Poco::Logger::get("EmbeddedServer"), "Failed to initialize EmbeddedServer: {}", e.what());
+        throw;
+    }
+}
 } // namespace DB
