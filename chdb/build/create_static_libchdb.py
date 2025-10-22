@@ -33,9 +33,16 @@ def parse_libchdb_cmd():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
 
+    if IS_MACOS_X86:
+        build_dir = 'buildlib'
+    else:
+        build_dir = 'build-static-lib'
+
+    print(f"Using build directory: {build_dir}")
+
     # First, check build.log to see if it contains @CMakeFiles/clickhouse.rsp
-    build_log_path = os.path.join(project_root, 'build-static-lib', 'build.log')
-    rsp_file_path = os.path.join(project_root, 'build-static-lib', 'CMakeFiles', 'clickhouse.rsp')
+    build_log_path = os.path.join(project_root, build_dir, 'build.log')
+    rsp_file_path = os.path.join(project_root, build_dir, 'CMakeFiles', 'clickhouse.rsp')
 
     command = ""
     use_rsp_file = False
@@ -68,7 +75,7 @@ def parse_libchdb_cmd():
     print("=== END COMMAND ===\n")
 
     # Common prefix for absolute paths
-    base_path = os.path.join(project_root, "build-static-lib")
+    base_path = os.path.join(project_root, build_dir)
 
     # Extract all .o files and .a files from the command
     # Pattern for .o files (must be followed by space or end of string)
