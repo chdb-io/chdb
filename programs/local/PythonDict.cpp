@@ -1,5 +1,4 @@
 #include "PythonDict.h"
-#include "FormatHelper.h"
 #include "StoragePython.h"
 
 #include <Interpreters/Context.h>

@@ -1,5 +1,4 @@
 #include "StoragePython.h"
-#include "FormatHelper.h"
 #include "PybindWrapper.h"
 #include "PythonSource.h"
 
