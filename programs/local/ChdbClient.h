@@ -11,6 +11,7 @@
 namespace DB
 {
 class EmbeddedServer;
+using EmbeddedServerPtr = std::shared_ptr<EmbeddedServer>;
 
 /**
  * ChdbClient - Client for executing queries in chDB
@@ -18,11 +19,14 @@ class EmbeddedServer;
  * Designed for chDB's embedded use case and inherits from ClientBase
  * to reuse all query execution logic.
  * Each client has its own LocalConnection.
+ * Holds a shared_ptr to EmbeddedServer to ensure it stays alive while client exists.
  */
 class ChdbClient : public ClientBase
 {
 public:
-    explicit ChdbClient(EmbeddedServer & server);
+    static std::unique_ptr<ChdbClient> create(EmbeddedServerPtr server_ptr = nullptr);
+
+    explicit ChdbClient(EmbeddedServerPtr server_ptr);
     ~ChdbClient() override;
 
     CHDB::QueryResultPtr executeMaterializedQuery(const char * query, size_t query_len, const char * format, size_t format_len);
@@ -56,7 +60,7 @@ private:
     void cleanup();
     bool parseQueryTextWithOutputFormat(const String & query, const String & format);
 
-    EmbeddedServer & server;
+    EmbeddedServerPtr server;
     std::unique_ptr<Session> session;
     ConfigurationPtr configuration;
     Poco::AutoPtr<Poco::Util::LayeredConfiguration> layered_configuration;

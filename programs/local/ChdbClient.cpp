@@ -21,11 +21,14 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
-ChdbClient::ChdbClient(EmbeddedServer & _server)
+ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
     : ClientBase()
-    , server(_server)
+    , server(server_ptr)
 {
-    session = std::make_unique<Session>(server.getGlobalContext(), ClientInfo::Interface::LOCAL);
+    if (!server)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "EmbeddedServer pointer is null");
+
+    session = std::make_unique<Session>(server->getGlobalContext(), ClientInfo::Interface::LOCAL);
     global_context = session->makeSessionContext();
     global_context->setCurrentDatabase("default");
     global_context->setApplicationType(Context::ApplicationType::LOCAL);
@@ -38,6 +41,15 @@ ChdbClient::ChdbClient(EmbeddedServer & _server)
     ignore_error = false;
     echo_queries = false;
     print_stack_trace = false;
+}
+
+std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServerPtr server_ptr)
+{
+    if (!server_ptr)
+    {
+        server_ptr = EmbeddedServer::getInstance();
+    }
+    return std::make_unique<ChdbClient>(server_ptr);
 }
 
 ChdbClient::~ChdbClient()
@@ -208,7 +220,6 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingInit(
         return std::make_unique<CHDB::StreamQueryResult>(getCurrentExceptionMessage(true));
     }
 }
-
 
 CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result, bool is_canceled)
 {

@@ -56,49 +56,8 @@ public:
     ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
 };
 
-static std::unique_ptr<DB::EmbeddedServer> g_embedded_server;
-static std::mutex g_server_init_mutex;
-static bool g_server_initialized = false;
-static std::string global_db_path;
 // used only in pyEntryClickHouseLocal
 static std::mutex CHDB_MUTEX;
-
-static void initializeGlobalEmbeddedServer(int argc, char ** argv)
-{
-    std::lock_guard<std::mutex> lock(g_server_init_mutex);
-
-    if (g_server_initialized)
-        return;
-
-    if (!g_embedded_server)
-    {
-        g_embedded_server = std::make_unique<DB::EmbeddedServer>();
-    }
-
-    try
-    {
-        std::vector<std::string> args;
-        for (int i = 0; i < argc; ++i)
-        {
-            args.push_back(argv[i]);
-        }
-        g_embedded_server->initialize(*g_embedded_server);
-        int ret = g_embedded_server->main(args);
-
-        if (ret != 0)
-        {
-            auto err_msg = g_embedded_server->getErrorMsg();
-            LOG_ERROR(&g_embedded_server->logger(), "Error initializing EmbeddedServer: {}", err_msg);
-            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Error initializing EmbeddedServer: {}", err_msg);
-        }
-        g_server_initialized = true;
-    }
-    catch (const std::exception & e)
-    {
-        LOG_ERROR(&Poco::Logger::get("EmbeddedServer"), "Failed to initialize EmbeddedServer: {}", e.what());
-        throw;
-    }
-}
 
 static local_result_v2 * convert2LocalResultV2(QueryResult * query_result)
 {
@@ -265,44 +224,15 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
     try
     {
         DB::ThreadStatus thread_status;
-        std::string path = ":memory:"; // Default path
-        for (int i = 1; i < argc; i++)
+        auto server = DB::EmbeddedServer::getInstance(argc, argv);
+        auto client = DB::ChdbClient::create(server);
+        if (!client)
         {
-            if (strncmp(argv[i], "--path=", 7) == 0)
-            {
-                path = argv[i] + 7;
-                break;
-            }
+            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Failed to create ChdbClient");
         }
 
-        {
-            std::lock_guard<std::mutex> lock(g_server_init_mutex);
-
-            // Check if EmbeddedServer is already initialized with a different path
-            if (g_server_initialized && !global_db_path.empty() && global_db_path != path)
-            {
-                throw DB::Exception(
-                    DB::ErrorCodes::BAD_ARGUMENTS,
-                    "EmbeddedServer already initialized with path '{}', cannot connect with different path '{}'",
-                    global_db_path,
-                    path);
-            }
-
-            if (!g_server_initialized)
-            {
-                initializeGlobalEmbeddedServer(argc, argv);
-                global_db_path = path;
-            }
-        }
-
-        if (!g_embedded_server || !g_server_initialized)
-        {
-            throw DB::Exception(DB::ErrorCodes::BAD_ARGUMENTS, "Failed to initialize EmbeddedServer");
-        }
-
-        auto * client = new DB::ChdbClient(*g_embedded_server);
         auto * conn = new chdb_conn();
-        conn->server = client;
+        conn->server = client.release();
         conn->connected = true;
         return reinterpret_cast<chdb_connection *>(conn);
     }
@@ -567,8 +497,7 @@ void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * resul
     {
         DB::tryLogCurrentException(__PRETTY_FUNCTION__);
     }
-    auto * stream_result = reinterpret_cast<StreamQueryResult *>(result);
-    delete stream_result;
+    // Note: The result object should be freed by chdb_destroy_result(), not here
 }
 
 void chdb_destroy_result(chdb_streaming_result * result)
@@ -713,7 +642,6 @@ chdb_result * chdb_stream_query_n(chdb_connection conn, const char * query, size
 
     try
     {
-        // Use the client from the connection
         auto * client = static_cast<DB::ChdbClient *>(connection->server);
         auto query_result = client->executeStreamingInit(query, query_len, format, format_len);
 
@@ -740,7 +668,6 @@ chdb_result * chdb_stream_query_n(chdb_connection conn, const char * query, size
 chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * result)
 {
     ChdbDestructorGuard guard;
-
     if (!conn)
     {
         auto * query_result = new MaterializedQueryResult("Unexpected null connection");
@@ -762,9 +689,15 @@ chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * resul
 
     try
     {
-        // For streaming fetch, we return the provided result
-        // This is a placeholder - actual streaming implementation would fetch next batch
-        return result;
+        auto * client = static_cast<DB::ChdbClient *>(connection->server);
+        if (!client->hasStreamingQuery())
+            return reinterpret_cast<chdb_result *>(new MaterializedQueryResult("No active streaming query"));
+        auto * stream_result = reinterpret_cast<StreamQueryResult *>(result);
+        auto query_result = client->executeStreamingIterate(stream_result, false);
+        if (!query_result)
+            return reinterpret_cast<chdb_result *>(new MaterializedQueryResult("Failed to fetch streaming results"));
+
+        return reinterpret_cast<chdb_result *>(query_result.release());
     }
     catch (const std::exception & e)
     {
@@ -782,7 +715,6 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 {
     ChdbDestructorGuard guard;
 
-
     if (!result || !conn)
         return;
 
@@ -790,13 +722,17 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
     if (!checkConnectionValidity(connection))
         return;
 
-    // Cancel streaming query - this is a placeholder
-    // In the actual implementation, this would cancel an ongoing streaming query
-    if (result)
+    try
     {
-        auto * query_result = reinterpret_cast<QueryResult *>(result);
-        delete query_result;
+        auto * client = static_cast<DB::ChdbClient *>(connection->server);
+        auto * stream_result = reinterpret_cast<StreamQueryResult *>(result);
+        client->cancelStreamingQuery(stream_result);
     }
+    catch (...)
+    {
+        DB::tryLogCurrentException(__PRETTY_FUNCTION__);
+    }
+    // Note: The result object should be freed by chdb_destroy_query_result(), not here
 }
 
 void chdb_destroy_query_result(chdb_result * result)
