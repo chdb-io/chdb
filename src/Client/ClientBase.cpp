@@ -1777,6 +1777,21 @@ bool isStdinNotEmptyAndValid(ReadBuffer & std_in)
 {
     try
     {
+        // Use non-blocking check for stdin to avoid hanging
+        if (auto * fd_buffer = typeid_cast<ReadBufferFromFileDescriptor *>(&std_in))
+        {
+            int fd = fd_buffer->getFD();
+            if (fd == STDIN_FILENO)
+            {
+                int flags = fcntl(fd, F_GETFL);
+                if (flags != -1)
+                {
+                    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+                    SCOPE_EXIT({ fcntl(fd, F_SETFL, flags); });
+                    return !std_in.eof();
+                }
+            }
+        }
         return !std_in.eof();
     }
     catch (const Exception & e)
