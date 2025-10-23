@@ -5,7 +5,7 @@ import pyarrow as pa
 import chdb.session as chs
 
 EXPECTED1 = """"['urgent','important']",100.3,"[]"
-\\N,\\N,"[1,666]"
+"[]",0,"[1,666]"
 """
 
 dict3 = {
@@ -43,7 +43,7 @@ class TestQueryJSONArrow(unittest.TestCase):
         return super().tearDown()
 
     def test_query_pyarrow_table1(self):
-        ret = self.sess.query("SELECT c4.tags, c3.deep.level2.level3, c3.mixed_list[].a FROM Python(arrow_table1) WHERE c1 <= 2 ORDER BY c1")
+        ret = self.sess.query("SELECT c4.tags, c3.deep.level2.level3, c3.mixed_list.a FROM Python(arrow_table1) WHERE c1 <= 2 ORDER BY c1")
 
         self.assertEqual(str(ret), EXPECTED1)
 

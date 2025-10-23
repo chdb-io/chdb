@@ -75,7 +75,7 @@ class TestQueryPyArrow(unittest.TestCase):
         )
         self.assertEqual(
             str(ret),
-            "5872873,587287.3,553446.5,470878.25,3,0,7,10\n",
+            "5872873,587287.3,553446.5,582813.5,3,0,7,10\n",
         )
 
     def test_query_arrow4(self):
@@ -99,17 +99,17 @@ class TestQueryPyArrow(unittest.TestCase):
         self.assertDictEqual(
             schema_dict,
             {
-                "quadkey": "String",
-                "tile": "String",
-                "tile_x": "Float64",
-                "tile_y": "Float64",
-                "avg_d_kbps": "Int64",
-                "avg_u_kbps": "Int64",
-                "avg_lat_ms": "Int64",
-                "avg_lat_down_ms": "Float64",
-                "avg_lat_up_ms": "Float64",
-                "tests": "Int64",
-                "devices": "Int64",
+                "quadkey": "Nullable(String)",
+                "tile": "Nullable(String)",
+                "tile_x": "Nullable(Float64)",
+                "tile_y": "Nullable(Float64)",
+                "avg_d_kbps": "Nullable(Int64)",
+                "avg_u_kbps": "Nullable(Int64)",
+                "avg_lat_ms": "Nullable(Int64)",
+                "avg_lat_down_ms": "Nullable(Float64)",
+                "avg_lat_up_ms": "Nullable(Float64)",
+                "tests": "Nullable(Int64)",
+                "devices": "Nullable(Int64)",
             },
         )
         ret = chdb.query(
@@ -127,22 +127,33 @@ class TestQueryPyArrow(unittest.TestCase):
         self.assertDictEqual(
             {x["name"]: x["type"] for x in json.loads(str(ret)).get("meta")},
             {
-                "max(avg_d_kbps)": "Int64",
-                "max(avg_lat_down_ms)": "Float64",
-                "max(avg_lat_ms)": "Int64",
-                "max(avg_lat_up_ms)": "Float64",
-                "max(avg_u_kbps)": "Int64",
-                "max(devices)": "Int64",
-                "max(tests)": "Int64",
-                "round(median(avg_d_kbps), 2)": "Float64",
-                "round(median(avg_lat_down_ms), 2)": "Float64",
-                "round(median(avg_lat_ms), 2)": "Float64",
-                "round(median(avg_lat_up_ms), 2)": "Float64",
-                "round(median(avg_u_kbps), 2)": "Float64",
-                "round(median(devices), 2)": "Float64",
-                "round(median(tests), 2)": "Float64",
+                "max(avg_d_kbps)": "Nullable(Int64)",
+                "max(avg_lat_down_ms)": "Nullable(Float64)",
+                "max(avg_lat_ms)": "Nullable(Int64)",
+                "max(avg_lat_up_ms)": "Nullable(Float64)",
+                "max(avg_u_kbps)": "Nullable(Int64)",
+                "max(devices)": "Nullable(Int64)",
+                "max(tests)": "Nullable(Int64)",
+                "round(median(avg_d_kbps), 2)": "Nullable(Float64)",
+                "round(median(avg_lat_down_ms), 2)": "Nullable(Float64)",
+                "round(median(avg_lat_ms), 2)": "Nullable(Float64)",
+                "round(median(avg_lat_up_ms), 2)": "Nullable(Float64)",
+                "round(median(avg_u_kbps), 2)": "Nullable(Float64)",
+                "round(median(devices), 2)": "Nullable(Float64)",
+                "round(median(tests), 2)": "Nullable(Float64)",
             },
         )
+
+    def test_query_arrow_null_type(self):
+        null_array = pa.array([None, None, None])
+        table = pa.table([null_array], names=["null_col"])
+        ret = chdb.query("SELECT * FROM Python(table)")
+        self.assertEqual(str(ret), "\\N\n\\N\n\\N\n")
+
+        null_array = pa.array([None, 1, None])
+        table = pa.table([null_array], names=["null_col"])
+        ret = chdb.query("SELECT * FROM Python(table)")
+        self.assertEqual(str(ret), "\\N\n1\n\\N\n")
 
 
 if __name__ == "__main__":
