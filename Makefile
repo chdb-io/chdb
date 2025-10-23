@@ -1,4 +1,4 @@
-.PHONY: all clean buildlib wheel pub mac-arm64 docs serve-docs docs-serve
+.PHONY: all clean buildlib wheel pub mac-arm64 docs docs-md
 
 buildlib:
 	@echo "Building library..."
@@ -41,5 +41,10 @@ docs:
 	@PYTHONPATH=src sphinx-build -b html docs buildlib/docs --keep-going -v -E
 	@echo "Documentation built in buildlib/docs/"
 	@echo "Starting documentation server on port 8000..."
-	@(sleep 1; python3 -c "import webbrowser; webbrowser.open('http://127.0.0.1:8000/')" 2>/dev/null &)
-	@cd build/docs && python3 -m http.server 8000
+	@(sleep 1; python3 -c "import webbrowser; webbrowser.open('http://127.0.0.1:8001/')" 2>/dev/null &)
+	@cd buildlib/docs && python3 -m http.server 8001
+
+docs-md:
+	@echo "Building markdown documentation..."
+	@PYTHONPATH=src sphinx-build -b markdown docs buildlib/markdowndocs --keep-going -v -E
+	@echo "Markdown documentation built in buildlib/markdowndocs/"
