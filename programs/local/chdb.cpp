@@ -234,7 +234,8 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
         auto * conn = new chdb_conn();
         conn->server = client.release();
         conn->connected = true;
-        return reinterpret_cast<chdb_connection *>(conn);
+        auto ** conn_ptr = new chdb_conn *(conn);
+        return reinterpret_cast<chdb_connection *>(conn_ptr);
     }
     catch (const DB::Exception & e)
     {

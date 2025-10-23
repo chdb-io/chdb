@@ -5,6 +5,7 @@
 #include <Interpreters/Session.h>
 #include <base/getFQDNOrHostName.h>
 #include <chdb-internal.h>
+#include <Poco/Net/SocketAddress.h>
 #include <Common/Config/ConfigHelper.h>
 #include <Common/Exception.h>
 
@@ -28,13 +29,15 @@ ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
     if (!server)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "EmbeddedServer pointer is null");
 
-    session = std::make_unique<Session>(server->getGlobalContext(), ClientInfo::Interface::LOCAL);
-    global_context = session->makeSessionContext();
-    global_context->setCurrentDatabase("default");
-    global_context->setApplicationType(Context::ApplicationType::LOCAL);
     configuration = ConfigHelper::createEmpty();
     layered_configuration = new Poco::Util::LayeredConfiguration();
     layered_configuration->addWriteable(configuration, 0);
+    session = std::make_unique<Session>(server->getGlobalContext(), ClientInfo::Interface::LOCAL);
+    session->authenticate("default", "", Poco::Net::SocketAddress{});
+    global_context = session->makeSessionContext();
+    global_context->setCurrentDatabase("default");
+    global_context->setApplicationType(Context::ApplicationType::LOCAL);
+    initClientContext(global_context);
     server_display_name = "chDB-embedded";
     query_processing_stage = QueryProcessingStage::Enum::Complete;
     is_interactive = false;
@@ -142,13 +145,14 @@ static bool isJSONSupported(const char * format, size_t format_len)
 
 bool ChdbClient::parseQueryTextWithOutputFormat(const String & query, const String & format)
 {
+    DB::ThreadStatus thread_status;
     if (!format.empty())
     {
         client_context->setDefaultFormat(format);
         setDefaultFormat(format);
     }
 
-    if (!connection->checkConnected(connection_parameters.timeouts))
+    if (!connection || !connection->checkConnected(connection_parameters.timeouts))
         connect();
 #if USE_PYTHON
     (static_cast<DB::LocalConnection *>(connection.get()))->getSession().setJSONSupport(isJSONSupported(format.c_str(), format.size()));

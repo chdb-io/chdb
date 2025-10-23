@@ -62,8 +62,6 @@ struct StreamingIterateRequest : QueryRequestBase
 
 std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char ** argv);
 
-void chdbCleanupConnection();
-
 void cancelStreamQuery(DB::ChdbClient * client, void * stream_result);
 
 const std::string & chdb_result_error_string(chdb_result * result);
