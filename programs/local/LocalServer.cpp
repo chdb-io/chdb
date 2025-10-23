@@ -71,7 +71,6 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
-
 namespace fs = std::filesystem;
 
 namespace CurrentMetrics
