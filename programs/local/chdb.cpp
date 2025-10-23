@@ -1,11 +1,11 @@
 #include "chdb.h"
+#include "chdb-internal.h"
+#include "LocalServer.h"
+
 #include <cstddef>
 #include <cstring>
-#include "Common/MemoryTracker.h"
-#include "Common/ThreadStatus.h"
-#include "LocalServer.h"
-#include "QueryResult.h"
-#include "chdb-internal.h"
+#include <Common/MemoryTracker.h>
+#include <Common/ThreadStatus.h>
 
 #if defined(USE_MUSL) && defined(__aarch64__)
 void chdb_musl_compile_stub(int arg)
@@ -19,8 +19,8 @@ void chdb_musl_compile_stub(int arg)
 #endif
 
 #if USE_PYTHON
-#    include "FormatHelper.h"
-#    include "PythonTableCache.h"
+#include "FormatHelper.h"
+#include "PythonTableCache.h"
 #endif
 
 #if USE_JEMALLOC
@@ -38,35 +38,22 @@ namespace DB
 #endif
 
 extern thread_local bool chdb_destructor_cleanup_in_progress;
+std::shared_mutex global_connection_mutex;
 
 namespace CHDB
 {
 
-/**
- * RAII guard for accurate memory tracking in chDB external interfaces
- *
- * When Python (or other programming language) threads call chDB-provided interfaces
- * such as chdb_destroy_query_result, the memory released cannot be accurately tracked
- * by ClickHouse's MemoryTracker, which may lead to false reports of insufficient memory.
- *
- * Therefore, for all externally exposed chDB interfaces, ChdbDestructorGuard must be
- * used at the beginning of execution to provide thread marking, enabling MemoryTracker
- * to accurately track memory changes.
- */
-class ChdbDestructorGuard
+#if !USE_PYTHON
+extern "C"
 {
-public:
-    ChdbDestructorGuard() { chdb_destructor_cleanup_in_progress = true; }
+    extern chdb_state chdb_arrow_scan(chdb_connection, const char *, chdb_arrow_stream);
+}
 
-    ~ChdbDestructorGuard() { chdb_destructor_cleanup_in_progress = false; }
-
-    ChdbDestructorGuard(const ChdbDestructorGuard &) = delete;
-    ChdbDestructorGuard & operator=(const ChdbDestructorGuard &) = delete;
-    ChdbDestructorGuard(ChdbDestructorGuard &&) = delete;
-    ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
+[[maybe_unused]] void * force_link_arrow_functions[] = {
+    reinterpret_cast<void*>(chdb_arrow_scan)
 };
+#endif
 
-static std::shared_mutex global_connection_mutex;
 static std::mutex CHDB_MUTEX;
 chdb_conn * global_conn_ptr = nullptr;
 std::string global_db_path;
@@ -312,11 +299,6 @@ static std::pair<QueryResultPtr, bool> createQueryResult(DB::LocalServer * serve
     }
 
     return std::make_pair(std::move(query_result), is_end);
-}
-
-static bool checkConnectionValidity(chdb_conn * conn)
-{
-    return conn && conn->connected && conn->queue;
 }
 
 static QueryResultPtr executeQueryRequest(

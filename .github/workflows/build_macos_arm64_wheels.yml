@@ -24,6 +24,19 @@ jobs:
     name: Build Universal Wheel (macOS ARM64)
     runs-on: macos-14-xlarge
     steps:
+      - name: Check machine architecture
+        run: |
+          echo "=== Machine Architecture Information ==="
+          echo "Machine type: $(uname -m)"
+          echo "Architecture: $(arch)"
+          echo "System info: $(uname -a)"
+          echo "Hardware info:"
+          system_profiler SPHardwareDataType | grep "Chip\|Processor"
+          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
+            echo "This is an ARM64 (Apple Silicon) machine"
+          else
+            echo "This is an x86_64 (Intel) machine"
+          fi
       - name: Free up disk space (Initial)
         run: |
           # Clean Homebrew cache
@@ -201,6 +214,7 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
+          bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"

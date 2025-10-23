@@ -4,16 +4,19 @@
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
 
-namespace pybind11 {
+namespace pybind11
+{
 
 bool gil_check();
 void gil_assert();
 
 }
 
-namespace CHDB {
+namespace CHDB
+{
 
-namespace py {
+namespace py
+{
 
 using namespace pybind11;
 
