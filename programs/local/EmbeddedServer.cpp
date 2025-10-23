@@ -901,8 +901,12 @@ std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** ar
     }
 
     instance = std::make_shared<EmbeddedServer>();
-
-    if (argc > 0 && argv)
+    if (argc == 0 || !argv)
+    {
+        const char * default_argv[] = {"chdb"};
+        instance->initializeWithArgs(1, const_cast<char **>(default_argv));
+    }
+    else
     {
         instance->initializeWithArgs(argc, argv);
     }
