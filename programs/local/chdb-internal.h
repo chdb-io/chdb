@@ -6,12 +6,38 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 #include <string>
-#include <boost/iostreams/detail/select.hpp>
+#include <arrow/c/abi.h>
 
 namespace DB
 {
     class LocalServer;
+}
+
+extern std::shared_mutex global_connection_mutex;
+extern thread_local bool chdb_destructor_cleanup_in_progress;
+
+/**
+ * RAII guard for accurate memory tracking in chDB external interfaces
+ * used at the beginning of execution to provide thread marking, enabling MemoryTracker
+ * to accurately track memory changes.
+ */
+class ChdbDestructorGuard
+{
+public:
+    ChdbDestructorGuard() { chdb_destructor_cleanup_in_progress = true; }
+    ~ChdbDestructorGuard() { chdb_destructor_cleanup_in_progress = false; }
+    ChdbDestructorGuard(const ChdbDestructorGuard &) = delete;
+    ChdbDestructorGuard & operator=(const ChdbDestructorGuard &) = delete;
+    ChdbDestructorGuard(ChdbDestructorGuard &&) = delete;
+    ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
+};
+
+/// Connection validity check function
+inline bool checkConnectionValidity(chdb_conn * connection)
+{
+    return connection && connection->connected && connection->queue;
 }
 
 namespace CHDB
@@ -93,4 +119,7 @@ void cancelStreamQuery(DB::LocalServer * server, void * stream_result);
 const std::string & chdb_result_error_string(chdb_result * result);
 
 const std::string & chdb_streaming_result_error_string(chdb_streaming_result * result);
+
+void chdb_destroy_arrow_stream(ArrowArrayStream * arrow_stream);
+
 }
