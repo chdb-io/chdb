@@ -49,7 +49,7 @@ ColumnsDescription PythonDict::getActualTableStructure(const py::object & object
         }
     }
 
-    return StoragePython::getTableStructureFromData(schema);
+    return StoragePython::getTableStructureFromData(schema, context);
 }
 
 bool PythonDict::isPythonDict(const py::object & object)
