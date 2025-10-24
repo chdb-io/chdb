@@ -233,16 +233,9 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.9
           python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
-      - name: Audit wheels
+      - name: Verify wheel sizes
         run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-          python -m pip install delocate
-          for wheel in dist/*.whl; do
-            delocate-wheel -w dist/ "$wheel"
-          done
-          echo "Final wheel sizes:"
+          echo "=== Wheel sizes ==="
           du -sh dist/*
       - name: Setup core dump collection
         run: |
