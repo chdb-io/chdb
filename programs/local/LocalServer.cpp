@@ -2,10 +2,13 @@
 
 #include "chdb-internal.h"
 #if USE_PYTHON
+#include "StoragePython.h"
 #include "TableFunctionPython.h"
-#include <TableFunctions/TableFunctionFactory.h>
-#include <Storages/StorageFactory.h>
+#else
+#include "StorageArrowStream.h"
+#include "TableFunctionArrowStream.h"
 #endif
+#include <TableFunctions/TableFunctionFactory.h>
 #include <Formats/FormatFactory.h>
 
 #include <filesystem>
@@ -70,7 +73,6 @@
 #if USE_AZURE_BLOB_STORAGE
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
-
 
 namespace fs = std::filesystem;
 
@@ -653,17 +655,22 @@ try
         registerAggregateFunctions();
 
         registerTableFunctions();
-#if USE_PYTHON
+
         auto & table_function_factory = TableFunctionFactory::instance();
+#if USE_PYTHON
         registerTableFunctionPython(table_function_factory);
+#else
+        registerTableFunctionArrowStream(table_function_factory);
 #endif
 
         registerDatabases();
 
         registerStorages();
-#if USE_PYTHON
         auto & storage_factory = StorageFactory::instance();
+#if USE_PYTHON
         registerStoragePython(storage_factory);
+#else
+        registerStorageArrowStream(storage_factory);
 #endif
 
         registerDictionaries();

@@ -24,6 +24,19 @@ jobs:
     name: Build Universal Wheel (macOS ARM64)
     runs-on: macos-14-xlarge
     steps:
+      - name: Check machine architecture
+        run: |
+          echo "=== Machine Architecture Information ==="
+          echo "Machine type: $(uname -m)"
+          echo "Architecture: $(arch)"
+          echo "System info: $(uname -a)"
+          echo "Hardware info:"
+          system_profiler SPHardwareDataType | grep "Chip\|Processor"
+          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
+            echo "This is an ARM64 (Apple Silicon) machine"
+          else
+            echo "This is an x86_64 (Intel) machine"
+          fi
       - name: Free up disk space (Initial)
         run: |
           # Clean Homebrew cache
@@ -201,8 +214,10 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
+          bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
+          rm -rf chdb/build/
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
@@ -216,6 +231,10 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
+      - name: Verify wheel sizes
+        run: |
+          echo "=== Wheel sizes ==="
+          du -sh dist/*
       - name: Setup core dump
         run: |
           mkdir -p tmp/core

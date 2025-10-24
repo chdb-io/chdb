@@ -7,7 +7,6 @@
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Interpreters/Context.h>
 
-
 namespace ProfileEvents
 {
     extern const Event TableFunctionExecute;
