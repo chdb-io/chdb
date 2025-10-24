@@ -17,6 +17,7 @@ namespace ErrorCodes
 {
     extern const int ATTEMPT_TO_READ_AFTER_EOF;
     extern const int CANNOT_READ_ALL_DATA;
+    extern const int CANNOT_READ_FROM_FILE_DESCRIPTOR;
 }
 
 namespace
@@ -95,8 +96,10 @@ bool ReadBuffer::next()
     {
         res = nextImpl();
     }
-    catch (...)
+    catch (const Exception & e)
     {
+        if (e.code() == ErrorCodes::CANNOT_READ_FROM_FILE_DESCRIPTOR)
+            return false;
         cancel();
         throw;
     }
