@@ -1,7 +1,7 @@
 [project]
 name = "chdb"
 requires-python = ">=3.8"
-version = "3.6.0"
+version = "3.7.0"
 description = "chDB is an in-process OLAP SQL Engine powered by ClickHouse"
 readme = "README.md"
 license = {text = "Apache-2.0"}

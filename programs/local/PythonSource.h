@@ -1,16 +1,15 @@
 #pragma once
 
+#include "ArrowTableReader.h"
+#include "PythonUtils.h"
 #include "config.h"
 
-#include <cstddef>
 #include <Core/Block.h>
-
 #include <Formats/FormatSettings.h>
 #include <Processors/ISource.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
 #include <Poco/Logger.h>
-#include "PythonUtils.h"
 
 namespace DB
 {
@@ -32,7 +31,8 @@ public:
         size_t max_block_size_,
         size_t stream_index,
         size_t num_streams,
-        const FormatSettings & format_settings_);
+        const FormatSettings & format_settings_,
+        CHDB::ArrowTableReaderPtr arrow_table_reader_ = nullptr);
 
     ~PythonSource() override = default;
 
@@ -59,6 +59,8 @@ private:
 
     const FormatSettings format_settings;
 
+    CHDB::ArrowTableReaderPtr arrow_table_reader;
+
     Chunk genChunk(size_t & num_rows, PyObjectVecPtr data);
 
     PyObjectVecPtr scanData(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count);
@@ -78,8 +80,8 @@ private:
 
     void insert_string_from_array(py::handle obj, const MutableColumnPtr & column);
 
-    void prepareColumnCache(Names & names, Columns & columns);
     Chunk scanDataToChunk();
     void destory(PyObjectVecPtr & data);
+    std::pair<size_t, size_t> calculateOffsetAndCount();
 };
 }
