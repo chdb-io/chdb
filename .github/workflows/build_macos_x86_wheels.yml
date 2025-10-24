@@ -227,7 +227,13 @@ jobs:
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.9
           make wheel
-      - name: Install delocate and audit wheels
+      - name: Fix wheel platform tag
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.9
+          python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+      - name: Audit wheels
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -238,12 +244,6 @@ jobs:
           done
           echo "Final wheel sizes:"
           du -sh dist/*
-      - name: Fix wheel platform tag
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-          python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
       - name: Setup core dump collection
         run: |
           mkdir -p tmp/core

@@ -225,6 +225,12 @@ jobs:
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.8
           make wheel
+      - name: Fix wheel platform tag
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
       - name: Audit wheels
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -233,18 +239,10 @@ jobs:
           python -m pip install delocate
           ls -lh dist/
           for wheel in dist/*.whl; do
-            echo "Repairing wheel: $wheel"
             delocate-wheel -w dist/ "$wheel"
           done
-          ls -lh dist/
           echo "Final wheel sizes:"
           du -sh dist/*
-      - name: Fix wheel platform tag
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
       - name: Setup core dump
         run: |
           mkdir -p tmp/core
