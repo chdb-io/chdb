@@ -217,6 +217,7 @@ jobs:
           bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
+          rm -rf chdb/build/
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
@@ -224,6 +225,20 @@ jobs:
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.8
           make wheel
+      - name: Audit wheels
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          python -m pip install delocate
+          ls -lh dist/
+          for wheel in dist/*.whl; do
+            echo "Repairing wheel: $wheel"
+            delocate-wheel -w dist/ "$wheel"
+          done
+          ls -lh dist/
+          echo "Final wheel sizes:"
+          du -sh dist/*
       - name: Fix wheel platform tag
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"

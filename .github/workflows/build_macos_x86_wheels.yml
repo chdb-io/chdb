@@ -218,6 +218,7 @@ jobs:
           bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
+          rm -rf chdb/build/
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           source ~/.cargo/env
@@ -226,6 +227,17 @@ jobs:
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.9
           make wheel
+      - name: Install delocate and audit wheels
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.9
+          python -m pip install delocate
+          for wheel in dist/*.whl; do
+            delocate-wheel -w dist/ "$wheel"
+          done
+          echo "Final wheel sizes:"
+          du -sh dist/*
       - name: Fix wheel platform tag
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
