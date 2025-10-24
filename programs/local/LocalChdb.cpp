@@ -511,13 +511,12 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("udf_path") = "",
         "Query chDB and return a query_result object");
 
-	auto destroy_import_cache = []()
+    auto destroy_import_cache = []()
     {
-        CHDB::chdbCleanupConnection();
         CHDB::PythonTableCache::clear();
 		CHDB::PythonImporter::destroy();
-	};
-	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
+    };
+    m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
 
 #    endif // PY_TEST_MAIN

@@ -154,7 +154,7 @@ namespace ErrorCodes
     extern const int UNKNOWN_FORMAT;
 }
 
-void applySettingsOverridesForLocal(ContextMutablePtr context)
+static void applySettingsOverridesForLocal(ContextMutablePtr context)
 {
     Settings settings = context->getSettingsCopy();
 
@@ -429,8 +429,6 @@ void LocalServer::cleanup()
 {
     try
     {
-        cleanStreamingQuery();
-
         connection.reset();
 
         /// Suggestions are loaded async in a separate thread and it can use global context.
@@ -805,12 +803,10 @@ void LocalServer::processConfig()
         getClientConfiguration().setString("logger.level", logging ? level : "fatal");
         buildLoggers(getClientConfiguration(), logger(), "clickhouse-local");
     }
-
     shared_context = Context::createSharedHolder();
     global_context = Context::createGlobal(shared_context.get());
     global_context->makeGlobalContext();
     global_context->setApplicationType(Context::ApplicationType::LOCAL);
-
     tryInitPath();
 
     LoggerRawPtr log = &logger();
@@ -1226,16 +1222,6 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
         }
     }
 }
-
-
-void LocalServer::cleanStreamingQuery()
-{
-    if (streaming_query_context && streaming_query_context->streaming_result)
-        CHDB::cancelStreamQuery(this, streaming_query_context->streaming_result);
-
-    streaming_query_context.reset();
-}
-
 }
 
 #pragma clang diagnostic ignored "-Wunused-function"

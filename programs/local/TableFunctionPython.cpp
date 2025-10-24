@@ -131,7 +131,7 @@ ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr conte
         return PythonReader::getActualTableStructure(reader, context);
 
     auto schema = PyReader::getSchemaFromPyObj(reader);
-    return StoragePython::getTableStructureFromData(schema);
+    return StoragePython::getTableStructureFromData(schema, context);
 }
 
 void registerTableFunctionPython(TableFunctionFactory & factory)

@@ -345,6 +345,9 @@ protected:
     mutable bool need_recalculate_access = true;
     String current_database;
     std::unique_ptr<Settings> settings{};  /// Setting for query execution.
+#if USE_PYTHON
+    bool is_json_supported = true;
+#endif
 
     using ProgressCallback = std::function<void(const Progress & progress)>;
     ProgressCallback progress_callback;  /// Callback for tracking progress of query execution.
@@ -738,6 +741,10 @@ public:
     /// Global application configuration settings.
     void setConfig(const ConfigurationPtr & config);
     const Poco::Util::AbstractConfiguration & getConfigRef() const;
+#if USE_PYTHON
+    bool isJSONSupported() const { return is_json_supported; }
+    void setJSONSupport(bool support) { is_json_supported = support; }
+#endif
 
     AccessControl & getAccessControl();
     const AccessControl & getAccessControl() const;
