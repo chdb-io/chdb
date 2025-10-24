@@ -45,7 +45,7 @@ copyright = '{0}, {1}'.format(year, author)
 if chdb and hasattr(chdb, '__version__'):
     version = release = chdb.__version__
 else:
-    version = release = '3.6.0'
+    version = release = '3.7.1'
 
 github_repo_url = 'https://github.com/chdb-io/chdb'
 
