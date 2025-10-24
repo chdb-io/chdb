@@ -6,6 +6,13 @@
 
 namespace CHDB {
 
+template <typename T>
+static bool ModuleIsLoaded()
+{
+	auto dict = pybind11::module_::import("sys").attr("modules");
+	return dict.contains(py::str(T::Name));
+}
+
 struct PythonImportCache;
 
 struct PythonImportCacheItem {
