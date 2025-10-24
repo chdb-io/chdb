@@ -218,6 +218,7 @@ jobs:
           bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
+          rm -rf chdb/build/
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           source ~/.cargo/env
@@ -232,6 +233,10 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.9
           python -m wheel tags --platform-tag=macosx_10_15_x86_64 --remove dist/*.whl
+      - name: Verify wheel sizes
+        run: |
+          echo "=== Wheel sizes ==="
+          du -sh dist/*
       - name: Setup core dump collection
         run: |
           mkdir -p tmp/core

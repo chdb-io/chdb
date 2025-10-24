@@ -40,7 +40,7 @@ If you encounter import errors:
    pip install --force-reinstall chdb
    
    # Install specific version
-   pip install chdb==3.6.0
+   pip install chdb==3.7.1
 
 **Check installation:**
 
