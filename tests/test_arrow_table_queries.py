@@ -10,7 +10,6 @@ import chdb
 from chdb import session
 from urllib.request import urlretrieve
 
-# Clean up and create session in the test methods instead of globally
 
 class TestChDBArrowTable(unittest.TestCase):
     @classmethod

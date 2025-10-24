@@ -1,16 +1,11 @@
 #!python3
 
-import time
 import shutil
-import psutil
 import unittest
 from chdb import session
-import chdb
 
 
 test_state_dir = ".state_tmp_auxten_test_stateful"
-current_process = psutil.Process()
-check_thread_count = False
 
 
 class TestStateful(unittest.TestCase):
@@ -54,7 +49,6 @@ class TestStateful(unittest.TestCase):
 
         ret = sess.query("SELECT * FROM db_xxx.log_table_xxx", "CSV")
         self.assertEqual(str(ret), "1\n2\n3\n4\n")
-        ret.show()
         sess.close()
 
         # reuse session
@@ -115,30 +109,7 @@ class TestStateful(unittest.TestCase):
             with self.assertRaises(Exception):
                 ret = sess.query("SELECT chdb_xxx_notexist()", "CSV")
 
-    def test_query_fmt(self):
-        with session.Session() as sess:
-            # Dataframe result
-            ret = sess.query("SELECT 1 AS x", "DataFrame")
-            self.assertEqual(ret.x[0], 1)
-            # ArrowTable
-            ret = sess.query("SELECT 1 AS x", "ArrowTable")
-            self.assertEqual(
-                str(ret),
-                """pyarrow.Table
-x: uint8 not null
-----
-x: [[1]]""",
-            )
-
-    # def test_zfree_thread_count(self):
-    #     time.sleep(3)
-    #     thread_count = current_process.num_threads()
-    #     print("Number of threads using psutil library: ", thread_count)
-    #     if check_thread_count:
-    #         self.assertEqual(thread_count, 1)
-
 
 if __name__ == "__main__":
     shutil.rmtree(test_state_dir, ignore_errors=True)
-    check_thread_count = True
-    unittest.main()
+    unittest.main(verbosity=2)

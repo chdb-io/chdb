@@ -4,6 +4,7 @@ import time
 import sys
 import unittest
 import chdb
+import pyarrow # noqa
 from utils import data_file
 
 # run query parallel in n thread and benchmark
