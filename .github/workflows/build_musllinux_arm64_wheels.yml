@@ -103,16 +103,16 @@ jobs:
             eval "$(pyenv init -)"
 
             # Install Python versions
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
               echo "Installing Python $version"
               pyenv install $version:latest
             done
-            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
 
             # Verify installations
             echo "Installed versions:"
             pyenv versions
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
               if ! pyenv versions --bare | grep -q "^$version"; then
                 echo "ERROR: Python $version is not installed!"
                 exit 1
@@ -128,7 +128,7 @@ jobs:
             rustup component add --toolchain nightly-2025-07-07 rust-src
 
             # Install Python dependencies
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
               echo "Installing dependencies for Python $version"
               pyenv shell $version
               python -m pip install --upgrade pip
@@ -235,7 +235,7 @@ jobs:
             CURRENT_TEST=0
             TEST_FAILED=false
 
-            for version in 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
               CURRENT_TEST=$((CURRENT_TEST + 1))
               echo "=== Test $CURRENT_TEST/$TOTAL_TESTS: Python $version ==="
               echo "Test start time: $(date)"
