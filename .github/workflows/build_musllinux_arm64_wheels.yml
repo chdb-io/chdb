@@ -331,22 +331,29 @@ jobs:
           gh release upload ${{ github.ref_name }} ./dist/*.whl --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        continue-on-error: true
+
+      - name: Setup Python and install twine for PyPI upload
+        run: |
+          echo "=== Setting up Python for PyPI upload ==="
+          python3 --version
+          python3 -m pip --version
+          echo "=== Installing twine ==="
+          python3 -m pip install --upgrade pip
+          python3 -m pip install twine
+          if ! python3 -m twine --version; then
+            echo "ERROR: Twine installation failed!"
+            exit 1
+          fi
+          echo "Twine installed successfully"
 
       # Upload to PyPI
-      - name: Upload to PyPI
+      - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: addnab/docker-run-action@v3
-        with:
-          image: quay.io/pypa/musllinux_1_2_aarch64
-          options: -v ${{ github.workspace }}:/workspace
-          run: |
-            cd /workspace
-            echo "=== Uploading to PyPI ==="
-
-            export PATH="$HOME/.pyenv/bin:$PATH"
-            eval "$(pyenv init -)"
-            pyenv shell 3.13
-            python -m twine upload ./dist/*.whl
+        run: |
+          echo "=== Uploading to PyPI ==="
+          ls -la ./dist/
+          python3 -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
