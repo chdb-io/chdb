@@ -1,8 +1,8 @@
 #pragma once
 
 #include "config.h"
+#include "PybindWrapper.h"
 
-#include <cstddef>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/Serializations/SerializationNumber.h>
@@ -68,46 +68,27 @@ inline bool isInheritsFromPyReader(const py::object & obj)
     return execWithGIL([&]() { return _isInheritsFromPyReader(obj); });
 }
 
-// Helper function to check if object is a pandas DataFrame
-inline bool isPandasDf(const py::object & obj)
-{
-    return execWithGIL(
-        [&]()
-        {
-            auto pd_data_frame_type = py::module_::import("pandas").attr("DataFrame");
-            return py::isinstance(obj, pd_data_frame_type);
-        });
-}
-
 // Helper function to check if object is a PyArrow Table
 inline bool isPyarrowTable(const py::object & obj)
 {
-    return execWithGIL(
-        [&]()
-        {
-            auto table_type = py::module_::import("pyarrow").attr("Table");
-            return py::isinstance(obj, table_type);
-        });
+    chassert(py::gil_check());
+    auto dict = py::module_::import("sys").attr("modules");
+    if (!dict.contains(py::str("pyarrow")))
+        return false;
+
+    return py::isinstance(obj, py::module_::import("pyarrow").attr("Table"));
 }
 
 inline bool hasGetItem(const py::object & obj)
 {
-    return execWithGIL(
-        [&]()
-        {
-            return py::hasattr(obj, "__getitem__");
-        });
+    chassert(py::gil_check());
+    return py::hasattr(obj, "__getitem__");
 }
 
 // Specific wrappers for common use cases
 inline auto castToPyList(const py::object & obj)
 {
     return execWithGIL([&]() { return obj.cast<py::list>(); });
-}
-
-inline auto castToPyArray(const py::object & obj)
-{
-    return execWithGIL([&]() { return obj.cast<py::array>(); });
 }
 
 inline std::string castToStr(const py::object & obj)

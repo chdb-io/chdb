@@ -2,9 +2,11 @@
 
 import os
 import unittest
+import pyarrow # type: ignore
 import chdb
 from format_output import format_output
 from utils import data_file, reset_elapsed
+
 
 class TestBasic(unittest.TestCase):
     def test_basic(self):
@@ -15,32 +17,14 @@ class TestBasic(unittest.TestCase):
         with self.assertRaises(Exception):
             res = chdb.query("SELECT 1", "unknown_format")
 
+
 class TestOutput(unittest.TestCase):
     def test_output(self):
         for format, output in format_output.items():
-            if format == "ArrowTable":
+            if format != "ArrowTable":
                 continue
             res = chdb.query("SELECT * FROM file('" + data_file + "', Parquet) limit 10", format)
-            data = reset_elapsed(res.bytes())
-            # Arrow format output is not deterministic
-            if format in ("Arrow", "ArrowStream"):
-                continue
-
-            if "Pretty" in format:
-                continue
-            if "Vertical" in format:
-                continue
-
-            if format in ("JSONEachRowWithProgress", "JSONStringsEachRowWithProgress"):
-                data_str = str(data)
-                lines = data_str.split('\n')
-                if len(lines) >= 3:
-                    extracted_lines = lines[1] + '\n' + lines[2] + '\n'
-                    data = extracted_lines
-
-            if format == "Parquet":
-                data = data[:2000]
-                output["data"] = output["data"][:2000]
+            data = reset_elapsed(f"{res}")
             self.assertEqual(data, output["data"])
 
 

@@ -2,8 +2,13 @@ import os
 import tempfile
 from io import BytesIO
 import re
-import pandas as pd
-import pyarrow as pa
+try:
+    import pandas as pd
+    import pyarrow as pa
+except ImportError as e:
+    print(f'ImportError: {e}')
+    print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
+    raise ImportError('Failed to import pyarrow or pandas') from None
 from chdb import query as chdb_query
 
 

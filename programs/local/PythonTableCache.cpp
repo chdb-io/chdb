@@ -1,4 +1,5 @@
 #include "PythonTableCache.h"
+#include "PandasDataFrame.h"
 #include "PybindWrapper.h"
 #include "PythonUtils.h"
 
@@ -32,7 +33,7 @@ static py::object findQueryableObj(const String & var_name)
                 {
                     // Get the object using Python's indexing syntax
                     obj = namespace_obj[py::cast(var_name)];
-                    if (DB::isInheritsFromPyReader(obj) || DB::isPandasDf(obj) || DB::isPyarrowTable(obj) || DB::hasGetItem(obj))
+                    if (DB::isInheritsFromPyReader(obj) || PandasDataFrame::isPandasDataframe(obj) || DB::isPyarrowTable(obj) || DB::hasGetItem(obj))
                     {
                         return obj;
                     }

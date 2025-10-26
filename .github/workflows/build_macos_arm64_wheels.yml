@@ -256,6 +256,15 @@ jobs:
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall --no-cache-dir
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+
+            # First test: without optional dependencies
+            echo "Testing without pandas and pyarrow..."
+            python -m pip uninstall -y pandas pyarrow || true
+            make test
+
+            # Second test: with optional dependencies
+            echo "Testing with pandas and pyarrow..."
+            python -m pip install pandas pyarrow
             make test
             python -m pip uninstall -y chdb
             pyenv shell --unset
