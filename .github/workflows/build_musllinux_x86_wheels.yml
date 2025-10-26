@@ -264,7 +264,6 @@ jobs:
           gh release upload ${{ github.ref_name }} dist/*.whl --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-        continue-on-error: true
       - uses: actions/upload-artifact@v4
         with:
           name: chdb-artifacts-musllinux-x86_64
