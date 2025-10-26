@@ -346,6 +346,7 @@ jobs:
             exit 1
           fi
           echo "Twine installed successfully"
+          ls -la ./dist/
 
       # Upload to PyPI
       - name: Upload pypi
