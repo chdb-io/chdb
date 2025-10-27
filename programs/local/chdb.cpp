@@ -39,7 +39,6 @@ namespace DB
 #endif
 
 extern thread_local bool chdb_destructor_cleanup_in_progress;
-std::shared_mutex global_connection_mutex;
 
 namespace CHDB
 {

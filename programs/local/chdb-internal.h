@@ -5,13 +5,13 @@
 
 #include <memory>
 #include <string>
+#include <arrow/c/abi.h>
 
 namespace DB
 {
     class ChdbClient;
 }
 
-extern std::shared_mutex global_connection_mutex;
 extern thread_local bool chdb_destructor_cleanup_in_progress;
 
 /**
@@ -29,12 +29,6 @@ public:
     ChdbDestructorGuard(ChdbDestructorGuard &&) = delete;
     ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
 };
-
-/// Connection validity check function
-inline bool checkConnectionValidity(chdb_conn * connection)
-{
-    return connection && connection->connected && connection->queue;
-}
 
 namespace CHDB
 {
