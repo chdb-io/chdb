@@ -1,12 +1,14 @@
 #include "EmbeddedServer.h"
 
-#include "chdb-internal.h"
 #if USE_PYTHON
-#    include <Storages/StorageFactory.h>
-#    include <TableFunctions/TableFunctionFactory.h>
+#    include "StoragePython.h"
 #    include "TableFunctionPython.h"
+#else
+#    include "StorageArrowStream.h"
+#    include "TableFunctionArrowStream.h"
 #endif
 #include <Formats/FormatFactory.h>
+#include <TableFunctions/TableFunctionFactory.h>
 
 #include <filesystem>
 #include <Access/AccessControl.h>
@@ -517,9 +519,11 @@ try
             registerAggregateFunctions();
 
             registerTableFunctions();
-#if USE_PYTHON
             auto & table_function_factory = TableFunctionFactory::instance();
+#if USE_PYTHON
             registerTableFunctionPython(table_function_factory);
+#else
+            registerTableFunctionArrowStream(table_function_factory);
 #endif
 
             registerDatabases();
