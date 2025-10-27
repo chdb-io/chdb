@@ -2,7 +2,6 @@
 #include "chdb-internal.h"
 #include "ArrowStreamRegistry.h"
 
-#include <shared_mutex>
 #include <arrow/c/abi.h>
 #include <base/defines.h>
 
@@ -91,8 +90,6 @@ static chdb_state chdb_inner_arrow_scan(
     chdb_connection conn, const char * table_name,
     chdb_arrow_stream arrow_stream, bool is_owner)
 {
-    std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
-
     if (!table_name || !arrow_stream)
         return CHDBError;
 
@@ -165,9 +162,6 @@ chdb_state chdb_arrow_array_scan(
 chdb_state chdb_arrow_unregister_table(chdb_connection conn, const char * table_name)
 {
     ChdbDestructorGuard guard;
-
-    std::shared_lock<std::shared_mutex> global_lock(global_connection_mutex);
-
     if (!table_name)
         return CHDBError;
 
