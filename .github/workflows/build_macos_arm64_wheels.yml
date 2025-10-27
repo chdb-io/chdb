@@ -85,7 +85,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
 
           # Install bump-my-version
           python -m pip install bump-my-version
