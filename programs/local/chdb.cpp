@@ -151,11 +151,6 @@ static QueryResultPtr createStreamingIterateQueryResult(DB::ChdbClient * client,
     return query_result;
 }
 
-static bool checkConnectionValidity(chdb_conn * conn)
-{
-    return conn && conn->connected;
-}
-
 void cancelStreamQuery(DB::ChdbClient * client, void * stream_result)
 {
     auto streaming_iter_req = std::make_unique<CHDB::StreamingIterateRequest>();

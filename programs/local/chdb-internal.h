@@ -30,6 +30,12 @@ public:
     ChdbDestructorGuard & operator=(ChdbDestructorGuard &&) = delete;
 };
 
+/// Connection validity check function
+inline bool checkConnectionValidity(chdb_conn * connection)
+{
+    return connection && connection->connected;
+}
+
 namespace CHDB
 {
 
