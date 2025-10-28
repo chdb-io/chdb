@@ -1,9 +1,7 @@
 #pragma once
 
-#include "StoragePython.h"
 #include "PybindWrapper.h"
 
-#include "config.h"
 #include <Storages/ColumnsDescription.h>
 #include <TableFunctions/ITableFunction.h>
 #include <Poco/Logger.h>
@@ -22,7 +20,7 @@ public:
     ~TableFunctionPython() override
     {
         // Acquire the GIL before destroying the reader object
-        py::gil_scoped_acquire acquire;
+        pybind11::gil_scoped_acquire acquire;
         reader.dec_ref();
         reader.release();
     }
@@ -35,12 +33,12 @@ private:
         const std::string & table_name,
         ColumnsDescription cached_columns,
         bool is_insert_query) const override;
-    const char * getStorageTypeName() const override { return "Python"; }
+    const char * getStorageEngineName() const override { return "Python"; }
 
     void parseArguments(const ASTPtr & ast_function, ContextPtr context) override;
 
     ColumnsDescription getActualTableStructure(ContextPtr context, bool is_insert_query) const override;
-    py::object reader;
+    pybind11::object reader;
 };
 
 }

@@ -131,6 +131,7 @@ namespace DB
     extern void registerFunctionCoalesce(FunctionFactory & factory);
     extern void registerFunctionCoding(FunctionFactory & factory);
     extern void registerFunctionCodingUUID(FunctionFactory & factory);
+    extern void registerFunctionColorSRGBToOKLCH(FunctionFactory & factory);
     extern void registerFunctionCompareSubstrings(FunctionFactory & factory);
     extern void registerFunctionConcat(FunctionFactory & factory);
     extern void registerFunctionConcatWithSeparator(FunctionFactory & factory);
@@ -230,12 +231,16 @@ namespace DB
     extern void registerFunctionFromUnixTimestamp64Micro(FunctionFactory & factory);
     extern void registerFunctionFromUnixTimestamp64Milli(FunctionFactory & factory);
     extern void registerFunctionFromUnixTimestamp64Nano(FunctionFactory & factory);
+    extern void registerFunctionFunctionColorOKLCHToSRGB(FunctionFactory & factory);
+    extern void registerFunctionFunctionIRR(FunctionFactory & factory);
+    extern void registerFunctionFunctionNPV(FunctionFactory & factory);
+    extern void registerFunctionFunctionXirr(FunctionFactory & factory);
+    extern void registerFunctionFunctionXnpv(FunctionFactory & factory);
     extern void registerFunctionFuzzBits(FunctionFactory & factory);
     extern void registerFunctionGCD(FunctionFactory & factory);
     extern void registerFunctionGenerateRandomStructure(FunctionFactory & factory);
     extern void registerFunctionGenerateSnowflakeID(FunctionFactory & factory);
     extern void registerFunctionGenerateUUIDv4(FunctionFactory & factory);
-    extern void registerFunctionGenerateUUIDv7(FunctionFactory & factory);
     extern void registerFunctionGeoDistance(FunctionFactory & factory);
     extern void registerFunctionGeoToH3(FunctionFactory & factory);
     extern void registerFunctionGeohashDecode(FunctionFactory & factory);
@@ -348,6 +353,7 @@ namespace DB
     extern void registerFunctionIsZeroOrNull(FunctionFactory & factory);
     extern void registerFunctionJSON(FunctionFactory & factory);
     extern void registerFunctionJSONArrayLength(FunctionFactory & factory);
+    extern void registerFunctionJSONExtractCaseInsensitive(FunctionFactory & factory);
     extern void registerFunctionJSONMergePatch(FunctionFactory & factory);
     extern void registerFunctionJSONPaths(FunctionFactory & factory);
     extern void registerFunctionJoinGet(FunctionFactory & factory);
@@ -382,6 +388,7 @@ namespace DB
     extern void registerFunctionMatch(FunctionFactory & factory);
     extern void registerFunctionMaterialize(FunctionFactory & factory);
     extern void registerFunctionMax2(FunctionFactory & factory);
+    extern void registerFunctionMergeTreePartInfoTools(FunctionFactory & factory);
     extern void registerFunctionMin2(FunctionFactory & factory);
     extern void registerFunctionMinSampleSize(FunctionFactory & factory);
     extern void registerFunctionMinus(FunctionFactory & factory);
@@ -431,13 +438,16 @@ namespace DB
     extern void registerFunctionNow(FunctionFactory & factory);
     extern void registerFunctionNow64(FunctionFactory & factory);
     extern void registerFunctionNowInBlock(FunctionFactory & factory);
+    extern void registerFunctionNowInBlock64(FunctionFactory & factory);
     extern void registerFunctionNullIf(FunctionFactory & factory);
+    extern void registerFunctionNumericIndexedVector(FunctionFactory & factory);
     extern void registerFunctionOverlay(FunctionFactory & factory);
     extern void registerFunctionPadString(FunctionFactory & factory);
     extern void registerFunctionParseDateTime(FunctionFactory & factory);
     extern void registerFunctionParseReadableSize(FunctionFactory & factory);
     extern void registerFunctionParseTimeDelta(FunctionFactory & factory);
     extern void registerFunctionPartitionId(FunctionFactory & factory);
+    extern void registerFunctionPatchPartitionID(FunctionFactory & factory);
     extern void registerFunctionPath(FunctionFactory & factory);
     extern void registerFunctionPathFull(FunctionFactory & factory);
     extern void registerFunctionPi(FunctionFactory & factory);
@@ -476,6 +486,7 @@ namespace DB
     extern void registerFunctionRandomString(FunctionFactory & factory);
     extern void registerFunctionRandomStringUTF8(FunctionFactory & factory);
     extern void registerFunctionRange(FunctionFactory & factory);
+    extern void registerFunctionReadWKB(FunctionFactory & factory);
     extern void registerFunctionReadWKT(FunctionFactory & factory);
     extern void registerFunctionRegexpExtract(FunctionFactory & factory);
     extern void registerFunctionRegexpQuoteMeta(FunctionFactory & factory);
@@ -502,6 +513,8 @@ namespace DB
     extern void registerFunctionRunningDifferenceStartingWithFirstValue(FunctionFactory & factory);
     extern void registerFunctionSQLJSON(FunctionFactory & factory);
     extern void registerFunctionScalarSubqueryResult(FunctionFactory & factory);
+    extern void registerFunctionSearchAll(FunctionFactory & factory);
+    extern void registerFunctionSearchAny(FunctionFactory & factory);
     extern void registerFunctionSerial(FunctionFactory & factory);
     extern void registerFunctionSeriesOutliersDetectTukey(FunctionFactory & factory);
     extern void registerFunctionServerTimezone(FunctionFactory & factory);
@@ -554,6 +567,12 @@ namespace DB
     extern void registerFunctionThrowIf(FunctionFactory & factory);
     extern void registerFunctionTid(FunctionFactory & factory);
     extern void registerFunctionTimeDiff(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesFromGrid(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesIdToTags(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesIdToTagsGroup(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesRange(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesStoreTags(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesTagsGroupToTags(FunctionFactory & factory);
     extern void registerFunctionTimeSlot(FunctionFactory & factory);
     extern void registerFunctionTimeSlots(FunctionFactory & factory);
     extern void registerFunctionTimeWindow(FunctionFactory & factory);
@@ -608,7 +627,6 @@ namespace DB
     extern void registerFunctionToStartOfTenMinutes(FunctionFactory & factory);
     extern void registerFunctionToStartOfYear(FunctionFactory & factory);
     extern void registerFunctionToStringCutToZero(FunctionFactory & factory);
-    extern void registerFunctionToTime(FunctionFactory & factory);
     extern void registerFunctionToTimeZone(FunctionFactory & factory);
     extern void registerFunctionToTypeName(FunctionFactory & factory);
     extern void registerFunctionToUnixTimestamp64Micro(FunctionFactory & factory);
@@ -657,6 +675,7 @@ namespace DB
     extern void registerFunctionVisitParamExtractUInt(FunctionFactory & factory);
     extern void registerFunctionVisitParamHas(FunctionFactory & factory);
     extern void registerFunctionWidthBucket(FunctionFactory & factory);
+    extern void registerFunctionWkb(FunctionFactory & factory);
     extern void registerFunctionWkt(FunctionFactory & factory);
     extern void registerFunctionYesterday(FunctionFactory & factory);
     extern void registerFunctionZTest(FunctionFactory & factory);
@@ -670,6 +689,7 @@ namespace DB
     extern void registerFunctionhasSubsequenceCaseInsensitive(FunctionFactory & factory);
     extern void registerFunctionhasSubsequenceCaseInsensitiveUTF8(FunctionFactory & factory);
     extern void registerFunctionhasSubsequenceUTF8(FunctionFactory & factory);
+    extern void registerFunctionpolygonsIntersect(FunctionFactory & factory);
     extern void registerFunctionseriesDecomposeSTL(FunctionFactory & factory);
     extern void registerFunctiontimezoneOffset(FunctionFactory & factory);
 
@@ -801,6 +821,7 @@ namespace DB
             &registerFunctionCoalesce,
             &registerFunctionCoding,
             &registerFunctionCodingUUID,
+            &registerFunctionColorSRGBToOKLCH,
             &registerFunctionCompareSubstrings,
             &registerFunctionConcat,
             &registerFunctionConcatWithSeparator,
@@ -900,12 +921,16 @@ namespace DB
             &registerFunctionFromUnixTimestamp64Micro,
             &registerFunctionFromUnixTimestamp64Milli,
             &registerFunctionFromUnixTimestamp64Nano,
+            &registerFunctionFunctionColorOKLCHToSRGB,
+            &registerFunctionFunctionIRR,
+            &registerFunctionFunctionNPV,
+            &registerFunctionFunctionXirr,
+            &registerFunctionFunctionXnpv,
             &registerFunctionFuzzBits,
             &registerFunctionGCD,
             &registerFunctionGenerateRandomStructure,
             &registerFunctionGenerateSnowflakeID,
             &registerFunctionGenerateUUIDv4,
-            &registerFunctionGenerateUUIDv7,
             &registerFunctionGeoDistance,
             &registerFunctionGeoToH3,
             &registerFunctionGeohashDecode,
@@ -1018,6 +1043,7 @@ namespace DB
             &registerFunctionIsZeroOrNull,
             &registerFunctionJSON,
             &registerFunctionJSONArrayLength,
+            &registerFunctionJSONExtractCaseInsensitive,
             &registerFunctionJSONMergePatch,
             &registerFunctionJSONPaths,
             &registerFunctionJoinGet,
@@ -1052,6 +1078,7 @@ namespace DB
             &registerFunctionMatch,
             &registerFunctionMaterialize,
             &registerFunctionMax2,
+            &registerFunctionMergeTreePartInfoTools,
             &registerFunctionMin2,
             &registerFunctionMinSampleSize,
             &registerFunctionMinus,
@@ -1101,13 +1128,16 @@ namespace DB
             &registerFunctionNow,
             &registerFunctionNow64,
             &registerFunctionNowInBlock,
+            &registerFunctionNowInBlock64,
             &registerFunctionNullIf,
+            &registerFunctionNumericIndexedVector,
             &registerFunctionOverlay,
             &registerFunctionPadString,
             &registerFunctionParseDateTime,
             &registerFunctionParseReadableSize,
             &registerFunctionParseTimeDelta,
             &registerFunctionPartitionId,
+            &registerFunctionPatchPartitionID,
             &registerFunctionPath,
             &registerFunctionPathFull,
             &registerFunctionPi,
@@ -1146,6 +1176,7 @@ namespace DB
             &registerFunctionRandomString,
             &registerFunctionRandomStringUTF8,
             &registerFunctionRange,
+            &registerFunctionReadWKB,
             &registerFunctionReadWKT,
             &registerFunctionRegexpExtract,
             &registerFunctionRegexpQuoteMeta,
@@ -1172,6 +1203,8 @@ namespace DB
             &registerFunctionRunningDifferenceStartingWithFirstValue,
             &registerFunctionSQLJSON,
             &registerFunctionScalarSubqueryResult,
+            &registerFunctionSearchAll,
+            &registerFunctionSearchAny,
             &registerFunctionSerial,
             &registerFunctionSeriesOutliersDetectTukey,
             &registerFunctionServerTimezone,
@@ -1224,6 +1257,12 @@ namespace DB
             &registerFunctionThrowIf,
             &registerFunctionTid,
             &registerFunctionTimeDiff,
+            &registerFunctionTimeSeriesFromGrid,
+            &registerFunctionTimeSeriesIdToTags,
+            &registerFunctionTimeSeriesIdToTagsGroup,
+            &registerFunctionTimeSeriesRange,
+            &registerFunctionTimeSeriesStoreTags,
+            &registerFunctionTimeSeriesTagsGroupToTags,
             &registerFunctionTimeSlot,
             &registerFunctionTimeSlots,
             &registerFunctionTimeWindow,
@@ -1278,7 +1317,6 @@ namespace DB
             &registerFunctionToStartOfTenMinutes,
             &registerFunctionToStartOfYear,
             &registerFunctionToStringCutToZero,
-            &registerFunctionToTime,
             &registerFunctionToTimeZone,
             &registerFunctionToTypeName,
             &registerFunctionToUnixTimestamp64Micro,
@@ -1327,6 +1365,7 @@ namespace DB
             &registerFunctionVisitParamExtractUInt,
             &registerFunctionVisitParamHas,
             &registerFunctionWidthBucket,
+            &registerFunctionWkb,
             &registerFunctionWkt,
             &registerFunctionYesterday,
             &registerFunctionZTest,
@@ -1340,6 +1379,7 @@ namespace DB
             &registerFunctionhasSubsequenceCaseInsensitive,
             &registerFunctionhasSubsequenceCaseInsensitiveUTF8,
             &registerFunctionhasSubsequenceUTF8,
+            &registerFunctionpolygonsIntersect,
             &registerFunctionseriesDecomposeSTL,
             &registerFunctiontimezoneOffset,
             nullptr

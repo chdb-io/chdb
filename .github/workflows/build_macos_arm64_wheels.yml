@@ -22,8 +22,32 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
-    runs-on: macos-13-xlarge
+    runs-on: macos-14-xlarge
     steps:
+      - name: Check machine architecture
+        run: |
+          echo "=== Machine Architecture Information ==="
+          echo "Machine type: $(uname -m)"
+          echo "Architecture: $(arch)"
+          echo "System info: $(uname -a)"
+          echo "Hardware info:"
+          system_profiler SPHardwareDataType | grep "Chip\|Processor"
+          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
+            echo "This is an ARM64 (Apple Silicon) machine"
+          else
+            echo "This is an x86_64 (Intel) machine"
+          fi
+      - name: Free up disk space (Initial)
+        run: |
+          # Clean Homebrew cache
+          brew cleanup -s 2>/dev/null || true
+          rm -rf "$(brew --cache)" 2>/dev/null || true
+          sudo rm -rf ~/Library/Developer/Xcode/DerivedData 2>/dev/null || true
+          sudo rm -rf ~/Library/Caches/com.apple.dt.Xcode 2>/dev/null || true
+          sudo rm -rf /Users/runner/Library/Android 2>/dev/null || true
+          sudo rm -rf /tmp/* 2>/dev/null || true
+          echo "=== Disk usage after cleanup ==="
+          df -h
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -76,28 +100,48 @@ jobs:
           uname -a
           export HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK=1
           brew update
-          brew install ca-certificates lz4 mpdecimal openssl@3 readline sqlite xz z3 zstd
+          brew install ca-certificates lz4 mpdecimal readline sqlite xz z3 zstd
+          brew install openssl@3 || echo "OpenSSL install failed, continuing..."
           brew install --ignore-dependencies llvm@19
-          brew install git ninja libtool gettext gcc binutils grep findutils nasm
-          brew install --build-from-source ccache
+          brew install git ninja libtool gettext binutils grep findutils nasm lld@19 libiconv
+          brew install ccache || echo "ccache installation failed, continuing without it"
           brew install go
           cd /usr/local/opt/ && sudo rm -f llvm && sudo ln -sf llvm@19 llvm
-          export PATH=$(brew --prefix llvm@19)/bin:$PATH
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:$PATH
           which clang++
           clang++ --version
+          which wasm-ld || echo "wasm-ld not found in PATH"
           which go
           go version
-          ccache -s
+          ccache -s | echo "ccache not available yet"
+      - name: Upgrade Rust toolchain
+        run: |
+          rustup toolchain install nightly-2025-07-07
+          rustup default nightly-2025-07-07
+          rustup component add rust-src
+          rustc --version
+          cargo --version
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
+      - name: Free up disk space (Before compilation)
+        run: |
+          echo "=== Disk usage before compilation cleanup ==="
+          df -h
+          brew cleanup -s 2>/dev/null || true
+          rm -rf "$(brew --cache)" 2>/dev/null || true
+          rm -rf ~/.cache/pip 2>/dev/null || true
+          rm -rf ~/.pyenv/.cache 2>/dev/null || true
+          rm -rf ~/.cargo/registry/cache 2>/dev/null || true
+          echo "=== Disk usage after cleanup ==="
+          df -h
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: macos-13-xlarge
+          key: ${{ runner.os }}-arm64-ccache
           max-size: 5G
           append-timestamp: true
       - name: Run chdb/build.sh
@@ -105,8 +149,9 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          source ~/.cargo/env
           pyenv shell 3.8
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
@@ -116,9 +161,10 @@ jobs:
       - name: Run chdb/build/build_static_lib.sh
         timeout-minutes: 600
         run: |
-          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
+          source ~/.cargo/env
           eval "$(pyenv init -)"
           pyenv shell 3.8
           bash ./chdb/build/build_static_lib.sh
@@ -138,29 +184,43 @@ jobs:
           cat buildlib/pychdb_cmd.sh
           echo "libchdb_cmd.sh:"
           cat buildlib/libchdb_cmd.sh
+      - name: Scan chdb libraries with grype
+        run: |
+          echo "Scanning chdb libraries for vulnerabilities..."
+          # Files to scan
+          FILES_TO_SCAN=""
+          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
+          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
+          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
+          SQLITE_VULNERABILITIES_FOUND=false
+          for file in $FILES_TO_SCAN; do
+            if [ -f "$file" ]; then
+              echo "=== Scanning $file ==="
+              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+              echo "$SCAN_OUTPUT"
+              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+                echo "❌ SQLite vulnerability found in $file"
+                SQLITE_VULNERABILITIES_FOUND=true
+              fi
+            fi
+          done
+          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
+            exit 1
+          else
+            echo "✅ No SQLite vulnerabilities found in chdb libraries"
+          fi
+        continue-on-error: false
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
-      - name: Keep killall ccache and wait for ccache to finish
-        if: always()
-        run: |
-          sleep 60
-          while ps -ef | grep ccache | grep -v grep; do \
-            killall ccache; \
-            sleep 10; \
-          done
-      - name: Check ccache statistics
-        run: |
-          ccache -s
-          ls -lh chdb
-          df -h
-        env:
-          CIBW_ENVIRONMENT_MACOS: "PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin CC=$(brew --prefix llvm@19)/bin/clang CXX=$(brew --prefix llvm@19)/bin/clang++"
+          bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
+          rm -rf chdb/build/
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          export PATH=$(brew --prefix llvm@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           pyenv shell 3.8
@@ -171,12 +231,22 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.8
           python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
+      - name: Verify wheel sizes
+        run: |
+          echo "=== Wheel sizes ==="
+          du -sh dist/*
       - name: Setup core dump
         run: |
           mkdir -p tmp/core
           sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
           sudo sysctl kern.coredump=1
           ulimit -c unlimited
+      - name: Free up disk space
+        run: |
+          # Clean more build artifacts
+          rm -rf buildlib/contrib 2>/dev/null || true
+          rm -rf buildlib/base 2>/dev/null || true
+          rm -rf buildlib/src 2>/dev/null || true
       - name: Test wheel on all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -184,9 +254,10 @@ jobs:
           for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
+            python -m pip install dist/*.whl --force-reinstall --no-cache-dir
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
             make test
+            python -m pip uninstall -y chdb
             pyenv shell --unset
           done
         continue-on-error: false

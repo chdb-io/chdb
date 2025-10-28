@@ -1,13 +1,13 @@
+#include "TableFunctionPython.h"
 #include "StoragePython.h"
 #include "PandasDataFrame.h"
+#include "PyArrowTable.h"
 #include "PythonDict.h"
 #include "PythonReader.h"
 #include "PythonTableCache.h"
 #include "PythonUtils.h"
-#include "TableFunctionPython.h"
 
 #include <Parsers/ASTLiteral.h>
-
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <Interpreters/evaluateConstantExpression.h>
@@ -20,6 +20,10 @@
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
+
+#if USE_JEMALLOC
+#include <Common/memory.h>
+#endif
 
 namespace py = pybind11;
 
@@ -39,7 +43,6 @@ extern const int UNKNOWN_FORMAT;
 
 void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr context)
 {
-    // py::gil_scoped_acquire acquire;
     const auto & func_args = ast_function->as<ASTFunction &>();
 
     if (!func_args.arguments)
@@ -108,12 +111,18 @@ StoragePtr TableFunctionPython::executeImpl(
 ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr context, bool /*is_insert_query*/) const
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    Memory::MemoryCheckScope memory_check_scope;  // Enable memory checking for Python calls
+#endif
 
     if (!reader)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python reader not initialized");
 
     if (PandasDataFrame::isPandasDataframe(reader))
         return PandasDataFrame::getActualTableStructure(reader, context);
+
+    if (PyArrowTable::isPyArrowTable(reader))
+        return PyArrowTable::getActualTableStructure(reader, context);
 
     if (PythonDict::isPythonDict(reader))
         return PythonDict::getActualTableStructure(reader, context);

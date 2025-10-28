@@ -1,5 +1,6 @@
 #pragma once
 
+#include "config.h"
 
 #include <Client/ProgressTable.h>
 #include <Client/Suggest.h>
@@ -25,13 +26,16 @@
 #include <Storages/MergeTree/MergeTreeSettings.h>
 #include <Storages/SelectQueryInfo.h>
 #include <Storages/StorageFile.h>
-
+#if USE_CLIENT_AI
+#    include <Client/AI/AISQLGenerator.h>
+#endif
 #include <boost/program_options.hpp>
 
 #include <atomic>
 #include <optional>
-#include <string_view>
 #include <string>
+#include <string_view>
+#include <Poco/Util/LayeredConfiguration.h>
 
 #include <IO/WriteBufferFromVector.h>
 
@@ -77,6 +81,8 @@ std::istream& operator>> (std::istream & in, ProgressOption & progress);
 class InternalTextLogs;
 class TerminalKeystrokeInterceptor;
 class WriteBufferFromFileDescriptor;
+struct Settings;
+struct MergeTreeSettings;
 
 struct StreamingQueryContext
 {
@@ -148,6 +154,12 @@ public:
     ASTPtr parseQuery(const char *& pos, const char * end, const Settings & settings, bool allow_multi_statements);
     /// Returns true if query succeeded
     bool processTextAsSingleQuery(const String & full_query);
+
+    virtual bool tryToReconnect(const uint32_t, const uint32_t)
+    {
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Reconnection is not implemented");
+    }
+
 public:
     void runInteractive();
     void runNonInteractive();
@@ -161,7 +173,7 @@ public:
     /// This is the analogue of Poco::Application::config()
     virtual Poco::Util::LayeredConfiguration & getClientConfiguration() = 0;
 
-    virtual bool processWithFuzzing(std::string_view)
+    virtual bool processWithASTFuzzer(std::string_view)
     {
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Query processing with fuzzing is not implemented");
     }
@@ -198,6 +210,14 @@ public:
 
     void clearTerminal();
     void showClientVersion();
+
+#if USE_CLIENT_AI
+    void initAIProvider();
+
+    /// Check if AI provider usage needs acknowledgment from user
+    /// Returns false if user declined, true otherwise
+    bool checkAIProviderAcknowledgment();
+#endif
 
     using ProgramOptionsDescription = boost::program_options::options_description;
     using CommandLineOptions = boost::program_options::variables_map;
@@ -252,8 +272,9 @@ public:
     bool receiveAndProcessPacket(ASTPtr parsed_query, bool cancelled_);
     void receiveLogsAndProfileEvents(ASTPtr parsed_query);
     bool receiveSampleBlock(Block & out, ColumnsDescription & columns_description, ASTPtr parsed_query);
-    bool receiveEndOfQuery();
+    bool receiveEndOfQueryForInsert();
     void cancelQuery();
+    bool sendCancel(std::exception_ptr exception_ptr = nullptr);
 
     void onProgress(const Progress & value);
     void onTimezoneUpdate(const String & tz);
@@ -289,6 +310,9 @@ public:
 
     void startKeystrokeInterceptorIfExists();
     void stopKeystrokeInterceptorIfExists();
+    /// Execute a query and collect all results as a single string (rows separated by newlines)
+    /// Returns empty string on exception
+    std::string executeQueryForSingleString(const std::string & query);
 
 public:
 
@@ -322,10 +346,10 @@ public:
     static bool isFileDescriptorSuitableForInput(int fd);
 
     /// Adjust some settings after command line options and config had been processed.
-    void adjustSettings();
+    void adjustSettings(ContextMutablePtr context);
 
     /// Initializes the client context.
-    void initClientContext();
+    void initClientContext(ContextMutablePtr context);
 
     void setDefaultFormatsAndCompressionFromConfiguration();
 
@@ -347,8 +371,6 @@ public:
     /// This holder may not be initialized in case if we run the client in the embedded mode (SSH).
     SharedPtrContextHolder shared_context;
     ContextMutablePtr global_context;
-
-    /// Client context is a context used only by the client to parse queries, process query parameters and to connect to clickhouse-server.
     ContextMutablePtr client_context;
 
     String default_database;
@@ -400,12 +422,8 @@ public:
     std::vector<std::pair<String, String>> query_id_formats;
 
     /// Settings specified via command line args
-    Settings cmd_settings;
-    MergeTreeSettings cmd_merge_tree_settings;
-
-    /// thread status should be destructed before shared context because it relies on process list.
-    /// This field may not be initialized in case if we run the client in the embedded mode (SSH).
-    std::optional<ThreadStatus> thread_status;
+    std::unique_ptr<Settings> cmd_settings;
+    std::unique_ptr<MergeTreeSettings> cmd_merge_tree_settings;
 
     ServerConnectionPtr connection;
     ConnectionParameters connection_parameters;
@@ -440,8 +458,6 @@ public:
     String home_path;
     String history_file; /// Path to a file containing command history.
     UInt32 history_max_entries; /// Maximum number of entries in the history file.
-
-    String current_profile;
 
     UInt64 server_revision = 0;
     String server_version;
@@ -482,9 +498,24 @@ public:
     int query_fuzzer_runs = 0;
     int create_query_fuzzer_runs = 0;
 
-    //Options for BuzzHouse
+    /// Options for BuzzHouse
     String buzz_house_options_path;
+
+    /// Text to prepopulate in the next query prompt
+    String next_query_to_prepopulate;
     bool buzz_house = false;
+    int error_code = 0;
+
+#if USE_CLIENT_AI
+    /// Cached AI SQL generator
+    std::unique_ptr<AISQLGenerator> ai_generator;
+    /// Whether the user has acknowledged AI provider usage
+    bool ai_provider_acknowledged = false;
+    /// Whether the AI API key was inferred from environment
+    bool ai_inferred_from_env = false;
+    /// The AI provider name (e.g., "openai", "anthropic")
+    std::string ai_provider_name;
+#endif
 
     struct
     {

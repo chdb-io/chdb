@@ -5,9 +5,7 @@
 #include "StoragePython.h"
 
 #include <algorithm>
-#include <cstddef>
 #include <exception>
-#include <memory>
 #include <type_traits>
 #include <boolobject.h>
 #include <pybind11/gil.h>
@@ -20,22 +18,26 @@
 #include <Poco/Logger.h>
 #include <Common/COW.h>
 #include <Common/Exception.h>
-#include "PythonUtils.h"
 #include <Common/logger_useful.h>
-#include <Common/typeid_cast.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDecimalBase.h>
+#include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <DataTypes/DataTypeObject.h>
 #include <Interpreters/ExpressionActions.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
 #include <base/types.h>
+#include <Common/typeid_cast.h>
+
+using namespace CHDB;
 
 namespace DB
 {
@@ -58,8 +60,9 @@ PythonSource::PythonSource(
     size_t max_block_size_,
     size_t stream_index,
     size_t num_streams,
-    const FormatSettings & format_settings_)
-    : ISource(sample_block_.cloneEmpty())
+    const FormatSettings & format_settings_,
+    ArrowTableReaderPtr arrow_table_reader_)
+    : ISource(std::make_shared<Block>(sample_block_.cloneEmpty()))
     , data_source(data_source_)
     , isInheritsFromPyReader(isInheritsFromPyReader_)
     , sample_block(sample_block_)
@@ -70,6 +73,7 @@ PythonSource::PythonSource(
     , num_streams(num_streams)
     , cursor(0)
     , format_settings(format_settings_)
+    , arrow_table_reader(arrow_table_reader_)
 {
 }
 
@@ -77,6 +81,9 @@ template <typename T>
 void PythonSource::insert_from_list(const py::list & obj, const MutableColumnPtr & column)
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope;
+#endif
     for (auto && item : obj)
     {
         if constexpr (std::is_same_v<T, UInt8>)
@@ -438,14 +445,7 @@ Chunk PythonSource::scanDataToChunk()
     if (names.size() != columns.size())
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column cache size mismatch");
 
-    auto rows_per_stream = data_source_row_count / num_streams;
-    auto start = stream_index * rows_per_stream;
-    auto end = (stream_index + 1) * rows_per_stream;
-    if (stream_index == num_streams - 1)
-        end = data_source_row_count;
-    if (cursor == 0)
-        cursor = start;
-    auto count = std::min(max_block_size, end - cursor);
+    auto [offset, count] = calculateOffsetAndCount();
     if (count == 0)
         return {};
     LOG_DEBUG(logger, "Stream index {} Reading {} rows from {}", stream_index, count, cursor);
@@ -554,7 +554,6 @@ Chunk PythonSource::scanDataToChunk()
     return Chunk(std::move(columns), count);
 }
 
-
 Chunk PythonSource::generate()
 {
     size_t num_rows = 0;
@@ -564,6 +563,12 @@ Chunk PythonSource::generate()
 
     try
     {
+        if (arrow_table_reader)
+        {
+            auto chunk = arrow_table_reader->readNextChunk(stream_index);
+            return chunk;
+        }
+
         if (isInheritsFromPyReader)
         {
             PyObjectVecPtr data;
@@ -574,10 +579,8 @@ Chunk PythonSource::generate()
 
             return std::move(genChunk(num_rows, data));
         }
-        else
-        {
-            return std::move(scanDataToChunk());
-        }
+
+        return std::move(scanDataToChunk());
     }
     catch (const Exception & e)
     {
@@ -596,4 +599,19 @@ Chunk PythonSource::generate()
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling unknown exception");
     }
 }
+
+std::pair<size_t, size_t> PythonSource::calculateOffsetAndCount()
+{
+    auto rows_per_stream = data_source_row_count / num_streams;
+    auto start = stream_index * rows_per_stream;
+    auto end = (stream_index + 1) * rows_per_stream;
+    if (stream_index == num_streams - 1)
+        end = data_source_row_count;
+    if (cursor == 0)
+        cursor = start;
+    auto count = std::min(max_block_size, end - cursor);
+
+    return std::make_pair(cursor, count);
+}
+
 }

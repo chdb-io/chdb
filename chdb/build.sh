@@ -237,6 +237,10 @@ ls -lh ${LIBCHDB}
 
 # build chdb python module
 py_version="3.8"
+# check current os type and architecture for py_version
+if [ "$(uname)" == "Darwin" ] && [ "$(uname -m)" == "x86_64" ]; then
+    py_version="3.9"
+fi
 current_py_version=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 if [ "$current_py_version" != "$py_version" ]; then
     echo "Error: Current Python version is $current_py_version, but required version is $py_version"
@@ -313,8 +317,8 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
 fi
 echo -e "\nStripe the binary:"
 

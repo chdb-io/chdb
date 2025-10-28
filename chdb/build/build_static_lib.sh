@@ -8,7 +8,11 @@ MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 . ${MY_DIR}/../vars.sh
 
-BUILD_DIR=${PROJ_DIR}/build-static-lib
+if [ "$(uname)" == "Darwin" ] && [ "$(uname -m)" == "x86_64" ]; then
+    BUILD_DIR=${PROJ_DIR}/buildlib
+else
+    BUILD_DIR=${PROJ_DIR}/build-static-lib
+fi
 
 HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
 MYSQL="-DENABLE_MYSQL=1"
@@ -101,7 +105,7 @@ echo "Copied chdb.h and libchdb.a to cpp-example directory"
 echo "Compiling chdb_example.cpp..."
 if [ "$(uname)" == "Darwin" ]; then
     CLANG_CMD="$(brew --prefix llvm@19)/bin/clang"
-    ${CLANG_CMD} chdb_example.cpp -o chdb_example -mmacosx-version-min=10.15 -L. -lchdb -framework CoreFoundation -Wl,-map,chdb_example.map
+    ${CLANG_CMD} chdb_example.cpp -o chdb_example -mmacosx-version-min=10.15 -L. -lchdb -liconv -framework CoreFoundation -Wl,-map,chdb_example.map
 else
     CLANG_CMD="clang"
     ${CLANG_CMD} chdb_example.cpp -o chdb_example -L. -lchdb -lpthread -ldl -lc -lm -lrt -Wl,-Map=chdb_example.map -Wl,--allow-multiple-definition
