@@ -36,8 +36,8 @@ ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
     layered_configuration->addWriteable(configuration, 0);
     session = std::make_unique<Session>(server->getGlobalContext(), ClientInfo::Interface::LOCAL);
 #if USE_PYTHON
-    auto py_table_cache = std::make_shared<CHDB::PythonTableCache>();
-    session->setPythonTableCache(py_table_cache);
+    python_table_cache = std::make_shared<CHDB::PythonTableCache>();
+    session->setPythonTableCache(python_table_cache);
 #endif
     session->authenticate("default", "", Poco::Net::SocketAddress{});
     global_context = session->makeSessionContext();
@@ -171,9 +171,6 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
 {
     String query_str(query, query_len);
     String format_str(format, format_len);
-#if USE_PYTHON
-    SCOPE_EXIT({ session->getPythonTableCache()->clear(); });
-#endif
 
     try
     {
@@ -185,21 +182,30 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
 
         size_t storage_rows_read = getStorageRowsRead();
         size_t storage_bytes_read = getStorageBytesRead();
-
-        return std::make_unique<CHDB::MaterializedQueryResult>(
+        auto res = std::make_unique<CHDB::MaterializedQueryResult>(
             CHDB::ResultBuffer(stealQueryOutputVector()),
             getElapsedTime(),
             getProcessedRows(),
             getProcessedBytes(),
             storage_rows_read,
             storage_bytes_read);
+#if USE_PYTHON
+        python_table_cache->clear();
+#endif
+        return res;
     }
     catch (const Exception & e)
     {
+#if USE_PYTHON
+        python_table_cache->clear();
+#endif
         return std::make_unique<CHDB::MaterializedQueryResult>(getExceptionMessage(e, false));
     }
     catch (...)
     {
+#if USE_PYTHON
+        python_table_cache->clear();
+#endif
         return std::make_unique<CHDB::MaterializedQueryResult>(getCurrentExceptionMessage(true));
     }
 }
@@ -298,8 +304,8 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
             {
                 auto * local_connection = static_cast<LocalConnection *>(connection.get());
                 local_connection->resetQueryContext();
+                local_connection->getSession().getPythonTableCache()->clear();
             }
-            session->getPythonTableCache()->clear();
 #endif
         }
         return res;
@@ -313,7 +319,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
             auto * local_connection = static_cast<LocalConnection *>(connection.get());
             local_connection->resetQueryContext();
         }
-        session->getPythonTableCache()->clear();
+        python_table_cache->clear();
 #endif
         return std::make_unique<CHDB::MaterializedQueryResult>(getExceptionMessage(e, false));
     }
@@ -326,7 +332,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
             auto * local_connection = static_cast<LocalConnection *>(connection.get());
             local_connection->resetQueryContext();
         }
-        session->getPythonTableCache()->clear();
+        python_table_cache->clear();
 #endif
         return std::make_unique<CHDB::MaterializedQueryResult>(getCurrentExceptionMessage(true));
     }
@@ -355,7 +361,7 @@ void ChdbClient::cancelStreamingQuery(void * streaming_result)
             auto * local_connection = static_cast<LocalConnection *>(connection.get());
             local_connection->resetQueryContext();
         }
-        session->getPythonTableCache()->clear();
+        python_table_cache->clear();
 #endif
     }
 }

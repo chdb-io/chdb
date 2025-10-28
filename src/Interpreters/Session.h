@@ -115,7 +115,7 @@ public:
     bool isJSONSupported() const { return is_json_supported; }
     void setJSONSupport(bool support) { is_json_supported = support; }
     std::shared_ptr<CHDB::PythonTableCache> & getPythonTableCache() { return py_table_cache; }
-    void setPythonTableCache(std::shared_ptr<CHDB::PythonTableCache> py_table_cache_) { py_table_cache = std::move(py_table_cache_); }
+    void setPythonTableCache(std::shared_ptr<CHDB::PythonTableCache> py_table_cache_) { py_table_cache = py_table_cache_; }
 #endif
 
 private:
