@@ -53,6 +53,13 @@ namespace Coordination
 
 struct OvercommitTracker;
 
+#if USE_PYTHON
+namespace CHDB
+{
+class PythonTableCache;
+}
+#endif
+
 namespace DB
 {
 
@@ -347,6 +354,7 @@ protected:
     std::unique_ptr<Settings> settings{};  /// Setting for query execution.
 #if USE_PYTHON
     bool is_json_supported = true;
+    std::shared_ptr<CHDB::PythonTableCache> py_table_cache;
 #endif
 
     using ProgressCallback = std::function<void(const Progress & progress)>;
@@ -744,6 +752,8 @@ public:
 #if USE_PYTHON
     bool isJSONSupported() const { return is_json_supported; }
     void setJSONSupport(bool support) { is_json_supported = support; }
+    CHDB::PythonTableCache * getPythonTableCache() const { return py_table_cache.get(); }
+    void setPythonTableCache(const std::shared_ptr<CHDB::PythonTableCache> & cache) { this->py_table_cache = cache; }
 #endif
 
     AccessControl & getAccessControl();

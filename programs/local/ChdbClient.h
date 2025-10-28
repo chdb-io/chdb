@@ -42,6 +42,8 @@ public:
     size_t getStorageRowsRead() const;
     size_t getStorageBytesRead() const;
 
+    Session & getSession() { return *session; }
+
 protected:
     void connect() override;
     Poco::Util::LayeredConfiguration & getClientConfiguration() override;

@@ -243,6 +243,26 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
+
+#if USE_PYTHON
+void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str)
+{
+    if (!conn || !conn->server || !conn->connected)
+        return;
+
+    try
+    {
+        auto * client = reinterpret_cast<DB::ChdbClient *>(conn->server);
+        auto cache = client->getSession().getPythonTableCache();
+        cache->findQueryableObjFromQuery(query_str);
+    }
+    catch (...)
+    {
+        // Ignore errors during Python table caching
+    }
+}
+#endif
+
 } // namespace CHDB
 
 using namespace CHDB;
