@@ -5,6 +5,7 @@
 #include <Interpreters/Context.h>
 #include <Interpreters/Session.h>
 #include <base/getFQDNOrHostName.h>
+#include <base/scope_guard.h>
 #include <chdb-internal.h>
 #include <Poco/Net/SocketAddress.h>
 #include <Common/Config/ConfigHelper.h>
@@ -170,6 +171,9 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
 {
     String query_str(query, query_len);
     String format_str(format, format_len);
+#if USE_PYTHON
+    SCOPE_EXIT({ session->getPythonTableCache()->clear(); })
+#endif
 
     try
     {

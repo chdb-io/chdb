@@ -21,6 +21,7 @@ extern bool inside_main = true;
 namespace CHDB
 {
 extern chdb_connection * connect_chdb_with_exception(int argc, char ** argv);
+extern void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str);
 }
 
 const static char * CURSOR_DEFAULT_FORMAT = "JSONCompactEachRowWithNamesAndTypes";
@@ -510,7 +511,6 @@ PYBIND11_MODULE(_chdb, m)
 
     auto destroy_import_cache = []()
     {
-        // PythonTableCache is now bound to Context and cleaned up automatically
         CHDB::PythonImporter::destroy();
     };
     m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
