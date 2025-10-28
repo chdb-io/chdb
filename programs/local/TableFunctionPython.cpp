@@ -66,10 +66,7 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
         py_reader_arg_str.erase(
             std::remove_if(py_reader_arg_str.begin(), py_reader_arg_str.end(), [](char c) { return c == '\'' || c == '\"' || c == '`'; }),
             py_reader_arg_str.end());
-
-        py::handle instance = py::none();
-        if (auto * cache = context->getPythonTableCache())
-            instance = cache->getQueryableObj(py_reader_arg_str);
+        auto instance = context->getQueryContext()->getPythonTableCache()->getQueryableObj(py_reader_arg_str);
         if (instance == nullptr || instance.is_none())
             throw Exception(ErrorCodes::PY_OBJECT_NOT_FOUND,
                             "Python object not found in the Python environment\n"

@@ -37,7 +37,7 @@ ColumnsDescription PythonDict::getActualTableStructure(const py::object & object
         {
             py::handle element = values[0];
 
-            if (context->isJSONSupported() && py::isinstance<py::dict>(element))
+            if (context->getQueryContext() && context->getQueryContext()->isJSONSupported() && py::isinstance<py::dict>(element))
             {
                 schema.emplace_back(key, "json");
             }

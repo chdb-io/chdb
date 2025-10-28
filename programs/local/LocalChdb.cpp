@@ -266,7 +266,7 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(conn), query_str);
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
     if (chdb_result_length(result))
@@ -286,7 +286,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
 {
-    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(conn), query_str);
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_stream_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
     auto error_msg = CHDB::chdb_result_error_string(result);
@@ -336,7 +336,7 @@ void connection_wrapper::streaming_cancel_query(streaming_query_result * streami
 void cursor_wrapper::execute(const std::string & query_str)
 {
     release_result();
-    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(&conn->get_conn()), query_str);
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(conn->get_conn()), query_str);
     // Use JSONCompactEachRowWithNamesAndTypes format for better type support
     py::gil_scoped_release release;
     current_result = chdb_query_n(conn->get_conn(), query_str.data(), query_str.size(), CURSOR_DEFAULT_FORMAT, CURSOR_DEFAULT_FORMAT_LEN);

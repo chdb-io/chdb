@@ -6,6 +6,9 @@
 #include <cstring>
 #include <ChdbClient.h>
 #include <EmbeddedServer.h>
+#if USE_PYTHON
+#    include <PythonTableCache.h>
+#endif
 #include <Common/MemoryTracker.h>
 #include <Common/ThreadStatus.h>
 
@@ -18,10 +21,6 @@ void chdb_musl_compile_stub(int arg)
     setjmp(buf1);
     sigsetjmp(buf2, arg);
 }
-#endif
-
-#if USE_PYTHON
-#include "PythonTableCache.h"
 #endif
 
 #if USE_JEMALLOC
@@ -253,8 +252,7 @@ void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str)
     try
     {
         auto * client = reinterpret_cast<DB::ChdbClient *>(conn->server);
-        auto cache = client->getSession().getPythonTableCache();
-        cache->findQueryableObjFromQuery(query_str);
+        client->pyTableCache()->findQueryableObjFromQuery(query_str);
     }
     catch (...)
     {

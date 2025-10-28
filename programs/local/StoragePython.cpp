@@ -187,7 +187,7 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
         std::shared_ptr<IDataType> data_type;
 
         std::string type_capture, bits, precision, scale;
-        if (context->isJSONSupported() && RE2::PartialMatch(typeStr, pattern_json))
+        if (context->getQueryContext() && context->getQueryContext()->isJSONSupported() && RE2::PartialMatch(typeStr, pattern_json))
         {
             data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
         }

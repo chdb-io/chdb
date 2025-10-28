@@ -42,7 +42,9 @@ public:
     size_t getStorageRowsRead() const;
     size_t getStorageBytesRead() const;
 
-    Session & getSession() { return *session; }
+#if USE_PYTHON
+    CHDB::PythonTableCache * pyTableCache() const { return python_table_cache.get(); }
+#endif
 
 protected:
     void connect() override;
@@ -67,6 +69,9 @@ private:
     ConfigurationPtr configuration;
     Poco::AutoPtr<Poco::Util::LayeredConfiguration> layered_configuration;
     std::unique_ptr<ReadBufferFromFile> input;
+#if USE_PYTHON
+    std::shared_ptr<CHDB::PythonTableCache> python_table_cache;
+#endif
 };
 
 } // namespace DB
