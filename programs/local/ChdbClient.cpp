@@ -172,7 +172,7 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
     String query_str(query, query_len);
     String format_str(format, format_len);
 #if USE_PYTHON
-    SCOPE_EXIT({ session->getPythonTableCache()->clear(); })
+    SCOPE_EXIT({ session->getPythonTableCache()->clear(); });
 #endif
 
     try
