@@ -95,4 +95,7 @@ const std::string & chdb_streaming_result_error_string(chdb_streaming_result * r
 
 void chdb_destroy_arrow_stream(ArrowArrayStream * arrow_stream);
 
+#if USE_PYTHON
+void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str);
+#endif
 }

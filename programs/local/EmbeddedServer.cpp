@@ -938,6 +938,14 @@ void EmbeddedServer::initializeWithArgs(int argc, char ** argv)
         {
             args.push_back(argv[i]);
         }
+
+        Poco::Util::Application::ArgVec arg_vec;
+        for (const auto & arg : args)
+        {
+            arg_vec.push_back(arg);
+        }
+        argsToConfig(arg_vec, config(), 100);
+
         initialize(*this);
         int ret = main(args);
         if (ret != 0)
