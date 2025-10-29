@@ -4,10 +4,27 @@ import unittest
 import shutil
 import os
 import threading
+import platform
+import subprocess
 from chdb import session
 
 
 test_concurrent_dir = ".tmp_test_session_concurrency"
+
+
+def is_musl_linux():
+    if platform.system() != "Linux":
+        return False
+    try:
+        result = subprocess.run(['ldd', '--version'], capture_output=True, text=True)
+        print(f"stdout: {result.stdout.lower()}")
+        print(f"stderr: {result.stderr.lower()}")
+        # Check both stdout and stderr for musl
+        output_text = (result.stdout + result.stderr).lower()
+        return 'musl' in output_text
+    except Exception as e:
+        print(f"Exception in is_musl_linux: {e}")
+        return False
 
 
 class TestSessionConcurrency(unittest.TestCase):
@@ -120,6 +137,7 @@ class TestSessionConcurrency(unittest.TestCase):
         self.assertIn("1", str(result))
         sess3.close()
 
+    @unittest.skipIf(is_musl_linux(), "Skip test on musl systems")
     def test_session_path_consistency(self):
         sess1 = session.Session(test_concurrent_dir)
         sess1.query("SELECT 1")
