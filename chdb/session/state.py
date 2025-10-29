@@ -4,6 +4,7 @@ import chdb
 from ..state import sqlitelike as chdb_stateful
 from ..state.sqlitelike import StreamingResult
 
+
 class Session:
     """
     Session will keep the state of query.
