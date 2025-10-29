@@ -1,8 +1,14 @@
+import threading
 import warnings
 
 import chdb
 from ..state import sqlitelike as chdb_stateful
 from ..state.sqlitelike import StreamingResult
+
+
+class ThreadSafetyError(RuntimeError):
+    """Raised when a Session is used from a different thread than it was created in."""
+    pass
 
 
 class Session:
@@ -33,12 +39,14 @@ class Session:
 
     Important:
         - Multiple sessions can coexist. Each session has its own connection and database context.
-        - Sessions are NOT thread-safe. Do not share a session object across multiple threads.
+        - Sessions are NOT thread-safe and are enforced to be single-threaded.
+        - Attempting to use a session from a different thread than it was created in will raise ThreadSafetyError.
         - For concurrent access, create a separate session for each thread.
     """
 
     def __init__(self, path=None):
         self._conn = None
+        self._thread_id = threading.get_ident()
         if path is None:
             self._path = ":memory:"
         else:
@@ -57,6 +65,16 @@ class Session:
             self._udf_path = ""
             self._conn_str = f"{self._path}"
         self._conn = chdb_stateful.Connection(self._conn_str)
+
+    def _check_thread_safety(self):
+        """Check that the session is being used from the same thread it was created in."""
+        current_thread_id = threading.get_ident()
+        if current_thread_id != self._thread_id:
+            raise ThreadSafetyError(
+                f"Session created in thread {self._thread_id} "
+                f"but used in thread {current_thread_id}. "
+                "Sessions are not thread-safe. Create a separate session for each thread."
+            )
 
     def __del__(self):
         self.close()
@@ -86,6 +104,7 @@ class Session:
             >>> session.query("SELECT 1")
             >>> session.close()  # Explicitly close the session
         """
+        self._check_thread_safety()
         if self._conn is not None:
             self._conn.close()
             self._conn = None
@@ -148,6 +167,7 @@ class Session:
             - Binary formats (Arrow, Parquet) return bytes
 
         Raises:
+            ThreadSafetyError: If called from a different thread than the session was created in
             RuntimeError: If the session is closed or invalid
             ValueError: If the SQL query is malformed
 
@@ -188,6 +208,7 @@ class Session:
             :meth:`send_query` - For streaming query execution
             :attr:`sql` - Alias for this method
         """
+        self._check_thread_safety()
         if fmt == "Debug":
             warnings.warn(
                 """Debug format is not supported in Session.query
@@ -226,6 +247,7 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
             other data structures.
 
         Raises:
+            ThreadSafetyError: If called from a different thread than the session was created in
             RuntimeError: If the session is closed or invalid
             ValueError: If the SQL query is malformed
 
@@ -261,6 +283,7 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
             :meth:`query` - For non-streaming query execution
             :class:`chdb.state.sqlitelike.StreamingResult` - Streaming result iterator
         """
+        self._check_thread_safety()
         if fmt == "Debug":
             warnings.warn(
                 """Debug format is not supported in Session.query
