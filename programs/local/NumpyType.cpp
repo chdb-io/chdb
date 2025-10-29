@@ -246,8 +246,8 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     case TypeIndex::UInt8:
         /// Special case: UInt8 could be Bool type, need to check getName()
         {
-            const String & type_name = data_type->getName();
-            return (type_name == "Bool") ? "bool" : "uint8";
+            auto is_bool = isBool(data_type);
+            return is_bool ? "bool" : "uint8";
         }
     case TypeIndex::Int16:
         return "int16";
@@ -261,8 +261,13 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
         return "int64";
     case TypeIndex::UInt64:
         return "uint64";
+    case TypeIndex::BFloat16:
     case TypeIndex::Float32:
         return "float32";
+    case TypeIndex::Int256:
+    case TypeIndex::UInt256:
+    case TypeIndex::Int128:
+    case TypeIndex::UInt128:
     case TypeIndex::Float64:
         return "float64";
     case TypeIndex::String:
@@ -351,7 +356,6 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     case TypeIndex::IPv4:
     case TypeIndex::IPv6:
         return "object";
-    case TypeIndex::BFloat16:
     case TypeIndex::Decimal32:
     case TypeIndex::Decimal64:
     case TypeIndex::Decimal128:

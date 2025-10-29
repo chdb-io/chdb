@@ -165,15 +165,11 @@ void NumpyArray::append(const ColumnPtr & column)
 		break;
 	case TypeIndex::UInt8:
 		{
-			const String & type_name = data_array->type->getName();
-			if (type_name == "Bool")
-			{
+			auto is_bool = isBool(data_array->type);
+			if (is_bool)
 				may_have_null = CHColumnToNumpyArray<bool>(append_data);
-			}
 			else
-			{
 				may_have_null = CHColumnToNumpyArray<UInt8>(append_data);
-			}
 		}
 		break;
 	case TypeIndex::Int16:
@@ -200,6 +196,24 @@ void NumpyArray::append(const ColumnPtr & column)
 	case TypeIndex::Float64:
 		may_have_null = CHColumnToNumpyArray<Float64>(append_data);
 		break;
+	case TypeIndex::Int128:
+		may_have_null = TransformColumn<Int128, Float64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::Int256:
+		may_have_null = TransformColumn<Int256, Float64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::UInt128:
+		may_have_null = TransformColumn<UInt128, Float64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::UInt256:
+		may_have_null = TransformColumn<UInt256, Float64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::BFloat16:
+		may_have_null = TransformColumn<BFloat16, Float32, RegularConvert>(append_data);
+		break;
+	/// case TypeIndex::Date:
+	/// 	may_have_null = TransformColumn<Date, Int32, RegularConvert>(append_data);
+	/// 	break;
 	default:
 		throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_array->type->getName());
 	}
