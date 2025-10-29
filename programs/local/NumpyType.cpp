@@ -1,4 +1,5 @@
 #include "NumpyType.h"
+#include "PythonImporter.h"
 
 #include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeInterval.h>
@@ -237,146 +238,187 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     if (!data_type)
         return "object";
 
-    /// First, try to handle most types efficiently using getTypeId()
     TypeIndex type_id = data_type->getTypeId();
     switch (type_id)
     {
-        case TypeIndex::Int8:
-            return "int8";
-        case TypeIndex::UInt8:
-            /// Special case: UInt8 could be Bool type, need to check getName()
+    case TypeIndex::Int8:
+        return "int8";
+    case TypeIndex::UInt8:
+        /// Special case: UInt8 could be Bool type, need to check getName()
+        {
+            const String & type_name = data_type->getName();
+            return (type_name == "Bool") ? "bool" : "uint8";
+        }
+    case TypeIndex::Int16:
+        return "int16";
+    case TypeIndex::UInt16:
+        return "uint16";
+    case TypeIndex::Int32:
+        return "int32";
+    case TypeIndex::UInt32:
+        return "uint32";
+    case TypeIndex::Int64:
+        return "int64";
+    case TypeIndex::UInt64:
+        return "uint64";
+    case TypeIndex::Float32:
+        return "float32";
+    case TypeIndex::Float64:
+        return "float64";
+    case TypeIndex::String:
+    case TypeIndex::FixedString:
+        return "object";
+    case TypeIndex::DateTime:
+        return "datetime64[s]";
+    case TypeIndex::DateTime64:
+        {
+            if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(data_type.get()))
             {
-                const String & type_name = data_type->getName();
-                return (type_name == "Bool") ? "bool" : "uint8";
+                UInt32 scale = dt64->getScale();
+                if (scale == 0)
+                    return "datetime64[s]";
+                else if (scale == 3)
+                    return "datetime64[ms]";
+                else if (scale == 6)
+                    return "datetime64[us]";
+                else if (scale == 9)
+                    return "datetime64[ns]";
+                else
+                    return "datetime64[ns]";
             }
-        case TypeIndex::Int16:
-            return "int16";
-        case TypeIndex::UInt16:
-            return "uint16";
-        case TypeIndex::Int32:
-            return "int32";
-        case TypeIndex::UInt32:
-            return "uint32";
-        case TypeIndex::Int64:
-            return "int64";
-        case TypeIndex::UInt64:
-            return "uint64";
-        case TypeIndex::Float32:
-            return "float32";
-        case TypeIndex::Float64:
-            return "float64";
-        case TypeIndex::String:
-        case TypeIndex::FixedString:
-            return "object";
-        case TypeIndex::DateTime:
-            return "datetime64[s]";
-        case TypeIndex::DateTime64:
+            return "datetime64[ns]";
+        }
+    case TypeIndex::Date:
+    case TypeIndex::Date32:
+        return "datetime64[D]";
+    case TypeIndex::Time:
+        return "timedelta64[s]";
+    case TypeIndex::Time64:
+        {
+            if (const auto * time64 = typeid_cast<const DataTypeTime64 *>(data_type.get()))
             {
-                if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(data_type.get()))
-                {
-                    UInt32 scale = dt64->getScale();
-                    if (scale == 0)
-                        return "datetime64[s]";
-                    else if (scale == 3)
-                        return "datetime64[ms]";
-                    else if (scale == 6)
-                        return "datetime64[us]";
-                    else if (scale == 9)
-                        return "datetime64[ns]";
-                    else
-                        return "datetime64[ns]";
-                }
-                return "datetime64[ns]";
+                UInt32 scale = time64->getScale();
+                if (scale == 0)
+                    return "timedelta64[s]";
+                else if (scale == 3)
+                    return "timedelta64[ms]";
+                else if (scale == 6)
+                    return "timedelta64[us]";
+                else if (scale == 9)
+                    return "timedelta64[ns]";
+                else
+                    return "timedelta64[ns]";
             }
-        case TypeIndex::Date:
-        case TypeIndex::Date32:
-            return "datetime64[D]";
-        case TypeIndex::Time:
-            return "timedelta64[s]";
-        case TypeIndex::Time64:
+            return "timedelta64[ns]";
+        }
+    case TypeIndex::Interval:
+        {
+            if (const auto * interval = typeid_cast<const DataTypeInterval *>(data_type.get()))
             {
-                if (const auto * time64 = typeid_cast<const DataTypeTime64 *>(data_type.get()))
+                IntervalKind kind = interval->getKind();
+                switch (kind.kind)
                 {
-                    UInt32 scale = time64->getScale();
-                    if (scale == 0)
-                        return "timedelta64[s]";
-                    else if (scale == 3)
-                        return "timedelta64[ms]";
-                    else if (scale == 6)
+                    case IntervalKind::Kind::Nanosecond:
+                        return "timedelta64[ns]";
+                    case IntervalKind::Kind::Microsecond:
                         return "timedelta64[us]";
-                    else if (scale == 9)
-                        return "timedelta64[ns]";
-                    else
-                        return "timedelta64[ns]";
+                    case IntervalKind::Kind::Millisecond:
+                        return "timedelta64[ms]";
+                    case IntervalKind::Kind::Second:
+                        return "timedelta64[s]";
+                    case IntervalKind::Kind::Minute:
+                        return "timedelta64[m]";
+                    case IntervalKind::Kind::Hour:
+                        return "timedelta64[h]";
+                    case IntervalKind::Kind::Day:
+                        return "timedelta64[D]";
+                    case IntervalKind::Kind::Week:
+                        return "timedelta64[W]";
+                    case IntervalKind::Kind::Month:
+                        return "timedelta64[M]";
+                    case IntervalKind::Kind::Quarter:
+                        return "object";
+                    case IntervalKind::Kind::Year:
+                        return "timedelta64[Y]";
+                    default:
+                        return "timedelta64[s]";
                 }
-                return "timedelta64[ns]";
             }
-        case TypeIndex::Interval:
-            {
-                if (const auto * interval = typeid_cast<const DataTypeInterval *>(data_type.get()))
-                {
-                    IntervalKind kind = interval->getKind();
-                    switch (kind.kind)
-                    {
-                        case IntervalKind::Kind::Nanosecond:
-                            return "timedelta64[ns]";
-                        case IntervalKind::Kind::Microsecond:
-                            return "timedelta64[us]";
-                        case IntervalKind::Kind::Millisecond:
-                            return "timedelta64[ms]";
-                        case IntervalKind::Kind::Second:
-                            return "timedelta64[s]";
-                        case IntervalKind::Kind::Minute:
-                            return "timedelta64[m]";
-                        case IntervalKind::Kind::Hour:
-                            return "timedelta64[h]";
-                        case IntervalKind::Kind::Day:
-                            return "timedelta64[D]";
-                        case IntervalKind::Kind::Week:
-                            return "timedelta64[W]";
-                        case IntervalKind::Kind::Month:
-                            return "timedelta64[M]";
-                        case IntervalKind::Kind::Quarter:
-                            return "object";
-                        case IntervalKind::Kind::Year:
-                            return "timedelta64[Y]";
-                        default:
-                            return "timedelta64[s]";
-                    }
-                }
-                return "timedelta64[s]";
-            }
+            return "timedelta64[s]";
+        }
 
-        case TypeIndex::UUID:
-        case TypeIndex::IPv4:
-        case TypeIndex::IPv6:
-            return "object";
-        case TypeIndex::BFloat16:
-        case TypeIndex::Decimal32:
-        case TypeIndex::Decimal64:
-        case TypeIndex::Decimal128:
-        case TypeIndex::Decimal256:
-            return "object";
-        case TypeIndex::Array:
-        case TypeIndex::Tuple:
-        case TypeIndex::Map:
-        case TypeIndex::Set:
-        case TypeIndex::Dynamic:
-        case TypeIndex::Variant:
-        case TypeIndex::Object:
-            return "object";
-        case TypeIndex::Nullable:
+    case TypeIndex::UUID:
+    case TypeIndex::IPv4:
+    case TypeIndex::IPv6:
+        return "object";
+    case TypeIndex::BFloat16:
+    case TypeIndex::Decimal32:
+    case TypeIndex::Decimal64:
+    case TypeIndex::Decimal128:
+    case TypeIndex::Decimal256:
+        return "object";
+    case TypeIndex::Array:
+    case TypeIndex::Tuple:
+    case TypeIndex::Map:
+    case TypeIndex::Set:
+    case TypeIndex::Dynamic:
+    case TypeIndex::Variant:
+    case TypeIndex::Object:
+        return "object";
+    case TypeIndex::Nullable:
+        {
+            if (const auto * nullable = typeid_cast<const DataTypeNullable *>(data_type.get()))
             {
-                if (const auto * nullable = typeid_cast<const DataTypeNullable *>(data_type.get()))
-                {
-                    return DataTypeToNumpyTypeStr(nullable->getNestedType());
-                }
-                return "object";
+                return DataTypeToNumpyTypeStr(nullable->getNestedType());
             }
-        default:
             return "object";
         }
+    default:
+        return "object";
     }
+}
+
+py::object ConvertNumpyDtype(const py::handle & numpy_array)
+{
+    chassert(py::gil_check());
+
+	auto & import_cache = PythonImporter::ImportCache();
+
+	auto dtype = numpy_array.attr("dtype");
+	if (!py::isinstance(numpy_array, import_cache.numpy.ma.masked_array()))
+    {
+		return dtype;
+	}
+
+	auto numpy_type = ConvertNumpyType(dtype);
+	switch (numpy_type.type)
+    {
+    case NumpyNullableType::BOOL:
+        return import_cache.pandas.BooleanDtype()();
+    case NumpyNullableType::UINT_8:
+        return import_cache.pandas.UInt8Dtype()();
+    case NumpyNullableType::UINT_16:
+        return import_cache.pandas.UInt16Dtype()();
+    case NumpyNullableType::UINT_32:
+        return import_cache.pandas.UInt32Dtype()();
+    case NumpyNullableType::UINT_64:
+        return import_cache.pandas.UInt64Dtype()();
+    case NumpyNullableType::INT_8:
+        return import_cache.pandas.Int8Dtype()();
+    case NumpyNullableType::INT_16:
+        return import_cache.pandas.Int16Dtype()();
+    case NumpyNullableType::INT_32:
+        return import_cache.pandas.Int32Dtype()();
+    case NumpyNullableType::INT_64:
+        return import_cache.pandas.Int64Dtype()();
+    case NumpyNullableType::FLOAT_32:
+        return import_cache.pandas.Float32Dtype()();
+    case NumpyNullableType::FLOAT_64:
+        return import_cache.pandas.Float64Dtype()();
+    case NumpyNullableType::FLOAT_16:
+    default:
+        return dtype;
+	}
 }
 
 } // namespace CHDB

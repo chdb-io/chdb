@@ -1,0 +1,46 @@
+#pragma once
+
+#include "PybindWrapper.h"
+#include "NumpyArray.h"
+
+#include <Core/Block.h>
+#include <Processors/Chunk.h>
+#include <DataTypes/IDataType.h>
+#include <Common/logger_useful.h>
+
+namespace DB
+{
+
+/// Builder class to convert ClickHouse Chunks to Pandas DataFrame
+/// Accumulates chunks and provides conversion to Python pandas DataFrame object
+class PandasDataFrameBuilder
+{
+public:
+    explicit PandasDataFrameBuilder(const Block & sample);
+
+    /// Add data chunk
+    void addChunk(const Chunk & chunk);
+
+    /// Finalize and build pandas DataFrame from all collected chunks
+    void finalize();
+
+    /// Get the finalized pandas DataFrame
+    pybind11::object getDataFrame() const { return final_dataframe; }
+
+private:
+    pybind11::object genDataFrame(const pybind11::handle & dict);
+
+    std::vector<String> column_names;
+    std::vector<DataTypePtr> column_types;
+
+    std::vector<Chunk> chunks;
+    std::vector<CHDB::NumpyArray> columns_data;
+
+    size_t total_rows = 0;
+    bool is_finalized = false;
+    pybind11::object final_dataframe;
+
+    Poco::Logger * log = &Poco::Logger::get("PandasDataFrameBuilder");
+};
+
+}

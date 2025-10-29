@@ -2,6 +2,7 @@
 
 #include "DatetimeCacheItem.h"
 #include "DecimalCacheItem.h"
+#include "NumpyCacheItem.h"
 #include "PandasCacheItem.h"
 #include "PyArrowCacheItem.h"
 #include "PythonImportCacheItem.h"
@@ -23,6 +24,7 @@ public:
 	PyarrowCacheItem pyarrow;
 	DatetimeCacheItem datetime;
 	DecimalCacheItem decimal;
+	NumpyCacheItem numpy;
 
 	py::handle AddCache(py::object item);
 
