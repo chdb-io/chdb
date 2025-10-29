@@ -96,9 +96,9 @@ class TestStateful(unittest.TestCase):
         sess2 = None
         try:
             sess1 = session.Session()
-            with self.assertWarns(Warning):
-                sess2 = session.Session()
-            self.assertIsNone(sess1._conn)
+            sess2 = session.Session()
+            self.assertIsNotNone(sess1._conn)
+            self.assertIsNotNone(sess2._conn)
         finally:
             if sess1:
                 sess1.cleanup()

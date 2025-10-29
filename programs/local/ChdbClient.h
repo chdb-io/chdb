@@ -51,7 +51,7 @@ protected:
     Poco::Util::LayeredConfiguration & getClientConfiguration() override;
     void processError(std::string_view query) const override;
     String getName() const override { return "chdb"; }
-    bool isEmbeeddedClient() const override { return true; }
+    bool isEmbeeddedClient() const override { return false; }
 
     void printHelpMessage(const OptionsDescription &) override {}
     void addExtraOptions(OptionsDescription &) override {}
