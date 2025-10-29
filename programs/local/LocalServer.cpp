@@ -1,6 +1,7 @@
 #include "LocalServer.h"
 #include "chdb-internal.h"
 #if USE_PYTHON
+#include "ChunkCollectorOutputFormat.h"
 #include "StoragePython.h"
 #include "TableFunctionPython.h"
 #else

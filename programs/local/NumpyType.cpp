@@ -1,11 +1,12 @@
 #include "NumpyType.h"
 
-#include <Common/StringUtils.h>
 #include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeInterval.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeString.h>
+#include <DataTypes/DataTypeTime64.h>
 
 using namespace DB;
 
@@ -231,7 +232,7 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 	}
 }
 
-String DataTypeToNumpyTypeStr(const std::shared_ptr<DB::IDataType> & data_type)
+String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type)
 {
     if (!data_type)
         return "object";
@@ -270,79 +271,111 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<DB::IDataType> & data_type)
         case TypeIndex::DateTime:
             return "datetime64[s]";
         case TypeIndex::DateTime64:
-            // DateTime64 needs precision info from the actual type
             {
                 if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(data_type.get()))
                 {
                     UInt32 scale = dt64->getScale();
                     if (scale == 0)
                         return "datetime64[s]";
-                    else if (scale == 3) 
+                    else if (scale == 3)
                         return "datetime64[ms]";
                     else if (scale == 6)
                         return "datetime64[us]";
                     else if (scale == 9)
                         return "datetime64[ns]";
                     else
-                        return "datetime64[ns]"; // Default to nanoseconds
+                        return "datetime64[ns]";
                 }
-                return "datetime64[ns]"; // Default fallback
+                return "datetime64[ns]";
             }
         case TypeIndex::Date:
         case TypeIndex::Date32:
             return "datetime64[D]";
+        case TypeIndex::Time:
+            return "timedelta64[s]";
+        case TypeIndex::Time64:
+            {
+                if (const auto * time64 = typeid_cast<const DataTypeTime64 *>(data_type.get()))
+                {
+                    UInt32 scale = time64->getScale();
+                    if (scale == 0)
+                        return "timedelta64[s]";
+                    else if (scale == 3)
+                        return "timedelta64[ms]";
+                    else if (scale == 6)
+                        return "timedelta64[us]";
+                    else if (scale == 9)
+                        return "timedelta64[ns]";
+                    else
+                        return "timedelta64[ns]";
+                }
+                return "timedelta64[ns]";
+            }
+        case TypeIndex::Interval:
+            {
+                if (const auto * interval = typeid_cast<const DataTypeInterval *>(data_type.get()))
+                {
+                    IntervalKind kind = interval->getKind();
+                    switch (kind.kind)
+                    {
+                        case IntervalKind::Kind::Nanosecond:
+                            return "timedelta64[ns]";
+                        case IntervalKind::Kind::Microsecond:
+                            return "timedelta64[us]";
+                        case IntervalKind::Kind::Millisecond:
+                            return "timedelta64[ms]";
+                        case IntervalKind::Kind::Second:
+                            return "timedelta64[s]";
+                        case IntervalKind::Kind::Minute:
+                            return "timedelta64[m]";
+                        case IntervalKind::Kind::Hour:
+                            return "timedelta64[h]";
+                        case IntervalKind::Kind::Day:
+                            return "timedelta64[D]";
+                        case IntervalKind::Kind::Week:
+                            return "timedelta64[W]";
+                        case IntervalKind::Kind::Month:
+                            return "timedelta64[M]";
+                        case IntervalKind::Kind::Quarter:
+                            return "object";
+                        case IntervalKind::Kind::Year:
+                            return "timedelta64[Y]";
+                        default:
+                            return "timedelta64[s]";
+                    }
+                }
+                return "timedelta64[s]";
+            }
+
         case TypeIndex::UUID:
         case TypeIndex::IPv4:
         case TypeIndex::IPv6:
             return "object";
+        case TypeIndex::BFloat16:
         case TypeIndex::Decimal32:
         case TypeIndex::Decimal64:
         case TypeIndex::Decimal128:
         case TypeIndex::Decimal256:
-            return "float64"; // Decimals are converted to float64
+            return "object";
         case TypeIndex::Array:
         case TypeIndex::Tuple:
         case TypeIndex::Map:
+        case TypeIndex::Set:
+        case TypeIndex::Dynamic:
+        case TypeIndex::Variant:
+        case TypeIndex::Object:
             return "object";
         case TypeIndex::Nullable:
-            // Handle Nullable types - need to check inner type
             {
-                const String & type_name = data_type->getName();
-                if (startsWith(type_name, "Nullable("))
+                if (const auto * nullable = typeid_cast<const DataTypeNullable *>(data_type.get()))
                 {
-                    // Extract the inner type from "Nullable(InnerType)"
-                    size_t start = 9; // Length of "Nullable("
-                    size_t end = type_name.length() - 1; // Exclude the closing ")"
-                    if (end > start)
-                    {
-                        String inner_type_name = type_name.substr(start, end - start);
-                        // Nullable integers become float64 in pandas
-                        if (inner_type_name == "Int64" || inner_type_name == "Int32" || 
-                            inner_type_name == "Int16" || inner_type_name == "Int8" ||
-                            inner_type_name == "UInt64" || inner_type_name == "UInt32" ||
-                            inner_type_name == "UInt16" || inner_type_name == "UInt8")
-                            return "float64";
-                        else if (inner_type_name == "Float64")
-                            return "float64";
-                        else if (inner_type_name == "Float32")
-                            return "float32";
-                        else if (inner_type_name == "String")
-                            return "object";
-                    }
+                    return DataTypeToNumpyTypeStr(nullable->getNestedType());
                 }
                 return "object";
             }
         default:
-            // For other complex types, fall back to getName() parsing
-            {
-                const String & type_name = data_type->getName();
-                if (startsWith(type_name, "Array(") || startsWith(type_name, "Tuple(") || 
-                    startsWith(type_name, "Map("))
-                    return "object";
-
-                // Default fallback for unknown types
-                return "object";
-            }
+            return "object";
+        }
     }
 }
 
