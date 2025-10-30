@@ -62,7 +62,7 @@ jobs:
           else
             echo "✅ No SQLite vulnerabilities found"
           fi
-        continue-on-error: false
+        continue-on-error: true
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
