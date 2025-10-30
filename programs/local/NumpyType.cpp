@@ -378,7 +378,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
             return "object";
         }
     default:
-        return "object";
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_type->getName());
     }
 }
 

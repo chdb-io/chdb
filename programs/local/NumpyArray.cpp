@@ -71,7 +71,8 @@ static bool TransformColumn(NumpyAppendData & append_data)
 		data_column = &nullable->getNestedColumn();
 	}
 
-	const auto * src_ptr = static_cast<const ColumnFixedSizeHelper *>(data_column)->getRawDataBegin<sizeof(CHTYPE)>();
+	const auto * tmp_ptr = static_cast<const ColumnFixedSizeHelper *>(data_column)->getRawDataBegin<sizeof(CHTYPE)>();
+	const auto * src_ptr = reinterpret_cast<const CHTYPE *>(tmp_ptr);
 	auto * dest_ptr = reinterpret_cast<NUMPYTYPE *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
@@ -211,9 +212,18 @@ void NumpyArray::append(const ColumnPtr & column)
 	case TypeIndex::BFloat16:
 		may_have_null = TransformColumn<BFloat16, Float32, RegularConvert>(append_data);
 		break;
-	/// case TypeIndex::Date:
-	/// 	may_have_null = TransformColumn<Date, Int32, RegularConvert>(append_data);
-	/// 	break;
+	case TypeIndex::Date:
+		may_have_null = TransformColumn<UInt16, Int64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::Date32:
+		may_have_null = TransformColumn<Int32, Int64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::DateTime:
+		may_have_null = TransformColumn<UInt32, Int64, RegularConvert>(append_data);
+		break;
+	case TypeIndex::DateTime64:
+		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
+		break;
 	default:
 		throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_array->type->getName());
 	}
