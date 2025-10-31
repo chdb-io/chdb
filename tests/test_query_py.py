@@ -110,6 +110,14 @@ class TestQueryPy(unittest.TestCase):
         ret = chdb.query("SELECT b, sum(a) FROM Python(df) GROUP BY b ORDER BY b")
         self.assertEqual(str(ret), EXPECTED)
 
+    def test_auto_cleanup(self):
+        with chdb.connect("data.db") as conn:
+            result = conn.query("SELECT 1")
+            self.assertEqual(str(result), "1\n")
+        with chdb.connect("data.db") as conn:
+            result = conn.query("SELECT 2")
+            self.assertEqual(str(result), "2\n")
+
     def test_query_df_with_index(self):
         df = pd.DataFrame(
             {
