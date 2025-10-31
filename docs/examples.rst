@@ -657,7 +657,7 @@ These examples demonstrate chDB's versatility and power. To continue learning:
 
 - Explore the :doc:`udf` guide for custom functions
 - Check :doc:`session` for stateful operations  
-- Review :doc:`dbapi` for DB-API 2.0 compatibility
+- Review :doc:`api` for DB-API 2.0 compatibility and complete API reference
 - See :doc:`api` for complete function reference
 
 For more advanced use cases, visit the `chDB GitHub repository <https://github.com/chdb-io/chdb>`_ and community discussions.
