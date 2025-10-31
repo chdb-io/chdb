@@ -1,5 +1,4 @@
 #include "PythonDict.h"
-#include "FormatHelper.h"
 #include "StoragePython.h"
 
 #include <Interpreters/Context.h>
@@ -38,7 +37,7 @@ ColumnsDescription PythonDict::getActualTableStructure(const py::object & object
         {
             py::handle element = values[0];
 
-            if (isJSONSupported() && py::isinstance<py::dict>(element))
+            if (context->getQueryContext() && context->getQueryContext()->isJSONSupported() && py::isinstance<py::dict>(element))
             {
                 schema.emplace_back(key, "json");
             }
@@ -50,7 +49,7 @@ ColumnsDescription PythonDict::getActualTableStructure(const py::object & object
         }
     }
 
-    return StoragePython::getTableStructureFromData(schema);
+    return StoragePython::getTableStructureFromData(schema, context);
 }
 
 bool PythonDict::isPythonDict(const py::object & object)

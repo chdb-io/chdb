@@ -1,5 +1,4 @@
 #include "PandasDataFrame.h"
-#include "FormatHelper.h"
 #include "NumpyType.h"
 #include "PandasAnalyzer.h"
 #include "PandasCacheItem.h"
@@ -69,7 +68,7 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
 
     if (numpy_type.type == NumpyNullableType::OBJECT)
     {
-        if (!isJSONSupported())
+        if (!context->getQueryContext() || !context->getQueryContext()->isJSONSupported())
         {
             numpy_type.type = NumpyNullableType::STRING;
             return NumpyToDataType(numpy_type);

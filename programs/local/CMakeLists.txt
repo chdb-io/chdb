@@ -4,6 +4,8 @@ set (CLICKHOUSE_LOCAL_SOURCES
     ArrowStreamWrapper.cpp
     ArrowTableReader.cpp
     LocalServer.cpp
+    EmbeddedServer.cpp
+    ChdbClient.cpp
 )
 
 if (NOT USE_PYTHON)
@@ -25,10 +27,11 @@ endif()
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
-        FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp
+        EmbeddedServer.cpp
+        ChdbClient.cpp
         NumpyType.cpp
         PandasAnalyzer.cpp
         PandasDataFrame.cpp
