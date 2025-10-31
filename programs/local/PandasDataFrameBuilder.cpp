@@ -1,16 +1,22 @@
 #include "PandasDataFrameBuilder.h"
-#include "NumpyType.h"
-#include "PythonUtils.h"
-#include "PythonConversion.h"
 #include "PythonImporter.h"
+#include "NumpyType.h"
 
+#include <DataTypes/Serializations/SerializationNullable.h>
+#include <DataTypes/DataTypeDateTime.h>
+#include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeTime.h>
+#include <DataTypes/DataTypeTime64.h>
+#include <Common/DateLUTImpl.h>
+#include <Processors/Chunk.h>
 #include <Columns/IColumn.h>
+#include <Common/Exception.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeDate.h>
-#include <DataTypes/DataTypeDateTime.h>
+#include <base/Decimal.h>
 
 using namespace CHDB;
 
@@ -31,6 +37,16 @@ PandasDataFrameBuilder::PandasDataFrameBuilder(const Block & sample)
     {
         column_names.push_back(column.name);
         column_types.push_back(column.type);
+
+        /// Record timezone for timezone-aware types
+        if (const auto * dt = typeid_cast<const DataTypeDateTime *>(column.type.get()))
+            column_timezones[column.name] = dt->getTimeZone().getTimeZone();
+        else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(column.type.get()))
+            column_timezones[column.name] = dt64->getTimeZone().getTimeZone();
+        else if (const auto * t = typeid_cast<const DataTypeTime *>(column.type.get()))
+            column_timezones[column.name] = t->getTimeZone().getTimeZone();
+        else if (const auto * t64 = typeid_cast<const DataTypeTime64 *>(column.type.get()))
+            column_timezones[column.name] = t64->getTimeZone().getTimeZone();
     }
 }
 
@@ -68,7 +84,36 @@ py::object PandasDataFrameBuilder::genDataFrame(const py::handle & dict)
 	}
 
 	auto df = pandas.attr("DataFrame").attr("from_dict")(dict);
+
+	/// Apply timezone conversion for timezone-aware columns
+	changeToTZType(df);
+
 	return df;
+}
+
+void PandasDataFrameBuilder::changeToTZType(py::object & df)
+{
+    if (column_timezones.empty())
+        return;
+
+    for (const auto & [column_name, timezone_str] : column_timezones)
+    {
+        /// Check if column exists in DataFrame
+        if (!df.attr("__contains__")(column_name).cast<bool>())
+            continue;
+
+        /// Get the column
+        auto column = df[column_name.c_str()];
+
+        /// First localize to UTC (assuming the timestamps are in UTC)
+        auto utc_localized = column.attr("dt").attr("tz_localize")("UTC");
+
+        /// Then convert to the target timezone
+        auto tz_converted = utc_localized.attr("dt").attr("tz_convert")(timezone_str);
+
+        /// Update the column in DataFrame
+        df.attr("__setitem__")(column_name.c_str(), tz_converted);
+    }
 }
 
 void PandasDataFrameBuilder::finalize()
