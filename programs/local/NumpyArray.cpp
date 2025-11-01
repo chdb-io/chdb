@@ -224,6 +224,35 @@ void NumpyArray::append(const ColumnPtr & column)
 	case TypeIndex::DateTime64:
 		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
 		break;
+	case TypeIndex::Time:
+	case TypeIndex::Time64:
+	case TypeIndex::String:
+	case TypeIndex::FixedString:
+	case TypeIndex::Enum8:
+	case TypeIndex::Enum16:
+	case TypeIndex::Decimal32:
+	case TypeIndex::Decimal64:
+	case TypeIndex::Decimal128:
+	case TypeIndex::Decimal256:
+	case TypeIndex::UUID:
+	case TypeIndex::Array:
+	case TypeIndex::Tuple:
+	case TypeIndex::Set:
+	case TypeIndex::Interval:
+	case TypeIndex::Map:
+    case TypeIndex::Object:
+    case TypeIndex::IPv4:
+    case TypeIndex::IPv6:
+    case TypeIndex::JSONPaths:
+    case TypeIndex::Variant:
+    case TypeIndex::Dynamic:
+		/// TODO
+		break;
+
+	case TypeIndex::ObjectDeprecated:  /// Deprecated type, should not appear in normal data processing
+	case TypeIndex::Function:          /// Function types are not data types, should not appear here
+	case TypeIndex::AggregateFunction: /// Aggregate function types are not data types, should not appear here
+	case TypeIndex::LowCardinality:    /// LowCardinality should be unwrapped before reaching this point
 	default:
 		throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_array->type->getName());
 	}
