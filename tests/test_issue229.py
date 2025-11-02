@@ -44,18 +44,13 @@ def insert_data():
 
 
 def perform_operations(index):
-    # Each thread creates its own session connected to the same database path
-    thread_sess = session.Session(sess._path)
 
     # Retrieve all entries from the table
-    results = thread_sess.query(
+    results = sess.query(
         "SELECT * FROM knowledge_base_portal_interface_event", "JSONObjectEachRow"
     )
-    print(f"Thread {index} Query Result: {len(results)} bytes")
+    print("Session Query Result:", results)
     return_results[index] = str(results)
-
-    # Clean up thread's session
-    thread_sess.cleanup()
 
 
 class TestIssue229(unittest.TestCase):

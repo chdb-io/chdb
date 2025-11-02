@@ -248,16 +248,8 @@ void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str)
 {
     if (!conn || !conn->server || !conn->connected)
         return;
-
-    try
-    {
-        auto * client = reinterpret_cast<DB::ChdbClient *>(conn->server);
-        client->pyTableCache()->findQueryableObjFromQuery(query_str);
-    }
-    catch (...)
-    {
-        // Ignore errors during Python table caching
-    }
+    auto * client = reinterpret_cast<DB::ChdbClient *>(conn->server);
+    client->findQueryableObjFromPyCache(query_str);
 }
 #endif
 
