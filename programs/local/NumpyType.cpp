@@ -342,7 +342,8 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
                     case IntervalKind::Kind::Month:
                         return "timedelta64[M]";
                     case IntervalKind::Kind::Quarter:
-                        return "object";
+                        /// numpy doesn't have quarter type, use int64
+                        return "int64";
                     case IntervalKind::Kind::Year:
                         return "timedelta64[Y]";
                     default:
@@ -360,7 +361,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     case TypeIndex::Decimal64:
     case TypeIndex::Decimal128:
     case TypeIndex::Decimal256:
-        return "object";
+        return "float64";
     case TypeIndex::Array:
     case TypeIndex::Tuple:
     case TypeIndex::Map:
@@ -369,6 +370,10 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     case TypeIndex::Variant:
     case TypeIndex::Object:
         return "object";
+    case TypeIndex::Enum8:
+        return "int8";
+    case TypeIndex::Enum16:
+        return "int16";
     case TypeIndex::Nullable:
         {
             if (const auto * nullable = typeid_cast<const DataTypeNullable *>(data_type.get()))
