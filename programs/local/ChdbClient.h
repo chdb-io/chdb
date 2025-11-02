@@ -7,6 +7,7 @@
 #include "QueryResult.h"
 
 #include <memory>
+#include <mutex>
 
 namespace DB
 {
@@ -37,13 +38,13 @@ public:
 
     void cancelStreamingQuery(void * streaming_result);
 
-    bool hasStreamingQuery() const { return streaming_query_context != nullptr; }
+    bool hasStreamingQuery() const;
 
     size_t getStorageRowsRead() const;
     size_t getStorageBytesRead() const;
 
 #if USE_PYTHON
-    CHDB::PythonTableCache * pyTableCache() const { return python_table_cache.get(); }
+    void findQueryableObjFromPyCache(const String & query_str) const;
 #endif
 
 protected:
@@ -72,6 +73,7 @@ private:
 #if USE_PYTHON
     std::shared_ptr<CHDB::PythonTableCache> python_table_cache;
 #endif
+    mutable std::mutex client_mutex;
 };
 
 } // namespace DB

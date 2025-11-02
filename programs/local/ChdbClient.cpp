@@ -1,4 +1,5 @@
 #include <memory>
+#include <mutex>
 #include <ChdbClient.h>
 #include <EmbeddedServer.h>
 #include <Client/Connection.h>
@@ -63,6 +64,7 @@ std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServerPtr server_ptr)
 
 ChdbClient::~ChdbClient()
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
     cleanup();
     resetQueryOutputVector();
 }
@@ -112,8 +114,15 @@ void ChdbClient::processError(std::string_view) const
         client_exception->rethrow();
 }
 
+bool ChdbClient::hasStreamingQuery() const
+{
+    std::lock_guard<std::mutex> lock(client_mutex);
+    return streaming_query_context != nullptr;
+}
+
 size_t ChdbClient::getStorageRowsRead() const
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
     if (connection)
     {
         auto * local_connection = static_cast<LocalConnection *>(connection.get());
@@ -124,6 +133,7 @@ size_t ChdbClient::getStorageRowsRead() const
 
 size_t ChdbClient::getStorageBytesRead() const
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
     if (connection)
     {
         auto * local_connection = static_cast<LocalConnection *>(connection.get());
@@ -131,6 +141,14 @@ size_t ChdbClient::getStorageBytesRead() const
     }
     return 0;
 }
+
+#if USE_PYTHON
+void ChdbClient::findQueryableObjFromPyCache(const String & query_str) const
+{
+    python_table_cache->findQueryableObjFromQuery(query_str);
+}
+
+#endif
 
 #if USE_PYTHON
 static bool isJSONSupported(const char * format, size_t format_len)
@@ -169,6 +187,8 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
     const char * query, size_t query_len,
     const char * format, size_t format_len)
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
+
     String query_str(query, query_len);
     String format_str(format, format_len);
 
@@ -179,9 +199,9 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
         {
             return std::make_unique<CHDB::MaterializedQueryResult>(getErrorMsg());
         }
-
-        size_t storage_rows_read = getStorageRowsRead();
-        size_t storage_bytes_read = getStorageBytesRead();
+        auto * local_connection = static_cast<LocalConnection *>(connection.get());
+        size_t storage_rows_read = local_connection->getCHDBProgress().read_rows;
+        size_t storage_bytes_read = local_connection->getCHDBProgress().read_bytes;
         auto res = std::make_unique<CHDB::MaterializedQueryResult>(
             CHDB::ResultBuffer(stealQueryOutputVector()),
             getElapsedTime(),
@@ -214,6 +234,8 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingInit(
     const char * query, size_t query_len,
     const char * format, size_t format_len)
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
+
     String query_str(query, query_len);
     String format_str(format, format_len);
 
@@ -246,6 +268,8 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingInit(
 
 CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result, bool is_canceled)
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
+
     if (!streaming_query_context)
         return std::make_unique<CHDB::MaterializedQueryResult>("No active streaming query");
 
@@ -256,11 +280,11 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
         {
             DB::CurrentThread::attachToGroupIfDetached(streaming_query_context->thread_group);
         }
-
+        auto * local_connection = static_cast<LocalConnection *>(connection.get());
         const auto old_processed_rows = getProcessedRows();
         const auto old_processed_bytes = getProcessedBytes();
-        const auto old_storage_rows_read = getStorageRowsRead();
-        const auto old_storage_bytes_read = getStorageBytesRead();
+        size_t old_storage_rows_read = local_connection->getCHDBProgress().read_rows;
+        size_t old_storage_bytes_read = local_connection->getCHDBProgress().read_bytes;
         const auto old_elapsed_time = getElapsedTime();
 
         std::unique_ptr<CHDB::MaterializedQueryResult> res;
@@ -272,8 +296,8 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
         {
             const auto processed_rows = getProcessedRows();
             const auto processed_bytes = getProcessedBytes();
-            const auto storage_rows_read = getStorageRowsRead();
-            const auto storage_bytes_read = getStorageBytesRead();
+            size_t storage_rows_read = local_connection->getCHDBProgress().read_rows;
+            size_t storage_bytes_read = local_connection->getCHDBProgress().read_bytes;
             const auto elapsed_time = getElapsedTime();
             auto * output_vec = stealQueryOutputVector();
             bool has_output_data = output_vec && !output_vec->empty();
@@ -340,6 +364,8 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
 
 void ChdbClient::cancelStreamingQuery(void * streaming_result)
 {
+    std::lock_guard<std::mutex> lock(client_mutex);
+
     if (streaming_query_context)
     {
         try

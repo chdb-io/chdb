@@ -55,7 +55,7 @@ class TestSessionConcurrency(unittest.TestCase):
         sess1.close()
         sess2.close()
 
-    def test_sessions_are_not_thread_safe(self):
+    def test_sessions_are_thread_safe(self):
         sess = session.Session(test_concurrent_dir)
         sess.query("CREATE DATABASE IF NOT EXISTS test_db")
         sess.query("CREATE TABLE IF NOT EXISTS test_db.shared_counter (id Int32, thread_id Int32) ENGINE = MergeTree() ORDER BY id")
@@ -78,8 +78,10 @@ class TestSessionConcurrency(unittest.TestCase):
         for t in threads:
             t.join()
 
-        if errors:
-            print(f"\nSharing session across threads caused {len(errors)} error(s)")
+        self.assertEqual(len(errors), 0, f"Unexpected errors when sharing session across threads: {errors}")
+
+        result = sess.query("SELECT COUNT(*) FROM test_db.shared_counter")
+        self.assertIn("9", str(result))
 
         sess.close()
 
