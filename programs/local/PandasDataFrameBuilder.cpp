@@ -43,10 +43,6 @@ PandasDataFrameBuilder::PandasDataFrameBuilder(const Block & sample)
             column_timezones[column.name] = dt->getTimeZone().getTimeZone();
         else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(column.type.get()))
             column_timezones[column.name] = dt64->getTimeZone().getTimeZone();
-        else if (const auto * t = typeid_cast<const DataTypeTime *>(column.type.get()))
-            column_timezones[column.name] = t->getTimeZone().getTimeZone();
-        else if (const auto * t64 = typeid_cast<const DataTypeTime64 *>(column.type.get()))
-            column_timezones[column.name] = t64->getTimeZone().getTimeZone();
     }
 }
 

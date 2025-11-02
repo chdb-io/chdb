@@ -225,7 +225,11 @@ void NumpyArray::append(const ColumnPtr & column)
 		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
 		break;
 	case TypeIndex::Time:
+		may_have_null = TransformColumn<Int32, Int64, RegularConvert>(append_data);
+		break;
 	case TypeIndex::Time64:
+		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
+		break;
 	case TypeIndex::String:
 	case TypeIndex::FixedString:
 	case TypeIndex::Enum8:
