@@ -23,7 +23,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux ARM64)
-    runs-on: [self-hosted, linux, arm64, amazon]
+    runs-on: [self-hosted, linux, arm64, ubuntu-latest]
     steps:
       - name: Install Python build dependencies
         run: |
@@ -137,7 +137,7 @@ jobs:
           which clang++-19
           clang++-19 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
-          # Install WebAssembly linker (wasm-ld) 
+          # Install WebAssembly linker (wasm-ld)
           sudo apt-get install -y lld-19
           # Create symlink for wasm-ld
           if ! command -v wasm-ld &> /dev/null; then
