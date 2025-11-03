@@ -89,7 +89,7 @@ You should see output similar to:
    message
    chDB is working!
    
-   chDB version: 3.6.0
+   chDB version: 3.7.0
    ClickHouse engine: 25.5.2.1
 
 Troubleshooting
