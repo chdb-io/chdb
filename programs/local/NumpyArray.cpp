@@ -1,5 +1,6 @@
 #include "NumpyArray.h"
 #include "NumpyType.h"
+#include "NumpyNestedTypes.h"
 #include "PythonImporter.h"
 
 #include <Processors/Chunk.h>
@@ -25,7 +26,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int NOT_IMPLEMENTED;
-	extern const int LOGICAL_ERROR
+	extern const int LOGICAL_ERROR;
 }
 
 }
@@ -34,22 +35,6 @@ using namespace DB;
 
 namespace CHDB
 {
-
-struct NumpyAppendData
-{
-public:
-	explicit NumpyAppendData(const IColumn & column)
-		: column(column)
-	{
-	}
-
-	const IColumn & column;
-
-	size_t count;
-	size_t dest_offset;
-	UInt8 * target_data;
-	bool * target_mask;
-};
 
 struct RegularConvert
 {
@@ -87,7 +72,7 @@ static bool TransformColumn(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<NUMPYTYPE *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = 0; i < append_data.count; i++)
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
 	{
 		size_t offset = append_data.dest_offset + i;
 		if (nullable_column && nullable_column->isNullAt(i))
@@ -140,7 +125,7 @@ static bool CHColumnDecimalToNumpyArray(NumpyAppendData & append_data, const Dat
 	auto * dest_ptr = reinterpret_cast<double *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = 0; i < append_data.count; i++)
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
 	{
 		size_t offset = append_data.dest_offset + i;
 		if (nullable_column && nullable_column->isNullAt(i))
@@ -182,13 +167,12 @@ static bool CHColumnUUIDToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = 0; i < append_data.count; i++)
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
 	{
 		size_t offset = append_data.dest_offset + i;
 		if (nullable_column && nullable_column->isNullAt(i))
 		{
-			Py_INCREF(Py_None);
-			dest_ptr[offset] = Py_None;
+			dest_ptr[offset] = nullptr;
 			has_null = true;
 			mask_ptr[offset] = true;
 		}
@@ -229,15 +213,16 @@ static bool CHColumnIPv4ToNumpyArray(NumpyAppendData & append_data)
 		throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected ColumnVector<IPv4>");
 
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
+	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = 0; i < append_data.count; i++)
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
 	{
 		size_t offset = append_data.dest_offset + i;
 		if (nullable_column && nullable_column->isNullAt(i))
 		{
-			Py_INCREF(Py_None);
-			dest_ptr[offset] = Py_None;
+			dest_ptr[offset] = nullptr;
 			has_null = true;
+			mask_ptr[offset] = true;
 		}
 		else
 		{
@@ -253,6 +238,7 @@ static bool CHColumnIPv4ToNumpyArray(NumpyAppendData & append_data)
 			auto & import_cache = PythonImporter::ImportCache();
 			py::handle ipv4_handle = import_cache.ipaddress.ipv4_address()(String(ipv4_str, ipv4_str_len)).release();
 			dest_ptr[offset] = ipv4_handle.ptr();
+			mask_ptr[offset] = false;
 		}
 	}
 
@@ -277,15 +263,16 @@ static bool CHColumnIPv6ToNumpyArray(NumpyAppendData & append_data)
 		throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected ColumnVector<IPv6>");
 
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
+	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = 0; i < append_data.count; i++)
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
 	{
 		size_t offset = append_data.dest_offset + i;
 		if (nullable_column && nullable_column->isNullAt(i))
 		{
-			Py_INCREF(Py_None);
-			dest_ptr[offset] = Py_None;
+			dest_ptr[offset] = nullptr;
 			has_null = true;
+			mask_ptr[offset] = true;
 		}
 		else
 		{
@@ -302,6 +289,7 @@ static bool CHColumnIPv6ToNumpyArray(NumpyAppendData & append_data)
 			auto & import_cache = PythonImporter::ImportCache();
 			py::handle ipv6_handle = import_cache.ipaddress.ipv6_address()(String(ipv6_str, ipv6_str_len)).release();
 			dest_ptr[offset] = ipv6_handle.ptr();
+			mask_ptr[offset] = false;
 		}
 	}
 
@@ -328,7 +316,7 @@ static bool CHColumnStringToNumpyArray(NumpyAppendData & append_data)
 
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 
-	for (size_t i = 0; i < append_data.count; i++)
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
 	{
 		size_t offset = append_data.dest_offset + i;
 		if (nullable_column && nullable_column->isNullAt(i))
@@ -346,6 +334,16 @@ static bool CHColumnStringToNumpyArray(NumpyAppendData & append_data)
 	}
 
 	return has_null;
+}
+
+NumpyAppendData::NumpyAppendData(const DB::IColumn & column)
+	: column(column)
+	, src_offset(0)
+	, src_count(0)
+	, dest_offset(0)
+	, target_data(nullptr)
+	, target_mask(nullptr)
+{
 }
 
 InternalNumpyArray::InternalNumpyArray(const DataTypePtr & type_)
@@ -390,7 +388,34 @@ void NumpyArray::resize(size_t capacity)
 	mask_array->resize(capacity);
 }
 
+static bool CHColumnNothingToNumpyArray(NumpyAppendData & append_data)
+{
+	/// Nothing type represents columns with no actual values, so we fill all positions with None
+	bool has_null = true;
+	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
+	auto * mask_ptr = append_data.target_mask;
+
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	{
+		size_t offset = append_data.dest_offset + i;
+
+		Py_INCREF(Py_None);
+		dest_ptr[offset] = Py_None;
+		mask_ptr[offset] = true;
+	}
+
+	return has_null;
+}
+
 void NumpyArray::append(const ColumnPtr & column)
+{
+	append(column, 0, column->size());
+}
+
+void NumpyArray::append(
+	const ColumnPtr & column,
+	size_t offset,
+	size_t count)
 {
 	chassert(data_array);
 	chassert(mask_array);
@@ -407,7 +432,8 @@ void NumpyArray::append(const ColumnPtr & column)
 	bool may_have_null = false;
 
 	NumpyAppendData append_data(*column);
-	append_data.count = size;
+	append_data.src_offset = offset;
+	append_data.src_offset + append_data.src_count = count;
 	append_data.target_data = data_ptr;
 	append_data.target_mask = mask_ptr;
 	append_data.dest_offset = data_array->count - size;
@@ -421,6 +447,9 @@ void NumpyArray::append(const ColumnPtr & column)
 
 	switch (actual_type->getTypeId())
 	{
+	case TypeIndex::Nothing:
+		may_have_null = CHColumnNothingToNumpyArray(append_data);
+		break;
 	case TypeIndex::Int8:
 		may_have_null = CHColumnToNumpyArray<Int8>(append_data);
 		break;
@@ -518,33 +547,49 @@ void NumpyArray::append(const ColumnPtr & column)
 		may_have_null = CHColumnUUIDToNumpyArray(append_data);
 		break;
 	case TypeIndex::Array:
+		may_have_null = CHColumnArrayToNumpyArray(append_data, actual_type);
+		break;
 	case TypeIndex::Tuple:
-	case TypeIndex::Set:
+		may_have_null = CHColumnTupleToNumpyArray(append_data, actual_type);
+		break;
 	case TypeIndex::Interval:
 		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
 		break;
 	case TypeIndex::Map:
+		may_have_null = CHColumnMapToNumpyArray(append_data, actual_type);
+		break;
     case TypeIndex::Object:
-    case TypeIndex::IPv4:
+		may_have_null = CHColumnObjectToNumpyArray(append_data, actual_type);
+		break;
+	case TypeIndex::IPv4:
 		may_have_null = CHColumnIPv4ToNumpyArray(append_data);
 		break;
     case TypeIndex::IPv6:
 		may_have_null = CHColumnIPv6ToNumpyArray(append_data);
 		break;
-    case TypeIndex::JSONPaths:
-    case TypeIndex::Variant:
-    case TypeIndex::Dynamic:
-		/// TODO
+	case TypeIndex::Variant:
+		may_have_null = CHColumnVariantToNumpyArray(append_data, actual_type);
+		break;
+	case TypeIndex::Dynamic:
+		may_have_null = CHColumnDynamicToNumpyArray(append_data, actual_type);
 		break;
 
+	/// Set types are used only in WHERE clauses for IN operations, not in actual data storage
+	case TypeIndex::Set:
+	/// JSONPaths is an internal type used only for JSON schema inference,
+	case TypeIndex::JSONPaths:
 	/// Deprecated type, should not appear in normal data processing
 	case TypeIndex::ObjectDeprecated:
-	/// Function types are not data types, should not appear here
+	/// Function types are not actual data types, should not appear here
 	case TypeIndex::Function:
-	/// Aggregate function types are not data types, should not appear here
+	/// Aggregate function types are not actual data types, should not appear here
 	case TypeIndex::AggregateFunction:
 	/// LowCardinality should be unwrapped before reaching this point
 	case TypeIndex::LowCardinality:
+	/// Nullable cannot contain another Nullable type, so this should not appear in nested conversion
+	case TypeIndex::Nullable:
+	/// QBit type is supported in newer versions of ClickHouse
+	/// case TypeIndex::QBit:
 	default:
 		throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_array->type->getName());
 	}

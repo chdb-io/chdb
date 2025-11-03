@@ -9,6 +9,21 @@
 namespace CHDB
 {
 
+/// Data structure for appending column data to numpy arrays
+class NumpyAppendData
+{
+public:
+	explicit NumpyAppendData(const DB::IColumn & column);
+
+	const DB::IColumn & column;
+
+	size_t src_offset;
+	size_t src_count;
+	size_t dest_offset;
+	UInt8 * target_data;
+	bool * target_mask;
+};
+
 class InternalNumpyArray
 {
 public:
@@ -31,6 +46,8 @@ public:
 	void init(size_t capacity);
 
 	void resize(size_t capacity);
+
+	void append(const DB::ColumnPtr & column, size_t offset, size_t count);
 
 	void append(const DB::ColumnPtr & column);
 

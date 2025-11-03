@@ -241,6 +241,8 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     TypeIndex type_id = data_type->getTypeId();
     switch (type_id)
     {
+    case TypeIndex::Nothing:
+        return "object";
     case TypeIndex::Int8:
         return "int8";
     case TypeIndex::UInt8:
@@ -380,7 +382,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
             {
                 return DataTypeToNumpyTypeStr(nullable->getNestedType());
             }
-            return "object";
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected nullable type {}", data_type->getName());
         }
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_type->getName());
