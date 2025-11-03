@@ -109,6 +109,19 @@ jobs:
             echo "Python $version is installed"
           done
           echo "All Python versions verified successfully!"
+      - name: Update version for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.9
+
+          # Install bump-my-version
+          python -m pip install bump-my-version
+          TAG_NAME=${GITHUB_REF#refs/tags/v}
+          bump-my-version replace $TAG_NAME
+          echo "Version files updated to $TAG_NAME"
+          pyenv shell --unset
       - name: Install dependencies for all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -281,3 +294,11 @@ jobs:
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      - name: Keep killall ccache and wait for ccache to finish
+        if: always()
+        run: |
+          sleep 60
+          while ps -ef | grep ccache | grep -v grep; do \
+            killall ccache; \
+            sleep 10; \
+          done
