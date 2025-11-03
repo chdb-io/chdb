@@ -1,7 +1,10 @@
+#include <mutex>
 #include <Interpreters/InterpreterFactory.h>
 
 namespace DB
 {
+
+std::once_flag global_register_once_flag;
 
 void registerInterpreterSelectQuery(InterpreterFactory & factory);
 void registerInterpreterSelectQueryAnalyzer(InterpreterFactory & factory);

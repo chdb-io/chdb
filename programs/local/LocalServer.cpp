@@ -645,38 +645,38 @@ try
         Poco::ErrorHandler::set(&error_handler);
     }
 
-    // run only once
-    static std::once_flag register_once_flag;
-    std::call_once(register_once_flag, []()
-    {
-        registerInterpreters();
-        /// Don't initialize DateLUT
-        registerFunctions();
-        registerAggregateFunctions();
+    std::call_once(
+        global_register_once_flag,
+        []()
+        {
+            registerInterpreters();
+            /// Don't initialize DateLUT
+            registerFunctions();
+            registerAggregateFunctions();
 
-        registerTableFunctions();
+            registerTableFunctions();
 
-        auto & table_function_factory = TableFunctionFactory::instance();
+            auto & table_function_factory = TableFunctionFactory::instance();
 #if USE_PYTHON
-        registerTableFunctionPython(table_function_factory);
+            registerTableFunctionPython(table_function_factory);
 #else
-        registerTableFunctionArrowStream(table_function_factory);
+            registerTableFunctionArrowStream(table_function_factory);
 #endif
 
-        registerDatabases();
+            registerDatabases();
 
-        registerStorages();
-        auto & storage_factory = StorageFactory::instance();
+            registerStorages();
+            auto & storage_factory = StorageFactory::instance();
 #if USE_PYTHON
-        registerStoragePython(storage_factory);
+            registerStoragePython(storage_factory);
 #else
-        registerStorageArrowStream(storage_factory);
+            registerStorageArrowStream(storage_factory);
 #endif
 
-        registerDictionaries();
-        registerDisks(/* global_skip_access_check= */ true);
-        registerFormats();
-    });
+            registerDictionaries();
+            registerDisks(/* global_skip_access_check= */ true);
+            registerFormats();
+        });
 
     processConfig();
 
