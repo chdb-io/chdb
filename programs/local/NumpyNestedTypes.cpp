@@ -64,6 +64,25 @@ struct ColumnTraits<ColumnTuple>
 
     static py::object convertElement(const ColumnTuple * column, const DataTypePtr & data_type, size_t index)
     {
+        const auto * tuple_data_type = typeid_cast<const DataType *>(data_type.get());
+        if (!tuple_data_type)
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected DataTypeTuple");
+
+        const auto & element_types = tuple_data_type->getElements();
+        size_t tuple_size = column->tupleSize();
+
+        Field tuple_field = column->operator[](index);
+        const Tuple & tuple_value = tuple_field.safeGet<Tuple>();
+
+        NumpyArray numpy_array({});
+        numpy_array.init(tuple_size);
+
+        for (size_t i = 0; i < tuple_size; ++i)
+        {
+            numpy_array.append(tuple_value[i], element_types[i]);
+        }
+
+        return numpy_array.toArray();
     }
 };
 

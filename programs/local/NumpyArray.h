@@ -4,6 +4,8 @@
 
 #include <Columns/IColumn_fwd.h>
 #include <Processors/Formats/IRowOutputFormat.h>
+#include <Core/Field.h>
+#include <DataTypes/IDataType.h>
 #include <base/types.h>
 
 namespace CHDB
@@ -13,9 +15,12 @@ namespace CHDB
 class NumpyAppendData
 {
 public:
-	explicit NumpyAppendData(const DB::IColumn & column);
+	explicit NumpyAppendData(
+		const DB::IColumn & column_,
+		const DB::DataTypePtr & type_);
 
 	const DB::IColumn & column;
+	const DB::DataTypePtr & type;
 
 	size_t src_offset;
 	size_t src_count;
@@ -43,13 +48,15 @@ class NumpyArray {
 public:
 	explicit NumpyArray(const DB::DataTypePtr & type_);
 
-	void init(size_t capacity);
+	void init(size_t capacity, bool may_have_null = true);
 
-	void resize(size_t capacity);
+	void resize(size_t capacity, bool may_have_null = true);
+
+	void append(const DB::ColumnPtr & column);
 
 	void append(const DB::ColumnPtr & column, size_t offset, size_t count);
 
-	void append(const DB::ColumnPtr & column);
+	void append(const DB::Field & field, const DB::DataTypePtr & type);
 
 	py::object toArray() const;
 

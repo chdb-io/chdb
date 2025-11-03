@@ -243,81 +243,74 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     {
     case TypeIndex::Nothing:
         return "object";
+
     case TypeIndex::Int8:
         return "int8";
+
     case TypeIndex::UInt8:
         /// Special case: UInt8 could be Bool type, need to check getName()
         {
             auto is_bool = isBool(data_type);
             return is_bool ? "bool" : "uint8";
         }
+
     case TypeIndex::Int16:
         return "int16";
+
     case TypeIndex::UInt16:
         return "uint16";
+
     case TypeIndex::Int32:
         return "int32";
+
     case TypeIndex::UInt32:
         return "uint32";
+
     case TypeIndex::Int64:
         return "int64";
+
     case TypeIndex::UInt64:
         return "uint64";
+
     case TypeIndex::BFloat16:
     case TypeIndex::Float32:
         return "float32";
+
     case TypeIndex::Int256:
     case TypeIndex::UInt256:
     case TypeIndex::Int128:
     case TypeIndex::UInt128:
     case TypeIndex::Float64:
         return "float64";
+
     case TypeIndex::String:
     case TypeIndex::FixedString:
         return "object";
+
     case TypeIndex::DateTime:
         return "datetime64[s]";
+
     case TypeIndex::DateTime64:
         {
             if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(data_type.get()))
             {
                 UInt32 scale = dt64->getScale();
-                if (scale == 0)
-                    return "datetime64[s]";
-                else if (scale == 3)
-                    return "datetime64[ms]";
-                else if (scale == 6)
-                    return "datetime64[us]";
-                else if (scale == 9)
+                if (scale <= 9)
                     return "datetime64[ns]";
-                else
-                    return "datetime64[ns]";
+
+                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}, scale {}", data_type->getName(), scale);
             }
-            return "datetime64[ns]";
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected datetime64 type {}", data_type->getName());
         }
+
     case TypeIndex::Date:
     case TypeIndex::Date32:
         return "datetime64[D]";
+
     case TypeIndex::Time:
-        return "timedelta64[s]";
     case TypeIndex::Time64:
-        {
-            if (const auto * time64 = typeid_cast<const DataTypeTime64 *>(data_type.get()))
-            {
-                UInt32 scale = time64->getScale();
-                if (scale == 0)
-                    return "timedelta64[s]";
-                else if (scale == 3)
-                    return "timedelta64[ms]";
-                else if (scale == 6)
-                    return "timedelta64[us]";
-                else if (scale == 9)
-                    return "timedelta64[ns]";
-                else
-                    return "timedelta64[ns]";
-            }
-            return "timedelta64[ns]";
-        }
+        return "object";
+
     case TypeIndex::Interval:
         {
             if (const auto * interval = typeid_cast<const DataTypeInterval *>(data_type.get()))
@@ -344,26 +337,28 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
                     case IntervalKind::Kind::Month:
                         return "timedelta64[M]";
                     case IntervalKind::Kind::Quarter:
-                        /// numpy doesn't have quarter type, use int64
-                        return "int64";
+                        /// numpy doesn't have quarter type
+                        return "timedelta64[M]";
                     case IntervalKind::Kind::Year:
                         return "timedelta64[Y]";
                     default:
-                        return "timedelta64[s]";
+                        throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval kind {}", kind.kind);
                 }
             }
-            return "timedelta64[s]";
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval type {}", data_type->getName());
         }
 
     case TypeIndex::UUID:
     case TypeIndex::IPv4:
     case TypeIndex::IPv6:
         return "object";
+
     case TypeIndex::Decimal32:
     case TypeIndex::Decimal64:
     case TypeIndex::Decimal128:
     case TypeIndex::Decimal256:
         return "float64";
+
     case TypeIndex::Array:
     case TypeIndex::Tuple:
     case TypeIndex::Map:
@@ -372,10 +367,13 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     case TypeIndex::Variant:
     case TypeIndex::Object:
         return "object";
+
     case TypeIndex::Enum8:
         return "int8";
+
     case TypeIndex::Enum16:
         return "int16";
+
     case TypeIndex::Nullable:
         {
             if (const auto * nullable = typeid_cast<const DataTypeNullable *>(data_type.get()))
@@ -384,6 +382,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
             }
             throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected nullable type {}", data_type->getName());
         }
+
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_type->getName());
     }

@@ -2,6 +2,7 @@
 #include "NumpyType.h"
 #include "NumpyNestedTypes.h"
 #include "PythonImporter.h"
+#include "FieldToPython.h"
 
 #include <Processors/Chunk.h>
 #include <base/defines.h>
@@ -13,10 +14,15 @@
 #include <DataTypes/DataTypeFactory.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypesDecimal.h>
+#include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeInterval.h>
+#include <DataTypes/DataTypeTime64.h>
+#include <DataTypes/DataTypeTime.h>
 #include <base/types.h>
 #include <base/UUID.h>
 #include <base/IPv4andIPv6.h>
 #include <IO/WriteHelpers.h>
+#include <Common/exp10_i32.h>
 #include <Common/formatIPv6.h>
 #include <pybind11/pytypes.h>
 
@@ -50,6 +56,46 @@ struct RegularConvert
 	{
 		set_mask = true;
 		return 0;
+	}
+};
+
+struct TimeConvert
+{
+	template <class CHTYPE, class NUMPYTYPE>
+	static NUMPYTYPE convertValue(CHTYPE val, NumpyAppendData & append_data)
+	{
+		chassert(append_data.type);
+
+		Field field(static_cast<Int64>(val));
+		auto time_object = convertFieldToPython(field, append_data.type);
+		return time_object.release().ptr();
+	}
+
+	template <class NUMPYTYPE>
+	static NUMPYTYPE nullValue(bool & set_mask)
+	{
+		set_mask = true;
+		return nullptr;
+	}
+};
+
+struct Time64Convert
+{
+	template <class CHTYPE, class NUMPYTYPE>
+	static NUMPYTYPE convertValue(CHTYPE val, NumpyAppendData & append_data)
+	{
+		chassert(append_data.type);
+
+		Field field(val);
+		auto time64_object = convertFieldToPython(field, append_data.type);
+		return time64_object.release().ptr();
+	}
+
+	template <class NUMPYTYPE>
+	static NUMPYTYPE nullValue(bool & set_mask)
+	{
+		set_mask = true;
+		return nullptr;
 	}
 };
 
@@ -119,8 +165,7 @@ static bool CHColumnDecimalToNumpyArray(NumpyAppendData & append_data, const Dat
 	if (!decimal_type)
 		throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected DataTypeDecimal");
 
-	auto scale_multiplier = decimal_type->getScaleMultiplier();
-	double scale_multiplier_double = static_cast<double>(scale_multiplier.value);
+	UInt32 scale = decimal_type->getScale();
 
 	auto * dest_ptr = reinterpret_cast<double *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
@@ -137,9 +182,100 @@ static bool CHColumnDecimalToNumpyArray(NumpyAppendData & append_data, const Dat
 		}
 		else
 		{
-			/// Convert decimal integer value to actual decimal by dividing by scale multiplier
 			auto decimal_value = decimal_column->getElement(i);
-			dest_ptr[offset] = static_cast<double>(decimal_value.value) / scale_multiplier_double;
+			dest_ptr[offset] = DecimalUtils::convertTo<double>(decimal_value, scale);
+			mask_ptr[offset] = false;
+		}
+	}
+
+	return has_null;
+}
+
+static bool CHColumnDateTime64ToNumpyArray(NumpyAppendData & append_data)
+{
+	bool has_null = false;
+	const IColumn * data_column = &append_data.column;
+	const ColumnNullable * nullable_column = nullptr;
+
+	if (const auto * nullable = typeid_cast<const ColumnNullable *>(&append_data.column))
+	{
+		nullable_column = nullable;
+		data_column = &nullable->getNestedColumn();
+	}
+
+	const auto * decimal_column = typeid_cast<const ColumnDecimal<DateTime64> *>(data_column);
+	if (!decimal_column)
+		throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected ColumnDecimal<DateTime64>");
+
+	auto * dest_ptr = reinterpret_cast<Int64 *>(append_data.target_data);
+	auto * mask_ptr = append_data.target_mask;
+
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	{
+		size_t offset = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(i))
+		{
+			dest_ptr[offset] = 0;
+			mask_ptr[offset] = true;
+			has_null = true;
+		}
+		else
+		{
+			/// Get the DateTime64 value and convert to nanoseconds
+			Int64 raw_value = decimal_column->getInt(i);
+			auto scale = decimal_column->getScale();
+
+			Int64 ns_value;
+			chassert(scale <= 9);
+			Int64 multiplier = common::exp10_i32(9 - scale);
+			ns_value = raw_value * multiplier;
+
+			dest_ptr[offset] = ns_value;
+			mask_ptr[offset] = false;
+		}
+	}
+
+	return has_null;
+}
+
+static bool CHColumnIntervalToNumpyArray(NumpyAppendData & append_data)
+{
+	bool has_null = false;
+	const IColumn * data_column = &append_data.column;
+	const ColumnNullable * nullable_column = nullptr;
+
+	/// Check if column is nullable
+	if (const auto * nullable = typeid_cast<const ColumnNullable *>(&append_data.column))
+	{
+		nullable_column = nullable;
+		data_column = &nullable->getNestedColumn();
+	}
+
+	const auto * int64_column = typeid_cast<const ColumnVector<Int64> *>(data_column);
+	if (!int64_column)
+		throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected ColumnVector<Int64> for Interval");
+
+	auto * dest_ptr = reinterpret_cast<Int64 *>(append_data.target_data);
+	auto * mask_ptr = append_data.target_mask;
+
+	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	{
+		size_t offset = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(i))
+		{
+			dest_ptr[offset] = 0;
+			mask_ptr[offset] = true;
+			has_null = true;
+		}
+		else
+		{
+			Int64 interval_value = int64_column->getElement(i);
+
+			/// Convert quarter to month by multiplying by 3
+			/// This function is only called for Quarter intervals
+			interval_value *= 3;
+
+			dest_ptr[offset] = interval_value;
 			mask_ptr[offset] = false;
 		}
 	}
@@ -336,8 +472,11 @@ static bool CHColumnStringToNumpyArray(NumpyAppendData & append_data)
 	return has_null;
 }
 
-NumpyAppendData::NumpyAppendData(const DB::IColumn & column)
-	: column(column)
+NumpyAppendData::NumpyAppendData(
+	const DB::IColumn & column_,
+	const DB::DataTypePtr & type_)
+	: column(column_)
+	, type(type_)
 	, src_offset(0)
 	, src_count(0)
 	, dest_offset(0)
@@ -376,16 +515,24 @@ NumpyArray::NumpyArray(const DataTypePtr & type_)
 	mask_array = std::make_unique<InternalNumpyArray>(DataTypeFactory::instance().get("Bool"));
 }
 
-void NumpyArray::init(size_t capacity)
+void NumpyArray::init(size_t capacity, bool may_have_null)
 {
 	data_array->init(capacity);
-	mask_array->init(capacity);
+
+	if (may_have_null)
+	{
+		mask_array->init(capacity);
+	}
 }
 
-void NumpyArray::resize(size_t capacity)
+void NumpyArray::resize(size_t capacity, bool may_have_null)
 {
 	data_array->resize(capacity);
-	mask_array->resize(capacity);
+
+	if (may_have_null)
+	{
+		mask_array->resize(capacity);
+	}
 }
 
 static bool CHColumnNothingToNumpyArray(NumpyAppendData & append_data)
@@ -431,13 +578,6 @@ void NumpyArray::append(
 	mask_array->count += size;
 	bool may_have_null = false;
 
-	NumpyAppendData append_data(*column);
-	append_data.src_offset = offset;
-	append_data.src_offset + append_data.src_count = count;
-	append_data.target_data = data_ptr;
-	append_data.target_mask = mask_ptr;
-	append_data.dest_offset = data_array->count - size;
-
 	/// For nullable types, we need to get the nested type
 	DataTypePtr actual_type = data_array->type;
 	if (const auto * nullable_type = typeid_cast<const DataTypeNullable *>(data_array->type.get()))
@@ -445,14 +585,23 @@ void NumpyArray::append(
 		actual_type = nullable_type->getNestedType();
 	}
 
+	NumpyAppendData append_data(*column, actual_type);
+	append_data.src_offset = offset;
+	append_data.src_count = count;
+	append_data.target_data = data_ptr;
+	append_data.target_mask = mask_ptr;
+	append_data.dest_offset = data_array->count - size;
+
 	switch (actual_type->getTypeId())
 	{
 	case TypeIndex::Nothing:
 		may_have_null = CHColumnNothingToNumpyArray(append_data);
 		break;
+
 	case TypeIndex::Int8:
 		may_have_null = CHColumnToNumpyArray<Int8>(append_data);
 		break;
+
 	case TypeIndex::UInt8:
 		{
 			auto is_bool = isBool(data_array->type);
@@ -462,114 +611,161 @@ void NumpyArray::append(
 				may_have_null = CHColumnToNumpyArray<UInt8>(append_data);
 		}
 		break;
+
 	case TypeIndex::Int16:
 		may_have_null = CHColumnToNumpyArray<Int16>(append_data);
 		break;
+
 	case TypeIndex::UInt16:
 		may_have_null = CHColumnToNumpyArray<UInt16>(append_data);
 		break;
+
 	case TypeIndex::Int32:
 		may_have_null = CHColumnToNumpyArray<Int32>(append_data);
 		break;
+
 	case TypeIndex::UInt32:
 		may_have_null = CHColumnToNumpyArray<UInt32>(append_data);
 		break;
+
 	case TypeIndex::Int64:
 		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
 		break;
+
 	case TypeIndex::UInt64:
 		may_have_null = CHColumnToNumpyArray<UInt64>(append_data);
 		break;
+
 	case TypeIndex::Float32:
 		may_have_null = CHColumnToNumpyArray<Float32>(append_data);
 		break;
+
 	case TypeIndex::Float64:
 		may_have_null = CHColumnToNumpyArray<Float64>(append_data);
 		break;
+
 	case TypeIndex::Int128:
 		may_have_null = TransformColumn<Int128, Float64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::Int256:
 		may_have_null = TransformColumn<Int256, Float64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::UInt128:
 		may_have_null = TransformColumn<UInt128, Float64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::UInt256:
 		may_have_null = TransformColumn<UInt256, Float64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::BFloat16:
 		may_have_null = TransformColumn<BFloat16, Float32, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::Date:
 		may_have_null = TransformColumn<UInt16, Int64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::Date32:
 		may_have_null = TransformColumn<Int32, Int64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::DateTime:
 		may_have_null = TransformColumn<UInt32, Int64, RegularConvert>(append_data);
 		break;
+
 	case TypeIndex::DateTime64:
-		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
+		may_have_null = CHColumnDateTime64ToNumpyArray(append_data);
 		break;
+
 	case TypeIndex::Time:
-		may_have_null = TransformColumn<Int32, Int64, RegularConvert>(append_data);
+		may_have_null = TransformColumn<Int32, PyObject *, TimeConvert>(append_data);
 		break;
+
 	case TypeIndex::Time64:
-		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
+		may_have_null = TransformColumn<Decimal64, PyObject *, Time64Convert>(append_data);
 		break;
+
 	case TypeIndex::String:
 		may_have_null = CHColumnStringToNumpyArray<ColumnString>(append_data);
 		break;
+
 	case TypeIndex::FixedString:
 		may_have_null = CHColumnStringToNumpyArray<ColumnFixedString>(append_data);
 		break;
+
 	case TypeIndex::Enum8:
 		may_have_null = CHColumnToNumpyArray<Int8>(append_data);
 		break;
+
 	case TypeIndex::Enum16:
 		may_have_null = CHColumnToNumpyArray<Int16>(append_data);
 		break;
+
 	case TypeIndex::Decimal32:
 		may_have_null = CHColumnDecimalToNumpyArray<Decimal32>(append_data, actual_type);
 		break;
+
 	case TypeIndex::Decimal64:
 		may_have_null = CHColumnDecimalToNumpyArray<Decimal64>(append_data, actual_type);
 		break;
+
 	case TypeIndex::Decimal128:
 		may_have_null = CHColumnDecimalToNumpyArray<Decimal128>(append_data, actual_type);
 		break;
+
 	case TypeIndex::Decimal256:
 		may_have_null = CHColumnDecimalToNumpyArray<Decimal256>(append_data, actual_type);
 		break;
+
 	case TypeIndex::UUID:
 		may_have_null = CHColumnUUIDToNumpyArray(append_data);
 		break;
+
 	case TypeIndex::Array:
 		may_have_null = CHColumnArrayToNumpyArray(append_data, actual_type);
 		break;
+
 	case TypeIndex::Tuple:
 		may_have_null = CHColumnTupleToNumpyArray(append_data, actual_type);
 		break;
+
 	case TypeIndex::Interval:
-		may_have_null = CHColumnToNumpyArray<Int64>(append_data);
+		{
+			const auto * interval_type = typeid_cast<const DataTypeInterval *>(actual_type.get());
+			if (interval_type && interval_type->getKind() == IntervalKind::Kind::Quarter)
+			{
+				may_have_null = CHColumnIntervalToNumpyArray(append_data);
+			}
+			else
+			{
+				may_have_null = CHColumnToNumpyArray<Int64>(append_data);
+			}
+		}
 		break;
+
 	case TypeIndex::Map:
 		may_have_null = CHColumnMapToNumpyArray(append_data, actual_type);
 		break;
+
     case TypeIndex::Object:
 		may_have_null = CHColumnObjectToNumpyArray(append_data, actual_type);
 		break;
+
 	case TypeIndex::IPv4:
 		may_have_null = CHColumnIPv4ToNumpyArray(append_data);
 		break;
+
     case TypeIndex::IPv6:
 		may_have_null = CHColumnIPv6ToNumpyArray(append_data);
 		break;
+
 	case TypeIndex::Variant:
 		may_have_null = CHColumnVariantToNumpyArray(append_data, actual_type);
 		break;
+
 	case TypeIndex::Dynamic:
 		may_have_null = CHColumnDynamicToNumpyArray(append_data, actual_type);
 		break;
@@ -600,15 +796,32 @@ void NumpyArray::append(
 	}
 }
 
+void NumpyArray::append(const DB::Field & field, const DB::DataTypePtr & type)
+{
+	chassert(data_array);
+	chassert(!mask_array);
+
+	auto * data_ptr = data_array->data;
+	chassert(data_ptr);
+
+	auto * dest_ptr = reinterpret_cast<py::object *>(data_ptr) + data_array->count;
+
+	*dest_ptr = convertFieldToPython(field, type);
+
+	data_array->count += 1;
+}
+
 py::object NumpyArray::toArray() const
 {
-	chassert(data_array && mask_array);
+	chassert(data_array);
 
 	data_array->resize(data_array->count);
 	if (!hava_null)
 	{
 		return std::move(data_array->array);
 	}
+
+	chassert(mask_array);
 
 	mask_array->resize(mask_array->count);
 	auto data_values = std::move(data_array->array);
