@@ -507,10 +507,8 @@ try
         }
     }
 
-    // run only once
-    static std::once_flag register_once_flag;
     std::call_once(
-        register_once_flag,
+        global_register_once_flag,
         []()
         {
             registerInterpreters();
