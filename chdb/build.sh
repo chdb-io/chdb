@@ -3,7 +3,7 @@
 set -e
 
 # default to build Release
-build_type=${1:-Release}
+build_type=${1:-Debug}
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -367,4 +367,4 @@ ccache -s || true
 # bash ${DIR}/build_bind.sh
 # bash ${DIR}/test_smoke.sh
 
-CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --all
+CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --version=3.8

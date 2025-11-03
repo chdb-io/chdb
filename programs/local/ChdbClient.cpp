@@ -122,7 +122,6 @@ bool ChdbClient::hasStreamingQuery() const
 
 size_t ChdbClient::getStorageRowsRead() const
 {
-    std::lock_guard<std::mutex> lock(client_mutex);
     if (connection)
     {
         auto * local_connection = static_cast<LocalConnection *>(connection.get());
@@ -133,7 +132,6 @@ size_t ChdbClient::getStorageRowsRead() const
 
 size_t ChdbClient::getStorageBytesRead() const
 {
-    std::lock_guard<std::mutex> lock(client_mutex);
     if (connection)
     {
         auto * local_connection = static_cast<LocalConnection *>(connection.get());
