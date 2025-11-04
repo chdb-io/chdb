@@ -8,8 +8,12 @@
 namespace CHDB
 {
 
+pybind11::object convertTimeFieldToPython(const DB::Field & field);
+
+pybind11::object convertTime64FieldToPython(const DB::Field & field);
+
 pybind11::object convertFieldToPython(
-    const DB::ColumnPtr & column,
+    const DB::IColumn & column,
     const DB::DataTypePtr & type,
     size_t index);
 

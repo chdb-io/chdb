@@ -67,7 +67,7 @@ struct TimeConvert
 		chassert(append_data.type);
 
 		Field field(static_cast<Int64>(val));
-		auto time_object = convertFieldToPython(field, append_data.type);
+		auto time_object = convertTimeFieldToPython(field);
 		return time_object.release().ptr();
 	}
 
@@ -87,7 +87,7 @@ struct Time64Convert
 		chassert(append_data.type);
 
 		Field field(val);
-		auto time64_object = convertFieldToPython(field, append_data.type);
+		auto time64_object = convertTime64FieldToPython(field);
 		return time64_object.release().ptr();
 	}
 
@@ -796,7 +796,10 @@ void NumpyArray::append(
 	}
 }
 
-void NumpyArray::append(const DB::Field & field, const DB::DataTypePtr & type)
+void NumpyArray::append(
+	const DB::IColumn & column,
+	const DB::DataTypePtr & type,
+	size_t index)
 {
 	chassert(data_array);
 	chassert(!mask_array);
@@ -806,7 +809,7 @@ void NumpyArray::append(const DB::Field & field, const DB::DataTypePtr & type)
 
 	auto * dest_ptr = reinterpret_cast<py::object *>(data_ptr) + data_array->count;
 
-	*dest_ptr = convertFieldToPython(field, type);
+	*dest_ptr = convertFieldToPython(column, type, index);
 
 	data_array->count += 1;
 }

@@ -42,10 +42,6 @@ struct ColumnTraits<ColumnArray>
 
     static py::object convertElement(const ColumnArray * column, const DataTypePtr & data_type, size_t index)
     {
-        const auto * array_data_type = typeid_cast<const DataType *>(data_type.get());
-        if (!array_data_type)
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected DataTypeArray");
-
         const auto & offsets = column->getOffsets();
         const auto & nested_column = column->getDataPtr();
 
@@ -75,15 +71,12 @@ struct ColumnTraits<ColumnTuple>
         const auto & element_types = tuple_data_type->getElements();
         size_t tuple_size = column->tupleSize();
 
-        Field tuple_field = column->operator[](index);
-        const Tuple & tuple_value = tuple_field.safeGet<Tuple>();
-
         NumpyArray numpy_array({});
         numpy_array.init(tuple_size);
 
         for (size_t i = 0; i < tuple_size; ++i)
         {
-            numpy_array.append(tuple_value[i], element_types[i]);
+            numpy_array.append(column->getColumn(i), element_types[i], index);
         }
 
         return numpy_array.toArray();
@@ -108,6 +101,7 @@ struct ColumnTraits<ColumnObject>
 
     static py::object convertElement(const ColumnObject * column, const DataTypePtr & data_type, size_t index)
     {
+        return convertFieldToPython(*column, data_type, index);
     }
 };
 
@@ -118,19 +112,7 @@ struct ColumnTraits<ColumnVariant>
 
     static py::object convertElement(const ColumnVariant * column, const DataTypePtr & data_type, size_t index)
     {
-        auto discriminator = column->globalDiscriminatorAt(index);
-        if (discriminator == ColumnVariant::NULL_DISCRIMINATOR)
-        {
-            return py::none();
-        }
-
-        const auto * variant_type = typeid_cast<const DataTypeVariant *>(data_type.get());
-        const auto & variants = variant_type->getVariants();
-        const auto & actual_type = variants[discriminator];
-        Field variant_field = column->operator[](index);
-
-        /// Nested types can be arbitrary types except Variant(...), LowCardinality(Nullable(...)) and Nullable(...) types.
-        return convertFieldToPython(variant_field, actual_type);
+        return convertFieldToPython(*column, data_type, index);
     }
 };
 
@@ -141,8 +123,7 @@ struct ColumnTraits<ColumnDynamic>
 
     static py::object convertElement(const ColumnDynamic * column, const DataTypePtr & data_type, size_t index)
     {
-        Field dynamic_field = column->operator[](index);
-        return convertFieldToPython(dynamic_field, data_type);
+        return convertFieldToPython(*column, data_type, index);
     }
 };
 
@@ -157,7 +138,6 @@ bool CHNestedColumnToNumpyArray(NumpyAppendData & append_data, const DataTypePtr
     {
         nullable_column = nullable;
         data_column = &nullable->getNestedColumn();
-        has_null = true;
     }
 
     const auto * typed_column = typeid_cast<const ColumnType *>(data_column);

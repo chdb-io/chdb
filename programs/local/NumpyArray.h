@@ -54,9 +54,15 @@ public:
 
 	void append(const DB::ColumnPtr & column);
 
-	void append(const DB::ColumnPtr & column, size_t offset, size_t count);
+	void append(
+		const DB::ColumnPtr & column,
+		size_t offset,
+		size_t count);
 
-	void append(const DB::Field & field, const DB::DataTypePtr & type);
+	void append(
+		const DB::IColumn & column,
+		const DB::DataTypePtr & type,
+		size_t index);
 
 	py::object toArray() const;
 
