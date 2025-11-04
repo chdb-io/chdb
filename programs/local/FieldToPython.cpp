@@ -6,6 +6,10 @@
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeInterval.h>
+#include <DataTypes/DataTypeArray.h>
+#include <DataTypes/DataTypeTuple.h>
+#include <DataTypes/DataTypeMap.h>
 #include <base/IPv4andIPv6.h>
 #include <Common/Exception.h>
 #include <Common/LocalDate.h>
@@ -13,6 +17,7 @@
 #include <Common/DateLUTImpl.h>
 #include <Common/formatIPv6.h>
 #include <Core/DecimalFunctions.h>
+#include <IO/WriteHelpers.h>
 #include <base/types.h>
 
 namespace CHDB
@@ -24,6 +29,7 @@ namespace py = pybind11;
 namespace ErrorCodes
 {
     extern const int NOT_IMPLEMENTED;
+    extern const int LOGICAL_ERROR;
 }
 
 static py::object convertLocalDateToPython(const LocalDate & local_date, auto & import_cache, const Field & field)
@@ -133,7 +139,7 @@ py::object convertFieldToPython(
         {
             auto seconds = field.safeGet<UInt64>();
 
-            const auto * datetime_type = typeid_cast<const DataTypeDateTime *>(type.get());
+            const auto * datetime_type = typeid_cast<const DataTypeDateTime *>(actual_type.get());
             const auto & time_zone = datetime_type ? datetime_type->getTimeZone() : DateLUT::instance("UTC");
 
             time_t timestamp = static_cast<time_t>(seconds);
@@ -169,7 +175,7 @@ py::object convertFieldToPython(
             auto datetime64_value = datetime64_field.getValue();
             Int64 datetime64_ticks = datetime64_value.value;
 
-            const auto * datetime64_type = typeid_cast<const DataTypeDateTime64 *>(type.get());
+            const auto * datetime64_type = typeid_cast<const DataTypeDateTime64 *>(actual_type.get());
             const auto & time_zone = datetime64_type ? datetime64_type->getTimeZone() : DateLUT::instance("UTC");
 
             UInt32 scale = datetime64_field.getScale();
@@ -314,45 +320,177 @@ py::object convertFieldToPython(
         }
 
     case TypeIndex::UUID:
-		break;
+        {
+            auto uuid_value = field.safeGet<UUID>();
+            const auto formatted_uuid = formatUUID(uuid_value);
+            return import_cache.uuid.UUID()(String(formatted_uuid.data(), formatted_uuid.size()));
+        }
 
-	// case TypeIndex::Array:
-	// 	may_have_null = CHColumnArrayToNumpyArray(append_data, actual_type);
-	// 	break;
+	case TypeIndex::Array:
+		{
+			auto array_field = field.safeGet<Array>();
 
-	// case TypeIndex::Tuple:
-	// 	may_have_null = CHColumnTupleToNumpyArray(append_data, actual_type);
-	// 	break;
+			const auto * array_type = typeid_cast<const DataTypeArray *>(actual_type.get());
+			chassert(array_type);
 
-	// case TypeIndex::Interval:
-	// 	{
-	// 		const auto * interval_type = typeid_cast<const DataTypeInterval *>(actual_type.get());
-	// 		if (interval_type && interval_type->getKind() == IntervalKind::Kind::Quarter)
-	// 		{
-	// 			may_have_null = CHColumnIntervalToNumpyArray(append_data);
-	// 		}
-	// 		else
-	// 		{
-	// 			may_have_null = CHColumnToNumpyArray<Int64>(append_data);
-	// 		}
-	// 	}
-	// 	break;
+			const auto & element_type = array_type->getNestedType();
 
-	// case TypeIndex::Map:
-	// 	may_have_null = CHColumnMapToNumpyArray(append_data, actual_type);
-	// 	break;
+			py::list python_list;
+			for (const auto & element : array_field)
+			{
+				auto python_element = convertFieldToPython(element, element_type);
+				python_list.append(python_element);
+			}
+
+			return python_list;
+		}
+
+	case TypeIndex::Tuple:
+		{
+			const auto & tuple_field = field.safeGet<Tuple>();
+
+			const auto * tuple_type = typeid_cast<const DataTypeTuple *>(actual_type.get());
+			chassert(tuple_type);
+
+			const auto & element_types = tuple_type->getElements();
+
+			py::tuple python_tuple(tuple_field.size());
+			for (size_t i = 0; i < tuple_field.size(); ++i)
+			{
+				auto python_element = convertFieldToPython(tuple_field[i], element_types[i]);
+				python_tuple[i] = python_element;
+			}
+
+			return python_tuple;
+		}
+
+	case TypeIndex::Interval:
+        {
+            auto interval_value = field.safeGet<Int64>();
+            const auto * interval_type = typeid_cast<const DataTypeInterval *>(actual_type.get());
+            chassert(interval_type);
+            IntervalKind::Kind interval_kind = interval_type->getKind();
+
+            switch (interval_kind)
+            {
+                case IntervalKind::Kind::Nanosecond:
+                    return import_cache.datetime.timedelta()(py::arg("microseconds") = interval_value / 1000);
+                case IntervalKind::Kind::Microsecond:
+                    return import_cache.datetime.timedelta()(py::arg("microseconds") = interval_value);
+                case IntervalKind::Kind::Millisecond:
+                    return import_cache.datetime.timedelta()(py::arg("milliseconds") = interval_value);
+                case IntervalKind::Kind::Second:
+                    return import_cache.datetime.timedelta()(py::arg("seconds") = interval_value);
+                case IntervalKind::Kind::Minute:
+                    return import_cache.datetime.timedelta()(py::arg("minutes") = interval_value);
+                case IntervalKind::Kind::Hour:
+                    return import_cache.datetime.timedelta()(py::arg("hours") = interval_value);
+                case IntervalKind::Kind::Day:
+                    return import_cache.datetime.timedelta()(py::arg("days") = interval_value);
+                case IntervalKind::Kind::Week:
+                    return import_cache.datetime.timedelta()(py::arg("weeks") = interval_value);
+                case IntervalKind::Kind::Month:
+                    /// Approximate: 1 month = 30 days
+                    return import_cache.datetime.timedelta()(py::arg("days") = interval_value * 30);
+                case IntervalKind::Kind::Quarter:
+                    /// 1 quarter = 3 months = 90 days
+                    return import_cache.datetime.timedelta()(py::arg("days") = interval_value * 90);
+                case IntervalKind::Kind::Year:
+                    /// 1 year = 365 days
+                    return import_cache.datetime.timedelta()(py::arg("days") = interval_value * 365);
+                default:
+                    throw Exception(ErrorCodes::LOGICAL_ERROR, "Unsupported interval kind");
+            }
+        }
+
+	case TypeIndex::Map:
+        {
+            const auto & map_field = field.safeGet<Map>();
+
+            const auto * map_type = typeid_cast<const DataTypeMap *>(actual_type.get());
+            chassert(map_type);
+
+            const auto & key_type = map_type->getKeyType();
+            const auto & value_type = map_type->getValueType();
+
+            py::list keys_list;
+            py::list values_list;
+            py::dict python_dict;
+            bool use_dict = true;
+
+            for (const auto & entry : map_field)
+            {
+                const auto & entry_tuple = entry.safeGet<Tuple>();
+                chassert(entry_tuple.size() == 2);
+
+                auto python_key = convertFieldToPython(entry_tuple[0], key_type);
+                auto python_value = convertFieldToPython(entry_tuple[1], value_type);
+
+                if (use_dict)
+                {
+                    try
+                    {
+                        python_dict[python_key] = python_value;
+                        keys_list.append(std::move(python_key));
+                        values_list.append(std::move(python_value));
+                    }
+                    catch (const std::exception &)
+                    {
+                        // Key is not hashable, switch to list format
+                        use_dict = false;
+                        keys_list.clear();
+                        values_list.clear();
+                        keys_list.append(std::move(python_key));
+                        values_list.append(std::move(python_value));
+                    }
+                }
+                else
+                {
+                    keys_list.append(std::move(python_key));
+                    values_list.append(std::move(python_value));
+                }
+            }
+
+            if (use_dict)
+            {
+                return python_dict;
+            }
+            else
+            {
+                py::dict result;
+                result["keys"] = keys_list;
+                result["values"] = values_list;
+                return result;
+            }
+        }
 
     // case TypeIndex::Object:
 	// 	may_have_null = CHColumnObjectToNumpyArray(append_data, actual_type);
 	// 	break;
 
-	// case TypeIndex::IPv4:
-	// 	may_have_null = CHColumnIPv4ToNumpyArray(append_data);
-	// 	break;
+	case TypeIndex::IPv4:
+		{
+			auto ipv4_value = field.safeGet<IPv4>();
 
-    // case TypeIndex::IPv6:
-	// 	may_have_null = CHColumnIPv6ToNumpyArray(append_data);
-	// 	break;
+			char ipv4_str[IPV4_MAX_TEXT_LENGTH];
+			char * ptr = ipv4_str;
+			formatIPv4(reinterpret_cast<const unsigned char*>(&ipv4_value), ptr);
+			const size_t ipv4_str_len = ptr - ipv4_str;
+
+			return import_cache.ipaddress.ipv4_address()(String(ipv4_str, ipv4_str_len));
+		}
+
+    case TypeIndex::IPv6:
+		{
+			auto ipv6_value = field.safeGet<IPv6>();
+
+			char ipv6_str[IPV6_MAX_TEXT_LENGTH];
+			char * ptr = ipv6_str;
+			formatIPv6(reinterpret_cast<const unsigned char*>(&ipv6_value), ptr);
+			const size_t ipv6_str_len = ptr - ipv6_str;
+
+			return import_cache.ipaddress.ipv6_address()(String(ipv6_str, ipv6_str_len));
+		}
 
 	// case TypeIndex::Variant:
 	// 	may_have_null = CHColumnVariantToNumpyArray(append_data, actual_type);
