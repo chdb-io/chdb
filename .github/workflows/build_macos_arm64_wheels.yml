@@ -249,12 +249,11 @@ jobs:
         run: |
           echo "=== Wheel sizes ==="
           du -sh dist/*
-      - name: Setup core dump
+      - name: Setup core dump collection
         run: |
           mkdir -p tmp/core
-          sudo sysctl kern.corefile=$PWD/tmp/core/core.%P.%N
+          sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
           sudo sysctl kern.coredump=1
-          sudo sysctl kern.sugid_coredump=1
           ulimit -c unlimited
       - name: Free up disk space
         run: |
@@ -264,6 +263,7 @@ jobs:
           rm -rf buildlib/src 2>/dev/null || true
       - name: Test wheel on all Python versions
         run: |
+          ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
