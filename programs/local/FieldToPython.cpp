@@ -1,11 +1,13 @@
 #include "FieldToPython.h"
 #include "PythonImporter.h"
+#include "ObjectToPython.h"
 
 #include <Core/DecimalComparison.h>
 #include <Columns/ColumnArray.h>
 #include <Columns/ColumnTuple.h>
 #include <Columns/ColumnMap.h>
 #include <Columns/ColumnDynamic.h>
+#include <Columns/ColumnObject.h>
 #include <IO/ReadBufferFromMemory.h>
 #include <DataTypes/Serializations/SerializationInfo.h>
 #include <DataTypes/DataTypesBinaryEncoding.h>
@@ -20,6 +22,7 @@
 #include <DataTypes/DataTypeMap.h>
 #include <DataTypes/DataTypeVariant.h>
 #include <DataTypes/DataTypeDynamic.h>
+#include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypesNumber.h>
@@ -682,6 +685,9 @@ py::object convertFieldToPython(
         }
 
     case TypeIndex::Object:
+        {
+            return convertObjectToPython(column, actual_type, index);
+        }
 
 	case TypeIndex::IPv4:
 		{
