@@ -23,7 +23,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux ARM64)
-    runs-on: [self-hosted, linux, arm64, ubuntu-latest]
+    runs-on: GH-Linux-ARM64
     steps:
       - name: Check CPU capabilities and requirements
         run: |
