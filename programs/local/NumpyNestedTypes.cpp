@@ -1,5 +1,6 @@
 #include "NumpyNestedTypes.h"
 #include "NumpyArray.h"
+#include "FieldToPython.h"
 
 #include <Columns/ColumnArray.h>
 #include <Columns/ColumnNullable.h>
@@ -13,6 +14,9 @@
 #include <Common/typeid_cast.h>
 #include <Common/Exception.h>
 #include <DataTypes/DataTypeVariant.h>
+#include <DataTypes/DataTypeDynamic.h>
+#include <Columns/ColumnVariant.h>
+#include <Columns/ColumnDynamic.h>
 #include <Processors/Formats/Impl/CHColumnToArrowColumn.h>
 #include <pybind11/pybind11.h>
 
@@ -93,6 +97,7 @@ struct ColumnTraits<ColumnMap>
 
     static py::object convertElement(const ColumnMap * column, const DataTypePtr & data_type, size_t index)
     {
+        return convertFieldToPython(*column, data_type, index);
     }
 };
 
@@ -113,6 +118,19 @@ struct ColumnTraits<ColumnVariant>
 
     static py::object convertElement(const ColumnVariant * column, const DataTypePtr & data_type, size_t index)
     {
+        auto discriminator = column->globalDiscriminatorAt(index);
+        if (discriminator == ColumnVariant::NULL_DISCRIMINATOR)
+        {
+            return py::none();
+        }
+
+        const auto * variant_type = typeid_cast<const DataTypeVariant *>(data_type.get());
+        const auto & variants = variant_type->getVariants();
+        const auto & actual_type = variants[discriminator];
+        Field variant_field = column->operator[](index);
+
+        /// Nested types can be arbitrary types except Variant(...), LowCardinality(Nullable(...)) and Nullable(...) types.
+        return convertFieldToPython(variant_field, actual_type);
     }
 };
 
@@ -123,6 +141,8 @@ struct ColumnTraits<ColumnDynamic>
 
     static py::object convertElement(const ColumnDynamic * column, const DataTypePtr & data_type, size_t index)
     {
+        Field dynamic_field = column->operator[](index);
+        return convertFieldToPython(dynamic_field, data_type);
     }
 };
 
