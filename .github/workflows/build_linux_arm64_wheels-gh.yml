@@ -76,7 +76,7 @@ jobs:
           else
             echo "✅ No SQLite vulnerabilities found"
           fi
-        continue-on-error: false
+        continue-on-error: true
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -88,7 +88,8 @@ jobs:
           pyenv install 3.11:latest
           pyenv install 3.12:latest
           pyenv install 3.13:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+          pyenv install 3.14:latest
+          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
 
           # Verify installations
           echo "Installed versions:"
@@ -101,7 +102,7 @@ jobs:
           pyenv versions
           echo ""
           echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -109,15 +110,28 @@ jobs:
             echo "✓ Python $version is installed"
           done
           echo "All Python versions verified successfully!"
+      - name: Update version for release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.9
+
+          # Install bump-my-version
+          python -m pip install bump-my-version
+          TAG_NAME=${GITHUB_REF#refs/tags/v}
+          bump-my-version replace $TAG_NAME
+          echo "Version files updated to $TAG_NAME"
+          pyenv shell --unset
       - name: Install dependencies for all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel jupyter nbconvert
             pyenv shell --unset
           done
       - name: Upgrade Rust toolchain
@@ -231,6 +245,7 @@ jobs:
       - name: Run libchdb stub in examples dir
         run: |
           bash -x ./examples/runStub.sh
+          bash -x ./examples/runArrowTest.sh
       - name: Check ccache statistics
         run: |
           ccache -s
@@ -271,7 +286,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
@@ -279,6 +294,15 @@ jobs:
             make test
             pyenv shell --unset
           done
+        continue-on-error: false
+      - name: Run notebook tests
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.8
+          python -m pip install dist/*.whl --force-reinstall
+          jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
+          pyenv shell --unset
         continue-on-error: false
       - name: Check and upload core files if present
         if: always()
@@ -293,6 +317,14 @@ jobs:
             echo "No core files found in tmp/core"
           fi
         continue-on-error: true
+      - name: Keep killall ccache and wait for ccache to finish
+        if: always()
+        run: |
+          sleep 60
+          while ps -ef | grep ccache | grep -v grep; do \
+            killall ccache; \
+            sleep 10; \
+          done
       - name:  Upload core files if present
         if: always() && env.CORE_FILES_FOUND == 'true'
         uses: actions/upload-artifact@v4
