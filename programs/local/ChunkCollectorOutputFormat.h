@@ -1,20 +1,26 @@
 #pragma once
 
 #include <vector>
+#include <Core/NamesAndTypes.h>
 #include <Processors/Formats/IOutputFormat.h>
+#include <Processors/Port.h>
 
 namespace DB
 {
-
 class NullWriteBuffer;
+}
+
+namespace CHDB
+{
+
 class PandasDataFrameBuilder;
 
 /// OutputFormat that collects all chunks into memory for further processing
 /// Does not write to WriteBuffer, instead accumulates data for conversion to pandas DataFrame objects
-class ChunkCollectorOutputFormat : public IOutputFormat
+class ChunkCollectorOutputFormat : public DB::IOutputFormat
 {
 public:
-    ChunkCollectorOutputFormat(const Block & header, PandasDataFrameBuilder & builder);
+    ChunkCollectorOutputFormat(DB::SharedHeader shared_header, PandasDataFrameBuilder & builder);
 
     String getName() const override { return "ChunkCollectorOutputFormat"; }
 
@@ -24,31 +30,30 @@ public:
     }
 
 protected:
-    void consume(Chunk chunk) override;
+    void consume(DB::Chunk chunk) override;
 
-    void consumeTotals(Chunk totals) override;
+    void consumeTotals(DB::Chunk totals) override;
 
-    void consumeExtremes(Chunk extremes) override;
+    void consumeExtremes(DB::Chunk extremes) override;
 
     void finalizeImpl() override;
 
 private:
-    std::vector<Chunk> chunks;
+    std::vector<DB::Chunk> chunks;
 
     PandasDataFrameBuilder & dataframe_builder;
 
-    /// Is not used.
-    static NullWriteBuffer out;
+    static DB::NullWriteBuffer out;
 };
 
 /// Registration function to be called during initialization
 void registerDataFrameOutputFormat();
 
 /// Get the global dataframe builder
-PandasDataFrameBuilder * getGlobalDataFrameBuilder();
+PandasDataFrameBuilder & getGlobalDataFrameBuilder();
 
 /// Set the global dataframe builder
-void setGlobalDataFrameBuilder(std::unique_ptr<PandasDataFrameBuilder> builder);
+void setGlobalDataFrameBuilder(std::shared_ptr<PandasDataFrameBuilder> builder);
 
 /// Reset the global dataframe builder
 void resetGlobalDataFrameBuilder();

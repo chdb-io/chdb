@@ -3,7 +3,6 @@
 #include "PybindWrapper.h"
 
 #include <Columns/IColumn_fwd.h>
-#include <Processors/Formats/IRowOutputFormat.h>
 #include <Core/Field.h>
 #include <DataTypes/IDataType.h>
 #include <base/types.h>

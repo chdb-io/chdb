@@ -9,7 +9,7 @@
 #include <Common/logger_useful.h>
 #include <unordered_map>
 
-namespace DB
+namespace CHDB
 {
 
 /// Builder class to convert ClickHouse Chunks to Pandas DataFrame
@@ -17,28 +17,30 @@ namespace DB
 class PandasDataFrameBuilder
 {
 public:
-    explicit PandasDataFrameBuilder(const Block & sample);
+    explicit PandasDataFrameBuilder(const DB::Block & sample);
+
+    ~PandasDataFrameBuilder() = default;
 
     /// Add data chunk
-    void addChunk(const Chunk & chunk);
+    void addChunk(const DB::Chunk & chunk);
 
     /// Finalize and build pandas DataFrame from all collected chunks
     void finalize();
 
     /// Get the finalized pandas DataFrame
-    pybind11::object getDataFrame() const { return final_dataframe; }
+    pybind11::object getDataFrame();
 
 private:
     pybind11::object genDataFrame(const pybind11::handle & dict);
     void changeToTZType(pybind11::object & df);
 
     std::vector<String> column_names;
-    std::vector<DataTypePtr> column_types;
+    std::vector<DB::DataTypePtr> column_types;
 
     /// Map column name to timezone string for timezone-aware types
     std::unordered_map<String, String> column_timezones;
 
-    std::vector<Chunk> chunks;
+    std::vector<DB::Chunk> chunks;
     std::vector<CHDB::NumpyArray> columns_data;
 
     size_t total_rows = 0;

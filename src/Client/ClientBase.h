@@ -96,7 +96,7 @@ struct StreamingQueryContext
 
 #if USE_PYTHON
 /// Function pointer type for creating custom output formats (e.g. DataFrame)
-using CustomOutputFormatCreator = std::function<std::shared_ptr<IOutputFormat>(const Block &)>;
+using CustomOutputFormatCreator = std::function<std::shared_ptr<IOutputFormat>(SharedHeader)>;
 #endif
 
 /**

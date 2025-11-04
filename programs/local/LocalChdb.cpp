@@ -1,13 +1,14 @@
 #include "LocalChdb.h"
 #include "chdb-internal.h"
-#include "ChunkCollectorOutputFormat.h"
 #include "PandasDataFrameBuilder.h"
+#include "ChunkCollectorOutputFormat.h"
 #include "PythonImporter.h"
 #include "PythonTableCache.h"
 #include "StoragePython.h"
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
+#include <Poco/String.h>
 #include <Common/logger_useful.h>
 #if USE_JEMALLOC
 #    include <Common/memory.h>
@@ -86,19 +87,14 @@ py::object query(
 {
     auto * result = queryToBuffer(queryStr, output_format, path, udfPath);
 
-    if (output_format == "dataframe")
+    if (Poco::toLower(output_format) == "dataframe")
     {
         chdb_destroy_query_result(result);
 
-        auto * builder = DB::getGlobalDataFrameBuilder();
-        if (builder && builder->hasData())
-        {
-            return builder->getDataFrame();
-        }
-        else
-        {
-            throw std::runtime_error("DataFrame not available - query may have failed");
-        }
+        auto & builder = CHDB::getGlobalDataFrameBuilder();
+        auto ret = builder.getDataFrame();
+        CHDB::resetGlobalDataFrameBuilder();
+        return ret;
     }
 
     // Default behavior - return query_result
@@ -291,22 +287,17 @@ py::object connection_wrapper::query(const std::string & query_str, const std::s
     {
         std::string msg_copy(error_msg);
         chdb_destroy_query_result(result);
+        CHDB::resetGlobalDataFrameBuilder();
         throw std::runtime_error(msg_copy);
     }
 
-    if (format == "dataframe")
+    if (Poco::toLower(format) == "dataframe")
     {
         chdb_destroy_query_result(result);
-
-        auto * builder = DB::getGlobalDataFrameBuilder();
-        if (builder && builder->hasData())
-        {
-            return builder->getDataFrame();
-        }
-        else
-        {
-            throw std::runtime_error("DataFrame not available - query may have failed");
-        }
+        auto & builder = CHDB::getGlobalDataFrameBuilder();
+        auto ret = builder.getDataFrame();
+        CHDB::resetGlobalDataFrameBuilder();
+        return ret;
     }
 
     if (chdb_result_length(result))

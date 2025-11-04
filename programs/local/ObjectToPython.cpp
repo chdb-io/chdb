@@ -8,10 +8,12 @@
 
 namespace DB
 {
+
 namespace ErrorCodes
 {
     extern const int LOGICAL_ERROR;
 }
+
 }
 
 namespace CHDB
@@ -59,7 +61,7 @@ py::object convertObjectToPython(
     size_t shared_data_offset = shared_data_offsets[static_cast<ssize_t>(index) - 1];
     size_t shared_data_end = shared_data_offsets[static_cast<ssize_t>(index)];
 
-    const auto & object_type = typeid_cast<const DataTypeObject &>(type);
+    const auto & object_type = typeid_cast<const DataTypeObject &>(*type);
     const auto & specific_typed_paths = object_type.getTypedPaths();
     const auto & dynamic_data_type = object_type.getDynamicType();
 
@@ -112,28 +114,27 @@ py::object convertObjectToPython(
         }
         else
         {
-            py::dict * current_dict = &result;
+            py::dict current_dict = result;
 
             for (size_t i = 0; i < path_elements.size() - 1; ++i)
             {
                 String key(path_elements.elements[i]);
 
-                if (current_dict->contains(key.c_str()))
+                if (current_dict.contains(key.c_str()))
                 {
                     py::object nested = (*current_dict)[key.c_str()];
-                    current_dict = &nested.cast<py::dict &>();
+                    current_dict = nested.cast<py::dict>();
                 }
                 else
                 {
                     py::dict new_dict;
-                    (*current_dict)[key.c_str()] = new_dict;
-                    current_dict = &new_dict;
+                    current_dict[key.c_str()] = new_dict;
+                    current_dict = new_dict;
                 }
             }
 
-            chassert(current_dict);
             String final_key(path_elements.elements[path_elements.size() - 1]);
-            (*current_dict)[final_key.c_str()] = value;
+            current_dict[final_key.c_str()] = value;
         }
     }
 

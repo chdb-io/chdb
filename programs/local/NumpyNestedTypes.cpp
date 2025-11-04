@@ -20,17 +20,21 @@
 #include <Processors/Formats/Impl/CHColumnToArrowColumn.h>
 #include <pybind11/pybind11.h>
 
+namespace DB
+{
+
+namespace ErrorCodes
+{
+extern const int LOGICAL_ERROR;
+extern const int NOT_IMPLEMENTED;
+}
+
+}
+
 namespace CHDB
 {
 
 using namespace DB;
-namespace py = pybind11;
-
-namespace ErrorCodes
-{
-    extern const int LOGICAL_ERROR;
-    extern const int NOT_IMPLEMENTED;
-}
 
 template <typename ColumnType>
 struct ColumnTraits;

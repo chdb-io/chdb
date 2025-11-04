@@ -36,17 +36,21 @@
 #include <IO/WriteHelpers.h>
 #include <base/types.h>
 
+namespace DB
+{
+
+namespace ErrorCodes
+{
+extern const int NOT_IMPLEMENTED;
+extern const int LOGICAL_ERROR;
+}
+
+}
+
 namespace CHDB
 {
 
 using namespace DB;
-namespace py = pybind11;
-
-namespace ErrorCodes
-{
-    extern const int NOT_IMPLEMENTED;
-    extern const int LOGICAL_ERROR;
-}
 
 py::object convertTimeFieldToPython(const Field & field)
 {
@@ -594,7 +598,7 @@ py::object convertFieldToPython(
 
             const auto & offsets = array_column.getOffsets();
             const auto & tuple_column_ptr = array_column.getDataPtr();
-            const auto & tuple_column = typeid_cast<const ColumnTuple &>(tuple_column_ptr);
+            const auto & tuple_column = typeid_cast<const ColumnTuple &>(*tuple_column_ptr);
 
             size_t start_offset = (index == 0) ? 0 : offsets[index - 1];
             size_t end_offset = offsets[index];
@@ -647,7 +651,7 @@ py::object convertFieldToPython(
                 return py::none();
             }
 
-            const auto & variant_type = typeid_cast<const DataTypeVariant &>(actual_type);
+            const auto & variant_type = typeid_cast<const DataTypeVariant &>(*actual_type);
             const auto & variants = variant_type.getVariants();
             const auto & variant_data_type = variants[discriminator];
 

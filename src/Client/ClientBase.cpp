@@ -648,17 +648,17 @@ try
     if (!output_format)
     {
 #if USE_PYTHON
-        if (default_output_format == "dataframe")
+        if (Poco::toLower(default_output_format) == "dataframe")
         {
             auto creator = getDataFrameFormatCreator();
             if (creator)
             {
-                output_format = creator(block);
+                output_format = creator(std::make_shared<const Block>(block));
                 return;
             }
             else
             {
-                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "DataFrame output format creator not set");
+                throw Exception(ErrorCodes::LOGICAL_ERROR, "DataFrame output format creator not set");
             }
         }
 #endif

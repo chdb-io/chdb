@@ -17,16 +17,22 @@
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeDate.h>
 #include <base/Decimal.h>
-
-using namespace CHDB;
+#include <pybind11/gil.h>
 
 namespace DB
 {
 
 namespace ErrorCodes
 {
-    extern const int LOGICAL_ERROR;
+extern const int LOGICAL_ERROR;
 }
+
+}
+
+using namespace DB;
+
+namespace CHDB
+{
 
 PandasDataFrameBuilder::PandasDataFrameBuilder(const Block & sample)
 {
@@ -70,9 +76,9 @@ py::object PandasDataFrameBuilder::genDataFrame(const py::handle & dict)
 		py::handle key = key_value[0];
 		py::handle value = key_value[1];
 
-		auto dtype = ConvertNumpyDtype(value);
 		if (py::isinstance(value, import_cache.numpy.ma.masked_array()))
         {
+		    auto dtype = ConvertNumpyDtype(value);
 			auto series = pandas.attr("Series")(value.attr("data"), py::arg("dtype") = dtype);
 			series.attr("__setitem__")(value.attr("mask"), import_cache.pandas.NA());
 			dict.attr("__setitem__")(key, series);
@@ -118,6 +124,9 @@ void PandasDataFrameBuilder::finalize()
         return;
 
     columns_data.reserve(column_types.size());
+
+    py::gil_scoped_acquire acquire;
+
     for (const auto & type : column_types)
     {
         columns_data.emplace_back(type);
@@ -134,9 +143,18 @@ void PandasDataFrameBuilder::finalize()
         const auto & columns = chunk.getColumns();
         for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx)
         {
-            columns_data[col_idx].append(columns[col_idx]);
+            auto column = columns[col_idx];
+
+            if (column->lowCardinality())
+            {
+                column = column->convertToFullColumnIfLowCardinality();
+            }
+
+            columns_data[col_idx].append(column);
         }
     }
+
+    chunks.clear();
 
     /// Create pandas DataFrame
     py::dict res;
@@ -150,4 +168,13 @@ void PandasDataFrameBuilder::finalize()
     is_finalized = true;
 }
 
+py::object PandasDataFrameBuilder::getDataFrame()
+{
+    chassert(is_finalized);
+
+    py::gil_scoped_acquire acquire;
+
+    columns_data.clear();
+    return std::move(final_dataframe);
+}
 }

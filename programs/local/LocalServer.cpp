@@ -670,7 +670,7 @@ try
         auto & storage_factory = StorageFactory::instance();
 #if USE_PYTHON
         registerStoragePython(storage_factory);
-        registerDataFrameOutputFormat();
+        CHDB::registerDataFrameOutputFormat();
 #else
         registerStorageArrowStream(storage_factory);
 #endif

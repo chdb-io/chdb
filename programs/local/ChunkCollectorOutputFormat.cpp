@@ -6,15 +6,17 @@
 #include <Client/ClientBase.h>
 #include <base/defines.h>
 
-namespace DB
+using namespace DB;
+
+namespace CHDB
 {
 
 NullWriteBuffer ChunkCollectorOutputFormat::out;
 
 ChunkCollectorOutputFormat::ChunkCollectorOutputFormat(
-    const Block & header,
+    SharedHeader shared_header,
     PandasDataFrameBuilder & builder)
-    : IOutputFormat(header, out)
+    : IOutputFormat(shared_header, out)
     , dataframe_builder(builder)
 {}
 
@@ -48,16 +50,16 @@ void ChunkCollectorOutputFormat::finalizeImpl()
 }
 
 /// Global dataframe builder
-static std::unique_ptr<PandasDataFrameBuilder> g_dataframe_builder = nullptr;
+static std::shared_ptr<PandasDataFrameBuilder> g_dataframe_builder = nullptr;
 
-PandasDataFrameBuilder * getGlobalDataFrameBuilder()
+PandasDataFrameBuilder & getGlobalDataFrameBuilder()
 {
-    return g_dataframe_builder.get();
+    return *g_dataframe_builder;
 }
 
-void setGlobalDataFrameBuilder(std::unique_ptr<PandasDataFrameBuilder> builder)
+void setGlobalDataFrameBuilder(std::shared_ptr<PandasDataFrameBuilder> builder)
 {
-    g_dataframe_builder = std::move(builder);
+    g_dataframe_builder = builder;
 }
 
 void resetGlobalDataFrameBuilder()
@@ -66,15 +68,14 @@ void resetGlobalDataFrameBuilder()
 }
 
 /// create ChunkCollectorOutputFormat for use with function pointer
-std::shared_ptr<IOutputFormat> createDataFrameOutputFormat(const Block & header)
+std::shared_ptr<IOutputFormat> createDataFrameOutputFormat(SharedHeader header)
 {
     /// Create a PandasDataFrameBuilder and set it globally
-    auto dataframe_builder = std::make_unique<PandasDataFrameBuilder>(header);
-    PandasDataFrameBuilder * builder_ptr = dataframe_builder.get();
-    setGlobalDataFrameBuilder(std::move(dataframe_builder));
+    auto dataframe_builder = std::make_shared<PandasDataFrameBuilder>(*header);
+    setGlobalDataFrameBuilder(dataframe_builder);
 
     /// Create and return the format with the builder
-    return std::make_shared<ChunkCollectorOutputFormat>(header, *builder_ptr);
+    return std::make_shared<ChunkCollectorOutputFormat>(header, getGlobalDataFrameBuilder());
 }
 
 /// Registration function to be called during initialization
