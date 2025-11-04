@@ -103,16 +103,16 @@ jobs:
             eval "$(pyenv init -)"
 
             # Install Python versions
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
               echo "Installing Python $version"
               pyenv install $version:latest
             done
-            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13
+            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
 
             # Verify installations
             echo "Installed versions:"
             pyenv versions
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
               if ! pyenv versions --bare | grep -q "^$version"; then
                 echo "ERROR: Python $version is not installed!"
                 exit 1
@@ -128,7 +128,7 @@ jobs:
             rustup component add --toolchain nightly-2025-07-07 rust-src
 
             # Install Python dependencies
-            for version in 3.8 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
               echo "Installing dependencies for Python $version"
               pyenv shell $version
               python -m pip install --upgrade pip
@@ -139,6 +139,18 @@ jobs:
               fi
               pyenv shell --unset
             done
+
+            # Update version for release (if triggered by tag)
+            if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
+              pyenv shell 3.9
+              
+              # Install bump-my-version
+              python -m pip install bump-my-version
+              TAG_NAME=${GITHUB_REF#refs/tags/v}
+              bump-my-version replace $TAG_NAME
+              echo "Version files updated to $TAG_NAME"
+              pyenv shell --unset
+            fi
 
             # 5. Build chdb
             echo "=== Building chdb ==="
@@ -235,7 +247,7 @@ jobs:
             CURRENT_TEST=0
             TEST_FAILED=false
 
-            for version in 3.9 3.10 3.11 3.12 3.13; do
+            for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
               CURRENT_TEST=$((CURRENT_TEST + 1))
               echo "=== Test $CURRENT_TEST/$TOTAL_TESTS: Python $version ==="
               echo "Test start time: $(date)"
@@ -331,22 +343,30 @@ jobs:
           gh release upload ${{ github.ref_name }} ./dist/*.whl --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        continue-on-error: true
+
+      - name: Setup Python and install twine for PyPI upload
+        run: |
+          echo "=== Setting up Python for PyPI upload ==="
+          python3 --version
+          python3 -m pip --version
+          echo "=== Installing twine ==="
+          python3 -m pip install --upgrade pip
+          python3 -m pip install twine
+          if ! python3 -m twine --version; then
+            echo "ERROR: Twine installation failed!"
+            exit 1
+          fi
+          echo "Twine installed successfully"
+          ls -la ./dist/
 
       # Upload to PyPI
-      - name: Upload to PyPI
+      - name: Upload pypi
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: addnab/docker-run-action@v3
-        with:
-          image: quay.io/pypa/musllinux_1_2_aarch64
-          options: -v ${{ github.workspace }}:/workspace
-          run: |
-            cd /workspace
-            echo "=== Uploading to PyPI ==="
-
-            export PATH="$HOME/.pyenv/bin:$PATH"
-            eval "$(pyenv init -)"
-            pyenv shell 3.13
-            python -m twine upload ./dist/*.whl
+        run: |
+          echo "=== Uploading to PyPI ==="
+          ls -la ./dist/
+          python3 -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
