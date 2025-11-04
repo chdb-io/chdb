@@ -32,6 +32,65 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
+static bool canTypeBeUsedAsDictKey(TypeIndex key_type)
+{
+    switch (key_type)
+    {
+    case TypeIndex::Nothing:
+    case TypeIndex::Int8:
+    case TypeIndex::UInt8:
+    case TypeIndex::Int16:
+    case TypeIndex::UInt16:
+    case TypeIndex::Int32:
+    case TypeIndex::UInt32:
+    case TypeIndex::Int64:
+    case TypeIndex::UInt64:
+    case TypeIndex::Float32:
+    case TypeIndex::Float64:
+    case TypeIndex::Int128:
+    case TypeIndex::Int256:
+    case TypeIndex::UInt128:
+    case TypeIndex::UInt256:
+    case TypeIndex::BFloat16:
+    case TypeIndex::Date:
+    case TypeIndex::Date32:
+    case TypeIndex::DateTime:
+    case TypeIndex::DateTime64:
+    case TypeIndex::Time:
+    case TypeIndex::Time64:
+    case TypeIndex::String:
+    case TypeIndex::FixedString:
+    case TypeIndex::Enum8:
+    case TypeIndex::Enum16:
+    case TypeIndex::Decimal32:
+    case TypeIndex::Decimal64:
+    case TypeIndex::Decimal128:
+    case TypeIndex::Decimal256:
+    case TypeIndex::UUID:
+    case TypeIndex::Interval:
+    case TypeIndex::IPv4:
+    case TypeIndex::IPv6:
+        return true;
+
+    // Unsupported nested types
+    case TypeIndex::Array:
+    case TypeIndex::Tuple:
+    case TypeIndex::Map:
+        return false;
+
+    // Other unsupported types
+    case TypeIndex::Set:
+    case TypeIndex::JSONPaths:
+    case TypeIndex::ObjectDeprecated:
+    case TypeIndex::Function:
+    case TypeIndex::AggregateFunction:
+    case TypeIndex::LowCardinality:
+    case TypeIndex::Nullable:
+    default:
+        return false;
+    }
+}
+
 static py::object convertLocalDateToPython(const LocalDate & local_date, auto & import_cache, const Field & field)
 {
     auto year = local_date.year();
