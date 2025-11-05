@@ -8,6 +8,7 @@
 #include <Columns/ColumnMap.h>
 #include <Columns/ColumnDynamic.h>
 #include <Columns/ColumnObject.h>
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <IO/ReadBufferFromMemory.h>
 #include <DataTypes/Serializations/SerializationInfo.h>
 #include <DataTypes/DataTypesBinaryEncoding.h>
@@ -121,11 +122,7 @@ py::object convertTime64FieldToPython(const Field & field)
 
 static bool canTypeBeUsedAsDictKey(const DataTypePtr & type)
 {
-    DataTypePtr actual_type = type;
-    if (const auto * nullable_type = typeid_cast<const DataTypeNullable *>(type.get()))
-    {
-        actual_type = nullable_type->getNestedType();
-    }
+    DataTypePtr actual_type = removeLowCardinalityAndNullable(type);
 
     switch (actual_type->getTypeId())
 	{
@@ -224,11 +221,7 @@ py::object convertFieldToPython(
         return py::none();
     }
 
-    DataTypePtr actual_type = type;
-    if (const auto * nullable_type = typeid_cast<const DataTypeNullable *>(type.get()))
-    {
-        actual_type = nullable_type->getNestedType();
-    }
+    DataTypePtr actual_type = removeLowCardinalityAndNullable(type);
 
     auto & import_cache = PythonImporter::ImportCache();
 

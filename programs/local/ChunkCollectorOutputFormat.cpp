@@ -64,7 +64,11 @@ void setGlobalDataFrameBuilder(std::shared_ptr<PandasDataFrameBuilder> builder)
 
 void resetGlobalDataFrameBuilder()
 {
-    g_dataframe_builder.reset();
+    if (g_dataframe_builder)
+    {
+        py::gil_scoped_acquire acquire;
+        g_dataframe_builder.reset();
+    }
 }
 
 /// create ChunkCollectorOutputFormat for use with function pointer

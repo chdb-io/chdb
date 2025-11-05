@@ -280,29 +280,32 @@ py::object connection_wrapper::query(const std::string & query_str, const std::s
 {
     CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
-    py::gil_scoped_release release;
-    auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
-    auto error_msg = CHDB::chdb_result_error_string(result);
-    if (!error_msg.empty())
+    chdb_result * result = nullptr;
     {
-        std::string msg_copy(error_msg);
-        chdb_destroy_query_result(result);
-        CHDB::resetGlobalDataFrameBuilder();
-        throw std::runtime_error(msg_copy);
-    }
+        py::gil_scoped_release release;
+        result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+        auto error_msg = CHDB::chdb_result_error_string(result);
+        if (!error_msg.empty())
+        {
+            std::string msg_copy(error_msg);
+            chdb_destroy_query_result(result);
+            CHDB::resetGlobalDataFrameBuilder();
+            throw std::runtime_error(msg_copy);
+        }
 
-    if (Poco::toLower(format) == "dataframe")
-    {
-        chdb_destroy_query_result(result);
-        auto & builder = CHDB::getGlobalDataFrameBuilder();
-        auto ret = builder.getDataFrame();
-        CHDB::resetGlobalDataFrameBuilder();
-        return ret;
-    }
+        if (Poco::toLower(format) == "dataframe")
+        {
+            chdb_destroy_query_result(result);
+            auto & builder = CHDB::getGlobalDataFrameBuilder();
+            auto ret = builder.getDataFrame();
+            CHDB::resetGlobalDataFrameBuilder();
+            return ret;
+        }
 
-    if (chdb_result_length(result))
-    {
-        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+        if (chdb_result_length(result))
+        {
+            LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+        }
     }
 
     return py::cast(new query_result(result, false));

@@ -7,6 +7,7 @@
 #include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeTime.h>
 #include <DataTypes/DataTypeTime64.h>
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <Common/DateLUTImpl.h>
 #include <Processors/Chunk.h>
 #include <Columns/IColumn.h>
@@ -144,11 +145,6 @@ void PandasDataFrameBuilder::finalize()
         for (size_t col_idx = 0; col_idx < columns.size(); ++col_idx)
         {
             auto column = columns[col_idx];
-
-            if (column->lowCardinality())
-            {
-                column = column->convertToFullColumnIfLowCardinality();
-            }
 
             columns_data[col_idx].append(column);
         }

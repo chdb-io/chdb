@@ -3,6 +3,7 @@
 
 #include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeInterval.h>
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypesNumber.h>
@@ -238,7 +239,9 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     if (!data_type)
         return "object";
 
-    TypeIndex type_id = data_type->getTypeId();
+    auto actual_data_type = removeLowCardinalityAndNullable(data_type);
+
+    TypeIndex type_id = actual_data_type->getTypeId();
     switch (type_id)
     {
     case TypeIndex::Nothing:
@@ -305,7 +308,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
 
     case TypeIndex::Date:
     case TypeIndex::Date32:
-        return "datetime64[D]";
+        return "datetime64[D]";  // pandas converts datetime64[D] to datetime64[s] internally
 
     case TypeIndex::Time:
     case TypeIndex::Time64:
@@ -375,14 +378,6 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
         return "int16";
 
     case TypeIndex::Nullable:
-        {
-            if (const auto * nullable = typeid_cast<const DataTypeNullable *>(data_type.get()))
-            {
-                return DataTypeToNumpyTypeStr(nullable->getNestedType());
-            }
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected nullable type {}", data_type->getName());
-        }
-
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_type->getName());
     }

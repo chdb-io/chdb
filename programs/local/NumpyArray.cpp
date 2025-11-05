@@ -4,6 +4,7 @@
 #include "PythonImporter.h"
 #include "FieldToPython.h"
 
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <Processors/Chunk.h>
 #include <base/defines.h>
 #include <Columns/ColumnFixedSizeHelper.h>
@@ -86,7 +87,11 @@ struct Time64Convert
 	{
 		chassert(append_data.type);
 
-		Field field(val);
+		const auto & time64_type = typeid_cast<const DataTypeTime64 &>(*append_data.type);
+		UInt32 scale = time64_type.getScale();
+		DecimalField<Decimal64> decimal_field(static_cast<Decimal64::NativeType>(val), scale);
+		Field field(decimal_field);
+
 		auto time64_object = convertTime64FieldToPython(field);
 		return time64_object.release().ptr();
 	}
@@ -564,6 +569,9 @@ void NumpyArray::append(
 	size_t offset,
 	size_t count)
 {
+	auto actual_column = column->convertToFullColumnIfLowCardinality();
+	DataTypePtr actual_type = removeLowCardinalityAndNullable(data_array->type);
+
 	chassert(data_array);
 	chassert(mask_array);
 
@@ -571,21 +579,14 @@ void NumpyArray::append(
 	auto * mask_ptr = reinterpret_cast<bool *>(mask_array->data);
 	chassert(data_ptr);
 	chassert(mask_ptr);
-	chassert(column->getDataType() == data_array->type->getColumnType());
+	chassert(actual_column->getDataType() == actual_type->getColumnType());
 
-	size_t size = column->size();
+	size_t size = actual_column->size();
 	data_array->count += size;
 	mask_array->count += size;
 	bool may_have_null = false;
 
-	/// For nullable types, we need to get the nested type
-	DataTypePtr actual_type = data_array->type;
-	if (const auto * nullable_type = typeid_cast<const DataTypeNullable *>(data_array->type.get()))
-	{
-		actual_type = nullable_type->getNestedType();
-	}
-
-	NumpyAppendData append_data(*column, actual_type);
+	NumpyAppendData append_data(*actual_column, actual_type);
 	append_data.src_offset = offset;
 	append_data.src_count = count;
 	append_data.target_data = data_ptr;

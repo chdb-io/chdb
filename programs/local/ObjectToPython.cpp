@@ -1,8 +1,10 @@
 #include "ObjectToPython.h"
 #include "FieldToPython.h"
 
+#include <Columns/ColumnNullable.h>
 #include <Columns/ColumnObject.h>
 #include <Columns/ColumnDynamic.h>
+#include <Columns/IColumn.h>
 #include <DataTypes/DataTypeObject.h>
 #include <base/defines.h>
 
@@ -52,7 +54,13 @@ py::object convertObjectToPython(
     const DataTypePtr & type,
     size_t index)
 {
-    const auto & column_object = typeid_cast<const ColumnObject &>(column);
+    const IColumn * data_column = &column;
+	if (const auto * nullable = typeid_cast<const ColumnNullable *>(&column))
+	{
+		data_column = &nullable->getNestedColumn();
+	}
+
+    const auto & column_object = typeid_cast<const ColumnObject &>(*data_column);
     const auto & typed_paths = column_object.getTypedPaths();
     const auto & dynamic_paths = column_object.getDynamicPaths();
     const auto & shared_data_offsets = column_object.getSharedDataOffsets();
