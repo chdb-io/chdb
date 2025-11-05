@@ -970,6 +970,20 @@ class DataStore:
             self._where_condition = self._where_condition & condition
 
     @immutable
+    def where(self, condition: Union[Condition, str]) -> 'DataStore':
+        """
+        Filter rows (WHERE clause). Alias for filter().
+
+        Args:
+            condition: Condition object or SQL string
+
+        Example:
+            >>> ds.where(ds.age > 18)
+            >>> ds.where((ds.age > 18) & (ds.city == 'NYC'))
+        """
+        return self.filter(condition)
+
+    @immutable
     def join(
         self, other: 'DataStore', on: Condition = None, how: str = 'inner', left_on: str = None, right_on: str = None
     ) -> 'DataStore':
