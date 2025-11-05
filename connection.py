@@ -50,12 +50,13 @@ class Connection:
         except Exception as e:
             raise ConnectionError(f"Failed to create cursor: {e}")
 
-    def execute(self, sql: str) -> 'QueryResult':
+    def execute(self, sql: str, output_format: str = "Dataframe") -> 'QueryResult':
         """
         Execute a SQL query and return results.
 
         Args:
             sql: SQL query string
+            output_format: Output format for chdb query (default: "Dataframe")
 
         Returns:
             QueryResult object with data and metadata
@@ -64,19 +65,10 @@ class Connection:
             raise ConnectionError("Not connected. Call connect() first.")
 
         try:
-            cursor = self.cursor()
-            cursor.execute(sql)
+            # Use chdb's query method with DataFrame format by default
+            result = self._conn.query(sql, output_format)
 
-            # Fetch all results
-            rows = cursor.fetchall()
-
-            # Get metadata
-            column_names = cursor.column_names() if hasattr(cursor, 'column_names') else []
-            column_types = cursor.column_types() if hasattr(cursor, 'column_types') else []
-
-            return QueryResult(
-                rows=rows, column_names=column_names, column_types=column_types, row_count=len(rows) if rows else 0
-            )
+            return QueryResult(data=result, output_format=output_format)
         except Exception as e:
             raise ExecutionError(f"Query execution failed: {e}\nSQL: {sql}")
 
@@ -115,26 +107,111 @@ class QueryResult:
     Wrapper for query results.
 
     Provides convenient access to query results with metadata.
+    Supports both DataFrame and legacy row-based formats.
     """
 
-    def __init__(self, rows: List[Tuple], column_names: List[str], column_types: List[str], row_count: int):
+    def __init__(
+        self,
+        data: Any = None,
+        output_format: str = "Dataframe",
+        rows: List[Tuple] = None,
+        column_names: List[str] = None,
+        column_types: List[str] = None,
+        row_count: int = None,
+    ):
         """
         Initialize query result.
 
         Args:
-            rows: List of result rows (tuples)
-            column_names: List of column names
-            column_types: List of column types
-            row_count: Number of rows
+            data: Query result data (DataFrame or other format from chdb)
+            output_format: Format of the data ("Dataframe" or other)
+            rows: (Legacy) List of result rows (tuples)
+            column_names: (Legacy) List of column names
+            column_types: (Legacy) List of column types
+            row_count: (Legacy) Number of rows
         """
-        self.rows = rows
-        self.column_names = column_names
-        self.column_types = column_types
-        self.row_count = row_count
+        self.output_format = output_format
+        self._data = data
+
+        # Legacy support: if rows/column_names provided directly
+        if rows is not None:
+            self._rows = rows
+            self._column_names = column_names or []
+            self._column_types = column_types or []
+            self._row_count = row_count if row_count is not None else len(rows) if rows else 0
+        else:
+            # Initialize from data
+            self._rows = None
+            self._column_names = None
+            self._column_types = None
+            self._row_count = None
+
+    @property
+    def rows(self) -> List[Tuple]:
+        """Get all rows as list of tuples (lazy conversion from DataFrame)."""
+        if self._rows is None and self._data is not None:
+            # Convert DataFrame to rows
+            try:
+                import pandas as pd
+
+                if isinstance(self._data, pd.DataFrame):
+                    self._rows = [tuple(row) for row in self._data.itertuples(index=False, name=None)]
+                else:
+                    # Fallback for other formats
+                    self._rows = []
+            except:
+                self._rows = []
+        return self._rows if self._rows is not None else []
+
+    @property
+    def column_names(self) -> List[str]:
+        """Get column names (lazy extraction from DataFrame)."""
+        if self._column_names is None and self._data is not None:
+            try:
+                import pandas as pd
+
+                if isinstance(self._data, pd.DataFrame):
+                    self._column_names = list(self._data.columns)
+                else:
+                    self._column_names = []
+            except:
+                self._column_names = []
+        return self._column_names if self._column_names is not None else []
+
+    @property
+    def column_types(self) -> List[str]:
+        """Get column types (lazy extraction from DataFrame)."""
+        if self._column_types is None and self._data is not None:
+            try:
+                import pandas as pd
+
+                if isinstance(self._data, pd.DataFrame):
+                    self._column_types = [str(dtype) for dtype in self._data.dtypes]
+                else:
+                    self._column_types = []
+            except:
+                self._column_types = []
+        return self._column_types if self._column_types is not None else []
+
+    @property
+    def row_count(self) -> int:
+        """Get number of rows (lazy calculation from DataFrame)."""
+        if self._row_count is None and self._data is not None:
+            try:
+                import pandas as pd
+
+                if isinstance(self._data, pd.DataFrame):
+                    self._row_count = len(self._data)
+                else:
+                    self._row_count = 0
+            except:
+                self._row_count = 0
+        return self._row_count if self._row_count is not None else 0
 
     def fetchone(self) -> Optional[Tuple]:
         """Get the first row."""
-        return self.rows[0] if self.rows else None
+        rows = self.rows
+        return rows[0] if rows else None
 
     def fetchall(self) -> List[Tuple]:
         """Get all rows."""
@@ -151,10 +228,40 @@ class QueryResult:
         Returns:
             List of dicts where keys are column names
         """
-        if not self.rows:
-            return []
+        try:
+            import pandas as pd
 
-        return [dict(zip(self.column_names, row)) for row in self.rows]
+            if isinstance(self._data, pd.DataFrame):
+                return self._data.to_dict('records')
+        except:
+            pass
+
+        # Fallback to legacy method
+        rows = self.rows
+        if not rows:
+            return []
+        return [dict(zip(self.column_names, row)) for row in rows]
+
+    def to_df(self):
+        """
+        Return the result as a pandas DataFrame.
+
+        Returns:
+            pandas DataFrame
+        """
+        try:
+            import pandas as pd
+
+            if isinstance(self._data, pd.DataFrame):
+                return self._data
+            else:
+                # Convert rows to DataFrame
+                if self.rows:
+                    return pd.DataFrame(self.rows, columns=self.column_names)
+                else:
+                    return pd.DataFrame()
+        except ImportError:
+            raise ImportError("pandas is required for to_df(). Install it with: pip install pandas")
 
     def __iter__(self):
         """Iterate over rows."""
