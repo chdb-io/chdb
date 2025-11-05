@@ -8,16 +8,16 @@ on:
         required: true
   release:
     types: [created]
-  push:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
-  pull_request:
-    branches:
-      - main
-    paths-ignore:
-      - '**/*.md'
+  # push:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - '**/*.md'
+  # pull_request:
+  #   branches:
+  #     - main
+  #   paths-ignore:
+  #     - '**/*.md'
 
 
 jobs:
@@ -137,7 +137,7 @@ jobs:
           which clang++-19
           clang++-19 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
-          # Install WebAssembly linker (wasm-ld) 
+          # Install WebAssembly linker (wasm-ld)
           sudo apt-get install -y lld-19
           # Create symlink for wasm-ld
           if ! command -v wasm-ld &> /dev/null; then

@@ -151,8 +151,10 @@ namespace ErrorCodes
     extern const int CANNOT_WRITE_TO_FILE;
 }
 
+#if USE_PYTHON
 /// Custom DataFrame format creator function pointer
 static CustomOutputFormatCreator g_dataframe_format_creator = nullptr;
+#endif
 
 }
 
