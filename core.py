@@ -722,6 +722,15 @@ class DataStore:
         except Exception as e:
             raise ExecutionError(f"Query execution failed: {e}")
 
+    def exec(self) -> QueryResult:
+        """
+        Execute the query and return results. Alias for execute().
+
+        Returns:
+            QueryResult object with data and metadata
+        """
+        return self.execute()
+
     def create_table(self, schema: Dict[str, str], engine: str = "Memory") -> 'DataStore':
         """
         Create a table in chdb.
