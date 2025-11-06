@@ -24,6 +24,14 @@ jobs:
     name: Build Universal Wheel (macOS ARM64)
     runs-on: macos-14-xlarge
     steps:
+      - name: Setup pyenv
+        run: |
+          curl https://pyenv.run | bash
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv install 3.9:latest
+          echo "Installed versions:"
+          pyenv versions
       - name: Update version for release
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
