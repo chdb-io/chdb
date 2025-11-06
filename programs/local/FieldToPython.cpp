@@ -17,6 +17,7 @@
 #include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeEnum.h>
 #include <DataTypes/DataTypeInterval.h>
 #include <DataTypes/DataTypeArray.h>
 #include <DataTypes/DataTypeTuple.h>
@@ -437,10 +438,35 @@ py::object convertFieldToPython(
         }
 
     case TypeIndex::Enum8:
+        {
+            auto field = column[index];
+            try
+            {
+                const auto & enum_type = typeid_cast<const DataTypeEnum8 &>(*type);
+                auto it = enum_type.findByValue(static_cast<Int8>(field.safeGet<Int64>()));
+                String enum_name(it->second.data, it->second.size);
+                return py::cast(enum_name);
+            }
+            catch (...)
+            {
+                return py::cast(toString(field));
+            }
+        }
+
     case TypeIndex::Enum16:
         {
             auto field = column[index];
-            return py::cast(field.safeGet<Int64>());
+            try
+            {
+                const auto & enum_type = typeid_cast<const DataTypeEnum16 &>(*type);
+                auto it = enum_type.findByValue(static_cast<Int16>(field.safeGet<Int64>()));
+                String enum_name(it->second.data, it->second.size);
+                return py::cast(enum_name);
+            }
+            catch (...)
+            {
+                return py::cast(toString(field));
+            }
         }
 
     case TypeIndex::Decimal32:

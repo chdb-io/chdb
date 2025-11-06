@@ -4,26 +4,29 @@
 #include "PythonImporter.h"
 #include "FieldToPython.h"
 
-#include <DataTypes/DataTypeLowCardinality.h>
 #include <Processors/Chunk.h>
 #include <base/defines.h>
-#include <Columns/ColumnFixedSizeHelper.h>
 #include <Columns/ColumnFixedString.h>
+#include <Columns/ColumnLowCardinality.h>
 #include <Columns/ColumnNullable.h>
 #include <Columns/ColumnString.h>
-#include <Columns/IColumn.h>
-#include <DataTypes/DataTypeFactory.h>
-#include <DataTypes/DataTypeNullable.h>
-#include <DataTypes/DataTypesDecimal.h>
+#include <Columns/ColumnVector.h>
+#include <Columns/ColumnsNumber.h>
+#include <Common/logger_useful.h>
+#include <Core/UUID.h>
+#include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeDateTime64.h>
-#include <DataTypes/DataTypeInterval.h>
-#include <DataTypes/DataTypeTime64.h>
+#include <DataTypes/DataTypeEnum.h>
+#include <DataTypes/DataTypeLowCardinality.h>
+#include <DataTypes/DataTypeFactory.h>
+#include <DataTypes/DataTypeString.h>
+#include <DataTypes/DataTypesDecimal.h>
+#include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeTime.h>
+#include <DataTypes/DataTypeTime64.h>
+#include <Interpreters/castColumn.h>
+#include <base/Decimal.h>
 #include <base/types.h>
-#include <base/UUID.h>
-#include <base/IPv4andIPv6.h>
-#include <IO/WriteHelpers.h>
-#include <Common/exp10_i32.h>
 #include <Common/formatIPv6.h>
 #include <pybind11/pytypes.h>
 
@@ -94,6 +97,59 @@ struct Time64Convert
 
 		auto time64_object = convertTime64FieldToPython(field);
 		return time64_object.release().ptr();
+	}
+
+	template <class NUMPYTYPE>
+	static NUMPYTYPE nullValue(bool & set_mask)
+	{
+		set_mask = true;
+		return nullptr;
+	}
+};
+
+struct Enum8Convert
+{
+	template <class CHTYPE, class NUMPYTYPE>
+	static NUMPYTYPE convertValue(CHTYPE val, NumpyAppendData & append_data)
+	{
+		const auto & enum_type = typeid_cast<const DataTypeEnum8 &>(*append_data.type);
+
+		try
+		{
+			auto it = enum_type.findByValue(static_cast<Int8>(val));
+			String enum_name(it->second.data, it->second.size);
+			return py::str(enum_name).release().ptr();
+		}
+		catch (...)
+		{
+			return py::str(toString(static_cast<Int8>(val))).release().ptr();
+		}
+	}
+
+	template <class NUMPYTYPE>
+	static NUMPYTYPE nullValue(bool & set_mask)
+	{
+		set_mask = true;
+		return nullptr;
+	}
+};
+
+struct Enum16Convert
+{
+	template <class CHTYPE, class NUMPYTYPE>
+	static NUMPYTYPE convertValue(CHTYPE val, NumpyAppendData & append_data)
+	{
+		const auto & enum_type = typeid_cast<const DataTypeEnum16 &>(*append_data.type);
+		try
+		{
+			auto it = enum_type.findByValue(static_cast<Int16>(val));
+			String enum_name(it->second.data, it->second.size);
+			return py::str(enum_name).release().ptr();
+		}
+		catch (...)
+		{
+			return py::str(toString(static_cast<Int16>(val))).release().ptr();
+		}
 	}
 
 	template <class NUMPYTYPE>
@@ -698,11 +754,11 @@ void NumpyArray::append(
 		break;
 
 	case TypeIndex::Enum8:
-		may_have_null = CHColumnToNumpyArray<Int8>(append_data);
+		may_have_null = TransformColumn<Int8, PyObject *, Enum8Convert>(append_data);
 		break;
 
 	case TypeIndex::Enum16:
-		may_have_null = CHColumnToNumpyArray<Int16>(append_data);
+		may_have_null = TransformColumn<Int16, PyObject *, Enum16Convert>(append_data);
 		break;
 
 	case TypeIndex::Decimal32:
