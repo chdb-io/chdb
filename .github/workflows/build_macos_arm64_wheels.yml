@@ -91,8 +91,7 @@ jobs:
           # Install bump-my-version
           python -m pip install bump-my-version
           TAG_NAME=${GITHUB_REF#refs/tags/v}
-          bump-my-version replace --new-version $TAG_NAME
-          echo "Version files updated to $TAG_NAME"
+          bump-my-version replace --current-version 3.7.0 --new-version $TAG_NAME          echo "Version files updated to $TAG_NAME"
           pyenv shell --unset
       - name: Install dependencies for all Python versions
         run: |
