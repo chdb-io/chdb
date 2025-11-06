@@ -41,6 +41,6 @@ jobs:
           # Install bump-my-version
           python -m pip install bump-my-version
           bump-my-version --version
-          bump-my-version replace current-version 3.7.0 --new-version 3.7.1
+          bump-my-version replace --current-version 3.7.0 --new-version 3.7.1
           echo "Version files updated to 3.7.1"
           pyenv shell --unset
