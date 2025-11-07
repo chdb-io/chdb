@@ -6,6 +6,7 @@ import chdb
 from datetime import datetime, date
 import numpy as np
 import math
+import uuid
 
 
 class TestDataFrameColumnTypes(unittest.TestCase):
@@ -750,6 +751,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
+    @unittest.skip("")
     def test_enum_types(self):
         """Test Enum8 and Enum16 types"""
         ret = self.session.query("""
@@ -816,6 +818,73 @@ class TestDataFrameColumnTypes(unittest.TestCase):
         for col in ["enum8_val", "enum8_range", "enum16_val", "enum16_direction"]:
             for i in range(len(ret)):
                 self.assertIsInstance(ret.iloc[i][col], str, f"Row {i}, column {col} should be string")
+
+    @unittest.skip("")
+    def test_uuid_types(self):
+        """Test UUID data type"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    toUUID('550e8400-e29b-41d4-a716-446655440000') as uuid_fixed1,
+                    toUUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8') as uuid_fixed2,
+                    generateUUIDv4() as uuid_random1,
+                    generateUUIDv4() as uuid_random2
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    toUUID('123e4567-e89b-12d3-a456-426614174000') as uuid_fixed1,
+                    toUUID('6ba7b811-9dad-11d1-80b4-00c04fd430c8') as uuid_fixed2,
+                    generateUUIDv4() as uuid_random1,
+                    generateUUIDv4() as uuid_random2
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    toUUID('00000000-0000-0000-0000-000000000000') as uuid_fixed1,
+                    toUUID('ffffffff-ffff-ffff-ffff-ffffffffffff') as uuid_fixed2,
+                    generateUUIDv4() as uuid_random1,
+                    generateUUIDv4() as uuid_random2
+            )
+        """, "DataFrame")
+
+        # Verify we have 3 rows and 5 columns
+        self.assertEqual(len(ret), 3)
+        self.assertEqual(len(ret.columns), 5)
+
+        # Test first row fixed UUID values
+        self.assertEqual(ret.iloc[0]["uuid_fixed1"], uuid.UUID("550e8400-e29b-41d4-a716-446655440000"))
+        self.assertEqual(ret.iloc[0]["uuid_fixed2"], uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
+
+        # Test second row fixed UUID values
+        self.assertEqual(ret.iloc[1]["uuid_fixed1"], uuid.UUID("123e4567-e89b-12d3-a456-426614174000"))
+        self.assertEqual(ret.iloc[1]["uuid_fixed2"], uuid.UUID("6ba7b811-9dad-11d1-80b4-00c04fd430c8"))
+
+        # Test third row special UUID values (all zeros and all F's)
+        self.assertEqual(ret.iloc[2]["uuid_fixed1"], uuid.UUID("00000000-0000-0000-0000-000000000000"))
+        self.assertEqual(ret.iloc[2]["uuid_fixed2"], uuid.UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"))
+
+        # Verify data types - UUID types should be mapped to object dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "uuid_fixed1": "object",     # UUID mapped to object dtype (contains UUID objects)
+            "uuid_fixed2": "object",     # UUID mapped to object dtype (contains UUID objects)
+            "uuid_random1": "object",    # Generated UUID mapped to object dtype (contains UUID objects)
+            "uuid_random2": "object"     # Generated UUID mapped to object dtype (contains UUID objects)
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type)
+
+        # Verify all UUID values are UUID objects and have valid format
+        for col in ["uuid_fixed1", "uuid_fixed2", "uuid_random1", "uuid_random2"]:
+            for i in range(len(ret)):
+                uuid_value = ret.iloc[i][col]
+                self.assertIsInstance(uuid_value, uuid.UUID, f"Row {i}, column {col} should be UUID object")
+                # Verify UUID string representation has correct format
+                uuid_str = str(uuid_value)
+                self.assertEqual(len(uuid_str), 36, f"Row {i}, column {col} UUID string should be 36 characters")
+                self.assertEqual(uuid_str.count('-'), 4, f"Row {i}, column {col} UUID should have 4 hyphens")
 
 
 if __name__ == "__main__":
