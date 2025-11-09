@@ -7,6 +7,7 @@ from datetime import datetime, date
 import numpy as np
 import math
 import uuid
+import ipaddress
 
 
 class TestDataFrameColumnTypes(unittest.TestCase):
@@ -845,6 +846,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                     generateUUIDv4() as uuid_random1,
                     generateUUIDv4() as uuid_random2
             )
+            ORDER BY row_id
         """, "DataFrame")
 
         # Verify we have 3 rows and 5 columns
@@ -885,6 +887,166 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                 uuid_str = str(uuid_value)
                 self.assertEqual(len(uuid_str), 36, f"Row {i}, column {col} UUID string should be 36 characters")
                 self.assertEqual(uuid_str.count('-'), 4, f"Row {i}, column {col} UUID should have 4 hyphens")
+
+    @unittest.skip("")
+    def test_ipv4_types(self):
+        """Test IPv4 data type"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    toIPv4('192.168.1.1') as ipv4_private,
+                    toIPv4('8.8.8.8') as ipv4_public,
+                    toIPv4('127.0.0.1') as ipv4_localhost,
+                    toIPv4('0.0.0.0') as ipv4_zero,
+                    toIPv4('255.255.255.255') as ipv4_broadcast
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    toIPv4('10.0.0.1') as ipv4_private,
+                    toIPv4('1.1.1.1') as ipv4_public,
+                    toIPv4('127.0.0.2') as ipv4_localhost,
+                    toIPv4('172.16.0.1') as ipv4_zero,
+                    toIPv4('203.0.113.1') as ipv4_broadcast
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    toIPv4('192.0.2.1') as ipv4_private,
+                    toIPv4('208.67.222.222') as ipv4_public,
+                    toIPv4('169.254.1.1') as ipv4_localhost,
+                    toIPv4('224.0.0.1') as ipv4_zero,
+                    toIPv4('239.255.255.255') as ipv4_broadcast
+            )
+            ORDER BY row_id
+        """, "DataFrame")
+
+        # Verify we have 3 rows and 6 columns
+        self.assertEqual(len(ret), 3)
+        self.assertEqual(len(ret.columns), 6)
+
+        # Test first row IPv4 values
+        self.assertEqual(ret.iloc[0]["ipv4_private"], ipaddress.IPv4Address("192.168.1.1"))
+        self.assertEqual(ret.iloc[0]["ipv4_public"], ipaddress.IPv4Address("8.8.8.8"))
+        self.assertEqual(ret.iloc[0]["ipv4_localhost"], ipaddress.IPv4Address("127.0.0.1"))
+        self.assertEqual(ret.iloc[0]["ipv4_zero"], ipaddress.IPv4Address("0.0.0.0"))
+        self.assertEqual(ret.iloc[0]["ipv4_broadcast"], ipaddress.IPv4Address("255.255.255.255"))
+
+        # Test second row IPv4 values
+        self.assertEqual(ret.iloc[1]["ipv4_private"], ipaddress.IPv4Address("10.0.0.1"))
+        self.assertEqual(ret.iloc[1]["ipv4_public"], ipaddress.IPv4Address("1.1.1.1"))
+        self.assertEqual(ret.iloc[1]["ipv4_localhost"], ipaddress.IPv4Address("127.0.0.2"))
+        self.assertEqual(ret.iloc[1]["ipv4_zero"], ipaddress.IPv4Address("172.16.0.1"))
+        self.assertEqual(ret.iloc[1]["ipv4_broadcast"], ipaddress.IPv4Address("203.0.113.1"))
+
+        # Test third row IPv4 values
+        self.assertEqual(ret.iloc[2]["ipv4_private"], ipaddress.IPv4Address("192.0.2.1"))
+        self.assertEqual(ret.iloc[2]["ipv4_public"], ipaddress.IPv4Address("208.67.222.222"))
+        self.assertEqual(ret.iloc[2]["ipv4_localhost"], ipaddress.IPv4Address("169.254.1.1"))
+        self.assertEqual(ret.iloc[2]["ipv4_zero"], ipaddress.IPv4Address("224.0.0.1"))
+        self.assertEqual(ret.iloc[2]["ipv4_broadcast"], ipaddress.IPv4Address("239.255.255.255"))
+
+        # Verify data types - IPv4 types should be mapped to object dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "ipv4_private": "object",    # IPv4Address mapped to object dtype
+            "ipv4_public": "object",
+            "ipv4_localhost": "object",
+            "ipv4_zero": "object",
+            "ipv4_broadcast": "object"
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type)
+
+        # Verify all IPv4 values are IPv4Address objects
+        for col in ["ipv4_private", "ipv4_public", "ipv4_localhost", "ipv4_zero", "ipv4_broadcast"]:
+            for i in range(len(ret)):
+                ipv4_value = ret.iloc[i][col]
+                self.assertIsInstance(ipv4_value, ipaddress.IPv4Address, f"Row {i}, column {col} should be IPv4Address object")
+                # Verify IPv4 string representation is valid
+                ipv4_str = str(ipv4_value)
+                self.assertEqual(len(ipv4_str.split('.')), 4, f"Row {i}, column {col} IPv4 should have 4 octets")
+
+    @unittest.skip("")
+    def test_ipv6_types(self):
+        """Test IPv6 data type"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    toIPv6('2001:db8::1') as ipv6_standard,
+                    toIPv6('::1') as ipv6_localhost,
+                    toIPv6('::') as ipv6_zero,
+                    toIPv6('2001:db8:85a3::8a2e:370:7334') as ipv6_full,
+                    toIPv6('fe80::1') as ipv6_link_local
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    toIPv6('2001:db8::2') as ipv6_standard,
+                    toIPv6('::2') as ipv6_localhost,
+                    toIPv6('2001:db8::') as ipv6_zero,
+                    toIPv6('2001:db8:85a3:0:0:8a2e:370:7335') as ipv6_full,
+                    toIPv6('fe80::2') as ipv6_link_local
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    toIPv6('2001:0db8:0000:0000:0000:ff00:0042:8329') as ipv6_standard,
+                    toIPv6('::ffff:192.0.2.1') as ipv6_localhost,
+                    toIPv6('2001:db8:85a3::8a2e:370:7336') as ipv6_zero,
+                    toIPv6('ff02::1') as ipv6_full,
+                    toIPv6('2001:db8:85a3:8d3:1319:8a2e:370:7348') as ipv6_link_local
+            )
+            ORDER BY row_id
+        """, "DataFrame")
+
+        # Verify we have 3 rows and 6 columns
+        self.assertEqual(len(ret), 3)
+        self.assertEqual(len(ret.columns), 6)
+
+        # Test first row IPv6 values
+        self.assertEqual(ret.iloc[0]["ipv6_standard"], ipaddress.IPv6Address("2001:db8::1"))
+        self.assertEqual(ret.iloc[0]["ipv6_localhost"], ipaddress.IPv6Address("::1"))
+        self.assertEqual(ret.iloc[0]["ipv6_zero"], ipaddress.IPv6Address("::"))
+        self.assertEqual(ret.iloc[0]["ipv6_full"], ipaddress.IPv6Address("2001:db8:85a3::8a2e:370:7334"))
+        self.assertEqual(ret.iloc[0]["ipv6_link_local"], ipaddress.IPv6Address("fe80::1"))
+
+        # Test second row IPv6 values
+        self.assertEqual(ret.iloc[1]["ipv6_standard"], ipaddress.IPv6Address("2001:db8::2"))
+        self.assertEqual(ret.iloc[1]["ipv6_localhost"], ipaddress.IPv6Address("::2"))
+        self.assertEqual(ret.iloc[1]["ipv6_zero"], ipaddress.IPv6Address("2001:db8::"))
+        self.assertEqual(ret.iloc[1]["ipv6_full"], ipaddress.IPv6Address("2001:db8:85a3::8a2e:370:7335"))
+        self.assertEqual(ret.iloc[1]["ipv6_link_local"], ipaddress.IPv6Address("fe80::2"))
+
+        # Test third row IPv6 values
+        self.assertEqual(ret.iloc[2]["ipv6_standard"], ipaddress.IPv6Address("2001:db8::ff00:42:8329"))
+        self.assertEqual(ret.iloc[2]["ipv6_localhost"], ipaddress.IPv6Address("::ffff:192.0.2.1"))
+        self.assertEqual(ret.iloc[2]["ipv6_zero"], ipaddress.IPv6Address("2001:db8:85a3::8a2e:370:7336"))
+        self.assertEqual(ret.iloc[2]["ipv6_full"], ipaddress.IPv6Address("ff02::1"))
+        self.assertEqual(ret.iloc[2]["ipv6_link_local"], ipaddress.IPv6Address("2001:db8:85a3:8d3:1319:8a2e:370:7348"))
+
+        # Verify data types - IPv6 types should be mapped to object dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "ipv6_standard": "object",      # IPv6Address mapped to object dtype
+            "ipv6_localhost": "object",
+            "ipv6_zero": "object",
+            "ipv6_full": "object",
+            "ipv6_link_local": "object"
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type)
+
+        # Verify all IPv6 values are IPv6Address objects
+        for col in ["ipv6_standard", "ipv6_localhost", "ipv6_zero", "ipv6_full", "ipv6_link_local"]:
+            for i in range(len(ret)):
+                ipv6_value = ret.iloc[i][col]
+                self.assertIsInstance(ipv6_value, ipaddress.IPv6Address, f"Row {i}, column {col} should be IPv6Address object")
+                # Verify IPv6 address is valid by checking it can be converted back to string
+                ipv6_str = str(ipv6_value)
+                self.assertIn(":", ipv6_str, f"Row {i}, column {col} IPv6 should contain colons")
 
 
 if __name__ == "__main__":
