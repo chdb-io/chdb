@@ -253,7 +253,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
     case TypeIndex::UInt8:
         /// Special case: UInt8 could be Bool type, need to check getName()
         {
-            auto is_bool = isBool(data_type);
+            auto is_bool = isBool(actual_data_type);
             return is_bool ? "bool" : "uint8";
         }
 

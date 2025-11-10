@@ -179,18 +179,19 @@ static bool TransformColumn(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<NUMPYTYPE *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
-			dest_ptr[offset] = CONVERT::template nullValue<NUMPYTYPE>(mask_ptr[offset]);
-			has_null = has_null || mask_ptr[offset];
+			dest_ptr[dest_index] = CONVERT::template nullValue<NUMPYTYPE>(mask_ptr[dest_index]);
+			has_null = has_null || mask_ptr[dest_index];
 		}
 		else
 		{
-			dest_ptr[offset] = CONVERT::template convertValue<CHTYPE, NUMPYTYPE>(src_ptr[i], append_data);
-			mask_ptr[offset] = false;
+			dest_ptr[dest_index] = CONVERT::template convertValue<CHTYPE, NUMPYTYPE>(src_ptr[src_index], append_data);
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -231,21 +232,22 @@ static bool CHColumnDecimalToNumpyArray(NumpyAppendData & append_data, const Dat
 	auto * dest_ptr = reinterpret_cast<double *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
 			/// Set to 0.0 for null values
-			dest_ptr[offset] = 0.0;
-			mask_ptr[offset] = true;
+			dest_ptr[dest_index] = 0.0;
+			mask_ptr[dest_index] = true;
 			has_null = true;
 		}
 		else
 		{
-			auto decimal_value = decimal_column->getElement(i);
-			dest_ptr[offset] = DecimalUtils::convertTo<double>(decimal_value, scale);
-			mask_ptr[offset] = false;
+			auto decimal_value = decimal_column->getElement(src_index);
+			dest_ptr[dest_index] = DecimalUtils::convertTo<double>(decimal_value, scale);
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -271,19 +273,20 @@ static bool CHColumnDateTime64ToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<Int64 *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
-			dest_ptr[offset] = 0;
-			mask_ptr[offset] = true;
+			dest_ptr[dest_index] = 0;
+			mask_ptr[dest_index] = true;
 			has_null = true;
 		}
 		else
 		{
 			/// Get the DateTime64 value and convert to nanoseconds
-			Int64 raw_value = decimal_column->getInt(i);
+			Int64 raw_value = decimal_column->getInt(src_index);
 			auto scale = decimal_column->getScale();
 
 			Int64 ns_value;
@@ -291,8 +294,8 @@ static bool CHColumnDateTime64ToNumpyArray(NumpyAppendData & append_data)
 			Int64 multiplier = common::exp10_i32(9 - scale);
 			ns_value = raw_value * multiplier;
 
-			dest_ptr[offset] = ns_value;
-			mask_ptr[offset] = false;
+			dest_ptr[dest_index] = ns_value;
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -319,25 +322,26 @@ static bool CHColumnIntervalToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<Int64 *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
-			dest_ptr[offset] = 0;
-			mask_ptr[offset] = true;
+			dest_ptr[dest_index] = 0;
+			mask_ptr[dest_index] = true;
 			has_null = true;
 		}
 		else
 		{
-			Int64 interval_value = int64_column->getElement(i);
+			Int64 interval_value = int64_column->getElement(src_index);
 
 			/// Convert quarter to month by multiplying by 3
 			/// This function is only called for Quarter intervals
 			interval_value *= 3;
 
-			dest_ptr[offset] = interval_value;
-			mask_ptr[offset] = false;
+			dest_ptr[dest_index] = interval_value;
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -364,19 +368,20 @@ static bool CHColumnUUIDToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
-			dest_ptr[offset] = nullptr;
+			dest_ptr[dest_index] = nullptr;
 			has_null = true;
-			mask_ptr[offset] = true;
+			mask_ptr[dest_index] = true;
 		}
 		else
 		{
 			/// Convert UUID to Python uuid.UUID object
-			UUID uuid_value = uuid_column->getElement(i);
+			UUID uuid_value = uuid_column->getElement(src_index);
 			const auto formatted_uuid = formatUUID(uuid_value);
 			const char * uuid_str = formatted_uuid.data();
 			const size_t uuid_str_len = formatted_uuid.size();
@@ -384,8 +389,8 @@ static bool CHColumnUUIDToNumpyArray(NumpyAppendData & append_data)
 			/// Create Python uuid.UUID object
 			auto & import_cache = PythonImporter::ImportCache();
 			py::handle uuid_handle = import_cache.uuid.UUID()(String(uuid_str, uuid_str_len)).release();
-			dest_ptr[offset] = uuid_handle.ptr();
-			mask_ptr[offset] = false;
+			dest_ptr[dest_index] = uuid_handle.ptr();
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -412,19 +417,20 @@ static bool CHColumnIPv4ToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
-			dest_ptr[offset] = nullptr;
+			dest_ptr[dest_index] = nullptr;
 			has_null = true;
-			mask_ptr[offset] = true;
+			mask_ptr[dest_index] = true;
 		}
 		else
 		{
 			/// Convert IPv4 to Python ipaddress.IPv4Address object
-			IPv4 ipv4_value = ipv4_column->getElement(i);
+			IPv4 ipv4_value = ipv4_column->getElement(src_index);
 
 			char ipv4_str[IPV4_MAX_TEXT_LENGTH];
 			char * ptr = ipv4_str;
@@ -434,8 +440,8 @@ static bool CHColumnIPv4ToNumpyArray(NumpyAppendData & append_data)
 			/// Create Python ipaddress.IPv4Address object
 			auto & import_cache = PythonImporter::ImportCache();
 			py::handle ipv4_handle = import_cache.ipaddress.ipv4_address()(String(ipv4_str, ipv4_str_len)).release();
-			dest_ptr[offset] = ipv4_handle.ptr();
-			mask_ptr[offset] = false;
+			dest_ptr[dest_index] = ipv4_handle.ptr();
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -462,19 +468,20 @@ static bool CHColumnIPv6ToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
-			dest_ptr[offset] = nullptr;
+			dest_ptr[dest_index] = nullptr;
 			has_null = true;
-			mask_ptr[offset] = true;
+			mask_ptr[dest_index] = true;
 		}
 		else
 		{
 			/// Convert IPv6 to Python ipaddress.IPv6Address object
-			IPv6 ipv6_value = ipv6_column->getElement(i);
+			IPv6 ipv6_value = ipv6_column->getElement(src_index);
 
 			/// Use ClickHouse's built-in IPv6 formatting function
 			char ipv6_str[IPV6_MAX_TEXT_LENGTH];
@@ -485,8 +492,8 @@ static bool CHColumnIPv6ToNumpyArray(NumpyAppendData & append_data)
 			/// Create Python ipaddress.IPv6Address object
 			auto & import_cache = PythonImporter::ImportCache();
 			py::handle ipv6_handle = import_cache.ipaddress.ipv6_address()(String(ipv6_str, ipv6_str_len)).release();
-			dest_ptr[offset] = ipv6_handle.ptr();
-			mask_ptr[offset] = false;
+			dest_ptr[dest_index] = ipv6_handle.ptr();
+			mask_ptr[dest_index] = false;
 		}
 	}
 
@@ -513,20 +520,21 @@ static bool CHColumnStringToNumpyArray(NumpyAppendData & append_data)
 
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
-		if (nullable_column && nullable_column->isNullAt(i))
+		size_t src_index = append_data.src_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
+		if (nullable_column && nullable_column->isNullAt(src_index))
 		{
 			Py_INCREF(Py_None);
-			dest_ptr[offset] = Py_None;
+			dest_ptr[dest_index] = Py_None;
 		}
 		else
 		{
-			StringRef str_ref = string_column->getDataAt(i);
+			StringRef str_ref = string_column->getDataAt(src_index);
 			auto * str_ptr = const_cast<char *>(str_ref.data);
 			auto str_size = str_ref.size;
-			dest_ptr[offset] = PyUnicode_FromStringAndSize(str_ptr, str_size);
+			dest_ptr[dest_index] = PyUnicode_FromStringAndSize(str_ptr, str_size);
 		}
 	}
 
@@ -573,7 +581,6 @@ NumpyArray::NumpyArray(const DataTypePtr & type_)
 	: hava_null(false)
 {
 	data_array = std::make_unique<InternalNumpyArray>(type_);
-	mask_array = std::make_unique<InternalNumpyArray>(DataTypeFactory::instance().get("Bool"));
 }
 
 void NumpyArray::init(size_t capacity, bool may_have_null)
@@ -582,6 +589,9 @@ void NumpyArray::init(size_t capacity, bool may_have_null)
 
 	if (may_have_null)
 	{
+		if (!mask_array)
+			mask_array = std::make_unique<InternalNumpyArray>(DataTypeFactory::instance().get("Bool"));
+
 		mask_array->init(capacity);
 	}
 }
@@ -592,6 +602,9 @@ void NumpyArray::resize(size_t capacity, bool may_have_null)
 
 	if (may_have_null)
 	{
+		if (!mask_array)
+			mask_array = std::make_unique<InternalNumpyArray>(DataTypeFactory::instance().get("Bool"));
+
 		mask_array->resize(capacity);
 	}
 }
@@ -603,13 +616,13 @@ static bool CHColumnNothingToNumpyArray(NumpyAppendData & append_data)
 	auto * dest_ptr = reinterpret_cast<PyObject **>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
 
-	for (size_t i = append_data.src_offset; i < append_data.src_offset + append_data.src_count; i++)
+	for (size_t i = 0; i < append_data.src_count; i++)
 	{
-		size_t offset = append_data.dest_offset + i;
+		size_t dest_index = append_data.dest_offset + i;
 
 		Py_INCREF(Py_None);
-		dest_ptr[offset] = Py_None;
-		mask_ptr[offset] = true;
+		dest_ptr[dest_index] = Py_None;
+		mask_ptr[dest_index] = true;
 	}
 
 	return has_null;
@@ -635,11 +648,10 @@ void NumpyArray::append(
 	auto * mask_ptr = reinterpret_cast<bool *>(mask_array->data);
 	chassert(data_ptr);
 	chassert(mask_ptr);
-	chassert(actual_column->getDataType() == actual_type->getColumnType());
+	chassert(actual_column->isNullable() || actual_column->getDataType() == actual_type->getColumnType());
 
-	size_t size = actual_column->size();
-	data_array->count += size;
-	mask_array->count += size;
+	data_array->count += count;
+	mask_array->count += count;
 	bool may_have_null = false;
 
 	NumpyAppendData append_data(*actual_column, actual_type);
@@ -647,7 +659,7 @@ void NumpyArray::append(
 	append_data.src_count = count;
 	append_data.target_data = data_ptr;
 	append_data.target_mask = mask_ptr;
-	append_data.dest_offset = data_array->count - size;
+	append_data.dest_offset = data_array->count - count;
 
 	switch (actual_type->getTypeId())
 	{
@@ -661,7 +673,7 @@ void NumpyArray::append(
 
 	case TypeIndex::UInt8:
 		{
-			auto is_bool = isBool(data_array->type);
+			auto is_bool = isBool(actual_type);
 			if (is_bool)
 				may_have_null = CHColumnToNumpyArray<bool>(append_data);
 			else
