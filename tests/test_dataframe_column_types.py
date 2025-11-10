@@ -30,7 +30,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                     toInt64(-9223372036854775808) as int64_val,
                     toInt128('-170141183460469231731687303715884105728') as int128_val,
                     toInt256('-57896044618658097711785492504343953926634992332820282019728792003956564819968') as int256_val,
-                    toUInt8(255) as uint8_val,
+                    toUInt8(255) as UInt8_val,
                     toUInt16(65535) as uint16_val,
                     toUInt32(4294967295) as uint32_val,
                     toUInt64(18446744073709551615) as uint64_val,
@@ -45,7 +45,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                     toInt64(9223372036854775807) as int64_val,
                     toInt128('170141183460469231731687303715884105727') as int128_val,
                     toInt256('57896044618658097711785492504343953926634992332820282019728792003956564819967') as int256_val,
-                    toUInt8(254) as uint8_val,
+                    toUInt8(254) as UInt8_val,
                     toUInt16(65534) as uint16_val,
                     toUInt32(4294967294) as uint32_val,
                     toUInt64(18446744073709551614) as uint64_val,
@@ -65,7 +65,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
         self.assertEqual(ret.iloc[0]["int64_val"], -9223372036854775808)
         self.assertEqual(ret.iloc[0]["int128_val"], float(-170141183460469231731687303715884105728))
         self.assertEqual(ret.iloc[0]["int256_val"], float(-57896044618658097711785492504343953926634992332820282019728792003956564819968))
-        self.assertEqual(ret.iloc[0]["uint8_val"], 255)
+        self.assertEqual(ret.iloc[0]["UInt8_val"], 255)
         self.assertEqual(ret.iloc[0]["uint16_val"], 65535)
         self.assertEqual(ret.iloc[0]["uint32_val"], 4294967295)
         self.assertEqual(ret.iloc[0]["uint64_val"], 18446744073709551615)
@@ -79,7 +79,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
         self.assertEqual(ret.iloc[1]["int64_val"], 9223372036854775807)
         self.assertEqual(ret.iloc[1]["int128_val"], float(170141183460469231731687303715884105727))
         self.assertEqual(ret.iloc[1]["int256_val"], float(57896044618658097711785492504343953926634992332820282019728792003956564819967))
-        self.assertEqual(ret.iloc[1]["uint8_val"], 254)
+        self.assertEqual(ret.iloc[1]["UInt8_val"], 254)
         self.assertEqual(ret.iloc[1]["uint16_val"], 65534)
         self.assertEqual(ret.iloc[1]["uint32_val"], 4294967294)
         self.assertEqual(ret.iloc[1]["uint64_val"], 18446744073709551614)
@@ -94,7 +94,7 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             "int64_val": "int64",
             "int128_val": "float64",  # Int128 mapped to float64 in ClickHouse->pandas conversion
             "int256_val": "float64",  # Int256 mapped to float64 in ClickHouse->pandas conversion
-            "uint8_val": "uint8",
+            "UInt8_val": "uint8",
             "uint16_val": "uint16",
             "uint32_val": "uint32",
             "uint64_val": "uint64",
@@ -1047,6 +1047,500 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                 # Verify IPv6 address is valid by checking it can be converted back to string
                 ipv6_str = str(ipv6_value)
                 self.assertIn(":", ipv6_str, f"Row {i}, column {col} IPv6 should contain colons")
+
+    @unittest.skip("")
+    def test_bool_types(self):
+        """Test Bool and Nullable(Bool) types with various values"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    true as bool_true,
+                    false as bool_false,
+                    true::Bool as explicit_bool_true,
+                    false::Bool as explicit_bool_false,
+                    NULL::Nullable(Bool) as nullable_bool_null,
+                    true::Nullable(Bool) as nullable_bool_true,
+                    false::Nullable(Bool) as nullable_bool_false
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    false as bool_true,
+                    true as bool_false,
+                    false::Bool as explicit_bool_true,
+                    true::Bool as explicit_bool_false,
+                    true::Nullable(Bool) as nullable_bool_null,
+                    NULL::Nullable(Bool) as nullable_bool_true,
+                    true::Nullable(Bool) as nullable_bool_false
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    1 = 1 as bool_true,  -- expression result
+                    1 = 0 as bool_false, -- expression result
+                    (1 > 0)::Bool as explicit_bool_true,
+                    (1 < 0)::Bool as explicit_bool_false,
+                    false::Nullable(Bool) as nullable_bool_null,
+                    false::Nullable(Bool) as nullable_bool_true,
+                    NULL::Nullable(Bool) as nullable_bool_false
+            )
+            ORDER BY row_id
+        """, "DataFrame")
+
+        # Verify we have 3 rows and 8 columns
+        self.assertEqual(len(ret), 3)
+        self.assertEqual(len(ret.columns), 8)
+
+        # Test first row - basic Boolean values
+        self.assertTrue(ret.iloc[0]["bool_true"])
+        self.assertFalse(ret.iloc[0]["bool_false"])
+        self.assertTrue(ret.iloc[0]["explicit_bool_true"])
+        self.assertFalse(ret.iloc[0]["explicit_bool_false"])
+        self.assertTrue(pd.isna(ret.iloc[0]["nullable_bool_null"]))
+        self.assertTrue(ret.iloc[0]["nullable_bool_true"])
+        self.assertFalse(ret.iloc[0]["nullable_bool_false"])
+
+        # Test second row - inverted Boolean values
+        self.assertFalse(ret.iloc[1]["bool_true"])
+        self.assertTrue(ret.iloc[1]["bool_false"])
+        self.assertFalse(ret.iloc[1]["explicit_bool_true"])
+        self.assertTrue(ret.iloc[1]["explicit_bool_false"])
+        self.assertTrue(ret.iloc[1]["nullable_bool_null"])
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_bool_true"]))
+        self.assertTrue(ret.iloc[1]["nullable_bool_false"])
+
+        # Test third row - expression results
+        self.assertTrue(ret.iloc[2]["bool_true"])   # 1 = 1 is true
+        self.assertFalse(ret.iloc[2]["bool_false"])  # 1 = 0 is false
+        self.assertTrue(ret.iloc[2]["explicit_bool_true"])   # 1 > 0 is true
+        self.assertFalse(ret.iloc[2]["explicit_bool_false"]) # 1 < 0 is false
+        self.assertFalse(ret.iloc[2]["nullable_bool_null"])
+        self.assertFalse(ret.iloc[2]["nullable_bool_true"])
+        self.assertTrue(pd.isna(ret.iloc[2]["nullable_bool_false"]))
+
+        # Test Python types - Bool values should be boolean types (Python bool or numpy bool_)
+        for i in range(len(ret)):
+            for col in ["bool_true", "bool_false", "explicit_bool_true", "explicit_bool_false"]:
+                value = ret.iloc[i][col]
+                # Accept both Python bool and numpy bool_ types
+                self.assertTrue(isinstance(value, (bool, np.bool_)), f"Row {i}, column {col} should be boolean type, got {type(value)}")
+
+            # Test nullable Bool columns - should be bool/numpy.bool_ or null
+            for col in ["nullable_bool_null", "nullable_bool_true", "nullable_bool_false"]:
+                if (pd.isna(ret.iloc[i][col])):
+                    continue
+
+                value = ret.iloc[i][col]
+                self.assertTrue(isinstance(value, (bool, np.bool_)),
+                              f"Row {i}, column {col} should be boolean type, got {type(value)}")
+
+        # Verify data types - Bool types should be mapped to bool dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "bool_true": "bool",
+            "bool_false": "bool",
+            "explicit_bool_true": "bool",
+            "explicit_bool_false": "bool",
+            "nullable_bool_null": "boolean",
+            "nullable_bool_true": "boolean",
+            "nullable_bool_false": "boolean"
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type, f"Column {col} type mismatch")
+
+    @unittest.skip("")
+    def test_tuple_types(self):
+        """Test Tuple types with various element combinations"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    (1, 'hello') as tuple_int_str,
+                    (true, false, true) as tuple_bool,
+                    (1, 2.5, 'test') as tuple_mixed,
+                    tuple(42, 'world', false) as tuple_explicit,
+                    (1, (2, 3)) as tuple_nested,
+                    ('a', 'b', 'c') as tuple_string,
+                    (NULL, 1)::Tuple(Nullable(Int32), Int32) as tuple_nullable,
+                    tuple() as tuple_empty
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    (100, 'goodbye') as tuple_int_str,
+                    (false, true, false) as tuple_bool,
+                    (10, -3.14, 'data') as tuple_mixed,
+                    tuple(-5, 'universe', true) as tuple_explicit,
+                    (5, (6, 7)) as tuple_nested,
+                    ('x', 'y', 'z') as tuple_string,
+                    (42, NULL)::Tuple(Int32, Nullable(Int32)) as tuple_nullable,
+                    tuple() as tuple_empty
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    (-1, '') as tuple_int_str,
+                    (true, false, false) as tuple_bool,
+                    (0, 0.0, '') as tuple_mixed,
+                    tuple(2147483647, 'edge_case', false) as tuple_explicit,
+                    (99, (100, 101)) as tuple_nested,
+                    ('🌍', 'Unicode', 'Test') as tuple_string,
+                    (NULL, NULL)::Tuple(Nullable(Int32), Nullable(Int32)) as tuple_nullable,
+                    tuple() as tuple_empty
+            )
+            ORDER BY row_id
+        """, "DataFrame")
+
+        # Verify we have 3 rows and 9 columns
+        self.assertEqual(len(ret), 3)
+        self.assertEqual(len(ret.columns), 9)
+
+        # Test first row - basic tuple values
+        tuple_int_str = ret.iloc[0]["tuple_int_str"]
+        self.assertIsInstance(tuple_int_str, np.ndarray)
+        self.assertEqual(len(tuple_int_str), 2)
+        self.assertEqual(tuple_int_str[0], 1)
+        self.assertEqual(tuple_int_str[1], 'hello')
+
+        tuple_bool = ret.iloc[0]["tuple_bool"]
+        self.assertIsInstance(tuple_bool, np.ndarray)
+        self.assertEqual(len(tuple_bool), 3)
+        self.assertTrue(tuple_bool[0])
+        self.assertFalse(tuple_bool[1])
+        self.assertTrue(tuple_bool[2])
+
+        tuple_mixed = ret.iloc[0]["tuple_mixed"]
+        self.assertIsInstance(tuple_mixed, np.ndarray)
+        self.assertEqual(len(tuple_mixed), 3)
+        self.assertEqual(tuple_mixed[0], 1)
+        self.assertEqual(tuple_mixed[1], 2.5)
+        self.assertEqual(tuple_mixed[2], 'test')
+
+        # Test nested tuples
+        tuple_nested = ret.iloc[0]["tuple_nested"]
+        self.assertIsInstance(tuple_nested, np.ndarray)
+        self.assertEqual(len(tuple_nested), 2)
+        self.assertEqual(tuple_nested[0], 1)
+        self.assertIsInstance(tuple_nested[1], tuple)
+        self.assertEqual(tuple_nested[1][0], 2)
+        self.assertEqual(tuple_nested[1][1], 3)
+
+        # Test nullable tuples
+        tuple_nullable = ret.iloc[0]["tuple_nullable"]
+        self.assertIsInstance(tuple_nullable, np.ndarray)
+        self.assertEqual(len(tuple_nullable), 2)
+        self.assertTrue(pd.isna(tuple_nullable[0]))  # NULL value
+        self.assertEqual(tuple_nullable[1], 1)
+
+        # Test empty tuple
+        tuple_empty = ret.iloc[0]["tuple_empty"]
+        self.assertIsInstance(tuple_empty, np.ndarray)
+        self.assertEqual(len(tuple_empty), 0)
+
+        # Test second row - different values
+        tuple_int_str_2 = ret.iloc[1]["tuple_int_str"]
+        self.assertEqual(tuple_int_str_2[0], 100)
+        self.assertEqual(tuple_int_str_2[1], 'goodbye')
+
+        tuple_nullable_2 = ret.iloc[1]["tuple_nullable"]
+        self.assertEqual(tuple_nullable_2[0], 42)
+        self.assertTrue(pd.isna(tuple_nullable_2[1]))  # NULL value
+
+        # Test third row - edge cases
+        tuple_bool_3 = ret.iloc[2]["tuple_bool"]
+        self.assertIsInstance(tuple_bool_3, np.ndarray)
+        self.assertEqual(len(tuple_bool_3), 3)
+        self.assertTrue(tuple_bool_3[0])   # true
+        self.assertFalse(tuple_bool_3[1])  # false
+        self.assertFalse(tuple_bool_3[2])  # false
+
+        tuple_nullable_3 = ret.iloc[2]["tuple_nullable"]
+        self.assertTrue(pd.isna(tuple_nullable_3[0]))  # Both NULL
+        self.assertTrue(pd.isna(tuple_nullable_3[1]))
+
+        # Test string tuple with Unicode
+        tuple_string_3 = ret.iloc[2]["tuple_string"]
+        self.assertEqual(tuple_string_3[0], '🌍')
+        self.assertEqual(tuple_string_3[1], 'Unicode')
+        self.assertEqual(tuple_string_3[2], 'Test')
+
+        # Test tuple element types
+        for i in range(len(ret)):
+            tuple_val = ret.iloc[i]["tuple_int_str"]
+            self.assertIsInstance(tuple_val, np.ndarray, f"Row {i} tuple_int_str should be tuple")
+            if len(tuple_val) >= 2:
+                self.assertIsInstance(tuple_val[0], (int, np.integer), f"Row {i} first element should be integer")
+                self.assertIsInstance(tuple_val[1], str, f"Row {i} second element should be string")
+
+        # Verify data types - Tuple types should be mapped to object dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "tuple_int_str": "object",      # Tuple mapped to object dtype
+            "tuple_bool": "object",         # Tuple mapped to object dtype
+            "tuple_mixed": "object",        # Tuple mapped to object dtype
+            "tuple_explicit": "object",     # Tuple mapped to object dtype
+            "tuple_nested": "object",       # Nested Tuple mapped to object dtype
+            "tuple_string": "object",       # Tuple mapped to object dtype
+            "tuple_nullable": "object",     # Tuple with nullable elements mapped to object dtype
+            "tuple_empty": "object"         # Empty Tuple mapped to object dtype
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type, f"Column {col} type mismatch")
+
+        # Test named tuples
+        named_tuple_ret = self.session.query("""
+            SELECT
+                tuple(1, 'John', 25) as person_tuple,
+                (42, 3.14159, 'pi') as unnamed_tuple
+        """, "DataFrame")
+
+        person_tuple = named_tuple_ret.iloc[0]["person_tuple"]
+        self.assertIsInstance(person_tuple, np.ndarray)
+        self.assertEqual(len(person_tuple), 3)
+        self.assertEqual(person_tuple[0], 1)
+        self.assertEqual(person_tuple[1], 'John')
+        self.assertEqual(person_tuple[2], 25)
+
+        unnamed_tuple = named_tuple_ret.iloc[0]["unnamed_tuple"]
+        self.assertIsInstance(unnamed_tuple, np.ndarray)
+        self.assertEqual(len(unnamed_tuple), 3)
+        self.assertEqual(unnamed_tuple[0], 42)
+        self.assertAlmostEqual(unnamed_tuple[1], 3.14159, places=5)
+        self.assertEqual(unnamed_tuple[2], 'pi')
+
+    @unittest.skip("")
+    def test_array_types(self):
+        """Test Array types with various element types"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    [1, 2, 3, 4, 5] as array_int32,
+                    [1, 2, 3, 4, 5]::Array(UInt64) as array_uint64,
+                    [1.1, 2.2, 3.3, 4.4, 5.5] as array_float64,
+                    ['hello', 'world', 'clickhouse', 'array'] as array_string,
+                    [true, false, true, false] as array_bool,
+                    [toDate('2023-01-01'), toDate('2023-02-01'), toDate('2023-03-01')] as array_date,
+                    [toDateTime('2023-01-01 10:00:00', 'Asia/Shanghai'), toDateTime('2023-01-01 11:00:00', 'Asia/Shanghai')] as array_datetime,
+                    [[1, 2], [3, 4], [5, 6]] as array_nested_int,
+                    [[100, 200], [300, 400], [500, 600]]::Array(Array(UInt32)) as array_nested_uint32,
+                    [['a', 'b'], ['c', 'd']] as array_nested_string,
+                    [] as array_empty_int,
+                    ['']::Array(String) as array_empty_string_element,
+                    [NULL, 1, NULL, 3]::Array(Nullable(Int32)) as array_nullable_int,
+                    [NULL, 'test', NULL]::Array(Nullable(String)) as array_nullable_string
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    [10, 20, 30] as array_int32,
+                    [100, 200, 300]::Array(UInt64) as array_uint64,
+                    [10.5, 20.5] as array_float64,
+                    ['test', 'array', 'data'] as array_string,
+                    [false, false, true] as array_bool,
+                    [toDate('2024-01-01'), toDate('2024-12-31')] as array_date,
+                    [toDateTime('2024-06-15 14:30:00', 'Asia/Shanghai')] as array_datetime,
+                    [[7, 8, 9], [10]] as array_nested_int,
+                    [[700, 800], [900]]::Array(Array(UInt32)) as array_nested_uint32,
+                    [['x'], ['y', 'z', 'w']] as array_nested_string,
+                    [42] as array_empty_int,
+                    ['single'] as array_empty_string_element,
+                    [1, 2, 3]::Array(Nullable(Int32)) as array_nullable_int,
+                    ['a', 'b']::Array(Nullable(String)) as array_nullable_string
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    [-1, 0, 1, 2147483647, -2147483648] as array_int32,
+                    [0, 18446744073709551615]::Array(UInt64) as array_uint64,
+                    [0.0, -1.5, 1.0/0.0, -1.0/0.0, 0.0/0.0] as array_float64,
+                    ['Unicode: 🌍', 'Special: \t\n"''', ''] as array_string,
+                    [true] as array_bool,
+                    [toDate('1970-01-01'), toDate('2149-06-06')] as array_date,
+                    [toDateTime('1970-01-02 00:00:00', 'Asia/Shanghai'), toDateTime('2106-02-07 06:28:15', 'Asia/Shanghai')] as array_datetime,
+                    [[], [1], [2, 3, 4, 5]] as array_nested_int,
+                    [[], [1000], [2000, 3000, 4000]]::Array(Array(UInt32)) as array_nested_uint32,
+                    [[], ['single'], ['a', 'b', 'c']] as array_nested_string,
+                    []::Array(Int32) as array_empty_int,
+                    []::Array(String) as array_empty_string_element,
+                    [NULL]::Array(Nullable(Int32)) as array_nullable_int,
+                    [NULL, NULL]::Array(Nullable(String)) as array_nullable_string
+            )
+            ORDER BY row_id
+        """, "DataFrame")
+
+        for col in ret.columns:
+            print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
+
+        # Test first row - basic arrays (converted to numpy arrays)
+        np.testing.assert_array_equal(ret.iloc[0]["array_int32"], [1, 2, 3, 4, 5])
+        np.testing.assert_array_equal(ret.iloc[0]["array_uint64"], [1, 2, 3, 4, 5])
+        np.testing.assert_array_equal(ret.iloc[0]["array_float64"], [1.1, 2.2, 3.3, 4.4, 5.5])
+        np.testing.assert_array_equal(ret.iloc[0]["array_string"], ['hello', 'world', 'clickhouse', 'array'])
+        np.testing.assert_array_equal(ret.iloc[0]["array_bool"], [True, False, True, False])
+
+        # Test date arrays (converted to numpy array of pandas timestamps)
+        date_array = ret.iloc[0]["array_date"]
+        self.assertIsInstance(date_array, np.ndarray)
+        self.assertEqual(len(date_array), 3)
+        self.assertEqual(date_array[0], pd.Timestamp('2023-01-01'))
+        self.assertEqual(date_array[1], pd.Timestamp('2023-02-01'))
+        self.assertEqual(date_array[2], pd.Timestamp('2023-03-01'))
+
+        # Test datetime arrays (converted to numpy array of numpy.datetime64 in UTC)
+        datetime_array = ret.iloc[0]["array_datetime"]
+        self.assertIsInstance(datetime_array, np.ndarray)
+        self.assertEqual(len(datetime_array), 2)
+        # ClickHouse converts Asia/Shanghai time to UTC: 10:00:00 +0800 -> 02:00:00 UTC
+        self.assertEqual(datetime_array[0], np.datetime64('2023-01-01T02:00:00'))
+        self.assertEqual(datetime_array[1], np.datetime64('2023-01-01T03:00:00'))
+
+        # Test nested arrays (numpy arrays containing numpy arrays)
+        nested_int = ret.iloc[0]["array_nested_int"]
+        self.assertIsInstance(nested_int, np.ndarray)
+        self.assertEqual(len(nested_int), 3)
+        np.testing.assert_array_equal(nested_int[0], [1, 2])
+        np.testing.assert_array_equal(nested_int[1], [3, 4])
+        np.testing.assert_array_equal(nested_int[2], [5, 6])
+
+        nested_uint32 = ret.iloc[0]["array_nested_uint32"]
+        self.assertIsInstance(nested_uint32, np.ndarray)
+        self.assertEqual(len(nested_uint32), 3)
+        np.testing.assert_array_equal(nested_uint32[0], [100, 200])
+        np.testing.assert_array_equal(nested_uint32[1], [300, 400])
+        np.testing.assert_array_equal(nested_uint32[2], [500, 600])
+
+        nested_string = ret.iloc[0]["array_nested_string"]
+        self.assertIsInstance(nested_string, np.ndarray)
+        self.assertEqual(len(nested_string), 2)
+        np.testing.assert_array_equal(nested_string[0], ['a', 'b'])
+        np.testing.assert_array_equal(nested_string[1], ['c', 'd'])
+
+        # Test empty arrays and arrays with empty string elements
+        empty_int_array = ret.iloc[0]["array_empty_int"]
+        self.assertIsInstance(empty_int_array, np.ndarray)
+        self.assertEqual(len(empty_int_array), 0)
+
+        string_element_array = ret.iloc[0]["array_empty_string_element"]
+        self.assertIsInstance(string_element_array, np.ndarray)
+        np.testing.assert_array_equal(string_element_array, [''])
+
+        # Test nullable arrays (numpy arrays with None values)
+        nullable_int = ret.iloc[0]["array_nullable_int"]
+        self.assertIsInstance(nullable_int, np.ndarray)
+        self.assertEqual(len(nullable_int), 4)
+        self.assertTrue(nullable_int.mask[0])
+        self.assertEqual(nullable_int[1], 1)
+        self.assertTrue(nullable_int.mask[2])
+        self.assertEqual(nullable_int[3], 3)
+
+        nullable_string = ret.iloc[0]["array_nullable_string"]
+        self.assertIsInstance(nullable_string, np.ndarray)
+        self.assertEqual(len(nullable_string), 3)
+        # self.assertTrue(nullable_string.mask[0])
+        self.assertIsNone(nullable_string[0])
+        self.assertEqual(nullable_string[1], 'test')
+        # self.assertTrue(nullable_string.mask[2])
+        self.assertIsNone(nullable_string[2])
+
+        # Test second row - different arrays (numpy arrays)
+        np.testing.assert_array_equal(ret.iloc[1]["array_int32"], [10, 20, 30])
+        np.testing.assert_array_equal(ret.iloc[1]["array_uint64"], [100, 200, 300])
+        np.testing.assert_array_equal(ret.iloc[1]["array_float64"], [10.5, 20.5])
+        np.testing.assert_array_equal(ret.iloc[1]["array_string"], ['test', 'array', 'data'])
+        np.testing.assert_array_equal(ret.iloc[1]["array_bool"], [False, False, True])
+
+        # Test second row datetime array: 14:30:00 +0800 -> 06:30:00 UTC
+        datetime_array_2 = ret.iloc[1]["array_datetime"]
+        self.assertEqual(len(datetime_array_2), 1)
+        self.assertEqual(datetime_array_2[0], np.datetime64('2024-06-15T06:30:00'))
+
+        # Test third row - edge cases (numpy arrays)
+        np.testing.assert_array_equal(ret.iloc[2]["array_int32"], [-1, 0, 1, 2147483647, -2147483648])
+        np.testing.assert_array_equal(ret.iloc[2]["array_uint64"], [0, 18446744073709551615])
+
+        # Test third row datetime array: Asia/Shanghai times converted to UTC
+        datetime_array_3 = ret.iloc[2]["array_datetime"]
+        self.assertEqual(len(datetime_array_3), 2)
+        # 1970-01-02 00:00:00 +0800 -> 1970-01-01 16:00:00 UTC
+        self.assertEqual(datetime_array_3[0], np.datetime64('1970-01-01T16:00:00'))
+        # 2106-02-07 06:28:15 +0800 -> 2106-02-06 22:28:15 UTC
+        self.assertEqual(datetime_array_3[1], np.datetime64('2106-02-06T22:28:15'))
+
+        # Test float special values in array
+        float_array = ret.iloc[2]["array_float64"]
+        self.assertEqual(float_array[0], 0.0)
+        self.assertEqual(float_array[1], -1.5)
+        self.assertTrue(math.isinf(float_array[2]))  # positive infinity
+        self.assertTrue(math.isinf(float_array[3]))  # negative infinity
+        self.assertTrue(math.isnan(float_array[4]))  # NaN
+
+        # Test string array with special characters (numpy array)
+        string_array = ret.iloc[2]["array_string"]
+        self.assertIsInstance(string_array, np.ndarray)
+        self.assertEqual(string_array[0], 'Unicode: 🌍')
+        self.assertEqual(string_array[1], "Special: \t\n\"'")  # ClickHouse interprets escape sequences
+        self.assertEqual(string_array[2], '')
+
+        # Test nested arrays with empty elements (numpy arrays)
+        nested_int_3 = ret.iloc[2]["array_nested_int"]
+        self.assertIsInstance(nested_int_3, np.ndarray)
+        self.assertEqual(len(nested_int_3[0]), 0)  # empty array
+        np.testing.assert_array_equal(nested_int_3[1], [1])  # single element
+        np.testing.assert_array_equal(nested_int_3[2], [2, 3, 4, 5])  # multiple elements
+
+        nested_uint32_3 = ret.iloc[2]["array_nested_uint32"]
+        self.assertIsInstance(nested_uint32_3, np.ndarray)
+        self.assertEqual(len(nested_uint32_3[0]), 0)  # empty array
+        np.testing.assert_array_equal(nested_uint32_3[1], [1000])  # single element
+        np.testing.assert_array_equal(nested_uint32_3[2], [2000, 3000, 4000])  # multiple elements
+
+        # Test empty typed arrays
+        self.assertEqual(len(ret.iloc[2]["array_empty_int"]), 0)
+        self.assertEqual(len(ret.iloc[2]["array_empty_string_element"]), 0)
+
+        # Test nullable arrays with only NULL values
+        self.assertEqual(len(ret.iloc[2]["array_nullable_int"]), 1)
+        self.assertTrue(ret.iloc[2]["array_nullable_int"].mask[0])
+
+        self.assertEqual(len(ret.iloc[2]["array_nullable_string"]), 2)
+        # self.assertTrue(ret.iloc[2]["array_nullable_string"].mask[0])
+        # self.assertTrue(ret.iloc[2]["array_nullable_string"].mask[1])
+        self.assertIsNone(ret.iloc[2]["array_nullable_string"][0])
+        self.assertIsNone(ret.iloc[2]["array_nullable_string"][1])
+
+        # Precise data type validation - Arrays should be mapped to object dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "array_int32": "object",           # Array(Int32) mapped to object dtype
+            "array_uint64": "object",          # Array(UInt64) mapped to object dtype
+            "array_float64": "object",         # Array(Float64) mapped to object dtype
+            "array_string": "object",          # Array(String) mapped to object dtype
+            "array_bool": "object",            # Array(Bool) mapped to object dtype
+            "array_date": "object",            # Array(Date) mapped to object dtype
+            "array_datetime": "object",        # Array(DateTime) mapped to object dtype
+            "array_nested_int": "object",      # Array(Array(Int32)) mapped to object dtype
+            "array_nested_uint32": "object",   # Array(Array(UInt32)) mapped to object dtype
+            "array_nested_string": "object",   # Array(Array(String)) mapped to object dtype
+            "array_empty_int": "object",       # Empty Array(Int32) mapped to object dtype
+            "array_empty_string_element": "object",  # Array(String) with empty string mapped to object dtype
+            "array_nullable_int": "object",    # Array(Nullable(Int32)) mapped to object dtype
+            "array_nullable_string": "object"  # Array(Nullable(String)) mapped to object dtype
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type)
+
+        # Verify all array columns contain numpy arrays
+        array_columns = [col for col in ret.columns if col.startswith('array_')]
+        for col in array_columns:
+            for i in range(len(ret)):
+                array_value = ret.iloc[i][col]
+                # Check if it's a numpy array
+                self.assertIsInstance(array_value, np.ndarray, f"Row {i}, column {col} should be numpy array")
+                # Verify numpy array properties
+                self.assertTrue(hasattr(array_value, '__len__'), f"Row {i}, column {col} should have length")
+                self.assertTrue(hasattr(array_value, '__getitem__'), f"Row {i}, column {col} should be indexable")
 
 
 if __name__ == "__main__":
