@@ -146,6 +146,10 @@ py::object convertObjectToPython(
         }
     }
 
+    /// Return None if the result dictionary is empty
+    if (result.empty())
+        return py::none();
+
     return result;
 }
 

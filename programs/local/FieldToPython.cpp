@@ -240,9 +240,12 @@ py::object convertFieldToPython(
 	case TypeIndex::UInt8:
         {
             auto field = column[index];
-            auto filed_type = field.getType();
-            if (filed_type == Field::Types::Bool)
-                return py::cast(field.safeGet<bool>());
+            auto is_bool = isBool(actual_type);
+            if (is_bool)
+            {
+                bool val = field.safeGet<bool>();
+                return py::cast(val);
+            }
 
             return py::cast(field.safeGet<UInt64>());
         }
@@ -329,7 +332,7 @@ py::object convertFieldToPython(
         {
             auto field = column[index];
             auto days = field.safeGet<UInt64>();
-            LocalDate local_date(static_cast<UInt16>(days));
+            LocalDate local_date(DayNum(static_cast<UInt16>(days)));
             return convertLocalDateToPython(local_date, import_cache, field);
         }
 
@@ -337,7 +340,7 @@ py::object convertFieldToPython(
         {
             auto field = column[index];
             auto days = field.safeGet<Int64>();
-            LocalDate local_date(static_cast<Int32>(days));
+            LocalDate local_date(ExtendedDayNum(static_cast<Int32>(days)));
             return convertLocalDateToPython(local_date, import_cache, field);
         }
 
@@ -347,7 +350,8 @@ py::object convertFieldToPython(
             auto seconds = field.safeGet<UInt64>();
 
             const auto * datetime_type = typeid_cast<const DataTypeDateTime *>(actual_type.get());
-            const auto & time_zone = datetime_type ? datetime_type->getTimeZone() : DateLUT::instance("UTC");
+            const auto & utc_time_zone = DateLUT::instance("UTC");
+            const auto & time_zone = datetime_type ? datetime_type->getTimeZone() : utc_time_zone;
 
             time_t timestamp = static_cast<time_t>(seconds);
             LocalDateTime local_dt(timestamp, time_zone);
@@ -384,7 +388,8 @@ py::object convertFieldToPython(
             Int64 datetime64_ticks = datetime64_value.value;
 
             const auto * datetime64_type = typeid_cast<const DataTypeDateTime64 *>(actual_type.get());
-            const auto & time_zone = datetime64_type ? datetime64_type->getTimeZone() : DateLUT::instance("UTC");
+            const auto & utc_time_zone = DateLUT::instance("UTC");
+            const auto & time_zone = datetime64_type ? datetime64_type->getTimeZone() : utc_time_zone;
 
             UInt32 scale = datetime64_field.getScale();
             Int64 scale_multiplier = DecimalUtils::scaleMultiplier<DateTime64::NativeType>(scale);

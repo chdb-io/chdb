@@ -620,8 +620,7 @@ static bool CHColumnNothingToNumpyArray(NumpyAppendData & append_data)
 	{
 		size_t dest_index = append_data.dest_offset + i;
 
-		Py_INCREF(Py_None);
-		dest_ptr[dest_index] = Py_None;
+		dest_ptr[dest_index] = nullptr;
 		mask_ptr[dest_index] = true;
 	}
 
