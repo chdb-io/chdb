@@ -3,7 +3,7 @@
 import unittest
 import pandas as pd
 import chdb
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 import numpy as np
 import math
 import uuid
@@ -13,12 +13,12 @@ import ipaddress
 class TestDataFrameColumnTypes(unittest.TestCase):
 
     def setUp(self):
-        self.session = chdb.session.Session("./tmp")
+        self.session = chdb.session.Session()
+        self.shanghai_tz = timezone(timedelta(hours=8))
 
     def tearDown(self):
         self.session.close()
 
-    @unittest.skip("")
     def test_integer_types(self):
         ret = self.session.query("""
             SELECT * FROM (
@@ -106,7 +106,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_float_types(self):
         ret = self.session.query("""
             SELECT * FROM (
@@ -179,7 +178,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_float_special_values(self):
         """Test Infinity and NaN values for all float types"""
         ret = self.session.query("""
@@ -271,7 +269,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_decimal_types(self):
         """Test Decimal32, Decimal64, Decimal128, Decimal256 types"""
         ret = self.session.query("""
@@ -366,7 +363,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_string_types(self):
         """Test String, FixedString, and LowCardinality string types"""
         ret = self.session.query("""
@@ -440,7 +436,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_date_types(self):
         """Test Date and Date32 types"""
         ret = self.session.query("""
@@ -526,7 +521,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_time_types(self):
         """Test Time and Time64 types"""
         # Enable Time and Time64 types
@@ -624,7 +618,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_datetime_types(self):
         """Test DateTime and DateTime64 types"""
         ret = self.session.query("""
@@ -752,7 +745,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_enum_types(self):
         """Test Enum8 and Enum16 types"""
         ret = self.session.query("""
@@ -820,7 +812,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             for i in range(len(ret)):
                 self.assertIsInstance(ret.iloc[i][col], str, f"Row {i}, column {col} should be string")
 
-    @unittest.skip("")
     def test_uuid_types(self):
         """Test UUID data type"""
         ret = self.session.query("""
@@ -888,7 +879,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                 self.assertEqual(len(uuid_str), 36, f"Row {i}, column {col} UUID string should be 36 characters")
                 self.assertEqual(uuid_str.count('-'), 4, f"Row {i}, column {col} UUID should have 4 hyphens")
 
-    @unittest.skip("")
     def test_ipv4_types(self):
         """Test IPv4 data type"""
         ret = self.session.query("""
@@ -968,7 +958,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                 ipv4_str = str(ipv4_value)
                 self.assertEqual(len(ipv4_str.split('.')), 4, f"Row {i}, column {col} IPv4 should have 4 octets")
 
-    @unittest.skip("")
     def test_ipv6_types(self):
         """Test IPv6 data type"""
         ret = self.session.query("""
@@ -1048,7 +1037,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                 ipv6_str = str(ipv6_value)
                 self.assertIn(":", ipv6_str, f"Row {i}, column {col} IPv6 should contain colons")
 
-    @unittest.skip("")
     def test_bool_types(self):
         """Test Bool and Nullable(Bool) types with various values"""
         ret = self.session.query("""
@@ -1149,7 +1137,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type, f"Column {col} type mismatch")
 
-    @unittest.skip("")
     def test_tuple_types(self):
         """Test Tuple types with various element combinations"""
         ret = self.session.query("""
@@ -1309,7 +1296,6 @@ class TestDataFrameColumnTypes(unittest.TestCase):
         self.assertAlmostEqual(unnamed_tuple[1], 3.14159, places=5)
         self.assertEqual(unnamed_tuple[2], 'pi')
 
-    @unittest.skip("")
     def test_array_types(self):
         """Test Array types with various element types"""
         ret = self.session.query("""
@@ -1541,6 +1527,538 @@ class TestDataFrameColumnTypes(unittest.TestCase):
                 # Verify numpy array properties
                 self.assertTrue(hasattr(array_value, '__len__'), f"Row {i}, column {col} should have length")
                 self.assertTrue(hasattr(array_value, '__getitem__'), f"Row {i}, column {col} should be indexable")
+
+    def test_map_types(self):
+        """Test Map(K,V) types where K and V can be any types"""
+        ret = self.session.query("""
+            SELECT * FROM (
+                SELECT
+                    1 as row_id,
+                    -- Basic primitive type combinations with multiple key-value pairs
+                    map('str_key1', 42, 'str_key2', 100, 'str_key3', -50)::Map(String, Int32) as map_str_int,
+                    map(100, 'int_key1', 200, 'int_key2', -10, 'negative_key')::Map(Int32, String) as map_int_str,
+                    map(true, 'bool_true', false, 'bool_false')::Map(Bool, String) as map_bool_str,
+                    map('pi', 3.14, 'e', 2.718, 'phi', 1.618)::Map(String, Float64) as map_str_float,
+
+                    -- DateTime and Date types as values with multiple pairs
+                    map('created', toTimeZone('2023-01-15 10:30:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'), 'updated', toTimeZone('2024-03-20 14:45:30'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'), 'archived', toTimeZone('2024-12-01 09:15:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'))::Map(String, DateTime('Asia/Shanghai')) as map_str_datetime,
+                    map('birth_date', '1990-05-15'::Date, 'start_date', '2020-01-01'::Date, 'end_date', '2025-12-31'::Date)::Map(String, Date) as map_str_date,
+                    map('precise_time1', toTimeZone('2023-01-15 10:30:00.123456'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'), 'precise_time2', toTimeZone('2024-03-20 14:45:30.987654'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'), 'precise_time3', toTimeZone('2024-12-01 09:15:00.555555'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'))::Map(String, DateTime64(6, 'Asia/Shanghai')) as map_str_datetime64,
+                    map('event_id', '1001', 'timestamp', '2023-06-10 16:20:45', 'event_id2', '1002', 'timestamp2', '2023-06-11 17:30:15')::Map(String, String) as map_mixed_datetime,
+
+                    -- Decimal types as values with multiple pairs
+                    map('price1', 99.99::Decimal(10,2), 'price2', 149.50::Decimal(10,2), 'discount', 15.75::Decimal(10,2))::Map(String, Decimal(10,2)) as map_str_decimal,
+
+                    -- Array as Key and Value types
+                    map([1,2], 'array_key')::Map(Array(Int32), String) as map_array_str,
+                    map('array_val1', [10,20,30], 'array_val2', [40,50], 'empty_array', [])::Map(String, Array(Int32)) as map_str_array,
+
+                    -- Tuple as Key and Value types
+                    map((1,'tuple'), 'tuple_key')::Map(Tuple(Int32, String), String) as map_tuple_str,
+                    map('tuple_val1', (100, 'data1'), 'tuple_val2', (200, 'data2'))::Map(String, Tuple(Int32, String)) as map_str_tuple,
+
+                    -- Nested Map as Value with multiple entries
+                    map('config1', map('timeout', 30, 'retries', 3), 'config2', map('timeout', 60, 'retries', 5))::Map(String, Map(String, Int32)) as map_nested,
+
+                    -- Nullable types with multiple pairs
+                    map('nullable1', NULL, 'nullable2', 'has_value', 'nullable3', NULL)::Map(String, Nullable(String)) as map_nullable
+                UNION ALL
+                SELECT
+                    2 as row_id,
+                    -- Different values with multiple pairs
+                    map('key_a', 999, 'key_b', 888, 'key_c', 777)::Map(String, Int32) as map_str_int,
+                    map(300, 'triple', 400, 'quad', 500, 'penta')::Map(Int32, String) as map_int_str,
+                    map(false, 'false_key', true, 'true_key')::Map(Bool, String) as map_bool_str,
+                    map('sqrt2', 1.414, 'sqrt3', 1.732, 'sqrt5', 2.236)::Map(String, Float64) as map_str_float,
+
+                    -- Different datetime values
+                    map('morning', toTimeZone('2024-01-01 08:00:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'), 'noon', toTimeZone('2024-01-01 12:00:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'), 'evening', toTimeZone('2024-01-01 18:00:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'))::Map(String, DateTime('Asia/Shanghai')) as map_str_datetime,
+                    map('monday', '2024-01-01'::Date, 'friday', '2024-01-05'::Date, 'sunday', '2024-01-07'::Date)::Map(String, Date) as map_str_date,
+                    map('morning_precise', toTimeZone('2024-01-01 08:00:00.111111'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'), 'noon_precise', toTimeZone('2024-01-01 12:00:00.222222'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'), 'evening_precise', toTimeZone('2024-01-01 18:00:00.333333'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'))::Map(String, DateTime64(6, 'Asia/Shanghai')) as map_str_datetime64,
+                    map('log_entry1', 'ERROR: 2024-02-15 10:30:00', 'log_entry2', 'INFO: 2024-02-15 10:31:00')::Map(String, String) as map_mixed_datetime,
+
+                    -- Different decimal values
+                    map('tax', 8.25::Decimal(10,2), 'shipping', 12.99::Decimal(10,2), 'total', 199.99::Decimal(10,2))::Map(String, Decimal(10,2)) as map_str_decimal,
+
+                    map([5,6,7], 'different_array')::Map(Array(Int32), String) as map_array_str,
+                    map('values1', [100,200], 'values2', [300,400,500])::Map(String, Array(Int32)) as map_str_array,
+
+                    map((2,'another'), 'another_tuple')::Map(Tuple(Int32, String), String) as map_tuple_str,
+                    map('tuple_a', (200, 'test_a'), 'tuple_b', (300, 'test_b'))::Map(String, Tuple(Int32, String)) as map_str_tuple,
+
+                    map('db_config', map('host', 1, 'port', 5432), 'cache_config', map('ttl', 300, 'size', 1000))::Map(String, Map(String, Int32)) as map_nested,
+
+                    map('active', 'yes', 'inactive', NULL, 'pending', 'maybe')::Map(String, Nullable(String)) as map_nullable
+                UNION ALL
+                SELECT
+                    3 as row_id,
+                    -- Edge cases and special values with multiple pairs
+                    map('min_int', -2147483648, 'max_int', 2147483647, 'zero', 0)::Map(String, Int32) as map_str_int,
+                    map(-50, 'negative_int', 0, 'zero_int', 1000000, 'million')::Map(Int32, String) as map_int_str,
+                    map(true, 'always_true', false, 'always_false')::Map(Bool, String) as map_bool_str,
+                    map('inf', 1.0/0.0, 'neg_inf', -1.0/0.0, 'nan', 0.0/0.0)::Map(String, Float64) as map_str_float,
+
+                    -- Extreme datetime values
+                    map('epoch', toTimeZone('1970-01-01 00:00:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'), 'y2k', toTimeZone('2000-01-01 00:00:00'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'), 'future', toTimeZone('2099-12-31 23:59:59'::DateTime('Asia/Shanghai'), 'Asia/Shanghai'))::Map(String, DateTime('Asia/Shanghai')) as map_str_datetime,
+                    map('past', '1900-01-01'::Date, 'present', today(), 'future', '2100-01-01'::Date)::Map(String, Date) as map_str_date,
+                    map('epoch_precise', toTimeZone('1970-01-01 08:00:00.000001'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'), 'y2k_precise', toTimeZone('2000-01-01 00:00:00.999999'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'), 'future_precise', toTimeZone('2099-12-31 23:59:59.123456'::DateTime64(6, 'Asia/Shanghai'), 'Asia/Shanghai'))::Map(String, DateTime64(6, 'Asia/Shanghai')) as map_str_datetime64,
+                    map('debug1', 'TRACE: 1970-01-01 00:00:01', 'debug2', 'DEBUG: 2038-01-19 03:14:07')::Map(String, String) as map_mixed_datetime,
+
+                    -- Extreme decimal values
+                    map('min_decimal', 0.01::Decimal(10,2), 'max_decimal', 99999999.99::Decimal(10,2), 'zero_decimal', 0.00::Decimal(10,2))::Map(String, Decimal(10,2)) as map_str_decimal,
+
+                    map([], 'empty_array')::Map(Array(Int32), String) as map_array_str,
+                    map('empty_val', [], 'single_val', [42], 'multi_val', [1,2,3,4,5])::Map(String, Array(Int32)) as map_str_array,
+
+                    map((0,'zero'), 'zero_tuple')::Map(Tuple(Int32, String), String) as map_tuple_str,
+                    map('empty_like', (0, ''), 'full_like', (999, 'full_string'))::Map(String, Tuple(Int32, String)) as map_str_tuple,
+
+                    map('triple_nested', map('level2', 999))::Map(String, Map(String, Int32)) as map_nested,
+
+                    map('null_again', NULL)::Map(String, Nullable(String)) as map_nullable
+            )
+            ORDER BY row_id
+        """, "DataFrame")
+
+        # Verify we have 3 rows and 16 columns
+        self.assertEqual(len(ret), 3)
+        self.assertEqual(len(ret.columns), 16)
+
+        # Test Row 1 - Basic primitive type combinations with multiple key-value pairs
+        # Map(String, Int32) with multiple pairs
+        map_str_int = ret.iloc[0]["map_str_int"]
+        self.assertIsInstance(map_str_int, dict)
+        self.assertEqual(len(map_str_int), 3)  # Should have 3 key-value pairs
+        self.assertEqual(map_str_int['str_key1'], 42)
+        self.assertEqual(map_str_int['str_key2'], 100)
+        self.assertEqual(map_str_int['str_key3'], -50)
+
+        # Map(Int32, String) with multiple pairs
+        map_int_str = ret.iloc[0]["map_int_str"]
+        self.assertIsInstance(map_int_str, dict)
+        self.assertEqual(len(map_int_str), 3)  # Should have 3 key-value pairs
+        self.assertEqual(map_int_str[100], 'int_key1')
+        self.assertEqual(map_int_str[200], 'int_key2')
+        self.assertEqual(map_int_str[-10], 'negative_key')
+
+        # Map(Bool, String) with both true and false keys
+        map_bool_str = ret.iloc[0]["map_bool_str"]
+        self.assertIsInstance(map_bool_str, dict)
+        self.assertEqual(len(map_bool_str), 2)  # Should have 2 key-value pairs
+        self.assertEqual(map_bool_str[True], 'bool_true')
+        self.assertEqual(map_bool_str[False], 'bool_false')
+
+        # Map(String, Float64) with multiple mathematical constants
+        map_str_float = ret.iloc[0]["map_str_float"]
+        self.assertIsInstance(map_str_float, dict)
+        self.assertEqual(len(map_str_float), 3)  # Should have 3 key-value pairs
+        self.assertAlmostEqual(map_str_float['pi'], 3.14, places=2)
+        self.assertAlmostEqual(map_str_float['e'], 2.718, places=3)
+        self.assertAlmostEqual(map_str_float['phi'], 1.618, places=3)
+
+        # Test DateTime and Date types as values
+        # Map(String, DateTime) with multiple datetime values
+        map_str_datetime = ret.iloc[0]["map_str_datetime"]
+        self.assertIsInstance(map_str_datetime, dict)
+        self.assertEqual(len(map_str_datetime), 3)  # Should have 3 key-value pairs
+        # Verify datetime values (converted to python datetime objects with Shanghai timezone)
+        self.assertIsInstance(map_str_datetime['created'], datetime)
+        self.assertEqual(map_str_datetime['created'], datetime(2023, 1, 15, 10, 30, 0, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime['updated'], datetime)
+        self.assertEqual(map_str_datetime['updated'], datetime(2024, 3, 20, 14, 45, 30, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime['archived'], datetime)
+        self.assertEqual(map_str_datetime['archived'], datetime(2024, 12, 1, 9, 15, 0, tzinfo=self.shanghai_tz))
+
+        # Map(String, Date) with multiple date values
+        map_str_date = ret.iloc[0]["map_str_date"]
+        self.assertIsInstance(map_str_date, dict)
+        self.assertEqual(len(map_str_date), 3)  # Should have 3 key-value pairs
+        # Verify date values (converted to python date objects)
+        self.assertIsInstance(map_str_date['birth_date'], date)
+        self.assertEqual(map_str_date['birth_date'], date(1990, 5, 15))
+        self.assertIsInstance(map_str_date['start_date'], date)
+        self.assertEqual(map_str_date['start_date'], date(2020, 1, 1))
+        self.assertIsInstance(map_str_date['end_date'], date)
+        self.assertEqual(map_str_date['end_date'], date(2025, 12, 31))
+
+        # Test DateTime64 with microsecond precision
+        # Map(String, DateTime64) with multiple datetime64 values
+        map_str_datetime64 = ret.iloc[0]["map_str_datetime64"]
+        self.assertIsInstance(map_str_datetime64, dict)
+        self.assertEqual(len(map_str_datetime64), 3)  # Should have 3 key-value pairs
+        # Verify datetime64 values (converted to python datetime objects with Shanghai timezone and microseconds)
+        self.assertIsInstance(map_str_datetime64['precise_time1'], datetime)
+        self.assertEqual(map_str_datetime64['precise_time1'], datetime(2023, 1, 15, 10, 30, 0, 123456, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime64['precise_time2'], datetime)
+        self.assertEqual(map_str_datetime64['precise_time2'], datetime(2024, 3, 20, 14, 45, 30, 987654, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime64['precise_time3'], datetime)
+        self.assertEqual(map_str_datetime64['precise_time3'], datetime(2024, 12, 1, 9, 15, 0, 555555, tzinfo=self.shanghai_tz))
+
+        # Map(String, String) with mixed datetime strings
+        map_mixed_datetime = ret.iloc[0]["map_mixed_datetime"]
+        self.assertIsInstance(map_mixed_datetime, dict)
+        self.assertEqual(len(map_mixed_datetime), 4)  # Should have 4 key-value pairs
+        self.assertEqual(map_mixed_datetime['event_id'], '1001')
+        self.assertIn('2023-06-10 16:20:45', map_mixed_datetime['timestamp'])
+
+        # Map(String, Decimal) with multiple decimal values
+        map_str_decimal = ret.iloc[0]["map_str_decimal"]
+        self.assertIsInstance(map_str_decimal, dict)
+        self.assertEqual(len(map_str_decimal), 3)  # Should have 3 key-value pairs
+        # Verify decimal values (should be converted to float or Decimal)
+        self.assertAlmostEqual(float(map_str_decimal['price1']), 99.99, places=2)
+        self.assertAlmostEqual(float(map_str_decimal['price2']), 149.50, places=2)
+        self.assertAlmostEqual(float(map_str_decimal['discount']), 15.75, places=2)
+
+        # Test Array as Key/Value types
+        # Map(Array(Int32), String) - Array as Key (non-hashable, uses keys/values structure)
+        map_array_str = ret.iloc[0]["map_array_str"]
+        self.assertIsInstance(map_array_str, dict)
+        # Non-hashable keys create {keys: [...], values: [...]} structure
+        self.assertIn('keys', map_array_str)
+        self.assertIn('values', map_array_str)
+        self.assertEqual(len(map_array_str['keys']), 1)
+        self.assertEqual(len(map_array_str['values']), 1)
+        # Verify the array key and its corresponding value
+        array_key = map_array_str['keys'][0]
+        self.assertIsInstance(array_key, list)
+        np.testing.assert_array_equal(array_key, [1, 2])
+        self.assertEqual(map_array_str['values'][0], 'array_key')
+
+        # Map(String, Array(Int32)) - Array as Value with multiple pairs (hashable key, normal dict)
+        map_str_array = ret.iloc[0]["map_str_array"]
+        self.assertIsInstance(map_str_array, dict)
+        self.assertEqual(len(map_str_array), 3)  # Should have 3 key-value pairs
+        # Verify multiple array values
+        array_value1 = map_str_array['array_val1']
+        self.assertIsInstance(array_value1, list)
+        np.testing.assert_array_equal(array_value1, [10, 20, 30])
+        array_value2 = map_str_array['array_val2']
+        self.assertIsInstance(array_value2, list)
+        np.testing.assert_array_equal(array_value2, [40, 50])
+        empty_array = map_str_array['empty_array']
+        self.assertIsInstance(empty_array, list)
+        self.assertEqual(len(empty_array), 0)
+
+        # Test Tuple as Key/Value types
+        # Map(Tuple(Int32, String), String) - Tuple as Key (non-hashable, uses keys/values structure)
+        map_tuple_str = ret.iloc[0]["map_tuple_str"]
+        self.assertIsInstance(map_tuple_str, dict)
+        # Non-hashable keys create {keys: [...], values: [...]} structure
+        self.assertIn('keys', map_tuple_str)
+        self.assertIn('values', map_tuple_str)
+        self.assertEqual(len(map_tuple_str['keys']), 1)
+        self.assertEqual(len(map_tuple_str['values']), 1)
+        # Verify the tuple key and its corresponding value
+        tuple_key = map_tuple_str['keys'][0]
+        self.assertIsInstance(tuple_key, tuple)
+        self.assertEqual(map_tuple_str['values'][0], 'tuple_key')
+
+        # Map(String, Tuple(Int32, String)) - Tuple as Value with multiple pairs (hashable key, normal dict)
+        map_str_tuple = ret.iloc[0]["map_str_tuple"]
+        self.assertIsInstance(map_str_tuple, dict)
+        self.assertEqual(len(map_str_tuple), 2)  # Should have 2 key-value pairs
+        # Verify multiple tuple values
+        tuple_value1 = map_str_tuple['tuple_val1']
+        self.assertIsInstance(tuple_value1, tuple)
+        self.assertEqual(tuple_value1, (100, 'data1'))
+        tuple_value2 = map_str_tuple['tuple_val2']
+        self.assertIsInstance(tuple_value2, tuple)
+        self.assertEqual(tuple_value2, (200, 'data2'))
+
+        # Test Nested Map with multiple entries - Map(String, Map(String, Int32))
+        map_nested = ret.iloc[0]["map_nested"]
+        self.assertIsInstance(map_nested, dict)
+        self.assertEqual(len(map_nested), 2)  # Should have 2 key-value pairs
+        # Verify first nested map
+        inner_map1 = map_nested['config1']
+        self.assertIsInstance(inner_map1, dict)
+        self.assertEqual(inner_map1['timeout'], 30)
+        self.assertEqual(inner_map1['retries'], 3)
+        # Verify second nested map
+        inner_map2 = map_nested['config2']
+        self.assertIsInstance(inner_map2, dict)
+        self.assertEqual(inner_map2['timeout'], 60)
+        self.assertEqual(inner_map2['retries'], 5)
+
+        # Test Nullable Value with multiple pairs - Map(String, Nullable(String))
+        map_nullable = ret.iloc[0]["map_nullable"]
+        self.assertIsInstance(map_nullable, dict)
+        self.assertEqual(len(map_nullable), 3)  # Should have 3 key-value pairs
+        # Verify mixed null and non-null values
+        self.assertTrue(pd.isna(map_nullable['nullable1']))
+        self.assertEqual(map_nullable['nullable2'], 'has_value')
+        self.assertTrue(pd.isna(map_nullable['nullable3']))
+
+        # Test Row 2 - Different values with multiple pairs
+        # Test Map(String, Int32) with different data (hashable key -> normal dict)
+        map_str_int_2 = ret.iloc[1]["map_str_int"]
+        self.assertIsInstance(map_str_int_2, dict)
+        self.assertEqual(len(map_str_int_2), 3)  # Should have 3 key-value pairs
+        self.assertEqual(map_str_int_2['key_a'], 999)
+        self.assertEqual(map_str_int_2['key_b'], 888)
+        self.assertEqual(map_str_int_2['key_c'], 777)
+
+        # Test Map(Bool, String) with both keys (hashable key -> normal dict)
+        map_bool_str_2 = ret.iloc[1]["map_bool_str"]
+        self.assertIsInstance(map_bool_str_2, dict)
+        self.assertEqual(len(map_bool_str_2), 2)  # Should have 2 key-value pairs
+        self.assertEqual(map_bool_str_2[False], 'false_key')
+        self.assertEqual(map_bool_str_2[True], 'true_key')
+
+        # Test DateTime values in row 2
+        map_str_datetime_2 = ret.iloc[1]["map_str_datetime"]
+        self.assertIsInstance(map_str_datetime_2, dict)
+        self.assertEqual(len(map_str_datetime_2), 3)  # Should have 3 key-value pairs
+        self.assertIsInstance(map_str_datetime_2['morning'], datetime)
+        self.assertEqual(map_str_datetime_2['morning'], datetime(2024, 1, 1, 8, 0, 0, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime_2['noon'], datetime)
+        self.assertEqual(map_str_datetime_2['noon'], datetime(2024, 1, 1, 12, 0, 0, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime_2['evening'], datetime)
+        self.assertEqual(map_str_datetime_2['evening'], datetime(2024, 1, 1, 18, 0, 0, tzinfo=self.shanghai_tz))
+
+        # Test Date values in row 2
+        map_str_date_2 = ret.iloc[1]["map_str_date"]
+        self.assertIsInstance(map_str_date_2, dict)
+        self.assertEqual(len(map_str_date_2), 3)  # Should have 3 key-value pairs
+        self.assertIsInstance(map_str_date_2['monday'], date)
+        self.assertEqual(map_str_date_2['monday'], date(2024, 1, 1))
+        self.assertIsInstance(map_str_date_2['friday'], date)
+        self.assertEqual(map_str_date_2['friday'], date(2024, 1, 5))
+        self.assertIsInstance(map_str_date_2['sunday'], date)
+        self.assertEqual(map_str_date_2['sunday'], date(2024, 1, 7))
+
+        # Test DateTime64 values in row 2
+        map_str_datetime64_2 = ret.iloc[1]["map_str_datetime64"]
+        self.assertIsInstance(map_str_datetime64_2, dict)
+        self.assertEqual(len(map_str_datetime64_2), 3)  # Should have 3 key-value pairs
+        self.assertIsInstance(map_str_datetime64_2['morning_precise'], datetime)
+        self.assertEqual(map_str_datetime64_2['morning_precise'], datetime(2024, 1, 1, 8, 0, 0, 111111, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime64_2['noon_precise'], datetime)
+        self.assertEqual(map_str_datetime64_2['noon_precise'], datetime(2024, 1, 1, 12, 0, 0, 222222, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime64_2['evening_precise'], datetime)
+        self.assertEqual(map_str_datetime64_2['evening_precise'], datetime(2024, 1, 1, 18, 0, 0, 333333, tzinfo=self.shanghai_tz))
+
+        # Test Decimal values in row 2
+        map_str_decimal_2 = ret.iloc[1]["map_str_decimal"]
+        self.assertIsInstance(map_str_decimal_2, dict)
+        self.assertEqual(len(map_str_decimal_2), 3)  # Should have 3 key-value pairs
+        self.assertAlmostEqual(float(map_str_decimal_2['tax']), 8.25, places=2)
+        self.assertAlmostEqual(float(map_str_decimal_2['shipping']), 12.99, places=2)
+        self.assertAlmostEqual(float(map_str_decimal_2['total']), 199.99, places=2)
+
+        # Test Map with nullable that has mixed values (hashable key -> normal dict)
+        map_nullable_2 = ret.iloc[1]["map_nullable"]
+        self.assertIsInstance(map_nullable_2, dict)
+        self.assertEqual(len(map_nullable_2), 3)  # Should have 3 key-value pairs
+        self.assertEqual(map_nullable_2['active'], 'yes')
+        self.assertTrue(pd.isna(map_nullable_2['inactive']))
+        self.assertEqual(map_nullable_2['pending'], 'maybe')
+
+        # Test Array as key in row 2 (non-hashable -> keys/values structure)
+        map_array_str_2 = ret.iloc[1]["map_array_str"]
+        self.assertIn('keys', map_array_str_2)
+        self.assertIn('values', map_array_str_2)
+        array_key_2 = map_array_str_2['keys'][0]
+        np.testing.assert_array_equal(array_key_2, [5, 6, 7])
+        self.assertEqual(map_array_str_2['values'][0], 'different_array')
+
+        # Test Array values in row 2 with multiple pairs
+        map_str_array_2 = ret.iloc[1]["map_str_array"]
+        self.assertIsInstance(map_str_array_2, dict)
+        self.assertEqual(len(map_str_array_2), 2)  # Should have 2 key-value pairs
+        np.testing.assert_array_equal(map_str_array_2['values1'], [100, 200])
+        np.testing.assert_array_equal(map_str_array_2['values2'], [300, 400, 500])
+
+        # Test Row 3 - Edge cases and special values with multiple pairs
+        # Test extreme integer values (hashable keys -> normal dict)
+        map_str_int_3 = ret.iloc[2]["map_str_int"]
+        self.assertIsInstance(map_str_int_3, dict)
+        self.assertEqual(len(map_str_int_3), 3)  # Should have 3 key-value pairs
+        self.assertEqual(map_str_int_3['min_int'], -2147483648)
+        self.assertEqual(map_str_int_3['max_int'], 2147483647)
+        self.assertEqual(map_str_int_3['zero'], 0)
+
+        map_int_str_3 = ret.iloc[2]["map_int_str"]
+        self.assertIsInstance(map_int_str_3, dict)
+        self.assertEqual(len(map_int_str_3), 3)  # Should have 3 key-value pairs
+        self.assertEqual(map_int_str_3[-50], 'negative_int')
+        self.assertEqual(map_int_str_3[0], 'zero_int')
+        self.assertEqual(map_int_str_3[1000000], 'million')
+
+        # Test special float values (infinity, negative infinity, NaN)
+        map_str_float_3 = ret.iloc[2]["map_str_float"]
+        self.assertIsInstance(map_str_float_3, dict)
+        self.assertEqual(len(map_str_float_3), 3)  # Should have 3 key-value pairs
+        self.assertTrue(math.isinf(map_str_float_3['inf']))
+        self.assertTrue(map_str_float_3['inf'] > 0)  # Positive infinity
+        self.assertTrue(math.isinf(map_str_float_3['neg_inf']))
+        self.assertTrue(map_str_float_3['neg_inf'] < 0)  # Negative infinity
+        self.assertTrue(math.isnan(map_str_float_3['nan']))
+
+        # Test extreme datetime values in row 3
+        map_str_datetime_3 = ret.iloc[2]["map_str_datetime"]
+        self.assertIsInstance(map_str_datetime_3, dict)
+        self.assertEqual(len(map_str_datetime_3), 3)  # Should have 3 key-value pairs
+        self.assertIsInstance(map_str_datetime_3['epoch'], datetime)
+        self.assertEqual(map_str_datetime_3['epoch'], datetime(1970, 1, 1, 8, 0, 0, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime_3['y2k'], datetime)
+        print(map_str_datetime_3['y2k'])
+        self.assertEqual(map_str_datetime_3['y2k'], datetime(2000, 1, 1, 0, 0, 0, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime_3['future'], datetime)
+        self.assertEqual(map_str_datetime_3['future'], datetime(2099, 12, 31, 23, 59, 59, tzinfo=self.shanghai_tz))
+
+        # Test extreme date values in row 3
+        map_str_date_3 = ret.iloc[2]["map_str_date"]
+        self.assertIsInstance(map_str_date_3, dict)
+        self.assertEqual(len(map_str_date_3), 3)  # Should have 3 key-value pairs
+        self.assertIsInstance(map_str_date_3['past'], date)
+        self.assertEqual(map_str_date_3['past'], date(1970, 1, 1))
+        self.assertIsInstance(map_str_date_3['present'], date)
+        # Note: 'present' uses today() so we just check it's a date, not exact value
+        self.assertIsInstance(map_str_date_3['future'], date)
+        self.assertEqual(map_str_date_3['future'], date(2100, 1, 1))
+
+        # Test extreme DateTime64 values in row 3
+        map_str_datetime64_3 = ret.iloc[2]["map_str_datetime64"]
+        self.assertIsInstance(map_str_datetime64_3, dict)
+        self.assertEqual(len(map_str_datetime64_3), 3)  # Should have 3 key-value pairs
+        self.assertIsInstance(map_str_datetime64_3['epoch_precise'], datetime)
+        self.assertEqual(map_str_datetime64_3['epoch_precise'], datetime(1970, 1, 1, 8, 0, 0, 1, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime64_3['y2k_precise'], datetime)
+        self.assertEqual(map_str_datetime64_3['y2k_precise'], datetime(2000, 1, 1, 0, 0, 0, 999999, tzinfo=self.shanghai_tz))
+        self.assertIsInstance(map_str_datetime64_3['future_precise'], datetime)
+        self.assertEqual(map_str_datetime64_3['future_precise'], datetime(2099, 12, 31, 23, 59, 59, 123456, tzinfo=self.shanghai_tz))
+
+        # Test extreme decimal values in row 3
+        map_str_decimal_3 = ret.iloc[2]["map_str_decimal"]
+        self.assertIsInstance(map_str_decimal_3, dict)
+        self.assertEqual(len(map_str_decimal_3), 3)  # Should have 3 key-value pairs
+        self.assertAlmostEqual(float(map_str_decimal_3['min_decimal']), 0.01, places=2)
+        self.assertAlmostEqual(float(map_str_decimal_3['max_decimal']), 99999999.99, places=2)
+        self.assertAlmostEqual(float(map_str_decimal_3['zero_decimal']), 0.00, places=2)
+
+        # Test Array values in row 3 with multiple pairs including edge cases
+        map_str_array_3 = ret.iloc[2]["map_str_array"]
+        self.assertIsInstance(map_str_array_3, dict)
+        self.assertEqual(len(map_str_array_3), 3)  # Should have 3 key-value pairs
+        # Empty array
+        empty_array = map_str_array_3['empty_val']
+        self.assertIsInstance(empty_array, list)
+        self.assertEqual(len(empty_array), 0)
+        # Single element array
+        single_array = map_str_array_3['single_val']
+        self.assertIsInstance(single_array, list)
+        np.testing.assert_array_equal(single_array, [42])
+        # Multi element array
+        multi_array = map_str_array_3['multi_val']
+        self.assertIsInstance(multi_array, list)
+        np.testing.assert_array_equal(multi_array, [1, 2, 3, 4, 5])
+
+        # Test Tuple values in row 3 with multiple pairs
+        map_str_tuple_3 = ret.iloc[2]["map_str_tuple"]
+        self.assertIsInstance(map_str_tuple_3, dict)
+        self.assertEqual(len(map_str_tuple_3), 2)  # Should have 2 key-value pairs
+        # Empty-like tuple
+        empty_like_tuple = map_str_tuple_3['empty_like']
+        self.assertIsInstance(empty_like_tuple, tuple)
+        self.assertEqual(empty_like_tuple, (0, ''))
+        # Full tuple
+        full_like_tuple = map_str_tuple_3['full_like']
+        self.assertIsInstance(full_like_tuple, tuple)
+        self.assertEqual(full_like_tuple, (999, 'full_string'))
+
+        # Test empty arrays (non-hashable key -> keys/values structure)
+        map_array_str_3 = ret.iloc[2]["map_array_str"]
+        self.assertIn('keys', map_array_str_3)
+        self.assertIn('values', map_array_str_3)
+        empty_array_key = map_array_str_3['keys'][0]
+        self.assertIsInstance(empty_array_key, list)
+        self.assertEqual(len(empty_array_key), 0)  # Empty array
+        self.assertEqual(map_array_str_3['values'][0], 'empty_array')
+
+        # Test empty array as value (hashable key -> normal dict)
+        map_str_array_3 = ret.iloc[2]["map_str_array"]
+        empty_array_value = map_str_array_3['empty_val']
+        self.assertIsInstance(empty_array_value, list)
+        self.assertEqual(len(empty_array_value), 0)
+
+        # Comprehensive type validation for all Map variations
+        for i in range(len(ret)):
+            # Verify all Maps return dict objects
+            for col in ['map_str_int', 'map_int_str', 'map_bool_str', 'map_str_float',
+                       'map_array_str', 'map_str_array', 'map_tuple_str', 'map_str_tuple',
+                       'map_nested', 'map_nullable']:
+                map_value = ret.iloc[i][col]
+                self.assertIsInstance(map_value, dict, f"Row {i}, column {col} should be dict")
+
+            # Verify Map(String, Int32) key-value types
+            str_int_map = ret.iloc[i]["map_str_int"]
+            for key, value in str_int_map.items():
+                self.assertIsInstance(key, str, f"Row {i} map_str_int key should be string")
+                self.assertIsInstance(value, (int, np.integer), f"Row {i} map_str_int value should be integer")
+
+            # Verify Map(Int32, String) key-value types
+            int_str_map = ret.iloc[i]["map_int_str"]
+            for key, value in int_str_map.items():
+                self.assertIsInstance(key, (int, np.integer), f"Row {i} map_int_str key should be integer")
+                self.assertIsInstance(value, str, f"Row {i} map_int_str value should be string")
+
+            # Verify Map(Bool, String) key-value types
+            bool_str_map = ret.iloc[i]["map_bool_str"]
+            for key, value in bool_str_map.items():
+                self.assertIsInstance(key, (bool, np.bool_), f"Row {i} map_bool_str key should be bool")
+                self.assertIsInstance(value, str, f"Row {i} map_bool_str value should be string")
+
+        # Verify data types - All Map types should be mapped to object dtype in pandas
+        expected_types = {
+            "row_id": "uint8",
+            "map_str_int": "object",        # Map(String, Int32) mapped to object dtype
+            "map_int_str": "object",        # Map(Int32, String) mapped to object dtype
+            "map_bool_str": "object",       # Map(Bool, String) mapped to object dtype
+            "map_str_float": "object",      # Map(String, Float64) mapped to object dtype
+            "map_array_str": "object",      # Map(Array(Int32), String) mapped to object dtype
+            "map_str_array": "object",      # Map(String, Array(Int32)) mapped to object dtype
+            "map_tuple_str": "object",      # Map(Tuple(Int32, String), String) mapped to object dtype
+            "map_str_tuple": "object",      # Map(String, Tuple(Int32, String)) mapped to object dtype
+            "map_nested": "object",         # Map(String, Map(String, Int32)) mapped to object dtype
+            "map_nullable": "object"        # Map(String, Nullable(String)) mapped to object dtype
+        }
+
+        for col, expected_type in expected_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type, f"Column {col} type mismatch")
+
+        # Test Map functions and operations
+        map_ops_ret = self.session.query("""
+            SELECT
+                map('a', 1, 'b', 2, 'c', 3) as test_map,
+                mapKeys(map('x', 10, 'y', 20)) as map_keys,
+                mapValues(map('p', 100, 'q', 200)) as map_values,
+                length(map('one', 1, 'two', 2, 'three', 3)) as map_length
+        """, "DataFrame")
+
+        test_map = map_ops_ret.iloc[0]["test_map"]
+        self.assertIsInstance(test_map, dict)
+        self.assertEqual(len(test_map), 3)
+
+        # mapKeys should return an array
+        map_keys = map_ops_ret.iloc[0]["map_keys"]
+        self.assertIsInstance(map_keys, np.ndarray)
+        self.assertEqual(len(map_keys), 2)
+        self.assertIn('x', map_keys)
+        self.assertIn('y', map_keys)
+
+        # mapValues should return an array
+        map_values = map_ops_ret.iloc[0]["map_values"]
+        self.assertIsInstance(map_values, np.ndarray)
+        self.assertEqual(len(map_values), 2)
+        self.assertIn(100, map_values)
+        self.assertIn(200, map_values)
+
+        # length should return integer
+        map_length = map_ops_ret.iloc[0]["map_length"]
+        self.assertEqual(map_length, 3)
 
 
 if __name__ == "__main__":
