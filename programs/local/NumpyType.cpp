@@ -141,7 +141,6 @@ static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
         {"Float64", NumpyNullableType::FLOAT_64},
         {"string", NumpyNullableType::STRING},
         {"object", NumpyNullableType::OBJECT},
-        {"timedelta64[ns]", NumpyNullableType::TIMEDELTA},
         {"category", NumpyNullableType::CATEGORY},
     };
 
@@ -157,6 +156,8 @@ static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
 		return NumpyNullableType::DATETIME_MS;
 	if (startsWith(col_type_str, "datetime64[s"))
 		return NumpyNullableType::DATETIME_S;
+    if (startsWith(col_type_str, "timedelta64["))
+		return NumpyNullableType::TIMEDELTA;
 
 	/// Legacy datetime type indicators
 	if (startsWith(col_type_str, "<M8[ns"))
@@ -177,8 +178,10 @@ NumpyType ConvertNumpyType(const py::handle & col_type)
 	NumpyType numpy_type;
 
 	numpy_type.type = ConvertNumpyTypeInternal(col_type_str);
-	if (IsDateTime(numpy_type.type)) {
-		if (hasattr(col_type, "tz")) {
+	if (IsDateTime(numpy_type.type))
+    {
+		if (hasattr(col_type, "tz"))
+        {
 			/// The datetime has timezone information.
 			numpy_type.has_timezone = true;
 		}
@@ -295,20 +298,20 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
 
     case TypeIndex::DateTime64:
         {
-            if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(data_type.get()))
+            if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(actual_data_type.get()))
             {
                 UInt32 scale = dt64->getScale();
                 if (scale <= 9)
                     return "datetime64[ns]";
 
-                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}, scale {}", data_type->getName(), scale);
+                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}, scale {}", actual_data_type->getName(), scale);
             }
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected datetime64 type {}", data_type->getName());
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected datetime64 type {}", actual_data_type->getName());
         }
 
     case TypeIndex::Date:
     case TypeIndex::Date32:
-        return "datetime64[D]";  // pandas converts datetime64[D] to datetime64[s] internally
+        return "datetime64[s]";  // pandas converts datetime64[D] to datetime64[s] internally
 
     case TypeIndex::Time:
     case TypeIndex::Time64:
@@ -316,7 +319,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
 
     case TypeIndex::Interval:
         {
-            if (const auto * interval = typeid_cast<const DataTypeInterval *>(data_type.get()))
+            if (const auto * interval = typeid_cast<const DataTypeInterval *>(actual_data_type.get()))
             {
                 IntervalKind kind = interval->getKind();
                 switch (kind.kind)
@@ -330,25 +333,18 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
                     case IntervalKind::Kind::Second:
                         return "timedelta64[s]";
                     case IntervalKind::Kind::Minute:
-                        return "timedelta64[m]";
                     case IntervalKind::Kind::Hour:
-                        return "timedelta64[h]";
                     case IntervalKind::Kind::Day:
-                        return "timedelta64[D]";
                     case IntervalKind::Kind::Week:
-                        return "timedelta64[W]";
                     case IntervalKind::Kind::Month:
-                        return "timedelta64[M]";
                     case IntervalKind::Kind::Quarter:
-                        /// numpy doesn't have quarter type
-                        return "timedelta64[M]";
                     case IntervalKind::Kind::Year:
-                        return "timedelta64[Y]";
+                        return "timedelta64[s]";
                     default:
                         throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval kind {}", kind.kind);
                 }
             }
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval type {}", data_type->getName());
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval type {}", actual_data_type->getName());
         }
 
     case TypeIndex::UUID:
@@ -377,7 +373,7 @@ String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type
 
     case TypeIndex::Nullable:
     default:
-        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", data_type->getName());
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", actual_data_type->getName());
     }
 }
 

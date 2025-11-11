@@ -63,6 +63,23 @@ struct RegularConvert
 	}
 };
 
+struct DateConvert
+{
+	template <class CHTYPE, class NUMPYTYPE>
+	static NUMPYTYPE convertValue(CHTYPE val, NumpyAppendData & append_data)
+	{
+		(void)append_data;
+		return (NUMPYTYPE)val * 3600 * 24;
+	}
+
+	template <class NUMPYTYPE>
+	static NUMPYTYPE nullValue(bool & set_mask)
+	{
+		set_mask = true;
+		return 0;
+	}
+};
+
 struct TimeConvert
 {
 	template <class CHTYPE, class NUMPYTYPE>
@@ -315,9 +332,37 @@ static bool CHColumnIntervalToNumpyArray(NumpyAppendData & append_data)
 		data_column = &nullable->getNestedColumn();
 	}
 
-	const auto * int64_column = typeid_cast<const ColumnVector<Int64> *>(data_column);
-	if (!int64_column)
-		throw Exception(ErrorCodes::LOGICAL_ERROR, "Expected ColumnVector<Int64> for Interval");
+	const auto & int64_column = typeid_cast<const ColumnVector<Int64> &>(*data_column);
+	const auto & inteval_type = typeid_cast<const DataTypeInterval &>(*append_data.type);
+	IntervalKind kind = inteval_type.getKind();
+	size_t multiplier = 1;
+
+	switch (kind)
+	{
+	case IntervalKind::Kind::Year:
+		multiplier = 3600 * 24 * 365;
+		break;
+	case IntervalKind::Kind::Quarter:
+		multiplier = 3600 * 24 * 30 * 3;
+		break;
+	case IntervalKind::Kind::Month:
+		multiplier = 3600 * 24 * 30;
+		break;
+	case IntervalKind::Kind::Week:
+		multiplier = 3600 * 24 * 7;
+		break;
+	case IntervalKind::Kind::Day:
+		multiplier = 3600 * 24;
+		break;
+	case IntervalKind::Kind::Hour:
+		multiplier = 3600;
+		break;
+	case IntervalKind::Kind::Minute:
+		multiplier = 60;
+		break;
+	default:
+		break;
+	}
 
 	auto * dest_ptr = reinterpret_cast<Int64 *>(append_data.target_data);
 	auto * mask_ptr = append_data.target_mask;
@@ -334,11 +379,8 @@ static bool CHColumnIntervalToNumpyArray(NumpyAppendData & append_data)
 		}
 		else
 		{
-			Int64 interval_value = int64_column->getElement(src_index);
-
-			/// Convert quarter to month by multiplying by 3
-			/// This function is only called for Quarter intervals
-			interval_value *= 3;
+			Int64 interval_value = int64_column.getElement(src_index);
+			interval_value *= multiplier;
 
 			dest_ptr[dest_index] = interval_value;
 			mask_ptr[dest_index] = false;
@@ -733,11 +775,11 @@ void NumpyArray::append(
 		break;
 
 	case TypeIndex::Date:
-		may_have_null = TransformColumn<UInt16, Int64, RegularConvert>(append_data);
+		may_have_null = TransformColumn<UInt16, Int64, DateConvert>(append_data);
 		break;
 
 	case TypeIndex::Date32:
-		may_have_null = TransformColumn<Int32, Int64, RegularConvert>(append_data);
+		may_have_null = TransformColumn<Int32, Int64, DateConvert>(append_data);
 		break;
 
 	case TypeIndex::DateTime:
@@ -801,17 +843,7 @@ void NumpyArray::append(
 		break;
 
 	case TypeIndex::Interval:
-		{
-			const auto * interval_type = typeid_cast<const DataTypeInterval *>(actual_type.get());
-			if (interval_type && interval_type->getKind() == IntervalKind::Kind::Quarter)
-			{
-				may_have_null = CHColumnIntervalToNumpyArray(append_data);
-			}
-			else
-			{
-				may_have_null = CHColumnToNumpyArray<Int64>(append_data);
-			}
-		}
+		may_have_null = CHColumnIntervalToNumpyArray(append_data);
 		break;
 
 	case TypeIndex::Map:
