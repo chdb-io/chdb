@@ -149,23 +149,41 @@ class TestDataFrameLargeScale(unittest.TestCase):
         # Check first row (number = 0)
         first_row = ret.iloc[0]
         self.assertEqual(first_row['row_id'], 0)
-        self.assertEqual(first_row['int8_col'], 0)
+        self.assertEqual(first_row['int8_col'], 0)  # 0 % 127 = 0
+        self.assertEqual(first_row['int16_col'], 0)  # 0 % 32767 = 0
+        self.assertEqual(first_row['uint8_col'], 0)  # 0 % 255 = 0
         self.assertEqual(first_row['string_col'], 'row_0')
         self.assertEqual(first_row['bool_col'], True)  # 0 % 2 == 0
+        # Check nullable column - might be NaN instead of None
+        self.assertTrue(pd.isna(first_row['nullable_int_col']), f"nullable_int_col should be NULL/NaN, got {first_row['nullable_int_col']}")  # 0 % 10 == 0 -> NULL
+        self.assertEqual(first_row['float32_col'], 0.0)  # 0 * 3.14159 / 1000000 = 0
         print("First row data validation passed")
 
         # Check middle row (number = 500000)
         middle_row = ret.iloc[500000]
         self.assertEqual(middle_row['row_id'], 500000)
+        self.assertEqual(middle_row['int8_col'], 500000 % 127)  # 500000 % 127 = 73
+        self.assertEqual(middle_row['uint8_col'], 500000 % 255)  # 500000 % 255 = 5
         self.assertEqual(middle_row['string_col'], 'row_500000')
         self.assertEqual(middle_row['bool_col'], True)  # 500000 % 2 == 0
+        # 500000 % 10 == 0, so should be NULL
+        self.assertTrue(pd.isna(middle_row['nullable_int_col']), "nullable_int_col should be NULL/NaN")
+        # Check enum value: 500000 % 5 = 0 -> 'Level_A'
+        self.assertEqual(middle_row['enum_col'], 'Level_A')
         print("Middle row data validation passed")
 
         # Check last row (number = 999999)
         last_row = ret.iloc[999999]
         self.assertEqual(last_row['row_id'], 999999)
+        self.assertEqual(last_row['int8_col'], 999999 % 127)  # 999999 % 127 = 126
+        self.assertEqual(last_row['uint8_col'], 999999 % 255)  # 999999 % 255 = 254
         self.assertEqual(last_row['string_col'], 'row_999999')
         self.assertEqual(last_row['bool_col'], False)  # 999999 % 2 == 1
+        # 999999 % 10 != 0, so should have value
+        self.assertFalse(pd.isna(last_row['nullable_int_col']), "nullable_int_col should not be NULL/NaN")
+        self.assertEqual(last_row['nullable_int_col'], 999999 % 1000)  # 999
+        # Check enum value: 999999 % 5 = 4 -> 'Level_E'
+        self.assertEqual(last_row['enum_col'], 'Level_E')
         print("Last row data validation passed")
 
         # Validate nullable columns have some NULL values
@@ -179,29 +197,62 @@ class TestDataFrameLargeScale(unittest.TestCase):
 
         print(f"NULL value validation: int({null_count_nullable_int}), float({null_count_nullable_float}), string({null_count_nullable_string})")
 
-        # Validate array columns
+        # Validate array columns (using row 100, number = 100)
         sample_array_int = ret.iloc[100]['array_int_col']
         sample_array_string = ret.iloc[100]['array_string_col']
+        sample_array_float = ret.iloc[100]['array_float_col']
 
         self.assertIsInstance(sample_array_int, np.ndarray, "array_int_col should be array-like")
         self.assertIsInstance(sample_array_string, np.ndarray, "array_string_col should be array-like")
         self.assertEqual(len(sample_array_int), 3, "array_int_col should have 3 elements")
         self.assertEqual(len(sample_array_string), 2, "array_string_col should have 2 elements")
 
+        # Validate specific array values for row 100 (number = 100)
+        expected_int_array = [100 % 100, 101 % 100, 102 % 100]  # [0, 1, 2]
+        expected_string_array = ['0', '1']  # [toString(100 % 10), toString(101 % 10)]
+
+        np.testing.assert_array_equal(sample_array_int, expected_int_array)
+        np.testing.assert_array_equal(sample_array_string, expected_string_array)
+
         print("Array column validation passed")
 
-        # Validate tuple columns
+        # Validate tuple columns (using row 200, number = 200)
         sample_tuple = ret.iloc[200]['tuple_int_string_col']
+        sample_tuple_mixed = ret.iloc[200]['tuple_mixed_col']
+
         self.assertIsInstance(sample_tuple, np.ndarray, "tuple_int_string_col should be array-like")
         self.assertEqual(len(sample_tuple), 2, "tuple should have 2 elements")
 
+        # Validate tuple values for row 200 (number = 200)
+        expected_tuple_int = 200 % 1000  # 200
+        expected_tuple_string = 'tuple_0'  # concat('tuple_', toString(200 % 100))
+
+        self.assertEqual(sample_tuple[0], expected_tuple_int)
+        self.assertEqual(sample_tuple[1], expected_tuple_string)
+
+        # Validate mixed tuple: (float, date, bool)
+        self.assertEqual(len(sample_tuple_mixed), 3, "Mixed tuple should have 3 elements")
+        expected_float = 200 / 1000000.0  # 0.0002
+        expected_bool = (200 % 2 == 0)  # True
+
+        self.assertAlmostEqual(sample_tuple_mixed[0], expected_float, places=7)
+        self.assertEqual(sample_tuple_mixed[2], expected_bool)
+
         print("Tuple column validation passed")
 
-        # Validate JSON-like column (Map)
+        # Validate JSON-like column (Map) (using row 300, number = 300)
         sample_json = ret.iloc[300]['json_col']
         self.assertIsInstance(sample_json, dict, "json_col should be dict-like")
         self.assertIn('id', sample_json, "JSON should have 'id' key")
         self.assertIn('name', sample_json, "JSON should have 'name' key")
+        self.assertIn('score', sample_json, "JSON should have 'score' key")
+        self.assertIn('active', sample_json, "JSON should have 'active' key")
+
+        # Validate specific JSON values for row 300 (number = 300)
+        self.assertEqual(sample_json['id'], '300')
+        self.assertEqual(sample_json['name'], 'user_300')  # concat('user_', toString(300 % 10000))
+        self.assertEqual(sample_json['score'], '0')     # toString(toFloat64(300 % 100) / 10.0) = toString(0.0)
+        self.assertEqual(sample_json['active'], '1')   # toString(300 % 3 = 0) = toString(true)
 
         print("JSON column validation passed")
 
