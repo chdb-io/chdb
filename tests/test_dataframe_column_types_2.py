@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 
 import unittest
+import uuid
 import pandas as pd
 import chdb
 import json
 import numpy as np
 import datetime
+from datetime import date, timedelta
 
 
-class TestVariantDynamicJsonTypes(unittest.TestCase):
+class TestDataFrameColumnTypesTwo(unittest.TestCase):
 
     def setUp(self):
-        self.session = chdb.session.Session("./tmp")
+        self.session = chdb.session.Session()
 
     def tearDown(self):
         self.session.close()
 
-    @unittest.skip("")
     def test_variant_types(self):
         """Test Variant type with mixed data types"""
         # Enable suspicious variant types to allow similar types like Int32 and Float64
@@ -151,7 +152,6 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_dynamic_types(self):
         """Test Dynamic type with schema evolution"""
         ret = self.session.query("""
@@ -220,7 +220,6 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_json_types(self):
         """Test JSON type with complex nested structures"""
         ret = self.session.query("""
@@ -378,7 +377,6 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_nested_types(self):
         """Test Nested type with structured data"""
         ret = self.session.query("""
@@ -488,11 +486,11 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type)
 
-    @unittest.skip("")
     def test_interval_types(self):
         """Test various Interval types - time intervals in ClickHouse"""
 
         ret = self.session.query("""
+            SELECT * FROM (
             SELECT
                 1 as row_id,
                 INTERVAL 30 SECOND as interval_seconds,
@@ -514,6 +512,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
                 INTERVAL 18 MONTH as interval_months,
                 INTERVAL 2 QUARTER as interval_quarters,
                 INTERVAL 5 YEAR as interval_years
+            )
             ORDER BY row_id
         """, "DataFrame")
 
@@ -586,7 +585,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
         self.assertEqual(intervals_1["interval_hours"], pd.Timedelta(hours=3))
         self.assertEqual(intervals_1["interval_days"], pd.Timedelta(days=7))
         self.assertEqual(intervals_1["interval_weeks"], pd.Timedelta(weeks=2))
-        self.assertEqual(intervals_1["interval_months"], pd.Timedelta(days=181))  # Approximate months as days
+        self.assertEqual(intervals_1["interval_months"], pd.Timedelta(days=180))  # Approximate months as days
         self.assertEqual(intervals_1["interval_quarters"], pd.Timedelta(days=1*90))  # Approximate quarters as days
         self.assertEqual(intervals_1["interval_years"], pd.Timedelta(days=2*365))  # Approximate years as days
 
@@ -596,15 +595,15 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
         self.assertEqual(intervals_2["interval_hours"], pd.Timedelta(hours=12))
         self.assertEqual(intervals_2["interval_days"], pd.Timedelta(days=14))
         self.assertEqual(intervals_2["interval_weeks"], pd.Timedelta(weeks=4))
-        self.assertEqual(intervals_2["interval_months"], pd.Timedelta(days=546))  # Approximate months as days
-        self.assertEqual(intervals_2["interval_quarters"], pd.Timedelta(days=181))  # Approximate quarters as days
-        self.assertEqual(intervals_2["interval_years"], pd.Timedelta(days=1826))  # Approximate years as days
+        self.assertEqual(intervals_2["interval_months"], pd.Timedelta(days=540))  # Approximate months as days
+        self.assertEqual(intervals_2["interval_quarters"], pd.Timedelta(days=180))  # Approximate quarters as days
+        self.assertEqual(intervals_2["interval_years"], pd.Timedelta(days=365 * 5))  # Approximate years as days
 
-    @unittest.skip("")
     def test_nested_interval_types(self):
-        """Test Interval types in nested structures like tuples - should return datetime.timedelta"""
+        """Test Interval types in nested structures like tuples - should return timedelta"""
 
         ret = self.session.query("""
+            SELECT * FROM (
             SELECT
                 1 as row_id,
                 (INTERVAL 1000 NANOSECOND, INTERVAL 5000 NANOSECOND) as tuple_intervals_nanoseconds,
@@ -632,6 +631,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
                 (INTERVAL 6 MONTH, INTERVAL 12 MONTH) as tuple_intervals_months,
                 (INTERVAL 3 QUARTER, INTERVAL 4 QUARTER) as tuple_intervals_quarters,
                 (INTERVAL 3 YEAR, INTERVAL 5 YEAR) as tuple_intervals_years
+            )
             ORDER BY row_id
         """, "DataFrame")
 
@@ -641,7 +641,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
         # Test first row - nested intervals in tuples
         self.assertEqual(ret.iloc[0]["row_id"], 1)
 
-        # Nested intervals should return datetime.timedelta objects when in tuples
+        # Nested intervals should return timedelta objects when in tuples
         tuple_intervals_1 = {
             "tuple_intervals_nanoseconds": ret.iloc[0]["tuple_intervals_nanoseconds"],
             "tuple_intervals_microseconds": ret.iloc[0]["tuple_intervals_microseconds"],
@@ -656,13 +656,13 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
             "tuple_intervals_years": ret.iloc[0]["tuple_intervals_years"]
         }
 
-        # Check nested interval tuples - elements should be datetime.timedelta
+        # Check nested interval tuples - elements should be timedelta
         for tuple_name, tuple_value in tuple_intervals_1.items():
             self.assertIsNotNone(tuple_value, f"{tuple_name} should not be None")
             # Should be a tuple containing interval values
             self.assertTrue(hasattr(tuple_value, '__iter__'), f"{tuple_name} should be iterable")
 
-            # Check individual elements in the tuple - should be datetime.timedelta
+            # Check individual elements in the tuple - should be timedelta
             for i, interval_elem in enumerate(tuple_value):
                 self.assertIsNotNone(interval_elem, f"{tuple_name}[{i}] should not be None")
                 self.assertEqual(type(interval_elem).__name__, 'timedelta',
@@ -717,95 +717,94 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
 
 
         # Nanoseconds: (1000ns, 5000ns) -> microseconds = value / 1000
-        self.assertEqual(tuple_intervals_1["tuple_intervals_nanoseconds"][0], datetime.timedelta(microseconds=1000/1000))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_nanoseconds"][1], datetime.timedelta(microseconds=5000/1000))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_nanoseconds"][0], timedelta(microseconds=1000/1000))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_nanoseconds"][1], timedelta(microseconds=5000/1000))
 
         # Microseconds: (500us, 1500us)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_microseconds"][0], datetime.timedelta(microseconds=500))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_microseconds"][1], datetime.timedelta(microseconds=1500))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_microseconds"][0], timedelta(microseconds=500))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_microseconds"][1], timedelta(microseconds=1500))
 
         # Milliseconds: (100ms, 500ms)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_milliseconds"][0], datetime.timedelta(milliseconds=100))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_milliseconds"][1], datetime.timedelta(milliseconds=500))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_milliseconds"][0], timedelta(milliseconds=100))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_milliseconds"][1], timedelta(milliseconds=500))
 
         # Seconds: (30s, 90s)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_seconds"][0], datetime.timedelta(seconds=30))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_seconds"][1], datetime.timedelta(seconds=90))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_seconds"][0], timedelta(seconds=30))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_seconds"][1], timedelta(seconds=90))
 
         # Minutes: (15m, 45m)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_minutes"][0], datetime.timedelta(minutes=15))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_minutes"][1], datetime.timedelta(minutes=45))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_minutes"][0], timedelta(minutes=15))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_minutes"][1], timedelta(minutes=45))
 
         # Hours: (2h, 6h)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_hours"][0], datetime.timedelta(hours=2))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_hours"][1], datetime.timedelta(hours=6))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_hours"][0], timedelta(hours=2))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_hours"][1], timedelta(hours=6))
 
         # Days: (1d, 3d)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_days"][0], datetime.timedelta(days=1))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_days"][1], datetime.timedelta(days=3))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_days"][0], timedelta(days=1))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_days"][1], timedelta(days=3))
 
         # Weeks: (1w, 2w)
-        self.assertEqual(tuple_intervals_1["tuple_intervals_weeks"][0], datetime.timedelta(weeks=1))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_weeks"][1], datetime.timedelta(weeks=2))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_weeks"][0], timedelta(weeks=1))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_weeks"][1], timedelta(weeks=2))
 
         # Months: (1 month, 3 months) -> days = value * 30
-        self.assertEqual(tuple_intervals_1["tuple_intervals_months"][0], datetime.timedelta(days=1*30))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_months"][1], datetime.timedelta(days=3*30))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_months"][0], timedelta(days=1*30))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_months"][1], timedelta(days=3*30))
 
         # Quarters: (1 quarter, 2 quarters) -> days = value * 90
-        self.assertEqual(tuple_intervals_1["tuple_intervals_quarters"][0], datetime.timedelta(days=1*90))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_quarters"][1], datetime.timedelta(days=2*90))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_quarters"][0], timedelta(days=1*90))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_quarters"][1], timedelta(days=2*90))
 
         # Years: (1 year, 2 years) -> days = value * 365
-        self.assertEqual(tuple_intervals_1["tuple_intervals_years"][0], datetime.timedelta(days=1*365))
-        self.assertEqual(tuple_intervals_1["tuple_intervals_years"][1], datetime.timedelta(days=2*365))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_years"][0], timedelta(days=1*365))
+        self.assertEqual(tuple_intervals_1["tuple_intervals_years"][1], timedelta(days=2*365))
 
         # Value assertions for second row tuples
         # Nanoseconds: (2000ns, 8000ns) -> microseconds = value / 1000
-        self.assertEqual(tuple_intervals_2["tuple_intervals_nanoseconds"][0], datetime.timedelta(microseconds=2000/1000))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_nanoseconds"][1], datetime.timedelta(microseconds=8000/1000))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_nanoseconds"][0], timedelta(microseconds=2000/1000))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_nanoseconds"][1], timedelta(microseconds=8000/1000))
 
         # Microseconds: (800us, 2000us)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_microseconds"][0], datetime.timedelta(microseconds=800))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_microseconds"][1], datetime.timedelta(microseconds=2000))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_microseconds"][0], timedelta(microseconds=800))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_microseconds"][1], timedelta(microseconds=2000))
 
         # Milliseconds: (200ms, 800ms)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_milliseconds"][0], datetime.timedelta(milliseconds=200))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_milliseconds"][1], datetime.timedelta(milliseconds=800))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_milliseconds"][0], timedelta(milliseconds=200))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_milliseconds"][1], timedelta(milliseconds=800))
 
         # Seconds: (60s, 120s)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_seconds"][0], datetime.timedelta(seconds=60))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_seconds"][1], datetime.timedelta(seconds=120))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_seconds"][0], timedelta(seconds=60))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_seconds"][1], timedelta(seconds=120))
 
         # Minutes: (30m, 60m)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_minutes"][0], datetime.timedelta(minutes=30))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_minutes"][1], datetime.timedelta(minutes=60))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_minutes"][0], timedelta(minutes=30))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_minutes"][1], timedelta(minutes=60))
 
         # Hours: (4h, 8h)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_hours"][0], datetime.timedelta(hours=4))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_hours"][1], datetime.timedelta(hours=8))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_hours"][0], timedelta(hours=4))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_hours"][1], timedelta(hours=8))
 
         # Days: (2d, 5d)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_days"][0], datetime.timedelta(days=2))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_days"][1], datetime.timedelta(days=5))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_days"][0], timedelta(days=2))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_days"][1], timedelta(days=5))
 
         # Weeks: (3w, 4w)
-        self.assertEqual(tuple_intervals_2["tuple_intervals_weeks"][0], datetime.timedelta(weeks=3))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_weeks"][1], datetime.timedelta(weeks=4))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_weeks"][0], timedelta(weeks=3))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_weeks"][1], timedelta(weeks=4))
 
         # Months: (6 months, 12 months) -> days = value * 30
-        self.assertEqual(tuple_intervals_2["tuple_intervals_months"][0], datetime.timedelta(days=6*30))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_months"][1], datetime.timedelta(days=12*30))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_months"][0], timedelta(days=6*30))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_months"][1], timedelta(days=12*30))
 
         # Quarters: (3 quarters, 4 quarters) -> days = value * 90
-        self.assertEqual(tuple_intervals_2["tuple_intervals_quarters"][0], datetime.timedelta(days=3*90))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_quarters"][1], datetime.timedelta(days=4*90))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_quarters"][0], timedelta(days=3*90))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_quarters"][1], timedelta(days=4*90))
 
         # Years: (3 years, 5 years) -> days = value * 365
-        self.assertEqual(tuple_intervals_2["tuple_intervals_years"][0], datetime.timedelta(days=3*365))
-        self.assertEqual(tuple_intervals_2["tuple_intervals_years"][1], datetime.timedelta(days=5*365))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_years"][0], timedelta(days=3*365))
+        self.assertEqual(tuple_intervals_2["tuple_intervals_years"][1], timedelta(days=5*365))
 
-    @unittest.skip("")
     def test_nothing_types(self):
         """Test Nothing type - represents absence of value"""
         ret = self.session.query("""
@@ -836,6 +835,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
     def test_geo_types(self):
         """Test native Point and Ring geo types"""
         ret = self.session.query("""
+            SELECT * FROM (
             SELECT
                 1 as row_id,
                 (0.0, 0.0)::Point as point_origin,
@@ -847,6 +847,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
                 (-74.006, 40.7128)::Point as point_origin,
                 (51.5074, -0.1278)::Point as point_sf,
                 [(-1.0, -1.0), (0.0, -1.0), (0.0, 0.0), (-1.0, 0.0), (-1.0, -1.0)]::Ring as ring_square
+            )
             ORDER BY row_id
         """, "DataFrame")
 
@@ -895,10 +896,10 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type, f"{col} dtype should be {expected_type}, got {actual_type}")
 
-    @unittest.skip("")
     def test_nested_geo_types(self):
         """Test Geo types nested in tuples"""
         ret = self.session.query("""
+            SELECT * FROM (
             SELECT
                 1 as row_id,
                 ((0.0, 0.0)::Point, (1.0, 1.0)::Point) as tuple_two_points,
@@ -910,6 +911,7 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
                 ((-74.006, 40.7128)::Point, (51.5074, -0.1278)::Point) as tuple_two_points,
                 ((40.7589, -73.9851)::Point, 'Times Square') as tuple_point_with_name,
                 ([(-1.0, -1.0), (0.0, -1.0), (0.0, 0.0), (-1.0, 0.0), (-1.0, -1.0)]::Ring, 'negative_square') as tuple_ring_with_name
+            )
             ORDER BY row_id
         """, "DataFrame")
 
@@ -932,380 +934,423 @@ class TestVariantDynamicJsonTypes(unittest.TestCase):
         self.assertEqual(len(tuple_ring_with_name[0]), 5)  # Ring with 5 points
         self.assertEqual(tuple_ring_with_name[1], 'square')
 
-    # def test_simple_aggregate_function_types(self):
-    #     """Test SimpleAggregateFunction types with sum and max functions"""
-    #     # Create a table using SimpleAggregateFunction
-    #     self.session.query("""
-    #         CREATE TABLE IF NOT EXISTS test_simple_agg (
-    #             id UInt32,
-    #             sum_val SimpleAggregateFunction(sum, UInt64),
-    #             max_val SimpleAggregateFunction(max, Float64)
-    #         ) ENGINE = AggregatingMergeTree() ORDER BY id
-    #     """)
+    def test_simple_aggregate_function_types(self):
+        """Test SimpleAggregateFunction types with sum and max functions"""
+        # Create a table using SimpleAggregateFunction
+        self.session.query("DROP TABLE IF EXISTS test_simple_agg")
+        self.session.query("""
+            CREATE TABLE IF NOT EXISTS test_simple_agg (
+                id UInt32,
+                sum_val SimpleAggregateFunction(sum, UInt64),
+                max_val SimpleAggregateFunction(max, Float64)
+            ) ENGINE = AggregatingMergeTree() ORDER BY id
+        """)
 
-    #     # Insert test data
-    #     self.session.query("""
-    #         INSERT INTO test_simple_agg VALUES 
-    #         (1, 100, 10.5),
-    #         (1, 200, 20.3),
-    #         (2, 50, 5.7),
-    #         (2, 150, 15.2)
-    #     """)
+        # Insert test data
+        self.session.query("""
+            INSERT INTO test_simple_agg VALUES
+            (1, 100, 10.5),
+            (1, 200, 20.3),
+            (2, 50, 5.7),
+            (2, 150, 15.2)
+        """)
 
-    #     # Query the data
-    #     ret = self.session.query("""
-    #         SELECT 
-    #             id,
-    #             sum(sum_val) as total_sum,
-    #             max(max_val) as total_max
-    #         FROM test_simple_agg 
-    #         GROUP BY id 
-    #         ORDER BY id
-    #     """, "DataFrame")
+        # Query the data
+        ret = self.session.query("""
+            SELECT
+                id,
+                sum(sum_val) as total_sum,
+                max(max_val) as total_max
+            FROM test_simple_agg
+            GROUP BY id
+            ORDER BY id
+        """, "DataFrame")
 
-    #     for col in ret.columns:
-    #         print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
+        for col in ret.columns:
+            print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
 
-    #     # Verify aggregated results
-    #     self.assertEqual(ret.iloc[0]["id"], 1)
-    #     self.assertEqual(ret.iloc[0]["total_sum"], 300)  # 100 + 200
-    #     self.assertAlmostEqual(ret.iloc[0]["total_max"], 20.3, places=1)
+        # Verify aggregated results
+        self.assertEqual(ret.iloc[0]["id"], 1)
+        self.assertEqual(ret.iloc[0]["total_sum"], 300)  # 100 + 200
+        self.assertAlmostEqual(ret.iloc[0]["total_max"], 20.3, places=1)
 
-    #     self.assertEqual(ret.iloc[1]["id"], 2)
-    #     self.assertEqual(ret.iloc[1]["total_sum"], 200)  # 50 + 150
-    #     self.assertAlmostEqual(ret.iloc[1]["total_max"], 15.2, places=1)
+        self.assertEqual(ret.iloc[1]["id"], 2)
+        self.assertEqual(ret.iloc[1]["total_sum"], 200)  # 50 + 150
+        self.assertAlmostEqual(ret.iloc[1]["total_max"], 15.2, places=1)
 
-    #     # Clean up
-    #     self.session.query("DROP TABLE IF EXISTS test_simple_agg")
+        self.session.query("DROP TABLE IF EXISTS test_simple_agg")
 
-    # def test_aggregate_function_types(self):
-    #     """Test AggregateFunction types with uniq and avgState functions"""
-    #     # Create a table using AggregateFunction
-    #     self.session.query("""
-    #         CREATE TABLE IF NOT EXISTS test_agg_func (
-    #             id UInt32,
-    #             uniq_state AggregateFunction(uniq, String),
-    #             avg_state AggregateFunction(avgState, Float64)
-    #         ) ENGINE = AggregatingMergeTree() ORDER BY id
-    #     """)
+    def test_aggregate_function_types(self):
+        """Test AggregateFunction types with uniq and avgState functions"""
+        # Create a table using AggregateFunction
+        self.session.query("DROP TABLE IF EXISTS test_agg_func")
+        self.session.query("""
+            CREATE TABLE IF NOT EXISTS test_agg_func (
+                id UInt32,
+                uniq_state AggregateFunction(uniq, String),
+                avg_state AggregateFunction(avgState, Float64)
+            ) ENGINE = AggregatingMergeTree() ORDER BY id
+        """)
 
-    #     # Insert aggregate states
-    #     self.session.query("""
-    #         INSERT INTO test_agg_func 
-    #         SELECT 
-    #             1 as id,
-    #             uniqState('a') as uniq_state,
-    #             avgState(10.5) as avg_state
-    #         UNION ALL
-    #         SELECT 
-    #             1 as id,
-    #             uniqState('b') as uniq_state,
-    #             avgState(20.3) as avg_state
-    #         UNION ALL
-    #         SELECT 
-    #             2 as id,
-    #             uniqState('c') as uniq_state,
-    #             avgState(5.7) as avg_state
-    #     """)
+        # Insert aggregate states
+        self.session.query("""
+            INSERT INTO test_agg_func
+            SELECT
+                1 as id,
+                uniqState('a') as uniq_state,
+                avgState(10.5) as avg_state
+            UNION ALL
+            SELECT
+                1 as id,
+                uniqState('b') as uniq_state,
+                avgState(20.3) as avg_state
+            UNION ALL
+            SELECT
+                2 as id,
+                uniqState('c') as uniq_state,
+                avgState(5.7) as avg_state
+        """)
 
-    #     # Query finalized results
-    #     ret = self.session.query("""
-    #         SELECT 
-    #             id,
-    #             uniqMerge(uniq_state) as unique_count,
-    #             avgMerge(avg_state) as average_value
-    #         FROM test_agg_func 
-    #         GROUP BY id 
-    #         ORDER BY id
-    #     """, "DataFrame")
+        # Query finalized results
+        ret = self.session.query("""
+            SELECT
+                id,
+                uniqMerge(uniq_state) as unique_count,
+                avgMerge(avg_state) as average_value
+            FROM test_agg_func
+            GROUP BY id
+            ORDER BY id
+        """, "DataFrame")
 
-    #     for col in ret.columns:
-    #         print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
+        for col in ret.columns:
+            print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
 
-    #     # Verify aggregated results
-    #     self.assertEqual(ret.iloc[0]["id"], 1)
-    #     self.assertEqual(ret.iloc[0]["unique_count"], 2)  # 'a' and 'b'
-    #     self.assertAlmostEqual(ret.iloc[0]["average_value"], 15.4, places=1)  # (10.5 + 20.3) / 2
+        # Verify aggregated results
+        self.assertEqual(ret.iloc[0]["id"], 1)
+        self.assertEqual(ret.iloc[0]["unique_count"], 2)  # 'a' and 'b'
+        self.assertAlmostEqual(ret.iloc[0]["average_value"], 15.4, places=1)  # (10.5 + 20.3) / 2
 
-    #     self.assertEqual(ret.iloc[1]["id"], 2)
-    #     self.assertEqual(ret.iloc[1]["unique_count"], 1)  # 'c'
-    #     self.assertAlmostEqual(ret.iloc[1]["average_value"], 5.7, places=1)
+        self.assertEqual(ret.iloc[1]["id"], 2)
+        self.assertEqual(ret.iloc[1]["unique_count"], 1)  # 'c'
+        self.assertAlmostEqual(ret.iloc[1]["average_value"], 5.7, places=1)
 
-    #     # Clean up
-    #     self.session.query("DROP TABLE IF EXISTS test_agg_func")
+        self.session.query("DROP TABLE IF EXISTS test_agg_func")
 
-    # def test_low_cardinality_types(self):
-    #     """Test LowCardinality types with String and various integer types"""
-    #     ret = self.session.query("""
-    #         SELECT
-    #             1 as row_id,
-    #             toLowCardinality('red') as lc_string,
-    #             toLowCardinality(toInt8(1)) as lc_int8,
-    #             toLowCardinality(toInt32(100)) as lc_int32,
-    #             toLowCardinality(toUInt16(65535)) as lc_uint16,
-    #             toLowCardinality(toFloat32(3.14)) as lc_float32
-    #         UNION ALL
-    #         SELECT
-    #             2 as row_id,
-    #             toLowCardinality('blue') as lc_string,
-    #             toLowCardinality(toInt8(2)) as lc_int8,
-    #             toLowCardinality(toInt32(200)) as lc_int32,
-    #             toLowCardinality(toUInt16(32768)) as lc_uint16,
-    #             toLowCardinality(toFloat32(2.71)) as lc_float32
-    #         UNION ALL
-    #         SELECT
-    #             3 as row_id,
-    #             toLowCardinality('green') as lc_string,
-    #             toLowCardinality(toInt8(1)) as lc_int8,  -- Repeat value to show low cardinality
-    #             toLowCardinality(toInt32(100)) as lc_int32,  -- Repeat value
-    #             toLowCardinality(toUInt16(65535)) as lc_uint16,  -- Repeat value
-    #             toLowCardinality(toFloat32(3.14)) as lc_float32  -- Repeat value
-    #         ORDER BY row_id
-    #     """, "DataFrame")
+    def test_low_cardinality_types(self):
+        """Test LowCardinality types with String and various integer types"""
+        ret = self.session.query("""
+            SELECT * FROM (
+            SELECT
+                1 as row_id,
+                toLowCardinality('red') as lc_string,
+                toLowCardinality(toInt8(1)) as lc_int8,
+                toLowCardinality(toInt32(100)) as lc_int32,
+                toLowCardinality(toUInt16(65535)) as lc_uint16,
+                toLowCardinality(toFloat32(3.14)) as lc_float32
+            UNION ALL
+            SELECT
+                2 as row_id,
+                toLowCardinality('blue') as lc_string,
+                toLowCardinality(toInt8(2)) as lc_int8,
+                toLowCardinality(toInt32(200)) as lc_int32,
+                toLowCardinality(toUInt16(32768)) as lc_uint16,
+                toLowCardinality(toFloat32(2.71)) as lc_float32
+            UNION ALL
+            SELECT
+                3 as row_id,
+                toLowCardinality('green') as lc_string,
+                toLowCardinality(toInt8(1)) as lc_int8,  -- Repeat value to show low cardinality
+                toLowCardinality(toInt32(100)) as lc_int32,  -- Repeat value
+                toLowCardinality(toUInt16(65535)) as lc_uint16,  -- Repeat value
+                toLowCardinality(toFloat32(3.14)) as lc_float32  -- Repeat value
+            )
+            ORDER BY row_id
+        """, "DataFrame")
 
-    #     for col in ret.columns:
-    #         print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
+        for col in ret.columns:
+            print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
 
-    #     # Test values
-    #     self.assertEqual(ret.iloc[0]["lc_string"], 'red')
-    #     self.assertEqual(ret.iloc[0]["lc_int8"], 1)
-    #     self.assertEqual(ret.iloc[0]["lc_int32"], 100)
-    #     self.assertEqual(ret.iloc[0]["lc_uint16"], 65535)
-    #     self.assertAlmostEqual(ret.iloc[0]["lc_float32"], 3.14, places=2)
+        # Test values
+        self.assertEqual(ret.iloc[0]["lc_string"], 'red')
+        self.assertEqual(ret.iloc[0]["lc_int8"], 1)
+        self.assertEqual(ret.iloc[0]["lc_int32"], 100)
+        self.assertEqual(ret.iloc[0]["lc_uint16"], 65535)
+        self.assertAlmostEqual(ret.iloc[0]["lc_float32"], 3.14, places=2)
 
-    #     self.assertEqual(ret.iloc[1]["lc_string"], 'blue')
-    #     self.assertEqual(ret.iloc[1]["lc_int8"], 2)
-    #     self.assertEqual(ret.iloc[1]["lc_int32"], 200)
-    #     self.assertEqual(ret.iloc[1]["lc_uint16"], 32768)
-    #     self.assertAlmostEqual(ret.iloc[1]["lc_float32"], 2.71, places=2)
+        self.assertEqual(ret.iloc[1]["lc_string"], 'blue')
+        self.assertEqual(ret.iloc[1]["lc_int8"], 2)
+        self.assertEqual(ret.iloc[1]["lc_int32"], 200)
+        self.assertEqual(ret.iloc[1]["lc_uint16"], 32768)
+        self.assertAlmostEqual(ret.iloc[1]["lc_float32"], 2.71, places=2)
 
-    #     # Test repeated values (showing low cardinality)
-    #     self.assertEqual(ret.iloc[2]["lc_string"], 'green')
-    #     self.assertEqual(ret.iloc[2]["lc_int8"], 1)  # Same as row 0
-    #     self.assertEqual(ret.iloc[2]["lc_int32"], 100)  # Same as row 0
+        # Test repeated values (showing low cardinality)
+        self.assertEqual(ret.iloc[2]["lc_string"], 'green')
+        self.assertEqual(ret.iloc[2]["lc_int8"], 1)  # Same as row 0
+        self.assertEqual(ret.iloc[2]["lc_int32"], 100)  # Same as row 0
 
-    #     # Data type validation - LowCardinality should typically be object for strings, specific types for numbers
-    #     expected_lc_types = {
-    #         "row_id": "uint8",
-    #         "lc_string": "object",
-    #         "lc_int8": "int8",
-    #         "lc_int32": "int32",
-    #         "lc_uint16": "uint16",
-    #         "lc_float32": "float32"
-    #     }
+        # Data type validation - LowCardinality should typically be object for strings, specific types for numbers
+        expected_lc_types = {
+            "row_id": "uint8",
+            "lc_string": "object",
+            "lc_int8": "int8",
+            "lc_int32": "int32",
+            "lc_uint16": "uint16",
+            "lc_float32": "float32"
+        }
 
-    #     for col, expected_type in expected_lc_types.items():
-    #         actual_type = str(ret.dtypes[col])
-    #         self.assertEqual(actual_type, expected_type, f"{col} dtype should be {expected_type}, got {actual_type}")
+        for col, expected_type in expected_lc_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type, f"{col} dtype should be {expected_type}, got {actual_type}")
 
-    # def test_nullable_types(self):
-    #     """Test Nullable(T) with comprehensive type coverage from both test files"""
-    #     ret = self.session.query("""
-    #         SELECT
-    #             1 as row_id,
-    #             -- Integer types
-    #             toNullable(toInt8(127)) as nullable_int8,
-    #             toNullable(toInt32(-2147483648)) as nullable_int32,
-    #             toNullable(toInt64(9223372036854775807)) as nullable_int64,
-    #             toNullable(toUInt16(65535)) as nullable_uint16,
-    #             toNullable(toUInt64(18446744073709551615)) as nullable_uint64,
-    #             -- Float types
-    #             toNullable(toFloat32(3.14159)) as nullable_float32,
-    #             toNullable(toFloat64(2.718281828)) as nullable_float64,
-    #             -- Decimal types
-    #             toNullable(toDecimal32(123.45, 2)) as nullable_decimal32,
-    #             toNullable(toDecimal64(987654.321, 3)) as nullable_decimal64,
-    #             -- String types
-    #             toNullable('Hello World') as nullable_string,
-    #             toNullable(toFixedString('Fixed', 5)) as nullable_fixed_string,
-    #             -- Date/Time types
-    #             toNullable(toDate('2023-12-25')) as nullable_date,
-    #             toNullable(toDateTime('2023-12-25 18:30:45')) as nullable_datetime,
-    #             toNullable(toDateTime64('2023-12-25 18:30:45.123', 3)) as nullable_datetime64,
-    #             -- Enum types
-    #             toNullable(CAST('red', 'Enum8(\'red\'=1, \'green\'=2, \'blue\'=3)')) as nullable_enum8,
-    #             -- UUID type
-    #             toNullable(toUUID('550e8400-e29b-41d4-a716-446655440000')) as nullable_uuid,
-    #             -- IPv4/IPv6 types
-    #             toNullable(toIPv4('192.168.1.1')) as nullable_ipv4,
-    #             toNullable(toIPv6('2001:0db8:85a3:0000:0000:8a2e:0370:7334')) as nullable_ipv6,
-    #             -- Bool type
-    #             toNullable(true) as nullable_bool,
-    #             -- Array type
-    #             toNullable([1, 2, 3, 4, 5]) as nullable_array,
-    #             -- Tuple type
-    #             toNullable((42, 'answer', 3.14)) as nullable_tuple,
-    #             -- Map type
-    #             toNullable(map('key1', 100, 'key2', 200)) as nullable_map
-    #         UNION ALL
-    #         SELECT
-    #             2 as row_id,
-    #             -- Mix of NULL and non-NULL values
-    #             NULL as nullable_int8,
-    #             toNullable(toInt32(2147483647)) as nullable_int32,
-    #             NULL as nullable_int64,
-    #             toNullable(toUInt16(32768)) as nullable_uint16,
-    #             NULL as nullable_uint64,
-    #             toNullable(toFloat32(-3.14159)) as nullable_float32,
-    #             NULL as nullable_float64,
-    #             toNullable(toDecimal32(-456.78, 2)) as nullable_decimal32,
-    #             NULL as nullable_decimal64,
-    #             NULL as nullable_string,
-    #             toNullable(toFixedString('NULL ', 5)) as nullable_fixed_string,
-    #             NULL as nullable_date,
-    #             toNullable(toDateTime('2024-01-01 00:00:00')) as nullable_datetime,
-    #             NULL as nullable_datetime64,
-    #             toNullable(CAST('blue', 'Enum8(\'red\'=1, \'green\'=2, \'blue\'=3)')) as nullable_enum8,
-    #             NULL as nullable_uuid,
-    #             toNullable(toIPv4('10.0.0.1')) as nullable_ipv4,
-    #             NULL as nullable_ipv6,
-    #             toNullable(false) as nullable_bool,
-    #             NULL as nullable_array,
-    #             toNullable((0, 'null', 0.0)) as nullable_tuple,
-    #             NULL as nullable_map
-    #         UNION ALL
-    #         SELECT
-    #             3 as row_id,
-    #             -- All NULL values to test NULL handling
-    #             NULL as nullable_int8,
-    #             NULL as nullable_int32,
-    #             NULL as nullable_int64,
-    #             NULL as nullable_uint16,
-    #             NULL as nullable_uint64,
-    #             NULL as nullable_float32,
-    #             NULL as nullable_float64,
-    #             NULL as nullable_decimal32,
-    #             NULL as nullable_decimal64,
-    #             NULL as nullable_string,
-    #             NULL as nullable_fixed_string,
-    #             NULL as nullable_date,
-    #             NULL as nullable_datetime,
-    #             NULL as nullable_datetime64,
-    #             NULL as nullable_enum8,
-    #             NULL as nullable_uuid,
-    #             NULL as nullable_ipv4,
-    #             NULL as nullable_ipv6,
-    #             NULL as nullable_bool,
-    #             NULL as nullable_array,
-    #             NULL as nullable_tuple,
-    #             NULL as nullable_map
-    #         ORDER BY row_id
-    #     """, "DataFrame")
+    def test_nullable_types(self):
+        """Test Nullable(T) with comprehensive type coverage from both test files"""
+        ret = self.session.query("""
+            SELECT * FROM (
+            SELECT
+                1 as row_id,
+                -- Integer types
+                toNullable(toInt8(127)) as nullable_int8,
+                toNullable(toInt32(-2147483648)) as nullable_int32,
+                toNullable(toInt64(9223372036854775807)) as nullable_int64,
+                toNullable(toUInt16(65535)) as nullable_uint16,
+                toNullable(toUInt64(18446744073709551615)) as nullable_uint64,
+                -- Float types
+                toNullable(toFloat32(3.14159)) as nullable_float32,
+                toNullable(toFloat64(2.718281828)) as nullable_float64,
+                -- Decimal types
+                toNullable(toDecimal32(123.45, 2)) as nullable_decimal32,
+                toNullable(toDecimal64(987654.321, 3)) as nullable_decimal64,
+                -- String types
+                toNullable('Hello World') as nullable_string,
+                toNullable(toFixedString('Fixed', 5)) as nullable_fixed_string,
+                -- Date/Time types
+                toNullable(toDate('2023-12-25')) as nullable_date,
+                toNullable(toDateTime('2023-12-25 18:30:45', 'Asia/Shanghai')) as nullable_datetime,
+                toNullable(toDateTime64('2023-12-25 18:30:45.123', 3, 'Asia/Shanghai')) as nullable_datetime64,
+                -- Enum types
+                toNullable(CAST('red', 'Enum8(''red''=1, ''green''=2, ''blue''=3)')) as nullable_enum8,
+                -- UUID type
+                toNullable(toUUID('550e8400-e29b-41d4-a716-446655440000')) as nullable_uuid,
+                -- IPv4/IPv6 types
+                toNullable(toIPv4('192.168.1.1')) as nullable_ipv4,
+                toNullable(toIPv6('2001:0db8:85a3:0000:0000:8a2e:0370:7334')) as nullable_ipv6,
+                -- Bool type
+                toNullable(true) as nullable_bool,
+                -- JSON type
+                toNullable(CAST('{"name": "Alice", "age": 30, "active": true}', 'JSON')) as nullable_json,
+                -- Interval types
+                toNullable(INTERVAL 3 YEAR) as nullable_interval_year,
+                toNullable(INTERVAL 6 MONTH) as nullable_interval_month,
+                toNullable(INTERVAL 15 DAY) as nullable_interval_day,
+                toNullable(INTERVAL 2 HOUR) as nullable_interval_hour
+            UNION ALL
+            SELECT
+                2 as row_id,
+                -- Mix of NULL and non-NULL values
+                NULL as nullable_int8,
+                toNullable(toInt32(2147483647)) as nullable_int32,
+                NULL as nullable_int64,
+                toNullable(toUInt16(32768)) as nullable_uint16,
+                NULL as nullable_uint64,
+                toNullable(toFloat32(-3.14159)) as nullable_float32,
+                NULL as nullable_float64,
+                toNullable(toDecimal32(-456.78, 2)) as nullable_decimal32,
+                NULL as nullable_decimal64,
+                NULL as nullable_string,
+                toNullable(toFixedString('NULL ', 5)) as nullable_fixed_string,
+                NULL as nullable_date,
+                toNullable(toDateTime('2024-01-01 00:00:00', 'Asia/Shanghai')) as nullable_datetime,
+                NULL as nullable_datetime64,
+                toNullable(CAST('blue', 'Enum8(''red''=1, ''green''=2, ''blue''=3)')) as nullable_enum8,
+                NULL as nullable_uuid,
+                toNullable(toIPv4('10.0.0.1')) as nullable_ipv4,
+                NULL as nullable_ipv6,
+                toNullable(false) as nullable_bool,
+                toNullable(CAST('{"name": "Bob", "age": 25, "active": false}', 'JSON')) as nullable_json,
+                -- Interval types
+                toNullable(INTERVAL 1 YEAR) as nullable_interval_year,
+                NULL as nullable_interval_month,
+                toNullable(INTERVAL 7 DAY) as nullable_interval_day,
+                NULL as nullable_interval_hour
+            UNION ALL
+            SELECT
+                3 as row_id,
+                -- All NULL values to test NULL handling
+                NULL as nullable_int8,
+                NULL as nullable_int32,
+                NULL as nullable_int64,
+                NULL as nullable_uint16,
+                NULL as nullable_uint64,
+                NULL as nullable_float32,
+                NULL as nullable_float64,
+                NULL as nullable_decimal32,
+                NULL as nullable_decimal64,
+                NULL as nullable_string,
+                NULL as nullable_fixed_string,
+                NULL as nullable_date,
+                NULL as nullable_datetime,
+                NULL as nullable_datetime64,
+                NULL as nullable_enum8,
+                NULL as nullable_uuid,
+                NULL as nullable_ipv4,
+                NULL as nullable_ipv6,
+                NULL as nullable_bool,
+                NULL as nullable_json,
+                -- Interval types
+                NULL as nullable_interval_year,
+                NULL as nullable_interval_month,
+                NULL as nullable_interval_day,
+                NULL as nullable_interval_hour
+            )
+            ORDER BY row_id
+        """, "DataFrame")
 
-    #     for col in ret.columns:
-    #         print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
+        for col in ret.columns:
+            print(f"{col}: {ret.dtypes[col]} (actual value: {ret.iloc[0][col]}, Python type: {type(ret.iloc[0][col])})")
 
-    #     # Test first row - all non-NULL values
-    #     self.assertEqual(ret.iloc[0]["row_id"], 1)
-        
-    #     # Integer types
-    #     self.assertEqual(ret.iloc[0]["nullable_int8"], 127)
-    #     self.assertEqual(ret.iloc[0]["nullable_int32"], -2147483648)
-    #     self.assertEqual(ret.iloc[0]["nullable_int64"], 9223372036854775807)
-    #     self.assertEqual(ret.iloc[0]["nullable_uint16"], 65535)
-    #     self.assertEqual(ret.iloc[0]["nullable_uint64"], 18446744073709551615)
-        
-    #     # Float types
-    #     self.assertAlmostEqual(ret.iloc[0]["nullable_float32"], 3.14159, places=5)
-    #     self.assertAlmostEqual(ret.iloc[0]["nullable_float64"], 2.718281828, places=9)
-        
-    #     # Decimal types
-    #     self.assertAlmostEqual(ret.iloc[0]["nullable_decimal32"], 123.45, places=2)
-    #     self.assertAlmostEqual(ret.iloc[0]["nullable_decimal64"], 987654.321, places=3)
-        
-    #     # String types
-    #     self.assertEqual(ret.iloc[0]["nullable_string"], 'Hello World')
-    #     self.assertEqual(ret.iloc[0]["nullable_fixed_string"], 'Fixed')
-        
-    #     # Date/Time types
-    #     from datetime import date, datetime
-    #     self.assertIsInstance(ret.iloc[0]["nullable_date"], date)
-    #     self.assertIsInstance(ret.iloc[0]["nullable_datetime"], datetime)
-    #     self.assertIsInstance(ret.iloc[0]["nullable_datetime64"], datetime)
-        
-    #     # Enum, UUID, IP types
-    #     self.assertEqual(ret.iloc[0]["nullable_enum8"], 'red')
-    #     self.assertIsInstance(ret.iloc[0]["nullable_uuid"], str)
-    #     self.assertEqual(ret.iloc[0]["nullable_uuid"], '550e8400-e29b-41d4-a716-446655440000')
-        
-    #     # IP types
-    #     self.assertEqual(str(ret.iloc[0]["nullable_ipv4"]), '192.168.1.1')
-    #     ipv6_str = str(ret.iloc[0]["nullable_ipv6"])
-    #     self.assertIn('2001', ipv6_str)
-        
-    #     # Bool type
-    #     self.assertEqual(ret.iloc[0]["nullable_bool"], True)
-        
-    #     # Complex types
-    #     nullable_array = ret.iloc[0]["nullable_array"]
-    #     self.assertTrue(hasattr(nullable_array, '__iter__'), "Nullable array should be iterable")
-    #     self.assertEqual(len(nullable_array), 5)
-        
-    #     nullable_tuple = ret.iloc[0]["nullable_tuple"]
-    #     self.assertIsInstance(nullable_tuple, tuple)
-    #     self.assertEqual(len(nullable_tuple), 3)
-    #     self.assertEqual(nullable_tuple[0], 42)
-    #     self.assertEqual(nullable_tuple[1], 'answer')
-        
-    #     nullable_map = ret.iloc[0]["nullable_map"]
-    #     self.assertTrue(hasattr(nullable_map, '__getitem__'), "Map should be indexable")
-        
-    #     # Test second row - mix of NULL and non-NULL values
-    #     self.assertEqual(ret.iloc[1]["row_id"], 2)
-        
-    #     # Test NULL values
-    #     self.assertTrue(pd.isna(ret.iloc[1]["nullable_int8"]), "Should be NULL/NaN")
-    #     self.assertTrue(pd.isna(ret.iloc[1]["nullable_int64"]), "Should be NULL/NaN")
-    #     self.assertTrue(pd.isna(ret.iloc[1]["nullable_uint64"]), "Should be NULL/NaN")
-    #     self.assertTrue(pd.isna(ret.iloc[1]["nullable_float64"]), "Should be NULL/NaN")
-    #     self.assertTrue(pd.isna(ret.iloc[1]["nullable_string"]), "Should be NULL/NaN")
-        
-    #     # Test non-NULL values in second row
-    #     self.assertEqual(ret.iloc[1]["nullable_int32"], 2147483647)
-    #     self.assertEqual(ret.iloc[1]["nullable_uint16"], 32768)
-    #     self.assertAlmostEqual(ret.iloc[1]["nullable_float32"], -3.14159, places=5)
-    #     self.assertEqual(ret.iloc[1]["nullable_fixed_string"], 'NULL ')
-    #     self.assertEqual(ret.iloc[1]["nullable_bool"], False)
-        
-    #     # Test third row - all NULL values
-    #     self.assertEqual(ret.iloc[2]["row_id"], 3)
-        
-    #     # All nullable columns should be NULL in third row
-    #     nullable_columns = [col for col in ret.columns if col.startswith('nullable_')]
-    #     for col in nullable_columns:
-    #         value = ret.iloc[2][col]
-    #         self.assertTrue(pd.isna(value) or value is None, f"{col} should be NULL/NaN in row 3")
-        
-    #     # Data type validation - Nullable types should maintain their underlying types or be object
-    #     expected_nullable_types = {
-    #         "row_id": "uint8",
-    #         "nullable_int8": "float64",  # Nullable integers become float64 due to NaN support
-    #         "nullable_int32": "float64",
-    #         "nullable_int64": "float64",
-    #         "nullable_uint16": "float64",
-    #         "nullable_uint64": "float64",
-    #         "nullable_float32": "float32",
-    #         "nullable_float64": "float64",
-    #         "nullable_decimal32": "float64",
-    #         "nullable_decimal64": "float64",
-    #         "nullable_string": "object",
-    #         "nullable_fixed_string": "object",
-    #         "nullable_date": "object",
-    #         "nullable_datetime": "object",
-    #         "nullable_datetime64": "object",
-    #         "nullable_enum8": "object",
-    #         "nullable_uuid": "object",
-    #         "nullable_ipv4": "object",
-    #         "nullable_ipv6": "object",
-    #         "nullable_bool": "object",
-    #         "nullable_array": "object",
-    #         "nullable_tuple": "object",
-    #         "nullable_map": "object"
-    #     }
+        # Test first row - all non-NULL values
+        self.assertEqual(ret.iloc[0]["row_id"], 1)
 
-    #     for col, expected_type in expected_nullable_types.items():
-    #         actual_type = str(ret.dtypes[col])
-    #         self.assertEqual(actual_type, expected_type, f"{col} dtype should be {expected_type}, got {actual_type}")
+        # Integer types
+        self.assertEqual(ret.iloc[0]["nullable_int8"], 127)
+        self.assertEqual(ret.iloc[0]["nullable_int32"], -2147483648)
+        self.assertEqual(ret.iloc[0]["nullable_int64"], 9223372036854775807)
+        self.assertEqual(ret.iloc[0]["nullable_uint16"], 65535)
+        self.assertEqual(ret.iloc[0]["nullable_uint64"], 18446744073709551615)
+
+        # Float types
+        self.assertAlmostEqual(ret.iloc[0]["nullable_float32"], 3.14159, places=5)
+        self.assertAlmostEqual(ret.iloc[0]["nullable_float64"], 2.718281828, places=9)
+
+        # Decimal types
+        self.assertAlmostEqual(ret.iloc[0]["nullable_decimal32"], 123.45, places=2)
+        self.assertAlmostEqual(ret.iloc[0]["nullable_decimal64"], 987654.321, places=3)
+
+        # String types
+        self.assertEqual(ret.iloc[0]["nullable_string"], 'Hello World')
+        self.assertEqual(ret.iloc[0]["nullable_fixed_string"], 'Fixed')
+
+        # Date/Time types
+        nullable_date = ret.iloc[0]["nullable_date"]
+        self.assertIsInstance(nullable_date, pd.Timestamp)
+        self.assertEqual(nullable_date.date(), date(2023, 12, 25))
+
+        nullable_datetime = ret.iloc[0]["nullable_datetime"]
+        self.assertIsInstance(nullable_datetime, pd.Timestamp)
+
+        # Check if timezone info is preserved (may be naive depending on implementation)
+        if nullable_datetime.tz is not None:
+            self.assertEqual(nullable_datetime, pd.Timestamp('2023-12-25 18:30:45', tz='Asia/Shanghai'))
+        else:
+            # If timezone is lost, just check the datetime value without timezone
+            self.assertEqual(nullable_datetime, pd.Timestamp('2023-12-25 10:30:45'))
+
+        nullable_datetime64 = ret.iloc[0]["nullable_datetime64"]
+        self.assertIsInstance(nullable_datetime64, pd.Timestamp)
+        # Check if timezone info is preserved for DateTime64
+        if nullable_datetime64.tz is not None:
+            self.assertEqual(nullable_datetime64, pd.Timestamp('2023-12-25 18:30:45.123', tz='Asia/Shanghai'))
+        else:
+            # If timezone is lost, just check the datetime value without timezone
+            self.assertEqual(nullable_datetime64, pd.Timestamp('2023-12-25 10:30:45.123'))
+
+        # Enum, UUID, IP types
+        self.assertEqual(ret.iloc[0]["nullable_enum8"], 'red')
+        self.assertIsInstance(ret.iloc[0]["nullable_uuid"], uuid.UUID)
+        self.assertEqual(ret.iloc[0]["nullable_uuid"], uuid.UUID('550e8400-e29b-41d4-a716-446655440000'))
+
+        # IP types
+        self.assertEqual(str(ret.iloc[0]["nullable_ipv4"]), '192.168.1.1')
+        ipv6_str = str(ret.iloc[0]["nullable_ipv6"])
+        self.assertIn('2001', ipv6_str)
+
+        # Bool type
+        self.assertEqual(ret.iloc[0]["nullable_bool"], True)
+
+        # JSON type
+        json_val = ret.iloc[0]["nullable_json"]
+        self.assertIsInstance(json_val, dict)
+        self.assertEqual(json_val["name"], "Alice")
+        self.assertEqual(json_val["age"], 30)
+        self.assertEqual(json_val["active"], True)
+
+        # Interval types
+        self.assertEqual(ret.iloc[0]["nullable_interval_year"], timedelta(days=3*365))
+        self.assertEqual(ret.iloc[0]["nullable_interval_month"], timedelta(days=6*30))
+        self.assertEqual(ret.iloc[0]["nullable_interval_day"], timedelta(days=15))
+        self.assertEqual(ret.iloc[0]["nullable_interval_hour"], timedelta(hours=2))
+
+        # Test second row - mix of NULL and non-NULL values
+        self.assertEqual(ret.iloc[1]["row_id"], 2)
+
+        # Test NULL values
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_int8"]), "Should be NULL/NaN")
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_int64"]), "Should be NULL/NaN")
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_uint64"]), "Should be NULL/NaN")
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_float64"]), "Should be NULL/NaN")
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_string"]), "Should be NULL/NaN")
+
+        # Test non-NULL values in second row
+        self.assertEqual(ret.iloc[1]["nullable_int32"], 2147483647)
+        self.assertEqual(ret.iloc[1]["nullable_uint16"], 32768)
+        self.assertAlmostEqual(ret.iloc[1]["nullable_float32"], -3.14159, places=5)
+        self.assertEqual(ret.iloc[1]["nullable_fixed_string"], 'NULL ')
+        self.assertEqual(ret.iloc[1]["nullable_bool"], False)
+
+        # JSON type for second row
+        json_val_2 = ret.iloc[1]["nullable_json"]
+        self.assertIsInstance(json_val_2, dict)
+        self.assertEqual(json_val_2["name"], "Bob")
+        self.assertEqual(json_val_2["age"], 25)
+        self.assertEqual(json_val_2["active"], False)
+
+        # Interval types for second row
+        self.assertEqual(ret.iloc[1]["nullable_interval_year"], timedelta(days=1*365))
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_interval_month"]), "Should be NULL/NaN")
+        self.assertEqual(ret.iloc[1]["nullable_interval_day"], timedelta(days=7))
+        self.assertTrue(pd.isna(ret.iloc[1]["nullable_interval_hour"]), "Should be NULL/NaN")
+
+        # Test third row - all NULL values
+        self.assertEqual(ret.iloc[2]["row_id"], 3)
+
+        # All nullable columns should be NULL in third row
+        nullable_columns = [col for col in ret.columns if col.startswith('nullable_')]
+        for col in nullable_columns:
+            value = ret.iloc[2][col]
+            self.assertTrue(pd.isna(value) or value is None, f"{col} should be NULL/NaN in row 3")
+
+        # Data type validation - Nullable types should maintain their underlying types or be object
+        expected_nullable_types = {
+            "row_id": "uint8",
+            "nullable_int8": "Int8",
+            "nullable_int32": "Int32",
+            "nullable_int64": "Int64",
+            "nullable_uint16": "UInt16",
+            "nullable_uint64": "UInt64",
+            "nullable_float32": "Float32",
+            "nullable_float64": "Float64",
+            "nullable_decimal32": "Float64",
+            "nullable_decimal64": "Float64",
+            "nullable_string": "object",
+            "nullable_fixed_string": "object",
+            "nullable_date": "datetime64[s]",
+            "nullable_datetime": "datetime64[s]",
+            "nullable_datetime64": "datetime64[ns]",
+            "nullable_enum8": "object",
+            "nullable_uuid": "object",
+            "nullable_ipv4": "object",
+            "nullable_ipv6": "object",
+            "nullable_bool": "boolean",
+            "nullable_json": "object",
+            "nullable_interval_year": "timedelta64[s]",
+            "nullable_interval_month": "timedelta64[s]",
+            "nullable_interval_day": "timedelta64[s]",
+            "nullable_interval_hour": "timedelta64[s]",
+        }
+
+        for col, expected_type in expected_nullable_types.items():
+            actual_type = str(ret.dtypes[col])
+            self.assertEqual(actual_type, expected_type, f"{col} dtype should be {expected_type}, got {actual_type}")
 
 
 if __name__ == '__main__':

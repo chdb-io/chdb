@@ -10,7 +10,7 @@ import uuid
 import ipaddress
 
 
-class TestDataFrameColumnTypes(unittest.TestCase):
+class TestDataFrameColumnTypesOne(unittest.TestCase):
 
     def setUp(self):
         self.session = chdb.session.Session()
