@@ -8,16 +8,16 @@ on:
         required: true
   release:
     types: [created]
-  # push:
-  #   branches:
-  #     - main
-  #   paths-ignore:
-  #     - '**/*.md'
-  # pull_request:
-  #   branches:
-  #     - main
-  #   paths-ignore:
-  #     - '**/*.md'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
 jobs:
   build_musllinux_wheels:
@@ -143,7 +143,7 @@ jobs:
             # Update version for release (if triggered by tag)
             if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
               pyenv shell 3.9
-              
+
               # Install bump-my-version
               python -m pip install bump-my-version
               TAG_NAME=${GITHUB_REF#refs/tags/v}
