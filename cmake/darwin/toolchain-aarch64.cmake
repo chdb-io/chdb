@@ -8,4 +8,7 @@ set (CMAKE_CXX_COMPILER_TARGET "aarch64-apple-darwin")
 set (CMAKE_ASM_COMPILER_TARGET "aarch64-apple-darwin")
 set (CMAKE_OSX_SYSROOT "${CMAKE_CURRENT_LIST_DIR}/../toolchain/darwin-aarch64")
 
+# Set minimum macOS deployment target to 11.0 (Big Sur - first version with Apple Silicon support)
+set (CMAKE_OSX_DEPLOYMENT_TARGET "11.0")
+
 set (CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)  # disable linkage check - it doesn't work in CMake

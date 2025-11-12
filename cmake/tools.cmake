@@ -59,6 +59,8 @@ if (LINKER_NAME)
         message (FATAL_ERROR "Using linker ${LINKER_NAME} but can't find its path.")
     endif ()
     set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} --ld-path=${LLD_PATH}")
+    set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --ld-path=${LLD_PATH}")
+    set (CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} --ld-path=${LLD_PATH}")
 endif ()
 
 if (LINKER_NAME)
