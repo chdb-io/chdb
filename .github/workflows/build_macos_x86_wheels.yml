@@ -24,6 +24,7 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS x86_64)
     runs-on: macos-15-intel
+    if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
       - name: Check machine architecture
