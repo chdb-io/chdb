@@ -731,6 +731,34 @@ class DataStore:
         """
         return self.execute()
 
+    def to_df(self):
+        """
+        Execute the query and return results as a pandas DataFrame.
+        Convenience method that combines execute() and to_df().
+
+        Returns:
+            pandas DataFrame
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> df = ds.select("*").filter(ds.age > 18).to_df()
+        """
+        return self.execute().to_df()
+
+    def to_dict(self) -> List[Dict[str, Any]]:
+        """
+        Execute the query and return results as a list of dictionaries.
+        Convenience method that combines execute() and to_dict().
+
+        Returns:
+            List of dicts where keys are column names
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> records = ds.select("*").filter(ds.age > 18).to_dict()
+        """
+        return self.execute().to_dict()
+
     def create_table(self, schema: Dict[str, str], engine: str = "Memory") -> 'DataStore':
         """
         Create a table in chdb.
