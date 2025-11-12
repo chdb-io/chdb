@@ -759,6 +759,168 @@ class DataStore:
         """
         return self.execute().to_dict()
 
+    def describe(self, percentiles=None, include=None, exclude=None):
+        """
+        Generate descriptive statistics of the data.
+        Convenience method that combines execute(), to_df(), and describe().
+
+        Args:
+            percentiles: List of percentiles to include (default: [.25, .5, .75])
+            include: Data types to include ('all', None, or list of dtypes)
+            exclude: Data types to exclude (None or list of dtypes)
+
+        Returns:
+            pandas DataFrame with descriptive statistics
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> stats = ds.select("*").describe()
+            >>> # With custom percentiles
+            >>> stats = ds.describe(percentiles=[.1, .5, .9])
+        """
+        df = self.to_df()
+        return df.describe(percentiles=percentiles, include=include, exclude=exclude)
+
+    def desc(self, percentiles=None, include=None, exclude=None):
+        """
+        Shortcut for describe().
+        Generate descriptive statistics of the data.
+
+        Args:
+            percentiles: List of percentiles to include (default: [.25, .5, .75])
+            include: Data types to include ('all', None, or list of dtypes)
+            exclude: Data types to exclude (None or list of dtypes)
+
+        Returns:
+            pandas DataFrame with descriptive statistics
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> stats = ds.select("*").desc()
+        """
+        return self.describe(percentiles=percentiles, include=include, exclude=exclude)
+
+    def head(self, n: int = 5):
+        """
+        Return the first n rows of the query result.
+        Convenience method that applies limit and returns as DataFrame.
+
+        Args:
+            n: Number of rows to return (default: 5)
+
+        Returns:
+            pandas DataFrame with first n rows
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> first_rows = ds.select("*").head()
+            >>> first_10 = ds.select("*").head(10)
+        """
+        # Apply limit and return as DataFrame
+        return self.limit(n).to_df()
+
+    def tail(self, n: int = 5):
+        """
+        Return the last n rows of the query result.
+        Convenience method that returns as DataFrame with reversed order.
+
+        Args:
+            n: Number of rows to return (default: 5)
+
+        Returns:
+            pandas DataFrame with last n rows
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> last_rows = ds.select("*").tail()
+            >>> last_10 = ds.select("*").tail(10)
+        """
+        # Get all data and return last n rows
+        df = self.to_df()
+        return df.tail(n)
+
+    def sample(self, n: int = None, frac: float = None, random_state: int = None):
+        """
+        Return a random sample of rows from the query result.
+
+        Args:
+            n: Number of rows to return (mutually exclusive with frac)
+            frac: Fraction of rows to return (mutually exclusive with n)
+            random_state: Random seed for reproducibility
+
+        Returns:
+            pandas DataFrame with sampled rows
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> sample_10 = ds.select("*").sample(n=10)
+            >>> sample_20_percent = ds.select("*").sample(frac=0.2)
+        """
+        df = self.to_df()
+        return df.sample(n=n, frac=frac, random_state=random_state)
+
+    @property
+    def shape(self):
+        """
+        Return the shape (rows, columns) of the query result.
+
+        Returns:
+            Tuple of (rows, columns)
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> rows, cols = ds.select("*").shape
+        """
+        df = self.to_df()
+        return df.shape
+
+    @property
+    def columns(self):
+        """
+        Return the column names of the query result.
+
+        Returns:
+            pandas Index of column names
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> cols = ds.select("*").columns
+        """
+        df = self.to_df()
+        return df.columns
+
+    def count(self):
+        """
+        Count non-null values for each column in the query result.
+
+        Returns:
+            pandas Series with counts per column
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> counts = ds.select("*").count()
+        """
+        df = self.to_df()
+        return df.count()
+
+    def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
+        """
+        Print concise summary of the query result.
+
+        Args:
+            verbose: Whether to print full summary
+            buf: Buffer to write to
+            max_cols: Maximum number of columns to show
+            memory_usage: Whether to show memory usage
+            show_counts: Whether to show non-null counts
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> ds.select("*").info()
+        """
+        df = self.to_df()
+        return df.info(verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts)
+
     def create_table(self, schema: Dict[str, str], engine: str = "Memory") -> 'DataStore':
         """
         Create a table in chdb.
