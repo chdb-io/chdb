@@ -40,7 +40,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: quay.io/pypa/musllinux_1_2_aarch64
-          options: -v ${{ github.workspace }}:/workspace --privileged
+          options: -v ${{ github.workspace }}:/workspace --privileged -e GITHUB_REF=${{ github.ref }}
           run: |
             cd /workspace
 
