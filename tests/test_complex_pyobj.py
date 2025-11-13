@@ -42,14 +42,43 @@ class TestComplexPyObj(unittest.TestCase):
         self.assertEqual(ret.dtypes["E"], "object")
         self.assertEqual(ret.dtypes["F"], "object")
         self.assertEqual(ret.dtypes["G"], "object")
-        self.assertEqual(
-            str(ret),
-            """      A     B      C     D     E       F                 G
-0     1   4.0   True     a  <NA>  [1, 2]  {"a": 1, "b": 2}
-1     2   5.0  False     b  <NA>  [3, 4]  {"c": 3, "d": 4}
-2     3   6.0   True     c  <NA>  [5, 6]  {"e": 5, "f": 6}
-3  <NA>  <NA>   <NA>  <NA>  <NA>    <NA>              <NA>""",
-        )
+        self.assertEqual(ret.shape, (4, 7))
+
+        # Row 0
+        self.assertEqual(ret.iloc[0]["A"], '1')
+        self.assertEqual(ret.iloc[0]["B"], '4.0')
+        self.assertEqual(ret.iloc[0]["C"], 'True')
+        self.assertEqual(ret.iloc[0]["D"], 'a')
+        self.assertEqual(ret.iloc[0]["E"], '<NA>')
+        self.assertEqual(ret.iloc[0]["F"], '[1, 2]')
+        self.assertEqual(ret.iloc[0]["G"], '{"a": 1, "b": 2}')
+
+        # Row 1
+        self.assertEqual(ret.iloc[1]["A"], '2')
+        self.assertEqual(ret.iloc[1]["B"], '5.0')
+        self.assertEqual(ret.iloc[1]["C"], 'False')
+        self.assertEqual(ret.iloc[1]["D"], 'b')
+        self.assertEqual(ret.iloc[1]["E"], '<NA>')
+        self.assertEqual(ret.iloc[1]["F"], '[3, 4]')
+        self.assertEqual(ret.iloc[1]["G"], '{"c": 3, "d": 4}')
+
+        # Row 2
+        self.assertEqual(ret.iloc[2]["A"], '3')
+        self.assertEqual(ret.iloc[2]["B"], '6.0')
+        self.assertEqual(ret.iloc[2]["C"], 'True')
+        self.assertEqual(ret.iloc[2]["D"], 'c')
+        self.assertEqual(ret.iloc[2]["E"], '<NA>')
+        self.assertEqual(ret.iloc[2]["F"], '[5, 6]')
+        self.assertEqual(ret.iloc[2]["G"], '{"e": 5, "f": 6}')
+
+        # Row 3
+        self.assertEqual(ret.iloc[3]["A"], '<NA>')
+        self.assertEqual(ret.iloc[3]["B"], '<NA>')
+        self.assertEqual(ret.iloc[3]["C"], '<NA>')
+        self.assertEqual(ret.iloc[3]["D"], '<NA>')
+        self.assertEqual(ret.iloc[3]["E"], '<NA>')
+        self.assertEqual(ret.iloc[3]["F"], '<NA>')
+        self.assertEqual(ret.iloc[3]["G"], '<NA>')
 
     def test_df_without_na(self):
         ret = chdb.query(
@@ -65,14 +94,44 @@ class TestComplexPyObj(unittest.TestCase):
         self.assertEqual(ret.dtypes["E"], "object")
         self.assertEqual(ret.dtypes["F"], "object")
         self.assertEqual(ret.dtypes["G"], "object")
-        self.assertEqual(
-            str(ret),
-            """   A    B  C  D  E       F                 G
-0  1  4.0  1  a  a  [1, 2]  {"a": 1, "b": 2}
-1  2  5.0  0  b  b  [3, 4]  {"c": 3, "d": 4}
-2  3  6.0  1  c  c  [5, 6]  {"e": 5, "f": 6}
-3  4  7.0  0  d  d  [7, 8]  {"g": 7, "h": 8}""",
-        )
+
+        self.assertEqual(ret.shape, (4, 7))
+
+        # Row 0
+        self.assertEqual(ret.iloc[0]["A"], 1)
+        self.assertEqual(ret.iloc[0]["B"], 4.0)
+        self.assertEqual(ret.iloc[0]["C"], 1)
+        self.assertEqual(ret.iloc[0]["D"], "a")
+        self.assertEqual(ret.iloc[0]["E"], "a")
+        self.assertEqual(ret.iloc[0]["F"], '[1, 2]')
+        self.assertEqual(ret.iloc[0]["G"], {"a": 1, "b": 2})
+
+        # Row 1
+        self.assertEqual(ret.iloc[1]["A"], 2)
+        self.assertEqual(ret.iloc[1]["B"], 5.0)
+        self.assertEqual(ret.iloc[1]["C"], 0)
+        self.assertEqual(ret.iloc[1]["D"], "b")
+        self.assertEqual(ret.iloc[1]["E"], "b")
+        self.assertEqual(ret.iloc[1]["F"], '[3, 4]')
+        self.assertEqual(ret.iloc[1]["G"], {"c": 3, "d": 4})
+
+        # Row 2
+        self.assertEqual(ret.iloc[2]["A"], 3)
+        self.assertEqual(ret.iloc[2]["B"], 6.0)
+        self.assertEqual(ret.iloc[2]["C"], 1)
+        self.assertEqual(ret.iloc[2]["D"], "c")
+        self.assertEqual(ret.iloc[2]["E"], "c")
+        self.assertEqual(ret.iloc[2]["F"], '[5, 6]')
+        self.assertEqual(ret.iloc[2]["G"], {"e": 5, "f": 6})
+
+        # Row 3
+        self.assertEqual(ret.iloc[3]["A"], 4)
+        self.assertEqual(ret.iloc[3]["B"], 7.0)
+        self.assertEqual(ret.iloc[3]["C"], 0)
+        self.assertEqual(ret.iloc[3]["D"], "d")
+        self.assertEqual(ret.iloc[3]["E"], "d")
+        self.assertEqual(ret.iloc[3]["F"], '[7, 8]')
+        self.assertEqual(ret.iloc[3]["G"], {"g": 7, "h": 8})
 
 
 if __name__ == "__main__":

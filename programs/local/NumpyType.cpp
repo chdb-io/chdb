@@ -1,11 +1,14 @@
 #include "NumpyType.h"
+#include "PythonImporter.h"
 
-#include <Common/StringUtils.h>
 #include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeInterval.h>
+#include <DataTypes/DataTypeLowCardinality.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeString.h>
+#include <DataTypes/DataTypeTime64.h>
 
 using namespace DB;
 
@@ -138,7 +141,6 @@ static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
         {"Float64", NumpyNullableType::FLOAT_64},
         {"string", NumpyNullableType::STRING},
         {"object", NumpyNullableType::OBJECT},
-        {"timedelta64[ns]", NumpyNullableType::TIMEDELTA},
         {"category", NumpyNullableType::CATEGORY},
     };
 
@@ -154,6 +156,8 @@ static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
 		return NumpyNullableType::DATETIME_MS;
 	if (startsWith(col_type_str, "datetime64[s"))
 		return NumpyNullableType::DATETIME_S;
+    if (startsWith(col_type_str, "timedelta64["))
+		return NumpyNullableType::TIMEDELTA;
 
 	/// Legacy datetime type indicators
 	if (startsWith(col_type_str, "<M8[ns"))
@@ -174,8 +178,10 @@ NumpyType ConvertNumpyType(const py::handle & col_type)
 	NumpyType numpy_type;
 
 	numpy_type.type = ConvertNumpyTypeInternal(col_type_str);
-	if (IsDateTime(numpy_type.type)) {
-		if (hasattr(col_type, "tz")) {
+	if (IsDateTime(numpy_type.type))
+    {
+		if (hasattr(col_type, "tz"))
+        {
 			/// The datetime has timezone information.
 			numpy_type.has_timezone = true;
 		}
@@ -228,6 +234,189 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 	case NumpyNullableType::CATEGORY:
 	default:
 		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unkonow numpy column type: {}", col_type.toString());
+	}
+}
+
+String DataTypeToNumpyTypeStr(const std::shared_ptr<const IDataType> & data_type)
+{
+    if (!data_type)
+        return "object";
+
+    auto actual_data_type = removeLowCardinalityAndNullable(data_type);
+
+    TypeIndex type_id = actual_data_type->getTypeId();
+    switch (type_id)
+    {
+    case TypeIndex::Nothing:
+        return "object";
+
+    case TypeIndex::Int8:
+        return "int8";
+
+    case TypeIndex::UInt8:
+        /// Special case: UInt8 could be Bool type, need to check getName()
+        {
+            auto is_bool = isBool(actual_data_type);
+            return is_bool ? "bool" : "uint8";
+        }
+
+    case TypeIndex::Int16:
+        return "int16";
+
+    case TypeIndex::UInt16:
+        return "uint16";
+
+    case TypeIndex::Int32:
+        return "int32";
+
+    case TypeIndex::UInt32:
+        return "uint32";
+
+    case TypeIndex::Int64:
+        return "int64";
+
+    case TypeIndex::UInt64:
+        return "uint64";
+
+    case TypeIndex::BFloat16:
+    case TypeIndex::Float32:
+        return "float32";
+
+    case TypeIndex::Int256:
+    case TypeIndex::UInt256:
+    case TypeIndex::Int128:
+    case TypeIndex::UInt128:
+    case TypeIndex::Float64:
+        return "float64";
+
+    case TypeIndex::String:
+    case TypeIndex::FixedString:
+        return "object";
+
+    case TypeIndex::DateTime:
+        return "datetime64[s]";
+
+    case TypeIndex::DateTime64:
+        {
+            if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(actual_data_type.get()))
+            {
+                UInt32 scale = dt64->getScale();
+                if (scale <= 9)
+                    return "datetime64[ns]";
+
+                throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}, scale {}", actual_data_type->getName(), scale);
+            }
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected datetime64 type {}", actual_data_type->getName());
+        }
+
+    case TypeIndex::Date:
+    case TypeIndex::Date32:
+        return "datetime64[s]";  // pandas converts datetime64[D] to datetime64[s] internally
+
+    case TypeIndex::Time:
+    case TypeIndex::Time64:
+        return "object";
+
+    case TypeIndex::Interval:
+        {
+            if (const auto * interval = typeid_cast<const DataTypeInterval *>(actual_data_type.get()))
+            {
+                IntervalKind kind = interval->getKind();
+                switch (kind.kind)
+                {
+                    case IntervalKind::Kind::Nanosecond:
+                        return "timedelta64[ns]";
+                    case IntervalKind::Kind::Microsecond:
+                        return "timedelta64[us]";
+                    case IntervalKind::Kind::Millisecond:
+                        return "timedelta64[ms]";
+                    case IntervalKind::Kind::Second:
+                        return "timedelta64[s]";
+                    case IntervalKind::Kind::Minute:
+                    case IntervalKind::Kind::Hour:
+                    case IntervalKind::Kind::Day:
+                    case IntervalKind::Kind::Week:
+                    case IntervalKind::Kind::Month:
+                    case IntervalKind::Kind::Quarter:
+                    case IntervalKind::Kind::Year:
+                        return "timedelta64[s]";
+                    default:
+                        throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval kind {}", kind.kind);
+                }
+            }
+            throw Exception(ErrorCodes::LOGICAL_ERROR, "Unexpected interval type {}", actual_data_type->getName());
+        }
+
+    case TypeIndex::UUID:
+    case TypeIndex::IPv4:
+    case TypeIndex::IPv6:
+        return "object";
+
+    case TypeIndex::Decimal32:
+    case TypeIndex::Decimal64:
+    case TypeIndex::Decimal128:
+    case TypeIndex::Decimal256:
+        return "float64";
+
+    case TypeIndex::Array:
+    case TypeIndex::Tuple:
+    case TypeIndex::Map:
+    case TypeIndex::Set:
+    case TypeIndex::Dynamic:
+    case TypeIndex::Variant:
+    case TypeIndex::Object:
+        return "object";
+
+    case TypeIndex::Enum8:
+    case TypeIndex::Enum16:
+        return "object";
+
+    case TypeIndex::Nullable:
+    default:
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported type {}", actual_data_type->getName());
+    }
+}
+
+py::object ConvertNumpyDtype(const py::handle & numpy_array)
+{
+    chassert(py::gil_check());
+
+	auto & import_cache = PythonImporter::ImportCache();
+
+	auto dtype = numpy_array.attr("dtype");
+	if (!py::isinstance(numpy_array, import_cache.numpy.ma.masked_array()))
+    {
+		return dtype;
+	}
+
+	auto numpy_type = ConvertNumpyType(dtype);
+	switch (numpy_type.type)
+    {
+    case NumpyNullableType::BOOL:
+        return import_cache.pandas.BooleanDtype()();
+    case NumpyNullableType::UINT_8:
+        return import_cache.pandas.UInt8Dtype()();
+    case NumpyNullableType::UINT_16:
+        return import_cache.pandas.UInt16Dtype()();
+    case NumpyNullableType::UINT_32:
+        return import_cache.pandas.UInt32Dtype()();
+    case NumpyNullableType::UINT_64:
+        return import_cache.pandas.UInt64Dtype()();
+    case NumpyNullableType::INT_8:
+        return import_cache.pandas.Int8Dtype()();
+    case NumpyNullableType::INT_16:
+        return import_cache.pandas.Int16Dtype()();
+    case NumpyNullableType::INT_32:
+        return import_cache.pandas.Int32Dtype()();
+    case NumpyNullableType::INT_64:
+        return import_cache.pandas.Int64Dtype()();
+    case NumpyNullableType::FLOAT_32:
+        return import_cache.pandas.Float32Dtype()();
+    case NumpyNullableType::FLOAT_64:
+        return import_cache.pandas.Float64Dtype()();
+    case NumpyNullableType::FLOAT_16:
+    default:
+        return dtype;
 	}
 }
 

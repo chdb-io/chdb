@@ -1,7 +1,7 @@
 #include "LocalServer.h"
-
 #include "chdb-internal.h"
 #if USE_PYTHON
+#include "ChunkCollectorOutputFormat.h"
 #include "StoragePython.h"
 #include "TableFunctionPython.h"
 #else
@@ -10,7 +10,6 @@
 #endif
 #include <TableFunctions/TableFunctionFactory.h>
 #include <Formats/FormatFactory.h>
-
 #include <filesystem>
 #include <Access/AccessControl.h>
 #include <AggregateFunctions/registerAggregateFunctions.h>
@@ -671,6 +670,7 @@ try
         auto & storage_factory = StorageFactory::instance();
 #if USE_PYTHON
         registerStoragePython(storage_factory);
+        CHDB::registerDataFrameOutputFormat();
 #else
         registerStorageArrowStream(storage_factory);
 #endif

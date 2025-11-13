@@ -1,14 +1,14 @@
 #include "LocalChdb.h"
-#include <cstring>
+#include "chdb-internal.h"
+#include "PandasDataFrameBuilder.h"
+#include "ChunkCollectorOutputFormat.h"
 #include "PythonImporter.h"
 #include "PythonTableCache.h"
 #include "StoragePython.h"
-#include "chdb-internal.h"
-#include "chdb.h"
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
-
+#include <Poco/String.h>
 #include <Common/logger_useful.h>
 #if USE_JEMALLOC
 #    include <Common/memory.h>
@@ -79,13 +79,26 @@ chdb_result * queryToBuffer(
 
 // Pybind11 will take over the ownership of the `query_result` object
 // using smart ptr will cause early free of the object
-query_result * query(
+py::object query(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
     const std::string & udfPath = {})
 {
-    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath));
+    auto * result = queryToBuffer(queryStr, output_format, path, udfPath);
+
+    if (Poco::toLower(output_format) == "dataframe")
+    {
+        chdb_destroy_query_result(result);
+
+        auto & builder = CHDB::getGlobalDataFrameBuilder();
+        auto ret = builder.getDataFrame();
+        CHDB::resetGlobalDataFrameBuilder();
+        return ret;
+    }
+
+    // Default behavior - return query_result
+    return py::cast(new query_result(result));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
@@ -263,25 +276,39 @@ void connection_wrapper::commit()
     // do nothing
 }
 
-query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
+py::object connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
     CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
-    py::gil_scoped_release release;
-    auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
-    if (chdb_result_length(result))
+    chdb_result * result = nullptr;
     {
-        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+        py::gil_scoped_release release;
+        result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+        auto error_msg = CHDB::chdb_result_error_string(result);
+        if (!error_msg.empty())
+        {
+            std::string msg_copy(error_msg);
+            chdb_destroy_query_result(result);
+            CHDB::resetGlobalDataFrameBuilder();
+            throw std::runtime_error(msg_copy);
+        }
+
+        if (Poco::toLower(format) == "dataframe")
+        {
+            chdb_destroy_query_result(result);
+            auto & builder = CHDB::getGlobalDataFrameBuilder();
+            auto ret = builder.getDataFrame();
+            CHDB::resetGlobalDataFrameBuilder();
+            return ret;
+        }
+
+        if (chdb_result_length(result))
+        {
+            LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+        }
     }
 
-    auto error_msg = CHDB::chdb_result_error_string(result);
-    if (!error_msg.empty())
-    {
-        std::string msg_copy(error_msg);
-        chdb_destroy_query_result(result);
-        throw std::runtime_error(msg_copy);
-    }
-    return new query_result(result, false);
+    return py::cast(new query_result(result, false));
 }
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
@@ -483,7 +510,7 @@ PYBIND11_MODULE(_chdb, m)
             &connection_wrapper::query,
             py::arg("query_str"),
             py::arg("format") = "CSV",
-            "Execute a query and return a query_result object")
+            "Execute a query and return a query_result object or DataFrame")
         .def(
             "send_query",
             &connection_wrapper::send_query,
@@ -509,7 +536,7 @@ PYBIND11_MODULE(_chdb, m)
         py::kw_only(),
         py::arg("path") = "",
         py::arg("udf_path") = "",
-        "Query chDB and return a query_result object");
+        "Query chDB and return a query_result object or DataFrame");
 
 	auto destroy_import_cache = []()
     {

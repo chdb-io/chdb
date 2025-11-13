@@ -38,7 +38,7 @@ PandasAnalyzer::PandasAnalyzer(const DB::Settings & settings)
 
 bool PandasAnalyzer::Analyze(py::object column) {
 #if USE_JEMALLOC
-	::Memory::MemoryCheckScope memory_check_scope; 
+	::Memory::MemoryCheckScope memory_check_scope;
 #endif
 	if (sample_size == 0)
 		return false;
