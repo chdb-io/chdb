@@ -21,6 +21,7 @@ extern bool inside_main = true;
 namespace CHDB
 {
 extern chdb_connection * connect_chdb_with_exception(int argc, char ** argv);
+extern void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str);
 }
 
 const static char * CURSOR_DEFAULT_FORMAT = "JSONCompactEachRowWithNamesAndTypes";
@@ -265,8 +266,7 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
     if (chdb_result_length(result))
@@ -286,8 +286,7 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
 {
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_stream_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
     auto error_msg = CHDB::chdb_result_error_string(result);
@@ -337,8 +336,7 @@ void connection_wrapper::streaming_cancel_query(streaming_query_result * streami
 void cursor_wrapper::execute(const std::string & query_str)
 {
     release_result();
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(conn->get_conn()), query_str);
     // Use JSONCompactEachRowWithNamesAndTypes format for better type support
     py::gil_scoped_release release;
     current_result = chdb_query_n(conn->get_conn(), query_str.data(), query_str.size(), CURSOR_DEFAULT_FORMAT, CURSOR_DEFAULT_FORMAT_LEN);
@@ -511,13 +509,11 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("udf_path") = "",
         "Query chDB and return a query_result object");
 
-	auto destroy_import_cache = []()
+    auto destroy_import_cache = []()
     {
-        CHDB::chdbCleanupConnection();
-        CHDB::PythonTableCache::clear();
-		CHDB::PythonImporter::destroy();
-	};
-	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
+        CHDB::PythonImporter::destroy();
+    };
+    m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
 
 #    endif // PY_TEST_MAIN

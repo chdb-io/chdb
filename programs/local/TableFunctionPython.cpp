@@ -7,11 +7,12 @@
 #include "PythonTableCache.h"
 #include "PythonUtils.h"
 
-#include <Parsers/ASTLiteral.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <Interpreters/Context.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Parsers/ASTFunction.h>
+#include <Parsers/ASTLiteral.h>
 #include <Storages/StorageInMemoryMetadata.h>
 #include <TableFunctions/TableFunctionFactory.h>
 #include <pybind11/gil.h>
@@ -65,8 +66,7 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
         py_reader_arg_str.erase(
             std::remove_if(py_reader_arg_str.begin(), py_reader_arg_str.end(), [](char c) { return c == '\'' || c == '\"' || c == '`'; }),
             py_reader_arg_str.end());
-
-        auto instance = PythonTableCache::getQueryableObj(py_reader_arg_str);
+        auto instance = context->getQueryContext()->getPythonTableCache()->getQueryableObj(py_reader_arg_str);
         if (instance == nullptr || instance.is_none())
             throw Exception(ErrorCodes::PY_OBJECT_NOT_FOUND,
                             "Python object not found in the Python environment\n"
@@ -131,7 +131,7 @@ ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr conte
         return PythonReader::getActualTableStructure(reader, context);
 
     auto schema = PyReader::getSchemaFromPyObj(reader);
-    return StoragePython::getTableStructureFromData(schema);
+    return StoragePython::getTableStructureFromData(schema, context);
 }
 
 void registerTableFunctionPython(TableFunctionFactory & factory)

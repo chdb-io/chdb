@@ -9,14 +9,14 @@ namespace CHDB {
 
 class PythonTableCache {
 public:
-    static void findQueryableObjFromQuery(const String & query_str);
+    void findQueryableObjFromQuery(const String & query_str);
 
-    static py::handle getQueryableObj(const String & table_name);
+    py::handle getQueryableObj(const String & table_name);
 
-    static void clear();
+    void clear();
 
 private:
-    static std::unordered_map<String, py::handle> py_table_cache;
+    std::unordered_map<String, py::handle> py_table_cache;
 };
 
 } // namespace CHDB

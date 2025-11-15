@@ -147,6 +147,10 @@ void LocalConnection::sendQuery(
     else
         query_context = session->makeQueryContext();
     query_context->setCurrentQueryId(query_id);
+#if USE_PYTHON
+    query_context->setJSONSupport(session->isJSONSupported());
+    query_context->setPythonTableCache(session->getPythonTableCache());
+#endif
 
     if (send_progress)
     {
