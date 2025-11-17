@@ -23,7 +23,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux ARM64)
-    runs-on: GH-Linux-ARM64
+    runs-on: [self-hosted, linux, arm64, ubuntu-latest]
     steps:
       - name: Install Python build dependencies
         run: |
