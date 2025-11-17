@@ -46,11 +46,11 @@ jobs:
           echo "Detected OS: $DISTRO_ID:$DISTRO_VERSION"
 
           # Update grype vulnerability database
-          grype db update
+          $HOME/.local/bin/grype db update
 
           # Check SQLite vulnerabilities in installed packages
           echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$(grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null || true)
+          GRYPE_RAW_OUTPUT=$($HOME/.local/bin/grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null || true)
           echo "Raw grype output:"
           echo "$GRYPE_RAW_OUTPUT"
 
@@ -213,7 +213,7 @@ jobs:
           for file in $FILES_TO_SCAN; do
             if [ -f "$file" ]; then
               echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+              SCAN_OUTPUT=$($HOME/.local/bin/grype "$file" 2>/dev/null || true)
               echo "$SCAN_OUTPUT"
 
               if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
