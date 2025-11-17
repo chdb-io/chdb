@@ -35,7 +35,9 @@ jobs:
       - name: Scan SQLite vulnerabilities with grype
         run: |
           # Install grype and required tools
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          mkdir -p $HOME/.local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $HOME/.local/bin
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
           sudo apt-get update && sudo apt-get install -y jq lsb-release
 
           # Detect OS distribution info
