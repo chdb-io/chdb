@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import shutil
 import unittest
 import time
 from urllib.request import urlretrieve
@@ -28,10 +29,13 @@ class TestDataFrameLargeScale(unittest.TestCase):
         pass
 
     def setUp(self):
-        self.session = chdb.session.Session("./tmp")
+        self.test_dir = ".tmp_test_dataframe_large_scale_2"
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+        self.session = chdb.session.Session(self.test_dir)
 
     def tearDown(self):
         self.session.close()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_pandas_chdb_dataframe_consistency(self):
         """Compare pandas and chdb DataFrame consistency when reading the same parquet file"""

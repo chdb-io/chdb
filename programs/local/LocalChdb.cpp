@@ -91,8 +91,11 @@ py::object query(
     {
         chdb_destroy_query_result(result);
 
-        auto & builder = CHDB::getGlobalDataFrameBuilder();
-        auto ret = builder.getDataFrame();
+        auto * builder = CHDB::getGlobalDataFrameBuilder();
+        if (!builder)
+            throw std::runtime_error("Global DataFrame builder is not initialized");
+
+        auto ret = builder->getDataFrame();
         CHDB::resetGlobalDataFrameBuilder();
         return ret;
     }
@@ -296,8 +299,11 @@ py::object connection_wrapper::query(const std::string & query_str, const std::s
         if (Poco::toLower(format) == "dataframe")
         {
             chdb_destroy_query_result(result);
-            auto & builder = CHDB::getGlobalDataFrameBuilder();
-            auto ret = builder.getDataFrame();
+            auto * builder = CHDB::getGlobalDataFrameBuilder();
+            if (!builder)
+                throw std::runtime_error("Global DataFrame builder is not initialized");
+
+            auto ret = builder->getDataFrame();
             CHDB::resetGlobalDataFrameBuilder();
             return ret;
         }
@@ -328,27 +334,40 @@ streaming_query_result * connection_wrapper::send_query(const std::string & quer
     return new streaming_query_result(result);
 }
 
-query_result * connection_wrapper::streaming_fetch_result(streaming_query_result * streaming_result)
+py::object connection_wrapper::streaming_fetch_result(streaming_query_result * streaming_result)
 {
-    py::gil_scoped_release release;
-
     if (!streaming_result || !streaming_result->get_result())
-        return nullptr;
+        return py::none();
 
-    auto * result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
+    chdb_result * result = nullptr;
 
-    if (chdb_result_length(result) == 0)
-        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
-
-    const auto error_msg = CHDB::chdb_result_error_string(result);
-    if (!error_msg.empty())
     {
-        std::string msg_copy(error_msg);
-        chdb_destroy_query_result(result);
-        throw std::runtime_error(msg_copy);
+        py::gil_scoped_release release;
+        result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
+
+        const auto result_len = chdb_result_length(result);
+        if (result_len == 0)
+            LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
+
+        const auto error_msg = CHDB::chdb_result_error_string(result);
+        if (!error_msg.empty())
+        {
+            std::string msg_copy(error_msg);
+            chdb_destroy_query_result(result);
+            throw std::runtime_error(msg_copy);
+        }
+
+        auto * builder = CHDB::getGlobalDataFrameBuilder();
+        if (builder)
+        {
+            chdb_destroy_query_result(result);
+            auto ret = builder->getDataFrame();
+            CHDB::resetGlobalDataFrameBuilder();
+            return ret;
+        }
     }
 
-    return new query_result(result, false);
+    return py::cast(new query_result(result, false));
 }
 
 void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)

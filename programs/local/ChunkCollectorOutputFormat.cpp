@@ -52,9 +52,9 @@ void ChunkCollectorOutputFormat::finalizeImpl()
 /// Global dataframe builder
 static std::shared_ptr<PandasDataFrameBuilder> g_dataframe_builder = nullptr;
 
-PandasDataFrameBuilder & getGlobalDataFrameBuilder()
+PandasDataFrameBuilder * getGlobalDataFrameBuilder()
 {
-    return *g_dataframe_builder;
+    return g_dataframe_builder.get();
 }
 
 void setGlobalDataFrameBuilder(std::shared_ptr<PandasDataFrameBuilder> builder)
@@ -76,10 +76,11 @@ std::shared_ptr<IOutputFormat> createDataFrameOutputFormat(SharedHeader header)
 {
     /// Create a PandasDataFrameBuilder and set it globally
     auto dataframe_builder = std::make_shared<PandasDataFrameBuilder>(*header);
+    resetGlobalDataFrameBuilder();
     setGlobalDataFrameBuilder(dataframe_builder);
 
     /// Create and return the format with the builder
-    return std::make_shared<ChunkCollectorOutputFormat>(header, getGlobalDataFrameBuilder());
+    return std::make_shared<ChunkCollectorOutputFormat>(header, *dataframe_builder);
 }
 
 /// Registration function to be called during initialization

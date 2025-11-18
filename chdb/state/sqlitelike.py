@@ -109,7 +109,9 @@ class StreamingResult:
 
         try:
             result = self._conn.streaming_fetch_result(self._result)
-            if result is None or result.rows_read() == 0:
+            if (result is None or
+                (hasattr(result, 'rows_read') and result.rows_read() == 0) or
+                (hasattr(result, 'empty') and result.empty)):
                 self._exhausted = True
                 return None
             return self._result_func(result)

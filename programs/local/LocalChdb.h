@@ -32,7 +32,7 @@ public:
     void close();
     py::object query(const std::string & query_str, const std::string & format = "CSV");
     streaming_query_result * send_query(const std::string & query_str, const std::string & format = "CSV");
-    query_result * streaming_fetch_result(streaming_query_result * streaming_result);
+    py::object streaming_fetch_result(streaming_query_result * streaming_result);
     void streaming_cancel_query(streaming_query_result * streaming_result);
 
     // Move the private methods declarations here

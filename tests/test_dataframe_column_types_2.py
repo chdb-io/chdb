@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import shutil
 import unittest
 import uuid
 import pandas as pd
@@ -13,10 +14,13 @@ from datetime import date, timedelta
 class TestDataFrameColumnTypesTwo(unittest.TestCase):
 
     def setUp(self):
-        self.session = chdb.session.Session()
+        self.test_dir = ".tmp_test_dataframe_column_types_2"
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+        self.session = chdb.session.Session(self.test_dir)
 
     def tearDown(self):
         self.session.close()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_variant_types(self):
         """Test Variant type with mixed data types"""

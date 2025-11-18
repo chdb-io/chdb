@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import shutil
 import unittest
 import pandas as pd
 import chdb
@@ -13,11 +14,14 @@ import ipaddress
 class TestDataFrameColumnTypesOne(unittest.TestCase):
 
     def setUp(self):
-        self.session = chdb.session.Session()
+        self.test_dir = ".tmp_test_dataframe_column_types_1"
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+        self.session = chdb.session.Session(self.test_dir)
         self.shanghai_tz = timezone(timedelta(hours=8))
 
     def tearDown(self):
         self.session.close()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_integer_types(self):
         ret = self.session.query("""

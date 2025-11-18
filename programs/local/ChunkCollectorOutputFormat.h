@@ -50,7 +50,7 @@ private:
 void registerDataFrameOutputFormat();
 
 /// Get the global dataframe builder
-PandasDataFrameBuilder & getGlobalDataFrameBuilder();
+PandasDataFrameBuilder * getGlobalDataFrameBuilder();
 
 /// Set the global dataframe builder
 void setGlobalDataFrameBuilder(std::shared_ptr<PandasDataFrameBuilder> builder);

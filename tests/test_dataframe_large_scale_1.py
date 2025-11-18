@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import shutil
 import unittest
 import time
 from urllib.request import urlretrieve
@@ -15,10 +16,13 @@ class TestDataFrameLargeScale(unittest.TestCase):
     """Test DataFrame generation with large scale data (1M rows) and diverse data types"""
 
     def setUp(self):
-        self.session = chdb.session.Session()
+        self.test_dir = ".tmp_test_dataframe_large_scale_1"
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+        self.session = chdb.session.Session(self.test_dir)
 
     def tearDown(self):
         self.session.close()
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_large_scale_dataframe_generation(self):
         """Test generating 1M rows DataFrame with diverse data types and validate correctness"""
