@@ -1,382 +1,382 @@
-# name: Build Linux(musllinux) ARM64
+name: Build Linux(musllinux) ARM64
 
-# on:
-#   workflow_dispatch:
-#     inputs:
-#       TAG_NAME:
-#         description: 'Release Version Tag'
-#         required: true
-#   release:
-#     types: [created]
-#   push:
-#     branches:
-#       - main
-#     paths-ignore:
-#       - '**/*.md'
-#   pull_request:
-#     branches:
-#       - main
-#     paths-ignore:
-#       - '**/*.md'
+on:
+  workflow_dispatch:
+    inputs:
+      TAG_NAME:
+        description: 'Release Version Tag'
+        required: true
+  release:
+    types: [created]
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
 
-# jobs:
-#   build_musllinux_wheels:
-#     name: Build musllinux wheels (Alpine Linux aarch64)
-#     runs-on: GH-Linux-ARM64
-#     steps:
-#       - uses: actions/checkout@v3
-#         with:
-#           fetch-depth: 0
+jobs:
+  build_musllinux_wheels:
+    name: Build musllinux wheels (Alpine Linux aarch64)
+    runs-on: [self-hosted, linux, arm64, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
-#       - name: Configure git safe directory
-#         run: |
-#           git config --global --add safe.directory '*'
+      - name: Configure git safe directory
+        run: |
+          git config --global --add safe.directory '*'
 
-#       - name: Update submodules
-#         run: |
-#           git submodule update --init --recursive --jobs 4
+      - name: Update submodules
+        run: |
+          git submodule update --init --recursive --jobs 4
 
-#       - name: Build chdb wheels in container
-#         uses: addnab/docker-run-action@v3
-#         with:
-#           image: quay.io/pypa/musllinux_1_2_aarch64
-#           options: -v ${{ github.workspace }}:/workspace --privileged -e GITHUB_REF=${{ github.ref }}
-#           run: |
-#             cd /workspace
+      - name: Build chdb wheels in container
+        uses: addnab/docker-run-action@v3
+        with:
+          image: quay.io/pypa/musllinux_1_2_aarch64
+          options: -v ${{ github.workspace }}:/workspace --privileged -e GITHUB_REF=${{ github.ref }}
+          run: |
+            cd /workspace
 
-#             # Configure git safe directory in container
-#             apk update
-#             apk add --no-cache git python3 py3-pip py3-setuptools
-#             echo "=== Configure git safe directory ==="
-#             git config --global --add safe.directory /workspace
-#             git describe --tags
-#             python3 -c "import sys; sys.path.append('.'); from setup import get_latest_git_tag; print('version:', get_latest_git_tag())"
+            # Configure git safe directory in container
+            apk update
+            apk add --no-cache git python3 py3-pip py3-setuptools
+            echo "=== Configure git safe directory ==="
+            git config --global --add safe.directory /workspace
+            git describe --tags
+            python3 -c "import sys; sys.path.append('.'); from setup import get_latest_git_tag; print('version:', get_latest_git_tag())"
 
-#             # 1. Check system info
-#             echo "=== Container System Info ==="
-#             echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
-#             if [ -f /lib/ld-musl-aarch64.so.1 ]; then
-#               echo "musl libc aarch64"
-#             elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
-#               echo "musl libc aarch64"
-#             else
-#               echo "Not musl libc"
-#             fi
-#             echo "Workspace mounted at: /workspace"
-#             ls -la /workspace
+            # 1. Check system info
+            echo "=== Container System Info ==="
+            echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+            if [ -f /lib/ld-musl-aarch64.so.1 ]; then
+              echo "musl libc aarch64"
+            elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
+              echo "musl libc aarch64"
+            else
+              echo "Not musl libc"
+            fi
+            echo "Workspace mounted at: /workspace"
+            ls -la /workspace
 
-#             # 2. Install build dependencies
-#             echo "=== Installing build dependencies ==="
-#             apk add --no-cache make build-base openssl-dev zlib-dev \
-#               bzip2-dev readline-dev sqlite-dev wget curl llvm \
-#               ncurses-dev xz-dev tk-dev libxml2-dev \
-#               libffi-dev linux-headers
-#             apk add --no-cache make cmake ccache ninja yasm gawk
-#             apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
+            # 2. Install build dependencies
+            echo "=== Installing build dependencies ==="
+            apk add --no-cache make build-base openssl-dev zlib-dev \
+              bzip2-dev readline-dev sqlite-dev wget curl llvm \
+              ncurses-dev xz-dev tk-dev libxml2-dev \
+              libffi-dev linux-headers
+            apk add --no-cache make cmake ccache ninja yasm gawk
+            apk add --no-cache clang20 clang20-dev llvm20 llvm20-dev lld20
 
-#             # 3. Scan SQLite vulnerabilities
-#             echo "=== Scanning SQLite vulnerabilities ==="
-#             # Install grype
-#             curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
-#             grype db update
+            # 3. Scan SQLite vulnerabilities
+            echo "=== Scanning SQLite vulnerabilities ==="
+            # Install grype
+            curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+            grype db update
 
-#             # Check SQLite vulnerabilities
-#             echo "Scanning SQLite packages for vulnerabilities..."
-#             GRYPE_RAW_OUTPUT=$(grype dir:/lib/apk/db --scope all-layers 2>/dev/null || true)
-#             echo "Raw grype output:"
-#             echo "$GRYPE_RAW_OUTPUT"
+            # Check SQLite vulnerabilities
+            echo "Scanning SQLite packages for vulnerabilities..."
+            GRYPE_RAW_OUTPUT=$(grype dir:/lib/apk/db --scope all-layers 2>/dev/null || true)
+            echo "Raw grype output:"
+            echo "$GRYPE_RAW_OUTPUT"
 
-#             SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
-#             if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-#               echo "SQLite vulnerabilities found in packages! Build should be reviewed."
-#               echo "SQLite vulnerability details:"
-#               echo "$SQLITE_SCAN_OUTPUT"
-#             else
-#               echo "No SQLite vulnerabilities found"
-#             fi
+            SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
+            if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
+              echo "SQLite vulnerabilities found in packages! Build should be reviewed."
+              echo "SQLite vulnerability details:"
+              echo "$SQLITE_SCAN_OUTPUT"
+            else
+              echo "No SQLite vulnerabilities found"
+            fi
 
-#             # 4. Setup Python environments
-#             echo "=== Setting up Python environments ==="
-#             # Setup pyenv
-#             curl https://pyenv.run | bash
-#             export PATH="$HOME/.pyenv/bin:$PATH"
-#             eval "$(pyenv init -)"
+            # 4. Setup Python environments
+            echo "=== Setting up Python environments ==="
+            # Setup pyenv
+            curl https://pyenv.run | bash
+            export PATH="$HOME/.pyenv/bin:$PATH"
+            eval "$(pyenv init -)"
 
-#             # Install Python versions
-#             for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-#               echo "Installing Python $version"
-#               pyenv install $version:latest
-#             done
-#             pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
+            # Install Python versions
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+              echo "Installing Python $version"
+              pyenv install $version:latest
+            done
+            pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
 
-#             # Verify installations
-#             echo "Installed versions:"
-#             pyenv versions
-#             for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-#               if ! pyenv versions --bare | grep -q "^$version"; then
-#                 echo "ERROR: Python $version is not installed!"
-#                 exit 1
-#               fi
-#               echo "Python $version is installed"
-#             done
-#             echo "All Python versions verified successfully!"
+            # Verify installations
+            echo "Installed versions:"
+            pyenv versions
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+              if ! pyenv versions --bare | grep -q "^$version"; then
+                echo "ERROR: Python $version is not installed!"
+                exit 1
+              fi
+              echo "Python $version is installed"
+            done
+            echo "All Python versions verified successfully!"
 
-#             # Install Rust
-#             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-#             source $HOME/.cargo/env
-#             rustup toolchain install nightly-2025-07-07
-#             rustup component add --toolchain nightly-2025-07-07 rust-src
+            # Install Rust
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+            source $HOME/.cargo/env
+            rustup toolchain install nightly-2025-07-07
+            rustup component add --toolchain nightly-2025-07-07 rust-src
 
-#             # Install Python dependencies
-#             for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-#               echo "Installing dependencies for Python $version"
-#               pyenv shell $version
-#               python -m pip install --upgrade pip
-#               if [ "$version" = "3.8" ]; then
-#                 python -m pip install setuptools tox twine psutil wheel
-#               else
-#                 python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
-#               fi
-#               pyenv shell --unset
-#             done
+            # Install Python dependencies
+            for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+              echo "Installing dependencies for Python $version"
+              pyenv shell $version
+              python -m pip install --upgrade pip
+              if [ "$version" = "3.8" ]; then
+                python -m pip install setuptools tox twine psutil wheel
+              else
+                python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+              fi
+              pyenv shell --unset
+            done
 
-#             # Update version for release (if triggered by tag)
-#             if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
-#               pyenv shell 3.9
+            # Update version for release (if triggered by tag)
+            if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
+              pyenv shell 3.9
               
-#               # Install bump-my-version
-#               python -m pip install bump-my-version
-#               TAG_NAME=${GITHUB_REF#refs/tags/v}
-#               bump-my-version replace --new-version $TAG_NAME
-#               echo "Version files updated to $TAG_NAME"
-#               pyenv shell --unset
-#             fi
+              # Install bump-my-version
+              python -m pip install bump-my-version
+              TAG_NAME=${GITHUB_REF#refs/tags/v}
+              bump-my-version replace --new-version $TAG_NAME
+              echo "Version files updated to $TAG_NAME"
+              pyenv shell --unset
+            fi
 
-#             # 5. Build chdb
-#             echo "=== Building chdb ==="
-#             echo "Timestamp: $(date)"
-#             echo "Current directory: $(pwd)"
-#             echo "Available disk space: $(df -h .)"
+            # 5. Build chdb
+            echo "=== Building chdb ==="
+            echo "Timestamp: $(date)"
+            echo "Current directory: $(pwd)"
+            echo "Available disk space: $(df -h .)"
 
-#             # Setup clang
-#             echo "Setting up clang compiler..."
-#             ln -sf /usr/bin/clang-20 /usr/bin/clang
-#             ln -sf /usr/bin/clang++-20 /usr/bin/clang++
-#             export CC=/usr/bin/clang
-#             export CXX=/usr/bin/clang++
-#             echo "Compiler versions:"
-#             $CC --version
-#             $CXX --version
+            # Setup clang
+            echo "Setting up clang compiler..."
+            ln -sf /usr/bin/clang-20 /usr/bin/clang
+            ln -sf /usr/bin/clang++-20 /usr/bin/clang++
+            export CC=/usr/bin/clang
+            export CXX=/usr/bin/clang++
+            echo "Compiler versions:"
+            $CC --version
+            $CXX --version
 
-#             # Build
-#             echo "Starting chdb build with Python 3.8..."
-#             pyenv shell 3.8
-#             python --version
-#             echo "Build start time: $(date)"
-#             bash ./chdb/build-musl.sh
-#             echo "Build end time: $(date)"
+            # Build
+            echo "Starting chdb build with Python 3.8..."
+            pyenv shell 3.8
+            python --version
+            echo "Build start time: $(date)"
+            bash ./chdb/build-musl.sh
+            echo "Build end time: $(date)"
 
-#             # Test
-#             echo "Running smoke test with Python 3.9..."
-#             pyenv shell 3.9
-#             python --version
-#             echo "Test start time: $(date)"
-#             bash -x ./chdb/test_smoke.sh
-#             echo "Test end time: $(date)"
+            # Test
+            echo "Running smoke test with Python 3.9..."
+            pyenv shell 3.9
+            python --version
+            echo "Test start time: $(date)"
+            bash -x ./chdb/test_smoke.sh
+            echo "Test end time: $(date)"
 
-#             # Check build results
-#             echo "Build results summary:"
-#             ccache -s
-#             echo "chdb directory contents:"
-#             ls -lh chdb
-#             echo "Build artifacts size:"
-#             du -sh chdb
+            # Check build results
+            echo "Build results summary:"
+            ccache -s
+            echo "chdb directory contents:"
+            ls -lh chdb
+            echo "Build artifacts size:"
+            du -sh chdb
 
-#             # 6. Create and audit wheels
-#             echo "=== Creating and auditing wheels ==="
-#             echo "Wheel creation start time: $(date)"
-#             echo "Available disk space before wheel build: $(df -h .)"
+            # 6. Create and audit wheels
+            echo "=== Creating and auditing wheels ==="
+            echo "Wheel creation start time: $(date)"
+            echo "Available disk space before wheel build: $(df -h .)"
 
-#             # Build wheels
-#             echo "Building wheels with Python 3.8..."
-#             pyenv shell 3.8
-#             python --version
-#             echo "Running make wheel..."
-#             make wheel
-#             echo "Wheel build completed at: $(date)"
-#             echo "Initial wheel files:"
-#             ls -lh dist/ || echo "No dist directory yet"
+            # Build wheels
+            echo "Building wheels with Python 3.8..."
+            pyenv shell 3.8
+            python --version
+            echo "Running make wheel..."
+            make wheel
+            echo "Wheel build completed at: $(date)"
+            echo "Initial wheel files:"
+            ls -lh dist/ || echo "No dist directory yet"
 
-#             # Install patchelf
-#             echo "Installing patchelf for wheel auditing..."
-#             wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
-#             tar -xvf patchelf.tar.gz
-#             cp bin/patchelf /usr/bin/
-#             chmod +x /usr/bin/patchelf
-#             echo "patchelf version: $(patchelf --version)"
+            # Install patchelf
+            echo "Installing patchelf for wheel auditing..."
+            wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
+            tar -xvf patchelf.tar.gz
+            cp bin/patchelf /usr/bin/
+            chmod +x /usr/bin/patchelf
+            echo "patchelf version: $(patchelf --version)"
 
-#             # Audit wheels
-#             echo "Auditing wheels with Python 3.13..."
-#             pyenv shell 3.13
-#             python --version
-#             python -m pip install auditwheel
-#             echo "auditwheel version: $(auditwheel --version)"
-#             echo "Starting wheel audit at: $(date)"
-#             auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
-#             echo "Wheel audit completed at: $(date)"
+            # Audit wheels
+            echo "Auditing wheels with Python 3.13..."
+            pyenv shell 3.13
+            python --version
+            python -m pip install auditwheel
+            echo "auditwheel version: $(auditwheel --version)"
+            echo "Starting wheel audit at: $(date)"
+            auditwheel -v repair -w dist/ --plat musllinux_1_2_aarch64 dist/*.whl
+            echo "Wheel audit completed at: $(date)"
 
-#             # Clean up non-musllinux wheels
-#             echo "Cleaning up non-musllinux wheels..."
-#             echo "Before cleanup:"
-#             ls -lh dist/
-#             rm -f dist/*-linux_aarch64.whl
-#             echo "After cleanup:"
-#             ls -lh dist/
-#             echo "Final wheel sizes:"
-#             du -sh dist/*
+            # Clean up non-musllinux wheels
+            echo "Cleaning up non-musllinux wheels..."
+            echo "Before cleanup:"
+            ls -lh dist/
+            rm -f dist/*-linux_aarch64.whl
+            echo "After cleanup:"
+            ls -lh dist/
+            echo "Final wheel sizes:"
+            du -sh dist/*
 
-#             # 7. Test wheels
-#             echo "=== Testing wheels ==="
-#             echo "Wheel testing start time: $(date)"
-#             echo "Available wheels for testing:"
-#             ls -lh dist/*.whl
-#             echo "Wheel file details:"
-#             file dist/*.whl
+            # 7. Test wheels
+            echo "=== Testing wheels ==="
+            echo "Wheel testing start time: $(date)"
+            echo "Available wheels for testing:"
+            ls -lh dist/*.whl
+            echo "Wheel file details:"
+            file dist/*.whl
 
-#             TOTAL_TESTS=5
-#             CURRENT_TEST=0
-#             TEST_FAILED=false
+            TOTAL_TESTS=5
+            CURRENT_TEST=0
+            TEST_FAILED=false
 
-#             for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-#               CURRENT_TEST=$((CURRENT_TEST + 1))
-#               echo "=== Test $CURRENT_TEST/$TOTAL_TESTS: Python $version ==="
-#               echo "Test start time: $(date)"
+            for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+              CURRENT_TEST=$((CURRENT_TEST + 1))
+              echo "=== Test $CURRENT_TEST/$TOTAL_TESTS: Python $version ==="
+              echo "Test start time: $(date)"
 
-#               echo "Switching to Python $version..."
-#               pyenv shell $version
-#               python --version
-#               echo "pip version: $(python -m pip --version)"
+              echo "Switching to Python $version..."
+              pyenv shell $version
+              python --version
+              echo "pip version: $(python -m pip --version)"
 
-#               echo "Installing chdb wheel..."
-#               python -m pip install dist/*.whl --force-reinstall
-#               echo "Installation completed at: $(date)"
+              echo "Installing chdb wheel..."
+              python -m pip install dist/*.whl --force-reinstall
+              echo "Installation completed at: $(date)"
 
-#               echo "Running basic query test..."
-#               python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+              echo "Running basic query test..."
+              python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
 
-#               echo "Running full test suite..."
-#               if make test; then
-#                 echo "Test suite PASSED for Python $version at: $(date)"
-#               else
-#                 echo "Test suite FAILED for Python $version at: $(date)"
-#                 TEST_FAILED=true
-#                 break
-#               fi
+              echo "Running full test suite..."
+              if make test; then
+                echo "Test suite PASSED for Python $version at: $(date)"
+              else
+                echo "Test suite FAILED for Python $version at: $(date)"
+                TEST_FAILED=true
+                break
+              fi
 
-#               pyenv shell --unset
-#               echo "Test $CURRENT_TEST/$TOTAL_TESTS completed successfully"
-#               echo ""
-#             done
+              pyenv shell --unset
+              echo "Test $CURRENT_TEST/$TOTAL_TESTS completed successfully"
+              echo ""
+            done
 
-#             echo "All wheel tests completed at: $(date)"
+            echo "All wheel tests completed at: $(date)"
 
-#             # Check if any tests failed
-#             if [ "$TEST_FAILED" = true ]; then
-#               echo "ERROR: One or more test suites failed!"
-#               echo "Test failure detected - aborting build process"
-#               exit 1
-#             fi
+            # Check if any tests failed
+            if [ "$TEST_FAILED" = true ]; then
+              echo "ERROR: One or more test suites failed!"
+              echo "Test failure detected - aborting build process"
+              exit 1
+            fi
 
-#             # Create test success marker file only if all tests passed
-#             echo "All tests passed successfully!"
-#             echo "Creating test success marker..."
-#             touch /workspace/.test_success_marker
-#             echo "Test success marker created at: $(date)"
+            # Create test success marker file only if all tests passed
+            echo "All tests passed successfully!"
+            echo "Creating test success marker..."
+            touch /workspace/.test_success_marker
+            echo "Test success marker created at: $(date)"
 
-#             # 8. Scan chdb libraries
-#             echo "=== Scanning chdb libraries ==="
-#             FILES_TO_SCAN="$(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
-#             SQLITE_VULNERABILITIES_FOUND=false
+            # 8. Scan chdb libraries
+            echo "=== Scanning chdb libraries ==="
+            FILES_TO_SCAN="$(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
+            SQLITE_VULNERABILITIES_FOUND=false
 
-#             for file in $FILES_TO_SCAN; do
-#               if [ -f "$file" ]; then
-#                 echo "=== Scanning $file ==="
-#                 SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-#                 echo "$SCAN_OUTPUT"
+            for file in $FILES_TO_SCAN; do
+              if [ -f "$file" ]; then
+                echo "=== Scanning $file ==="
+                SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+                echo "$SCAN_OUTPUT"
 
-#                 if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-#                   echo "SQLite vulnerability found in $file"
-#                   SQLITE_VULNERABILITIES_FOUND=true
-#                 fi
-#               fi
-#             done
+                if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+                  echo "SQLite vulnerability found in $file"
+                  SQLITE_VULNERABILITIES_FOUND=true
+                fi
+              fi
+            done
 
-#             if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-#               echo "SQLite vulnerabilities detected in chdb libraries!"
-#             else
-#               echo "No SQLite vulnerabilities found in chdb libraries"
-#             fi
+            if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+              echo "SQLite vulnerabilities detected in chdb libraries!"
+            else
+              echo "No SQLite vulnerabilities found in chdb libraries"
+            fi
 
-#             # Show final results
-#             echo "=== Final wheel files ==="
-#             ls -la ./dist/
-#         continue-on-error: false
-#       # Check test success before upload
-#       - name: Verify test completion
-#         run: |
-#           echo "=== Verifying test completion ==="
-#           if [ ! -f ".test_success_marker" ]; then
-#             echo "ERROR: Test success marker file not found!"
-#             echo "This indicates that the wheel testing did not complete successfully."
-#             echo "Aborting upload process."
-#             exit 1
-#           fi
-#           echo "Test success marker found. All tests completed successfully."
-#           echo "Proceeding with wheel upload..."
-#         continue-on-error: false
-#       # Upload wheels to release
-#       - name: Upload wheels to release
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           echo "=== Uploading wheels to release ==="
-#           ls -la ./dist/
-#           gh release upload ${{ github.ref_name }} ./dist/*.whl --clobber
-#         env:
-#           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-#         continue-on-error: true
+            # Show final results
+            echo "=== Final wheel files ==="
+            ls -la ./dist/
+        continue-on-error: false
+      # Check test success before upload
+      - name: Verify test completion
+        run: |
+          echo "=== Verifying test completion ==="
+          if [ ! -f ".test_success_marker" ]; then
+            echo "ERROR: Test success marker file not found!"
+            echo "This indicates that the wheel testing did not complete successfully."
+            echo "Aborting upload process."
+            exit 1
+          fi
+          echo "Test success marker found. All tests completed successfully."
+          echo "Proceeding with wheel upload..."
+        continue-on-error: false
+      # Upload wheels to release
+      - name: Upload wheels to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "=== Uploading wheels to release ==="
+          ls -la ./dist/
+          gh release upload ${{ github.ref_name }} ./dist/*.whl --clobber
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+        continue-on-error: true
 
-#       - name: Setup Python and install twine for PyPI upload
-#         run: |
-#           echo "=== Setting up Python for PyPI upload ==="
-#           python3 --version
-#           python3 -m pip --version
-#           echo "=== Installing twine ==="
-#           python3 -m pip install --upgrade pip
-#           python3 -m pip install twine
-#           if ! python3 -m twine --version; then
-#             echo "ERROR: Twine installation failed!"
-#             exit 1
-#           fi
-#           echo "Twine installed successfully"
-#           ls -la ./dist/
+      - name: Setup Python and install twine for PyPI upload
+        run: |
+          echo "=== Setting up Python for PyPI upload ==="
+          python3 --version
+          python3 -m pip --version
+          echo "=== Installing twine ==="
+          python3 -m pip install --upgrade pip
+          python3 -m pip install twine
+          if ! python3 -m twine --version; then
+            echo "ERROR: Twine installation failed!"
+            exit 1
+          fi
+          echo "Twine installed successfully"
+          ls -la ./dist/
 
-#       # Upload to PyPI
-#       - name: Upload pypi
-#         if: startsWith(github.ref, 'refs/tags/v')
-#         run: |
-#           echo "=== Uploading to PyPI ==="
-#           ls -la ./dist/
-#           python3 -m twine upload dist/*.whl
-#         env:
-#           TWINE_USERNAME: __token__
-#           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      # Upload to PyPI
+      - name: Upload pypi
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          echo "=== Uploading to PyPI ==="
+          ls -la ./dist/
+          python3 -m twine upload dist/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
 
-#       # Upload artifacts
-#       - name: Upload build artifacts
-#         if: always()
-#         uses: actions/upload-artifact@v4
-#         with:
-#           name: chdb-artifacts-musllinux-aarch64
-#           path: |
-#             ./dist/*.whl
-#           overwrite: true
+      # Upload artifacts
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chdb-artifacts-musllinux-aarch64
+          path: |
+            ./dist/*.whl
+          overwrite: true
