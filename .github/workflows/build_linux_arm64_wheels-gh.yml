@@ -256,7 +256,10 @@ jobs:
           patchelf --version
       - name: Audit wheels
         run: |
-          python3 -m pip install auditwheel
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.9
+          python -m pip install auditwheel
           auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
         continue-on-error: false
       - name: Show files
