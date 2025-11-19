@@ -348,6 +348,9 @@ jobs:
       - name: Setup Python and install twine for PyPI upload
         run: |
           echo "=== Setting up Python for PyPI upload ==="
+          # Install pip if not available
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
           python3 --version
           python3 -m pip --version
           echo "=== Installing twine ==="
