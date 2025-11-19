@@ -13,11 +13,12 @@ from .connection import Connection, QueryResult
 from .executor import Executor
 from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
+from .pandas_compat import PandasCompatMixin
 
 __all__ = ['DataStore']
 
 
-class DataStore:
+class DataStore(PandasCompatMixin):
     """
     DataStore - Pandas-like data manipulation with SQL generation.
 
@@ -138,6 +139,17 @@ class DataStore:
         # Configuration
         self.is_immutable = True
         self.quote_char = '"'
+
+        # Pandas compatibility cache
+        self._cached_df: Optional[Any] = None  # Using Any to avoid pandas import here
+        self._cache_invalidated: bool = True
+        self._materialized: bool = False  # Whether this DataStore has been materialized from pandas operations
+
+        # Generate unique variable name for chDB Python() table function
+        # This ensures thread-safety and concurrent execution support
+        import uuid
+
+        self._df_var_name: str = f"__ds_df_{uuid.uuid4().hex}__"
 
     # ========== Static Factory Methods for Data Sources ==========
 
@@ -736,19 +748,39 @@ class DataStore:
         Execute the query and return results as a pandas DataFrame.
         Convenience method that combines execute() and to_df().
 
+        If the DataStore has been materialized (pandas operations applied), returns
+        the cached DataFrame. Otherwise, executes the SQL query and returns results.
+
         Returns:
             pandas DataFrame
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
             >>> df = ds.select("*").filter(ds.age > 18).to_df()
+
+            >>> # After pandas operations, uses cached result
+            >>> ds2 = ds.add_prefix("col_")
+            >>> df2 = ds2.to_df()  # Returns cached DataFrame with prefixed columns
         """
+        # If materialized (pandas operations applied), return cached DataFrame
+        if (
+            hasattr(self, '_materialized')
+            and self._materialized
+            and hasattr(self, '_cached_df')
+            and self._cached_df is not None
+        ):
+            return self._cached_df
+
+        # Otherwise, execute the SQL query
         return self.execute().to_df()
 
     def to_dict(self) -> List[Dict[str, Any]]:
         """
         Execute the query and return results as a list of dictionaries.
         Convenience method that combines execute() and to_dict().
+
+        If the DataStore has been materialized (pandas operations applied), converts
+        the cached DataFrame to dict. Otherwise, executes the SQL query.
 
         Returns:
             List of dicts where keys are column names
@@ -757,12 +789,24 @@ class DataStore:
             >>> ds = DataStore.from_file("data.csv")
             >>> records = ds.select("*").filter(ds.age > 18).to_dict()
         """
+        # If materialized, use cached DataFrame
+        if (
+            hasattr(self, '_materialized')
+            and self._materialized
+            and hasattr(self, '_cached_df')
+            and self._cached_df is not None
+        ):
+            return self._cached_df.to_dict('records')
+
+        # Otherwise, execute SQL query
         return self.execute().to_dict()
 
     def describe(self, percentiles=None, include=None, exclude=None):
         """
         Generate descriptive statistics of the data.
         Convenience method that combines execute(), to_df(), and describe().
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Args:
             percentiles: List of percentiles to include (default: [.25, .5, .75])
@@ -778,7 +822,11 @@ class DataStore:
             >>> # With custom percentiles
             >>> stats = ds.describe(percentiles=[.1, .5, .9])
         """
-        df = self.to_df()
+        # Use pandas compat layer if available, otherwise fallback
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.describe(percentiles=percentiles, include=include, exclude=exclude)
 
     def desc(self, percentiles=None, include=None, exclude=None):
@@ -805,6 +853,9 @@ class DataStore:
         Return the first n rows of the query result.
         Convenience method that applies limit and returns as DataFrame.
 
+        If DataStore is materialized, operates on cached DataFrame.
+        Otherwise, adds LIMIT to SQL query.
+
         Args:
             n: Number of rows to return (default: 5)
 
@@ -816,13 +867,20 @@ class DataStore:
             >>> first_rows = ds.select("*").head()
             >>> first_10 = ds.select("*").head(10)
         """
-        # Apply limit and return as DataFrame
+        # If materialized, use pandas head directly
+        if hasattr(self, '_materialized') and self._materialized:
+            if hasattr(self, '_get_df'):
+                return self._get_df().head(n)
+
+        # Otherwise, apply SQL LIMIT
         return self.limit(n).to_df()
 
     def tail(self, n: int = 5):
         """
         Return the last n rows of the query result.
         Convenience method that returns as DataFrame with reversed order.
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Args:
             n: Number of rows to return (default: 5)
@@ -835,13 +893,18 @@ class DataStore:
             >>> last_rows = ds.select("*").tail()
             >>> last_10 = ds.select("*").tail(10)
         """
-        # Get all data and return last n rows
-        df = self.to_df()
+        # Use _get_df if available (handles caching properly)
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.tail(n)
 
     def sample(self, n: int = None, frac: float = None, random_state: int = None):
         """
         Return a random sample of rows from the query result.
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Args:
             n: Number of rows to return (mutually exclusive with frac)
@@ -856,13 +919,19 @@ class DataStore:
             >>> sample_10 = ds.select("*").sample(n=10)
             >>> sample_20_percent = ds.select("*").sample(frac=0.2)
         """
-        df = self.to_df()
+        # Use _get_df if available (handles caching properly)
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.sample(n=n, frac=frac, random_state=random_state)
 
     @property
     def shape(self):
         """
         Return the shape (rows, columns) of the query result.
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Returns:
             Tuple of (rows, columns)
@@ -871,13 +940,19 @@ class DataStore:
             >>> ds = DataStore.from_file("data.csv")
             >>> rows, cols = ds.select("*").shape
         """
-        df = self.to_df()
+        # Use _get_df if available (handles caching properly)
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.shape
 
     @property
     def columns(self):
         """
         Return the column names of the query result.
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Returns:
             pandas Index of column names
@@ -886,12 +961,18 @@ class DataStore:
             >>> ds = DataStore.from_file("data.csv")
             >>> cols = ds.select("*").columns
         """
-        df = self.to_df()
+        # Use _get_df if available (handles caching properly)
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.columns
 
     def count(self):
         """
         Count non-null values for each column in the query result.
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Returns:
             pandas Series with counts per column
@@ -900,12 +981,18 @@ class DataStore:
             >>> ds = DataStore.from_file("data.csv")
             >>> counts = ds.select("*").count()
         """
-        df = self.to_df()
+        # Use _get_df if available (handles caching properly)
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.count()
 
     def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
         """
         Print concise summary of the query result.
+
+        Works correctly with both SQL queries and materialized DataFrames.
 
         Args:
             verbose: Whether to print full summary
@@ -918,7 +1005,11 @@ class DataStore:
             >>> ds = DataStore.from_file("data.csv")
             >>> ds.select("*").info()
         """
-        df = self.to_df()
+        # Use _get_df if available (handles caching properly)
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+        else:
+            df = self.to_df()
         return df.info(verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts)
 
     def create_table(self, schema: Dict[str, str], engine: str = "Memory") -> 'DataStore':
@@ -1039,7 +1130,7 @@ class DataStore:
         self._insert_columns = list(columns)
 
     @immutable
-    def values(self, *rows) -> 'DataStore':
+    def insert_values(self, *rows) -> 'DataStore':
         """
         Add VALUES clause to INSERT query.
 
@@ -1047,14 +1138,14 @@ class DataStore:
             *rows: Each row can be a tuple/list or individual values
 
         Example:
-            >>> ds.insert_into('id', 'name').values((1, 'Alice'), (2, 'Bob'))
-            >>> ds.insert_into('id', 'name').values(1, 'Alice').values(2, 'Bob')
+            >>> ds.insert_into('id', 'name').insert_values((1, 'Alice'), (2, 'Bob'))
+            >>> ds.insert_into('id', 'name').insert_values(1, 'Alice').insert_values(2, 'Bob')
 
         Returns:
             DataStore for chaining
         """
         if not self._insert_columns:
-            raise QueryError("Must call insert_into() before values()")
+            raise QueryError("Must call insert_into() before insert_values()")
 
         # Handle different input formats
         if len(rows) == 1 and isinstance(rows[0], (list, tuple)):
@@ -1065,7 +1156,7 @@ class DataStore:
             for row in rows:
                 self._insert_values.append(list(row))
         else:
-            # Individual values: values(1, 'Alice')
+            # Individual values: insert_values(1, 'Alice')
             self._insert_values.append(list(rows))
 
     @immutable
@@ -1128,6 +1219,9 @@ class DataStore:
         """
         Select specific columns.
 
+        If DataStore is materialized (pandas operations applied), selects columns
+        from cached DataFrame. Otherwise, builds SQL SELECT clause.
+
         Args:
             *fields: Column names (strings) or Expression objects
 
@@ -1135,6 +1229,35 @@ class DataStore:
             >>> ds.select("name", "age")
             >>> ds.select(ds.name, ds.age + 1)
         """
+        # If materialized, operate on cached DataFrame using chDB
+        if hasattr(self, '_materialized') and self._materialized and self._cached_df is not None:
+            # Build SELECT clause
+            if not fields or (len(fields) == 1 and fields[0] == "*"):
+                # SELECT * - return as is
+                return self
+
+            # Extract column specifications
+            select_items = []
+            for field in fields:
+                if isinstance(field, str):
+                    select_items.append(f'"{field}"')
+                elif isinstance(field, Field):
+                    select_items.append(f'"{field.name}"')
+                elif isinstance(field, Expression):
+                    # Complex expression - use SQL
+                    select_items.append(field.to_sql(quote_char=self.quote_char))
+                else:
+                    select_items.append(str(field))
+
+            # Build SQL query on Python() table function
+            # Use the unique variable name for thread-safety
+            df_var_name = getattr(self, '_df_var_name', '__datastore_cached_df__')
+            select_clause = ', '.join(select_items)
+            sql = f"SELECT {select_clause} FROM Python({df_var_name})"
+
+            return self._execute_sql_on_dataframe(sql)
+
+        # Otherwise, build SQL SELECT
         for field in fields:
             if isinstance(field, str):
                 # Special case: "*" means SELECT *
@@ -1146,10 +1269,55 @@ class DataStore:
                 field = Field(field)
             self._select_fields.append(field)
 
+    def _execute_sql_on_dataframe(self, sql: str) -> 'DataStore':
+        """
+        Execute SQL query on the cached DataFrame using chDB.
+
+        This method is used when DataStore is materialized and SQL-style operations
+        are applied. It leverages chDB's Python() table function to run SQL directly
+        on the cached DataFrame.
+
+        Uses a unique variable name per DataStore instance for thread-safety and
+        concurrent execution support.
+
+        Args:
+            sql: SQL query to execute (should reference Python() table function)
+
+        Returns:
+            New DataStore with query result
+        """
+        if not self._materialized or self._cached_df is None:
+            raise ValueError("DataStore must be materialized to execute SQL on DataFrame")
+
+        try:
+            import chdb
+        except ImportError:
+            raise ImportError("chdb is required for SQL operations on materialized DataFrames")
+
+        # Use the unique variable name for this DataStore instance
+        # This ensures thread-safety and supports concurrent execution
+        df_var_name = self._df_var_name
+
+        # Register the DataFrame in the global namespace temporarily
+        # chDB needs access to the DataFrame variable
+        globals()[df_var_name] = self._cached_df
+
+        try:
+            # Execute SQL and get result as DataFrame
+            result_df = chdb.query(sql, 'DataFrame')
+            return self._wrap_result(result_df)
+        finally:
+            # Clean up global namespace
+            if df_var_name in globals():
+                del globals()[df_var_name]
+
     @immutable
     def filter(self, condition: Union[Condition, str]) -> 'DataStore':
         """
         Filter rows (WHERE clause).
+
+        If DataStore is materialized, applies filter on cached DataFrame using chDB.
+        Otherwise, builds SQL WHERE clause.
 
         Args:
             condition: Condition object or SQL string
@@ -1158,6 +1326,22 @@ class DataStore:
             >>> ds.filter(ds.age > 18)
             >>> ds.filter((ds.age > 18) & (ds.city == 'NYC'))
         """
+        # If materialized, execute filter on cached DataFrame
+        if hasattr(self, '_materialized') and self._materialized and self._cached_df is not None:
+            # Convert condition to SQL WHERE clause
+            if isinstance(condition, str):
+                where_clause = condition
+            else:
+                where_clause = condition.to_sql(quote_char=self.quote_char)
+
+            # Build SQL query on the Python() table function
+            # Use the unique variable name for thread-safety
+            df_var_name = getattr(self, '_df_var_name', '__datastore_cached_df__')
+            sql = f"SELECT * FROM Python({df_var_name}) WHERE {where_clause}"
+
+            return self._execute_sql_on_dataframe(sql)
+
+        # Otherwise, build SQL WHERE clause
         if isinstance(condition, str):
             # TODO: Parse string conditions
             raise NotImplementedError("String conditions not yet implemented")
@@ -1168,18 +1352,35 @@ class DataStore:
             # Combine with existing condition using AND
             self._where_condition = self._where_condition & condition
 
-    @immutable
-    def where(self, condition: Union[Condition, str]) -> 'DataStore':
+    def where(self, condition: Union[Condition, str], other=None, **kwargs) -> 'DataStore':
         """
-        Filter rows (WHERE clause). Alias for filter().
+        Filter rows or replace values conditionally.
+
+        This method handles both:
+        1. SQL-style WHERE clause (1 argument): Alias for filter()
+        2. Pandas-style where (2+ arguments): Conditional replacement
 
         Args:
-            condition: Condition object or SQL string
+            condition: Condition object, SQL string, or pandas condition
+            other: Value to replace where condition is False (pandas-style)
+            **kwargs: Additional pandas where() arguments
 
         Example:
+            >>> # SQL-style (1 argument)
             >>> ds.where(ds.age > 18)
-            >>> ds.where((ds.age > 18) & (ds.city == 'NYC'))
+            >>>
+            >>> # Pandas-style (2+ arguments)
+            >>> ds.where(ds['age'] > 18, 0)  # Replace False values with 0
         """
+        # If multiple arguments or kwargs, delegate to pandas where()
+        if other is not None or kwargs:
+            # Pandas-style where() - delegate to mixin
+            if hasattr(super(), 'where'):
+                return super().where(condition, other=other, **kwargs)
+            # Fallback if no mixin
+            raise NotImplementedError("Pandas-style where() requires pandas compatibility layer")
+
+        # Otherwise, SQL-style filter
         return self.filter(condition)
 
     @immutable
@@ -1357,18 +1558,19 @@ class DataStore:
         self._alias = alias
         self._is_subquery = True
 
-    def __getitem__(self, key: Union[int, slice]) -> 'DataStore':
+    def __getitem__(self, key: Union[int, slice, str, List[str]]) -> 'DataStore':
         """
-        Support slice notation for LIMIT and OFFSET.
+        Support slice notation for LIMIT and OFFSET, and column selection for pandas compatibility.
 
         Examples:
             >>> ds[:10]          # LIMIT 10
             >>> ds[10:]          # OFFSET 10
             >>> ds[10:20]        # LIMIT 10 OFFSET 10
+            >>> ds['column']     # Select column (pandas compat)
+            >>> ds[['col1', 'col2']]  # Select multiple columns (pandas compat)
         """
-        new_ds = copy(self)
-
         if isinstance(key, slice):
+            new_ds = copy(self)
             start, stop, step = key.start, key.stop, key.step
 
             if step is not None:
@@ -1385,10 +1587,16 @@ class DataStore:
             elif start is not None:
                 # ds[start:] -> OFFSET start
                 new_ds._offset_value = start
+            return new_ds
+        elif isinstance(key, (str, list)):
+            # Pandas-style column selection - delegate to mixin
+            if hasattr(super(), '__getitem__'):
+                return super().__getitem__(key)
+            # Fallback: use pandas directly if no mixin
+            result = self._get_df()[key]
+            return self._wrap_result(result)
         else:
-            raise TypeError("DataStore indices must be slices, not integers")
-
-        return new_ds
+            raise TypeError(f"DataStore indices must be slices, strings, or lists, not {type(key).__name__}")
 
     # ========== SQL Generation ==========
 
@@ -1665,6 +1873,12 @@ class DataStore:
 
         # Share connection, executor, and table_function (not deep copied)
         # Each copy can share the same connection
+
+        # Handle pandas compatibility cache
+        # If not materialized, invalidate cache on copy (new query state)
+        # If materialized, keep the cache (no SQL query to re-execute)
+        if not hasattr(self, '_materialized') or not self._materialized:
+            new_ds._cache_invalidated = True
 
         return new_ds
 
