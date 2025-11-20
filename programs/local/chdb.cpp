@@ -468,6 +468,8 @@ const std::string & chdb_streaming_result_error_string(chdb_streaming_result * r
 
 chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
 {
+    /// Release GIL during connection mutex acquisition to prevent deadlock
+    py::gil_scoped_release release;
     std::lock_guard<std::shared_mutex> global_lock(global_connection_mutex);
 
     std::string path = ":memory:"; // Default path
