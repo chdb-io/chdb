@@ -83,6 +83,8 @@ class TerminalKeystrokeInterceptor;
 class WriteBufferFromFileDescriptor;
 struct Settings;
 struct MergeTreeSettings;
+class ThreadGroup;
+using ThreadGroupPtr = std::shared_ptr<ThreadGroup>;
 
 struct StreamingQueryContext
 {
@@ -90,6 +92,7 @@ struct StreamingQueryContext
     ASTPtr parsed_query;
     void * streaming_result = nullptr;
     bool is_streaming_query = true;
+    ThreadGroupPtr thread_group = nullptr; 
 
     StreamingQueryContext() = default;
 };

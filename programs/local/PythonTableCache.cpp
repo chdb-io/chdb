@@ -6,8 +6,6 @@
 
 namespace CHDB {
 
-std::unordered_map<String, py::handle> PythonTableCache::py_table_cache;
-
 /// Function to find instance of PyReader, pandas DataFrame, or PyArrow Table, filtered by variable name
 static py::object findQueryableObj(const String & var_name)
 {

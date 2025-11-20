@@ -4,9 +4,6 @@ import chdb
 from ..state import sqlitelike as chdb_stateful
 from ..state.sqlitelike import StreamingResult
 
-g_session = None
-g_session_path = None
-
 
 class Session:
     """
@@ -35,21 +32,15 @@ class Session:
         - "mode=ro" would be "--readonly=1" for clickhouse (read-only mode)
 
     Important:
-        - There can be only one session at a time. If you want to create a new session, you need to close the existing one.
-        - Creating a new session will close the existing one.
+        - Multiple sessions can coexist. Each session has its own connection and database context.
+        - Sessions are thread-safe: Multiple threads can safely use the same session concurrently.
+        - Internal mutexes protect concurrent access to the underlying connection and client.
+        - For optimal performance in multi-threaded scenarios, consider creating a separate session for each thread
+          to avoid lock contention, though sharing a session across threads is safe.
     """
 
     def __init__(self, path=None):
         self._conn = None
-        global g_session, g_session_path
-        if g_session is not None:
-            warnings.warn(
-                "There is already an active session. Creating a new session will close the existing one. "
-                "It is recommended to close the existing session before creating a new one. "
-                f"Closing the existing session {g_session_path}"
-            )
-            g_session.close()
-            g_session_path = None
         if path is None:
             self._path = ":memory:"
         else:
@@ -68,8 +59,6 @@ class Session:
             self._udf_path = ""
             self._conn_str = f"{self._path}"
         self._conn = chdb_stateful.Connection(self._conn_str)
-        g_session = self
-        g_session_path = self._path
 
     def __del__(self):
         self.close()
@@ -102,9 +91,6 @@ class Session:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
-        global g_session, g_session_path
-        g_session = None
-        g_session_path = None
 
     def cleanup(self):
         """Cleanup session resources with exception handling.
