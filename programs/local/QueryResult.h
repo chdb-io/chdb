@@ -64,6 +64,9 @@ public:
 
     String string()
     {
+        if (!result_buffer)
+            return {};
+
         return String(result_buffer->begin(), result_buffer->end());
     }
 
