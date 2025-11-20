@@ -14,6 +14,7 @@ on:
     paths-ignore:
       - '**/*.md'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
     paths-ignore:
@@ -24,6 +25,7 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux x86_64)
     runs-on: gh-64c
+    if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Install Python build dependencies
         run: |
