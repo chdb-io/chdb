@@ -276,7 +276,7 @@ jobs:
               echo "Installation completed at: $(date)"
 
               echo "Running basic query test..."
-              python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print('Python test:', res)"
+              python -c "import chdb; res = chdb.query(\"select 1112222222,555\", \"CSV\"); print(\"Python test:\", res)"
 
               echo "Running full test suite..."
               if make test; then
@@ -306,30 +306,6 @@ jobs:
             echo "Creating test success marker..."
             touch /workspace/.test_success_marker
             echo "Test success marker created at: $(date)"
-
-            # 8. Scan chdb libraries
-            echo "=== Scanning chdb libraries ==="
-            FILES_TO_SCAN="$(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
-            SQLITE_VULNERABILITIES_FOUND=false
-
-            for file in $FILES_TO_SCAN; do
-              if [ -f "$file" ]; then
-                echo "=== Scanning $file ==="
-                SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-                echo "$SCAN_OUTPUT"
-
-                if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                  echo "SQLite vulnerability found in $file"
-                  SQLITE_VULNERABILITIES_FOUND=true
-                fi
-              fi
-            done
-
-            if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-              echo "SQLite vulnerabilities detected in chdb libraries!"
-            else
-              echo "No SQLite vulnerabilities found in chdb libraries"
-            fi
 
             # Show final results
             echo "=== Final wheel files ==="
