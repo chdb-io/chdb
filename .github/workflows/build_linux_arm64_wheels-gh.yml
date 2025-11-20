@@ -67,6 +67,8 @@ jobs:
         continue-on-error: true
       - name: Setup pyenv
         run: |
+          # Remove existing pyenv installation if present
+          rm -rf $HOME/.pyenv
           curl https://pyenv.run | bash
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"

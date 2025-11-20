@@ -64,11 +64,11 @@ jobs:
             echo "=== Configure git safe directory ==="
             git config --global --add safe.directory /workspace
             git describe --tags
-            python3 -c "import sys; sys.path.append('.'); from setup import get_latest_git_tag; print('version:', get_latest_git_tag())"
+            python3 -c 'import sys; sys.path.append("."); from setup import get_latest_git_tag; print("version:", get_latest_git_tag())'
 
             # 1. Check system info
             echo "=== Container System Info ==="
-            echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'"' -f2)"
+            echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2)"
             if [ -f /lib/ld-musl-aarch64.so.1 ]; then
               echo "musl libc aarch64"
             elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
@@ -157,7 +157,7 @@ jobs:
             # Update version for release (if triggered by tag)
             if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
               pyenv shell 3.9
-              
+
               # Install bump-my-version
               python -m pip install bump-my-version
               TAG_NAME=${GITHUB_REF#refs/tags/v}
@@ -276,7 +276,7 @@ jobs:
               echo "Installation completed at: $(date)"
 
               echo "Running basic query test..."
-              python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+              python -c 'import chdb; res = chdb.query("select 1112222222,555", "CSV"); print("Python test:", res)'
 
               echo "Running full test suite..."
               if make test; then
