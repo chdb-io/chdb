@@ -24,6 +24,22 @@ jobs:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: [self-hosted, linux, arm64, ubuntu-latest]
     steps:
+      - name: Setup Docker permissions
+        run: |
+          # Ensure Docker is running
+          sudo systemctl start docker
+          sudo systemctl enable docker
+
+          # Add current user to docker group
+          sudo usermod -aG docker $USER
+
+          # Set proper permissions on docker socket
+          sudo chmod 666 /var/run/docker.sock
+
+          # Verify Docker is working
+          docker --version
+          docker info
+
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
