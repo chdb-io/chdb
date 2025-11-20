@@ -26,6 +26,10 @@ jobs:
     steps:
       - name: Setup Docker permissions
         run: |
+          # Update Docker to latest version
+          curl -fsSL https://get.docker.com -o get-docker.sh
+          sudo sh get-docker.sh
+
           # Ensure Docker is running
           sudo systemctl start docker
           sudo systemctl enable docker
