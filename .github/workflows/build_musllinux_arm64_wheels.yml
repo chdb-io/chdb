@@ -276,7 +276,7 @@ jobs:
               echo "Installation completed at: $(date)"
 
               echo "Running basic query test..."
-              python -c 'import chdb; res = chdb.query("select 1112222222,555", "CSV"); print("Python test:", res)'
+              python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print('Python test:', res)"
 
               echo "Running full test suite..."
               if make test; then
