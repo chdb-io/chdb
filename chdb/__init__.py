@@ -193,11 +193,13 @@ def query(sql, output_format="CSV", path="", udf_path=""):
 
     with g_conn_lock:
         conn = _chdb.connect(conn_str)
-        res = conn.query(sql, output_format)
 
         if lower_output_format == "dataframe":
+            res = conn.query_df(sql)
             conn.close()
             return res
+
+        res = conn.query(sql, output_format)
 
         if res.has_error():
             conn.close()

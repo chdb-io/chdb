@@ -67,12 +67,13 @@ def to_arrowTable(res):
 
 
 class StreamingResult:
-    def __init__(self, c_result, conn, result_func, supports_record_batch):
+    def __init__(self, c_result, conn, result_func, supports_record_batch, is_dataframe):
         self._result = c_result
         self._result_func = result_func
         self._conn = conn
         self._exhausted = False
         self._supports_record_batch = supports_record_batch
+        self._is_dataframe = is_dataframe
 
     def fetch(self):
         """Fetch the next chunk of streaming results.
@@ -108,12 +109,16 @@ class StreamingResult:
             return None
 
         try:
-            result = self._conn.streaming_fetch_result(self._result)
-            if (result is None or
-                    (hasattr(result, 'rows_read') and result.rows_read() == 0) or
-                    (hasattr(result, 'empty') and result.empty)):
-                self._exhausted = True
-                return None
+            if self._is_dataframe:
+                result = self._conn.streaming_fetch_df(self._result)
+                if (result is None or result.empty):
+                    self._exhausted = True
+                    return None
+            else:
+                result = self._conn.streaming_fetch_result(self._result)
+                if (result is None or result.rows_read() == 0):
+                    self._exhausted = True
+                    return None
             return self._result_func(result)
         except Exception as e:
             self._exhausted = True
@@ -455,7 +460,10 @@ class Connection:
         if lower_output_format in _arrow_format:
             format = "Arrow"
 
-        result = self._conn.query(query, format)
+        if lower_output_format == "dataframe":
+            result = self._conn.query_df(query)
+        else:
+            result = self._conn.query(query, format)
         return result_func(result)
 
     def send_query(self, query: str, format: str = "CSV") -> StreamingResult:
@@ -524,7 +532,8 @@ class Connection:
             format = "Arrow"
 
         c_stream_result = self._conn.send_query(query, format)
-        return StreamingResult(c_stream_result, self._conn, result_func, supports_record_batch)
+        is_dataframe = lower_output_format == "dataframe"
+        return StreamingResult(c_stream_result, self._conn, result_func, supports_record_batch, is_dataframe)
 
     def __enter__(self):
         """Enter the context manager and return the connection.

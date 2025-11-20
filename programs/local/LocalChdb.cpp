@@ -79,29 +79,13 @@ chdb_result * queryToBuffer(
 
 // Pybind11 will take over the ownership of the `query_result` object
 // using smart ptr will cause early free of the object
-py::object query(
+query_result * query(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
     const std::string & udfPath = {})
 {
-    auto * result = queryToBuffer(queryStr, output_format, path, udfPath);
-
-    if (Poco::toLower(output_format) == "dataframe")
-    {
-        chdb_destroy_query_result(result);
-
-        auto * builder = CHDB::getGlobalDataFrameBuilder();
-        if (!builder)
-            throw std::runtime_error("Global DataFrame builder is not initialized");
-
-        auto ret = builder->getDataFrame();
-        CHDB::resetGlobalDataFrameBuilder();
-        return ret;
-    }
-
-    // Default behavior - return query_result
-    return py::cast(new query_result(result));
+    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
@@ -279,42 +263,56 @@ void connection_wrapper::commit()
     // do nothing
 }
 
-py::object connection_wrapper::query(const std::string & query_str, const std::string & format)
+query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
+{
+    if (Poco::toLower(format) == "dataframe")
+        throw std::runtime_error("Unsupported format: dataframe");
+
+    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
+
+    py::gil_scoped_release release;
+    auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+    if (chdb_result_length(result))
+    {
+        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
+    }
+
+    auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
+    {
+        std::string msg_copy(error_msg);
+        chdb_destroy_query_result(result);
+        throw std::runtime_error(msg_copy);
+    }
+    return new query_result(result, false);
+}
+
+py::object connection_wrapper::query_df(const std::string & query_str)
 {
     CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
+    const std::string format = "dataframe";
+
     chdb_result * result = nullptr;
+    py::gil_scoped_release release;
+    result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+    auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
     {
-        py::gil_scoped_release release;
-        result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
-        auto error_msg = CHDB::chdb_result_error_string(result);
-        if (!error_msg.empty())
-        {
-            std::string msg_copy(error_msg);
-            chdb_destroy_query_result(result);
-            CHDB::resetGlobalDataFrameBuilder();
-            throw std::runtime_error(msg_copy);
-        }
-
-        if (Poco::toLower(format) == "dataframe")
-        {
-            chdb_destroy_query_result(result);
-            auto * builder = CHDB::getGlobalDataFrameBuilder();
-            if (!builder)
-                throw std::runtime_error("Global DataFrame builder is not initialized");
-
-            auto ret = builder->getDataFrame();
-            CHDB::resetGlobalDataFrameBuilder();
-            return ret;
-        }
-
-        if (chdb_result_length(result))
-        {
-            LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
-        }
+        std::string msg_copy(error_msg);
+        chdb_destroy_query_result(result);
+        CHDB::resetGlobalDataFrameBuilder();
+        throw std::runtime_error(msg_copy);
     }
 
-    return py::cast(new query_result(result, false));
+    chdb_destroy_query_result(result);
+    auto * builder = CHDB::getGlobalDataFrameBuilder();
+    if (!builder)
+        throw std::runtime_error("Global DataFrame builder is not initialized");
+
+    auto ret = builder->getDataFrame();
+    CHDB::resetGlobalDataFrameBuilder();
+    return ret;
 }
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
@@ -334,7 +332,30 @@ streaming_query_result * connection_wrapper::send_query(const std::string & quer
     return new streaming_query_result(result);
 }
 
-py::object connection_wrapper::streaming_fetch_result(streaming_query_result * streaming_result)
+query_result * connection_wrapper::streaming_fetch_result(streaming_query_result * streaming_result)
+{
+    py::gil_scoped_release release;
+
+    if (!streaming_result || !streaming_result->get_result())
+        return nullptr;
+
+    auto * result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
+
+    if (chdb_result_length(result) == 0)
+        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
+
+    const auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
+    {
+        std::string msg_copy(error_msg);
+        chdb_destroy_query_result(result);
+        throw std::runtime_error(msg_copy);
+    }
+
+    return new query_result(result, false);
+}
+
+py::object connection_wrapper::streaming_fetch_df(streaming_query_result * streaming_result)
 {
     if (!streaming_result || !streaming_result->get_result())
         return py::none();
@@ -345,15 +366,12 @@ py::object connection_wrapper::streaming_fetch_result(streaming_query_result * s
         py::gil_scoped_release release;
         result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
 
-        const auto result_len = chdb_result_length(result);
-        if (result_len == 0)
-            LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
-
         const auto error_msg = CHDB::chdb_result_error_string(result);
         if (!error_msg.empty())
         {
             std::string msg_copy(error_msg);
             chdb_destroy_query_result(result);
+            CHDB::resetGlobalDataFrameBuilder();
             throw std::runtime_error(msg_copy);
         }
 
@@ -365,9 +383,13 @@ py::object connection_wrapper::streaming_fetch_result(streaming_query_result * s
             CHDB::resetGlobalDataFrameBuilder();
             return ret;
         }
+        else
+        {
+            chdb_destroy_query_result(result);
+        }
     }
 
-    return py::cast(new query_result(result, false));
+    return py::none();
 }
 
 void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)
@@ -529,7 +551,12 @@ PYBIND11_MODULE(_chdb, m)
             &connection_wrapper::query,
             py::arg("query_str"),
             py::arg("format") = "CSV",
-            "Execute a query and return a query_result object or DataFrame")
+            "Execute a query and return a query_result object")
+        .def(
+            "query_df",
+            &connection_wrapper::query_df,
+            py::arg("query_str"),
+            "Execute a query and return a DataFrame")
         .def(
             "send_query",
             &connection_wrapper::send_query,
@@ -541,6 +568,11 @@ PYBIND11_MODULE(_chdb, m)
             &connection_wrapper::streaming_fetch_result,
                 py::arg("streaming_result"),
                 "Fetches a data chunk from the streaming result. This function should be called repeatedly until the result is exhausted")
+        .def(
+            "streaming_fetch_df",
+            &connection_wrapper::streaming_fetch_df,
+                py::arg("streaming_result"),
+                "Fetches a DataFrame from the streaming result. This function should be called repeatedly until the result is exhausted")
         .def(
             "streaming_cancel_query",
             &connection_wrapper::streaming_cancel_query,
@@ -562,6 +594,7 @@ PYBIND11_MODULE(_chdb, m)
         CHDB::chdbCleanupConnection();
         CHDB::PythonTableCache::clear();
 		CHDB::PythonImporter::destroy();
+        CHDB::resetGlobalDataFrameBuilder();
 	};
 	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }

@@ -134,6 +134,13 @@ class TestStreamingDataFrame(unittest.TestCase):
         stream_result = self.sess.send_query("SELECT number FROM numbers(10)", "DataFrame")
         stream_result.cancel()
 
+    def test_large_dataframe(self):
+        total_rows = 0
+        with self.sess.send_query("SELECT * FROM numbers(1073741824)", "DataFrame") as stream:
+            for df in stream:
+                total_rows += len(df)
+        self.assertEqual(total_rows, 1073741824)
+
 
 if __name__ == "__main__":
     unittest.main()
