@@ -93,7 +93,7 @@ class PandasCompatMixin:
             # Cache data source description before materialization (for explain())
             if hasattr(self, '_get_data_source_description'):
                 self._get_data_source_description()
-            
+
             # Execute the SQL query directly (avoid recursion with to_df)
             result = self.execute()
             self._cached_df = result.to_df()
