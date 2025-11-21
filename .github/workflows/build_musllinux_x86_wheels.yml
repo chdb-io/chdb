@@ -14,6 +14,7 @@
 #     paths-ignore:
 #       - '**/*.md'
 #   pull_request:
+#     types: [opened, synchronize, reopened, ready_for_review]
 #     branches:
 #       - main
 #     paths-ignore:
@@ -24,6 +25,7 @@
 #   build_musllinux_wheels:
 #     name: Build musllinux wheels (Alpine Linux x86_64)
 #     runs-on: gh-64c
+#     if: ${{ !github.event.pull_request.draft }}
 #     container:
 #       image: quay.io/pypa/musllinux_1_2_x86_64
 #       options: --privileged
