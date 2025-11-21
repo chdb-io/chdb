@@ -70,7 +70,7 @@ jobs:
 
             # 1. Check system info
             echo "=== Container System Info ==="
-            echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d'\"' -f2)"
+            echo "System: $(uname -m) $(cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"')"
             if [ -f /lib/ld-musl-aarch64.so.1 ]; then
               echo "musl libc aarch64"
             elif [ -f /lib/libc.musl-aarch64.so.1 ]; then
@@ -259,7 +259,7 @@ jobs:
             echo "Wheel file details:"
             file dist/*.whl
 
-            TOTAL_TESTS=5
+            TOTAL_TESTS=6
             CURRENT_TEST=0
             TEST_FAILED=false
 
