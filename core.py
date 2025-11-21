@@ -151,6 +151,244 @@ class DataStore(PandasCompatMixin):
 
         self._df_var_name: str = f"__ds_df_{uuid.uuid4().hex}__"
 
+        # Operation tracking for explain()
+        self._operation_history: List[Dict[str, Any]] = []
+        self._original_source_desc: Optional[str] = None  # Preserve original data source for explain()
+
+    # ========== Operation Tracking for explain() ==========
+
+    def _track_operation(self, op_type: str, description: str, details: Dict[str, Any] = None):
+        """
+        Track an operation for explain() output.
+
+        Args:
+            op_type: Type of operation ('sql', 'pandas', 'materialize')
+            description: Human-readable description
+            details: Additional details about the operation
+        """
+        # Determine if this operation is on a materialized DataFrame
+        is_on_dataframe = getattr(self, '_materialized', False) and op_type != 'materialize'
+
+        operation = {
+            'type': op_type,
+            'description': description,
+            'details': details or {},
+            'is_on_dataframe': is_on_dataframe,
+            'materialized_at_call': self._materialized if hasattr(self, '_materialized') else False,
+        }
+        self._operation_history.append(operation)
+
+    def _get_data_source_description(self):
+        """Get a description of the data source."""
+        # Return cached description if available
+        if hasattr(self, '_original_source_desc') and self._original_source_desc:
+            return self._original_source_desc
+
+        # Generate and cache description
+        desc = None
+        if self._table_function:
+            # Show table function
+            sql = self._table_function.to_sql(quote_char=self.quote_char)
+            if len(sql) > 100:
+                sql = sql[:97] + "..."
+            desc = f"Data Source: {sql}"
+        elif self.table_name:
+            # Show table name
+            desc = f"Data Source: Table '{self.table_name}'"
+
+        # Cache for future use (survives materialization)
+        if desc and (not hasattr(self, '_original_source_desc') or not self._original_source_desc):
+            self._original_source_desc = desc
+
+        return desc
+
+    def _analyze_execution_phases(self):
+        """Analyze operation history and group operations into execution phases."""
+        if not self._operation_history:
+            return [], None, []
+
+        # Find the materialization point
+        mat_idx = next((i for i, op in enumerate(self._operation_history) if op['type'] == 'materialize'), None)
+
+        if mat_idx is not None:
+            # Explicit materialization operation present
+            return (
+                self._operation_history[:mat_idx],
+                self._operation_history[mat_idx],
+                self._operation_history[mat_idx + 1 :],
+            )
+
+        # No explicit materialization - split by is_on_dataframe flag
+        lazy = [op for op in self._operation_history if not op.get('is_on_dataframe', False)]
+        materialized = [op for op in self._operation_history if op.get('is_on_dataframe', False)]
+
+        # If there are only materialized ops, the first one becomes the implicit materialization point
+        if materialized and not lazy and materialized[0]['type'] in ['pandas', 'materialize']:
+            return [], materialized[0], materialized[1:]
+
+        # If both exist, the first materialized operation is the implicit materialization point
+        if lazy and materialized:
+            return lazy, materialized[0], materialized[1:]
+
+        return lazy, None, materialized
+
+    def _render_operations(self, operations, start_num=1, verbose=False):
+        """Render a list of operations."""
+        lines = []
+        for i, op in enumerate(operations, start_num):
+            icon = {'sql': '🔍', 'pandas': '🐼', 'materialize': '🔄'}.get(op['type'], '📝')
+            desc = (
+                f"SQL on DataFrame: {op['description']}"
+                if op['type'] == 'sql' and op.get('is_on_dataframe')
+                else f"{op['type'].upper()}: {op['description']}"
+            )
+            lines.append(f" [{i}] {icon} {desc}")
+            if verbose and op.get('details'):
+                for k, v in op['details'].items():
+                    lines.append(f"     └─ {k}: {v}")
+        return lines
+
+    def explain(self, verbose: bool = False) -> str:
+        """
+        Generate and display the execution plan showing SQL and Pandas operations.
+
+        This method provides insight into how DataStore will execute the query chain,
+        showing which operations are SQL (lazy), which trigger materialization (pandas),
+        and which operate on cached DataFrames.
+
+        Args:
+            verbose: If True, show additional details like full SQL queries
+
+        Returns:
+            String representation of the execution plan
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> result = (ds.select('*')
+            ...             .filter(ds.age > 25)
+            ...             .add_prefix('p1_')
+            ...             .filter(ds.p1_salary > 55000))
+            >>> print(result.explain())
+        """
+        # Ensure data source description is cached before analysis
+        if not hasattr(self, '_original_source_desc') or not self._original_source_desc:
+            self._get_data_source_description()
+
+        lines = []
+        lines.append("=" * 80)
+        lines.append("Execution Plan")
+        lines.append("=" * 80)
+
+        if not self._operation_history and not self._materialized:
+            # No operation history tracked, show current state analysis
+            lines.append("\nCurrent State Analysis:")
+            lines.append("─" * 80)
+
+            if self._is_sql_query():
+                lines.append("\n📊 SQL Query (Not Yet Executed)")
+                lines.append("─" * 40)
+                sql = self.to_sql()
+                if verbose or len(sql) < 200:
+                    lines.append(f"\n{sql}")
+                else:
+                    lines.append(f"\n{sql[:200]}...")
+                    lines.append(f"\n[Query truncated. Use explain(verbose=True) for full query]")
+
+            if self._materialized:
+                lines.append("\n✅ Materialized State")
+                lines.append("─" * 40)
+                lines.append("• DataFrame is cached in memory")
+                lines.append("• No SQL query will be executed")
+                if hasattr(self, '_cached_df') and self._cached_df is not None:
+                    lines.append(f"• Cached DataFrame shape: {self._cached_df.shape}")
+
+        else:
+            # Analyze execution phases
+            lazy_ops, mat_op, materialized_ops = self._analyze_execution_phases()
+            counter = 0
+
+            # Show data source if no lazy SQL operations were tracked
+            data_source_desc = self._get_data_source_description()
+            show_data_source = data_source_desc and not lazy_ops
+
+            # Phase 1: data source or lazy SQL operations
+            if show_data_source or len(lazy_ops) > 0:
+                lines.append("\nPhase 1: SQL Query Building (Lazy)")
+                lines.append("─" * 80)
+
+                if show_data_source:
+                    # Show data source as first operation
+                    counter += 1
+                    lines.append(f" [{counter}] 📊 {data_source_desc}")
+
+                if lazy_ops:
+                    # Show tracked lazy operations
+                    lines.extend(self._render_operations(lazy_ops, counter + 1, verbose))
+                    counter += len(lazy_ops)
+
+            # Phase 2: materialization point
+            if mat_op:
+                lines.append("\nPhase 2: Materialization Point")
+                lines.append("─" * 80)
+                counter += 1
+                lines.append(f" [{counter}] 🔄 {mat_op['description']}")
+                msg = (
+                    "Executes SQL query and caches result as DataFrame"
+                    if lazy_ops or show_data_source
+                    else "Executes query and caches result as DataFrame"
+                )
+                lines.append(f"     └─> {msg}")
+                if verbose and mat_op.get('details'):
+                    for k, v in mat_op['details'].items():
+                        lines.append(f"         • {k}: {v}")
+
+            # Phase 3: operations after materialization
+            if materialized_ops:
+                lines.append("\nPhase 3: Operations on Materialized DataFrame")
+                lines.append("─" * 80)
+                lines.extend(self._render_operations(materialized_ops, counter + 1, verbose))
+
+            # Current state
+            lines.append("\n" + "─" * 80)
+            if self._materialized:
+                lines.append("Final State: ✅ Materialized DataFrame (cached)")
+                lines.append("             └─> No database query will be executed")
+                if hasattr(self, '_cached_df') and self._cached_df is not None:
+                    lines.append(f"             └─> Shape: {self._cached_df.shape}")
+            else:
+                lines.append("Final State: 📊 SQL Query (lazy, not yet executed)")
+                lines.append("             └─> Will execute when .execute() or .to_df() is called")
+
+        # Show SQL that would be executed
+        if not self._materialized and self._is_sql_query():
+            lines.append("\n" + "─" * 80)
+            lines.append("Generated SQL Query:")
+            lines.append("─" * 80)
+            sql = self.to_sql()
+            lines.append(f"\n{sql}\n")
+
+        lines.append("=" * 80)
+
+        output = "\n".join(lines)
+        print(output)
+        return output
+
+    def _is_sql_query(self) -> bool:
+        """Check if this DataStore represents a SQL query."""
+        return (
+            self._select_fields
+            or self._where_condition
+            or self._joins
+            or self._groupby_fields
+            or self._having_condition
+            or self._orderby_fields
+            or self._limit_value is not None
+            or self._offset_value is not None
+            or self._distinct
+            or self._table_function is not None
+            or self.table_name is not None
+        )
+
     # ========== Static Factory Methods for Data Sources ==========
 
     @classmethod
@@ -1229,8 +1467,13 @@ class DataStore(PandasCompatMixin):
             >>> ds.select("name", "age")
             >>> ds.select(ds.name, ds.age + 1)
         """
+        # Track operation
+        field_names = ', '.join([str(f) for f in fields]) if fields else '*'
+
         # If materialized, operate on cached DataFrame using chDB
         if hasattr(self, '_materialized') and self._materialized and self._cached_df is not None:
+            self._track_operation('sql', f"SELECT {field_names}", {'on_dataframe': True})
+
             # Build SELECT clause
             if not fields or (len(fields) == 1 and fields[0] == "*"):
                 # SELECT * - return as is
@@ -1258,6 +1501,8 @@ class DataStore(PandasCompatMixin):
             return self._execute_sql_on_dataframe(sql)
 
         # Otherwise, build SQL SELECT
+        self._track_operation('sql', f"SELECT {field_names}", {'lazy': True})
+
         for field in fields:
             if isinstance(field, str):
                 # Special case: "*" means SELECT *
@@ -1305,7 +1550,16 @@ class DataStore(PandasCompatMixin):
         try:
             # Execute SQL and get result as DataFrame
             result_df = chdb.query(sql, 'DataFrame')
-            return self._wrap_result(result_df)
+
+            # Import PandasCompatMixin to access _wrap_result if available
+            if hasattr(self, '_wrap_result'):
+                # Pass None for operation_name since it's already tracked in select/filter
+                return self._wrap_result(result_df, None)
+            else:
+                # Fallback if _wrap_result is not available
+                new_ds = copy(self)
+                new_ds._cached_df = result_df
+                return new_ds
         finally:
             # Clean up global namespace
             if df_var_name in globals():
@@ -1326,8 +1580,16 @@ class DataStore(PandasCompatMixin):
             >>> ds.filter(ds.age > 18)
             >>> ds.filter((ds.age > 18) & (ds.city == 'NYC'))
         """
+        # Convert condition to string for tracking
+        if isinstance(condition, str):
+            condition_str = condition
+        else:
+            condition_str = condition.to_sql(quote_char=self.quote_char)
+
         # If materialized, execute filter on cached DataFrame
         if hasattr(self, '_materialized') and self._materialized and self._cached_df is not None:
+            self._track_operation('sql', f"WHERE {condition_str}", {'on_dataframe': True})
+
             # Convert condition to SQL WHERE clause
             if isinstance(condition, str):
                 where_clause = condition
@@ -1342,6 +1604,8 @@ class DataStore(PandasCompatMixin):
             return self._execute_sql_on_dataframe(sql)
 
         # Otherwise, build SQL WHERE clause
+        self._track_operation('sql', f"WHERE {condition_str}", {'lazy': True})
+
         if isinstance(condition, str):
             # TODO: Parse string conditions
             raise NotImplementedError("String conditions not yet implemented")
@@ -1870,6 +2134,10 @@ class DataStore(PandasCompatMixin):
         new_ds._insert_values = self._insert_values.copy()
         new_ds._update_fields = self._update_fields.copy()
         new_ds._format_settings = self._format_settings.copy()
+
+        # Copy operation history
+        if hasattr(self, '_operation_history'):
+            new_ds._operation_history = self._operation_history.copy()
 
         # Share connection, executor, and table_function (not deep copied)
         # Each copy can share the same connection

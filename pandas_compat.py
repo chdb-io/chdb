@@ -90,6 +90,10 @@ class PandasCompatMixin:
             pandas DataFrame
         """
         if force_refresh or self._cached_df is None or self._cache_invalidated:
+            # Cache data source description before materialization (for explain())
+            if hasattr(self, '_get_data_source_description'):
+                self._get_data_source_description()
+            
             # Execute the SQL query directly (avoid recursion with to_df)
             result = self.execute()
             self._cached_df = result.to_df()
@@ -101,7 +105,7 @@ class PandasCompatMixin:
         """Mark the cache as invalid (called by query-modifying methods)."""
         self._cache_invalidated = True
 
-    def _wrap_result(self, result):
+    def _wrap_result(self, result, operation_name: str = None):
         """
         Wrap a pandas DataFrame result back into a DataStore, or return Series as-is.
 
@@ -110,6 +114,7 @@ class PandasCompatMixin:
 
         Args:
             result: Result from pandas operation (DataFrame, Series, or other)
+            operation_name: Name of the operation for tracking (optional)
 
         Returns:
             - DataStore if result is DataFrame
@@ -126,7 +131,19 @@ class PandasCompatMixin:
             new_ds = copy(self)
             new_ds._cached_df = result
             new_ds._cache_invalidated = False
+
+            # Track materialization if this is the first time
+            was_materialized = getattr(self, '_materialized', False)
             new_ds._materialized = True  # Mark as materialized
+
+            if not was_materialized and operation_name:
+                # This is the materialization point
+                new_ds._track_operation(
+                    'materialize', operation_name, {'shape': result.shape, 'triggers_execution': True}
+                )
+            elif operation_name:
+                # Already materialized, just track the pandas operation
+                new_ds._track_operation('pandas', operation_name, {'shape': result.shape, 'on_cached_df': True})
 
             # Generate new unique variable name for the new DataStore
             # This ensures each materialized DataStore has its own unique identifier
@@ -510,10 +527,22 @@ class PandasCompatMixin:
         """Rename columns or index labels."""
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
+
+        # Build operation description
+        op_desc = "rename("
+        if columns:
+            op_desc += f"columns={columns}"
+        elif mapper:
+            op_desc += f"mapper={mapper}"
+        if index:
+            op_desc += f", index={index}" if "=" in op_desc else f"index={index}"
+        op_desc += ")"
+
         return self._wrap_result(
             self._get_df().rename(
                 mapper=mapper, index=index, columns=columns, axis=axis, copy=copy, level=level, errors=errors
-            )
+            ),
+            op_desc,
         )
 
     def rename_axis(self, mapper=None, *, index=None, columns=None, axis=None, copy=True, inplace=False):
@@ -1536,11 +1565,11 @@ class PandasCompatMixin:
 
     def add_prefix(self, prefix, axis=None):
         """Prefix labels with string prefix."""
-        return self._wrap_result(self._get_df().add_prefix(prefix, axis=axis))
+        return self._wrap_result(self._get_df().add_prefix(prefix, axis=axis), f"add_prefix('{prefix}')")
 
     def add_suffix(self, suffix, axis=None):
         """Suffix labels with string suffix."""
-        return self._wrap_result(self._get_df().add_suffix(suffix, axis=axis))
+        return self._wrap_result(self._get_df().add_suffix(suffix, axis=axis), f"add_suffix('{suffix}')")
 
     def align(self, other, **kwargs):
         """Align two objects on their axes."""
