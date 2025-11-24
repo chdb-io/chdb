@@ -1,5 +1,6 @@
 #include "chdb.h"
 #include "chdb-internal.h"
+#include "ChunkCollectorOutputFormat.h"
 #include "LocalServer.h"
 
 #include <cstddef>
@@ -245,6 +246,11 @@ static QueryResultPtr createStreamingIterateQueryResult(DB::LocalServer * server
     }
 
     server->resetQueryOutputVector();
+
+#if USE_PYTHON
+    if (streaming_iter_request.is_canceled)
+        CHDB::resetGlobalDataFrameBuilder();
+#endif
 
     return query_result;
 }

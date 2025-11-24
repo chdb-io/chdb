@@ -1,14 +1,14 @@
 #include "LocalChdb.h"
-#include <cstring>
+#include "chdb-internal.h"
+#include "PandasDataFrameBuilder.h"
+#include "ChunkCollectorOutputFormat.h"
 #include "PythonImporter.h"
 #include "PythonTableCache.h"
 #include "StoragePython.h"
-#include "chdb-internal.h"
-#include "chdb.h"
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
-
+#include <Poco/String.h>
 #include <Common/logger_useful.h>
 #if USE_JEMALLOC
 #    include <Common/memory.h>
@@ -265,6 +265,9 @@ void connection_wrapper::commit()
 
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
+    if (Poco::toLower(format) == "dataframe")
+        throw std::runtime_error("Unsupported format: dataframe");
+
     CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
 
     py::gil_scoped_release release;
@@ -282,6 +285,34 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
         throw std::runtime_error(msg_copy);
     }
     return new query_result(result, false);
+}
+
+py::object connection_wrapper::query_df(const std::string & query_str)
+{
+    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
+
+    const std::string format = "dataframe";
+
+    chdb_result * result = nullptr;
+    py::gil_scoped_release release;
+    result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+    auto error_msg = CHDB::chdb_result_error_string(result);
+    if (!error_msg.empty())
+    {
+        std::string msg_copy(error_msg);
+        chdb_destroy_query_result(result);
+        CHDB::resetGlobalDataFrameBuilder();
+        throw std::runtime_error(msg_copy);
+    }
+
+    chdb_destroy_query_result(result);
+    auto * builder = CHDB::getGlobalDataFrameBuilder();
+    if (!builder)
+        throw std::runtime_error("Global DataFrame builder is not initialized");
+
+    auto ret = builder->getDataFrame();
+    CHDB::resetGlobalDataFrameBuilder();
+    return ret;
 }
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
@@ -322,6 +353,43 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
     }
 
     return new query_result(result, false);
+}
+
+py::object connection_wrapper::streaming_fetch_df(streaming_query_result * streaming_result)
+{
+    if (!streaming_result || !streaming_result->get_result())
+        return py::none();
+
+    chdb_result * result = nullptr;
+
+    {
+        py::gil_scoped_release release;
+        result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
+
+        const auto error_msg = CHDB::chdb_result_error_string(result);
+        if (!error_msg.empty())
+        {
+            std::string msg_copy(error_msg);
+            chdb_destroy_query_result(result);
+            CHDB::resetGlobalDataFrameBuilder();
+            throw std::runtime_error(msg_copy);
+        }
+
+        auto * builder = CHDB::getGlobalDataFrameBuilder();
+        if (builder)
+        {
+            chdb_destroy_query_result(result);
+            auto ret = builder->getDataFrame();
+            CHDB::resetGlobalDataFrameBuilder();
+            return ret;
+        }
+        else
+        {
+            chdb_destroy_query_result(result);
+        }
+    }
+
+    return py::none();
 }
 
 void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)
@@ -485,6 +553,11 @@ PYBIND11_MODULE(_chdb, m)
             py::arg("format") = "CSV",
             "Execute a query and return a query_result object")
         .def(
+            "query_df",
+            &connection_wrapper::query_df,
+            py::arg("query_str"),
+            "Execute a query and return a DataFrame")
+        .def(
             "send_query",
             &connection_wrapper::send_query,
             py::arg("query_str"),
@@ -495,6 +568,11 @@ PYBIND11_MODULE(_chdb, m)
             &connection_wrapper::streaming_fetch_result,
                 py::arg("streaming_result"),
                 "Fetches a data chunk from the streaming result. This function should be called repeatedly until the result is exhausted")
+        .def(
+            "streaming_fetch_df",
+            &connection_wrapper::streaming_fetch_df,
+                py::arg("streaming_result"),
+                "Fetches a DataFrame from the streaming result. This function should be called repeatedly until the result is exhausted")
         .def(
             "streaming_cancel_query",
             &connection_wrapper::streaming_cancel_query,
@@ -509,13 +587,14 @@ PYBIND11_MODULE(_chdb, m)
         py::kw_only(),
         py::arg("path") = "",
         py::arg("udf_path") = "",
-        "Query chDB and return a query_result object");
+        "Query chDB and return a query_result object or DataFrame");
 
 	auto destroy_import_cache = []()
     {
         CHDB::chdbCleanupConnection();
         CHDB::PythonTableCache::clear();
 		CHDB::PythonImporter::destroy();
+        CHDB::resetGlobalDataFrameBuilder();
 	};
 	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
