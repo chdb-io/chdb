@@ -94,6 +94,11 @@ struct StreamingQueryContext
     StreamingQueryContext() = default;
 };
 
+#if USE_PYTHON
+/// Function pointer type for creating custom output formats (e.g. DataFrame)
+using CustomOutputFormatCreator = std::function<std::shared_ptr<IOutputFormat>(SharedHeader)>;
+#endif
+
 /**
  * The base class which encapsulates the core functionality of a client.
  * Can be used in a standalone application (clickhouse-client or clickhouse-local),
@@ -352,6 +357,14 @@ public:
     void initKeystrokeInterceptor();
 
     String appendSmileyIfNeeded(const String & prompt);
+
+#if USE_PYTHON
+    /// Set custom DataFrame format creator
+    static void setDataFrameFormatCreator(CustomOutputFormatCreator creator);
+
+    /// Get custom DataFrame format creator
+    static CustomOutputFormatCreator getDataFrameFormatCreator();
+#endif
 
     /// Should be one of the first, to be destroyed the last,
     /// since other members can use them.
