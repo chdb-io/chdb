@@ -25,13 +25,19 @@ endif()
 if (USE_PYTHON)
     set (CHDB_SOURCES
         chdb.cpp
+        ChunkCollectorOutputFormat.cpp
+        FieldToPython.cpp
         FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp
+        NumpyArray.cpp
+        NumpyNestedTypes.cpp
         NumpyType.cpp
+        ObjectToPython.cpp
         PandasAnalyzer.cpp
         PandasDataFrame.cpp
+        PandasDataFrameBuilder.cpp
         PandasScan.cpp
         PyArrowStreamFactory.cpp
         PyArrowTable.cpp
