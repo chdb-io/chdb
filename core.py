@@ -2072,7 +2072,7 @@ class DataStore(PandasCompatMixin):
             parts.append(f"({columns_sql})")
 
         # VALUES or SELECT
-        if self._insert_select:
+        if self._insert_select is not None:
             # INSERT INTO ... SELECT ...
             select_sql = self._insert_select.to_sql(quote_char=quote_char)
             parts.append(select_sql)
