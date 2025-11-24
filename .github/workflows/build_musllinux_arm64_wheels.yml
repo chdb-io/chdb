@@ -46,8 +46,8 @@ jobs:
         run: |
           wget https://github.com/cli/cli/releases/download/v2.82.1/gh_2.82.1_linux_arm64.tar.gz -O gh.tar.gz
           tar -xf gh.tar.gz
-          cp gh_*/bin/gh /usr/local/bin/
-          chmod +x /usr/local/bin/gh
+          sudo cp gh_*/bin/gh /usr/local/bin/
+          sudo chmod +x /usr/local/bin/gh
           if ! gh --version; then
             echo "ERROR: GitHub CLI installation failed!"
             exit 1
