@@ -1039,6 +1039,36 @@ class DataStore(PandasCompatMixin):
         # Otherwise, execute SQL query
         return self.execute().to_dict()
 
+    def _wrap_result_fallback(self, result_df):
+        """
+        Fallback method to wrap a DataFrame result into a materialized DataStore.
+        This is used when _wrap_result is not available (shouldn't happen normally).
+
+        Args:
+            result_df: pandas DataFrame to wrap
+
+        Returns:
+            DataStore with cached DataFrame and cleared SQL state
+        """
+        new_ds = copy(self)
+        new_ds._cached_df = result_df
+        new_ds._cache_invalidated = False
+        new_ds._materialized = True
+        # Clear SQL query state to prevent inconsistency
+        # This is critical: we don't want both cached data AND SQL query state
+        new_ds._select_fields = []
+        new_ds._where_condition = None
+        new_ds._joins = []
+        new_ds._groupby_fields = []
+        new_ds._having_condition = None
+        new_ds._orderby_fields = []
+        new_ds._limit_value = None
+        new_ds._offset_value = None
+        new_ds._distinct = False
+        new_ds._table_function = None
+        new_ds.table_name = None
+        return new_ds
+
     def describe(self, percentiles=None, include=None, exclude=None):
         """
         Generate descriptive statistics of the data.
@@ -1052,7 +1082,7 @@ class DataStore(PandasCompatMixin):
             exclude: Data types to exclude (None or list of dtypes)
 
         Returns:
-            pandas DataFrame with descriptive statistics
+            DataStore with descriptive statistics
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
@@ -1065,7 +1095,13 @@ class DataStore(PandasCompatMixin):
             df = self._get_df()
         else:
             df = self.to_df()
-        return df.describe(percentiles=percentiles, include=include, exclude=exclude)
+        result_df = df.describe(percentiles=percentiles, include=include, exclude=exclude)
+
+        # Wrap result in DataStore
+        if hasattr(self, '_wrap_result'):
+            return self._wrap_result(result_df, 'describe()')
+        else:
+            return self._wrap_result_fallback(result_df)
 
     def desc(self, percentiles=None, include=None, exclude=None):
         """
@@ -1078,7 +1114,7 @@ class DataStore(PandasCompatMixin):
             exclude: Data types to exclude (None or list of dtypes)
 
         Returns:
-            pandas DataFrame with descriptive statistics
+            DataStore with descriptive statistics
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
@@ -1089,7 +1125,7 @@ class DataStore(PandasCompatMixin):
     def head(self, n: int = 5):
         """
         Return the first n rows of the query result.
-        Convenience method that applies limit and returns as DataFrame.
+        Convenience method that applies limit and returns as DataStore.
 
         If DataStore is materialized, operates on cached DataFrame.
         Otherwise, adds LIMIT to SQL query.
@@ -1098,25 +1134,35 @@ class DataStore(PandasCompatMixin):
             n: Number of rows to return (default: 5)
 
         Returns:
-            pandas DataFrame with first n rows
+            DataStore with first n rows
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
             >>> first_rows = ds.select("*").head()
             >>> first_10 = ds.select("*").head(10)
         """
-        # If materialized, use pandas head directly
-        if hasattr(self, '_materialized') and self._materialized:
-            if hasattr(self, '_get_df'):
-                return self._get_df().head(n)
+        # If materialized, use pandas head and wrap result
+        if hasattr(self, '_materialized') and self._materialized and hasattr(self, '_get_df'):
+            result_df = self._get_df().head(n)
+            if hasattr(self, '_wrap_result'):
+                return self._wrap_result(result_df, f'head({n})')
+            else:
+                return self._wrap_result_fallback(result_df)
 
-        # Otherwise, apply SQL LIMIT
-        return self.limit(n).to_df()
+        # Otherwise, execute the query with LIMIT and wrap result
+        # Use to_df() instead of _get_df() to ensure proper execution
+        result_df = self.limit(n).to_df()
+
+        # Wrap result in DataStore
+        if hasattr(self, '_wrap_result'):
+            return self._wrap_result(result_df, f'head({n})')
+        else:
+            return self._wrap_result_fallback(result_df)
 
     def tail(self, n: int = 5):
         """
         Return the last n rows of the query result.
-        Convenience method that returns as DataFrame with reversed order.
+        Convenience method that returns as DataStore with reversed order.
 
         Works correctly with both SQL queries and materialized DataFrames.
 
@@ -1124,7 +1170,7 @@ class DataStore(PandasCompatMixin):
             n: Number of rows to return (default: 5)
 
         Returns:
-            pandas DataFrame with last n rows
+            DataStore with last n rows
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
@@ -1136,7 +1182,13 @@ class DataStore(PandasCompatMixin):
             df = self._get_df()
         else:
             df = self.to_df()
-        return df.tail(n)
+        result_df = df.tail(n)
+
+        # Wrap result in DataStore
+        if hasattr(self, '_wrap_result'):
+            return self._wrap_result(result_df, f'tail({n})')
+        else:
+            return self._wrap_result_fallback(result_df)
 
     def sample(self, n: int = None, frac: float = None, random_state: int = None):
         """
@@ -1150,7 +1202,7 @@ class DataStore(PandasCompatMixin):
             random_state: Random seed for reproducibility
 
         Returns:
-            pandas DataFrame with sampled rows
+            DataStore with sampled rows
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
@@ -1162,7 +1214,14 @@ class DataStore(PandasCompatMixin):
             df = self._get_df()
         else:
             df = self.to_df()
-        return df.sample(n=n, frac=frac, random_state=random_state)
+        result_df = df.sample(n=n, frac=frac, random_state=random_state)
+
+        # Wrap result in DataStore
+        sample_desc = f'sample(n={n})' if n is not None else f'sample(frac={frac})'
+        if hasattr(self, '_wrap_result'):
+            return self._wrap_result(result_df, sample_desc)
+        else:
+            return self._wrap_result_fallback(result_df)
 
     @property
     def shape(self):
@@ -2150,10 +2209,137 @@ class DataStore(PandasCompatMixin):
 
         return new_ds
 
+    # ========== Built-in Methods ==========
+
+    def __len__(self) -> int:
+        """
+        Return the number of rows in the DataStore.
+
+        This enables using len(ds) on DataStore objects.
+        """
+        # If we have materialized data, use cached DataFrame
+        if (
+            hasattr(self, '_materialized')
+            and self._materialized
+            and hasattr(self, '_cached_df')
+            and self._cached_df is not None
+        ):
+            return len(self._cached_df)
+
+        # Otherwise, execute the query and count rows
+        if hasattr(self, '_get_df'):
+            df = self._get_df()
+            return len(df)
+        else:
+            df = self.to_df()
+            return len(df)
+
     # ========== String Representation ==========
 
     def __str__(self) -> str:
-        return self.to_sql()
+        """
+        Return string representation of DataStore.
+
+        If materialized (has cached data), shows the data like pandas DataFrame.
+        Otherwise, shows the SQL query or a basic representation.
+        """
+        # If we have materialized data, show it like pandas DataFrame
+        if (
+            hasattr(self, '_materialized')
+            and self._materialized
+            and hasattr(self, '_cached_df')
+            and self._cached_df is not None
+        ):
+            return str(self._cached_df)
+
+        # If we have a simple query, try to show the data
+        if self._is_sql_query() or self._table_function or self.table_name:
+            try:
+                # Try to execute and show the data
+                # Use to_df() which handles connection automatically
+                df = self.to_df()
+                return str(df)
+            except:
+                # If execution fails, fall back to SQL representation
+                pass
+
+        # Fallback: show SQL or basic info
+        if self._is_sql_query():
+            return self.to_sql()
+
+        return f"DataStore(source_type={self.source_type!r}, table={self.table_name!r})"
 
     def __repr__(self) -> str:
-        return f"DataStore(source_type={self.source_type!r}, table={self.table_name!r})"
+        """
+        Return repr representation of DataStore.
+
+        If materialized (has cached data), shows the data like pandas DataFrame.
+        Otherwise, tries to execute and show the data for better interactive experience.
+        """
+        # If we have materialized data, show it like pandas DataFrame
+        if (
+            hasattr(self, '_materialized')
+            and self._materialized
+            and hasattr(self, '_cached_df')
+            and self._cached_df is not None
+        ):
+            return repr(self._cached_df)
+
+        # For interactive environments (IPython, Jupyter), try to show data
+        # This provides a better user experience similar to pandas DataFrame
+        if self._is_sql_query() or self._table_function or self.table_name:
+            try:
+                # Try to execute and show the data
+                # Use to_df() which handles connection automatically
+                df = self.to_df()
+                return repr(df)
+            except:
+                # If execution fails, fall back to basic info
+                pass
+
+        # Fallback: show basic info
+        parts = [f"DataStore(source_type={self.source_type!r}"]
+        if self.table_name:
+            parts.append(f", table={self.table_name!r}")
+        if self._table_function:
+            parts.append(", table_function=True")
+        if self._materialized:
+            parts.append(", materialized=True")
+        parts.append(")")
+        return "".join(parts)
+
+    def _repr_html_(self) -> str:
+        """
+        Return HTML representation for Jupyter/IPython display.
+
+        This method is automatically called by Jupyter when displaying the object.
+        """
+        # If we have materialized data, show it like pandas DataFrame
+        if (
+            hasattr(self, '_materialized')
+            and self._materialized
+            and hasattr(self, '_cached_df')
+            and self._cached_df is not None
+        ):
+            return self._cached_df._repr_html_()
+
+        # If we have a query, try to execute and show the data
+        if self._is_sql_query() or self._table_function or self.table_name:
+            try:
+                # Try to execute and show the data
+                # Use to_df() which handles connection automatically
+                df = self.to_df()
+                return df._repr_html_()
+            except Exception as e:
+                # If execution fails, show error in HTML
+                return f"<div><strong>DataStore</strong> (execution failed: {e})</div>"
+
+        # Fallback: show basic info in HTML
+        html = "<div><strong>DataStore</strong><br>"
+        html += f"Source type: {self.source_type}<br>"
+        if self.table_name:
+            html += f"Table: {self.table_name}<br>"
+        if self._table_function:
+            html += "Using table function<br>"
+        html += "</div>"
+        return html
