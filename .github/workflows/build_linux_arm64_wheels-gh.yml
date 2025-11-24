@@ -34,6 +34,18 @@ jobs:
             libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
             libffi-dev liblzma-dev golang-go
+      - name: Install GitHub CLI
+        run: |
+          # Install GitHub CLI from binary release (Alpine Linux compatible)
+          wget https://github.com/cli/cli/releases/download/v2.82.1/gh_2.82.1_linux_arm64.tar.gz -O gh.tar.gz
+          tar -xf gh.tar.gz
+          cp gh_*/bin/gh /usr/local/bin/
+          chmod +x /usr/local/bin/gh
+          if ! gh --version; then
+            echo "ERROR: GitHub CLI installation failed!"
+            exit 1
+          fi
+          echo "GitHub CLI installed successfully"
       - name: Scan SQLite vulnerabilities with grype
         run: |
           # Install grype and required tools

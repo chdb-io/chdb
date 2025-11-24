@@ -42,6 +42,17 @@ jobs:
             exit 1
           fi
           echo "Twine installed successfully"
+      - name: Install GitHub CLI
+        run: |
+          wget https://github.com/cli/cli/releases/download/v2.82.1/gh_2.82.1_linux_arm64.tar.gz -O gh.tar.gz
+          tar -xf gh.tar.gz
+          cp gh_*/bin/gh /usr/local/bin/
+          chmod +x /usr/local/bin/gh
+          if ! gh --version; then
+            echo "ERROR: GitHub CLI installation failed!"
+            exit 1
+          fi
+          echo "GitHub CLI installed successfully"
 
       - name: Setup Docker permissions
         run: |
