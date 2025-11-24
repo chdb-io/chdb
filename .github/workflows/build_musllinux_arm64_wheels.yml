@@ -26,6 +26,23 @@ jobs:
     runs-on: [self-hosted, linux, arm64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     steps:
+      - name: Setup Python and install twine for PyPI upload
+        run: |
+          echo "=== Setting up Python for PyPI upload ==="
+          # Install pip if not available
+          sudo apt-get update
+          sudo apt-get install -y python3-pip
+          python3 --version
+          python3 -m pip --version
+          echo "=== Installing twine ==="
+          python3 -m pip install --upgrade pip --break-system-packages
+          python3 -m pip install twine --break-system-packages
+          if ! python3 -m twine --version; then
+            echo "ERROR: Twine installation failed!"
+            exit 1
+          fi
+          echo "Twine installed successfully"
+
       - name: Setup Docker permissions
         run: |
           # Ensure Docker is running
@@ -71,6 +88,7 @@ jobs:
           fi
           echo "Test success marker found. All tests completed successfully."
           echo "Proceeding with wheel upload..."
+          ls -la ./dist/
         continue-on-error: false
       # Upload wheels to release
       - name: Upload wheels to release
@@ -82,24 +100,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
         continue-on-error: true
-
-      - name: Setup Python and install twine for PyPI upload
-        run: |
-          echo "=== Setting up Python for PyPI upload ==="
-          # Install pip if not available
-          sudo apt-get update
-          sudo apt-get install -y python3-pip
-          python3 --version
-          python3 -m pip --version
-          echo "=== Installing twine ==="
-          python3 -m pip install --upgrade pip
-          python3 -m pip install twine
-          if ! python3 -m twine --version; then
-            echo "ERROR: Twine installation failed!"
-            exit 1
-          fi
-          echo "Twine installed successfully"
-          ls -la ./dist/
 
       # Upload to PyPI
       - name: Upload pypi

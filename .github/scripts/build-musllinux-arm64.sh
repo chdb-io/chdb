@@ -100,9 +100,10 @@ for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
 done
 
 # Update version for release (if triggered by tag)
+echo "GITHUB_REF: '$GITHUB_REF'"
 if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
     pyenv shell 3.9
-    
+
     # Install bump-my-version
     python -m pip install bump-my-version
     TAG_NAME=${GITHUB_REF#refs/tags/v}
