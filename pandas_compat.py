@@ -249,6 +249,49 @@ class PandasCompatMixin:
         result = self._get_df()[key]
         return self._wrap_result(result)
 
+    def __setitem__(self, key, value):
+        """
+        Set item in DataFrame using bracket notation (pandas-style column assignment).
+
+        This method materializes the DataStore and performs column assignment/update
+        on the cached DataFrame, similar to pandas behavior. For materialized DataStores,
+        this modifies the cached DataFrame in-place to provide pandas-like semantics.
+
+        Args:
+            key: Column name (string) to set/update
+            value: Value to assign (can be scalar, Series, or array-like)
+
+        Examples:
+            >>> ds['new_column'] = 10  # Add new column with constant value
+            >>> ds['existing_column'] = ds['other_column'] * 2  # Update column with expression
+            >>> ds['column'] = ds['column'] - 1  # Modify column in place
+
+        Note:
+            This operation modifies the DataStore's cached DataFrame to provide
+            intuitive pandas-like behavior. The DataStore is automatically materialized
+            if it hasn't been already.
+        """
+        # Materialize the DataStore to get DataFrame if not already materialized
+        df = self._get_df()
+
+        # If value is a Series from this or another DataStore, extract the underlying data
+        if hasattr(value, '_get_df'):
+            value = value._get_df()
+        elif hasattr(value, 'values'):  # Handle pandas Series
+            value = value.values if len(value) > 1 else value.iloc[0] if len(value) == 1 else value
+
+        # Perform the assignment on the cached DataFrame
+        df[key] = value
+
+        # Mark as materialized if not already
+        self._materialized = True
+        self._cache_invalidated = False
+
+        # Track the operation for explain()
+        if hasattr(self, '_track_operation'):
+            operation_desc = f"Column assignment: {key}"
+            self._track_operation('pandas', operation_desc, {'column': key, 'in_place': True})
+
     def select_dtypes(self, include=None, exclude=None):
         """Return subset of columns based on column dtypes."""
         return self._wrap_result(self._get_df().select_dtypes(include=include, exclude=exclude))
