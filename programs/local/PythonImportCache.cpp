@@ -53,7 +53,7 @@ py::handle PythonImportCacheItem::AddCache(PythonImportCache & cache, py::object
 void PythonImportCacheItem::LoadModule(PythonImportCache & cache)
 {
 #if USE_JEMALLOC
-	::Memory::MemoryCheckScope memory_check_scope; 
+	::Memory::MemoryCheckScope memory_check_scope;
 #endif
 	try
 	{

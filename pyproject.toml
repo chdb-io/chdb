@@ -29,9 +29,12 @@ classifiers = [
     "Topic :: Database",
     "Topic :: Scientific/Engineering",
 ]
+dependencies = [
+    "pandas>=2.0.0",
+    "pyarrow>=13.0.0"
+]
 
 [project.optional-dependencies]
-dataframe = ["pandas>=2.0.0", "pyarrow>=13.0.0"]
 dev = ["pytest", "pytest-cov"]
 ci = ["cibuildwheel"]
 publish = ["twine", "wheel"]
