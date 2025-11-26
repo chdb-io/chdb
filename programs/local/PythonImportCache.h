@@ -2,9 +2,13 @@
 
 #include "DatetimeCacheItem.h"
 #include "DecimalCacheItem.h"
+#include "NumpyCacheItem.h"
 #include "PandasCacheItem.h"
 #include "PyArrowCacheItem.h"
 #include "PythonImportCacheItem.h"
+#include "UUIDCacheItem.h"
+#include "IPAddressCacheItem.h"
+#include "PytzCacheItem.h"
 
 #include <vector>
 
@@ -13,7 +17,8 @@ namespace CHDB {
 struct PythonImportCache;
 using PythonImportCachePtr = std::shared_ptr<PythonImportCache>;
 
-struct PythonImportCache {
+struct PythonImportCache
+{
 public:
 	explicit PythonImportCache()  = default;
 
@@ -23,6 +28,10 @@ public:
 	PyarrowCacheItem pyarrow;
 	DatetimeCacheItem datetime;
 	DecimalCacheItem decimal;
+	NumpyCacheItem numpy;
+	UUIDCacheItem uuid;
+	IPAddressCacheItem ipaddress;
+	PytzCacheItem pytz;
 
 	py::handle AddCache(py::object item);
 

@@ -14,6 +14,7 @@ on:
     paths-ignore:
       - '**/*.md'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
     paths-ignore:
@@ -23,6 +24,7 @@ jobs:
   build_musllinux_wheels:
     name: Build musllinux wheels (Alpine Linux aarch64)
     runs-on: GH-Linux-ARM64
+    if: ${{ !github.event.pull_request.draft }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -40,7 +42,7 @@ jobs:
         uses: addnab/docker-run-action@v3
         with:
           image: quay.io/pypa/musllinux_1_2_aarch64
-          options: -v ${{ github.workspace }}:/workspace --privileged
+          options: -v ${{ github.workspace }}:/workspace --privileged -e GITHUB_REF=${{ github.ref }}
           run: |
             cd /workspace
 
@@ -143,11 +145,11 @@ jobs:
             # Update version for release (if triggered by tag)
             if [ "${GITHUB_REF#refs/tags/v}" != "$GITHUB_REF" ]; then
               pyenv shell 3.9
-              
+
               # Install bump-my-version
               python -m pip install bump-my-version
               TAG_NAME=${GITHUB_REF#refs/tags/v}
-              bump-my-version replace $TAG_NAME
+              bump-my-version replace --new-version $TAG_NAME
               echo "Version files updated to $TAG_NAME"
               pyenv shell --unset
             fi
