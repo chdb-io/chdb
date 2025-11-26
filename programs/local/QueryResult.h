@@ -2,9 +2,10 @@
 
 #include <memory>
 #include <vector>
-
-#include <base/types.h>
 #include <utility>
+
+#include "config.h"
+#include <base/types.h>
 
 #if USE_PYTHON
 #include <Processors/Chunk.h>

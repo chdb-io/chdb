@@ -25,6 +25,8 @@ if (CHDB_STATIC_LIBRARY_BUILD)
 endif()
 
 if (USE_PYTHON)
+    add_compile_definitions(USE_PYTHON=1)
+
     set (CHDB_SOURCES
         chdb.cpp
         ChunkCollectorOutputFormat.cpp
