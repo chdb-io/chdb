@@ -20,7 +20,7 @@ Execution Model:
 - to_df(): Return cached DataFrame if materialized, otherwise execute SQL
 """
 
-from typing import Any, Union, List, Optional, Callable, Dict, Tuple
+from typing import Optional
 from copy import copy
 import pandas as pd
 
@@ -47,9 +47,6 @@ def execute_sql_on_dataframe(df: pd.DataFrame, sql: str, df_var_name: str = '__d
     except ImportError:
         raise ImportError("chdb is required for SQL operations on materialized DataFrames")
 
-    # Create a local namespace with the DataFrame
-    local_vars = {df_var_name: df}
-
     # Execute SQL with the DataFrame in local scope
     result = chdb.query(sql, 'DataFrame')
 
@@ -62,48 +59,22 @@ class PandasCompatMixin:
 
     This mixin provides methods that mirror the pandas DataFrame API.
     Methods are organized into categories matching pandas documentation.
-
-    Attributes:
-        _cached_df: Cached DataFrame from query execution or pandas operations
-        _cache_invalidated: Whether cache needs refresh
-        _materialized: Whether DataStore has been converted to DataFrame (pandas operations applied)
     """
-
-    # Cache for the internal DataFrame
-    _cached_df: Optional[pd.DataFrame] = None
-    _cache_invalidated: bool = True
-    _materialized: bool = False
 
     def _get_df(self, force_refresh: bool = False) -> pd.DataFrame:
         """
-        Get the internal DataFrame, executing query if needed.
+        Get the internal DataFrame - triggers execution.
 
-        This is the core method for pandas compatibility. It:
-        1. Returns cached DataFrame if available and not invalidated
-        2. Executes SQL query and caches result if needed
-        3. Marks the DataStore as materialized after first execution
+        This method is now a simple wrapper around _materialize() from core.py.
 
         Args:
-            force_refresh: Force re-execution of query even if cached
+            force_refresh: Ignored (no caching)
 
         Returns:
             pandas DataFrame
         """
-        if force_refresh or self._cached_df is None or self._cache_invalidated:
-            # Cache data source description before materialization (for explain())
-            if hasattr(self, '_get_data_source_description'):
-                self._get_data_source_description()
-
-            # Execute the SQL query directly (avoid recursion with to_df)
-            result = self.execute()
-            self._cached_df = result.to_df()
-            self._cache_invalidated = False
-            self._materialized = True
-        return self._cached_df
-
-    def _invalidate_cache(self):
-        """Mark the cache as invalid (called by query-modifying methods)."""
-        self._cache_invalidated = True
+        # Use _materialize() from core.py - always executes fresh
+        return self._materialize()
 
     def _wrap_result(self, result, operation_name: str = None):
         """
@@ -121,38 +92,26 @@ class PandasCompatMixin:
             - Series if result is Series (returned as-is)
             - Other types returned as-is
         """
+        from .lazy_ops import LazyDataFrameSource
+
         if isinstance(result, pd.Series):
             # Return Series directly without wrapping
             # This maintains pandas semantics: df['column'] returns Series
             return result
         elif isinstance(result, pd.DataFrame):
-            # Create a new DataStore from DataFrame
-            # Store the DataFrame as cached result
+            # Create a new DataStore with the DataFrame as source
             new_ds = copy(self)
-            new_ds._cached_df = result
-            new_ds._cache_invalidated = False
 
-            # Track materialization if this is the first time
-            was_materialized = getattr(self, '_materialized', False)
-            new_ds._materialized = True  # Mark as materialized
-
-            if not was_materialized and operation_name:
-                # This is the materialization point
-                new_ds._track_operation(
-                    'materialize', operation_name, {'shape': result.shape, 'triggers_execution': True}
-                )
-            elif operation_name:
-                # Already materialized, just track the pandas operation
-                new_ds._track_operation('pandas', operation_name, {'shape': result.shape, 'on_cached_df': True})
+            # Track the operation
+            if operation_name:
+                new_ds._track_operation('pandas', operation_name, {'shape': result.shape})
 
             # Generate new unique variable name for the new DataStore
-            # This ensures each materialized DataStore has its own unique identifier
             import uuid
 
             new_ds._df_var_name = f"__ds_df_{uuid.uuid4().hex}__"
 
-            # Clear SQL query state so we don't accidentally re-execute the original query
-            # This is critical for pandas operations that transform the data
+            # Clear SQL query state and set DataFrame as the source
             new_ds._select_fields = []
             new_ds._where_condition = None
             new_ds._joins = []
@@ -164,6 +123,9 @@ class PandasCompatMixin:
             new_ds._distinct = False
             new_ds._table_function = None
             new_ds.table_name = None
+
+            # Set the DataFrame as the data source via lazy op
+            new_ds._lazy_ops = [LazyDataFrameSource(result)]
 
             return new_ds
         return result
@@ -234,63 +196,45 @@ class PandasCompatMixin:
 
     def __getitem__(self, key):
         """
-        Get item from DataFrame using bracket notation.
+        Get item - delegates to core.py for lazy behavior.
 
         Examples:
-            >>> ds['column_name']  # Select column
-            >>> ds[['col1', 'col2']]  # Select multiple columns
-            >>> ds[ds.age > 18]  # Boolean indexing
+            >>> ds['column_name']  # Returns Field for expression building
+            >>> ds[['col1', 'col2']]  # Lazy column selection
+            >>> ds[ds.age > 18]  # For pandas compatibility when needed
         """
-        # If it's already handled by DataStore (like slice), use parent behavior
-        if isinstance(key, slice):
-            return super().__getitem__(key)
-
-        # Otherwise, delegate to DataFrame
-        result = self._get_df()[key]
-        return self._wrap_result(result)
+        # Delegate to parent class (DataStore in core.py)
+        # This will handle lazy Field return and column selection
+        return super().__getitem__(key)
 
     def __setitem__(self, key, value):
         """
-        Set item in DataFrame using bracket notation (pandas-style column assignment).
+        Lazy column assignment - does NOT execute immediately.
 
-        This method materializes the DataStore and performs column assignment/update
-        on the cached DataFrame, similar to pandas behavior. For materialized DataStores,
-        this modifies the cached DataFrame in-place to provide pandas-like semantics.
+        This method records the operation and marks the cache as invalid.
+        Actual execution happens when the DataStore is materialized.
 
         Args:
             key: Column name (string) to set/update
-            value: Value to assign (can be scalar, Series, or array-like)
+            value: Value to assign (can be scalar, Series, Expression, or array-like)
 
         Examples:
-            >>> ds['new_column'] = 10  # Add new column with constant value
-            >>> ds['existing_column'] = ds['other_column'] * 2  # Update column with expression
-            >>> ds['column'] = ds['column'] - 1  # Modify column in place
+            >>> ds['new_column'] = 10  # Records operation (lazy)
+            >>> ds['col'] = ds['other_column'] * 2  # Records expression (lazy)
+            >>> ds['col'] = ds['col'] - 1  # Records operation (lazy)
+            >>> print(ds)  # NOW it executes
 
         Note:
-            This operation modifies the DataStore's cached DataFrame to provide
-            intuitive pandas-like behavior. The DataStore is automatically materialized
-            if it hasn't been already.
+            This operation modifies the DataStore in-place (not immutable).
+            The operation is recorded and will be executed during materialization.
         """
-        # Materialize the DataStore to get DataFrame if not already materialized
-        df = self._get_df()
+        from .lazy_ops import LazyColumnAssignment
 
-        # If value is a Series from this or another DataStore, extract the underlying data
-        if hasattr(value, '_get_df'):
-            value = value._get_df()
-        elif hasattr(value, 'values'):  # Handle pandas Series
-            value = value.values if len(value) > 1 else value.iloc[0] if len(value) == 1 else value
+        if not isinstance(key, str):
+            raise TypeError(f"Column assignment requires string key, got {type(key)}")
 
-        # Perform the assignment on the cached DataFrame
-        df[key] = value
-
-        # Mark as materialized if not already
-        self._materialized = True
-        self._cache_invalidated = False
-
-        # Track the operation for explain()
-        if hasattr(self, '_track_operation'):
-            operation_desc = f"Column assignment: {key}"
-            self._track_operation('pandas', operation_desc, {'column': key, 'in_place': True})
+        # Record the lazy operation
+        self._lazy_ops.append(LazyColumnAssignment(key, value))
 
     def select_dtypes(self, include=None, exclude=None):
         """Return subset of columns based on column dtypes."""
@@ -1461,10 +1405,7 @@ class PandasCompatMixin:
 
     def __deepcopy__(self, memo):
         """Deep copy."""
-        new_ds = copy(self)
-        if self._cached_df is not None:
-            new_ds._cached_df = self._cached_df.copy(deep=True)
-        return new_ds
+        return copy(self)
 
     # ========== Iteration Methods ==========
 
@@ -1614,12 +1555,18 @@ class PandasCompatMixin:
     # ========== Additional Reindexing Methods ==========
 
     def add_prefix(self, prefix, axis=None):
-        """Prefix labels with string prefix."""
-        return self._wrap_result(self._get_df().add_prefix(prefix, axis=axis), f"add_prefix('{prefix}')")
+        """Prefix labels with string prefix (lazy operation)."""
+        from .lazy_ops import LazyAddPrefix
+
+        self._lazy_ops.append(LazyAddPrefix(prefix))
+        return self
 
     def add_suffix(self, suffix, axis=None):
-        """Suffix labels with string suffix."""
-        return self._wrap_result(self._get_df().add_suffix(suffix, axis=axis), f"add_suffix('{suffix}')")
+        """Suffix labels with string suffix (lazy operation)."""
+        from .lazy_ops import LazyAddSuffix
+
+        self._lazy_ops.append(LazyAddSuffix(suffix))
+        return self
 
     def align(self, other, **kwargs):
         """Align two objects on their axes."""

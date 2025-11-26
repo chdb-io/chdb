@@ -230,8 +230,15 @@ class Expression(Node):
     def __truediv__(self, other: Any) -> 'ArithmeticExpression':
         return ArithmeticExpression('/', self, self.wrap(other))
 
+    def __floordiv__(self, other: Any) -> 'ArithmeticExpression':
+        # Floor division: a // b  == intDiv(a, b) in ClickHouse
+        return ArithmeticExpression('//', self, self.wrap(other))
+
     def __mod__(self, other: Any) -> 'ArithmeticExpression':
         return ArithmeticExpression('%', self, self.wrap(other))
+
+    def __pow__(self, other: Any) -> 'ArithmeticExpression':
+        return ArithmeticExpression('**', self, self.wrap(other))
 
     # ========== Reverse Arithmetic Operators ==========
 
@@ -246,6 +253,12 @@ class Expression(Node):
 
     def __rtruediv__(self, other: Any) -> 'ArithmeticExpression':
         return ArithmeticExpression('/', self.wrap(other), self)
+
+    def __rfloordiv__(self, other: Any) -> 'ArithmeticExpression':
+        return ArithmeticExpression('//', self.wrap(other), self)
+
+    def __rpow__(self, other: Any) -> 'ArithmeticExpression':
+        return ArithmeticExpression('**', self.wrap(other), self)
 
     # ========== Unary Operators ==========
 
@@ -346,7 +359,7 @@ class ArithmeticExpression(Expression):
         >>> Field('price') * Literal(1.1)  # 10% increase
     """
 
-    OPERATORS = {'+', '-', '*', '/', '%', '**'}
+    OPERATORS = {'+', '-', '*', '/', '//', '%', '**'}
 
     def __init__(self, operator: str, left: Expression, right: Expression, alias: Optional[str] = None):
         super().__init__(alias)
