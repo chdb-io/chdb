@@ -29,7 +29,6 @@ if (USE_PYTHON)
         chdb.cpp
         ChunkCollectorOutputFormat.cpp
         FieldToPython.cpp
-        FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp

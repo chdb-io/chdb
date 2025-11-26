@@ -73,6 +73,8 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+extern bool chdb_embedded_server_initialized;
+
 namespace fs = std::filesystem;
 
 namespace CurrentMetrics
@@ -648,6 +650,8 @@ try
         global_register_once_flag,
         []()
         {
+            chdb_embedded_server_initialized = true;
+
             registerInterpreters();
             /// Don't initialize DateLUT
             registerFunctions();
@@ -655,21 +659,16 @@ try
 
             registerTableFunctions();
 
-            auto & table_function_factory = TableFunctionFactory::instance();
 #if USE_PYTHON
-            registerTableFunctionPython(table_function_factory);
-#else
-            registerTableFunctionArrowStream(table_function_factory);
+            registerTableFunctionPython(TableFunctionFactory::instance());
 #endif
 
             registerDatabases();
 
             registerStorages();
-            auto & storage_factory = StorageFactory::instance();
 #if USE_PYTHON
-            registerStoragePython(storage_factory);
-#else
-            registerStorageArrowStream(storage_factory);
+            registerStoragePython(StorageFactory::instance());
+            CHDB::registerDataFrameOutputFormat();
 #endif
 
             registerDictionaries();

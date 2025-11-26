@@ -66,13 +66,14 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
         py_reader_arg_str.erase(
             std::remove_if(py_reader_arg_str.begin(), py_reader_arg_str.end(), [](char c) { return c == '\'' || c == '\"' || c == '`'; }),
             py_reader_arg_str.end());
+
+        py::gil_scoped_acquire acquire;
         auto instance = context->getQueryContext()->getPythonTableCache()->getQueryableObj(py_reader_arg_str);
         if (instance == nullptr || instance.is_none())
             throw Exception(ErrorCodes::PY_OBJECT_NOT_FOUND,
                             "Python object not found in the Python environment\n"
                             "Ensure that the object is type of PyReader, pandas DataFrame, or PyArrow Table and is in the global or local scope");
 
-        py::gil_scoped_acquire acquire;
         LOG_DEBUG(
             logger,
             "Python object found in Python environment with name: {} type: {}",
