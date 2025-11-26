@@ -134,7 +134,6 @@ chdb_state chdb_arrow_scan(
     chdb_connection conn, const char * table_name,
     chdb_arrow_stream arrow_stream)
 {
-    ChdbDestructorGuard guard;
     return chdb_inner_arrow_scan(conn, table_name, arrow_stream, false);
 }
 
@@ -142,8 +141,6 @@ chdb_state chdb_arrow_array_scan(
     chdb_connection conn, const char * table_name,
     chdb_arrow_schema arrow_schema, chdb_arrow_array arrow_array)
 {
-    ChdbDestructorGuard guard;
-
     auto * private_data = new CHDB::PrivateData();
 	private_data->schema = reinterpret_cast<ArrowSchema *>(arrow_schema);
 	private_data->array = reinterpret_cast<ArrowArray *>(arrow_array);
@@ -161,7 +158,6 @@ chdb_state chdb_arrow_array_scan(
 
 chdb_state chdb_arrow_unregister_table(chdb_connection conn, const char * table_name)
 {
-    ChdbDestructorGuard guard;
     if (!table_name)
         return CHDBError;
 

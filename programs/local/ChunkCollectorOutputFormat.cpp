@@ -1,5 +1,4 @@
 #include "ChunkCollectorOutputFormat.h"
-#include "PandasDataFrameBuilder.h"
 
 #include <IO/NullWriteBuffer.h>
 #include <Processors/Port.h>
@@ -15,9 +14,9 @@ NullWriteBuffer ChunkCollectorOutputFormat::out;
 
 ChunkCollectorOutputFormat::ChunkCollectorOutputFormat(
     SharedHeader shared_header,
-    PandasDataFrameBuilder & builder)
+    std::vector<Chunk> & chunks_storage)
     : IOutputFormat(shared_header, out)
-    , dataframe_builder(builder)
+    , chunks(chunks_storage)
 {}
 
 void ChunkCollectorOutputFormat::consume(Chunk chunk)
@@ -37,50 +36,12 @@ void ChunkCollectorOutputFormat::consumeExtremes(Chunk extremes)
 
 void ChunkCollectorOutputFormat::finalizeImpl()
 {
-    // Add all collected chunks to the builder
-    for (const auto & chunk : chunks)
-    {
-        dataframe_builder.addChunk(chunk);
-    }
-
-    // Finalize the DataFrame generation
-    dataframe_builder.finalize();
-
-    chunks.clear();
 }
 
-/// Global dataframe builder
-static std::shared_ptr<PandasDataFrameBuilder> g_dataframe_builder = nullptr;
-
-PandasDataFrameBuilder * getGlobalDataFrameBuilder()
+/// Create ChunkCollectorOutputFormat for use with function pointer
+std::shared_ptr<IOutputFormat> createDataFrameOutputFormat(SharedHeader header, std::vector<Chunk> & chunks_storage)
 {
-    return g_dataframe_builder.get();
-}
-
-void setGlobalDataFrameBuilder(std::shared_ptr<PandasDataFrameBuilder> builder)
-{
-    g_dataframe_builder = builder;
-}
-
-void resetGlobalDataFrameBuilder()
-{
-    if (g_dataframe_builder)
-    {
-        py::gil_scoped_acquire acquire;
-        g_dataframe_builder.reset();
-    }
-}
-
-/// create ChunkCollectorOutputFormat for use with function pointer
-std::shared_ptr<IOutputFormat> createDataFrameOutputFormat(SharedHeader header)
-{
-    /// Create a PandasDataFrameBuilder and set it globally
-    auto dataframe_builder = std::make_shared<PandasDataFrameBuilder>(*header);
-    resetGlobalDataFrameBuilder();
-    setGlobalDataFrameBuilder(dataframe_builder);
-
-    /// Create and return the format with the builder
-    return std::make_shared<ChunkCollectorOutputFormat>(header, *dataframe_builder);
+    return std::make_shared<ChunkCollectorOutputFormat>(header, chunks_storage);
 }
 
 /// Registration function to be called during initialization

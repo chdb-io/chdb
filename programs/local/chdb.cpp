@@ -38,8 +38,6 @@ namespace DB
 [[maybe_unused]] void * force_link_function_references = DB::ForceStaticRegistrationObjects();
 #endif
 
-extern thread_local bool chdb_destructor_cleanup_in_progress;
-
 namespace CHDB
 {
 
@@ -99,69 +97,6 @@ static local_result_v2 * createErrorLocalResultV2(const String & error)
     local_result->error_message = new char[error.size() + 1];
     std::memcpy(local_result->error_message, error.c_str(), error.size() + 1);
     return local_result;
-}
-
-static QueryResultPtr createStreamingIterateQueryResult(DB::ChdbClient * client, const CHDB::QueryRequestBase & req)
-{
-    QueryResultPtr query_result;
-    const auto & streaming_iter_request = static_cast<const CHDB::StreamingIterateRequest &>(req);
-    const auto old_processed_rows = client->getProcessedRows();
-    const auto old_processed_bytes = client->getProcessedBytes();
-    const auto old_storage_rows_read = client->getStorageRowsRead();
-    const auto old_storage_bytes_read = client->getStorageBytesRead();
-    const auto old_elapsed_time = client->getElapsedTime();
-
-    try
-    {
-        if (!client->processStreamingQuery(streaming_iter_request.streaming_result, streaming_iter_request.is_canceled))
-        {
-            query_result = std::make_unique<MaterializedQueryResult>(client->getErrorMsg());
-        }
-        else
-        {
-            const auto processed_rows = client->getProcessedRows();
-            const auto processed_bytes = client->getProcessedBytes();
-            const auto storage_rows_read = client->getStorageRowsRead();
-            const auto storage_bytes_read = client->getStorageBytesRead();
-            const auto elapsed_time = client->getElapsedTime();
-            if (processed_rows <= old_processed_rows)
-                query_result = std::make_unique<MaterializedQueryResult>(nullptr, 0.0, 0, 0, 0, 0);
-            else
-                query_result = std::make_unique<MaterializedQueryResult>(
-                    ResultBuffer(client->stealQueryOutputVector()),
-                    elapsed_time - old_elapsed_time,
-                    processed_rows - old_processed_rows,
-                    processed_bytes - old_processed_bytes,
-                    storage_rows_read - old_storage_rows_read,
-                    storage_bytes_read - old_storage_bytes_read);
-        }
-    }
-    catch (const DB::Exception & e)
-    {
-        query_result = std::make_unique<MaterializedQueryResult>(DB::getExceptionMessage(e, false));
-    }
-    catch (...)
-    {
-        String error_message = "Unknown error occurred";
-        query_result = std::make_unique<MaterializedQueryResult>(error_message);
-    }
-
-    client->resetQueryOutputVector();
-
-#if USE_PYTHON
-    if (streaming_iter_request.is_canceled)
-        CHDB::resetGlobalDataFrameBuilder();
-#endif
-
-    return query_result;
-}
-
-void cancelStreamQuery(DB::ChdbClient * client, void * stream_result)
-{
-    auto streaming_iter_req = std::make_unique<CHDB::StreamingIterateRequest>();
-    streaming_iter_req->streaming_result = stream_result;
-    streaming_iter_req->is_canceled = true;
-    createStreamingIterateQueryResult(client, *streaming_iter_req);
 }
 
 std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char ** argv)
@@ -265,8 +200,6 @@ using namespace CHDB;
 
 local_result * query_stable(int argc, char ** argv)
 {
-    ChdbDestructorGuard guard;
-
     auto query_result = pyEntryClickHouseLocal(argc, argv);
     if (!query_result->getError().empty() || query_result->result_buffer == nullptr)
         return nullptr;
@@ -283,8 +216,6 @@ local_result * query_stable(int argc, char ** argv)
 
 void free_result(local_result * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!result)
     {
         return;
@@ -300,8 +231,6 @@ void free_result(local_result * result)
 
 local_result_v2 * query_stable_v2(int argc, char ** argv)
 {
-    ChdbDestructorGuard guard;
-
     // pyEntryClickHouseLocal may throw some serious exceptions, although it's not likely
     // to happen in the context of clickhouse-local. we catch them here and return an error
     local_result_v2 * res = nullptr;
@@ -330,8 +259,6 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
 
 void free_result_v2(local_result_v2 * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!result)
         return;
 
@@ -381,7 +308,6 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
 
 struct local_result_v2 * query_conn_n(struct chdb_conn * conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    ChdbDestructorGuard guard;
     if (!checkConnectionValidity(conn))
         return createErrorLocalResultV2("Invalid or closed connection");
 
@@ -409,8 +335,6 @@ chdb_streaming_result * query_conn_streaming(chdb_conn * conn, const char * quer
 chdb_streaming_result *
 query_conn_streaming_n(struct chdb_conn * conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    ChdbDestructorGuard guard;
-
     if (!checkConnectionValidity(conn))
     {
         auto * result = new StreamQueryResult("Invalid or closed connection");
@@ -459,8 +383,6 @@ const char * chdb_streaming_result_error(chdb_streaming_result * result)
 
 local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_result * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!checkConnectionValidity(conn))
         return createErrorLocalResultV2("Invalid or closed connection");
 
@@ -490,8 +412,6 @@ local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_r
 
 void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!checkConnectionValidity(conn))
         return;
 
@@ -507,13 +427,11 @@ void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * resul
     {
         DB::tryLogCurrentException(__PRETTY_FUNCTION__);
     }
-    // Note: The result object should be freed by chdb_destroy_result(), not here
+    /// Note: The result object should be freed by chdb_destroy_result(), not here
 }
 
 void chdb_destroy_result(chdb_streaming_result * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!result)
         return;
 
@@ -522,7 +440,7 @@ void chdb_destroy_result(chdb_streaming_result * result)
     delete stream_query_result;
 }
 
-// ============== New API Implementation ==============
+/// ============== New API Implementation ==============
 
 chdb_connection * chdb_connect(int argc, char ** argv)
 {
@@ -570,8 +488,6 @@ chdb_result * chdb_query(chdb_connection conn, const char * query, const char * 
 
 chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    ChdbDestructorGuard guard;
-
     if (!conn)
     {
         auto * result = new MaterializedQueryResult("Unexpected null connection");
@@ -607,8 +523,6 @@ chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t quer
 
 chdb_result * chdb_query_cmdline(int argc, char ** argv)
 {
-    ChdbDestructorGuard guard;
-
     MaterializedQueryResult * result = nullptr;
     try
     {
@@ -635,8 +549,6 @@ chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const 
 
 chdb_result * chdb_stream_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    ChdbDestructorGuard guard;
-
     if (!conn)
     {
         auto * result = new StreamQueryResult("Unexpected null connection");
@@ -677,7 +589,6 @@ chdb_result * chdb_stream_query_n(chdb_connection conn, const char * query, size
 
 chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * result)
 {
-    ChdbDestructorGuard guard;
     if (!conn)
     {
         auto * query_result = new MaterializedQueryResult("Unexpected null connection");
@@ -723,8 +634,6 @@ chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * resul
 
 void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!result || !conn)
         return;
 
@@ -742,13 +651,11 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
     {
         DB::tryLogCurrentException(__PRETTY_FUNCTION__);
     }
-    // Note: The result object should be freed by chdb_destroy_query_result(), not here
+    /// Note: The result object should be freed by chdb_destroy_query_result(), not here
 }
 
 void chdb_destroy_query_result(chdb_result * result)
 {
-    ChdbDestructorGuard guard;
-
     if (!result)
         return;
 

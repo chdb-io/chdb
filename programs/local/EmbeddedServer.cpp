@@ -1,11 +1,12 @@
 #include "EmbeddedServer.h"
 
 #if USE_PYTHON
-#    include "StoragePython.h"
-#    include "TableFunctionPython.h"
+#include "StoragePython.h"
+#include "TableFunctionPython.h"
+#include "ChunkCollectorOutputFormat.h"
 #else
-#    include "StorageArrowStream.h"
-#    include "TableFunctionArrowStream.h"
+#include "StorageArrowStream.h"
+#include "TableFunctionArrowStream.h"
 #endif
 #include <Formats/FormatFactory.h>
 #include <TableFunctions/TableFunctionFactory.h>
@@ -73,6 +74,7 @@
 #    include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+bool chdb_embedded_server_initialized = false;
 
 namespace fs = std::filesystem;
 
@@ -511,6 +513,8 @@ try
         global_register_once_flag,
         []()
         {
+            chdb_embedded_server_initialized = true;
+
             registerInterpreters();
             /// Don't initialize DateLUT
             registerFunctions();
@@ -526,9 +530,12 @@ try
 
             registerDatabases();
             registerStorages();
-#if USE_PYTHON
             auto & storage_factory = StorageFactory::instance();
+#if USE_PYTHON
             registerStoragePython(storage_factory);
+            CHDB::registerDataFrameOutputFormat();
+#else
+            registerStorageArrowStream(storage_factory);
 #endif
 
             registerDictionaries();

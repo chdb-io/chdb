@@ -99,7 +99,7 @@ struct StreamingQueryContext
 
 #if USE_PYTHON
 /// Function pointer type for creating custom output formats (e.g. DataFrame)
-using CustomOutputFormatCreator = std::function<std::shared_ptr<IOutputFormat>(SharedHeader)>;
+using CustomOutputFormatCreator = std::function<std::shared_ptr<IOutputFormat>(SharedHeader, std::vector<Chunk> &)>;
 #endif
 
 /**
@@ -438,10 +438,15 @@ public:
     std::unique_ptr<ShellCommand> pager_cmd;
 
     /// Output Buffer for query results.
-    // PODArray<char> query_result_memory;
     std::vector<char> * query_result_memory = nullptr;
     std::shared_ptr<WriteBuffer> query_result_buf;
     std::shared_ptr<StreamingQueryContext> streaming_query_context;
+
+#if USE_PYTHON
+    /// Collected chunks for DataFrame generation
+    std::vector<Chunk> collected_chunks;
+    SharedHeader collected_chunks_header;
+#endif
 
     /// The user can specify to redirect query output to a file.
     std::unique_ptr<WriteBuffer> out_file_buf;

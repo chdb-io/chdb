@@ -64,6 +64,7 @@ protected:
 private:
     void cleanup();
     bool parseQueryTextWithOutputFormat(const String & query, const String & format);
+    void cancelStreamingQueryWithoutLock(void * streaming_result);
 
     EmbeddedServerPtr server;
     std::unique_ptr<Session> session;

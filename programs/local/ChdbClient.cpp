@@ -74,7 +74,7 @@ void ChdbClient::cleanup()
     try
     {
         if (streaming_query_context && streaming_query_context->streaming_result)
-            CHDB::cancelStreamQuery(this, streaming_query_context->streaming_result);
+            cancelStreamingQueryWithoutLock(streaming_query_context->streaming_result);
         streaming_query_context.reset();
         connection.reset();
         client_context.reset();
@@ -145,7 +145,6 @@ void ChdbClient::findQueryableObjFromPyCache(const String & query_str) const
 {
     python_table_cache->findQueryableObjFromQuery(query_str);
 }
-
 #endif
 
 #if USE_PYTHON
@@ -200,6 +199,23 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
         auto * local_connection = static_cast<LocalConnection *>(connection.get());
         size_t storage_rows_read = local_connection->getCHDBProgress().read_rows;
         size_t storage_bytes_read = local_connection->getCHDBProgress().read_bytes;
+
+#if USE_PYTHON
+        if (format_str == "dataframe")
+        {
+            auto res = std::make_unique<CHDB::ChunkQueryResult>(
+                std::move(collected_chunks),
+                std::move(collected_chunks_header),
+                getElapsedTime(),
+                getProcessedRows(),
+                getProcessedBytes(),
+                storage_rows_read,
+                storage_bytes_read);
+            python_table_cache->clear();
+            return res;
+        }
+#endif
+
         auto res = std::make_unique<CHDB::MaterializedQueryResult>(
             CHDB::ResultBuffer(stealQueryOutputVector()),
             getElapsedTime(),
@@ -285,7 +301,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
         size_t old_storage_bytes_read = local_connection->getCHDBProgress().read_bytes;
         const auto old_elapsed_time = getElapsedTime();
 
-        std::unique_ptr<CHDB::MaterializedQueryResult> res;
+        CHDB::QueryResultPtr res;
         if (!processStreamingQuery(streaming_result, is_canceled))
         {
             res = std::make_unique<CHDB::MaterializedQueryResult>(getErrorMsg());
@@ -297,12 +313,13 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
             size_t storage_rows_read = local_connection->getCHDBProgress().read_rows;
             size_t storage_bytes_read = local_connection->getCHDBProgress().read_bytes;
             const auto elapsed_time = getElapsedTime();
-            auto * output_vec = stealQueryOutputVector();
-            bool has_output_data = output_vec && !output_vec->empty();
-            if (has_output_data)
+
+#if USE_PYTHON
+            if (default_output_format == "dataframe")
             {
-                res = std::make_unique<CHDB::MaterializedQueryResult>(
-                    CHDB::ResultBuffer(output_vec),
+                res = std::make_unique<CHDB::ChunkQueryResult>(
+                    std::move(collected_chunks),
+                    std::move(collected_chunks_header),
                     elapsed_time - old_elapsed_time,
                     processed_rows - old_processed_rows,
                     processed_bytes - old_processed_bytes,
@@ -310,13 +327,30 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
                     storage_bytes_read - old_storage_bytes_read);
             }
             else
+#endif
             {
-                delete output_vec;
-                res = std::make_unique<CHDB::MaterializedQueryResult>(nullptr, 0.0, 0, 0, 0, 0);
+                auto * output_vec = stealQueryOutputVector();
+                bool has_output_data = output_vec && !output_vec->empty();
+                if (has_output_data)
+                {
+                    res = std::make_unique<CHDB::MaterializedQueryResult>(
+                        CHDB::ResultBuffer(output_vec),
+                        elapsed_time - old_elapsed_time,
+                        processed_rows - old_processed_rows,
+                        processed_bytes - old_processed_bytes,
+                        storage_rows_read - old_storage_rows_read,
+                        storage_bytes_read - old_storage_bytes_read);
+                }
+                else
+                {
+                    delete output_vec;
+                    res = std::make_unique<CHDB::MaterializedQueryResult>(nullptr, 0.0, 0, 0, 0, 0);
+                }
             }
         }
 
-        bool is_end = !res->getError().empty() || res->rows_read == 0 || is_canceled;
+        // Check if query should end based on result type
+        bool is_end = !res->getError().empty() || is_canceled || res->isEmpty();
         if (is_end)
         {
             // End of stream reached or cancelled, cleanup
@@ -364,20 +398,25 @@ void ChdbClient::cancelStreamingQuery(void * streaming_result)
 {
     std::lock_guard<std::mutex> lock(client_mutex);
 
+    cancelStreamingQueryWithoutLock(streaming_result);
+}
+
+void ChdbClient::cancelStreamingQueryWithoutLock(void * streaming_result)
+{
     if (streaming_query_context)
     {
         try
         {
-            // Process the cancellation through ClientBase's streaming query method
+            /// Process the cancellation through ClientBase's streaming query method
             processStreamingQuery(streaming_result, true);
         }
         catch (...)
         {
-            // Ignore errors during cancellation
+            /// Ignore errors during cancellation
             tryLogCurrentException(__PRETTY_FUNCTION__);
         }
 
-        // Ensure cleanup happens
+        /// Ensure cleanup happens
         streaming_query_context.reset();
 #if USE_PYTHON
         if (connection)
