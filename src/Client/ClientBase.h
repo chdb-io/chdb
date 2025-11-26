@@ -92,7 +92,7 @@ struct StreamingQueryContext
     ASTPtr parsed_query;
     void * streaming_result = nullptr;
     bool is_streaming_query = true;
-    ThreadGroupPtr thread_group = nullptr; 
+    ThreadGroupPtr thread_group = nullptr;
 
     StreamingQueryContext() = default;
 };
