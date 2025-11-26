@@ -315,7 +315,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
             const auto elapsed_time = getElapsedTime();
 
 #if USE_PYTHON
-            if (default_output_format == "dataframe")
+            if (Poco::toLower(default_output_format) == "dataframe")
             {
                 res = std::make_unique<CHDB::ChunkQueryResult>(
                     std::move(collected_chunks),

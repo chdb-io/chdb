@@ -306,7 +306,7 @@ py::object connection_wrapper::query_df(const std::string & query_str)
             throw std::runtime_error(msg_copy);
         }
 
-        if (!(chunk_result = dynamic_cast<CHDB::ChunkQueryResult *>(reinterpret_cast<CHDB::QueryResult*>(result))))
+        if (!(chunk_result = dynamic_cast<CHDB::ChunkQueryResult *>(reinterpret_cast<CHDB::QueryResult *>(result))))
             throw std::runtime_error("Expected ChunkQueryResult for dataframe format");
     }
 
