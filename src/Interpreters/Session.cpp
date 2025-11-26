@@ -19,11 +19,12 @@
 #include <Interpreters/SessionLog.h>
 #include <Interpreters/Cluster.h>
 
+#include <base/EnumReflection.h>
+
 #include <condition_variable>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
-#include <base/EnumReflection.h>
 
 #include <fmt/ranges.h>
 
