@@ -655,7 +655,8 @@ try
             auto creator = getDataFrameFormatCreator();
             if (creator)
             {
-                output_format = creator(std::make_shared<const Block>(block));
+                collected_chunks_header = std::make_shared<const Block>(block);
+                output_format = creator(collected_chunks_header, collected_chunks);
                 return;
             }
             else

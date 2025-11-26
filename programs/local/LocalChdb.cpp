@@ -21,6 +21,7 @@ extern bool inside_main = true;
 namespace CHDB
 {
 extern chdb_connection * connect_chdb_with_exception(int argc, char ** argv);
+extern void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str);
 }
 
 const static char * CURSOR_DEFAULT_FORMAT = "JSONCompactEachRowWithNamesAndTypes";
@@ -266,16 +267,12 @@ void connection_wrapper::commit()
 query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
 {
     if (Poco::toLower(format) == "dataframe")
-        throw std::runtime_error("Unsupported format: dataframe");
+        throw std::runtime_error("Unsupported output format dataframe, please use 'query_df' function");
 
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
+
     auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
-    if (chdb_result_length(result))
-    {
-        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for query: {}", query_str);
-    }
 
     auto error_msg = CHDB::chdb_result_error_string(result);
     if (!error_msg.empty())
@@ -289,36 +286,40 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
 py::object connection_wrapper::query_df(const std::string & query_str)
 {
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
-    const std::string format = "dataframe";
+    static const std::string format = "dataframe";
 
     chdb_result * result = nullptr;
-    py::gil_scoped_release release;
-    result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
-    auto error_msg = CHDB::chdb_result_error_string(result);
-    if (!error_msg.empty())
+    CHDB::ChunkQueryResult * chunk_result = nullptr;
+
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
+
     {
-        std::string msg_copy(error_msg);
-        chdb_destroy_query_result(result);
-        CHDB::resetGlobalDataFrameBuilder();
-        throw std::runtime_error(msg_copy);
+        py::gil_scoped_release release;
+
+        result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
+
+        auto error_msg = CHDB::chdb_result_error_string(result);
+        if (!error_msg.empty())
+        {
+            std::string msg_copy(error_msg);
+            chdb_destroy_query_result(result);
+            throw std::runtime_error(msg_copy);
+        }
+
+        if (!(chunk_result = dynamic_cast<CHDB::ChunkQueryResult *>(reinterpret_cast<CHDB::QueryResult *>(result))))
+            throw std::runtime_error("Expected ChunkQueryResult for dataframe format");
     }
 
+    CHDB::PandasDataFrameBuilder builder(*chunk_result);
+    auto df = builder.getDataFrame();
     chdb_destroy_query_result(result);
-    auto * builder = CHDB::getGlobalDataFrameBuilder();
-    if (!builder)
-        throw std::runtime_error("Global DataFrame builder is not initialized");
 
-    auto ret = builder->getDataFrame();
-    CHDB::resetGlobalDataFrameBuilder();
-    return ret;
+    return df;
 }
 
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
 {
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_stream_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
     auto error_msg = CHDB::chdb_result_error_string(result);
@@ -341,9 +342,6 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
 
     auto * result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
 
-    if (chdb_result_length(result) == 0)
-        LOG_DEBUG(getLogger("CHDB"), "Empty result returned for streaming query");
-
     const auto error_msg = CHDB::chdb_result_error_string(result);
     if (!error_msg.empty())
     {
@@ -361,35 +359,30 @@ py::object connection_wrapper::streaming_fetch_df(streaming_query_result * strea
         return py::none();
 
     chdb_result * result = nullptr;
+    CHDB::ChunkQueryResult * chunk_result = nullptr;
 
     {
         py::gil_scoped_release release;
+
         result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
 
-        const auto error_msg = CHDB::chdb_result_error_string(result);
+        auto error_msg = CHDB::chdb_result_error_string(result);
         if (!error_msg.empty())
         {
             std::string msg_copy(error_msg);
             chdb_destroy_query_result(result);
-            CHDB::resetGlobalDataFrameBuilder();
             throw std::runtime_error(msg_copy);
         }
 
-        auto * builder = CHDB::getGlobalDataFrameBuilder();
-        if (builder)
-        {
-            chdb_destroy_query_result(result);
-            auto ret = builder->getDataFrame();
-            CHDB::resetGlobalDataFrameBuilder();
-            return ret;
-        }
-        else
-        {
-            chdb_destroy_query_result(result);
-        }
+        if (!(chunk_result = dynamic_cast<CHDB::ChunkQueryResult *>(reinterpret_cast<CHDB::QueryResult*>(result))))
+            throw std::runtime_error("Expected ChunkQueryResult for dataframe format");
     }
 
-    return py::none();
+    CHDB::PandasDataFrameBuilder builder(*chunk_result);
+    auto df = builder.getDataFrame();
+    chdb_destroy_query_result(result);
+
+    return df;
 }
 
 void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)
@@ -405,8 +398,7 @@ void connection_wrapper::streaming_cancel_query(streaming_query_result * streami
 void cursor_wrapper::execute(const std::string & query_str)
 {
     release_result();
-    CHDB::PythonTableCache::findQueryableObjFromQuery(query_str);
-
+    CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(conn->get_conn()), query_str);
     // Use JSONCompactEachRowWithNamesAndTypes format for better type support
     py::gil_scoped_release release;
     current_result = chdb_query_n(conn->get_conn(), query_str.data(), query_str.size(), CURSOR_DEFAULT_FORMAT, CURSOR_DEFAULT_FORMAT_LEN);
@@ -589,14 +581,11 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("udf_path") = "",
         "Query chDB and return a query_result object or DataFrame");
 
-	auto destroy_import_cache = []()
+    auto destroy_import_cache = []()
     {
-        CHDB::chdbCleanupConnection();
-        CHDB::PythonTableCache::clear();
-		CHDB::PythonImporter::destroy();
-        CHDB::resetGlobalDataFrameBuilder();
-	};
-	m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
+        CHDB::PythonImporter::destroy();
+    };
+    m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
 
 #    endif // PY_TEST_MAIN

@@ -166,6 +166,7 @@ public:
     const Progress & getCHDBProgress() const { return chdb_progress; }
 #if USE_PYTHON
     void resetQueryContext();
+    Session & getSession() const { return *session; }
 #endif
 
 private:

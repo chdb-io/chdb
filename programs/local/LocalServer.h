@@ -90,8 +90,6 @@ public:
     }
 
 private:
-    void cleanStreamingQuery();
-
     std::unique_ptr<MemoryWorker> memory_worker;
 };
 

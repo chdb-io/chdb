@@ -73,6 +73,8 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+extern bool chdb_embedded_server_initialized;
+
 namespace fs = std::filesystem;
 
 namespace CurrentMetrics
@@ -153,7 +155,7 @@ namespace ErrorCodes
     extern const int UNKNOWN_FORMAT;
 }
 
-void applySettingsOverridesForLocal(ContextMutablePtr context)
+static void applySettingsOverridesForLocal(ContextMutablePtr context)
 {
     Settings settings = context->getSettingsCopy();
 
@@ -428,8 +430,6 @@ void LocalServer::cleanup()
 {
     try
     {
-        cleanStreamingQuery();
-
         connection.reset();
 
         /// Suggestions are loaded async in a separate thread and it can use global context.
@@ -646,39 +646,35 @@ try
         Poco::ErrorHandler::set(&error_handler);
     }
 
-    // run only once
-    static std::once_flag register_once_flag;
-    std::call_once(register_once_flag, []()
-    {
-        registerInterpreters();
-        /// Don't initialize DateLUT
-        registerFunctions();
-        registerAggregateFunctions();
+    std::call_once(
+        global_register_once_flag,
+        []()
+        {
+            chdb_embedded_server_initialized = true;
 
-        registerTableFunctions();
+            registerInterpreters();
+            /// Don't initialize DateLUT
+            registerFunctions();
+            registerAggregateFunctions();
 
-        auto & table_function_factory = TableFunctionFactory::instance();
+            registerTableFunctions();
+
 #if USE_PYTHON
-        registerTableFunctionPython(table_function_factory);
-#else
-        registerTableFunctionArrowStream(table_function_factory);
+            registerTableFunctionPython(TableFunctionFactory::instance());
 #endif
 
-        registerDatabases();
+            registerDatabases();
 
-        registerStorages();
-        auto & storage_factory = StorageFactory::instance();
+            registerStorages();
 #if USE_PYTHON
-        registerStoragePython(storage_factory);
-        CHDB::registerDataFrameOutputFormat();
-#else
-        registerStorageArrowStream(storage_factory);
+            registerStoragePython(StorageFactory::instance());
+            CHDB::registerDataFrameOutputFormat();
 #endif
 
-        registerDictionaries();
-        registerDisks(/* global_skip_access_check= */ true);
-        registerFormats();
-    });
+            registerDictionaries();
+            registerDisks(/* global_skip_access_check= */ true);
+            registerFormats();
+        });
 
     processConfig();
 
@@ -805,12 +801,10 @@ void LocalServer::processConfig()
         getClientConfiguration().setString("logger.level", logging ? level : "fatal");
         buildLoggers(getClientConfiguration(), logger(), "clickhouse-local");
     }
-
     shared_context = Context::createSharedHolder();
     global_context = Context::createGlobal(shared_context.get());
     global_context->makeGlobalContext();
     global_context->setApplicationType(Context::ApplicationType::LOCAL);
-
     tryInitPath();
 
     LoggerRawPtr log = &logger();
@@ -1226,16 +1220,6 @@ void LocalServer::readArguments(int argc, char ** argv, Arguments & common_argum
         }
     }
 }
-
-
-void LocalServer::cleanStreamingQuery()
-{
-    if (streaming_query_context && streaming_query_context->streaming_result)
-        CHDB::cancelStreamQuery(this, streaming_query_context->streaming_result);
-
-    streaming_query_context.reset();
-}
-
 }
 
 #pragma clang diagnostic ignored "-Wunused-function"

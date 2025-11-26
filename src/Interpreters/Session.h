@@ -14,6 +14,13 @@
 
 namespace Poco::Net { class SocketAddress; }
 
+#if USE_PYTHON
+namespace CHDB
+{
+class PythonTableCache;
+}
+#endif
+
 namespace DB
 {
 class Credentials;
@@ -103,6 +110,14 @@ public:
 
     /// Closes and removes session
     void closeSession(const String & session_id);
+
+#if USE_PYTHON
+    bool isJSONSupported() const { return is_json_supported; }
+    void setJSONSupport(bool support) { is_json_supported = support; }
+    std::shared_ptr<CHDB::PythonTableCache> & getPythonTableCache() { return py_table_cache; }
+    void setPythonTableCache(std::shared_ptr<CHDB::PythonTableCache> py_table_cache_) { py_table_cache = py_table_cache_; }
+#endif
+
 private:
     std::shared_ptr<SessionLog> getSessionLog() const;
     ContextMutablePtr makeQueryContextImpl(const ClientInfo * client_info_to_copy, ClientInfo * client_info_to_move) const;
@@ -133,6 +148,11 @@ private:
     SettingsChanges settings_from_auth_server;
 
     LoggerPtr log = nullptr;
+
+#if USE_PYTHON
+    bool is_json_supported = true;
+    std::shared_ptr<CHDB::PythonTableCache> py_table_cache;
+#endif
 };
 
 }
