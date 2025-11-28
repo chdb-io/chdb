@@ -8,4 +8,7 @@ set (CMAKE_CXX_COMPILER_TARGET "x86_64-apple-darwin")
 set (CMAKE_ASM_COMPILER_TARGET "x86_64-apple-darwin")
 set (CMAKE_OSX_SYSROOT "${CMAKE_CURRENT_LIST_DIR}/../toolchain/darwin-x86_64")
 
+# Set minimum macOS deployment target to 10.15 (Catalina)
+set (CMAKE_OSX_DEPLOYMENT_TARGET "10.15")
+
 set (CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)  # disable linkage check - it doesn't work in CMake
