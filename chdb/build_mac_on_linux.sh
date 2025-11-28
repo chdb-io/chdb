@@ -24,20 +24,12 @@ if [ "$(uname)" != "Linux" ]; then
     exit 1
 fi
 
-# Verify required environment variables
-if [ -z "${CCTOOLS:-}" ]; then
-    echo "Error: CCTOOLS environment variable not set. Please set it to the cctools bin directory."
-    echo "Example: export CCTOOLS=/path/to/cctools"
-    exit 1
-fi
-
-# Set architecture-specific variables
+# Set architecture-specific variables first
 if [ "$TARGET_ARCH" == "x86_64" ]; then
     DARWIN_TRIPLE="x86_64-apple-darwin"
     CMAKE_ARCH="x86_64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-x86_64.cmake"
     BUILD_DIR_SUFFIX="darwin-x86_64"
-    # x86_64 specific: disable AVX for compatibility
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
 else
     # arm64
@@ -45,16 +37,59 @@ else
     CMAKE_ARCH="aarch64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-aarch64.cmake"
     BUILD_DIR_SUFFIX="darwin-arm64"
-    # ARM64 specific: disable x86 features, may need to disable some ARM features for compatibility
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=0"
 fi
 
-# Check if cctools exist for this architecture
-if [ ! -f "${CCTOOLS}/bin/${DARWIN_TRIPLE}-ar" ]; then
-    echo "Error: cctools not found at ${CCTOOLS}/bin/${DARWIN_TRIPLE}-ar"
-    echo "Tip: You may need to rebuild cctools with support for ${TARGET_ARCH}"
+# Install cctools if not already installed
+CCTOOLS_INSTALL_DIR="${HOME}/cctools"
+CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
+
+if [ -z "${CCTOOLS:-}" ]; then
+    echo "CCTOOLS environment variable not set, checking for installation..."
+
+    # Check if cctools is already installed
+    if [ -f "${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld" ]; then
+        echo "Found existing cctools installation at ${CCTOOLS_INSTALL_DIR}"
+        export CCTOOLS="${CCTOOLS_BIN}"
+    else
+        echo "cctools not found, installing..."
+
+        mkdir ~/cctools
+        export CCTOOLS=$(cd ~/cctools && pwd)
+        cd ${CCTOOLS}
+
+        git clone https://github.com/tpoechtrager/apple-libtapi.git
+        cd apple-libtapi
+        git checkout 15dfc2a8c9a2a89d06ff227560a69f5265b692f9
+        INSTALLPREFIX=${CCTOOLS} ./build.sh
+        ./install.sh
+        cd ..
+
+        git clone https://github.com/chdb-io/cctools-port.git
+        cd cctools-port/cctools
+
+        # Set cctools target based on architecture
+        if [ "$TARGET_ARCH" == "x86_64" ]; then
+            CCTOOLS_TARGET="x86_64-apple-darwin"
+        else
+            CCTOOLS_TARGET="aarch64-apple-darwin"
+        fi
+
+        ./configure --prefix=$(readlink -f ${CCTOOLS}) --with-libtapi=$(readlink -f ${CCTOOLS}) --target=${CCTOOLS_TARGET}
+        make install
+    fi
+else
+    echo "Using CCTOOLS from environment variable: ${CCTOOLS}"
+fi
+
+# Verify cctools installation
+if [ ! -f "${CCTOOLS}/${DARWIN_TRIPLE}-ld" ]; then
+    echo "Error: cctools linker not found at ${CCTOOLS}/${DARWIN_TRIPLE}-ld"
+    echo "Please verify cctools installation or set CCTOOLS environment variable correctly"
     exit 1
 fi
+
+echo "cctools verified: ${CCTOOLS}/${DARWIN_TRIPLE}-ld"
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -109,11 +144,6 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DENABLE_LIBFIU=1 \
     -DCHDB_VERSION=${CHDB_VERSION} \
-    -DCMAKE_AR:FILEPATH=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ar \
-    -DCMAKE_INSTALL_NAME_TOOL=${CCTOOLS}/bin/${DARWIN_TRIPLE}-install_name_tool \
-    -DCMAKE_RANLIB:FILEPATH=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ranlib \
-    -DCMAKE_LINKER:FILEPATH=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ld \
-    -DLINKER_NAME=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ld \
     -DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE} \
     "
 
