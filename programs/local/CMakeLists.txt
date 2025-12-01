@@ -61,11 +61,17 @@ if (USE_PYTHON)
     include_directories(${PYBIND11_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
     # include Python.h
-    execute_process(COMMAND python3-config --includes
-        OUTPUT_VARIABLE PYTHON_INCLUDES
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
+    if(CHDB_CROSSCOMPILING)
+        # For cross-compiling, use the provided Python include directory
+        set(PYTHON_INCLUDE_DIR "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+        message(STATUS "Cross-compiling: Using Python include directory: ${PYTHON_INCLUDE_DIR}")
+    else()
+        execute_process(COMMAND python3-config --includes
+            OUTPUT_VARIABLE PYTHON_INCLUDES
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
+    endif()
 
     foreach(_file ${CHDB_SOURCES})
         set_source_files_properties(${_file}
