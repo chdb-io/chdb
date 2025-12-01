@@ -8,6 +8,8 @@ set -e
 # Parse arguments
 TARGET_ARCH=${1:-x86_64}
 build_type=${2:-Release}
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+. ${DIR}/vars.sh cross-compile
 
 # Validate architecture
 if [[ "$TARGET_ARCH" != "x86_64" && "$TARGET_ARCH" != "arm64" ]]; then
@@ -37,7 +39,7 @@ else
     CMAKE_ARCH="aarch64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-aarch64.cmake"
     BUILD_DIR_SUFFIX="darwin-arm64"
-    CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=0"
+    CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
 fi
 
 # Install cctools if not already installed
@@ -91,17 +93,24 @@ fi
 
 echo "cctools verified: ${CCTOOLS}/${DARWIN_TRIPLE}-ld"
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+# Override tools with cross-compilation versions from cctools
+export STRIP="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-strip"
+export AR="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ar"
+export NM="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-nm"
+export LDD="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-otool -L"
 
-. ${DIR}/vars.sh
+echo "Using cross-compilation tools:"
+echo "  STRIP: ${STRIP}"
+echo "  AR: ${AR}"
+echo "  NM: ${NM}"
+echo "  LDD: ${LDD}"
 
 BUILD_DIR=${PROJ_DIR}/build-${BUILD_DIR_SUFFIX}
 
-# Set up cross-compilation tools
 export CC=clang-19
 export CXX=clang++-19
 
-# macOS-specific settings
+RUST_FEATURES="-DENABLE_RUST=0"
 GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
 UNWIND="-DUSE_UNWIND=0"
 JEMALLOC="-DENABLE_JEMALLOC=0"
@@ -110,10 +119,11 @@ HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
 MYSQL="-DENABLE_MYSQL=0"
 ICU="-DENABLE_ICU=0"
 SED_INPLACE="sed -i"
-RUST_FEATURES="-DENABLE_RUST=0"
-
-# Disable embedded compiler for cross-compilation
 LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+CMAKE_AR_FILEPATH="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ar"
+CMAKE_INSTALL_NAME_TOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-install_name_tool"
+CMAKE_RANLIB_FILEPATH="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ranlib"
+CMAKE_LINKER_NAME="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld"
 
 if [ ! -d $BUILD_DIR ]; then
     mkdir $BUILD_DIR
@@ -121,7 +131,12 @@ fi
 
 cd ${BUILD_DIR}
 
-CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
+CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} \
+    -DCMAKE_AR:FILEPATH=${CMAKE_AR_FILEPATH} \
+    -DCMAKE_INSTALL_NAME_TOOL=${CMAKE_INSTALL_NAME_TOOL} \
+    -DCMAKE_RANLIB:FILEPATH=${CMAKE_RANLIB_FILEPATH} \
+    -DLINKER_NAME=${CMAKE_LINKER_NAME} \
+    -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
     -DENABLE_CLICKHOUSE_KEEPER=0 -DENABLE_CLICKHOUSE_KEEPER_CONVERTER=0 -DENABLE_CLICKHOUSE_LOCAL=1 -DENABLE_CLICKHOUSE_SU=0 -DENABLE_CLICKHOUSE_BENCHMARK=0 \
     -DENABLE_AZURE_BLOB_STORAGE=1 -DENABLE_CLICKHOUSE_COPIER=0 -DENABLE_CLICKHOUSE_DISKS=0 -DENABLE_CLICKHOUSE_FORMAT=0 -DENABLE_CLICKHOUSE_GIT_IMPORT=0 \
     -DENABLE_AWS_S3=1 -DENABLE_HIVE=0 -DENABLE_AVRO=1 \
@@ -150,10 +165,8 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
 LIBCHDB_SO="libchdb.so"
 
 # Build libchdb.so
-echo "Running cmake configuration..."
+echo "Executing cmake..."
 cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 ..
-
-echo "Building with ninja..."
 ninja -d keeprsp
 
 BINARY=${BUILD_DIR}/programs/clickhouse
@@ -208,18 +221,13 @@ LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 ls -lh ${LIBCHDB}
 
 # Build chdb python module
-py_version="3.9"
-current_py_version=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
-if [ "$current_py_version" != "$py_version" ]; then
-    echo "Error: Current Python version is $current_py_version, but required version is $py_version"
-    echo "Please switch to Python $py_version using: pyenv shell $py_version"
-    exit 1
-fi
-cmake ${CMAKE_ARGS} -DENABLE_PYTHON=1 -DPYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION=${py_version} ..
+
+CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include"
+cmake ${CMAKE_ARGS} -DENABLE_PYTHON=1 -DCHDB_CROSSCOMPILING=1 -DCHDB_PYTHON_INCLUDE_DIR_PREFIX=${CHDB_PYTHON_INCLUDE_DIR_PREFIX} ..
 ninja -d keeprsp || true
 
 # Delete the binary and run ninja -v again to capture the command
-/bin/rm -f ${BINARY}
+rm -f ${BINARY}
 cd ${BUILD_DIR}
 ninja -d keeprsp -v > build.log || true
 
