@@ -18,13 +18,13 @@ if [[ "$TARGET_ARCH" != "x86_64" && "$TARGET_ARCH" != "arm64" ]]; then
     exit 1
 fi
 
-echo "Cross-compiling chdb for macOS ${TARGET_ARCH} on Linux..."
-
 # Verify we're running on Linux
 if [ "$(uname)" != "Linux" ]; then
     echo "Error: This script must be run on Linux"
     exit 1
 fi
+
+echo "Cross-compiling chdb for macOS ${TARGET_ARCH} on Linux..."
 
 # Set architecture-specific variables first
 if [ "$TARGET_ARCH" == "x86_64" ]; then
@@ -33,6 +33,7 @@ if [ "$TARGET_ARCH" == "x86_64" ]; then
     TOOLCHAIN_FILE="cmake/darwin/toolchain-x86_64.cmake"
     BUILD_DIR_SUFFIX="darwin-x86_64"
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    SDK_DIR="darwin-x86_64"
 else
     # arm64
     DARWIN_TRIPLE="aarch64-apple-darwin"
@@ -40,58 +41,35 @@ else
     TOOLCHAIN_FILE="cmake/darwin/toolchain-aarch64.cmake"
     BUILD_DIR_SUFFIX="darwin-arm64"
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    SDK_DIR="darwin-aarch64"
 fi
 
-# Install cctools if not already installed
-CCTOOLS_INSTALL_DIR="${HOME}/cctools"
-CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
-
-if [ -z "${CCTOOLS:-}" ]; then
-    echo "CCTOOLS environment variable not set, checking for installation..."
-
-    # Check if cctools is already installed
-    if [ -f "${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld" ]; then
-        echo "Found existing cctools installation at ${CCTOOLS_INSTALL_DIR}"
-        export CCTOOLS="${CCTOOLS_BIN}"
-    else
-        echo "cctools not found, installing..."
-
-        mkdir ~/cctools
-        export CCTOOLS=$(cd ~/cctools && pwd)
-        cd ${CCTOOLS}
-
-        git clone https://github.com/tpoechtrager/apple-libtapi.git
-        cd apple-libtapi
-        git checkout 15dfc2a8c9a2a89d06ff227560a69f5265b692f9
-        INSTALLPREFIX=${CCTOOLS} ./build.sh
-        ./install.sh
-        cd ..
-
-        git clone https://github.com/chdb-io/cctools-port.git
-        cd cctools-port/cctools
-
-        # Set cctools target based on architecture
-        if [ "$TARGET_ARCH" == "x86_64" ]; then
-            CCTOOLS_TARGET="x86_64-apple-darwin"
-        else
-            CCTOOLS_TARGET="aarch64-apple-darwin"
-        fi
-
-        ./configure --prefix=$(readlink -f ${CCTOOLS}) --with-libtapi=$(readlink -f ${CCTOOLS}) --target=${CCTOOLS_TARGET}
-        make install
-    fi
-else
-    echo "Using CCTOOLS from environment variable: ${CCTOOLS}"
+# Download macOS SDK
+SDK_PATH="${PROJ_DIR}/cmake/toolchain/${SDK_DIR}"
+echo "Downloading macOS SDK to ${SDK_PATH}..."
+mkdir -p "${SDK_PATH}"
+cd "${SDK_PATH}"
+if ! curl -L 'https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.0.sdk.tar.xz' | tar xJ --strip-components=1; then
+    echo "Error: Failed to download macOS SDK"
+    exit 1
 fi
+echo "macOS SDK downloaded successfully"
 
-# Verify cctools installation
-if [ ! -f "${CCTOOLS}/${DARWIN_TRIPLE}-ld" ]; then
-    echo "Error: cctools linker not found at ${CCTOOLS}/${DARWIN_TRIPLE}-ld"
-    echo "Please verify cctools installation or set CCTOOLS environment variable correctly"
+# Download Python headers
+echo "Downloading Python headers..."
+if ! "${DIR}/build/download_python_headers.sh"; then
+    echo "Error: Failed to download Python headers"
     exit 1
 fi
 
-echo "cctools verified: ${CCTOOLS}/${DARWIN_TRIPLE}-ld"
+# Install cctools using the separate script
+if ! eval "$("${DIR}/build/install_cctools.sh" "${TARGET_ARCH}")"; then
+    echo "Error: Failed to install cctools"
+    exit 1
+fi
+
+CCTOOLS_INSTALL_DIR="${HOME}/cctools"
+CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
 
 # Override tools with cross-compilation versions from cctools
 export STRIP="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-strip"
@@ -221,7 +199,6 @@ LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 ls -lh ${LIBCHDB}
 
 # Build chdb python module
-
 CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include"
 cmake ${CMAKE_ARGS} -DENABLE_PYTHON=1 -DCHDB_CROSSCOMPILING=1 -DCHDB_PYTHON_INCLUDE_DIR_PREFIX=${CHDB_PYTHON_INCLUDE_DIR_PREFIX} -DPYBIND11_NOPYTHON=ON ..
 ninja -d keeprsp || true
@@ -304,10 +281,10 @@ cd ${PROJ_DIR} && pwd
 
 ccache -s || true
 
-# Skip pybind11 libraries build for cross-compilation
-echo "Skipping pybind11 libraries build for cross-compilation"
-echo "These should be built separately on the target macOS system using:"
-echo "  CMAKE_ARGS=\"\${CMAKE_ARGS}\" bash \${DIR}/build_pybind11.sh --all"
+if ! CMAKE_ARGS="${CMAKE_ARGS}" CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include" bash ${DIR}/build_pybind11.sh --all --cross-compile; then
+    echo "Error: Failed to build pybind11 libraries"
+    exit 1
+fi
 
 echo -e "\nCross-compilation for macOS ${TARGET_ARCH} completed successfully!"
 echo -e "Generated files:"

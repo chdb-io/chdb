@@ -6,10 +6,32 @@ endif()
 
 string(REPLACE "-Wl,-z,defs" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
 
-if (DEFINED PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION)
-    find_package(Python ${PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION} EXACT REQUIRED COMPONENTS Interpreter Development)
+if(CHDB_CROSSCOMPILING)
+    # For cross-compiling, manually set Python variables
+    if (DEFINED PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION)
+        # Parse version like "3.8" into major and minor
+        string(REPLACE "." ";" VERSION_LIST ${PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION})
+        list(GET VERSION_LIST 0 Python_VERSION_MAJOR)
+        list(GET VERSION_LIST 1 Python_VERSION_MINOR)
+        set(Python_VERSION "${PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION}")
+
+        # Set include directory based on provided prefix and version
+        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}")
+    else()
+        # Default to Python 3.8 if not specified
+        set(Python_VERSION_MAJOR 3)
+        set(Python_VERSION_MINOR 8)
+        set(Python_VERSION "3.8")
+        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+    endif()
+
+    message(STATUS "Cross-compiling: Using Python ${Python_VERSION} include directory: ${Python_INCLUDE_DIRS}")
 else()
-    find_package(Python REQUIRED COMPONENTS Interpreter Development)
+    if (DEFINED PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION)
+        find_package(Python ${PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION} EXACT REQUIRED COMPONENTS Interpreter Development)
+    else()
+        find_package(Python REQUIRED COMPONENTS Interpreter Development)
+    endif()
 endif()
 
 set(LIBRARY_DIR "${ClickHouse_SOURCE_DIR}/contrib/pybind11/")
