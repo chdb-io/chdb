@@ -285,6 +285,22 @@ if ! CMAKE_ARGS="${CMAKE_ARGS}" CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_i
     exit 1
 fi
 
+# Fix LC_RPATH in _chdb.abi3.so for cross-compiled builds
+echo -e "\nFixing LC_RPATH in ${CHDB_PY_MODULE}..."
+INSTALL_NAME_TOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-install_name_tool"
+OTOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-otool"
+OLD_RPATH=$(${OTOOL} -l ${CHDB_DIR}/${CHDB_PY_MODULE} | grep -A2 LC_RPATH | grep path | awk '{print $2}' | head -1)
+if [ -n "${OLD_RPATH}" ]; then
+    echo "  Current RPATH: ${OLD_RPATH}"
+    ${INSTALL_NAME_TOOL} -rpath "${OLD_RPATH}" "@loader_path" ${CHDB_DIR}/${CHDB_PY_MODULE}
+    echo "  Changed RPATH to: @loader_path"
+else
+    echo "  No LC_RPATH found, adding @loader_path"
+    ${INSTALL_NAME_TOOL} -add_rpath "@loader_path" ${CHDB_DIR}/${CHDB_PY_MODULE} || true
+fi
+echo -e "\nVerifying LC_RPATH:"
+${OTOOL} -l ${CHDB_DIR}/${CHDB_PY_MODULE} | grep -A2 LC_RPATH || echo "No LC_RPATH found"
+
 echo -e "\nCross-compilation for macOS ${TARGET_ARCH} completed successfully!"
 echo -e "Generated files:"
 echo -e "  - ${PROJ_DIR}/${LIBCHDB_SO}"

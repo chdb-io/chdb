@@ -1,4 +1,4 @@
-name: Build Linux(musllinux) ARM64
+name: Build Linux(musllinux) arm64
 
 on:
   workflow_dispatch:
@@ -22,7 +22,7 @@ on:
 
 jobs:
   build_musllinux_wheels:
-    name: Build musllinux wheels (Alpine Linux aarch64)
+    name: Build musllinux wheels (Alpine Linux arm64)
     runs-on: GH-Linux-ARM64
     if: ${{ !github.event.pull_request.draft }}
     steps:
