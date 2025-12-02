@@ -73,7 +73,7 @@ build_pybind11_nonlimitedapi() {
 
     # Copy the built library to output directory
     local lib_name="pybind11nonlimitedapi_chdb_${py_version}"
-    if [ "$(uname)" == "Darwin" ]; then
+    if [ "$(uname)" == "Darwin" ] || [ "$cross_compile" = true ]; then
         local lib_file="lib${lib_name}.dylib"
     else
         local lib_file="lib${lib_name}.so"
@@ -147,7 +147,7 @@ build_all_pybind11_nonlimitedapi() {
 }
 
 copy_stubs() {
-    if [ "$(uname)" == "Darwin" ]; then
+    if [ "$(uname)" == "Darwin" ] || [ "$cross_compile" = true ]; then
         local lib_file="libpybind11nonlimitedapi_stubs.dylib"
     else
         local lib_file="libpybind11nonlimitedapi_stubs.so"

@@ -4,6 +4,7 @@
 Script to create libchdb.a static library
 """
 
+import argparse
 import os
 import platform
 import re
@@ -11,33 +12,54 @@ import subprocess
 import sys
 import shutil
 
-# Detect if running on macOS x86 (where ar -d has problematic behavior)
-IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
-IS_MACOS = platform.system() == "Darwin"
+# Global variables (will be set based on arguments)
+IS_MACOS_X86 = False
+IS_MACOS = False
+CROSS_COMPILE = False
 AR_CMD = ""
+BUILD_DIR = ""
 
-# Choose ar command based on platform
-if IS_MACOS_X86:
-    AR_CMD = "llvm-ar"
-    print(f"Using llvm-ar for macOS x86 platform to avoid archive corruption issues")
-else:
-    AR_CMD = "ar"
-    print(f"Using standard ar command for platform: {platform.system()} {platform.machine()}")
+def setup_platform(cross_compile=False, ar_cmd=None):
+    """Setup platform-specific variables"""
+    global IS_MACOS_X86, IS_MACOS, CROSS_COMPILE, AR_CMD
 
-print(f"Selected ar command: {AR_CMD}")
+    if cross_compile:
+        # Cross-compiling for macOS on Linux
+        IS_MACOS = True
+        CROSS_COMPILE = True
+        if ar_cmd:
+            AR_CMD = ar_cmd
+        else:
+            AR_CMD = "ar"
+        print(f"Cross-compile mode: targeting macOS")
+    else:
+        # Native build
+        IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
+        IS_MACOS = platform.system() == "Darwin"
+        if IS_MACOS_X86:
+            AR_CMD = "llvm-ar"
+            print(f"Using llvm-ar for macOS x86 platform to avoid archive corruption issues")
+        else:
+            AR_CMD = "ar"
+            print(f"Using standard ar command for platform: {platform.system()} {platform.machine()}")
 
-def parse_libchdb_cmd():
+    print(f"Selected ar command: {AR_CMD}")
+    print(f"CROSS_COMPILE: {CROSS_COMPILE}, IS_MACOS: {IS_MACOS}")
+
+def parse_libchdb_cmd(build_dir_override=None):
     """Extract object files and static libraries"""
+    global BUILD_DIR
 
     # Get the directory containing this script, then go up two levels
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
 
-    if IS_MACOS_X86:
-        build_dir = 'buildlib'
+    if build_dir_override:
+        build_dir = build_dir_override
     else:
         build_dir = 'build-static-lib'
 
+    BUILD_DIR = build_dir
     print(f"Using build directory: {build_dir}")
 
     # First, check build.log to see if it contains @CMakeFiles/clickhouse.rsp
@@ -153,7 +175,7 @@ def create_static_library(obj_files, lib_files):
         extracted_objects = []
 
         # Add libiconv.a to the list of libraries to extract on macOS
-        if IS_MACOS:
+        if not CROSS_COMPILE and IS_MACOS:
             libiconv_path = "/opt/homebrew/opt/libiconv/lib/libiconv.a"
             if os.path.exists(libiconv_path):
                 lib_files.append(libiconv_path)
@@ -311,16 +333,6 @@ def create_static_library(obj_files, lib_files):
 
                             print(f"Extracted {target_filename} → {unique_filename} (group #{file_index})")
 
-                            # if IS_MACOS_X86:
-                            #     # Move the first occurrence to the end (changes extraction order)
-                            #     move_result = subprocess.run([AR_CMD, "-m", working_archive, target_filename],
-                            #                                     capture_output=True)
-
-                            #     if move_result.returncode != 0:
-                            #         print(f"Warning: Failed to move {target_filename} in archive")
-                            #         print(f"STDERR: {move_result.stderr.decode() if move_result.stderr else 'No error message'}")
-                            #         return False
-                            # else:
                             # Delete this occurrence from working archive
                             delete_result = subprocess.run([AR_CMD, "d", working_archive, target_filename],
                                                             capture_output=True)
@@ -470,12 +482,29 @@ def create_static_library(obj_files, lib_files):
     finally:
         pass
 
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Create libchdb.a static library')
+    parser.add_argument('--cross-compile', '-c', action='store_true',
+                        help='Cross-compile mode (targeting macOS from Linux)')
+    parser.add_argument('--build-dir', '-b', type=str, default=None,
+                        help='Build directory path (relative to project root or absolute)')
+    parser.add_argument('--ar-cmd', type=str, default=None,
+                        help='Path to ar command (for cross-compilation)')
+    return parser.parse_args()
+
 def main():
     print("Creating libchdb.a static library...")
 
+    # Parse arguments
+    args = parse_args()
+
+    # Setup platform based on arguments
+    setup_platform(cross_compile=args.cross_compile, ar_cmd=args.ar_cmd)
+
     try:
         # Parse the command file
-        obj_files, lib_files = parse_libchdb_cmd()
+        obj_files, lib_files = parse_libchdb_cmd(build_dir_override=args.build_dir)
 
         # Create static library
         success = create_static_library(obj_files, lib_files)

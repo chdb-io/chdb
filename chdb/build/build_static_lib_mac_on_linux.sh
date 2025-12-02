@@ -2,12 +2,10 @@
 
 set -e
 
-# Cross-compile chdb static library for macOS (x86_64 or arm64) on Linux
-# Usage: ./build_static_lib_mac_on_linux.sh [x86_64|arm64] [Release|Debug]
-
-# Parse arguments
 TARGET_ARCH=${1:-x86_64}
 build_type=${2:-Release}
+MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+. ${MY_DIR}/../vars.sh cross-compile
 
 # Validate architecture
 if [[ "$TARGET_ARCH" != "x86_64" && "$TARGET_ARCH" != "arm64" ]]; then
@@ -34,37 +32,57 @@ fi
 # Set architecture-specific variables
 if [ "$TARGET_ARCH" == "x86_64" ]; then
     DARWIN_TRIPLE="x86_64-apple-darwin"
-    CMAKE_ARCH="x86_64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-x86_64.cmake"
-    BUILD_DIR_SUFFIX="static-lib-darwin-x86_64"
-    OUTPUT_SUFFIX="darwin-x86_64"
-    EXAMPLE_DIR_SUFFIX="darwin-x86_64"
+    BUILD_DIR_SUFFIX="darwin-x86_64"
     MACOS_MIN_VERSION="10.15"
-    # x86_64 specific: disable AVX for compatibility
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
 else
     # arm64
     DARWIN_TRIPLE="aarch64-apple-darwin"
-    CMAKE_ARCH="aarch64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-aarch64.cmake"
-    BUILD_DIR_SUFFIX="static-lib-darwin-arm64"
-    OUTPUT_SUFFIX="darwin-arm64"
-    EXAMPLE_DIR_SUFFIX="darwin-arm64"
+    BUILD_DIR_SUFFIX="darwin-arm64"
     MACOS_MIN_VERSION="11.0"
-    # ARM64 specific: disable x86 features
-    CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=0"
+    CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
 fi
 
-# Check if cctools exist for this architecture
-if [ ! -f "${CCTOOLS}/bin/${DARWIN_TRIPLE}-ar" ]; then
-    echo "Error: cctools not found at ${CCTOOLS}/bin/${DARWIN_TRIPLE}-ar"
-    echo "Tip: You may need to rebuild cctools with support for ${TARGET_ARCH}"
+# Download macOS SDK
+SDK_PATH="${PROJ_DIR}/cmake/toolchain/${SDK_DIR}"
+echo "Downloading macOS SDK to ${SDK_PATH}..."
+mkdir -p "${SDK_PATH}"
+cd "${SDK_PATH}"
+if ! curl -L 'https://github.com/phracker/MacOSX-SDKs/releases/download/11.3/MacOSX11.0.sdk.tar.xz' | tar xJ --strip-components=1; then
+    echo "Error: Failed to download macOS SDK"
+    exit 1
+fi
+echo "macOS SDK downloaded successfully"
+
+# Download Python headers
+echo "Downloading Python headers..."
+if ! bash "${DIR}/build/download_python_headers.sh"; then
+    echo "Error: Failed to download Python headers"
     exit 1
 fi
 
-MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+# Install cctools
+if ! bash "${DIR}/build/install_cctools.sh" "${TARGET_ARCH}"; then
+    echo "Error: Failed to install cctools"
+    exit 1
+fi
+# Set CCTOOLS path after installation
+CCTOOLS_INSTALL_DIR="${HOME}/cctools"
+CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
 
-. ${MY_DIR}/../vars.sh
+# Override tools with cross-compilation versions from cctools
+export STRIP="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-strip"
+export AR="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ar"
+export NM="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-nm"
+export LDD="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-otool -L"
+
+echo "Using cross-compilation tools:"
+echo "  STRIP: ${STRIP}"
+echo "  AR: ${AR}"
+echo "  NM: ${NM}"
+echo "  LDD: ${LDD}"
 
 BUILD_DIR=${PROJ_DIR}/build-${BUILD_DIR_SUFFIX}
 
@@ -81,6 +99,10 @@ ICU="-DENABLE_ICU=0"
 RUST_FEATURES="-DENABLE_RUST=0"
 JEMALLOC="-DENABLE_JEMALLOC=0"
 LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+CMAKE_AR_FILEPATH="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ar"
+CMAKE_INSTALL_NAME_TOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-install_name_tool"
+CMAKE_RANLIB_FILEPATH="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ranlib"
+CMAKE_LINKER_NAME="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld"
 
 if [ ! -d $BUILD_DIR ]; then
     mkdir $BUILD_DIR
@@ -88,7 +110,12 @@ fi
 
 cd ${BUILD_DIR}
 
-CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
+CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} \
+    -DCMAKE_AR:FILEPATH=${CMAKE_AR_FILEPATH} \
+    -DCMAKE_INSTALL_NAME_TOOL=${CMAKE_INSTALL_NAME_TOOL} \
+    -DCMAKE_RANLIB:FILEPATH=${CMAKE_RANLIB_FILEPATH} \
+    -DLINKER_NAME=${CMAKE_LINKER_NAME} \
+    -DENABLE_THINLTO=0 -DENABLE_TESTS=0 -DENABLE_CLICKHOUSE_SERVER=0 -DENABLE_CLICKHOUSE_CLIENT=0 \
     -DENABLE_CLICKHOUSE_KEEPER=0 -DENABLE_CLICKHOUSE_KEEPER_CONVERTER=0 -DENABLE_CLICKHOUSE_LOCAL=1 -DENABLE_CLICKHOUSE_SU=0 -DENABLE_CLICKHOUSE_BENCHMARK=0 \
     -DENABLE_AZURE_BLOB_STORAGE=1 -DENABLE_CLICKHOUSE_COPIER=0 -DENABLE_CLICKHOUSE_DISKS=0 -DENABLE_CLICKHOUSE_FORMAT=0 -DENABLE_CLICKHOUSE_GIT_IMPORT=0 \
     -DENABLE_AWS_S3=1 -DENABLE_HIVE=0 -DENABLE_AVRO=1 \
@@ -111,18 +138,10 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_AVX512=0 -DENABLE_AVX512_VBMI=0 \
     -DENABLE_LIBFIU=1 \
     -DCHDB_VERSION=${CHDB_VERSION} \
-    -DCMAKE_AR:FILEPATH=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ar \
-    -DCMAKE_INSTALL_NAME_TOOL=${CCTOOLS}/bin/${DARWIN_TRIPLE}-install_name_tool \
-    -DCMAKE_RANLIB:FILEPATH=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ranlib \
-    -DCMAKE_LINKER:FILEPATH=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ld \
-    -DLINKER_NAME=${CCTOOLS}/bin/${DARWIN_TRIPLE}-ld \
     -DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE} \
     "
 
-echo "Running cmake configuration..."
 cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 -DCHDB_STATIC_LIBRARY_BUILD=1 ..
-
-echo "Building with ninja..."
 ninja -d keeprsp
 
 BINARY=${BUILD_DIR}/programs/clickhouse
@@ -137,68 +156,73 @@ cd ${MY_DIR}
 
 # Create static library
 echo "Creating static library libchdb.a for macOS..."
-python3 create_static_libchdb.py
+python3 create_static_libchdb.py --cross-compile --build-dir=build-${BUILD_DIR_SUFFIX} --ar-cmd=${AR}
 if [ $? -ne 0 ]; then
     echo "Error: Failed to create static library"
     exit 1
 fi
 
 # Prepare cpp-example directory and copy header file
-echo "Preparing cpp-example-${EXAMPLE_DIR_SUFFIX} directory..."
-if [ ! -d ${MY_DIR}/cpp-example-${EXAMPLE_DIR_SUFFIX} ]; then
-    cp -r ${MY_DIR}/cpp-example ${MY_DIR}/cpp-example-${EXAMPLE_DIR_SUFFIX}
-fi
-
-cd ${MY_DIR}/cpp-example-${EXAMPLE_DIR_SUFFIX}
+echo "Preparing cpp-example directory..."
+cd ${MY_DIR}/cpp-example
 cp ${PROJ_DIR}/programs/local/chdb.h .
 cp ${MY_DIR}/libchdb.a .
-echo "Copied chdb.h and libchdb.a to cpp-example-${EXAMPLE_DIR_SUFFIX} directory"
+echo "Copied chdb.h and libchdb.a to cpp-example directory"
 
-echo "Note: Skipping C++ example compilation for cross-compilation."
-echo "The example can be compiled on the target macOS ${TARGET_ARCH} system with:"
-echo "  clang chdb_example.cpp -o chdb_example -mmacosx-version-min=${MACOS_MIN_VERSION} -L. -lchdb -liconv -framework CoreFoundation"
+# Compile example program
+echo "Compiling chdb_example.cpp..."
+if [ "$TARGET_ARCH" == "x86_64" ]; then
+    SYSROOT="${PROJ_DIR}/cmake/toolchain/darwin-x86_64"
+else
+    SYSROOT="${PROJ_DIR}/cmake/toolchain/darwin-aarch64"
+fi
+clang-19 chdb_example.cpp -o chdb_example \
+    --target=${DARWIN_TRIPLE} \
+    -isysroot ${SYSROOT} \
+    -mmacosx-version-min=${MACOS_MIN_VERSION} \
+    --ld-path=${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld \
+    -L. -lchdb -liconv \
+    -framework CoreFoundation \
+    -Wl,-map,chdb_example.map
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to compile chdb_example.cpp"
+    exit 1
+fi
 
-# For cross-compilation, we'll create a minimal analysis without running the compiled binary
-echo "Creating analysis files for cross-compilation..."
+# Copy map file to parent directory for analysis
+echo "Copying chdb_example.map to parent directory..."
+cp chdb_example.map ${MY_DIR}/
+cd ${MY_DIR}
 
-# Copy map file analysis tools but don't run them (since we can't execute macOS binaries on Linux)
-echo "Note: Skipping map file analysis for cross-compilation."
-echo "Run the following on macOS ${TARGET_ARCH} to create minimal library:"
-echo "  cd ${MY_DIR}/cpp-example-${EXAMPLE_DIR_SUFFIX}"
-echo "  clang chdb_example.cpp -o chdb_example -mmacosx-version-min=${MACOS_MIN_VERSION} -L. -lchdb -liconv -framework CoreFoundation -Wl,-map,chdb_example.map"
-echo "  cd ${MY_DIR}"
-echo "  python3 extract_chdb_objects.py --map-file=cpp-example-${EXAMPLE_DIR_SUFFIX}/chdb_example.map"
-echo "  python3 create_minimal_libchdb.py"
+# Analyze map file to extract chdb objects
+echo "Analyzing map file to extract chdb objects..."
+python3 extract_chdb_objects.py
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to analyze map file"
+    exit 1
+fi
 
-# For now, we'll use the full libchdb.a as the final output
-echo "Using full libchdb.a for cross-compilation (minimal version requires macOS execution)"
+# Create minimal libchdb.a based on extracted objects
+echo "Creating minimal libchdb.a..."
+python3 create_minimal_libchdb.py --ar-cmd=${AR}
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to create minimal libchdb.a"
+    exit 1
+fi
 
-# Strip the libchdb.a if not debug build
+# Strip the libchdb_minimal.a
 if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
-    echo -e "\nStrip the libchdb.a:"
-    # Use macOS-compatible strip command via cctools
-    if [ -f "${CCTOOLS}/bin/${DARWIN_TRIPLE}-strip" ]; then
-        ${CCTOOLS}/bin/${DARWIN_TRIPLE}-strip -S -x libchdb.a
-    else
-        echo "Warning: macOS strip not found, skipping strip step"
-    fi
+    echo -e "\nStrip the libchdb_minimal.a:"
+    ${STRIP} -x libchdb_minimal.a
 fi
 
-echo "Note: Skipping Go test for cross-compilation."
-
 # Copy final library to project root
-OUTPUT_NAME="libchdb-${OUTPUT_SUFFIX}.a"
-echo "Copying libchdb.a to project root as ${OUTPUT_NAME}..."
-cp ${MY_DIR}/libchdb.a ${PROJ_DIR}/${OUTPUT_NAME}
-echo "Final ${OUTPUT_NAME} created at ${PROJ_DIR}/${OUTPUT_NAME}"
+echo "Copying libchdb_minimal.a to project root as libchdb.a..."
+cp ${MY_DIR}/libchdb_minimal.a ${PROJ_DIR}/libchdb.a
+echo "Final libchdb.a created at ${PROJ_DIR}/libchdb.a"
 
 # Print final library size
-echo "Final ${OUTPUT_NAME} size:"
-ls -lh ${PROJ_DIR}/${OUTPUT_NAME}
-
-echo "Cross-compilation for macOS ${TARGET_ARCH} completed successfully!"
-echo "Generated files:"
-echo "  - ${PROJ_DIR}/${OUTPUT_NAME}"
-echo "  - ${MY_DIR}/cpp-example-${EXAMPLE_DIR_SUFFIX}/ (for testing on macOS ${TARGET_ARCH})"
+echo "Final libchdb.a size:"
+ls -lh ${PROJ_DIR}/libchdb.a
