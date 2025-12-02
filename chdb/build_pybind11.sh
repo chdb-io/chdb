@@ -5,6 +5,7 @@ set -e
 build_all=false
 py_version=""
 cross_compile=false
+custom_build_dir=""
 
 for arg in "$@"; do
     case $arg in
@@ -20,6 +21,10 @@ for arg in "$@"; do
             cross_compile=true
             shift
             ;;
+        --build-dir=*)
+            custom_build_dir="${arg#*=}"
+            shift
+            ;;
     esac
 done
 
@@ -28,6 +33,12 @@ if [ "$cross_compile" = true ]; then
     . ${DIR}/vars.sh cross-compile
 else
     . ${DIR}/vars.sh
+fi
+
+# Override BUILD_DIR if custom build dir is specified
+if [ -n "$custom_build_dir" ]; then
+    BUILD_DIR="$custom_build_dir"
+    echo "Using custom BUILD_DIR: ${BUILD_DIR}"
 fi
 
 # Check if CMAKE_ARGS is passed from build.sh

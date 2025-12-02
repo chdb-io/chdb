@@ -57,17 +57,17 @@ echo "macOS SDK downloaded successfully"
 
 # Download Python headers
 echo "Downloading Python headers..."
-if ! "${DIR}/build/download_python_headers.sh"; then
+if ! bash "${DIR}/build/download_python_headers.sh"; then
     echo "Error: Failed to download Python headers"
     exit 1
 fi
 
 # Install cctools using the separate script
-if ! eval "$("${DIR}/build/install_cctools.sh" "${TARGET_ARCH}")"; then
+if ! bash "${DIR}/build/install_cctools.sh" "${TARGET_ARCH}"; then
     echo "Error: Failed to install cctools"
     exit 1
 fi
-
+# Set CCTOOLS path after installation
 CCTOOLS_INSTALL_DIR="${HOME}/cctools"
 CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
 
@@ -249,8 +249,8 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    ${STRIP} -x ${PYCHDB}
+    ${STRIP} -x ${LIBCHDB}
 fi
 
 echo -e "\nPYCHDB: ${PYCHDB}"
@@ -281,7 +281,7 @@ cd ${PROJ_DIR} && pwd
 
 ccache -s || true
 
-if ! CMAKE_ARGS="${CMAKE_ARGS}" CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include" bash ${DIR}/build_pybind11.sh --all --cross-compile; then
+if ! CMAKE_ARGS="${CMAKE_ARGS}" CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include" bash ${DIR}/build_pybind11.sh --all --cross-compile --build_dir=${BUILD_DIR}; then
     echo "Error: Failed to build pybind11 libraries"
     exit 1
 fi

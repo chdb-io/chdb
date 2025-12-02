@@ -55,10 +55,10 @@ else
 fi
 
 # Verify cctools installation
-if [ ! -f "${CCTOOLS}/${DARWIN_TRIPLE}-ld" ]; then
+if [ ! -f "${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld" ]; then
     echo "Error: cctools linker not found at ${CCTOOLS}/${DARWIN_TRIPLE}-ld" >&2
     echo "Please verify cctools installation or set CCTOOLS environment variable correctly" >&2
     exit 1
 fi
 
-echo "cctools verified: ${CCTOOLS}/${DARWIN_TRIPLE}-ld" >&2
+echo "cctools verified: ${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld" >&2
