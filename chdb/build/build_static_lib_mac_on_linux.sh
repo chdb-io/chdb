@@ -22,13 +22,6 @@ if [ "$(uname)" != "Linux" ]; then
     exit 1
 fi
 
-# Verify required environment variables
-if [ -z "${CCTOOLS:-}" ]; then
-    echo "Error: CCTOOLS environment variable not set. Please set it to the cctools bin directory."
-    echo "Example: export CCTOOLS=/path/to/cctools"
-    exit 1
-fi
-
 # Set architecture-specific variables
 if [ "$TARGET_ARCH" == "x86_64" ]; then
     DARWIN_TRIPLE="x86_64-apple-darwin"
@@ -73,7 +66,7 @@ CCTOOLS_INSTALL_DIR="${HOME}/cctools"
 CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
 
 # Override tools with cross-compilation versions from cctools
-export STRIP="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-strip"
+export STRIP="llvm-strip-19"
 export AR="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ar"
 export NM="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-nm"
 export LDD="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-otool -L"
@@ -180,6 +173,9 @@ clang-19 chdb_example.cpp -o chdb_example \
     --target=${DARWIN_TRIPLE} \
     -isysroot ${SYSROOT} \
     -mmacosx-version-min=${MACOS_MIN_VERSION} \
+    -nostdinc++ \
+    -I${PROJ_DIR}/contrib/llvm-project/libcxx/include \
+    -I${PROJ_DIR}/contrib/llvm-project/libcxxabi/include \
     --ld-path=${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld \
     -L. -lchdb -liconv \
     -framework CoreFoundation \
@@ -215,7 +211,7 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the libchdb_minimal.a:"
-    ${STRIP} -x libchdb_minimal.a
+    ${STRIP} -S libchdb_minimal.a
 fi
 
 # Copy final library to project root
