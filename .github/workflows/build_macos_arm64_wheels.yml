@@ -131,6 +131,7 @@ jobs:
   test_on_macos:
     name: Test on macOS arm64
     runs-on: macos-14-xlarge
+    needs: build_universal_wheel_on_linux
     # if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
