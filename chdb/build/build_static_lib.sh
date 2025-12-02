@@ -146,23 +146,7 @@ fi
 
 
 # Test with Go example
-echo "Preparing go-example directory..."
-cd ${MY_DIR}/go-example
-cp ${MY_DIR}/libchdb_minimal.a ./libchdb.a
-cp ${PROJ_DIR}/programs/local/chdb.h .
-echo "Copied libchdb_minimal.a as libchdb.a and chdb.h to go-example directory"
-
-# Run Go test
-echo "Running Go test..."
-# export CGO_CFLAGS_ALLOW=".*"
-# export CGO_LDFLAGS_ALLOW=".*"
-go run .
-if [ $? -ne 0 ]; then
-    echo "Error: Go test failed"
-    exit 1
-fi
-
-echo "Go test completed successfully!"
+bash ${MY_DIR}/test_go_example.sh ${MY_DIR}/libchdb_minimal.a
 
 # Copy final library to project root
 echo "Copying libchdb_minimal.a to project root as libchdb.a..."

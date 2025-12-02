@@ -70,7 +70,8 @@ CCTOOLS_INSTALL_DIR="${HOME}/cctools"
 CCTOOLS_BIN="${CCTOOLS_INSTALL_DIR}/bin"
 
 # Override tools with cross-compilation versions from cctools
-export STRIP="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-strip"
+# export STRIP="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-strip"
+export STRIP="llvm-strip-19"
 export AR="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ar"
 export NM="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-nm"
 export LDD="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-otool -L"
