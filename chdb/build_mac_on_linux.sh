@@ -289,17 +289,23 @@ fi
 echo -e "\nFixing LC_RPATH in ${CHDB_PY_MODULE}..."
 INSTALL_NAME_TOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-install_name_tool"
 OTOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-otool"
-OLD_RPATH=$(${OTOOL} -l ${CHDB_DIR}/${CHDB_PY_MODULE} | grep -A2 LC_RPATH | grep path | awk '{print $2}' | head -1)
-if [ -n "${OLD_RPATH}" ]; then
-    echo "  Current RPATH: ${OLD_RPATH}"
-    ${INSTALL_NAME_TOOL} -rpath "${OLD_RPATH}" "@loader_path" ${CHDB_DIR}/${CHDB_PY_MODULE}
-    echo "  Changed RPATH to: @loader_path"
+
+echo -e "\nPre library dependencies:"
+${OTOOL} -L ${CHDB_DIR}/${CHDB_PY_MODULE}
+
+STUBS_LIB="libpybind11nonlimitedapi_stubs.dylib"
+OLD_STUBS_PATH=$(${OTOOL} -L ${CHDB_DIR}/${CHDB_PY_MODULE} | grep "${STUBS_LIB}" | awk '{print $1}')
+if [ -n "${OLD_STUBS_PATH}" ]; then
+    echo "Changing ${STUBS_LIB} reference:"
+    echo "  From: ${OLD_STUBS_PATH}"
+    echo "  To:   @loader_path/${STUBS_LIB}"
+    ${INSTALL_NAME_TOOL} -change "${OLD_STUBS_PATH}" "@loader_path/${STUBS_LIB}" ${CHDB_DIR}/${CHDB_PY_MODULE}
 else
-    echo "  No LC_RPATH found, adding @loader_path"
-    ${INSTALL_NAME_TOOL} -add_rpath "@loader_path" ${CHDB_DIR}/${CHDB_PY_MODULE} || true
+    echo "${STUBS_LIB} not found in dependencies"
 fi
-echo -e "\nVerifying LC_RPATH:"
-${OTOOL} -l ${CHDB_DIR}/${CHDB_PY_MODULE} | grep -A2 LC_RPATH || echo "No LC_RPATH found"
+
+echo -e "\nPost library dependencies:"
+${OTOOL} -L ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 echo -e "\nCross-compilation for macOS ${TARGET_ARCH} completed successfully!"
 echo -e "Generated files:"
