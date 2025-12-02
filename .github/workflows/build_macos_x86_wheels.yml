@@ -126,7 +126,7 @@ jobs:
             ./chdb/libpybind11nonlimitedapi_chdb_3.12.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.13.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.14.dylib
-          retention-days: 2
+          retention-days: 1
 
   test_on_macos:
     name: Test on macOS x86_64
@@ -194,6 +194,11 @@ jobs:
       - name: Remove /usr/local/bin/python3
         run: |
           sudo rm -f /usr/local/bin/python3
+      - name: Install go for macOS
+        run: |
+          brew update
+          brew install go
+          go version
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -233,7 +238,7 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.9
           bash gen_manifest.sh
-          bash -x ./chdb/test_smoke.sh
+          bash -x ./chdb/test_smoke.sh cross-compile
         continue-on-error: false
       - name: Run chdb/build/test_go_example.sh
         timeout-minutes: 600
