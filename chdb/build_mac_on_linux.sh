@@ -29,7 +29,6 @@ echo "Cross-compiling chdb for macOS ${TARGET_ARCH} on Linux..."
 # Set architecture-specific variables first
 if [ "$TARGET_ARCH" == "x86_64" ]; then
     DARWIN_TRIPLE="x86_64-apple-darwin"
-    CMAKE_ARCH="x86_64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-x86_64.cmake"
     BUILD_DIR_SUFFIX="darwin-x86_64"
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
@@ -37,7 +36,6 @@ if [ "$TARGET_ARCH" == "x86_64" ]; then
 else
     # arm64
     DARWIN_TRIPLE="aarch64-apple-darwin"
-    CMAKE_ARCH="aarch64"
     TOOLCHAIN_FILE="cmake/darwin/toolchain-aarch64.cmake"
     BUILD_DIR_SUFFIX="darwin-arm64"
     CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
@@ -62,7 +60,7 @@ if ! bash "${DIR}/build/download_python_headers.sh"; then
     exit 1
 fi
 
-# Install cctools using the separate script
+# Install cctools
 if ! bash "${DIR}/build/install_cctools.sh" "${TARGET_ARCH}"; then
     echo "Error: Failed to install cctools"
     exit 1
@@ -281,7 +279,7 @@ cd ${PROJ_DIR} && pwd
 
 ccache -s || true
 
-if ! CMAKE_ARGS="${CMAKE_ARGS}" CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include" bash ${DIR}/build_pybind11.sh --all --cross-compile --build_dir=${BUILD_DIR}; then
+if ! CMAKE_ARGS="${CMAKE_ARGS}" CHDB_PYTHON_INCLUDE_DIR_PREFIX="${HOME}/python_include" bash ${DIR}/build_pybind11.sh --all --cross-compile --build-dir=${BUILD_DIR}; then
     echo "Error: Failed to build pybind11 libraries"
     exit 1
 fi

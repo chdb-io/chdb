@@ -4,22 +4,31 @@
 Create minimized libchdb.a based on chdb_objects.txt
 """
 
+import argparse
 import os
 import platform
 import sys
 import subprocess
 
-IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
 AR_CMD = ""
 
-if IS_MACOS_X86:
-    AR_CMD = "llvm-ar"
-    print(f"Using llvm-ar for macOS x86 platform to avoid archive corruption issues")
-else:
-    AR_CMD = "ar"
-    print(f"Using standard ar command for platform: {platform.system()} {platform.machine()}")
+def setup_ar_cmd(ar_cmd=None):
+    """Setup AR command based on arguments or platform"""
+    global AR_CMD
 
-print(f"Selected ar command: {AR_CMD}")
+    if ar_cmd:
+        AR_CMD = ar_cmd
+        print(f"Using custom ar command: {AR_CMD}")
+    else:
+        IS_MACOS_X86 = (platform.system() == "Darwin" and platform.machine() in ["x86_64", "i386"])
+        if IS_MACOS_X86:
+            AR_CMD = "llvm-ar"
+            print(f"Using llvm-ar for macOS x86 platform to avoid archive corruption issues")
+        else:
+            AR_CMD = "ar"
+            print(f"Using standard ar command for platform: {platform.system()} {platform.machine()}")
+
+    print(f"Selected ar command: {AR_CMD}")
 
 def read_required_objects(objects_file="chdb_objects.txt"):
     """Read list of required target files"""
@@ -241,7 +250,20 @@ def create_minimal_library(extracted_files, temp_dir, output_lib="libchdb_minima
     return True
 
 
+def parse_args():
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(description='Create minimized libchdb.a based on chdb_objects.txt')
+    parser.add_argument('--ar-cmd', type=str, default=None,
+                        help='Path to ar command (for cross-compilation)')
+    return parser.parse_args()
+
 def main():
+    # Parse arguments
+    args = parse_args()
+
+    # Setup AR command
+    setup_ar_cmd(ar_cmd=args.ar_cmd)
+
     print("Starting creation of minimized libchdb.a")
     print("=" * 50)
 
@@ -250,13 +272,6 @@ def main():
     original_lib = "libchdb.a"
     temp_dir = "libchdb_objects_tmp_dir"
     output_lib = "libchdb_minimal.a"
-
-    if len(sys.argv) > 1:
-        chdb_objects_file = sys.argv[1]
-    if len(sys.argv) > 2:
-        original_lib = sys.argv[2]
-    if len(sys.argv) > 3:
-        output_lib = sys.argv[3]
 
     # Read required object files
     required_objects = read_required_objects(chdb_objects_file)
