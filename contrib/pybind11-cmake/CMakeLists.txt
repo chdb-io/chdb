@@ -94,7 +94,7 @@ message(STATUS "Python_VERSION_MAJOR: ${Python_VERSION_MAJOR}")
 message(STATUS "Python_VERSION_MINOR: ${Python_VERSION_MINOR}")
 message(STATUS "Resulting LIBNAME: ${PYBIND11_NONLIMITEDAPI_LIBNAME}")
 
-if(Python_FOUND)
+if(Python_FOUND OR CHDB_CROSSCOMPILING)
     target_include_directories(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE ${PYBIND11_INCLUDE_DIR})
     target_include_directories(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE ${Python_INCLUDE_DIRS})
     target_link_libraries(${PYBIND11_NONLIMITEDAPI_LIBNAME} PUBLIC ch_contrib::pybind11_stubs)
