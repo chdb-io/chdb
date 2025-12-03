@@ -183,7 +183,17 @@ jobs:
             echo "Using chdb library: $CHDB_SO"
             for corefile in tmp/core/core.*; do
               echo "=== Analyzing $corefile ==="
-              lldb "$CHDB_SO" -c "$corefile" -o "bt" -o "quit" 2>&1 || true
+              lldb "$CHDB_SO" -c "$corefile" -o "bt all" \
+                -o "echo === Crash thread backtrace ===" \
+                -o "thread select 1" \
+                -o "bt" \
+                -o "echo === PythonTableCache info ===" \
+                -o "p CHDB::PythonTableCache::py_table_cache.size()" \
+                -o "p CHDB::PythonTableCache::py_table_cache.bucket_count()" \
+                -o "p &CHDB::PythonTableCache::py_table_cache" \
+                -o "echo === Checking hash table memory ===" \
+                -o "memory read &CHDB::PythonTableCache::py_table_cache --size 64" \
+                -o "quit" 2>&1 || true
               echo "=== End of $corefile analysis ==="
             done
             tar -czvf core-files-macos-arm64.tar.gz tmp/core/core.*
