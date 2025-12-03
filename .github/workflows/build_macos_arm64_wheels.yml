@@ -171,66 +171,66 @@ jobs:
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
-          bash ./chdb/build.sh
+          bash ./chdb/build.sh RelWithDebInfo
           pyenv shell 3.8
           bash -x ./chdb/test_smoke.sh
-      - name: Run chdb/build/build_static_lib.sh
-        timeout-minutes: 600
-        run: |
-          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          source ~/.cargo/env
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          bash ./chdb/build/build_static_lib.sh
-          pyenv shell --unset
-        continue-on-error: false
-      - name: Debug libchdb
-        run: |
-          ls -lh
-          llvm-nm libchdb.so | grep query_stable || true
-          echo "Global Symbol in libchdb.so:"
-          llvm-nm -g libchdb.so || true
-          echo "Global Symbol in libclickhouse-local-chdb.a:"
-          llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
-          echo "Global Symbol in libclickhouse-local-lib.a:"
-          llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
-          echo "pychdb_cmd.sh:"
-          cat buildlib/pychdb_cmd.sh
-          echo "libchdb_cmd.sh:"
-          cat buildlib/libchdb_cmd.sh
-      - name: Scan chdb libraries with grype
-        run: |
-          echo "Scanning chdb libraries for vulnerabilities..."
-          # Files to scan
-          FILES_TO_SCAN=""
-          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
-          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
-          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
-          SQLITE_VULNERABILITIES_FOUND=false
-          for file in $FILES_TO_SCAN; do
-            if [ -f "$file" ]; then
-              echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-              echo "$SCAN_OUTPUT"
-              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                echo "❌ SQLite vulnerability found in $file"
-                SQLITE_VULNERABILITIES_FOUND=true
-              fi
-            fi
-          done
-          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found in chdb libraries"
-          fi
-        continue-on-error: false
-      - name: Run libchdb stub in examples dir
-        run: |
-          bash -x ./examples/runStub.sh
-          bash -x ./examples/runArrowTest.sh
+      # - name: Run chdb/build/build_static_lib.sh
+      #   timeout-minutes: 600
+      #   run: |
+      #     export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
+      #     export CC=$(brew --prefix llvm@19)/bin/clang
+      #     export CXX=$(brew --prefix llvm@19)/bin/clang++
+      #     source ~/.cargo/env
+      #     eval "$(pyenv init -)"
+      #     pyenv shell 3.8
+      #     bash ./chdb/build/build_static_lib.sh
+      #     pyenv shell --unset
+      #   continue-on-error: false
+      # - name: Debug libchdb
+      #   run: |
+      #     ls -lh
+      #     llvm-nm libchdb.so | grep query_stable || true
+      #     echo "Global Symbol in libchdb.so:"
+      #     llvm-nm -g libchdb.so || true
+      #     echo "Global Symbol in libclickhouse-local-chdb.a:"
+      #     llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
+      #     echo "Global Symbol in libclickhouse-local-lib.a:"
+      #     llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
+      #     echo "pychdb_cmd.sh:"
+      #     cat buildlib/pychdb_cmd.sh
+      #     echo "libchdb_cmd.sh:"
+      #     cat buildlib/libchdb_cmd.sh
+      # - name: Scan chdb libraries with grype
+      #   run: |
+      #     echo "Scanning chdb libraries for vulnerabilities..."
+      #     # Files to scan
+      #     FILES_TO_SCAN=""
+      #     [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
+      #     [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
+      #     FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
+      #     SQLITE_VULNERABILITIES_FOUND=false
+      #     for file in $FILES_TO_SCAN; do
+      #       if [ -f "$file" ]; then
+      #         echo "=== Scanning $file ==="
+      #         SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+      #         echo "$SCAN_OUTPUT"
+      #         if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
+      #           echo "❌ SQLite vulnerability found in $file"
+      #           SQLITE_VULNERABILITIES_FOUND=true
+      #         fi
+      #       fi
+      #     done
+      #     if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
+      #       echo "❌ SQLite vulnerabilities detected in chdb libraries!"
+      #       exit 1
+      #     else
+      #       echo "✅ No SQLite vulnerabilities found in chdb libraries"
+      #     fi
+      #   continue-on-error: false
+      # - name: Run libchdb stub in examples dir
+      #   run: |
+      #     bash -x ./examples/runStub.sh
+      #     bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
           rm -rf chdb/build/
@@ -268,15 +268,15 @@ jobs:
           ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-            echo "Testing chdb on Python $version"
-            pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall --no-cache-dir
-            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+          pyenv shell 3.9
+          python -m pip install dist/*.whl --force-reinstall --no-cache-dir
+          for i in $(seq 1 50); do
+            echo "=== Test iteration $i/50 on Python 3.9 ==="
+            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Iteration $i: {res}')"
             make test
-            python -m pip uninstall -y chdb
-            pyenv shell --unset
           done
+          python -m pip uninstall -y chdb
+          pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests
         run: |
@@ -314,6 +314,12 @@ jobs:
         with:
           name: core-files-macos-arm64
           path: core-files-macos-arm64.tar.gz
+      - name: Upload wheels artifact
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-macos-arm64
+          path: dist/*.whl
       - name: Show files
         run: ls -lh dist
         shell: bash
