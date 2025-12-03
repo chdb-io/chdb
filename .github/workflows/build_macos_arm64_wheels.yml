@@ -24,7 +24,7 @@ jobs:
   build_universal_wheel_on_linux:
     name: Build on Linux (cross-compile for macOS arm64)
     runs-on: GH-Linux-ARM64
-    # if: ${{ !github.event.pull_request.draft }}
+    if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
       - name: Install Python build dependencies
@@ -132,7 +132,7 @@ jobs:
     name: Test on macOS arm64
     runs-on: macos-14-xlarge
     needs: build_universal_wheel_on_linux
-    # if: ${{ !github.event.pull_request.draft }}
+    if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
       - name: Check machine architecture
