@@ -303,6 +303,12 @@ fi
 # save the command to a file for debug
 echo ${PYCHDB_CMD} > pychdb_cmd.sh
 
+# Clean up to free disk space before linking
+echo "Cleaning up to free disk space..."
+rm -f ${BUILD_DIR}/programs/clickhouse
+rm -rf ${PROJ_DIR}/contrib
+df -h
+
 ${PYCHDB_CMD}
 
 ls -lh ${CHDB_PY_MODULE}
@@ -367,4 +373,5 @@ ccache -s || true
 # bash ${DIR}/build_bind.sh
 # bash ${DIR}/test_smoke.sh
 
-CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --all
+CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --version=3.8
+CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --version=3.9
