@@ -24,7 +24,7 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
     runs-on: macos-14-xlarge
-    if: ${{ !github.event.pull_request.draft }}
+    # if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Check machine architecture
         run: |
