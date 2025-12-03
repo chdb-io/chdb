@@ -14,72 +14,29 @@ BUILD_DIR=${PROJ_DIR}/buildlib
 HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
 MYSQL="-DENABLE_MYSQL=1"
 RUST_FEATURES="-DENABLE_RUST=0"
-# check current os type
-if [ "$(uname)" == "Darwin" ]; then
-    export CXX=$(brew --prefix llvm@19)/bin/clang++
-    export CC=$(brew --prefix llvm@19)/bin/clang
-    export PATH=$(brew --prefix llvm@19)/bin:$PATH
-    GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
-    UNWIND="-DUSE_UNWIND=0"
-    JEMALLOC="-DENABLE_JEMALLOC=0"
-    PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
-    HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
-    MYSQL="-DENABLE_MYSQL=0"
-    ICU="-DENABLE_ICU=0"
-    SED_INPLACE="sed -i ''"
-    # if Darwin ARM64 (M1, M2), disable AVX
-    if [ "$(uname -m)" == "arm64" ]; then
-        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
-    else
-        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
-        # disable AVX on Darwin for macos11
-        if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
-            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-        else
-            # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
-            CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-            # # If target macos version is 12, we need to test if support AVX2, 
-            # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
-            # # just test it on the github action, hope you don't using Mac Pro Late 2013.
-            # # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
-            # if [ "$(sysctl -n machdep.cpu.leaf7_features | grep AVX2)" != "" ]; then
-            #     CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=1"
-            # else
-            #     CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
-            # fi
-        fi
-    fi
-elif [ "$(uname)" == "Linux" ]; then
-    GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
-    UNWIND="-DUSE_UNWIND=1"
-    JEMALLOC="-DENABLE_JEMALLOC=1"
-    PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
-    ICU="-DENABLE_ICU=1"
-    SED_INPLACE="sed -i"
-    # only x86_64, enable AVX, enable embedded compiler
-    if [ "$(uname -m)" == "x86_64" ]; then
-        CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
-        RUST_FEATURES="-DENABLE_RUST=1 -DENABLE_DELTA_KERNEL_RS=1"
-        CORROSION_CMAKE_FILE="${PROJ_DIR}/contrib/corrosion-cmake/CMakeLists.txt"
-        if [ -f "${CORROSION_CMAKE_FILE}" ]; then
-            if ! grep -q 'OPENSSL_NO_DEPRECATED_3_0' "${CORROSION_CMAKE_FILE}"; then
-                echo "Modifying corrosion CMakeLists.txt for Linux x86_64..."
-                ${SED_INPLACE} 's/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS}")/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS} --cfg osslconf=\\\"OPENSSL_NO_DEPRECATED_3_0\\\"")/g' "${CORROSION_CMAKE_FILE}"
-            else
-                echo "corrosion CMakeLists.txt already modified, skipping..."
-            fi
-        else
-            echo "Warning: corrosion CMakeLists.txt not found at ${CORROSION_CMAKE_FILE}"
-        fi
-    else
-        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
-    fi
+export CXX=$(brew --prefix llvm@19)/bin/clang++
+export CC=$(brew --prefix llvm@19)/bin/clang
+export PATH=$(brew --prefix llvm@19)/bin:$PATH
+GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
+UNWIND="-DUSE_UNWIND=0"
+JEMALLOC="-DENABLE_JEMALLOC=0"
+PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
+HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
+MYSQL="-DENABLE_MYSQL=0"
+ICU="-DENABLE_ICU=0"
+SED_INPLACE="sed -i ''"
+# if Darwin ARM64 (M1, M2), disable AVX
+if [ "$(uname -m)" == "arm64" ]; then
+    CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
 else
-    echo "OS not supported"
-    exit 1
+    LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+    # disable AVX on Darwin for macos11
+    if [ "$(sw_vers -productVersion | cut -d. -f1)" -le 11 ]; then
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    else
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+    fi
 fi
 
 if [ ! -d $BUILD_DIR ]; then
@@ -112,128 +69,7 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DCHDB_VERSION=${CHDB_VERSION} \
     "
 
-# # Generate libchdb.so linkage command:
-# #   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-lib.a
-# #       `ar d programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o`
-# #   2. Change the entry point from `PyInit_chdb` to `query_stable`
-# #       `-Wl,-ePyInit_chdb` to `-Wl,-equery_stable` on Linux
-# #       `-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}` to 
-# #           `-Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result` on Darwin
-# #   3. Change the output file name from `_chdb.cpython-xx-x86_64-linux-gnu.s` to `libchdb.so`
-# #       `-o _chdb.cpython-39-x86_64-linux-gnu.so` to `-o libchdb.so`
-# #   4. Write the command to a file for debug
-# #   5. Run the command to generate libchdb.so
-
-# # Remove object from archive and save it to a new archive like:
-# # path/to/oldname.a -> path/to/oldname-nopy.a
-# remove_obj_from_archive() {
-#     local archive=$1
-#     local obj=$2
-#     local new_archive=$(echo ${archive} | sed 's/\.a$/-nopy.a/')
-#     cp -a ${archive} ${new_archive}
-#     ${AR} d ${new_archive} ${obj}
-#     echo "Old archive: ${archive}"
-#     ls -l ${archive}
-#     echo "New archive: ${new_archive}"
-#     ls -l ${new_archive}
-#     local oldfile=$(basename ${archive})
-#     local newfile=$(basename ${new_archive})
-#     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed "s/${oldfile}/${newfile}/g")
-#     ${SED_INPLACE} "s/${oldfile}/${newfile}/g" CMakeFiles/libchdb.rsp
-# }
-
-
-# # Step 1, 2, 3:
-# #   Backup the libclickhouse-local-lib.a and restore it after ar d
-# # LIBCHDB_SO="libchdb.so"
-# # CLEAN_CHDB_A="libclickhouse-local-chdb.a"
-# # cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak
-# # ${AR} d ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
-# # mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
-# # mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a
-# # ls -l ${BUILD_DIR}/programs/local/
-# LIBCHDB_SO="libchdb.so"
-# LIBCHDB_CMD=${PYCHDB_CMD}
-# if [ "${build_type}" == "Debug" ]; then
-#     remove_obj_from_archive ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbmsd.a StoragePython.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbmsd.a PythonSource.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libclickhouse_common_iod.a PythonUtils.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/TableFunctions/libclickhouse_table_functionsd.a TableFunctionPython.cpp.o
-# else
-#     remove_obj_from_archive ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbms.a StoragePython.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbms.a PythonSource.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libclickhouse_common_io.a PythonUtils.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/TableFunctions/libclickhouse_table_functions.a TableFunctionPython.cpp.o
-# fi
-
-
-LIBCHDB_SO="libchdb.so"
-# Build libchdb.so
-cmake ${CMAKE_ARGS} -DENABLE_PYTHON=0 ..
-ninja -d keeprsp
-
-
 BINARY=${BUILD_DIR}/programs/clickhouse
-echo -e "\nBINARY: ${BINARY}"
-ls -lh ${BINARY}
-echo -e "\nldd ${BINARY}"
-${LDD} ${BINARY}
-rm -f ${BINARY}
-
-cd ${BUILD_DIR}
-ninja -d keeprsp -v > build.log || true
-USING_RESPONSE_FILE=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log | grep '@CMakeFiles/clickhouse.rsp' || true)
-
-if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-    if [ -f CMakeFiles/clickhouse.rsp ]; then
-        cp -a CMakeFiles/clickhouse.rsp CMakeFiles/libchdb.rsp
-    else
-        echo "CMakeFiles/clickhouse.rsp not found"
-        exit 1
-    fi
-fi
-
-LIBCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -shared -o ${LIBCHDB_SO}/" \
-    | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
-    | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
-    | sed 's/ -Xlinker --no-undefined//g' \
-    | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g' \
-     )
-
-#   generate the command to generate libchdb.so
-LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g')
-
-if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-    ${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
-fi
-
-if [ "$(uname)" == "Linux" ]; then
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
-    if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-        ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
-    fi
-fi
-
-if [ "$(uname)" == "Darwin" ]; then
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
-    # ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
-fi
-
-LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
-
-# Step 4:
-#   save the command to a file for debug
-echo ${LIBCHDB_CMD} > libchdb_cmd.sh
-
-# Step 5:
-${LIBCHDB_CMD}
-
-LIBCHDB_DIR=${BUILD_DIR}/
-LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
-ls -lh ${LIBCHDB}
 
 # build chdb python module
 py_version="3.8"
@@ -276,29 +112,7 @@ PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
     | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/pychdb.rsp/g' \
      )
 
-
-# # inplace modify the CMakeFiles/pychdb.rsp
-# ${SED_INPLACE} 's/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/' CMakeFiles/pychdb.rsp
-# ${SED_INPLACE} 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' CMakeFiles/pychdb.rsp
-# ${SED_INPLACE} 's/ -Xlinker --no-undefined//g' CMakeFiles/pychdb.rsp
-
-
-if [ "$(uname)" == "Linux" ]; then
-    # remove src/CMakeFiles/clickhouse_malloc.dir/Common/stubFree.c.o
-    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g')
-    # put -Wl,-wrap,malloc ... after -DUSE_JEMALLOC=1
-    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g')
-    if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-        ${SED_INPLACE} 's/ src\/CMakeFiles\/clickhouse_malloc.dir\/Common\/stubFree.c.o//g' CMakeFiles/pychdb.rsp
-        ${SED_INPLACE} 's/ -DUSE_JEMALLOC=1/ -DUSE_JEMALLOC=1 -Wl,-wrap,malloc -Wl,-wrap,valloc -Wl,-wrap,pvalloc -Wl,-wrap,calloc -Wl,-wrap,realloc -Wl,-wrap,memalign -Wl,-wrap,aligned_alloc -Wl,-wrap,posix_memalign -Wl,-wrap,free/g' CMakeFiles/pychdb.rsp
-    fi
-fi
-
-if [ "$(uname)" == "Darwin" ]; then
-    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,@loader_path|g')
-else
-    PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,\$ORIGIN|g')
-fi
+PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,@loader_path|g')
 
 # save the command to a file for debug
 echo ${PYCHDB_CMD} > pychdb_cmd.sh
@@ -306,72 +120,26 @@ echo ${PYCHDB_CMD} > pychdb_cmd.sh
 # Clean up to free disk space before linking
 echo "Cleaning up to free disk space..."
 rm -f ${BUILD_DIR}/programs/clickhouse
-rm -rf ${PROJ_DIR}/contrib
-df -h
 
 ${PYCHDB_CMD}
 
 ls -lh ${CHDB_PY_MODULE}
 
-## check all the so files
-LIBCHDB_DIR=${BUILD_DIR}/
-
-PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
-LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
-
-# if [ ${build_type} == "Debug" ]; then
-#     echo -e "\nDebug build, skip strip"
-# else
-#     echo -e "\nStrip the binary:"
-#     ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
-#     ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
-# fi
-echo -e "\nStripe the binary:"
+PYCHDB=${BUILD_DIR}/${CHDB_PY_MODULE}
 
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}
-echo -e "\nLIBCHDB: ${LIBCHDB}"
-ls -lh ${LIBCHDB}
-echo -e "\nldd ${PYCHDB}"
-${LDD} ${PYCHDB}
-echo -e "\nfile info of ${PYCHDB}"
-file ${PYCHDB}
-echo -e "\nldd ${LIBCHDB}"
-${LDD} ${LIBCHDB}
-echo -e "\nfile info of ${LIBCHDB}"
-file ${LIBCHDB}
 
 rm -f ${CHDB_DIR}/*.so
-cp -a ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
-cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
-
-echo -e "\nSymbols:"
-echo -e "\nPyInit in PYCHDB: ${PYCHDB}"
-${NM} ${PYCHDB} | grep PyInit || true
-echo -e "\nPyInit in LIBCHDB: ${LIBCHDB}"
-${NM} ${LIBCHDB} | grep PyInit || echo "PyInit not found in ${LIBCHDB}, it's OK"
-echo -e "\nquery_stable in PYCHDB: ${PYCHDB}"
-${NM} ${PYCHDB} | grep query_stable || true
-echo -e "\nquery_stable in LIBCHDB: ${LIBCHDB}"
-${NM} ${LIBCHDB} | grep query_stable || true
+mv ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 echo -e "\nAfter copy:"
 cd ${PROJ_DIR} && pwd
-# ls -lh ${PROJ_DIR}
-
-# strip the binary (no debug info at all)
-# strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
-
-# echo -e "\nAfter strip:"
-# echo -e "\nLIBCHDB: ${PYCHDB}"
-# ls -lh ${CHDB_DIR}
-# echo -e "\nfile info of ${PYCHDB}"
-# file ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 ccache -s || true
 
-# bash ${DIR}/build_bind.sh
-# bash ${DIR}/test_smoke.sh
-
 CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --version=3.8
 CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --version=3.9
+
+rm -rf ${PROJ_DIR}/contrib
+df -h
