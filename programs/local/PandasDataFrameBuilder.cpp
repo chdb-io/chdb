@@ -49,16 +49,33 @@ PandasDataFrameBuilder::PandasDataFrameBuilder(const ChunkQueryResult & chunk_re
         column_names.reserve(sample.columns());
         column_types.reserve(sample.columns());
 
+        /// Track column name occurrences for deduplication
+        std::unordered_map<String, size_t> name_counts;
+
         for (const auto & column : sample)
         {
-            column_names.push_back(column.name);
+            String final_name = column.name;
+
+            /// Handle duplicate column names by adding suffix _1, _2, etc.
+            auto it = name_counts.find(column.name);
+            if (it != name_counts.end())
+            {
+                final_name = column.name + "_" + std::to_string(it->second);
+                it->second++;
+            }
+            else
+            {
+                name_counts[column.name] = 1;
+            }
+
+            column_names.push_back(final_name);
             column_types.push_back(column.type);
 
             /// Record timezone for timezone-aware types
             if (const auto * dt = typeid_cast<const DataTypeDateTime *>(column.type.get()))
-                column_timezones[column.name] = dt->getTimeZone().getTimeZone();
+                column_timezones[final_name] = dt->getTimeZone().getTimeZone();
             else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(column.type.get()))
-                column_timezones[column.name] = dt64->getTimeZone().getTimeZone();
+                column_timezones[final_name] = dt64->getTimeZone().getTimeZone();
         }
     }
 

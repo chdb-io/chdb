@@ -12,11 +12,6 @@ class TestDuplicateColumnNames(unittest.TestCase):
         """Test that DataFrame output preserves all columns with duplicate names."""
         result = chdb.query("SELECT count(), count(), count(), number FROM numbers(5) group by number", "DataFrame")
 
-        print("DataFrame result:")
-        print(result)
-        print("Columns:", list(result.columns))
-        print("Shape:", result.shape)
-
         self.assertEqual(result.shape, (5, 4))
         columns = list(result.columns)
         self.assertIn('count()', columns)
