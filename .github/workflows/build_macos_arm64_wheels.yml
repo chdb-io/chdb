@@ -24,21 +24,8 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (macOS ARM64)
     runs-on: macos-14-xlarge
-    if: ${{ !github.event.pull_request.draft }}
+    # if: ${{ !github.event.pull_request.draft }}
     steps:
-      - name: Check machine architecture
-        run: |
-          echo "=== Machine Architecture Information ==="
-          echo "Machine type: $(uname -m)"
-          echo "Architecture: $(arch)"
-          echo "System info: $(uname -a)"
-          echo "Hardware info:"
-          system_profiler SPHardwareDataType | grep "Chip\|Processor"
-          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
-            echo "This is an ARM64 (Apple Silicon) machine"
-          else
-            echo "This is an x86_64 (Intel) machine"
-          fi
       - name: Free up disk space (Initial)
         run: |
           # Clean Homebrew cache
@@ -58,36 +45,16 @@ jobs:
 
           pyenv install 3.8:latest
           pyenv install 3.9:latest
-          pyenv install 3.10:latest
-          pyenv install 3.11:latest
-          pyenv install 3.12:latest
-          pyenv install 3.13:latest
-          pyenv install 3.14:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
+          pyenv global 3.8
+          pyenv global 3.9
 
           echo "Installed versions:"
           pyenv versions
-      - name: Verify pyenv installations
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          echo "Installed Python versions:"
-          pyenv versions
-          echo ""
-          echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
-              echo "ERROR: Python $version is not installed!"
-              exit 1
-            fi
-            echo "✓ Python $version is installed"
-          done
-          echo "All Python versions verified successfully!"
       - name: Install dependencies for all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.9; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
@@ -130,23 +97,33 @@ jobs:
       - name: Update submodules
         run: |
           git submodule update --init --recursive --jobs 4
-      - name: Update version for release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-
-          # Install bump-my-version
-          python -m pip install bump-my-version
-          TAG_NAME=${GITHUB_REF#refs/tags/v}
-          bump-my-version replace --new-version $TAG_NAME
-          echo "Version files updated to $TAG_NAME"
-          pyenv shell --unset
       - name: Free up disk space (Before compilation)
         run: |
           echo "=== Disk usage before compilation cleanup ==="
           df -h
+          # Remove Xcode (huge, ~15GB+)
+          sudo rm -rf /Applications/Xcode.app || true
+          sudo rm -rf /Applications/Xcode_*.app || true
+          # Remove iOS/tvOS/watchOS simulators
+          sudo rm -rf ~/Library/Developer/CoreSimulator || true
+          sudo rm -rf /Library/Developer/CoreSimulator || true
+          # Remove Android SDK
+          sudo rm -rf ~/Library/Android || true
+          sudo rm -rf /usr/local/lib/android || true
+          # Remove .NET SDK
+          sudo rm -rf /usr/local/share/dotnet || true
+          # Remove PowerShell
+          sudo rm -rf /usr/local/share/powershell || true
+          # Remove Chromium/Chrome for testing
+          sudo rm -rf /usr/local/share/chromium || true
+          sudo rm -rf ~/Library/Caches/Google || true
+          # Remove Swift toolchains
+          sudo rm -rf /Library/Developer/Toolchains || true
+          # Remove other large directories
+          sudo rm -rf /usr/local/lib/node_modules || true
+          sudo rm -rf ~/.dotnet || true
+          sudo rm -rf ~/hostedtoolcache || true
+          # Homebrew cleanup
           brew cleanup -s 2>/dev/null || true
           rm -rf "$(brew --cache)" 2>/dev/null || true
           rm -rf ~/.cache/pip 2>/dev/null || true
@@ -171,86 +148,7 @@ jobs:
           export CC=$(brew --prefix llvm@19)/bin/clang
           export CXX=$(brew --prefix llvm@19)/bin/clang++
           bash gen_manifest.sh
-          bash ./chdb/build.sh
-          pyenv shell 3.8
-          bash -x ./chdb/test_smoke.sh
-      - name: Run chdb/build/build_static_lib.sh
-        timeout-minutes: 600
-        run: |
-          export PATH=$HOME/.pyenv/bin:$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          source ~/.cargo/env
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          bash ./chdb/build/build_static_lib.sh
-          pyenv shell --unset
-        continue-on-error: false
-      - name: Debug libchdb
-        run: |
-          ls -lh
-          llvm-nm libchdb.so | grep query_stable || true
-          echo "Global Symbol in libchdb.so:"
-          llvm-nm -g libchdb.so || true
-          echo "Global Symbol in libclickhouse-local-chdb.a:"
-          llvm-nm -g buildlib/programs/local/libclickhouse-local-chdb.a || true
-          echo "Global Symbol in libclickhouse-local-lib.a:"
-          llvm-nm -g buildlib/programs/local/libclickhouse-local-lib.a || true
-          echo "pychdb_cmd.sh:"
-          cat buildlib/pychdb_cmd.sh
-          echo "libchdb_cmd.sh:"
-          cat buildlib/libchdb_cmd.sh
-      - name: Scan chdb libraries with grype
-        run: |
-          echo "Scanning chdb libraries for vulnerabilities..."
-          # Files to scan
-          FILES_TO_SCAN=""
-          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
-          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
-          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.dylib" -o -name "*.so" \) 2>/dev/null || true)"
-          SQLITE_VULNERABILITIES_FOUND=false
-          for file in $FILES_TO_SCAN; do
-            if [ -f "$file" ]; then
-              echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
-              echo "$SCAN_OUTPUT"
-              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                echo "❌ SQLite vulnerability found in $file"
-                SQLITE_VULNERABILITIES_FOUND=true
-              fi
-            fi
-          done
-          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found in chdb libraries"
-          fi
-        continue-on-error: false
-      - name: Run libchdb stub in examples dir
-        run: |
-          bash -x ./examples/runStub.sh
-          bash -x ./examples/runArrowTest.sh
-      - name: Build wheels
-        run: |
-          rm -rf chdb/build/
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          export PATH=$(brew --prefix llvm@19)/bin:$(brew --prefix lld@19)/bin:/usr/local/opt/grep/libexec/gnubin:/usr/local/opt/binutils/bin:$PATH:/usr/local/opt/findutils/libexec/gnubin
-          export CC=$(brew --prefix llvm@19)/bin/clang
-          export CXX=$(brew --prefix llvm@19)/bin/clang++
-          pyenv shell 3.8
-          make wheel
-      - name: Fix wheel platform tag
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
-      - name: Verify wheel sizes
-        run: |
-          echo "=== Wheel sizes ==="
-          du -sh dist/*
+          bash ./chdb/build.sh RelWithDebInfo
       - name: Setup core dump collection
         run: |
           mkdir -p tmp/core
@@ -259,47 +157,72 @@ jobs:
           ulimit -c unlimited
       - name: Free up disk space
         run: |
-          # Clean more build artifacts
-          rm -rf buildlib/contrib 2>/dev/null || true
-          rm -rf buildlib/base 2>/dev/null || true
-          rm -rf buildlib/src 2>/dev/null || true
+          # Keep buildlib/src, buildlib/base, buildlib/contrib for debug info (.o files)
+          rm -rf buildlib/*.so 2>/dev/null || true
+          df -h
       - name: Test wheel on all Python versions
         run: |
           ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-            echo "Testing chdb on Python $version"
-            pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall --no-cache-dir
-            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+          pyenv shell 3.9
+          export PYTHONPATH=$PWD
+          for i in $(seq 1 5000); do
+            echo "=== Test iteration $i/5000 on Python 3.9 ==="
             make test
-            python -m pip uninstall -y chdb
-            pyenv shell --unset
           done
-        continue-on-error: false
-      - name: Run notebook tests
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m pip install dist/*.whl --force-reinstall
-          jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
           pyenv shell --unset
         continue-on-error: false
-      - name: Check and upload core files if present
+      - name: Check and analyze core files if present
         if: always()
         run: |
           if ls tmp/core/core.* >/dev/null 2>&1; then
             echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
-            tar -czvf core-files-macos-arm64.tar.gz tmp/core/core.*
-            echo "Core files tar created: core-files-macos-arm64.tar.gz"
-            ls -lh core-files-macos-arm64.tar.gz
+            echo "=== Core files found, analyzing with lldb ==="
+            CHDB_SO="chdb/_chdb.abi3.so"
+            echo "Using chdb library: $CHDB_SO"
+            for corefile in tmp/core/core.*; do
+              echo "=== Analyzing $corefile ==="
+              lldb "$CHDB_SO" -c "$corefile" -o "bt all" \
+                -o "thread select 1" \
+                -o "bt" \
+                -o "p CHDB::PythonTableCache::py_table_cache.size()" \
+                -o "p CHDB::PythonTableCache::py_table_cache.bucket_count()" \
+                -o "p &CHDB::PythonTableCache::py_table_cache" \
+                -o "memory read &CHDB::PythonTableCache::py_table_cache --size 64" \
+                -o "quit" 2>&1 || true
+              echo "=== End of $corefile analysis ==="
+            done
           else
             echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
             echo "No core files found in tmp/core"
           fi
         continue-on-error: true
+      - name: Prepare and upload debug artifacts
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        run: |
+          echo "=== Preparing debug artifacts for download ==="
+          mkdir -p debug_artifacts
+
+          # Copy core files
+          cp tmp/core/core.* debug_artifacts/ || true
+
+          # Copy the .so file
+          cp chdb/_chdb.abi3.so debug_artifacts/ || true
+
+          # Generate dSYM debug symbols
+          echo "Generating dSYM debug symbols..."
+          dsymutil chdb/_chdb.abi3.so -o debug_artifacts/_chdb.abi3.so.dSYM || true
+
+          ls -lah debug_artifacts/
+        continue-on-error: true
+      - name: Upload debug artifacts
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts-macos-arm64
+          path: debug_artifacts/
+          retention-days: 1
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
@@ -308,58 +231,3 @@ jobs:
             killall ccache; \
             sleep 10; \
           done
-      - name: Upload core files artifact
-        if: always() && env.CORE_FILES_FOUND == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-files-macos-arm64
-          path: core-files-macos-arm64.tar.gz
-      - name: Show files
-        run: ls -lh dist
-        shell: bash
-      - name: Upload wheels to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Packege libchdb.so
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf macos-arm64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
-      - name: Package libchdb.a
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf macos-arm64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
-      - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} macos-arm64-libchdb.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} macos-arm64-libchdb-static.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: chdb-artifacts-macos-arm64
-          path: |
-            ./dist/*.whl
-            ./macos-arm64-libchdb.tar.gz
-            ./macos-arm64-libchdb-static.tar.gz
-          overwrite: true
-      - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m twine upload dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
