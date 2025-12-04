@@ -167,15 +167,13 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.9
           export PYTHONPATH=$PWD
-          # ASan runtime options: halt on error, print full stack trace
-          export ASAN_OPTIONS="halt_on_error=1:print_stacktrace=1:detect_leaks=0"
           for i in $(seq 1 5000); do
             echo "=== Test iteration $i/5000 on Python 3.9 ==="
             make test
           done
           pyenv shell --unset
         continue-on-error: false
-      - name: Check and upload core files if present
+      - name: Check and analyze core files if present
         if: always()
         run: |
           if ls tmp/core/core.* >/dev/null 2>&1; then
@@ -195,14 +193,36 @@ jobs:
                 -o "quit" 2>&1 || true
               echo "=== End of $corefile analysis ==="
             done
-            tar -czvf core-files-macos-arm64.tar.gz tmp/core/core.*
-            echo "Core files tar created: core-files-macos-arm64.tar.gz"
-            ls -lh core-files-macos-arm64.tar.gz
           else
             echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
             echo "No core files found in tmp/core"
           fi
         continue-on-error: true
+      - name: Prepare and upload debug artifacts
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        run: |
+          echo "=== Preparing debug artifacts for download ==="
+          mkdir -p debug_artifacts
+
+          # Copy core files
+          cp tmp/core/core.* debug_artifacts/ || true
+
+          # Copy the .so file
+          cp chdb/_chdb.abi3.so debug_artifacts/ || true
+
+          # Generate dSYM debug symbols
+          echo "Generating dSYM debug symbols..."
+          dsymutil chdb/_chdb.abi3.so -o debug_artifacts/_chdb.abi3.so.dSYM || true
+
+          ls -lah debug_artifacts/
+        continue-on-error: true
+      - name: Upload debug artifacts
+        if: always() && env.CORE_FILES_FOUND == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-artifacts-macos-arm64
+          path: debug_artifacts/
+          retention-days: 1
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
