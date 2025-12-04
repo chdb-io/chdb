@@ -167,6 +167,8 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.9
           export PYTHONPATH=$PWD
+          # ASan runtime options: halt on error, print full stack trace
+          export ASAN_OPTIONS="halt_on_error=1:print_stacktrace=1:detect_leaks=0"
           for i in $(seq 1 5000); do
             echo "=== Test iteration $i/5000 on Python 3.9 ==="
             make test
@@ -184,14 +186,11 @@ jobs:
             for corefile in tmp/core/core.*; do
               echo "=== Analyzing $corefile ==="
               lldb "$CHDB_SO" -c "$corefile" -o "bt all" \
-                -o "echo === Crash thread backtrace ===" \
                 -o "thread select 1" \
                 -o "bt" \
-                -o "echo === PythonTableCache info ===" \
                 -o "p CHDB::PythonTableCache::py_table_cache.size()" \
                 -o "p CHDB::PythonTableCache::py_table_cache.bucket_count()" \
                 -o "p &CHDB::PythonTableCache::py_table_cache" \
-                -o "echo === Checking hash table memory ===" \
                 -o "memory read &CHDB::PythonTableCache::py_table_cache --size 64" \
                 -o "quit" 2>&1 || true
               echo "=== End of $corefile analysis ==="
