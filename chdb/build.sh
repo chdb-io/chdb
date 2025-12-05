@@ -61,21 +61,21 @@ elif [ "$(uname)" == "Linux" ]; then
     if [ "$(uname -m)" == "x86_64" ]; then
         CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
-        RUST_FEATURES="-DENABLE_RUST=1 -DENABLE_DELTA_KERNEL_RS=1"
-        CORROSION_CMAKE_FILE="${PROJ_DIR}/contrib/corrosion-cmake/CMakeLists.txt"
-        if [ -f "${CORROSION_CMAKE_FILE}" ]; then
-            if ! grep -q 'OPENSSL_NO_DEPRECATED_3_0' "${CORROSION_CMAKE_FILE}"; then
-                echo "Modifying corrosion CMakeLists.txt for Linux x86_64..."
-                ${SED_INPLACE} 's/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS}")/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS} --cfg osslconf=\\\"OPENSSL_NO_DEPRECATED_3_0\\\"")/g' "${CORROSION_CMAKE_FILE}"
-            else
-                echo "corrosion CMakeLists.txt already modified, skipping..."
-            fi
+    else
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+    fi
+    RUST_FEATURES="-DENABLE_RUST=1 -DENABLE_DELTA_KERNEL_RS=1"
+    CORROSION_CMAKE_FILE="${PROJ_DIR}/contrib/corrosion-cmake/CMakeLists.txt"
+    if [ -f "${CORROSION_CMAKE_FILE}" ]; then
+        if ! grep -q 'OPENSSL_NO_DEPRECATED_3_0' "${CORROSION_CMAKE_FILE}"; then
+            echo "Modifying corrosion CMakeLists.txt for Linux x86_64..."
+            ${SED_INPLACE} 's/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS}")/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS} --cfg osslconf=\\\"OPENSSL_NO_DEPRECATED_3_0\\\"")/g' "${CORROSION_CMAKE_FILE}"
         else
-            echo "Warning: corrosion CMakeLists.txt not found at ${CORROSION_CMAKE_FILE}"
+            echo "corrosion CMakeLists.txt already modified, skipping..."
         fi
     else
-        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+        echo "Warning: corrosion CMakeLists.txt not found at ${CORROSION_CMAKE_FILE}"
     fi
 else
     echo "OS not supported"
