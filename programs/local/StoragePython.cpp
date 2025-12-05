@@ -1,5 +1,4 @@
 #include "StoragePython.h"
-#include "FormatHelper.h"
 #include "PybindWrapper.h"
 #include "PythonSource.h"
 #include "PyArrowTable.h"
@@ -13,6 +12,8 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <Formats/FormatFactory.cpp>
+#include <Interpreters/Context_fwd.h>
 #include <Interpreters/evaluateConstantExpression.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
@@ -27,9 +28,8 @@
 #include <re2/re2.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
-#include "PythonUtils.h"
 #include <Common/logger_useful.h>
-#include <Formats/FormatFactory.cpp>
+#include "PythonUtils.h"
 
 #include <any>
 
@@ -147,7 +147,7 @@ void StoragePython::prepareColumnCache(const Names & names, const Columns & colu
     }
 }
 
-ColumnsDescription StoragePython::getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema)
+ColumnsDescription StoragePython::getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema, const ContextPtr & context)
 {
     py::gil_assert();
 
@@ -187,7 +187,7 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
         std::shared_ptr<IDataType> data_type;
 
         std::string type_capture, bits, precision, scale;
-        if (CHDB::isJSONSupported() && RE2::PartialMatch(typeStr, pattern_json))
+        if (context->getQueryContext() && context->getQueryContext()->isJSONSupported() && RE2::PartialMatch(typeStr, pattern_json))
         {
             data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
         }

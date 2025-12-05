@@ -4,6 +4,8 @@ set (CLICKHOUSE_LOCAL_SOURCES
     ArrowStreamWrapper.cpp
     ArrowTableReader.cpp
     LocalServer.cpp
+    EmbeddedServer.cpp
+    ChdbClient.cpp
 )
 
 if (NOT USE_PYTHON)
@@ -23,14 +25,17 @@ if (CHDB_STATIC_LIBRARY_BUILD)
 endif()
 
 if (USE_PYTHON)
+    add_compile_definitions(USE_PYTHON=1)
+
     set (CHDB_SOURCES
         chdb.cpp
         ChunkCollectorOutputFormat.cpp
         FieldToPython.cpp
-        FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp
+        EmbeddedServer.cpp
+        ChdbClient.cpp
         NumpyArray.cpp
         NumpyNestedTypes.cpp
         NumpyType.cpp

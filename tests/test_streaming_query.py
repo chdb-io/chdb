@@ -99,87 +99,117 @@ class TestStreamingQuery(unittest.TestCase):
 
     def streaming_worker1(self):
         global result_counter_streaming1
-        query_count = 0
-        while not stop_event.is_set():
-            query_count += 1
-            if query_count % 10 == 0:
-                with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+        # Create a separate session for this thread
+        worker_sess = session.Session(test_streaming_query_dir)
+        worker_sess.query("USE test")
+        try:
+            query_count = 0
+            while not stop_event.is_set():
+                query_count += 1
+                if query_count % 10 == 0:
+                    with self.assertRaises(Exception):
+                        ret = worker_sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
 
-            if query_count % 10 == 1:
-                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
-                ret.cancel()
+                if query_count % 10 == 1:
+                    ret = worker_sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                    ret.cancel()
 
-            stream = self.sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
-            for chunk in stream:
-                result_counter_streaming1 += chunk.rows_read()
+                stream = worker_sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
+                for chunk in stream:
+                    result_counter_streaming1 += chunk.rows_read()
+        finally:
+            worker_sess.close()
 
     def streaming_worker2(self):
         global result_counter_streaming2
-        query_count = 0
-        while not stop_event.is_set():
-            query_count += 1
-            if query_count % 10 == 0:
-                with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+        # Create a separate session for this thread
+        worker_sess = session.Session(test_streaming_query_dir)
+        worker_sess.query("USE test")
+        try:
+            query_count = 0
+            while not stop_event.is_set():
+                query_count += 1
+                if query_count % 10 == 0:
+                    with self.assertRaises(Exception):
+                        ret = worker_sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
 
-            if query_count % 10 == 2:
-                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
-                ret.cancel()
+                if query_count % 10 == 2:
+                    ret = worker_sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                    ret.cancel()
 
-            stream = self.sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
-            for chunk in stream:
-                result_counter_streaming2 += chunk.rows_read()
+                stream = worker_sess.send_query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
+                for chunk in stream:
+                    result_counter_streaming2 += chunk.rows_read()
+        finally:
+            worker_sess.close()
 
     def normal_query_worker1(self):
         global result_counter_normal1
-        query_count = 0
-        while not stop_event.is_set():
-            query_count += 1
-            if query_count % 10 == 0:
-                with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+        # Create a separate session for this thread
+        worker_sess = session.Session(test_streaming_query_dir)
+        worker_sess.query("USE test")
+        try:
+            query_count = 0
+            while not stop_event.is_set():
+                query_count += 1
+                if query_count % 10 == 0:
+                    with self.assertRaises(Exception):
+                        ret = worker_sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
 
-            if query_count % 10 == 3:
-                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
-                ret.cancel()
+                if query_count % 10 == 3:
+                    ret = worker_sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                    ret.cancel()
 
-            result = self.sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
-            result_counter_normal1 += result.rows_read()
+                result = worker_sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
+                result_counter_normal1 += result.rows_read()
+        finally:
+            worker_sess.close()
 
     def normal_query_worker2(self):
         global result_counter_normal2
-        query_count = 0
-        while not stop_event.is_set():
-            query_count += 1
-            if query_count % 10 == 0:
-                with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+        # Create a separate session for this thread
+        worker_sess = session.Session(test_streaming_query_dir)
+        worker_sess.query("USE test")
+        try:
+            query_count = 0
+            while not stop_event.is_set():
+                query_count += 1
+                if query_count % 10 == 0:
+                    with self.assertRaises(Exception):
+                        ret = worker_sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
 
-            if query_count % 10 == 4:
-                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
-                ret.cancel()
+                if query_count % 10 == 4:
+                    ret = worker_sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                    ret.cancel()
 
-            result = self.sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
-            result_counter_normal2 += result.rows_read()
+                result = worker_sess.query("SELECT * FROM streaming_test2", "CSVWITHNAMES")
+                result_counter_normal2 += result.rows_read()
+        finally:
+            worker_sess.close()
 
     def normal_insert_worker(self):
         global insert_counter
-        query_count = 0
-        i = 500000
-        while not stop_event.is_set():
-            query_count += 1
-            if query_count % 10 == 0:
-                with self.assertRaises(Exception):
-                    ret = self.sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
+        # Create a separate session for this thread
+        worker_sess = session.Session(test_streaming_query_dir)
+        worker_sess.query("USE test")
+        try:
+            query_count = 0
+            i = 500000
+            while not stop_event.is_set():
+                query_count += 1
+                if query_count % 10 == 0:
+                    with self.assertRaises(Exception):
+                        ret = worker_sess.send_query("SELECT * FROM streaming_test2;SELECT * FROM streaming_test2", "CSVWITHNAMES")
 
-            if query_count % 10 == 5:
-                ret = self.sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
-                ret.cancel()
+                if query_count % 10 == 5:
+                    ret = worker_sess.send_query("SELECT * FROM streaming_test2;", "CSVWITHNAMES")
+                    ret.cancel()
 
-            self.sess.query(f"INSERT INTO streaming_test2 VALUES ({i})")
-            insert_counter += 1
-            i += 1
+                worker_sess.query(f"INSERT INTO streaming_test2 VALUES ({i})")
+                insert_counter += 1
+                i += 1
+        finally:
+            worker_sess.close()
 
     def test_multi_thread_streaming_query(self):
         self.sess.query("CREATE DATABASE IF NOT EXISTS test")
