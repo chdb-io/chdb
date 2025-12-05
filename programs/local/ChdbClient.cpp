@@ -290,6 +290,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
     try
     {
         DB::ThreadStatus thread_status;
+
         if (streaming_query_context->thread_group)
         {
             DB::CurrentThread::attachToGroupIfDetached(streaming_query_context->thread_group);

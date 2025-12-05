@@ -27,6 +27,7 @@
 #include <Common/ErrorCodes.h>
 #include <Common/getNumberOfCPUCoresToUse.h>
 #include <Common/logger_useful.h>
+#include <Common/MemoryTrackerBlockerInThread.h>
 #include <Common/typeid_cast.h>
 #include <Common/TerminalSize.h>
 #include <Common/StringUtils.h>
@@ -702,12 +703,15 @@ try
             /// so it remains non-empty.
             if (query_result_memory)
             {
-                query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory, AppendModeTag{});
+                query_result_buf = std::make_shared<WriteBufferFromVectorMTB<std::vector<char>>>(*query_result_memory, AppendModeTag{});
             }
             else
             {
-                query_result_memory = new std::vector<char>(4096);
-                query_result_buf = std::make_shared<WriteBufferFromVector<std::vector<char>>>(*query_result_memory);
+                {
+                    MemoryTrackerBlockerInThread blocker;
+                    query_result_memory = new std::vector<char>(4096);
+                }
+                query_result_buf = std::make_shared<WriteBufferFromVectorMTB<std::vector<char>>>(*query_result_memory);
             }
 
             out_buf = query_result_buf.get();
