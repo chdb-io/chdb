@@ -51,13 +51,17 @@ class TestSignalHandler(unittest.TestCase):
 
     def test_data_integrity_after_interrupt(self):
         def data_writer():
+            writer_sess = session.Session(test_signal_handler_dir)
             global insert_counter
             i = 500000
-            while not exit_event1.is_set():
-                self.sess.query(f"INSERT INTO signal_handler_table VALUES ({i})")
-                insert_counter += 1
-                i += 1
-            exit_event2.set()
+            try:
+                while not exit_event1.is_set():
+                    writer_sess.query(f"INSERT INTO test.signal_handler_table VALUES ({i})")
+                    insert_counter += 1
+                    i += 1
+            finally:
+                writer_sess.close()
+                exit_event2.set()
 
         self.sess.query("CREATE DATABASE IF NOT EXISTS test")
         self.sess.query("USE test")
@@ -80,7 +84,7 @@ class TestSignalHandler(unittest.TestCase):
         start_time = time.time()
         try:
             while time.time() - start_time < 60:
-                self.sess.query("SELECT * FROM signal_handler_table")
+                self.sess.query("SELECT * FROM test.signal_handler_table")
         except KeyboardInterrupt:
             print("receive signal")
             exit_event1.set()
