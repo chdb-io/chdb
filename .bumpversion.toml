@@ -4,6 +4,16 @@ commit = false
 tag = false
 tag_name = "v{new_version}"
 allow_dirty = true
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)((?P<release>a|b|rc)(?P<build>\\d+))?"
+serialize = [
+    "{major}.{minor}.{patch}{release}{build}",
+    "{major}.{minor}.{patch}"
+]
+
+[[tool.bumpversion.files]]
+filename = ".bumpversion.toml"
+search = 'current_version = "{current_version}"'
+replace = 'current_version = "{new_version}"'
 
 [[tool.bumpversion.files]]
 filename = "pyproject.toml"
