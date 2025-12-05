@@ -3,10 +3,26 @@
 import unittest
 import sys
 import platform
+import subprocess
 import chdb
 from chdb import session
 
-@unittest.skipUnless(sys.platform.startswith("linux") and platform.machine() in ["x86_64", "AMD64"], "Runs only in the Linux x86 environment")
+def is_musl_linux():
+    """Check if running on musl Linux"""
+    if platform.system() != "Linux":
+        return False
+    try:
+        result = subprocess.run(['ldd', '--version'], capture_output=True, text=True)
+        print(f"stdout: {result.stdout.lower()}")
+        print(f"stderr: {result.stderr.lower()}")
+        # Check both stdout and stderr for musl
+        output_text = (result.stdout + result.stderr).lower()
+        return 'musl' in output_text
+    except Exception as e:
+        print(f"Exception in is_musl_linux: {e}")
+        return False
+
+@unittest.skipUnless(sys.platform.startswith("linux") and not is_musl_linux(), "Runs only on Linux platforms")
 class TestDeltaLake(unittest.TestCase):
     def setUp(self) -> None:
         return super().setUp()
