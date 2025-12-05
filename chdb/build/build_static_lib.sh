@@ -8,11 +8,7 @@ MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
 . ${MY_DIR}/../vars.sh
 
-if [ "$(uname)" == "Darwin" ] && [ "$(uname -m)" == "x86_64" ]; then
-    BUILD_DIR=${PROJ_DIR}/buildlib
-else
-    BUILD_DIR=${PROJ_DIR}/build-static-lib
-fi
+BUILD_DIR=${PROJ_DIR}/buildlib
 
 HDFS="-DENABLE_HDFS=1 -DENABLE_GSASL_LIBRARY=1 -DENABLE_KRB5=1"
 MYSQL="-DENABLE_MYSQL=1"
