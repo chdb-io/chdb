@@ -21,7 +21,6 @@ Contents
    quickstart
    api
    examples
-   dbapi
    session
    streaming
    udf
