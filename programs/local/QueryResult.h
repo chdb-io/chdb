@@ -9,6 +9,8 @@
 
 #if USE_PYTHON
 #include <Processors/Chunk.h>
+#include <pybind11/pybind11.h>
+namespace py = pybind11;
 namespace DB
 {
     class Block;
@@ -23,7 +25,8 @@ enum class QueryResultType : uint8_t
     RESULT_TYPE_MATERIALIZED = 0,
     RESULT_TYPE_STREAMING = 1,
     RESULT_TYPE_CHUNK = 2,
-    RESULT_TYPE_NONE = 3
+    RESULT_TYPE_DATAFRAME = 3,
+    RESULT_TYPE_NONE = 4
 };
 
 class QueryResult
@@ -144,6 +147,26 @@ public:
     uint64_t storage_rows_read;
     uint64_t storage_bytes_read;
 };
+
+class DataFrameQueryResult : public QueryResult
+{
+public:
+    explicit DataFrameQueryResult(
+        py::handle dataframe_,
+        uint64_t rows_read)
+        : QueryResult(QueryResultType::RESULT_TYPE_DATAFRAME),
+        dataframe(dataframe_),
+        is_empty(rows_read == 0)
+    {}
+
+    bool isEmpty() const override
+    {
+        return is_empty;
+    }
+
+    py::handle dataframe;
+    bool is_empty;
+};
 #endif
 
 using QueryResultPtr = std::unique_ptr<QueryResult>;
@@ -151,6 +174,7 @@ using MaterializedQueryResultPtr = std::unique_ptr<MaterializedQueryResult>;
 using StreamQueryResultPtr = std::unique_ptr<StreamQueryResult>;
 #if USE_PYTHON
 using ChunkQueryResultPtr = std::unique_ptr<ChunkQueryResult>;
+using DataFrameQueryResultPtr = std::unique_ptr<DataFrameQueryResult>;
 #endif
 
 } // namespace CHDB

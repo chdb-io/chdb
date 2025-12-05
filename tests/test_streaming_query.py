@@ -228,7 +228,7 @@ class TestStreamingQuery(unittest.TestCase):
         for t in threads:
             t.start()
 
-        time.sleep(10)
+        time.sleep(3)
         stop_event.set()
 
         for t in threads:

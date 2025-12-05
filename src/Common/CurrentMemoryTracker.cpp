@@ -9,7 +9,7 @@
 thread_local bool memory_tracker_always_throw_logical_error_on_allocation = false;
 #endif
 
-extern bool chdb_embedded_server_initialized;
+thread_local bool chdb_memory_tracking = false;
 
 namespace DB
 {
@@ -27,7 +27,7 @@ MemoryTracker * getMemoryTracker()
     if (auto * thread_memory_tracker = DB::CurrentThread::getMemoryTracker())
         return thread_memory_tracker;
 
-    if (likely(chdb_embedded_server_initialized))
+    if (chdb_memory_tracking)
         return &total_memory_tracker;
 
     /// Note, we cannot use total_memory_tracker earlier (i.e. just after static variable initialized without this check),
