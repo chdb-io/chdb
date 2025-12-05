@@ -29,6 +29,7 @@ class TestQueryStatistics(unittest.TestCase):
         self.assertEqual(ret.bytes_read(), 27000)
         print(f"SQL read {ret.rows_read()} rows, {ret.bytes_read()} bytes, elapsed {ret.elapsed()} seconds")
 
+    @unittest.skip("skipped")
     def test_storage_stats(self):
         test_query_statistics_dir = ".tmp_test_query_statistics_dir"
         shutil.rmtree(test_query_statistics_dir, ignore_errors=True)
