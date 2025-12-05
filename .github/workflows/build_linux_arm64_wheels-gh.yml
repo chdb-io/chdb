@@ -23,7 +23,7 @@ on:
 
 jobs:
   build_universal_wheel:
-    name: Build Universal Wheel (Linux ARM64)
+    name: Build Universal Wheel (Linux arm64)
     runs-on: GH-Linux-ARM64
     if: ${{ !github.event.pull_request.draft }}
     steps:

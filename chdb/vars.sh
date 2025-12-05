@@ -9,6 +9,10 @@ pushd ${PROJ_DIR}
 CHDB_VERSION=$(python3 -c 'import setup; print(setup.get_latest_git_tag())')
 popd
 
+if [ "$1" == "cross-compile" ]; then
+    return
+fi
+
 # try to use largest llvm-strip version
 # if none of them are found, use llvm-strip or strip
 if [ -z "$STRIP" ]; then
