@@ -3,7 +3,6 @@
 #include "PandasDataFrameBuilder.h"
 #include "ChunkCollectorOutputFormat.h"
 #include "PythonImporter.h"
-#include "PythonTableCache.h"
 #include "StoragePython.h"
 
 #include <pybind11/detail/non_limited_api.h>
@@ -274,13 +273,14 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
 
     auto * result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
 
-    auto error_msg = CHDB::chdb_result_error_string(result);
+    const auto & error_msg = CHDB::chdb_result_error_string(result);
     if (!error_msg.empty())
     {
         std::string msg_copy(error_msg);
         chdb_destroy_query_result(result);
         throw std::runtime_error(msg_copy);
     }
+
     return new query_result(result, false);
 }
 
@@ -298,7 +298,7 @@ py::object connection_wrapper::query_df(const std::string & query_str)
 
         result = chdb_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
 
-        auto error_msg = CHDB::chdb_result_error_string(result);
+        const auto & error_msg = CHDB::chdb_result_error_string(result);
         if (!error_msg.empty())
         {
             std::string msg_copy(error_msg);
@@ -322,7 +322,7 @@ streaming_query_result * connection_wrapper::send_query(const std::string & quer
     CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_stream_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
-    auto error_msg = CHDB::chdb_result_error_string(result);
+    const auto & error_msg = CHDB::chdb_result_error_string(result);
     if (!error_msg.empty())
     {
         std::string msg_copy(error_msg);
@@ -342,7 +342,7 @@ query_result * connection_wrapper::streaming_fetch_result(streaming_query_result
 
     auto * result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
 
-    const auto error_msg = CHDB::chdb_result_error_string(result);
+    const auto & error_msg = CHDB::chdb_result_error_string(result);
     if (!error_msg.empty())
     {
         std::string msg_copy(error_msg);
@@ -359,14 +359,14 @@ py::object connection_wrapper::streaming_fetch_df(streaming_query_result * strea
         return py::none();
 
     chdb_result * result = nullptr;
-    CHDB::ChunkQueryResult * chunk_result = nullptr;
+    CHDB::DataFrameQueryResult * chunk_result = nullptr;
 
     {
         py::gil_scoped_release release;
 
-        result  = chdb_stream_fetch_result(*conn, streaming_result->get_result());
+        result = chdb_stream_fetch_result(*conn, streaming_result->get_result());
 
-        auto error_msg = CHDB::chdb_result_error_string(result);
+        const auto & error_msg = CHDB::chdb_result_error_string(result);
         if (!error_msg.empty())
         {
             std::string msg_copy(error_msg);
@@ -374,15 +374,14 @@ py::object connection_wrapper::streaming_fetch_df(streaming_query_result * strea
             throw std::runtime_error(msg_copy);
         }
 
-        if (!(chunk_result = dynamic_cast<CHDB::ChunkQueryResult *>(reinterpret_cast<CHDB::QueryResult*>(result))))
-            throw std::runtime_error("Expected ChunkQueryResult for dataframe format");
+        if (!(chunk_result = dynamic_cast<CHDB::DataFrameQueryResult *>(reinterpret_cast<CHDB::QueryResult*>(result))))
+            throw std::runtime_error("Expected DataFrameQueryResult for dataframe format");
     }
 
-    CHDB::PandasDataFrameBuilder builder(*chunk_result);
-    auto df = builder.getDataFrame();
+    py::handle df_handle = chunk_result->dataframe;
     chdb_destroy_query_result(result);
 
-    return df;
+    return py::reinterpret_steal<py::object>(df_handle);
 }
 
 void connection_wrapper::streaming_cancel_query(streaming_query_result * streaming_result)

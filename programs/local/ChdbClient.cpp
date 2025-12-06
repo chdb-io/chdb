@@ -14,6 +14,9 @@
 
 #if USE_PYTHON
 #include <PythonTableCache.h>
+#include <PandasDataFrameBuilder.h>
+#include <pybind11/pybind11.h>
+namespace py = pybind11;
 #endif
 
 namespace DB
@@ -318,14 +321,21 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
 #if USE_PYTHON
             if (Poco::toLower(default_output_format) == "dataframe")
             {
-                res = std::make_unique<CHDB::ChunkQueryResult>(
+                auto rows_read = processed_rows - old_processed_rows;
+                auto chunk_result = std::make_unique<CHDB::ChunkQueryResult>(
                     std::move(collected_chunks),
                     std::move(collected_chunks_header),
                     elapsed_time - old_elapsed_time,
-                    processed_rows - old_processed_rows,
+                    rows_read,
                     processed_bytes - old_processed_bytes,
                     storage_rows_read - old_storage_rows_read,
                     storage_bytes_read - old_storage_bytes_read);
+
+                py::gil_scoped_acquire acquire;
+                CHDB::PandasDataFrameBuilder builder(*chunk_result);
+                py::handle df = builder.getDataFrame().release();
+
+                res = std::make_unique<CHDB::DataFrameQueryResult>(df, rows_read);
             }
             else
 #endif
@@ -350,7 +360,7 @@ CHDB::QueryResultPtr ChdbClient::executeStreamingIterate(void * streaming_result
             }
         }
 
-        // Check if query should end based on result type
+        /// Check if query should end based on result type
         bool is_end = !res->getError().empty() || is_canceled || res->isEmpty();
         if (is_end)
         {
