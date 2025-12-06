@@ -18,28 +18,8 @@ inline bool checkConnectionValidity(chdb_conn * connection)
     return connection && connection->connected;
 }
 
-extern thread_local bool chdb_memory_tracking;
-
 namespace CHDB
 {
-
-class ChdbMemoryTrackingGuard
-{
-public:
-    ChdbMemoryTrackingGuard()
-        : previous_value(chdb_memory_tracking)
-    {
-        chdb_memory_tracking = true;
-    }
-
-    ~ChdbMemoryTrackingGuard()
-    {
-        chdb_memory_tracking = previous_value;
-    }
-
-private:
-    bool previous_value;
-};
 
 std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char ** argv);
 

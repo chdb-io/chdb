@@ -154,8 +154,6 @@ const std::string & chdb_streaming_result_error_string(chdb_streaming_result * r
 
 chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     try
     {
         DB::ThreadStatus thread_status;
@@ -189,8 +187,6 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
 #if USE_PYTHON
 void cachePythonTablesFromQuery(chdb_conn * conn, const std::string & query_str)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!conn || !conn->server || !conn->connected)
         return;
     auto * client = reinterpret_cast<DB::ChdbClient *>(conn->server);
@@ -204,8 +200,6 @@ using namespace CHDB;
 
 local_result * query_stable(int argc, char ** argv)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     auto query_result = pyEntryClickHouseLocal(argc, argv);
     if (!query_result->getError().empty() || query_result->result_buffer == nullptr)
         return nullptr;
@@ -222,8 +216,6 @@ local_result * query_stable(int argc, char ** argv)
 
 void free_result(local_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!result)
     {
         return;
@@ -239,8 +231,6 @@ void free_result(local_result * result)
 
 local_result_v2 * query_stable_v2(int argc, char ** argv)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     // pyEntryClickHouseLocal may throw some serious exceptions, although it's not likely
     // to happen in the context of clickhouse-local. we catch them here and return an error
     local_result_v2 * res = nullptr;
@@ -269,8 +259,6 @@ local_result_v2 * query_stable_v2(int argc, char ** argv)
 
 void free_result_v2(local_result_v2 * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!result)
         return;
 
@@ -281,8 +269,6 @@ void free_result_v2(local_result_v2 * result)
 
 chdb_conn ** connect_chdb(int argc, char ** argv)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     auto * connection = chdb_connect(argc, argv);
     if (!connection)
     {
@@ -293,8 +279,6 @@ chdb_conn ** connect_chdb(int argc, char ** argv)
 
 void close_conn(chdb_conn ** conn)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!conn || !*conn)
         return;
 
@@ -324,8 +308,6 @@ struct local_result_v2 * query_conn(chdb_conn * conn, const char * query, const 
 
 struct local_result_v2 * query_conn_n(struct chdb_conn * conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!checkConnectionValidity(conn))
         return createErrorLocalResultV2("Invalid or closed connection");
 
@@ -347,16 +329,12 @@ struct local_result_v2 * query_conn_n(struct chdb_conn * conn, const char * quer
 
 chdb_streaming_result * query_conn_streaming(chdb_conn * conn, const char * query, const char * format)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     return query_conn_streaming_n(conn, query, query ? std::strlen(query) : 0, format, format ? std::strlen(format) : 0);
 }
 
 chdb_streaming_result *
 query_conn_streaming_n(struct chdb_conn * conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!checkConnectionValidity(conn))
     {
         auto * result = new StreamQueryResult("Invalid or closed connection");
@@ -391,8 +369,6 @@ query_conn_streaming_n(struct chdb_conn * conn, const char * query, size_t query
 
 const char * chdb_streaming_result_error(chdb_streaming_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!result)
         return nullptr;
 
@@ -407,8 +383,6 @@ const char * chdb_streaming_result_error(chdb_streaming_result * result)
 
 local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!checkConnectionValidity(conn))
         return createErrorLocalResultV2("Invalid or closed connection");
 
@@ -438,8 +412,6 @@ local_result_v2 * chdb_streaming_fetch_result(chdb_conn * conn, chdb_streaming_r
 
 void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!checkConnectionValidity(conn))
         return;
 
@@ -460,8 +432,6 @@ void chdb_streaming_cancel_query(chdb_conn * conn, chdb_streaming_result * resul
 
 void chdb_destroy_result(chdb_streaming_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!result)
         return;
 
@@ -474,8 +444,6 @@ void chdb_destroy_result(chdb_streaming_result * result)
 
 chdb_connection * chdb_connect(int argc, char ** argv)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     try
     {
         return connect_chdb_with_exception(argc, argv);
@@ -505,8 +473,6 @@ chdb_connection * chdb_connect(int argc, char ** argv)
 
 void chdb_close_conn(chdb_connection * conn)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!conn || !*conn)
         return;
 
@@ -522,8 +488,6 @@ chdb_result * chdb_query(chdb_connection conn, const char * query, const char * 
 
 chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!conn)
     {
         auto * result = new MaterializedQueryResult("Unexpected null connection");
@@ -559,8 +523,6 @@ chdb_result * chdb_query_n(chdb_connection conn, const char * query, size_t quer
 
 chdb_result * chdb_query_cmdline(int argc, char ** argv)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     MaterializedQueryResult * result = nullptr;
     try
     {
@@ -587,8 +549,6 @@ chdb_result * chdb_stream_query(chdb_connection conn, const char * query, const 
 
 chdb_result * chdb_stream_query_n(chdb_connection conn, const char * query, size_t query_len, const char * format, size_t format_len)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!conn)
     {
         auto * result = new StreamQueryResult("Unexpected null connection");
@@ -629,8 +589,6 @@ chdb_result * chdb_stream_query_n(chdb_connection conn, const char * query, size
 
 chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!conn)
     {
         auto * query_result = new MaterializedQueryResult("Unexpected null connection");
@@ -676,8 +634,6 @@ chdb_result * chdb_stream_fetch_result(chdb_connection conn, chdb_result * resul
 
 void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!result || !conn)
         return;
 
@@ -700,8 +656,6 @@ void chdb_stream_cancel_query(chdb_connection conn, chdb_result * result)
 
 void chdb_destroy_query_result(chdb_result * result)
 {
-    CHDB::ChdbMemoryTrackingGuard guard;
-
     if (!result)
         return;
 

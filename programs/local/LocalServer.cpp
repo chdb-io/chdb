@@ -73,6 +73,8 @@
 #   include <azure/storage/common/internal/xml_wrapper.hpp>
 #endif
 
+extern bool chdb_embedded_server_initialized;
+
 namespace fs = std::filesystem;
 
 namespace CurrentMetrics
@@ -648,6 +650,8 @@ try
         global_register_once_flag,
         []()
         {
+            chdb_embedded_server_initialized = true;
+
             registerInterpreters();
             /// Don't initialize DateLUT
             registerFunctions();
