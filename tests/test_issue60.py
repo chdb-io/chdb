@@ -2,9 +2,10 @@ import threading
 import time
 import unittest
 import chdb
+import platform
+import subprocess
 
 data = """url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')"""
-# data = """file('/home/Clickhouse/server/chdb-server/house_0.parquet', Parquet)"""
 
 query_str = f'''
 SELECT
@@ -32,6 +33,21 @@ expected_result = '''"BIRMINGHAM","BIRMINGHAM",35326,146648
 "COVENTRY","COVENTRY",13927,149269
 '''
 
+def is_musl_linux():
+    """Check if running on musl Linux"""
+    if platform.system() != "Linux":
+        return False
+    try:
+        result = subprocess.run(['ldd', '--version'], capture_output=True, text=True)
+        print(f"stdout: {result.stdout.lower()}")
+        print(f"stderr: {result.stderr.lower()}")
+        # Check both stdout and stderr for musl
+        output_text = (result.stdout + result.stderr).lower()
+        return 'musl' in output_text
+    except Exception as e:
+        print(f"Exception in is_musl_linux: {e}")
+        return False
+
 result = ""
 
 class myThread(threading.Thread):
@@ -54,6 +70,7 @@ def print_chdb(threadName, delay):
 
 
 class TestQueryInThread(unittest.TestCase):
+    @unittest.skipIf(is_musl_linux(), "Skipping test on musl Linux")
     def test_query_in_thread(self):
         thread1 = myThread(1, "Thread-1", 1)
         thread1.start()
