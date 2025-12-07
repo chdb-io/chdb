@@ -2,8 +2,8 @@ import threading
 import time
 import unittest
 import chdb
-import platform
-import subprocess
+from utils import is_musl_linux
+
 
 data = """url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')"""
 
@@ -33,21 +33,6 @@ expected_result = '''"BIRMINGHAM","BIRMINGHAM",35326,146648
 "COVENTRY","COVENTRY",13927,149269
 '''
 
-def is_musl_linux():
-    """Check if running on musl Linux"""
-    if platform.system() != "Linux":
-        return False
-    try:
-        result = subprocess.run(['ldd', '--version'], capture_output=True, text=True)
-        print(f"stdout: {result.stdout.lower()}")
-        print(f"stderr: {result.stderr.lower()}")
-        # Check both stdout and stderr for musl
-        output_text = (result.stdout + result.stderr).lower()
-        return 'musl' in output_text
-    except Exception as e:
-        print(f"Exception in is_musl_linux: {e}")
-        return False
-
 result = ""
 
 class myThread(threading.Thread):
@@ -76,6 +61,7 @@ class TestQueryInThread(unittest.TestCase):
         thread1.start()
         thread1.join()
         self.assertEqual(str(result), expected_result)
+
 
 if __name__ == '__main__':
     unittest.main()
