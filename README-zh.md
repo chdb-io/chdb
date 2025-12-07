@@ -67,6 +67,27 @@ res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(res)
 print(f"SQL read {res.rows_read()} rows, {res.bytes_read()} bytes, elapsed {res.elapsed()} seconds")
 ```
 
+### 参数化查询
+```python
+import chdb
+
+df = chdb.query(
+    "SELECT toDate({base_date:String}) + number AS date "
+    "FROM numbers({total_days:UInt64}) "
+    "LIMIT {items_per_page:UInt64}",
+    "DataFrame",
+    params={"base_date": "2025-01-01", "total_days": 10, "items_per_page": 2},
+)
+print(df)
+#         date
+# 0 2025-01-01
+# 1 2025-01-02
+```
+
+更多内容请参见:
+* [ClickHouse SQL语法: 定义和使用查询参数](https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters)
+* [ClickHouse中如何使用参数化查询](https://clickhouse.com/videos/how-to-use-query-parameters-in-clickhouse)
+
 ### Pandas DataFrame 输出
 ```python
 # 更多内容请参见 https://clickhouse.com/docs/en/interfaces/formats

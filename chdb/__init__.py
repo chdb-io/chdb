@@ -112,7 +112,7 @@ g_conn_lock = threading.Lock()
 
 
 # wrap _chdb functions
-def query(sql, output_format="CSV", path="", udf_path=""):
+def query(sql, output_format="CSV", path="", udf_path="", params=None):
     """Execute SQL query using chDB engine.
 
     This is the main query function that executes SQL statements using the embedded
@@ -135,6 +135,8 @@ def query(sql, output_format="CSV", path="", udf_path=""):
         path (str, optional): Database file path. Defaults to "" (in-memory database).
             Can be a file path or ":memory:" for in-memory database.
         udf_path (str, optional): Path to User-Defined Functions directory. Defaults to "".
+        params (dict, optional): Named query parameters matching placeholders like ``{key:Type}``.
+            Values are converted to strings and passed to the engine without manual escaping.
 
     Returns:
         Query result in the specified format:
@@ -167,6 +169,7 @@ def query(sql, output_format="CSV", path="", udf_path=""):
         >>> result = chdb.query("SELECT my_udf('test')", udf_path="/path/to/udfs")
     """
     global g_udf_path
+    params = params or {}
     if udf_path != "":
         g_udf_path = udf_path
     conn_str = ""
@@ -195,11 +198,11 @@ def query(sql, output_format="CSV", path="", udf_path=""):
         conn = _chdb.connect(conn_str)
 
         if lower_output_format == "dataframe":
-            res = conn.query_df(sql)
+            res = conn.query_df(sql, params=params)
             conn.close()
             return res
 
-        res = conn.query(sql, output_format)
+        res = conn.query(sql, output_format, params=params)
 
         if res.has_error():
             conn.close()
