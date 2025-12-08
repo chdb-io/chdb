@@ -104,7 +104,7 @@ def set_log_format(format_name: str) -> None:
     Set the log output format.
 
     Args:
-        format_name: "simple" for minimal output (default), "verbose" for full timestamp/level
+        format_name: "simple" (default) for minimal output, "verbose" for full timestamp/level
 
     Example:
         >>> from datastore import config
