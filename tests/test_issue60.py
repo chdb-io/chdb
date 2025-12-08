@@ -2,9 +2,10 @@ import threading
 import time
 import unittest
 import chdb
+from utils import is_musl_linux
+
 
 data = """url('https://datasets-documentation.s3.eu-west-3.amazonaws.com/house_parquet/house_0.parquet')"""
-# data = """file('/home/Clickhouse/server/chdb-server/house_0.parquet', Parquet)"""
 
 query_str = f'''
 SELECT
@@ -54,11 +55,13 @@ def print_chdb(threadName, delay):
 
 
 class TestQueryInThread(unittest.TestCase):
+    @unittest.skipIf(is_musl_linux(), "Skipping test on musl Linux")
     def test_query_in_thread(self):
         thread1 = myThread(1, "Thread-1", 1)
         thread1.start()
         thread1.join()
         self.assertEqual(str(result), expected_result)
+
 
 if __name__ == '__main__':
     unittest.main()

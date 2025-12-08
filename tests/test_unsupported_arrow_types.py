@@ -7,22 +7,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import chdb
 from chdb import ChdbError
-
-
-def is_musl_linux():
-    """Check if running on musl Linux"""
-    if platform.system() != "Linux":
-        return False
-    try:
-        result = subprocess.run(['ldd', '--version'], capture_output=True, text=True)
-        print(f"stdout: {result.stdout.lower()}")
-        print(f"stderr: {result.stderr.lower()}")
-        # Check both stdout and stderr for musl
-        output_text = (result.stdout + result.stderr).lower()
-        return 'musl' in output_text
-    except Exception as e:
-        print(f"Exception in is_musl_linux: {e}")
-        return False
+from utils import is_musl_linux
 
 
 class TestUnsupportedArrowTypes(unittest.TestCase):
