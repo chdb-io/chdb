@@ -214,6 +214,74 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None):
 # alias for query
 sql = query
 
+
+def generate_sql(
+    prompt,
+    *,
+    path=":memory:",
+    ai_api_key=None,
+    ai_base_url=None,
+    ai_model=None,
+    ai_provider=None,
+    ai_temperature=None,
+    ai_max_tokens=None,
+    ai_timeout_seconds=None,
+    ai_system_prompt=None,
+    ai_max_steps=None,
+    ai_enable_schema_access=None,
+):
+    """Generate SQL text from a natural language prompt using the configured AI provider."""
+    conn_str = ":memory:" if path in (None, "", ":memory:") else f"{path}"
+    if g_udf_path != "":
+        if "?" in conn_str:
+            conn_str = f"{conn_str}&udf_path={g_udf_path}"
+        else:
+            conn_str = f"{conn_str}?udf_path={g_udf_path}"
+
+    def append_ai_params(connection_string: str) -> str:
+        params = []
+        if ai_api_key:
+            params.append(("ai_api_key", ai_api_key))
+        if ai_base_url:
+            params.append(("ai_base_url", ai_base_url))
+        if ai_model:
+            params.append(("ai_model", ai_model))
+        if ai_provider:
+            params.append(("ai_provider", ai_provider))
+        if ai_temperature is not None:
+            params.append(("ai_temperature", str(ai_temperature)))
+        if ai_max_tokens is not None:
+            params.append(("ai_max_tokens", str(ai_max_tokens)))
+        if ai_timeout_seconds is not None:
+            params.append(("ai_timeout_seconds", str(ai_timeout_seconds)))
+        if ai_system_prompt:
+            params.append(("ai_system_prompt", ai_system_prompt))
+        if ai_max_steps is not None:
+            params.append(("ai_max_steps", str(ai_max_steps)))
+        if ai_enable_schema_access is not None:
+            params.append(("ai_enable_schema_access", "1" if ai_enable_schema_access else "0"))
+
+        if not params:
+            return connection_string
+
+        suffix = "&".join(f"{k}={v}" for k, v in params)
+        if "?" in connection_string:
+            if connection_string.endswith("?") or connection_string.endswith("&"):
+                return f"{connection_string}{suffix}"
+            return f"{connection_string}&{suffix}"
+        return f"{connection_string}?{suffix}"
+
+    conn_str = append_ai_params(conn_str)
+
+    conn = _chdb.connect(conn_str)
+    try:
+        if not hasattr(conn, "generate_sql"):
+            raise RuntimeError("AI SQL generation is not available in this build.")
+        return conn.generate_sql(prompt)
+    finally:
+        conn.close()
+
+
 PyReader = _chdb.PyReader
 
 from . import dbapi, session, udf, utils  # noqa: E402
@@ -225,6 +293,7 @@ __all__ = [
     "ChdbError",
     "query",
     "sql",
+    "generate_sql",
     "chdb_version",
     "engine_version",
     "to_df",
