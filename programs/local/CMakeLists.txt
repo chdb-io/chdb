@@ -44,6 +44,7 @@ if (USE_PYTHON)
         PandasDataFrame.cpp
         PandasDataFrameBuilder.cpp
         PandasScan.cpp
+        AIQueryProcessor.cpp
         PyArrowStreamFactory.cpp
         PyArrowTable.cpp
         PybindWrapper.cpp
