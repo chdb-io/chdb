@@ -15,6 +15,7 @@ from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
 from .lazy_ops import LazyOp, LazyColumnAssignment, LazyColumnSelection, LazySQLSnapshot
+from .config import get_logger, config as _global_config, DataStoreConfig
 
 __all__ = ['DataStore']
 
@@ -27,7 +28,15 @@ class DataStore(PandasCompatMixin):
         >>> ds = DataStore("file", path="data.parquet")
         >>> ds.connect()
         >>> result = ds.select("name", "age").filter(ds.age > 18).execute()
+
+    Logging Configuration:
+        >>> import logging
+        >>> DataStore.config.log_level = logging.DEBUG  # Enable debug logging
+        >>> DataStore.config.enable_debug()  # Or use convenience method
     """
+
+    # Class-level config for all DataStore instances
+    config: DataStoreConfig = _global_config
 
     def __init__(
         self,
@@ -152,6 +161,9 @@ class DataStore(PandasCompatMixin):
         # Operation tracking for explain()
         self._operation_history: List[Dict[str, Any]] = []
         self._original_source_desc: Optional[str] = None  # Preserve original data source for explain()
+
+        # Logger instance
+        self._logger = get_logger()
 
     # ========== Operation Tracking for explain() ==========
 
@@ -382,14 +394,26 @@ class DataStore(PandasCompatMixin):
 
         Execution strategy:
         1. Find the first non-SQL operation (e.g., add_prefix, column assignment)
-        2. Execute SQL operations before that point as a SQL query
-        3. Execute remaining operations on the DataFrame in order
+        2. Build and execute SQL query for operations before that point
+        3. Execute remaining operations (including SQL) on the DataFrame in order
 
         Returns:
             pandas DataFrame with all operations applied
         """
         import pandas as pd
         from .lazy_ops import LazySQLSnapshot
+
+        self._logger.debug("=" * 70)
+        self._logger.debug("Starting materialization")
+        self._logger.debug("=" * 70)
+
+        # Log all lazy operations
+        if self._lazy_ops:
+            self._logger.debug("Lazy operations chain (%d operations):", len(self._lazy_ops))
+            for i, op in enumerate(self._lazy_ops):
+                self._logger.debug("  [%d] %s", i + 1, op.describe())
+        else:
+            self._logger.debug("No lazy operations recorded")
 
         # Find the first non-SQL operation
         first_df_op_idx = None
@@ -398,35 +422,212 @@ class DataStore(PandasCompatMixin):
                 first_df_op_idx = i
                 break
 
-        # Phase 1: Execute SQL query (only SQL operations before first DataFrame op)
-        if self._has_sql_state():
+        if first_df_op_idx is not None:
+            self._logger.debug("First non-SQL operation at index %d", first_df_op_idx)
+        else:
+            self._logger.debug("All operations are SQL operations")
+
+        # Phase 1: Build SQL query from operations before first DataFrame op
+        # We need to build the SQL state from scratch using only the early SQL ops
+        self._logger.debug("-" * 70)
+        self._logger.debug("Phase 1: Building SQL query from early operations")
+        self._logger.debug("-" * 70)
+
+        sql_select_fields = []
+        sql_where_conditions = []
+        sql_orderby_fields = []
+        sql_limit = None
+        sql_offset = None
+
+        early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
+
+        for op in early_sql_ops:
+            if isinstance(op, LazySQLSnapshot):
+                if op.op_type == 'SELECT' and op.fields:
+                    for f in op.fields:
+                        if isinstance(f, str):
+                            if f != '*':
+                                sql_select_fields.append(Field(f))
+                        else:
+                            sql_select_fields.append(f)
+                elif op.op_type == 'WHERE' and op.condition is not None:
+                    sql_where_conditions.append(op.condition)
+                elif op.op_type == 'ORDER BY' and op.fields:
+                    for f in op.fields:
+                        if isinstance(f, str):
+                            sql_orderby_fields.append((Field(f), op.ascending))
+                        else:
+                            sql_orderby_fields.append((f, op.ascending))
+                elif op.op_type == 'LIMIT':
+                    sql_limit = op.limit_value
+                elif op.op_type == 'OFFSET':
+                    sql_offset = op.offset_value
+
+        # Build and execute SQL query
+        if self._table_function or self.table_name:
             # Connect if needed
             if self._executor is None:
+                self._logger.debug("Connecting to data source...")
                 self.connect()
 
-            # Execute SQL query
-            sql = self.to_sql()
+            # Build SQL with only early operations
+            sql = self._build_sql_from_state(
+                sql_select_fields, sql_where_conditions, sql_orderby_fields, sql_limit, sql_offset
+            )
+            self._logger.debug("Executing initial SQL query...")
             result = self._executor.execute(sql)
             df = result.to_df()
+            self._logger.debug("SQL query returned DataFrame with shape: %s", df.shape)
         else:
-            # No SQL state, start with empty DataFrame
+            self._logger.debug("No data source, starting with empty DataFrame")
             df = pd.DataFrame()
 
-        # Phase 2: Apply lazy operations in order
-        # Skip LazySQLSnapshot ops (they're already handled by SQL execution above)
-        # But only skip them if they come before the first DataFrame op
-        for i, op in enumerate(self._lazy_ops):
-            if isinstance(op, LazySQLSnapshot):
-                # SQL snapshots before first DataFrame op are already executed
-                if first_df_op_idx is None or i < first_df_op_idx:
-                    continue
-                # SQL snapshots after first DataFrame op need to be executed on DataFrame
-                # For now, we'll skip them (they're recorded for explain() only)
-                # TODO: Implement SQL-on-DataFrame execution
-                continue
-            df = op.execute(df, self)
+        # Phase 2: Execute remaining operations in order
+        if first_df_op_idx is not None:
+            self._logger.debug("-" * 70)
+            self._logger.debug("Phase 2: Executing %d DataFrame operations", len(self._lazy_ops) - first_df_op_idx)
+            self._logger.debug("-" * 70)
+
+            # Track cumulative SQL for logging
+            cumulative_select = []
+            cumulative_where = []
+            cumulative_orderby = []
+            cumulative_limit = None
+            cumulative_offset = None
+
+            for i, op in enumerate(self._lazy_ops[first_df_op_idx:], first_df_op_idx + 1):
+                self._logger.debug("[%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
+
+                # Track SQL operations for cumulative SQL logging
+                if isinstance(op, LazySQLSnapshot):
+                    if op.op_type == 'SELECT' and op.fields:
+                        cumulative_select = op.fields
+                    elif op.op_type == 'WHERE' and op.condition is not None:
+                        cumulative_where.append(op.condition)
+                    elif op.op_type == 'ORDER BY' and op.fields:
+                        cumulative_orderby = [(f, op.ascending) for f in op.fields]
+                    elif op.op_type == 'LIMIT':
+                        cumulative_limit = op.limit_value
+                    elif op.op_type == 'OFFSET':
+                        cumulative_offset = op.offset_value
+
+                    # Build and log cumulative SQL
+                    self._log_cumulative_sql(
+                        cumulative_select, cumulative_where, cumulative_orderby, cumulative_limit, cumulative_offset
+                    )
+
+                df = op.execute(df, self)
+
+        self._logger.debug("=" * 70)
+        self._logger.debug("Materialization complete. Final DataFrame shape: %s", df.shape)
+        self._logger.debug("=" * 70)
 
         return df
+
+    def _log_cumulative_sql(self, select_fields, where_conditions, orderby_fields, limit_value, offset_value):
+        """Log the cumulative SQL equivalent for Phase 2 operations."""
+        parts = []
+
+        # SELECT
+        if select_fields:
+            try:
+                fields_sql = ', '.join(
+                    f.to_sql(quote_char=self.quote_char) if hasattr(f, 'to_sql') else f'"{f}"' for f in select_fields
+                )
+                parts.append(f"SELECT {fields_sql}")
+            except Exception:
+                parts.append("SELECT ...")
+        else:
+            parts.append("SELECT *")
+
+        # FROM (placeholder for DataFrame)
+        parts.append("FROM <DataFrame>")
+
+        # WHERE
+        if where_conditions:
+            try:
+                if len(where_conditions) == 1:
+                    where_sql = where_conditions[0].to_sql(quote_char=self.quote_char)
+                else:
+                    combined = where_conditions[0]
+                    for cond in where_conditions[1:]:
+                        combined = combined & cond
+                    where_sql = combined.to_sql(quote_char=self.quote_char)
+                parts.append(f"WHERE {where_sql}")
+            except Exception:
+                parts.append("WHERE ...")
+
+        # ORDER BY
+        if orderby_fields:
+            try:
+                order_parts = []
+                for field, ascending in orderby_fields:
+                    direction = 'ASC' if ascending else 'DESC'
+                    if hasattr(field, 'to_sql'):
+                        order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
+                    else:
+                        order_parts.append(f'"{field}" {direction}')
+                parts.append(f"ORDER BY {', '.join(order_parts)}")
+            except Exception:
+                parts.append("ORDER BY ...")
+
+        # LIMIT
+        if limit_value is not None:
+            parts.append(f"LIMIT {limit_value}")
+
+        # OFFSET
+        if offset_value is not None:
+            parts.append(f"OFFSET {offset_value}")
+
+        full_sql = ' '.join(parts)
+        self._logger.debug("[LazyOp]   -> Full SQL: %s", full_sql)
+
+    def _build_sql_from_state(self, select_fields, where_conditions, orderby_fields, limit_value, offset_value):
+        """Build SQL query from given state (not from instance variables)."""
+        parts = []
+
+        # SELECT
+        if select_fields:
+            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
+            parts.append(f"SELECT {fields_sql}")
+        else:
+            parts.append("SELECT *")
+
+        # FROM
+        if self._table_function:
+            # Handle table function objects
+            if hasattr(self._table_function, 'to_sql'):
+                table_sql = self._table_function.to_sql()
+            else:
+                table_sql = str(self._table_function)
+            parts.append(f"FROM {table_sql}")
+        elif self.table_name:
+            parts.append(f"FROM {self.quote_char}{self.table_name}{self.quote_char}")
+
+        # WHERE
+        if where_conditions:
+            combined = where_conditions[0]
+            for cond in where_conditions[1:]:
+                combined = combined & cond
+            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+        # ORDER BY
+        if orderby_fields:
+            order_parts = []
+            for field, asc in orderby_fields:
+                direction = 'ASC' if asc else 'DESC'
+                order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
+            parts.append(f"ORDER BY {', '.join(order_parts)}")
+
+        # LIMIT
+        if limit_value is not None:
+            parts.append(f"LIMIT {limit_value}")
+
+        # OFFSET
+        if offset_value is not None:
+            parts.append(f"OFFSET {offset_value}")
+
+        return ' '.join(parts)
 
     # ========== Static Factory Methods for Data Sources ==========
 
@@ -920,24 +1121,31 @@ class DataStore(PandasCompatMixin):
         Returns:
             self for chaining
         """
+        self._logger.debug("Connecting to data source (database=%s)...", self.database)
+
         if self._connection is None:
             # When using table functions, don't pass table function params to connection
             # Only pass database parameter
             if self._table_function is not None:
                 self._connection = Connection(self.database)
+                self._logger.debug("Created connection for table function")
             else:
                 self._connection = Connection(self.database, **self.connection_params)
+                self._logger.debug("Created connection with params: %s", self.connection_params)
 
         try:
             self._connection.connect()
             self._executor = Executor(self._connection)
+            self._logger.debug("Connection established successfully")
 
             # Try to get schema if table exists
             if self.table_name:
                 self._discover_schema()
+                self._logger.debug("Schema discovered: %s", self._schema)
 
             return self
         except Exception as e:
+            self._logger.error("Connection failed: %s", e)
             raise ConnectionError(f"Failed to connect: {e}")
 
     def _get_table_alias(self) -> str:
@@ -999,16 +1207,25 @@ class DataStore(PandasCompatMixin):
         Returns:
             QueryResult object with data and metadata
         """
+        self._logger.debug("=" * 70)
+        self._logger.debug("DataStore.execute() called")
+        self._logger.debug("=" * 70)
+
         # Ensure we're connected
         if self._executor is None:
+            self._logger.debug("Not connected, establishing connection...")
             self.connect()
 
         # Generate SQL
         sql = self.to_sql()
+        self._logger.debug("Generated SQL for execution")
 
         try:
-            return self._executor.execute(sql)
+            result = self._executor.execute(sql)
+            self._logger.debug("Query executed successfully")
+            return result
         except Exception as e:
+            self._logger.error("Query execution failed: %s", e)
             raise ExecutionError(f"Query execution failed: {e}")
 
     def exec(self) -> QueryResult:
@@ -1040,6 +1257,7 @@ class DataStore(PandasCompatMixin):
             >>> ds["new_col"] = ds["age"] * 2
             >>> df2 = ds.to_df()  # Executes SQL + lazy ops
         """
+        self._logger.debug("to_df() called - triggering materialization")
         return self._materialize()
 
     def to_dict(self) -> List[Dict[str, Any]]:
@@ -1554,7 +1772,8 @@ class DataStore(PandasCompatMixin):
         self._track_operation('sql', f"SELECT {field_names}", {'lazy': True})
 
         # Record in lazy ops for correct execution order in explain()
-        self._lazy_ops.append(LazySQLSnapshot('SELECT', field_names))
+        # Store fields for DataFrame execution
+        self._lazy_ops.append(LazySQLSnapshot('SELECT', field_names, fields=list(fields)))
 
         for field in fields:
             if isinstance(field, str):
@@ -1591,7 +1810,8 @@ class DataStore(PandasCompatMixin):
         self._track_operation('sql', f"WHERE {condition_str}", {'lazy': True})
 
         # Record in lazy ops for correct execution order in explain()
-        self._lazy_ops.append(LazySQLSnapshot('WHERE', condition_str))
+        # Store condition object for DataFrame execution
+        self._lazy_ops.append(LazySQLSnapshot('WHERE', condition_str, condition=condition))
 
         if isinstance(condition, str):
             # TODO: Parse string conditions
@@ -1725,7 +1945,10 @@ class DataStore(PandasCompatMixin):
         direction = 'ASC' if ascending else 'DESC'
 
         # Record in lazy ops for correct execution order in explain()
-        self._lazy_ops.append(LazySQLSnapshot('ORDER BY', f"{field_names} {direction}"))
+        # Store fields and ascending for DataFrame execution
+        self._lazy_ops.append(
+            LazySQLSnapshot('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending)
+        )
 
         for field in fields:
             if isinstance(field, str):
@@ -1758,7 +1981,8 @@ class DataStore(PandasCompatMixin):
     def limit(self, n: int) -> 'DataStore':
         """Limit number of results."""
         # Record in lazy ops for correct execution order in explain()
-        self._lazy_ops.append(LazySQLSnapshot('LIMIT', str(n)))
+        # Store limit_value for DataFrame execution
+        self._lazy_ops.append(LazySQLSnapshot('LIMIT', str(n), limit_value=n))
         self._limit_value = n
         return self
 
@@ -1766,7 +1990,8 @@ class DataStore(PandasCompatMixin):
     def offset(self, n: int) -> 'DataStore':
         """Skip first n results."""
         # Record in lazy ops for correct execution order in explain()
-        self._lazy_ops.append(LazySQLSnapshot('OFFSET', str(n)))
+        # Store offset_value for DataFrame execution
+        self._lazy_ops.append(LazySQLSnapshot('OFFSET', str(n), offset_value=n))
         self._offset_value = n
 
     @immutable

@@ -88,6 +88,13 @@ from .exceptions import (
     ExecutionError,
 )
 from .enums import JoinType
+from .config import (
+    config,
+    set_log_level,
+    enable_debug,
+    disable_debug,
+    get_logger,
+)
 from .table_functions import (
     TableFunction,
     create_table_function,
@@ -147,6 +154,12 @@ __all__ = [
     'SchemaError',
     'QueryError',
     'ExecutionError',
+    # Configuration
+    'config',
+    'set_log_level',
+    'enable_debug',
+    'disable_debug',
+    'get_logger',
     # Table Functions
     'TableFunction',
     'create_table_function',
