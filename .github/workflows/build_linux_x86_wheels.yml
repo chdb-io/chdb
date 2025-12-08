@@ -25,7 +25,7 @@ jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux x86_64)
     runs-on: [self-hosted, linux, x64, ubuntu-latest]
-    # if: ${{ !github.event.pull_request.draft }}
+    if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Install Python build dependencies
         run: |
