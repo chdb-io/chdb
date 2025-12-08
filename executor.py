@@ -54,10 +54,10 @@ class Executor:
         self._logger.debug("=" * 60)
 
         result = self.connection.execute(sql)
-        
+
         # Log result info
         self._logger.debug("Query returned %d rows", len(result.rows) if result.rows else 0)
-        
+
         return result
 
     def close(self):
