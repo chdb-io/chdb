@@ -4,6 +4,8 @@ set (CLICKHOUSE_LOCAL_SOURCES
     ArrowStreamWrapper.cpp
     ArrowTableReader.cpp
     LocalServer.cpp
+    EmbeddedServer.cpp
+    ChdbClient.cpp
 )
 
 if (NOT USE_PYTHON)
@@ -23,14 +25,17 @@ if (CHDB_STATIC_LIBRARY_BUILD)
 endif()
 
 if (USE_PYTHON)
+    add_compile_definitions(USE_PYTHON=1)
+
     set (CHDB_SOURCES
         chdb.cpp
         ChunkCollectorOutputFormat.cpp
         FieldToPython.cpp
-        FormatHelper.cpp
         ListScan.cpp
         LocalChdb.cpp
         LocalServer.cpp
+        EmbeddedServer.cpp
+        ChdbClient.cpp
         NumpyArray.cpp
         NumpyNestedTypes.cpp
         NumpyType.cpp
@@ -61,11 +66,17 @@ if (USE_PYTHON)
     include_directories(${PYBIND11_INCLUDE_DIR} ${CMAKE_CURRENT_SOURCE_DIR})
 
     # include Python.h
-    execute_process(COMMAND python3-config --includes
-        OUTPUT_VARIABLE PYTHON_INCLUDES
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-    string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
+    if(CHDB_CROSSCOMPILING)
+        # For cross-compiling, use the provided Python include directory
+        set(PYTHON_INCLUDE_DIR "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+        message(STATUS "Cross-compiling: Using Python include directory: ${PYTHON_INCLUDE_DIR}")
+    else()
+        execute_process(COMMAND python3-config --includes
+            OUTPUT_VARIABLE PYTHON_INCLUDES
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+        string(REGEX REPLACE ".*-I([^ ]+).*" "\\1" PYTHON_INCLUDE_DIR ${PYTHON_INCLUDES})
+    endif()
 
     foreach(_file ${CHDB_SOURCES})
         set_source_files_properties(${_file}
@@ -74,14 +85,13 @@ if (USE_PYTHON)
         )
     endforeach(_file)
 
-    # get python version, something like python3.x
-    execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
-        OUTPUT_VARIABLE PYTHON_VERSION
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-    )
-
     # remove all warning, because pybind11 will generate a lot of warning
     if (OS_LINUX)
+        # get python version, something like python3.x
+        execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
+            OUTPUT_VARIABLE PYTHON_VERSION
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
         # pybind11 will try to find x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h
         # use -idirafter to make it find the right one and not polute the include path
         # set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS

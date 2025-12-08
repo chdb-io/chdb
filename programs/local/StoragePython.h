@@ -174,7 +174,7 @@ public:
 
     Block prepareSampleBlock(const Names & column_names, const StorageSnapshotPtr & storage_snapshot);
 
-    static ColumnsDescription getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema);
+    static ColumnsDescription getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema, const ContextPtr & context);
 
 private:
     void prepareColumnCache(const Names & names, const Columns & columns, const Block & sample_block);

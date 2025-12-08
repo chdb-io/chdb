@@ -1,4 +1,4 @@
-name: Build Linux X86
+name: Build Linux x86_64
 
 on:
   workflow_dispatch:
@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
-            libbz2-dev libreadline-dev libsqlite3-dev wget curl llvm \
+            libbz2-dev libreadline-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
             libffi-dev liblzma-dev golang-go
       - name: Install GitHub CLI
@@ -77,7 +77,7 @@ jobs:
           else
             echo "✅ No SQLite vulnerabilities found"
           fi
-        continue-on-error: true 
+        continue-on-error: true
       - name: Setup pyenv
         run: |
           # Remove existing pyenv installation if present

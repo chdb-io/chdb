@@ -27,7 +27,7 @@ ColumnsDescription PythonReader::getActualTableStructure(const py::object & obje
 
     schema = object.attr("get_schema")().cast<std::vector<std::pair<std::string, std::string>>>();
 
-    return StoragePython::getTableStructureFromData(schema);
+    return StoragePython::getTableStructureFromData(schema, context);
 }
 
 bool PythonReader::isPythonReader(const py::object & object)

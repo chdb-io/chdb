@@ -16,9 +16,7 @@ The Session class allows you to:
 Session API
 -----------
 
-.. automodule:: chdb.session
-   :members: Session
-   :show-inheritance:
+For the complete Session API reference, see :doc:`api`.
 
 Basic Usage
 -----------
@@ -345,6 +343,5 @@ Best Practices
 See Also
 --------
 
-- :doc:`dbapi` - Database API for connection-based queries
+- :doc:`api` - Complete API reference including Session class and DB-API interface
 - :doc:`examples` - More comprehensive usage examples
-- :doc:`api` - Complete API reference

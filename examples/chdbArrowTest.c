@@ -6,7 +6,7 @@
 #include <errno.h>
 
 #include "../programs/local/chdb.h"
-#include "../contrib/arrow/cpp/src/arrow/c/abi.h"
+#include "arrow_c_abi.h"
 
 // Custom ArrowArrayStream implementation data
 typedef struct CustomStreamData

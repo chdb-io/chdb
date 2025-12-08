@@ -1,4 +1,4 @@
-name: Build Linux(musllinux) ARM64
+name: Build Linux(musllinux) arm64
 
 on:
   workflow_dispatch:

@@ -61,21 +61,21 @@ elif [ "$(uname)" == "Linux" ]; then
     if [ "$(uname -m)" == "x86_64" ]; then
         CPU_FEATURES="-DENABLE_AVX=1 -DENABLE_AVX2=0"
         LLVM="-DENABLE_EMBEDDED_COMPILER=1 -DENABLE_DWARF_PARSER=1"
-        RUST_FEATURES="-DENABLE_RUST=1 -DENABLE_DELTA_KERNEL_RS=1"
-        CORROSION_CMAKE_FILE="${PROJ_DIR}/contrib/corrosion-cmake/CMakeLists.txt"
-        if [ -f "${CORROSION_CMAKE_FILE}" ]; then
-            if ! grep -q 'OPENSSL_NO_DEPRECATED_3_0' "${CORROSION_CMAKE_FILE}"; then
-                echo "Modifying corrosion CMakeLists.txt for Linux x86_64..."
-                ${SED_INPLACE} 's/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS}")/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS} --cfg osslconf=\\\"OPENSSL_NO_DEPRECATED_3_0\\\"")/g' "${CORROSION_CMAKE_FILE}"
-            else
-                echo "corrosion CMakeLists.txt already modified, skipping..."
-            fi
+    else
+        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
+        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+    fi
+    RUST_FEATURES="-DENABLE_RUST=1 -DENABLE_DELTA_KERNEL_RS=1"
+    CORROSION_CMAKE_FILE="${PROJ_DIR}/contrib/corrosion-cmake/CMakeLists.txt"
+    if [ -f "${CORROSION_CMAKE_FILE}" ]; then
+        if ! grep -q 'OPENSSL_NO_DEPRECATED_3_0' "${CORROSION_CMAKE_FILE}"; then
+            echo "Modifying corrosion CMakeLists.txt for Linux x86_64..."
+            ${SED_INPLACE} 's/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS}")/corrosion_set_env_vars(${target_name} "RUSTFLAGS=${RUSTFLAGS} --cfg osslconf=\\\"OPENSSL_NO_DEPRECATED_3_0\\\"")/g' "${CORROSION_CMAKE_FILE}"
         else
-            echo "Warning: corrosion CMakeLists.txt not found at ${CORROSION_CMAKE_FILE}"
+            echo "corrosion CMakeLists.txt already modified, skipping..."
         fi
     else
-        CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0 -DNO_ARMV81_OR_HIGHER=1"
-        LLVM="-DENABLE_EMBEDDED_COMPILER=0 -DENABLE_DWARF_PARSER=0"
+        echo "Warning: corrosion CMakeLists.txt not found at ${CORROSION_CMAKE_FILE}"
     fi
 else
     echo "OS not supported"
@@ -111,63 +111,6 @@ CMAKE_ARGS="-DCMAKE_BUILD_TYPE=${build_type} -DENABLE_THINLTO=0 -DENABLE_TESTS=0
     -DENABLE_LIBFIU=1 \
     -DCHDB_VERSION=${CHDB_VERSION} \
     "
-
-# # Generate libchdb.so linkage command:
-# #   1. Use ar to delete the LocalChdb.cpp.o from libclickhouse-local-lib.a
-# #       `ar d programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o`
-# #   2. Change the entry point from `PyInit_chdb` to `query_stable`
-# #       `-Wl,-ePyInit_chdb` to `-Wl,-equery_stable` on Linux
-# #       `-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}` to 
-# #           `-Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result` on Darwin
-# #   3. Change the output file name from `_chdb.cpython-xx-x86_64-linux-gnu.s` to `libchdb.so`
-# #       `-o _chdb.cpython-39-x86_64-linux-gnu.so` to `-o libchdb.so`
-# #   4. Write the command to a file for debug
-# #   5. Run the command to generate libchdb.so
-
-# # Remove object from archive and save it to a new archive like:
-# # path/to/oldname.a -> path/to/oldname-nopy.a
-# remove_obj_from_archive() {
-#     local archive=$1
-#     local obj=$2
-#     local new_archive=$(echo ${archive} | sed 's/\.a$/-nopy.a/')
-#     cp -a ${archive} ${new_archive}
-#     ${AR} d ${new_archive} ${obj}
-#     echo "Old archive: ${archive}"
-#     ls -l ${archive}
-#     echo "New archive: ${new_archive}"
-#     ls -l ${new_archive}
-#     local oldfile=$(basename ${archive})
-#     local newfile=$(basename ${new_archive})
-#     LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed "s/${oldfile}/${newfile}/g")
-#     ${SED_INPLACE} "s/${oldfile}/${newfile}/g" CMakeFiles/libchdb.rsp
-# }
-
-
-# # Step 1, 2, 3:
-# #   Backup the libclickhouse-local-lib.a and restore it after ar d
-# # LIBCHDB_SO="libchdb.so"
-# # CLEAN_CHDB_A="libclickhouse-local-chdb.a"
-# # cp -a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak
-# # ${AR} d ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
-# # mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a ${BUILD_DIR}/programs/local/${CLEAN_CHDB_A}
-# # mv ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a.bak ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a
-# # ls -l ${BUILD_DIR}/programs/local/
-# LIBCHDB_SO="libchdb.so"
-# LIBCHDB_CMD=${PYCHDB_CMD}
-# if [ "${build_type}" == "Debug" ]; then
-#     remove_obj_from_archive ${BUILD_DIR}/programs/local/libclickhouse-local-libd.a LocalChdb.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbmsd.a StoragePython.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbmsd.a PythonSource.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libclickhouse_common_iod.a PythonUtils.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/TableFunctions/libclickhouse_table_functionsd.a TableFunctionPython.cpp.o
-# else
-#     remove_obj_from_archive ${BUILD_DIR}/programs/local/libclickhouse-local-lib.a LocalChdb.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbms.a StoragePython.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libdbms.a PythonSource.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/libclickhouse_common_io.a PythonUtils.cpp.o
-#     remove_obj_from_archive ${BUILD_DIR}/src/TableFunctions/libclickhouse_table_functions.a TableFunctionPython.cpp.o
-# fi
-
 
 LIBCHDB_SO="libchdb.so"
 # Build libchdb.so
