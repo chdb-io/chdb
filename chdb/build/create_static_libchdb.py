@@ -33,10 +33,7 @@ def parse_libchdb_cmd():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(script_dir))
 
-    if IS_MACOS_X86:
-        build_dir = 'buildlib'
-    else:
-        build_dir = 'build-static-lib'
+    build_dir = 'buildlib'
 
     print(f"Using build directory: {build_dir}")
 
