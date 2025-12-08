@@ -1594,13 +1594,14 @@ class DataStore(PandasCompatMixin):
             df = self.to_df()
         return df.info(verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts)
 
-    def create_table(self, schema: Dict[str, str], engine: str = "Memory") -> 'DataStore':
+    def create_table(self, schema: Dict[str, str], engine: str = "Memory", drop_if_exists: bool = False) -> 'DataStore':
         """
         Create a table in chdb.
 
         Args:
             schema: Dictionary of column_name -> column_type
             engine: ClickHouse table engine (default: Memory for in-memory)
+            drop_if_exists: If True, drop the table first if it exists (useful for tests)
 
         Example:
             >>> ds = DataStore(table="users")
@@ -1615,6 +1616,11 @@ class DataStore(PandasCompatMixin):
 
         if self._executor is None:
             self.connect()
+
+        # Drop table first if requested
+        if drop_if_exists:
+            drop_sql = f"DROP TABLE IF EXISTS {format_identifier(self.table_name, self.quote_char)}"
+            self._executor.execute(drop_sql)
 
         # Build CREATE TABLE statement
         columns = ", ".join([f"{format_identifier(name, self.quote_char)} {dtype}" for name, dtype in schema.items()])
