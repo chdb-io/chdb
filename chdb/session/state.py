@@ -207,6 +207,12 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
     # alias sql = query
     sql = query
 
+    def generate_sql(self, prompt: str) -> str:
+        """Generate SQL text from a natural language prompt using the configured AI provider."""
+        if self._conn is None:
+            raise RuntimeError("Session is closed.")
+        return self._conn.generate_sql(prompt)
+
     def send_query(self, sql, fmt="CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 

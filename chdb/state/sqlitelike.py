@@ -466,6 +466,12 @@ class Connection:
             result = self._conn.query(query, format, params=params or {})
         return result_func(result)
 
+    def generate_sql(self, prompt: str) -> str:
+        """Generate SQL text from a natural language prompt using the configured AI provider."""
+        if not hasattr(self._conn, "generate_sql"):
+            raise RuntimeError("AI SQL generation is not available in this build.")
+        return self._conn.generate_sql(prompt)
+
     def send_query(self, query: str, format: str = "CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 

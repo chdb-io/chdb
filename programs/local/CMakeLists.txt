@@ -44,6 +44,7 @@ if (USE_PYTHON)
         PandasDataFrame.cpp
         PandasDataFrameBuilder.cpp
         PandasScan.cpp
+        AIQueryProcessor.cpp
         PyArrowStreamFactory.cpp
         PyArrowTable.cpp
         PybindWrapper.cpp
@@ -154,6 +155,10 @@ endif()
 if (TARGET ch_contrib::pybind11_stubs)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::pybind11_stubs)
     target_compile_definitions(clickhouse-local-lib PRIVATE Py_LIMITED_API=0x03080000)
+endif()
+
+if (ENABLE_CLIENT_AI AND TARGET ch_contrib::ai-sdk-cpp)
+    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::ai-sdk-cpp)
 endif()
 
 # Always use internal readpassphrase
