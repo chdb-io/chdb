@@ -470,9 +470,15 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("Connecting to data source...")
                 self.connect()
 
-            # Build SQL with only early operations
+            # Build SQL with only early operations (include joins and distinct)
             sql = self._build_sql_from_state(
-                sql_select_fields, sql_where_conditions, sql_orderby_fields, sql_limit, sql_offset
+                sql_select_fields,
+                sql_where_conditions,
+                sql_orderby_fields,
+                sql_limit,
+                sql_offset,
+                joins=self._joins,
+                distinct=self._distinct,
             )
             self._logger.debug("Executing initial SQL query...")
             result = self._executor.execute(sql)
@@ -582,27 +588,67 @@ class DataStore(PandasCompatMixin):
         full_sql = ' '.join(parts)
         self._logger.debug("[LazyOp]   -> Full SQL: %s", full_sql)
 
-    def _build_sql_from_state(self, select_fields, where_conditions, orderby_fields, limit_value, offset_value):
+    def _build_sql_from_state(
+        self, select_fields, where_conditions, orderby_fields, limit_value, offset_value, joins=None, distinct=False
+    ):
         """Build SQL query from given state (not from instance variables)."""
         parts = []
 
-        # SELECT
+        # SELECT (with optional DISTINCT)
+        distinct_keyword = 'DISTINCT ' if distinct else ''
         if select_fields:
             fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
-            parts.append(f"SELECT {fields_sql}")
+            parts.append(f"SELECT {distinct_keyword}{fields_sql}")
         else:
-            parts.append("SELECT *")
+            parts.append(f"SELECT {distinct_keyword}*")
 
-        # FROM
+        # FROM (with alias if joins present)
         if self._table_function:
             # Handle table function objects
             if hasattr(self._table_function, 'to_sql'):
                 table_sql = self._table_function.to_sql()
             else:
                 table_sql = str(self._table_function)
-            parts.append(f"FROM {table_sql}")
+            # Add alias when joins are present (required by ClickHouse for disambiguation)
+            if joins:
+                alias = self._get_table_alias()
+                parts.append(f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}")
+            else:
+                parts.append(f"FROM {table_sql}")
         elif self.table_name:
             parts.append(f"FROM {self.quote_char}{self.table_name}{self.quote_char}")
+
+        # JOIN clauses
+        if joins:
+            for other_ds, join_type, join_condition in joins:
+                # Generate JOIN clause
+                join_keyword = join_type.value if join_type.value else ''
+                if join_keyword:
+                    join_clause = f"{join_keyword} JOIN"
+                else:
+                    join_clause = "JOIN"
+
+                # Handle subquery joins
+                if isinstance(other_ds, DataStore) and other_ds._is_subquery:
+                    other_table = other_ds.to_sql(quote_char=self.quote_char, as_subquery=True)
+                elif isinstance(other_ds, DataStore) and other_ds._table_function:
+                    # Use table function for the joined table with alias
+                    table_func_sql = other_ds._table_function.to_sql(quote_char=self.quote_char)
+                    alias = other_ds._get_table_alias()
+                    other_table = f"{table_func_sql} AS {format_identifier(alias, self.quote_char)}"
+                else:
+                    other_table = format_identifier(other_ds.table_name, self.quote_char)
+
+                # Handle USING vs ON syntax
+                if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
+                    # USING (col1, col2, ...) syntax
+                    columns = join_condition[1]
+                    using_cols = ', '.join(format_identifier(c, self.quote_char) for c in columns)
+                    parts.append(f"{join_clause} {other_table} USING ({using_cols})")
+                else:
+                    # ON condition syntax
+                    condition_sql = join_condition.to_sql(quote_char=self.quote_char)
+                    parts.append(f"{join_clause} {other_table} ON {condition_sql}")
 
         # WHERE
         if where_conditions:
@@ -1858,20 +1904,25 @@ class DataStore(PandasCompatMixin):
 
     @immutable
     def join(
-        self, other: 'DataStore', on: Condition = None, how: str = 'inner', left_on: str = None, right_on: str = None
+        self, other: 'DataStore', on=None, how: str = 'inner', left_on: str = None, right_on: str = None
     ) -> 'DataStore':
         """
         Join with another DataStore.
 
         Args:
             other: Another DataStore to join with
-            on: Join condition (e.g., ds1.id == ds2.user_id)
+            on: Join condition - can be:
+                - Condition object (e.g., ds1.id == ds2.user_id) -> generates ON clause
+                - str (e.g., "user_id") -> generates USING (user_id) clause
+                - list of str (e.g., ["user_id", "country"]) -> generates USING (user_id, country)
             how: Join type ('inner', 'left', 'right', 'outer', 'cross')
             left_on: Column name from left table (alternative to on)
             right_on: Column name from right table (alternative to on)
 
         Example:
-            >>> ds1.join(ds2, on=ds1.id == ds2.user_id)
+            >>> ds1.join(ds2, on=ds1.id == ds2.user_id)  # ON clause
+            >>> ds1.join(ds2, on="user_id")              # USING clause (simpler!)
+            >>> ds1.join(ds2, on=["user_id", "country"]) # USING with multiple columns
             >>> ds1.join(ds2, left_on='id', right_on='user_id', how='left')
         """
         from .enums import JoinType
@@ -1893,7 +1944,15 @@ class DataStore(PandasCompatMixin):
 
         # Build join condition
         if on is not None:
-            join_condition = on
+            if isinstance(on, str):
+                # String -> USING (column) syntax
+                join_condition = ('USING', [on])
+            elif isinstance(on, (list, tuple)) and all(isinstance(c, str) for c in on):
+                # List of strings -> USING (col1, col2, ...) syntax
+                join_condition = ('USING', list(on))
+            else:
+                # Condition object -> ON clause
+                join_condition = on
         elif left_on and right_on:
             # Create condition from column names
             # Use table alias for table functions
@@ -2169,9 +2228,16 @@ class DataStore(PandasCompatMixin):
                 else:
                     other_table = format_identifier(other_ds.table_name, quote_char)
 
-                condition_sql = join_condition.to_sql(quote_char=quote_char)
-
-                parts.append(f"{join_clause} {other_table} ON {condition_sql}")
+                # Handle USING vs ON syntax
+                if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
+                    # USING (col1, col2, ...) syntax
+                    columns = join_condition[1]
+                    using_cols = ', '.join(format_identifier(c, quote_char) for c in columns)
+                    parts.append(f"{join_clause} {other_table} USING ({using_cols})")
+                else:
+                    # ON condition syntax
+                    condition_sql = join_condition.to_sql(quote_char=quote_char)
+                    parts.append(f"{join_clause} {other_table} ON {condition_sql}")
 
         # WHERE clause
         if self._where_condition:
@@ -2335,14 +2401,14 @@ class DataStore(PandasCompatMixin):
 
         Note:
             Dynamic field access does NOT add table prefix by default.
-            For single-table queries, this keeps SQL clean.
-            For multi-table queries, use Field('name', table='table') explicitly.
+            For JOIN conditions where disambiguation is needed, use left_on/right_on
+            parameters or explicitly create Field with table: Field('col', table='t').
         """
         # Avoid infinite recursion for private attributes
         if name.startswith('_'):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
-        # Don't add table prefix - keep it simple
+        # Don't add table prefix - keep it simple for single-table queries
         return Field(name)
 
     # ========== Copy Support ==========
