@@ -91,6 +91,7 @@ from .enums import JoinType
 from .config import (
     config,
     set_log_level,
+    set_log_format,
     enable_debug,
     disable_debug,
     get_logger,
@@ -157,6 +158,7 @@ __all__ = [
     # Configuration
     'config',
     'set_log_level',
+    'set_log_format',
     'enable_debug',
     'disable_debug',
     'get_logger',
