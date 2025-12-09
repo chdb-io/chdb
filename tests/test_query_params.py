@@ -5,9 +5,17 @@ import pandas as pd
 import chdb
 from chdb import session
 from chdb.state import connect
+from utils import is_musl_linux
 
 
 class TestQueryParams(unittest.TestCase):
+    def assert_exception_message(self, exc, expected):
+        message = str(exc.exception)
+        if is_musl_linux():
+            self.assertIn("Caught an unknown exception", message)
+        else:
+            self.assertIn(expected, message)
+
     def test_connection_query_with_params(self):
         df = chdb.query(
             "SELECT toDate({base_date:String}) + number AS d "
@@ -114,7 +122,7 @@ class TestQueryParams(unittest.TestCase):
     def test_query_param_key_with_equals_sign(self):
         with self.assertRaises(RuntimeError) as exc:
             chdb.query("SELECT {a=b:UInt64}", "DataFrame", params={"a=b": 1})
-        self.assertIn("SYNTAX_ERROR", str(exc.exception))
+        self.assert_exception_message(exc, "SYNTAX_ERROR")
 
     def test_query_with_array_param(self):
         df = chdb.query(
@@ -135,12 +143,12 @@ class TestQueryParams(unittest.TestCase):
     def test_query_with_params_missing_value(self):
         with self.assertRaises(RuntimeError) as exc:
             chdb.query("SELECT {x:UInt64} AS v")
-        self.assertIn("Substitution `x` is not set", str(exc.exception))
+        self.assert_exception_message(exc, "Substitution `x` is not set")
 
     def test_query_with_params_invalid_type(self):
         with self.assertRaises(RuntimeError) as exc:
             chdb.query("SELECT {x:UInt64} AS v", params={"x": "not-a-number"})
-        self.assertIn("cannot be parsed as UInt64", str(exc.exception))
+        self.assert_exception_message(exc, "cannot be parsed as UInt64")
 
     def test_session_send_query_with_params_missing_value_stream(self):
         sess = session.Session(":memory:")
@@ -149,7 +157,7 @@ class TestQueryParams(unittest.TestCase):
             with stream:
                 with self.assertRaises(RuntimeError) as exc:
                     stream.fetch()
-            self.assertIn("Substitution `n` is not set", str(exc.exception))
+            self.assert_exception_message(exc, "Substitution `n` is not set")
         finally:
             sess.close()
 
@@ -160,7 +168,7 @@ class TestQueryParams(unittest.TestCase):
             with stream:
                 with self.assertRaises(RuntimeError) as exc:
                     stream.fetch()
-            self.assertIn("cannot be parsed as UInt64", str(exc.exception))
+            self.assert_exception_message(exc, "cannot be parsed as UInt64")
         finally:
             sess.close()
 

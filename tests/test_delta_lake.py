@@ -2,8 +2,6 @@
 
 import unittest
 import sys
-import platform
-import subprocess
 import chdb
 from chdb import session
 from utils import is_musl_linux
