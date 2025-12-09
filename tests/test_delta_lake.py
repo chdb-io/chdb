@@ -33,7 +33,7 @@ class TestDeltaLake(unittest.TestCase):
             SELECT
                 URL,
                 UserAgent
-            FROM deltaLake('https://clickhouse-public-datasets.s3.amazonaws.com/delta_lake/hits/')
+            FROM deltaLake('https://clickhouse-public-datasets.s3.amazonaws.com/delta_lake/hits/', NOSIGN)
             WHERE URL IS NULL
             LIMIT 2
             ''')
