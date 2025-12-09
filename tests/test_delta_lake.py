@@ -12,12 +12,10 @@ from utils import is_musl_linux
 def should_skip_delta_lake_test():
     """Skip on Linux x86_64 (glibc) and musl Linux due to S3 permission issues"""
     if platform.system() != "Linux":
-        return False  # Don't skip on macOS, Windows, etc.
+        return True
     if is_musl_linux():
-        return True  # Skip musl Linux
-    if platform.machine() == "x86_64":
-        return True  # Skip Linux x86_64 (glibc)
-    return False  # Run on Linux arm64 (glibc), etc.
+        return True
+    return False
 
 @unittest.skipIf(should_skip_delta_lake_test(), "Skipping on Linux x86_64 due to S3 access permissions")
 class TestDeltaLake(unittest.TestCase):
