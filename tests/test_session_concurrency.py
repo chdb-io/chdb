@@ -4,8 +4,6 @@ import unittest
 import shutil
 import os
 import threading
-import platform
-import subprocess
 from chdb import session
 from utils import is_musl_linux
 
