@@ -1,0 +1,40 @@
+# Deprecated API
+_query_stable
+_free_result
+_query_stable_v2
+_free_result_v2
+_connect_chdb
+_close_conn
+_query_conn
+_query_conn_n
+_query_conn_streaming
+_query_conn_streaming_n
+_chdb_streaming_result_error
+_chdb_streaming_fetch_result
+_chdb_streaming_cancel_query
+_chdb_destroy_result
+
+# New API
+_chdb_connect
+_chdb_close_conn
+_chdb_query
+_chdb_query_n
+_chdb_query_cmdline
+_chdb_stream_query
+_chdb_stream_query_n
+_chdb_stream_fetch_result
+_chdb_stream_cancel_query
+_chdb_destroy_query_result
+_chdb_result_buffer
+_chdb_result_length
+_chdb_result_elapsed
+_chdb_result_rows_read
+_chdb_result_bytes_read
+_chdb_result_storage_rows_read
+_chdb_result_storage_bytes_read
+_chdb_result_error
+
+# Arrow Integration
+_chdb_arrow_scan
+_chdb_arrow_array_scan
+_chdb_arrow_unregister_table
