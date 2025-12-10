@@ -6,6 +6,7 @@ from typing import Any, Optional, Dict, List, Tuple, TYPE_CHECKING
 import chdb
 
 from .exceptions import ConnectionError, ExecutionError
+from .config import get_logger
 
 if TYPE_CHECKING:
     from chdb.state.sqlitelike import Cursor
@@ -63,6 +64,18 @@ class Connection:
         """
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
+
+        # Debug logging before chdb execution
+        logger = get_logger()
+        logger.debug("=" * 70)
+        logger.debug("[chdb] Executing query via Connection.execute()")
+        logger.debug("-" * 70)
+        logger.debug("[chdb] Database: %s", self.database)
+        logger.debug("[chdb] Output format: %s", output_format)
+        logger.debug("[chdb] SQL:")
+        for line in sql.split('\n'):
+            logger.debug("  %s", line)
+        logger.debug("=" * 70)
 
         try:
             # Use chdb's query method with DataFrame format by default

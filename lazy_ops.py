@@ -342,66 +342,62 @@ class LazySQLSnapshot(LazyOp):
         self.offset_value = offset_value
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
-        """Execute this SQL operation on a DataFrame (post-materialization)."""
-        self._log_execute(f"SQLSnapshot({self.op_type})", self.description)
+        """Execute this filter/transform operation on a DataFrame using pandas."""
+        self._log_execute(f"Pandas {self.op_type}", self.description)
         rows_before = len(df)
 
         if self.op_type == 'SELECT' and self.fields:
             # Select specific columns
             cols = [f if isinstance(f, str) else f.name for f in self.fields]
             existing_cols = [c for c in cols if c in df.columns]
-            # Log SQL equivalent
+            # Log condition (originally SQL-like, but executed via pandas)
             try:
                 fields_sql = ', '.join(
                     f.to_sql(quote_char='"') if hasattr(f, 'to_sql') else f'"{f}"' for f in self.fields
                 )
-                self._logger.debug("[LazyOp]   -> SQL: SELECT %s", fields_sql)
+                self._logger.debug("[Pandas]   -> df[%s]", existing_cols)
             except Exception:
                 pass
             if existing_cols:
                 result = df[existing_cols]
-                self._logger.debug("[LazyOp]   -> Selected columns: %s", existing_cols)
+                self._logger.debug("[Pandas]   -> Selected columns: %s", existing_cols)
                 return result
             return df
-        elif self.op_type == 'WHERE' and self.condition is not None:
-            # Log the SQL representation of the condition
+        elif self.op_type == 'FILTER' and self.condition is not None:
+            # Log the condition (executed via pandas boolean mask)
             try:
                 condition_sql = self.condition.to_sql(quote_char='"')
-                self._logger.debug("[LazyOp]   -> SQL: WHERE %s", condition_sql)
+                self._logger.debug("[Pandas]   -> Condition: %s", condition_sql)
             except Exception:
                 pass
-            # Apply filter condition on DataFrame
+            # Apply filter condition on DataFrame using pandas
             result = self._apply_condition(df, self.condition, context)
-            self._logger.debug("[LazyOp]   -> Filter: %d -> %d rows", rows_before, len(result))
+            self._logger.debug("[Pandas]   -> df[mask]: %d -> %d rows", rows_before, len(result))
             return result
         elif self.op_type == 'ORDER BY' and self.fields:
             # Sort DataFrame
             cols = [f if isinstance(f, str) else f.name for f in self.fields]
             existing_cols = [c for c in cols if c in df.columns]
-            # Log SQL equivalent
+            # Log sort info
             try:
-                direction = 'ASC' if self.ascending else 'DESC'
-                fields_sql = ', '.join(
-                    f'{f.to_sql(quote_char=chr(34))} {direction}' if hasattr(f, 'to_sql') else f'"{f}" {direction}'
-                    for f in self.fields
-                )
-                self._logger.debug("[LazyOp]   -> SQL: ORDER BY %s", fields_sql)
+                direction = 'ascending' if self.ascending else 'descending'
+                self._logger.debug("[Pandas]   -> df.sort_values(by=%s, ascending=%s)", existing_cols, self.ascending)
             except Exception:
                 pass
             if existing_cols:
                 result = df.sort_values(by=existing_cols, ascending=self.ascending)
-                self._logger.debug("[LazyOp]   -> Sorted by: %s (ascending=%s)", existing_cols, self.ascending)
+                self._logger.debug("[Pandas]   -> Sorted by: %s (%s)", existing_cols, direction)
                 return result
             return df
         elif self.op_type == 'LIMIT' and self.limit_value is not None:
-            self._logger.debug("[LazyOp]   -> SQL: LIMIT %d", self.limit_value)
+            self._logger.debug("[Pandas]   -> df.head(%d)", self.limit_value)
             result = df.head(self.limit_value)
-            self._logger.debug("[LazyOp]   -> Limited to %d rows", self.limit_value)
+            self._logger.debug("[Pandas]   -> Limited to %d rows", self.limit_value)
             return result
         elif self.op_type == 'OFFSET' and self.offset_value is not None:
-            self._logger.debug("[LazyOp]   -> SQL: OFFSET %d", self.offset_value)
+            self._logger.debug("[Pandas]   -> df.iloc[%d:]", self.offset_value)
             result = df.iloc[self.offset_value :]
-            self._logger.debug("[LazyOp]   -> Offset by %d rows", self.offset_value)
+            self._logger.debug("[Pandas]   -> Offset by %d rows", self.offset_value)
             return result
         return df
 
@@ -539,7 +535,7 @@ class LazySQLSnapshot(LazyOp):
         return operand  # Return literal value as-is
 
     def describe(self) -> str:
-        return f"SQL {self.op_type}: {self.description}"
+        return f"{self.op_type}: {self.description}"
 
     def can_push_to_sql(self) -> bool:
         return True

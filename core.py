@@ -450,7 +450,7 @@ class DataStore(PandasCompatMixin):
                                 sql_select_fields.append(Field(f))
                         else:
                             sql_select_fields.append(f)
-                elif op.op_type == 'WHERE' and op.condition is not None:
+                elif op.op_type == 'FILTER' and op.condition is not None:
                     sql_where_conditions.append(op.condition)
                 elif op.op_type == 'ORDER BY' and op.fields:
                     for f in op.fields:
@@ -508,7 +508,7 @@ class DataStore(PandasCompatMixin):
                 if isinstance(op, LazySQLSnapshot):
                     if op.op_type == 'SELECT' and op.fields:
                         cumulative_select = op.fields
-                    elif op.op_type == 'WHERE' and op.condition is not None:
+                    elif op.op_type == 'FILTER' and op.condition is not None:
                         cumulative_where.append(op.condition)
                     elif op.op_type == 'ORDER BY' and op.fields:
                         cumulative_orderby = [(f, op.ascending) for f in op.fields]
@@ -518,7 +518,7 @@ class DataStore(PandasCompatMixin):
                         cumulative_offset = op.offset_value
 
                     # Build and log cumulative SQL
-                    self._log_cumulative_sql(
+                    self._log_cumulative_pandas_ops(
                         cumulative_select, cumulative_where, cumulative_orderby, cumulative_limit, cumulative_offset
                     )
 
@@ -530,63 +530,53 @@ class DataStore(PandasCompatMixin):
 
         return df
 
-    def _log_cumulative_sql(self, select_fields, where_conditions, orderby_fields, limit_value, offset_value):
-        """Log the cumulative SQL equivalent for Phase 2 operations."""
-        parts = []
+    def _log_cumulative_pandas_ops(self, select_fields, where_conditions, orderby_fields, limit_value, offset_value):
+        """Log the cumulative Pandas operations for Phase 2."""
+        ops = []
 
-        # SELECT
+        # Columns selection
         if select_fields:
             try:
-                fields_sql = ', '.join(
-                    f.to_sql(quote_char=self.quote_char) if hasattr(f, 'to_sql') else f'"{f}"' for f in select_fields
-                )
-                parts.append(f"SELECT {fields_sql}")
+                cols = [f.name if hasattr(f, 'name') else str(f) for f in select_fields]
+                ops.append(f"columns={cols}")
             except Exception:
-                parts.append("SELECT ...")
-        else:
-            parts.append("SELECT *")
+                ops.append("columns=[...]")
 
-        # FROM (placeholder for DataFrame)
-        parts.append("FROM <DataFrame>")
-
-        # WHERE
+        # Filter conditions
         if where_conditions:
             try:
                 if len(where_conditions) == 1:
-                    where_sql = where_conditions[0].to_sql(quote_char=self.quote_char)
+                    cond_str = where_conditions[0].to_sql(quote_char='"')
                 else:
                     combined = where_conditions[0]
                     for cond in where_conditions[1:]:
                         combined = combined & cond
-                    where_sql = combined.to_sql(quote_char=self.quote_char)
-                parts.append(f"WHERE {where_sql}")
+                    cond_str = combined.to_sql(quote_char='"')
+                ops.append(f"filter={cond_str}")
             except Exception:
-                parts.append("WHERE ...")
+                ops.append("filter=[...]")
 
-        # ORDER BY
+        # Sort
         if orderby_fields:
             try:
-                order_parts = []
+                sort_cols = []
                 for field, ascending in orderby_fields:
-                    direction = 'ASC' if ascending else 'DESC'
-                    if hasattr(field, 'to_sql'):
-                        order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-                    else:
-                        order_parts.append(f'"{field}" {direction}')
-                parts.append(f"ORDER BY {', '.join(order_parts)}")
+                    name = field.name if hasattr(field, 'name') else str(field)
+                    sort_cols.append(f"{name}({'asc' if ascending else 'desc'})")
+                ops.append(f"sort_by=[{', '.join(sort_cols)}]")
             except Exception:
-                parts.append("ORDER BY ...")
+                ops.append("sort_by=[...]")
 
-        # LIMIT
+        # Limit
         if limit_value is not None:
-            parts.append(f"LIMIT {limit_value}")
+            ops.append(f"head({limit_value})")
 
-        # OFFSET
+        # Offset
         if offset_value is not None:
-            parts.append(f"OFFSET {offset_value}")
+            ops.append(f"iloc[{offset_value}:]")
 
-        full_sql = ' '.join(parts)
-        self._logger.debug("[LazyOp]   -> Full SQL: %s", full_sql)
+        if ops:
+            self._logger.debug("[Pandas]   -> Cumulative ops: %s", ', '.join(ops))
 
     def _build_sql_from_state(
         self, select_fields, where_conditions, orderby_fields, limit_value, offset_value, joins=None, distinct=False
@@ -1863,7 +1853,7 @@ class DataStore(PandasCompatMixin):
 
         # Record in lazy ops for correct execution order in explain()
         # Store condition object for DataFrame execution
-        self._lazy_ops.append(LazySQLSnapshot('WHERE', condition_str, condition=condition))
+        self._lazy_ops.append(LazySQLSnapshot('FILTER', condition_str, condition=condition))
 
         if isinstance(condition, str):
             # TODO: Parse string conditions

@@ -47,6 +47,20 @@ def execute_sql_on_dataframe(df: pd.DataFrame, sql: str, df_var_name: str = '__d
     except ImportError:
         raise ImportError("chdb is required for SQL operations on materialized DataFrames")
 
+    # Debug logging before chdb execution
+    from .config import get_logger
+    logger = get_logger()
+    logger.debug("=" * 70)
+    logger.debug("[chdb] Executing query via execute_sql_on_dataframe()")
+    logger.debug("-" * 70)
+    logger.debug("[chdb] DataFrame variable: %s", df_var_name)
+    logger.debug("[chdb] DataFrame shape: %s", df.shape)
+    logger.debug("[chdb] Output format: DataFrame")
+    logger.debug("[chdb] SQL:")
+    for line in sql.split('\n'):
+        logger.debug("  %s", line)
+    logger.debug("=" * 70)
+
     # Execute SQL with the DataFrame in local scope
     result = chdb.query(sql, 'DataFrame')
 
