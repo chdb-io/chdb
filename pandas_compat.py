@@ -25,48 +25,6 @@ from copy import copy
 import pandas as pd
 
 
-def execute_sql_on_dataframe(df: pd.DataFrame, sql: str, df_var_name: str = '__datastore_df__') -> pd.DataFrame:
-    """
-    Execute SQL query on a pandas DataFrame using chDB.
-
-    Args:
-        df: pandas DataFrame to query
-        sql: SQL query string (should reference the DataFrame as Python(df_var_name))
-        df_var_name: Variable name to use for the DataFrame in SQL
-
-    Returns:
-        Result as pandas DataFrame
-
-    Example:
-        >>> df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
-        >>> sql = "SELECT a, b FROM Python(__datastore_df__) WHERE a > 1"
-        >>> result = execute_sql_on_dataframe(df, sql)
-    """
-    try:
-        import chdb
-    except ImportError:
-        raise ImportError("chdb is required for SQL operations on materialized DataFrames")
-
-    # Debug logging before chdb execution
-    from .config import get_logger
-    logger = get_logger()
-    logger.debug("=" * 70)
-    logger.debug("[chdb] Executing query via execute_sql_on_dataframe()")
-    logger.debug("-" * 70)
-    logger.debug("[chdb] DataFrame variable: %s", df_var_name)
-    logger.debug("[chdb] DataFrame shape: %s", df.shape)
-    logger.debug("[chdb] Output format: DataFrame")
-    logger.debug("[chdb] SQL:")
-    for line in sql.split('\n'):
-        logger.debug("  %s", line)
-    logger.debug("=" * 70)
-
-    # Execute SQL with the DataFrame in local scope
-    result = chdb.query(sql, 'DataFrame')
-
-    return result
-
-
 class PandasCompatMixin:
     """
     Mixin class that adds pandas DataFrame compatibility to DataStore.
