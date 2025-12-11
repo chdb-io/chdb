@@ -23,7 +23,7 @@ on:
 jobs:
   build_universal_wheel_on_linux:
     name: Build on Linux (cross-compile for macOS x86_64)
-    runs-on: gh-64c
+    runs-on: [self-hosted, linux, x64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:

@@ -9,7 +9,15 @@ from chdb import session
 from utils import is_musl_linux
 
 
-@unittest.skipUnless(sys.platform.startswith("linux") and not is_musl_linux(), "Runs only on Linux platforms")
+def should_skip_delta_lake_test():
+    """Skip on Linux x86_64 (glibc) and musl Linux due to S3 permission issues"""
+    if platform.system() != "Linux":
+        return True
+    if is_musl_linux():
+        return True
+    return False
+
+@unittest.skipIf(should_skip_delta_lake_test(), "Skipping on Linux x86_64 due to S3 access permissions")
 class TestDeltaLake(unittest.TestCase):
     def setUp(self) -> None:
         return super().setUp()
@@ -25,7 +33,7 @@ class TestDeltaLake(unittest.TestCase):
             SELECT
                 URL,
                 UserAgent
-            FROM deltaLake('https://clickhouse-public-datasets.s3.amazonaws.com/delta_lake/hits/')
+            FROM deltaLake('https://clickhouse-public-datasets.s3.amazonaws.com/delta_lake/hits/', NOSIGN)
             WHERE URL IS NULL
             LIMIT 2
             ''')

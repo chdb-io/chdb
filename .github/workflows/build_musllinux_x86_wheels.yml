@@ -24,7 +24,7 @@ on:
 jobs:
   build_musllinux_wheels:
     name: Build musllinux wheels (Alpine Linux x86_64)
-    runs-on: gh-64c
+    runs-on: [self-hosted, linux, x64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     container:
       image: quay.io/pypa/musllinux_1_2_x86_64
