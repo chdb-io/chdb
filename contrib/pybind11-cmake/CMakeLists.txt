@@ -6,6 +6,13 @@ endif()
 
 string(REPLACE "-Wl,-z,defs" "" CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}")
 
+# Use custom Python path if provided
+if (DEFINED CHDB_CUSTOM_PYTHON_EXECUTABLE)
+    set(Python_EXECUTABLE "${CHDB_CUSTOM_PYTHON_EXECUTABLE}")
+    set(Python3_EXECUTABLE "${CHDB_CUSTOM_PYTHON_EXECUTABLE}")
+    message(STATUS "Using custom Python executable: ${CHDB_CUSTOM_PYTHON_EXECUTABLE}")
+endif()
+
 if(CHDB_CROSSCOMPILING)
     # For cross-compiling, manually set Python variables
     if (DEFINED PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION)

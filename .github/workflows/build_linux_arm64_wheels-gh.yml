@@ -24,7 +24,7 @@ on:
 jobs:
   build_universal_wheel:
     name: Build Universal Wheel (Linux arm64)
-    runs-on: GH-Linux-ARM64
+    runs-on: [self-hosted, linux, arm64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     steps:
       - name: Check CPU capabilities and requirements
@@ -47,11 +47,24 @@ jobs:
           sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
             libbz2-dev libreadline-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
-            libffi-dev liblzma-dev
+            libffi-dev liblzma-dev libsqlite3-dev golang-go
+      - name: Install GitHub CLI
+        run: |
+          wget https://github.com/cli/cli/releases/download/v2.82.1/gh_2.82.1_linux_arm64.tar.gz -O gh.tar.gz
+          tar -xf gh.tar.gz
+          sudo cp gh_*/bin/gh /usr/local/bin/
+          sudo chmod +x /usr/local/bin/gh
+          if ! gh --version; then
+            echo "ERROR: GitHub CLI installation failed!"
+            exit 1
+          fi
+          echo "GitHub CLI installed successfully"
       - name: Scan SQLite vulnerabilities with grype
         run: |
           # Install grype and required tools
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+          mkdir -p $HOME/.local/bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $HOME/.local/bin
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
           sudo apt-get update && sudo apt-get install -y jq lsb-release
 
           # Detect OS distribution info
@@ -60,11 +73,11 @@ jobs:
           echo "Detected OS: $DISTRO_ID:$DISTRO_VERSION"
 
           # Update grype vulnerability database
-          grype db update
+          $HOME/.local/bin/grype db update
 
           # Check SQLite vulnerabilities in installed packages
           echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$(grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null || true)
+          GRYPE_RAW_OUTPUT=$($HOME/.local/bin/grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null || true)
           echo "Raw grype output:"
           echo "$GRYPE_RAW_OUTPUT"
 
@@ -81,6 +94,8 @@ jobs:
         continue-on-error: true
       - name: Setup pyenv
         run: |
+          # Remove existing pyenv installation if present
+          rm -rf $HOME/.pyenv
           curl https://pyenv.run | bash
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -227,7 +242,7 @@ jobs:
           for file in $FILES_TO_SCAN; do
             if [ -f "$file" ]; then
               echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$(grype "$file" 2>/dev/null || true)
+              SCAN_OUTPUT=$($HOME/.local/bin/grype "$file" 2>/dev/null || true)
               echo "$SCAN_OUTPUT"
 
               if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
@@ -270,7 +285,10 @@ jobs:
           patchelf --version
       - name: Audit wheels
         run: |
-          python3 -m pip install auditwheel
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.9
+          python -m pip install auditwheel
           auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
         continue-on-error: false
       - name: Show files
@@ -301,7 +319,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           python -m pip install dist/*.whl --force-reinstall
           jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
           pyenv shell --unset
