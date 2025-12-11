@@ -1,0 +1,21 @@
+{
+    global:
+        PyInit__chdb;
+
+        /* C++ operator new/delete (mangled names) */
+        _Znwm;              /* operator new(size_t) */
+        _Znam;              /* operator new[](size_t) */
+        _ZdlPv;             /* operator delete(void*) */
+        _ZdaPv;             /* operator delete[](void*) */
+        _ZdlPvm;            /* operator delete(void*, size_t) */
+        _ZdaPvm;            /* operator delete[](void*, size_t) */
+        _ZnwmSt11align_val_t;   /* operator new(size_t, align_val_t) */
+        _ZnamSt11align_val_t;   /* operator new[](size_t, align_val_t) */
+        _ZdlPvSt11align_val_t;  /* operator delete(void*, align_val_t) */
+        _ZdaPvSt11align_val_t;  /* operator delete[](void*, align_val_t) */
+        _ZdlPvmSt11align_val_t; /* operator delete(void*, size_t, align_val_t) */
+        _ZdaPvmSt11align_val_t; /* operator delete[](void*, size_t, align_val_t) */
+
+    local:
+        *;
+};
