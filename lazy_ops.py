@@ -298,18 +298,22 @@ class LazyAsType(LazyOp):
         return f"Cast types: {self.dtype}"
 
 
-class LazySQLSnapshot(LazyOp):
+class LazyRelationalOp(LazyOp):
     """
-    A snapshot of SQL state at a point in time.
+    A relational operation that can be executed via SQL or pandas.
 
     This stores both the SQL description and the original condition/parameters,
-    so it can be executed either as SQL or on a DataFrame.
+    so it can be executed either as SQL (compiled into query) or on a DataFrame
+    (using pandas operations).
+
+    When operations are purely SQL-based, they are compiled into a SQL query.
+    When mixed with pandas operations, later relational ops execute on DataFrames.
 
     Example:
         users = ds.from_file('users.csv')
-        users = users.select('name', 'age')  # Records LazySQLSnapshot
+        users = users.select('name', 'age')  # Records LazyRelationalOp
         users['doubled'] = users['age'] * 2  # Records LazyColumnAssignment
-        users = users.filter(users['age'] > 25)  # Records another LazySQLSnapshot
+        users = users.filter(users['age'] > 25)  # Records another LazyRelationalOp
     """
 
     def __init__(
@@ -363,7 +367,7 @@ class LazySQLSnapshot(LazyOp):
                 self._logger.debug("[Pandas]   -> Selected columns: %s", existing_cols)
                 return result
             return df
-        elif self.op_type == 'FILTER' and self.condition is not None:
+        elif self.op_type == 'WHERE' and self.condition is not None:
             # Log the condition (executed via pandas boolean mask)
             try:
                 condition_sql = self.condition.to_sql(quote_char='"')

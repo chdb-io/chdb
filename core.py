@@ -14,7 +14,7 @@ from .executor import Executor
 from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
-from .lazy_ops import LazyOp, LazyColumnAssignment, LazyColumnSelection, LazySQLSnapshot
+from .lazy_ops import LazyOp, LazyColumnAssignment, LazyColumnSelection, LazyRelationalOp
 from .config import get_logger, config as _global_config, DataStoreConfig
 
 __all__ = ['DataStore']
@@ -300,7 +300,7 @@ class DataStore(PandasCompatMixin):
             for op in self._lazy_ops:
                 counter += 1
                 # Use different icons for SQL vs DataFrame operations
-                if isinstance(op, LazySQLSnapshot):
+                if isinstance(op, LazyRelationalOp):
                     lines.append(f" [{counter}] 🔍 {op.describe()}")
                 else:
                     lines.append(f" [{counter}] 📝 {op.describe()}")
@@ -401,7 +401,7 @@ class DataStore(PandasCompatMixin):
             pandas DataFrame with all operations applied
         """
         import pandas as pd
-        from .lazy_ops import LazySQLSnapshot
+        from .lazy_ops import LazyRelationalOp
 
         self._logger.debug("=" * 70)
         self._logger.debug("Starting materialization")
@@ -418,7 +418,7 @@ class DataStore(PandasCompatMixin):
         # Find the first non-SQL operation
         first_df_op_idx = None
         for i, op in enumerate(self._lazy_ops):
-            if not isinstance(op, LazySQLSnapshot):
+            if not isinstance(op, LazyRelationalOp):
                 first_df_op_idx = i
                 break
 
@@ -442,7 +442,7 @@ class DataStore(PandasCompatMixin):
         early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
 
         for op in early_sql_ops:
-            if isinstance(op, LazySQLSnapshot):
+            if isinstance(op, LazyRelationalOp):
                 if op.op_type == 'SELECT' and op.fields:
                     for f in op.fields:
                         if isinstance(f, str):
@@ -505,7 +505,7 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("[%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
 
                 # Track SQL operations for cumulative SQL logging
-                if isinstance(op, LazySQLSnapshot):
+                if isinstance(op, LazyRelationalOp):
                     if op.op_type == 'SELECT' and op.fields:
                         cumulative_select = op.fields
                     elif op.op_type == 'WHERE' and op.condition is not None:
@@ -1825,7 +1825,7 @@ class DataStore(PandasCompatMixin):
 
         # Record in lazy ops for correct execution order in explain()
         # Store fields for DataFrame execution
-        self._lazy_ops.append(LazySQLSnapshot('SELECT', field_names, fields=list(fields)))
+        self._lazy_ops.append(LazyRelationalOp('SELECT', field_names, fields=list(fields)))
 
         for field in fields:
             if isinstance(field, str):
@@ -1863,7 +1863,7 @@ class DataStore(PandasCompatMixin):
 
         # Record in lazy ops for correct execution order in explain()
         # Store condition object for DataFrame execution
-        self._lazy_ops.append(LazySQLSnapshot('WHERE', condition_str, condition=condition))
+        self._lazy_ops.append(LazyRelationalOp('WHERE', condition_str, condition=condition))
 
         if isinstance(condition, str):
             # TODO: Parse string conditions
@@ -2012,7 +2012,7 @@ class DataStore(PandasCompatMixin):
         # Record in lazy ops for correct execution order in explain()
         # Store fields and ascending for DataFrame execution
         self._lazy_ops.append(
-            LazySQLSnapshot('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending)
+            LazyRelationalOp('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending)
         )
 
         for field in fields:
@@ -2047,7 +2047,7 @@ class DataStore(PandasCompatMixin):
         """Limit number of results."""
         # Record in lazy ops for correct execution order in explain()
         # Store limit_value for DataFrame execution
-        self._lazy_ops.append(LazySQLSnapshot('LIMIT', str(n), limit_value=n))
+        self._lazy_ops.append(LazyRelationalOp('LIMIT', str(n), limit_value=n))
         self._limit_value = n
         return self
 
@@ -2056,7 +2056,7 @@ class DataStore(PandasCompatMixin):
         """Skip first n results."""
         # Record in lazy ops for correct execution order in explain()
         # Store offset_value for DataFrame execution
-        self._lazy_ops.append(LazySQLSnapshot('OFFSET', str(n), offset_value=n))
+        self._lazy_ops.append(LazyRelationalOp('OFFSET', str(n), offset_value=n))
         self._offset_value = n
 
     @immutable
