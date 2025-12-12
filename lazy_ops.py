@@ -922,7 +922,7 @@ class LazySQLQuery(LazyOp):
 
         Rules:
         1. If query contains SELECT or FROM, use as-is (full SQL)
-        2. If query starts with ORDER BY, LIMIT, OFFSET, add SELECT * FROM __df__
+        2. If query starts with WHERE, ORDER BY, LIMIT, OFFSET, add SELECT * FROM __df__
         3. Otherwise, treat as WHERE condition and add SELECT * FROM __df__ WHERE
         """
         query_upper = query.upper().strip()
@@ -931,8 +931,8 @@ class LazySQLQuery(LazyOp):
         if query_upper.startswith('SELECT') or 'FROM' in query_upper:
             return query
 
-        # Check if it starts with a clause (ORDER BY, LIMIT, OFFSET, GROUP BY, HAVING)
-        clause_starters = ('ORDER BY', 'LIMIT', 'OFFSET', 'GROUP BY', 'HAVING')
+        # Check if it starts with a clause (WHERE, ORDER BY, LIMIT, OFFSET, GROUP BY, HAVING)
+        clause_starters = ('WHERE', 'ORDER BY', 'LIMIT', 'OFFSET', 'GROUP BY', 'HAVING')
         for clause in clause_starters:
             if query_upper.startswith(clause):
                 return f"SELECT * FROM __df__ {query}"
