@@ -23,7 +23,6 @@ Supports various URI formats:
 from typing import Dict, Any, Optional, Tuple
 from urllib.parse import urlparse, parse_qs, unquote
 import os
-import re
 
 
 def parse_uri(uri: str) -> Tuple[str, Dict[str, Any]]:

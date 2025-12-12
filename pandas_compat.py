@@ -20,7 +20,6 @@ Execution Model:
 - to_df(): Return cached DataFrame if materialized, otherwise execute SQL
 """
 
-from typing import Optional
 from copy import copy
 import pandas as pd
 

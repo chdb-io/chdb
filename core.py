@@ -5,16 +5,16 @@ Core DataStore class - main entry point for data operations
 from typing import Any, Optional, List, Dict, Union
 from copy import copy
 
-from .expressions import Field, Expression, Literal
+from .expressions import Field, Expression
 from .conditions import Condition
 from .utils import immutable, ignore_copy, format_identifier
-from .exceptions import DataStoreError, QueryError, ConnectionError, ExecutionError
+from .exceptions import QueryError, ConnectionError, ExecutionError
 from .connection import Connection, QueryResult
 from .executor import Executor
 from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
-from .lazy_ops import LazyOp, LazyColumnAssignment, LazyColumnSelection, LazyRelationalOp
+from .lazy_ops import LazyOp, LazyColumnSelection, LazyRelationalOp
 from .config import get_logger, config as _global_config, DataStoreConfig
 
 __all__ = ['DataStore']
@@ -114,7 +114,7 @@ class DataStore(PandasCompatMixin):
                     kwargs['database'] = database
 
                 self._table_function = create_table_function(source_type, **kwargs)
-            except Exception as e:
+            except Exception:
                 # If table function creation fails, it might be a regular table
                 # We'll treat it as a regular table and table_function remains None
                 pass
@@ -295,15 +295,48 @@ class DataStore(PandasCompatMixin):
         # ========== Operations in Original Order ==========
         # _lazy_ops contains ALL operations (SQL snapshots + lazy ops) in order
         if self._lazy_ops:
+            # Find the first non-SQL operation (same logic as _materialize)
+            first_df_op_idx = None
+            for i, op in enumerate(self._lazy_ops):
+                if not isinstance(op, LazyRelationalOp):
+                    first_df_op_idx = i
+                    break
+
             lines.append("\nOperations:")
             lines.append("─" * 80)
-            for op in self._lazy_ops:
+
+            # Show execution engine info
+            if first_df_op_idx is not None:
+                lines.append(f"    ️  Phase 1 (Initial SQL): Operations 1-{first_df_op_idx}")
+                lines.append(
+                    f"    ️  Phase 2 (DataFrame Operations): Operations {first_df_op_idx + 1}-{len(self._lazy_ops)}"
+                )
+                lines.append("    ️  Note: Each operation shows its execution engine [chDB] or [Pandas]")
+                lines.append("")
+            else:
+                lines.append("    ️  All operations will execute via SQL Engine")
+                lines.append("")
+
+            for i, op in enumerate(self._lazy_ops):
                 counter += 1
-                # Use different icons for SQL vs DataFrame operations
+                # Determine which engine will execute this operation
+                is_sql_phase = (first_df_op_idx is None) or (i < first_df_op_idx)
+
                 if isinstance(op, LazyRelationalOp):
-                    lines.append(f" [{counter}] 🔍 {op.describe()}")
+                    # LazyRelationalOp engine depends on which phase it's in
+                    if is_sql_phase:
+                        # SQL engine will execute this
+                        lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                    else:
+                        # Pandas engine will execute this - use pandas terminology
+                        lines.append(f" [{counter}] 🐼 [Pandas] {op.describe_pandas()}")
                 else:
-                    lines.append(f" [{counter}] 📝 {op.describe()}")
+                    # For other ops, ask the op itself which engine it will use
+                    engine = op.execution_engine()
+                    if engine == 'chDB':
+                        lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                    else:
+                        lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
 
         # ========== Legacy operation history (for pandas compat operations) ==========
         history_lazy_ops, mat_op, history_materialized_ops = self._analyze_execution_phases()
@@ -494,34 +527,8 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("Phase 2: Executing %d DataFrame operations", len(self._lazy_ops) - first_df_op_idx)
             self._logger.debug("-" * 70)
 
-            # Track cumulative SQL for logging
-            cumulative_select = []
-            cumulative_where = []
-            cumulative_orderby = []
-            cumulative_limit = None
-            cumulative_offset = None
-
             for i, op in enumerate(self._lazy_ops[first_df_op_idx:], first_df_op_idx + 1):
                 self._logger.debug("[%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
-
-                # Track SQL operations for cumulative SQL logging
-                if isinstance(op, LazyRelationalOp):
-                    if op.op_type == 'SELECT' and op.fields:
-                        cumulative_select = op.fields
-                    elif op.op_type == 'WHERE' and op.condition is not None:
-                        cumulative_where.append(op.condition)
-                    elif op.op_type == 'ORDER BY' and op.fields:
-                        cumulative_orderby = [(f, op.ascending) for f in op.fields]
-                    elif op.op_type == 'LIMIT':
-                        cumulative_limit = op.limit_value
-                    elif op.op_type == 'OFFSET':
-                        cumulative_offset = op.offset_value
-
-                    # Build and log cumulative SQL
-                    self._log_cumulative_sql(
-                        cumulative_select, cumulative_where, cumulative_orderby, cumulative_limit, cumulative_offset
-                    )
-
                 df = op.execute(df, self)
 
         self._logger.debug("=" * 70)
@@ -529,64 +536,6 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("=" * 70)
 
         return df
-
-    def _log_cumulative_sql(self, select_fields, where_conditions, orderby_fields, limit_value, offset_value):
-        """Log the cumulative SQL equivalent for Phase 2 operations."""
-        parts = []
-
-        # SELECT
-        if select_fields:
-            try:
-                fields_sql = ', '.join(
-                    f.to_sql(quote_char=self.quote_char) if hasattr(f, 'to_sql') else f'"{f}"' for f in select_fields
-                )
-                parts.append(f"SELECT {fields_sql}")
-            except Exception:
-                parts.append("SELECT ...")
-        else:
-            parts.append("SELECT *")
-
-        # FROM (placeholder for DataFrame)
-        parts.append("FROM <DataFrame>")
-
-        # WHERE
-        if where_conditions:
-            try:
-                if len(where_conditions) == 1:
-                    where_sql = where_conditions[0].to_sql(quote_char=self.quote_char)
-                else:
-                    combined = where_conditions[0]
-                    for cond in where_conditions[1:]:
-                        combined = combined & cond
-                    where_sql = combined.to_sql(quote_char=self.quote_char)
-                parts.append(f"WHERE {where_sql}")
-            except Exception:
-                parts.append("WHERE ...")
-
-        # ORDER BY
-        if orderby_fields:
-            try:
-                order_parts = []
-                for field, ascending in orderby_fields:
-                    direction = 'ASC' if ascending else 'DESC'
-                    if hasattr(field, 'to_sql'):
-                        order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-                    else:
-                        order_parts.append(f'"{field}" {direction}')
-                parts.append(f"ORDER BY {', '.join(order_parts)}")
-            except Exception:
-                parts.append("ORDER BY ...")
-
-        # LIMIT
-        if limit_value is not None:
-            parts.append(f"LIMIT {limit_value}")
-
-        # OFFSET
-        if offset_value is not None:
-            parts.append(f"OFFSET {offset_value}")
-
-        full_sql = ' '.join(parts)
-        self._logger.debug("[LazyOp]   -> Full SQL: %s", full_sql)
 
     def _build_sql_from_state(
         self, select_fields, where_conditions, orderby_fields, limit_value, offset_value, joins=None, distinct=False
@@ -1242,7 +1191,7 @@ class DataStore(PandasCompatMixin):
                 col_name = row[0]
                 col_type = row[1]
                 self._schema[col_name] = col_type
-        except:
+        except Exception:
             # Table might not exist yet, that's ok
             self._schema = {}
 
@@ -1625,7 +1574,8 @@ class DataStore(PandasCompatMixin):
         # Build CREATE TABLE statement
         columns = ", ".join([f"{format_identifier(name, self.quote_char)} {dtype}" for name, dtype in schema.items()])
 
-        sql = f"CREATE TABLE IF NOT EXISTS {format_identifier(self.table_name, self.quote_char)} ({columns}) ENGINE = {engine}"
+        table_ident = format_identifier(self.table_name, self.quote_char)
+        sql = f"CREATE TABLE IF NOT EXISTS {table_ident} ({columns}) ENGINE = {engine}"
 
         self._executor.execute(sql)
         self._schema = schema
@@ -1817,6 +1767,8 @@ class DataStore(PandasCompatMixin):
             >>> ds.select("name", "age")
             >>> ds.select(ds.name, ds.age + 1)
         """
+        from .column_expr import ColumnExpr
+
         # Track operation
         field_names = ', '.join([str(f) for f in fields]) if fields else '*'
 
@@ -1836,6 +1788,9 @@ class DataStore(PandasCompatMixin):
                     return self
                 # Don't add table prefix for string fields - user's explicit choice
                 field = Field(field)
+            # Handle ColumnExpr - unwrap to get the underlying expression
+            elif isinstance(field, ColumnExpr):
+                field = field._expr
             self._select_fields.append(field)
 
         return self
@@ -1907,6 +1862,72 @@ class DataStore(PandasCompatMixin):
 
         # Otherwise, SQL-style filter
         return self.filter(condition)
+
+    @immutable
+    def sql(self, query: str) -> 'DataStore':
+        """
+        Execute a SQL query on the current DataFrame using chDB's SQL engine.
+
+        This enables true SQL-Pandas-SQL interleaving within the lazy pipeline.
+
+        Supports two syntaxes:
+        1. **Short form** (auto-adds SELECT * FROM __df__):
+           - Condition only: `ds.sql("value > 100")`
+           - With ORDER BY: `ds.sql("value > 100 ORDER BY id")`
+           - Clauses only: `ds.sql("ORDER BY id LIMIT 5")`
+
+        2. **Full SQL form** (when query contains SELECT/FROM/GROUP BY):
+           - `ds.sql("SELECT id, SUM(value) FROM __df__ GROUP BY id")`
+
+        Args:
+            query: SQL query or condition. Examples:
+                   - "value > 100" → becomes SELECT * FROM __df__ WHERE value > 100
+                   - "ORDER BY id LIMIT 5" → becomes SELECT * FROM __df__ ORDER BY id LIMIT 5
+                   - "SELECT id, name FROM __df__ WHERE age > 20" → used as-is
+
+        Returns:
+            A new DataStore with the SQL query result.
+
+        Example:
+            >>> ds = DataStore.from_file('users.csv')
+            >>> ds = ds.filter(ds.age > 20)
+            >>> ds['doubled'] = ds['age'] * 2
+            >>>
+            >>> # Short form - just the condition! (auto-adds SELECT * FROM __df__ WHERE)
+            >>> ds = ds.sql("doubled > 50 ORDER BY age DESC LIMIT 10")
+            >>>
+            >>> # Continue with pandas operations
+            >>> ds = ds.add_prefix('result_')
+
+        Advanced Examples:
+            >>> # SQL aggregation (full form needed for GROUP BY)
+            >>> ds = ds.sql('''
+            ...     SELECT category, COUNT(*) as cnt, SUM(value) as total
+            ...     FROM __df__
+            ...     GROUP BY category
+            ... ''')
+
+            >>> # SQL window functions (full form)
+            >>> ds = ds.sql('''
+            ...     SELECT *, ROW_NUMBER() OVER (PARTITION BY category ORDER BY value DESC) as rank
+            ...     FROM __df__
+            ... ''')
+
+            >>> # Simple filter and sort (short form)
+            >>> ds = ds.sql("age > 18 AND status = 'active' ORDER BY created_at DESC")
+
+        Note:
+            - The query is executed via chDB's Python() table function
+            - This forces materialization of all pending operations before executing the SQL
+            - The result is a new DataFrame that can be used for subsequent operations
+        """
+        from .lazy_ops import LazySQLQuery
+
+        # Record the SQL query operation
+        lazy_op = LazySQLQuery(query, df_alias='__df__')
+        self._lazy_ops.append(lazy_op)
+
+        return self
 
     @immutable
     def join(
@@ -2111,7 +2132,7 @@ class DataStore(PandasCompatMixin):
         """
         Support various indexing operations for lazy evaluation.
 
-        - str: Return Field for expression building (lazy)
+        - str: Return ColumnExpr that shows actual values when displayed
         - list: Record column selection operation (lazy)
         - slice: LIMIT/OFFSET (lazy SQL operation)
 
@@ -2119,13 +2140,17 @@ class DataStore(PandasCompatMixin):
             >>> ds[:10]          # LIMIT 10
             >>> ds[10:]          # OFFSET 10
             >>> ds[10:20]        # LIMIT 10 OFFSET 10
-            >>> field = ds['column']     # Return Field for expression building
-            >>> ds2 = ds[['col1', 'col2']]  # Select multiple columns (lazy)
+            >>> ds['column']     # Returns ColumnExpr (displays like pandas Series)
+            >>> ds['column'] - 1 # Returns ColumnExpr with computed values
+            >>> ds[['col1', 'col2']]  # Select multiple columns (lazy)
         """
+        from .column_expr import ColumnExpr
+
         if isinstance(key, str):
-            # Return Field object for expression building
-            # This allows: ds["col"] - 1 to create ArithmeticExpression
-            return Field(key)
+            # Return ColumnExpr that wraps a Field and can materialize
+            # This allows pandas-like behavior: ds['col'] shows actual values
+            # but ds['col'] > 18 still returns Condition for filtering
+            return ColumnExpr(Field(key), self)
 
         elif isinstance(key, list):
             # Multi-column selection: record as lazy operation
@@ -2397,25 +2422,56 @@ class DataStore(PandasCompatMixin):
 
     # ========== Dynamic Field Access ==========
 
+    # List of special attribute names that should not be treated as column names
+    _RESERVED_ATTRS = frozenset(
+        {
+            'is_immutable',
+            'is_mutable',
+            'is_copy',
+            'is_view',
+            'config',
+            'index',
+            'columns',
+            'values',
+            'dtypes',
+            'shape',
+            'size',
+            'ndim',
+            'empty',
+            'T',
+            'axes',
+        }
+    )
+
     @ignore_copy
-    def __getattr__(self, name: str) -> Field:
+    def __getattr__(self, name: str):
         """
         Support dynamic field access: ds.column_name
 
+        Returns a ColumnExpr that displays actual values like pandas.
+
         Example:
-            >>> ds.age > 18  # Same as Field('age') > 18
+            >>> ds.age        # Shows actual values (like pandas Series)
+            >>> ds.age > 18   # Returns Condition for filtering
+            >>> ds.age - 10   # Returns ColumnExpr with computed values
 
         Note:
             Dynamic field access does NOT add table prefix by default.
             For JOIN conditions where disambiguation is needed, use left_on/right_on
             parameters or explicitly create Field with table: Field('col', table='t').
         """
+        from .column_expr import ColumnExpr
+
         # Avoid infinite recursion for private attributes
         if name.startswith('_'):
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
-        # Don't add table prefix - keep it simple for single-table queries
-        return Field(name)
+        # Don't treat reserved/special attributes as column names
+        if name in self._RESERVED_ATTRS:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+        # Return ColumnExpr that wraps a Field and can materialize
+        return ColumnExpr(Field(name), self)
 
     # ========== Copy Support ==========
 

@@ -63,10 +63,13 @@ Core Classes:
 
 from .core import DataStore
 from .expressions import Expression, Field, Literal
+from .column_expr import ColumnExpr
 from .functions import (
     Function,
     AggregateFunction,
     CustomFunction,
+    CastFunction,
+    F,  # Function namespace for explicit function calls
     # Common functions
     Sum,
     Count,
@@ -77,9 +80,23 @@ from .functions import (
     Lower,
     Concat,
 )
+from .function_executor import (
+    FunctionExecutorConfig,
+    ExecutionEngine,
+    function_config,
+    use_chdb,
+    use_pandas,
+    prefer_chdb,
+    prefer_pandas,
+    reset_function_config,
+)
+from .accessors import (
+    StringAccessor,
+    DateTimeAccessor,
+)
 from .conditions import Condition, BinaryCondition
 from .connection import Connection, QueryResult
-from .executor import Executor
+from .executor import Executor, get_executor, reset_executor
 from .exceptions import (
     DataStoreError,
     ConnectionError,
@@ -128,10 +145,13 @@ __all__ = [
     'Expression',
     'Field',
     'Literal',
+    'ColumnExpr',
     # Functions
     'Function',
     'AggregateFunction',
     'CustomFunction',
+    'CastFunction',
+    'F',  # Function namespace
     'Sum',
     'Count',
     'Avg',
@@ -140,6 +160,18 @@ __all__ = [
     'Upper',
     'Lower',
     'Concat',
+    # Accessors (for advanced use)
+    'StringAccessor',
+    'DateTimeAccessor',
+    # Function Executor Config
+    'FunctionExecutorConfig',
+    'ExecutionEngine',
+    'function_config',
+    'use_chdb',
+    'use_pandas',
+    'prefer_chdb',
+    'prefer_pandas',
+    'reset_function_config',
     # Conditions
     'Condition',
     'BinaryCondition',
@@ -149,6 +181,8 @@ __all__ = [
     'Connection',
     'QueryResult',
     'Executor',
+    'get_executor',
+    'reset_executor',
     # Exceptions
     'DataStoreError',
     'ConnectionError',
