@@ -6,6 +6,8 @@ operations on it shows actual values when displayed, while still supporting
 lazy expression building for filters and assignments.
 """
 
+from __future__ import annotations  # noqa: F401
+
 from typing import Any, Optional, TYPE_CHECKING, Iterator
 
 import pandas as pd
