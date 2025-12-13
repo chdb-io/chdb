@@ -30,6 +30,7 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <DataTypes/DataTypeDateTime64.h>
 #include <Interpreters/ExpressionActions.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
@@ -359,7 +360,10 @@ Chunk PythonSource::genChunk(size_t & num_rows, PyObjectVecPtr data)
             else if (which.isDateTime())
                 columns[i] = convert_and_insert<UInt32>(column);
             else if (which.isDateTime64())
-                columns[i] = convert_and_insert<DateTime64>(column);
+            {
+                const auto & dtype = typeid_cast<const DataTypeDateTime64 *>(type.get());
+                columns[i] = convert_and_insert<DateTime64>(column, dtype->getScale());
+            }
             else if (which.isString())
                 columns[i] = convert_and_insert<String>(column);
             else if (which.isObject())
@@ -500,7 +504,10 @@ Chunk PythonSource::scanDataToChunk()
             else if (which.isDateTime())
                 columns[i] = convert_and_insert_array<UInt32>(col, cursor, count);
             else if (which.isDateTime64())
-                columns[i] = convert_and_insert_array<DateTime64>(col, cursor, count);
+            {
+                const auto & dtype = typeid_cast<const DataTypeDateTime64 *>(type.get());
+                columns[i] = convert_and_insert_array<DateTime64>(col, cursor, count, dtype->getScale());
+            }
             else if (which.isDate32())
                 columns[i] = convert_and_insert_array<Int32>(col, cursor, count);
             else if (which.isDate())
