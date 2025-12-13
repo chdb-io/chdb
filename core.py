@@ -1503,7 +1503,9 @@ class DataStore(PandasCompatMixin):
         """
         Count non-null values for each column in the query result.
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        This method uses SQL COUNT(column) to efficiently count non-null values
+        without materializing the entire DataFrame, making it suitable for large
+        datasets. The COUNT is pushed down to chDB for optimal performance.
 
         Returns:
             pandas Series with counts per column
@@ -1511,13 +1513,164 @@ class DataStore(PandasCompatMixin):
         Example:
             >>> ds = DataStore.from_file("data.csv")
             >>> counts = ds.select("*").count()
+            >>> print(counts['name'])  # Non-null count for 'name' column
+
+        Note:
+            For total row count (like SQL COUNT(*)), use count_rows() instead.
+            Falls back to DataFrame materialization if non-SQL operations are pending.
         """
-        # Use _get_df if available (handles caching properly)
-        if hasattr(self, '_get_df'):
-            df = self._get_df()
-        else:
-            df = self.to_df()
-        return df.count()
+        import pandas as pd
+
+        # Check if there are any non-SQL operations in the lazy ops
+        has_non_sql_ops = False
+        if self._lazy_ops:
+            from .lazy_ops import LazyRelationalOp
+
+            for op in self._lazy_ops:
+                if not isinstance(op, LazyRelationalOp):
+                    has_non_sql_ops = True
+                    break
+
+        if has_non_sql_ops:
+            # Fall back to materialization for non-SQL operations
+            self._logger.debug("count() falling back to materialization due to non-SQL operations")
+            if hasattr(self, '_get_df'):
+                df = self._get_df()
+            else:
+                df = self.to_df()
+            return df.count()
+
+        # Ensure we're connected
+        if self._executor is None:
+            self.connect()
+
+        # Step 1: Get column names efficiently using LIMIT 1
+        # Note: LIMIT 0 doesn't return column info in chDB, so we use LIMIT 1
+        from copy import copy
+
+        schema_ds = copy(self)
+        schema_ds._limit_value = 1
+        schema_ds._offset_value = None
+        schema_sql = schema_ds.to_sql()
+        self._logger.debug("count() getting column names with: %s", schema_sql)
+
+        try:
+            schema_result = self._executor.execute(schema_sql)
+            column_names = schema_result.column_names
+
+            if not column_names:
+                # No columns found, return empty Series
+                return pd.Series(dtype='int64')
+
+            # Step 2: Build COUNT query for each column
+            # SELECT COUNT(col1) AS col1, COUNT(col2) AS col2, ... FROM (subquery)
+            count_exprs = []
+            for col_name in column_names:
+                # Use format_identifier for proper quoting
+                quoted_col = format_identifier(col_name, self.quote_char)
+                count_exprs.append(f"COUNT({quoted_col}) AS {quoted_col}")
+
+            count_select = ", ".join(count_exprs)
+
+            # Build subquery from current state (without LIMIT 0)
+            count_ds = copy(self)
+            count_ds._limit_value = None
+            count_ds._offset_value = None
+            subquery_sql = count_ds.to_sql()
+
+            count_sql = f"SELECT {count_select} FROM ({subquery_sql})"
+            self._logger.debug("count() executing: %s", count_sql)
+
+            result = self._executor.execute(count_sql)
+
+            if result.rows and result.rows[0]:
+                # Build Series from result
+                counts = {col: int(val) for col, val in zip(column_names, result.rows[0])}
+                return pd.Series(counts)
+            else:
+                # Return Series with zeros
+                return pd.Series({col: 0 for col in column_names})
+
+        except Exception as e:
+            # Fall back to materialization on any error
+            self._logger.debug("count() falling back to materialization due to error: %s", e)
+            if hasattr(self, '_get_df'):
+                df = self._get_df()
+            else:
+                df = self.to_df()
+            return df.count()
+
+    def count_rows(self) -> int:
+        """
+        Count total number of rows using SQL COUNT(*).
+
+        This method efficiently executes COUNT(*) without materializing the DataFrame,
+        making it suitable for large datasets. Unlike count() which returns per-column
+        non-null counts, this returns the total row count.
+
+        Returns:
+            int: Total number of rows
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> total = ds.select("*").filter(ds.age > 18).count_rows()
+            >>> print(f"Found {total} rows")
+
+        Note:
+            This is more efficient than len() for large datasets as it uses SQL COUNT(*)
+            instead of materializing the entire DataFrame.
+        """
+        from .functions import Count
+        from .expressions import Literal
+
+        # If we have lazy operations that can't be expressed in SQL, fall back to materialization
+        # Check if there are any non-SQL operations in the lazy ops
+        has_non_sql_ops = False
+        if self._lazy_ops:
+            from .lazy_ops import LazyRelationalOp
+
+            for op in self._lazy_ops:
+                if not isinstance(op, LazyRelationalOp):
+                    has_non_sql_ops = True
+                    break
+
+        if has_non_sql_ops:
+            # Fall back to materialization for non-SQL operations
+            self._logger.debug("count_rows() falling back to materialization due to non-SQL operations")
+            return len(self._materialize())
+
+        # Build a COUNT(*) query
+        # Create a copy of the current DataStore to modify for counting
+        from copy import copy
+
+        count_ds = copy(self)
+
+        # Replace SELECT fields with COUNT(*)
+        count_ds._select_fields = [Count('*')]
+
+        # Clear ORDER BY (not needed for COUNT)
+        count_ds._orderby_fields = []
+
+        # Clear LIMIT/OFFSET (we want total count)
+        count_ds._limit_value = None
+        count_ds._offset_value = None
+
+        # Clear DISTINCT (COUNT(*) counts all rows)
+        count_ds._distinct = False
+
+        # Ensure we're connected
+        if count_ds._executor is None:
+            count_ds.connect()
+
+        # Execute the COUNT query
+        sql = count_ds.to_sql()
+        self._logger.debug("count_rows() executing SQL: %s", sql)
+        result = count_ds._executor.execute(sql)
+
+        # Extract the count value from result
+        if result.rows:
+            return int(result.rows[0][0])
+        return 0
 
     def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
         """
@@ -2505,11 +2658,17 @@ class DataStore(PandasCompatMixin):
         """
         Return the number of rows in the DataStore.
 
+        This method efficiently uses SQL COUNT(*) when possible, falling back to
+        materialization only when necessary (e.g., after pandas operations).
+
         This enables using len(ds) on DataStore objects.
+
+        Example:
+            >>> ds = DataStore.from_file("large_data.parquet")
+            >>> row_count = len(ds.filter(ds.age > 18))  # Uses SQL COUNT(*)
         """
-        # Execute and count rows
-        df = self.to_df()
-        return len(df)
+        # Use SQL-based count_rows() for efficiency
+        return self.count_rows()
 
     # ========== String Representation ==========
 
