@@ -183,7 +183,8 @@ class PandasCompatMixin:
         Lazy column assignment - does NOT execute immediately.
 
         This method records the operation and marks the cache as invalid.
-        Actual execution happens when the DataStore is materialized.
+        Actual execution happens when the DataStore is materialized via to_df(),
+        execute(), or property access (shape, columns, etc.).
 
         Args:
             key: Column name (string) to set/update
@@ -193,11 +194,22 @@ class PandasCompatMixin:
             >>> ds['new_column'] = 10  # Records operation (lazy)
             >>> ds['col'] = ds['other_column'] * 2  # Records expression (lazy)
             >>> ds['col'] = ds['col'] - 1  # Records operation (lazy)
-            >>> print(ds)  # NOW it executes
+            >>>
+            >>> # Not yet executed - won't appear in SQL
+            >>> print(ds.to_sql())  # SELECT * FROM ... (no new columns)
+            >>>
+            >>> # NOW it executes and applies the assignment
+            >>> result = ds.to_df()
+            >>> print(result.columns)  # Includes 'new_column' and 'col'
 
         Note:
-            This operation modifies the DataStore in-place (not immutable).
-            The operation is recorded and will be executed during materialization.
+            - This operation modifies the DataStore in-place (NOT immutable)
+            - The operation is recorded and will be executed during materialization
+            - For immutable column creation, use assign() instead:
+              ds2 = ds.assign(new_col=lambda x: x['old_col'] * 2)
+
+        See Also:
+            assign(): Immutable column creation that returns a new DataStore
         """
         from .lazy_ops import LazyColumnAssignment
 
