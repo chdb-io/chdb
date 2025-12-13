@@ -399,7 +399,7 @@ class Connection:
         self._cursor = Cursor(self._conn)
         return self._cursor
 
-    def query(self, query: str, format: str = "CSV") -> Any:
+    def query(self, query: str, format: str = "CSV", params=None) -> Any:
         """Execute a SQL query and return the complete results.
 
         This method executes a SQL query synchronously and returns the complete
@@ -461,12 +461,12 @@ class Connection:
             format = "Arrow"
 
         if lower_output_format == "dataframe":
-            result = self._conn.query_df(query)
+            result = self._conn.query_df(query, params=params or {})
         else:
-            result = self._conn.query(query, format)
+            result = self._conn.query(query, format, params=params or {})
         return result_func(result)
 
-    def send_query(self, query: str, format: str = "CSV") -> StreamingResult:
+    def send_query(self, query: str, format: str = "CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 
         This method executes a SQL query and returns a StreamingResult object
@@ -531,7 +531,7 @@ class Connection:
         if lower_output_format in _arrow_format:
             format = "Arrow"
 
-        c_stream_result = self._conn.send_query(query, format)
+        c_stream_result = self._conn.send_query(query, format, params=params or {})
         is_dataframe = lower_output_format == "dataframe"
         return StreamingResult(c_stream_result, self._conn, result_func, supports_record_batch, is_dataframe)
 
