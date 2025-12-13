@@ -1022,6 +1022,89 @@ class DataStore(PandasCompatMixin):
         )
 
     @classmethod
+    def from_df(cls, df, name: str = None) -> 'DataStore':
+        """
+        Create DataStore from a pandas DataFrame.
+
+        This allows you to use DataStore's query building and lazy execution
+        features on an existing DataFrame.
+
+        Args:
+            df: pandas DataFrame to wrap
+            name: Optional name for the data source (used in explain output)
+
+        Returns:
+            DataStore wrapping the DataFrame
+
+        Example:
+            >>> import pandas as pd
+            >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+            >>> ds = DataStore.from_df(df)
+            >>> ds.filter(ds.age > 26).to_df()
+               name  age
+            1   Bob   30
+
+            >>> # With SQL operations
+            >>> ds = DataStore.from_df(df, name='users')
+            >>> ds.sql("SELECT * FROM __df__ WHERE age > 26").to_df()
+        """
+        import pandas as pd
+        from .lazy_ops import LazyDataFrameSource
+
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError(f"Expected pandas DataFrame, got {type(df).__name__}")
+
+        # Create a new DataStore with no external data source
+        new_ds = cls()
+
+        # Clear any default state
+        new_ds._table_function = None
+        new_ds.table_name = None
+        new_ds._select_fields = []
+        new_ds._where_condition = None
+        new_ds._joins = []
+        new_ds._groupby_fields = []
+        new_ds._having_condition = None
+        new_ds._orderby_fields = []
+        new_ds._limit_value = None
+        new_ds._offset_value = None
+        new_ds._distinct = False
+
+        # Add the DataFrame as a lazy source
+        new_ds._lazy_ops = [LazyDataFrameSource(df)]
+
+        # Set source description for explain()
+        shape_str = f"{df.shape[0]} rows x {df.shape[1]} cols"
+        new_ds._original_source_desc = f"DataFrame({name or 'unnamed'}, {shape_str})"
+
+        # Build schema from DataFrame dtypes
+        new_ds._schema = {col: str(dtype) for col, dtype in df.dtypes.items()}
+
+        return new_ds
+
+    @classmethod
+    def from_dataframe(cls, df, name: str = None) -> 'DataStore':
+        """
+        Create DataStore from a pandas DataFrame.
+
+        Alias for `from_df()`. See `from_df()` for full documentation.
+
+        Args:
+            df: pandas DataFrame to wrap
+            name: Optional name for the data source (used in explain output)
+
+        Returns:
+            DataStore wrapping the DataFrame
+
+        Example:
+            >>> import pandas as pd
+            >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+            >>> ds = DataStore.from_dataframe(df)
+            >>> ds.filter(ds.age > 26).to_df()
+        """
+        return cls.from_df(df, name=name)
+
+    @classmethod
     def uri(cls, uri: str, **kwargs) -> 'DataStore':
         """
         Create DataStore from a URI string with automatic type inference.
@@ -1109,12 +1192,19 @@ class DataStore(PandasCompatMixin):
             self._table_function.with_settings(**settings)
         return self
 
-    def connect(self) -> 'DataStore':
+    def connect(self, test_connection: bool = True) -> 'DataStore':
         """
         Connect to the data source using chdb.
 
+        Args:
+            test_connection: If True, verify data source accessibility by
+                executing a test query (SELECT 1). Default is True.
+
         Returns:
             self for chaining
+
+        Raises:
+            ConnectionError: If connection fails or data source is not accessible
         """
         self._logger.debug("Connecting to data source (database=%s)...", self.database)
 
@@ -1138,10 +1228,99 @@ class DataStore(PandasCompatMixin):
                 self._discover_schema()
                 self._logger.debug("Schema discovered: %s", self._schema)
 
+            # Test data source accessibility for table functions
+            if self._table_function is not None and test_connection:
+                self._test_data_source()
+
             return self
         except Exception as e:
             self._logger.error("Connection failed: %s", e)
             raise ConnectionError(f"Failed to connect: {e}")
+
+    def _test_data_source(self) -> None:
+        """
+        Test if the data source is accessible by executing a simple query.
+
+        For table functions (file, S3, MySQL, etc.), this executes
+        SELECT 1 FROM <table_function> LIMIT 1 to verify accessibility.
+
+        Raises:
+            ConnectionError: If data source is not accessible
+        """
+        if self._table_function is None or self._executor is None:
+            return
+
+        try:
+            table_source = self._table_function.to_sql()
+            test_sql = f"SELECT 1 FROM {table_source} LIMIT 1"
+            self._logger.debug("Testing data source accessibility: %s", test_sql)
+            self._executor.execute(test_sql)
+            self._logger.debug("Data source is accessible")
+        except Exception as e:
+            self._logger.error("Data source not accessible: %s", e)
+            raise ConnectionError(f"Data source not accessible: {e}")
+
+    def schema(self) -> dict:
+        """
+        Get the schema of the data source.
+
+        For table functions, this executes DESCRIBE to discover column types.
+        Requires connect() to be called first.
+
+        Returns:
+            Dict mapping column names to their types
+
+        Example:
+            >>> ds = DataStore.from_file('data.csv')
+            >>> ds.connect()
+            >>> ds.schema()
+            {'id': 'Int64', 'name': 'String', 'age': 'Int64'}
+        """
+        if self._schema:
+            return self._schema
+
+        if self._executor is None:
+            self.connect(test_connection=False)
+
+        if self._table_function is not None:
+            self._discover_table_function_schema()
+        elif self.table_name:
+            self._discover_schema()
+
+        return self._schema
+
+    def _discover_table_function_schema(self) -> None:
+        """
+        Discover schema for table functions and verify data source accessibility.
+
+        For table functions (file, S3, MySQL, etc.), this executes
+        DESCRIBE <table_function> to both verify accessibility and get schema.
+
+        Raises:
+            ConnectionError: If data source is not accessible
+        """
+        if self._table_function is None or self._executor is None:
+            return
+
+        try:
+            # Use DESCRIBE to both test connectivity and get schema
+            table_source = self._table_function.to_sql()
+            describe_sql = f"DESCRIBE {table_source}"
+            self._logger.debug("Discovering schema for table function: %s", describe_sql)
+            result = self._executor.execute(describe_sql)
+
+            # Build schema dictionary from DESCRIBE result
+            self._schema = {}
+            for row in result.rows:
+                # ClickHouse DESCRIBE returns: (name, type, default_type, default_expression, comment, ...)
+                col_name = row[0]
+                col_type = row[1]
+                self._schema[col_name] = col_type
+
+            self._logger.debug("Data source is accessible, schema discovered: %s", self._schema)
+        except Exception as e:
+            self._logger.error("Data source not accessible: %s", e)
+            raise ConnectionError(f"Data source not accessible: {e}")
 
     def _get_table_alias(self) -> str:
         """
