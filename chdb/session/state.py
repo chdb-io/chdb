@@ -119,7 +119,7 @@ class Session:
         except:  # noqa
             pass
 
-    def query(self, sql, fmt="CSV", udf_path=""):
+    def query(self, sql, fmt="CSV", udf_path="", params=None):
         """Execute a SQL query and return the results.
 
         This method executes a SQL query against the session's database and returns
@@ -138,9 +138,14 @@ class Session:
                 - "JSONCompact" - Compact JSON format
                 - "Arrow" - Apache Arrow format
                 - "Parquet" - Parquet format
+                - "DataFrame" - Pandas DataFrame
+                - "ArrowTable" - PyArrow Table
 
             udf_path (str, optional): Path to user-defined functions. Defaults to "".
                 If not specified, uses the UDF path from session initialization.
+            params (dict, optional): Named parameters for ``{name:Type}`` placeholders.
+                Values must be compatible with the declared ClickHouse type; otherwise
+                query execution raises a RuntimeError.
 
         Returns:
             Query results in the specified format. The exact return type depends on
@@ -197,12 +202,12 @@ Please try use parameters in connection string instead:
 Eg: conn = connect(f"db_path?verbose&log-level=test")"""
             )
             fmt = "CSV"
-        return self._conn.query(sql, fmt)
+        return self._conn.query(sql, fmt, params=params)
 
     # alias sql = query
     sql = query
 
-    def send_query(self, sql, fmt="CSV") -> StreamingResult:
+    def send_query(self, sql, fmt="CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 
         This method executes a SQL query against the session's database and returns
@@ -221,6 +226,11 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
                 - "JSONCompact" - Compact JSON format
                 - "Arrow" - Apache Arrow format
                 - "Parquet" - Parquet format
+                - "DataFrame" - Pandas DataFrame
+                - "ArrowTable" - PyArrow Table
+            params (dict, optional): Named parameters for ``{name:Type}`` placeholders.
+                Type mismatches or missing required parameters propagate as RuntimeError
+                when fetching from the stream.
 
         Returns:
             StreamingResult: A streaming result iterator that yields query results
@@ -270,4 +280,4 @@ Please try use parameters in connection string instead:
 Eg: conn = connect(f"db_path?verbose&log-level=test")"""
             )
             fmt = "CSV"
-        return self._conn.send_query(sql, fmt)
+        return self._conn.send_query(sql, fmt, params=params)
