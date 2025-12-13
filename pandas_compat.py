@@ -341,11 +341,9 @@ class PandasCompatMixin:
         """Get the mode(s) of each element along selected axis."""
         return self._wrap_result(self._get_df().mode(axis=axis, numeric_only=numeric_only, dropna=dropna))
 
-    def pct_change(self, periods=1, fill_method='pad', limit=None, freq=None, **kwargs):
+    def pct_change(self, periods=1, freq=None, **kwargs):
         """Percentage change between current and prior element."""
-        return self._wrap_result(
-            self._get_df().pct_change(periods=periods, fill_method=fill_method, limit=limit, freq=freq, **kwargs)
-        )
+        return self._wrap_result(self._get_df().pct_change(periods=periods, freq=freq, **kwargs))
 
     def prod(self, axis=0, skipna=True, numeric_only=True, min_count=0, **kwargs):
         """Return product over requested axis."""
@@ -436,21 +434,17 @@ class PandasCompatMixin:
         """Return boolean Series denoting duplicate rows."""
         return self._get_df().duplicated(subset=subset, keep=keep)
 
-    def fillna(self, value=None, *, method=None, axis=None, inplace=False, limit=None, downcast=None):
+    def fillna(self, value=None, *, method=None, axis=None, inplace=False, limit=None):
         """Fill NA/NaN values."""
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
-        return self._wrap_result(
-            self._get_df().fillna(value=value, method=method, axis=axis, limit=limit, downcast=downcast)
-        )
+        return self._wrap_result(self._get_df().fillna(value=value, method=method, axis=axis, limit=limit))
 
-    def replace(self, to_replace=None, value=None, *, inplace=False, limit=None, regex=False, method=None):
+    def replace(self, to_replace=None, value=None, *, inplace=False, limit=None, regex=False):
         """Replace values given in to_replace with value."""
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
-        return self._wrap_result(
-            self._get_df().replace(to_replace=to_replace, value=value, limit=limit, regex=regex, method=method)
-        )
+        return self._wrap_result(self._get_df().replace(to_replace=to_replace, value=value, limit=limit, regex=regex))
 
     def interpolate(
         self,
