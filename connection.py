@@ -3,13 +3,13 @@ Connection management for DataStore using chdb (ClickHouse)
 
 This module centralizes ALL chDB query execution with unified logging.
 
-Two execution modes:
-1. Connection-based queries: conn.query() for database/file operations
-2. DataFrame queries: chdb.query() with Python() table function
+All queries (database/file operations and DataFrame queries) use
+conn.query() for consistent connection-based execution.
 
 All chDB execution should go through this module for:
 - Unified logging format
 - Centralized error handling
+- Better performance (reusing connection)
 - Future extensibility (caching, metrics, etc.)
 """
 
@@ -98,7 +98,7 @@ class Connection:
         Execute a SQL query on a DataFrame using chDB's Python() table function.
 
         This enables SQL operations on in-memory DataFrames.
-        Uses chdb.query() directly (not connection-based) as required by Python().
+        Uses conn.query() for better performance with connection reuse.
 
         Args:
             sql: SQL query string. Use Python(df_name) or df_name to reference the DataFrame.
@@ -108,6 +108,9 @@ class Connection:
         Returns:
             Result DataFrame
         """
+        if self._conn is None:
+            raise ConnectionError("Not connected. Call connect() first.")
+
         # Auto-wrap table reference if not already wrapped
         processed_sql = sql
         if f'Python({df_name})' not in sql:
@@ -129,12 +132,12 @@ class Connection:
         Internal: execute SQL with DataFrame in local scope.
 
         chDB's Python() table function requires the DataFrame to be
-        accessible in the local scope where chdb.query() is called.
+        accessible in the local scope where conn.query() is called.
         """
-        __df__ = df  # noqa: F841 - Required for chdb.query to access via Python(__df__)
+        __df__ = df  # noqa: F841 - Required for conn.query to access via Python(__df__)
         if df_name != '__df__':
             exec(f"{df_name} = df")
-        return chdb.query(sql, 'DataFrame')
+        return self._conn.query(sql, 'DataFrame')
 
     def eval_expression(self, expr_sql: str, df: pd.DataFrame, result_column: str = '__result__') -> pd.Series:
         """
@@ -150,13 +153,16 @@ class Connection:
         Returns:
             Result Series with the original DataFrame's index
         """
+        if self._conn is None:
+            raise ConnectionError("Not connected. Call connect() first.")
+
         query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__)"
 
         self._log_query(query, "Expression")
 
         __df__ = df  # noqa: F841
         try:
-            result_df = chdb.query(query, 'DataFrame')
+            result_df = self._conn.query(query, 'DataFrame')
             result_series = result_df[result_column]
             result_series.index = df.index
             self._logger.debug("[chDB] Expression result: %d values", len(result_series))
