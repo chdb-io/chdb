@@ -503,7 +503,7 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("Connecting to data source...")
                 self.connect()
 
-            # Build SQL with only early operations (include joins and distinct)
+            # Build SQL with only early operations (include joins, distinct, groupby, having)
             sql = self._build_sql_from_state(
                 sql_select_fields,
                 sql_where_conditions,
@@ -512,6 +512,8 @@ class DataStore(PandasCompatMixin):
                 sql_offset,
                 joins=self._joins,
                 distinct=self._distinct,
+                groupby_fields=self._groupby_fields,
+                having_condition=self._having_condition,
             )
             self._logger.debug("Executing initial SQL query...")
             result = self._executor.execute(sql)
@@ -538,7 +540,16 @@ class DataStore(PandasCompatMixin):
         return df
 
     def _build_sql_from_state(
-        self, select_fields, where_conditions, orderby_fields, limit_value, offset_value, joins=None, distinct=False
+        self,
+        select_fields,
+        where_conditions,
+        orderby_fields,
+        limit_value,
+        offset_value,
+        joins=None,
+        distinct=False,
+        groupby_fields=None,
+        having_condition=None,
     ):
         """Build SQL query from given state (not from instance variables)."""
         parts = []
@@ -546,7 +557,7 @@ class DataStore(PandasCompatMixin):
         # SELECT (with optional DISTINCT)
         distinct_keyword = 'DISTINCT ' if distinct else ''
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
+            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
             parts.append(f"SELECT {distinct_keyword}{fields_sql}")
         else:
             parts.append(f"SELECT {distinct_keyword}*")
@@ -605,6 +616,16 @@ class DataStore(PandasCompatMixin):
             for cond in where_conditions[1:]:
                 combined = combined & cond
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+        # GROUP BY
+        if groupby_fields:
+            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            parts.append(f"GROUP BY {groupby_sql}")
+
+        # HAVING
+        if having_condition:
+            having_sql = having_condition.to_sql(quote_char=self.quote_char)
+            parts.append(f"HAVING {having_sql}")
 
         # ORDER BY
         if orderby_fields:
