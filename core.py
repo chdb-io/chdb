@@ -2367,6 +2367,80 @@ class DataStore(PandasCompatMixin):
             self._groupby_fields.append(field)
 
     @immutable
+    def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':
+        """
+        Aggregate using one or more operations.
+
+        Supports two modes:
+        1. SQL-style aggregation with keyword arguments (typically used with groupby):
+           >>> ds.groupby("region").agg(
+           ...     total_revenue=col("revenue").sum(),
+           ...     avg_quantity=col("quantity").mean(),
+           ...     order_count=col("order_id").count()
+           ... )
+
+        2. Pandas-style aggregation with dict (materializes DataFrame first):
+           >>> ds.agg({'amount': 'sum', 'count': 'count'})
+           >>> ds.agg({'amount': ['sum', 'mean', 'max']})
+
+        When using SQL-style aggregation:
+        - Keyword argument names become output column aliases
+        - Values should be aggregate expressions (e.g., col("x").sum())
+        - Groupby columns are automatically included in SELECT
+
+        Args:
+            func: For pandas-style, aggregation function(s)
+            axis: For pandas-style, axis to aggregate (default: 0)
+            **kwargs: For SQL-style, alias=aggregate_expression pairs
+
+        Returns:
+            DataStore with aggregation applied
+        """
+        from .column_expr import ColumnExpr
+        from .functions import AggregateFunction
+
+        # Check if we have SQL-style keyword arguments with expressions
+        has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())
+
+        if has_sql_agg or (func is None and kwargs and not args):
+            # SQL-style aggregation: agg(alias=col("x").sum(), ...)
+            # Build list of select fields: groupby fields + aggregate expressions
+            select_fields = []
+
+            # First, add groupby fields
+            for gf in self._groupby_fields:
+                select_fields.append(gf)
+                if gf not in self._select_fields:
+                    self._select_fields.append(gf)
+
+            # Add aggregate expressions with aliases
+            for alias, expr in kwargs.items():
+                if isinstance(expr, ColumnExpr):
+                    # Unwrap ColumnExpr to get underlying expression
+                    expr = expr._expr
+                if isinstance(expr, Expression):
+                    # Set alias on the expression
+                    expr_with_alias = copy(expr)
+                    expr_with_alias.alias = alias
+                    select_fields.append(expr_with_alias)
+                    self._select_fields.append(expr_with_alias)
+                else:
+                    raise QueryError(
+                        f"Invalid aggregate expression for '{alias}': "
+                        f"expected Expression, got {type(expr).__name__}"
+                    )
+
+            # Record in lazy ops as SELECT (so _materialize picks up the fields)
+            field_names = ', '.join([str(f) for f in select_fields])
+            self._lazy_ops.append(LazyRelationalOp('SELECT', field_names, fields=select_fields))
+
+            return self
+        else:
+            # Pandas-style aggregation: agg({'col': 'func'}) or agg('sum')
+            # Delegate to parent class (PandasCompatMixin)
+            return super().agg(func, axis, *args, **kwargs)
+
+    @immutable
     def sort(self, *fields: Union[str, Expression], ascending: bool = True) -> 'DataStore':
         """
         Sort results (ORDER BY clause).
@@ -2380,7 +2454,19 @@ class DataStore(PandasCompatMixin):
             >>> ds.sort("price", ascending=False)
             >>> ds.sort(ds.date, ds.amount, ascending=False)
         """
-        field_names = ', '.join([str(f) for f in fields])
+        from .column_expr import ColumnExpr
+
+        # Helper to get SQL-safe field representation
+        def field_to_sql(f):
+            if isinstance(f, str):
+                return f
+            if isinstance(f, ColumnExpr):
+                return f._expr.to_sql() if hasattr(f._expr, 'to_sql') else str(f._expr)
+            if hasattr(f, 'to_sql'):
+                return f.to_sql()
+            return str(f)
+
+        field_names = ', '.join([field_to_sql(f) for f in fields])
         direction = 'ASC' if ascending else 'DESC'
 
         # Record in lazy ops for correct execution order in explain()
@@ -2393,6 +2479,9 @@ class DataStore(PandasCompatMixin):
             if isinstance(field, str):
                 # Don't add table prefix for string fields
                 field = Field(field)
+            elif isinstance(field, ColumnExpr):
+                # Extract underlying expression from ColumnExpr
+                field = field._expr
             elif not isinstance(field, Expression):
                 # Convert other types to Field
                 field = Field(str(field))

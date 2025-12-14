@@ -62,11 +62,12 @@ Core Classes:
 """
 
 from .core import DataStore
-from .expressions import Expression, Field, Literal
+from .expressions import Expression, Field, Literal, col
 from .column_expr import ColumnExpr
 from .functions import (
     Function,
     AggregateFunction,
+    WindowFunction,
     CustomFunction,
     CastFunction,
     F,  # Function namespace for explicit function calls
@@ -80,6 +81,20 @@ from .functions import (
     Lower,
     Concat,
 )
+
+# Function Registry - Single Source of Truth for function definitions
+from .function_registry import (
+    FunctionRegistry,
+    FunctionType,
+    FunctionCategory,
+    FunctionSpec,
+    register_function,
+)
+
+# Import function definitions to register all functions
+from . import function_definitions as _function_definitions
+
+_function_definitions.ensure_functions_registered()
 from .function_executor import (
     FunctionExecutorConfig,
     ExecutionEngine,
@@ -146,9 +161,11 @@ __all__ = [
     'Field',
     'Literal',
     'ColumnExpr',
+    'col',
     # Functions
     'Function',
     'AggregateFunction',
+    'WindowFunction',
     'CustomFunction',
     'CastFunction',
     'F',  # Function namespace
@@ -160,6 +177,12 @@ __all__ = [
     'Upper',
     'Lower',
     'Concat',
+    # Function Registry
+    'FunctionRegistry',
+    'FunctionType',
+    'FunctionCategory',
+    'FunctionSpec',
+    'register_function',
     # Accessors (for advanced use)
     'StringAccessor',
     'DateTimeAccessor',

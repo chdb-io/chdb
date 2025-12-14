@@ -4,9 +4,12 @@ ColumnExpr - A column expression that can materialize when displayed.
 This provides pandas-like behavior where accessing a column or performing
 operations on it shows actual values when displayed, while still supporting
 lazy expression building for filters and assignments.
+
+Uses composition (not inheritance) to wrap Expression and return ColumnExpr
+for all operations. This ensures pandas-like behavior is preserved.
 """
 
-from __future__ import annotations  # noqa: F401
+from __future__ import annotations
 
 from typing import Any, Optional, TYPE_CHECKING, Iterator
 
@@ -20,7 +23,7 @@ if TYPE_CHECKING:
     from .conditions import Condition, BinaryCondition
 
 
-class ColumnExpr(Expression):
+class ColumnExpr:
     """
     A column expression that wraps an underlying Expression and can materialize.
 
@@ -61,9 +64,9 @@ class ColumnExpr(Expression):
             datastore: Reference to the DataStore for materialization
             alias: Optional alias for the expression
         """
-        super().__init__(alias)
         self._expr = expr
         self._datastore = datastore
+        self._alias = alias
 
     @property
     def expr(self) -> Expression:
@@ -74,6 +77,11 @@ class ColumnExpr(Expression):
     def datastore(self) -> 'DataStore':
         """Get the DataStore reference."""
         return self._datastore
+
+    @property
+    def alias(self) -> Optional[str]:
+        """Get the alias."""
+        return self._alias
 
     # ========== Materialization ==========
 
@@ -124,16 +132,11 @@ class ColumnExpr(Expression):
     # ========== Display Methods ==========
 
     def __repr__(self) -> str:
-        """
-        Return a representation that shows actual values.
-
-        In IPython/Jupyter, this is what gets displayed.
-        """
+        """Return a representation that shows actual values."""
         try:
             series = self._materialize()
             return repr(series)
         except Exception as e:
-            # Fallback to expression representation if materialization fails
             return f"ColumnExpr({self._expr!r}) [Error: {e}]"
 
     def __str__(self) -> str:
@@ -142,7 +145,6 @@ class ColumnExpr(Expression):
             series = self._materialize()
             return str(series)
         except Exception:
-            # Fallback to expression SQL
             return self._expr.to_sql()
 
     def _repr_html_(self) -> str:
@@ -155,7 +157,7 @@ class ColumnExpr(Expression):
         except Exception as e:
             return f"<pre>ColumnExpr({self._expr.to_sql()}) [Error: {e}]</pre>"
 
-    # ========== Expression Interface ==========
+    # ========== Expression Interface (delegation) ==========
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for the underlying expression."""
@@ -163,7 +165,6 @@ class ColumnExpr(Expression):
 
     def nodes(self) -> Iterator[Node]:
         """Traverse expression tree."""
-        yield self
         yield from self._expr.nodes()
 
     # ========== Comparison Operators (Return Conditions for filtering) ==========
@@ -264,22 +265,12 @@ class ColumnExpr(Expression):
 
     @property
     def str(self) -> 'ColumnExprStringAccessor':
-        """
-        Accessor for string functions.
-
-        Returns a ColumnExprStringAccessor that wraps string operations
-        and returns ColumnExpr for each method call.
-        """
+        """Accessor for string functions."""
         return ColumnExprStringAccessor(self)
 
     @property
     def dt(self) -> 'ColumnExprDateTimeAccessor':
-        """
-        Accessor for date/time functions.
-
-        Returns a ColumnExprDateTimeAccessor that wraps datetime operations
-        and returns ColumnExpr for each method call.
-        """
+        """Accessor for date/time functions."""
         return ColumnExprDateTimeAccessor(self)
 
     # ========== Condition Methods (for filtering) ==========
@@ -315,163 +306,6 @@ class ColumnExpr(Expression):
     def ilike(self, pattern: str) -> 'Condition':
         """Create ILIKE condition (case-insensitive)."""
         return self._expr.ilike(pattern)
-
-    # ========== Math Functions ==========
-
-    def abs(self, alias: str = None) -> 'ColumnExpr':
-        """Absolute value."""
-        new_expr = self._expr.abs(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def round(self, precision: int = 0, alias: str = None) -> 'ColumnExpr':
-        """Round to N decimal places."""
-        new_expr = self._expr.round(precision, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def floor(self, alias: str = None) -> 'ColumnExpr':
-        """Round down to nearest integer."""
-        new_expr = self._expr.floor(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def ceil(self, alias: str = None) -> 'ColumnExpr':
-        """Round up to nearest integer."""
-        new_expr = self._expr.ceil(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def ceiling(self, alias: str = None) -> 'ColumnExpr':
-        """Alias for ceil()."""
-        return self.ceil(alias=alias)
-
-    def sqrt(self, alias: str = None) -> 'ColumnExpr':
-        """Square root."""
-        new_expr = self._expr.sqrt(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def exp(self, alias: str = None) -> 'ColumnExpr':
-        """Exponential (e^x)."""
-        new_expr = self._expr.exp(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def log(self, base: float = None, alias: str = None) -> 'ColumnExpr':
-        """Logarithm."""
-        new_expr = self._expr.log(base, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def log10(self, alias: str = None) -> 'ColumnExpr':
-        """Base-10 logarithm."""
-        new_expr = self._expr.log10(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def log2(self, alias: str = None) -> 'ColumnExpr':
-        """Base-2 logarithm."""
-        new_expr = self._expr.log2(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def sin(self, alias: str = None) -> 'ColumnExpr':
-        """Sine."""
-        new_expr = self._expr.sin(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def cos(self, alias: str = None) -> 'ColumnExpr':
-        """Cosine."""
-        new_expr = self._expr.cos(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def tan(self, alias: str = None) -> 'ColumnExpr':
-        """Tangent."""
-        new_expr = self._expr.tan(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def power(self, exponent, alias: str = None) -> 'ColumnExpr':
-        """Raise to power."""
-        new_expr = self._expr.power(exponent, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def sign(self, alias: str = None) -> 'ColumnExpr':
-        """Sign of number (-1, 0, or 1)."""
-        new_expr = self._expr.sign(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    # ========== Type Conversion ==========
-
-    def cast(self, target_type: str, alias: str = None) -> 'ColumnExpr':
-        """Cast to specified type."""
-        new_expr = self._expr.cast(target_type, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def to_string(self, alias: str = None) -> 'ColumnExpr':
-        """Convert to String type."""
-        new_expr = self._expr.to_string(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def to_int(self, bits: int = 64, alias: str = None) -> 'ColumnExpr':
-        """Convert to integer type."""
-        new_expr = self._expr.to_int(bits, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def to_float(self, bits: int = 64, alias: str = None) -> 'ColumnExpr':
-        """Convert to float type."""
-        new_expr = self._expr.to_float(bits, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def to_date(self, alias: str = None) -> 'ColumnExpr':
-        """Convert to Date type."""
-        new_expr = self._expr.to_date(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def to_datetime(self, timezone: str = None, alias: str = None) -> 'ColumnExpr':
-        """Convert to DateTime type."""
-        new_expr = self._expr.to_datetime(timezone, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    # ========== Conditional Functions ==========
-
-    def if_null(self, default, alias: str = None) -> 'ColumnExpr':
-        """Return default value if expression is NULL."""
-        new_expr = self._expr.if_null(default, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def coalesce(self, *alternatives, alias: str = None) -> 'ColumnExpr':
-        """Return first non-NULL value."""
-        new_expr = self._expr.coalesce(*alternatives, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def null_if(self, value, alias: str = None) -> 'ColumnExpr':
-        """Return NULL if expression equals value."""
-        new_expr = self._expr.null_if(value, alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    # ========== Aggregate Functions ==========
-    # These return scalar values when materialized
-
-    def sum(self, alias: str = None) -> 'ColumnExpr':
-        """Sum aggregate."""
-        new_expr = self._expr.sum(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def avg(self, alias: str = None) -> 'ColumnExpr':
-        """Average aggregate."""
-        new_expr = self._expr.avg(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def mean(self, alias: str = None) -> 'ColumnExpr':
-        """Alias for avg()."""
-        return self.avg(alias=alias)
-
-    def count(self, alias: str = None) -> 'ColumnExpr':
-        """Count aggregate."""
-        new_expr = self._expr.count(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def max(self, alias: str = None) -> 'ColumnExpr':
-        """Maximum aggregate."""
-        new_expr = self._expr.max(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
-
-    def min(self, alias: str = None) -> 'ColumnExpr':
-        """Minimum aggregate."""
-        new_expr = self._expr.min(alias=alias)
-        return ColumnExpr(new_expr, self._datastore)
 
     # ========== Alias Support ==========
 
@@ -510,11 +344,43 @@ class ColumnExpr(Expression):
         """Convert to numpy array."""
         return self._materialize().to_numpy()
 
+    # ========== Dynamic Method Delegation ==========
+
+    def __getattr__(self, name: str):
+        """
+        Dynamic attribute access for all Expression methods.
+
+        Delegates to self._expr and wraps Expression results in ColumnExpr.
+        """
+        # Avoid infinite recursion for internal attributes
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+        # Try to get from underlying expression
+        try:
+            attr = getattr(self._expr, name)
+        except AttributeError:
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+        if callable(attr):
+            # It's a method - wrap the result in ColumnExpr
+            def wrapper(*args, **kwargs):
+                result = attr(*args, **kwargs)
+                # Wrap result in ColumnExpr if it's an Expression
+                if isinstance(result, Expression):
+                    return ColumnExpr(result, self._datastore)
+                return result
+
+            return wrapper
+        else:
+            # It's a property - wrap if Expression
+            if isinstance(attr, Expression):
+                return ColumnExpr(attr, self._datastore)
+            return attr
+
 
 class ColumnExprStringAccessor:
-    """
-    String accessor for ColumnExpr that returns ColumnExpr for each method.
-    """
+    """String accessor for ColumnExpr that returns ColumnExpr for each method."""
 
     def __init__(self, column_expr: ColumnExpr):
         self._column_expr = column_expr
@@ -535,9 +401,7 @@ class ColumnExprStringAccessor:
 
 
 class ColumnExprDateTimeAccessor:
-    """
-    DateTime accessor for ColumnExpr that returns ColumnExpr for each method.
-    """
+    """DateTime accessor for ColumnExpr that returns ColumnExpr for each method."""
 
     def __init__(self, column_expr: ColumnExpr):
         self._column_expr = column_expr

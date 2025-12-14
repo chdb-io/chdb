@@ -344,7 +344,12 @@ class LazyColumnAssignment(LazyOp):
         return executor.execute_expression(sql_expr, df)
 
     def describe(self) -> str:
-        if isinstance(self.expr, Expression):
+        from .column_expr import ColumnExpr
+
+        if isinstance(self.expr, ColumnExpr):
+            # Use underlying expression's SQL, don't call repr (would materialize)
+            expr_str = self.expr._expr.to_sql(quote_char='"')
+        elif isinstance(self.expr, Expression):
             expr_str = self.expr.to_sql(quote_char='"')
         else:
             expr_str = repr(self.expr)
