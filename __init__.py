@@ -95,7 +95,7 @@ from .function_registry import (
 from . import function_definitions as _function_definitions
 
 _function_definitions.ensure_functions_registered()
-from .function_executor import (
+from .function_executor import (  # noqa: E402
     FunctionExecutorConfig,
     ExecutionEngine,
     function_config,
@@ -105,22 +105,22 @@ from .function_executor import (
     prefer_pandas,
     reset_function_config,
 )
-from .accessors import (
+from .accessors import (  # noqa: E402
     StringAccessor,
     DateTimeAccessor,
 )
-from .conditions import Condition, BinaryCondition
-from .connection import Connection, QueryResult
-from .executor import Executor, get_executor, reset_executor
-from .exceptions import (
+from .conditions import Condition, BinaryCondition  # noqa: E402
+from .connection import Connection, QueryResult  # noqa: E402
+from .executor import Executor, get_executor, reset_executor  # noqa: E402
+from .exceptions import (  # noqa: E402
     DataStoreError,
     ConnectionError,
     SchemaError,
     QueryError,
     ExecutionError,
 )
-from .enums import JoinType
-from .config import (
+from .enums import JoinType  # noqa: E402
+from .config import (  # noqa: E402
     config,
     set_log_level,
     set_log_format,
@@ -128,7 +128,7 @@ from .config import (
     disable_debug,
     get_logger,
 )
-from .table_functions import (
+from .table_functions import (  # noqa: E402
     TableFunction,
     create_table_function,
     FileTableFunction,

@@ -123,6 +123,73 @@ def set_log_format(format_name: str) -> None:
             handler.setFormatter(_get_formatter())
 
 
+# =============================================================================
+# EXECUTION ENGINE CONFIGURATION
+# =============================================================================
+
+
+class ExecutionEngine:
+    """Execution engine options."""
+
+    AUTO = "auto"  # Auto-select best engine
+    CLICKHOUSE = "clickhouse"  # Force ClickHouse/chDB
+    PANDAS = "pandas"  # Force Pandas
+
+
+_execution_engine: str = ExecutionEngine.AUTO
+_prefer_pandas_for_simple: bool = True  # Prefer pandas for simple ops when AUTO
+
+
+def get_execution_engine() -> str:
+    """Get current execution engine setting."""
+    return _execution_engine
+
+
+def set_execution_engine(engine: str) -> None:
+    """
+    Set the execution engine.
+
+    Args:
+        engine: One of 'auto', 'clickhouse', 'pandas'
+
+    Example:
+        >>> from datastore import config
+        >>> config.set_execution_engine('pandas')  # Force pandas
+        >>> config.set_execution_engine('clickhouse')  # Force ClickHouse
+        >>> config.set_execution_engine('auto')  # Auto-select
+    """
+    global _execution_engine
+    valid = {ExecutionEngine.AUTO, ExecutionEngine.CLICKHOUSE, ExecutionEngine.PANDAS}
+    if engine not in valid:
+        raise ValueError(f"Invalid engine: {engine}. Use one of {valid}")
+    _execution_engine = engine
+
+    # Sync with function_config
+    from .function_executor import function_config
+
+    if engine == ExecutionEngine.PANDAS:
+        function_config.prefer_pandas()
+    elif engine == ExecutionEngine.CLICKHOUSE:
+        function_config.prefer_chdb()
+    else:
+        function_config.reset()  # Auto mode uses default (chDB)
+
+
+def use_pandas() -> None:
+    """Force Pandas execution engine."""
+    set_execution_engine(ExecutionEngine.PANDAS)
+
+
+def use_clickhouse() -> None:
+    """Force ClickHouse execution engine."""
+    set_execution_engine(ExecutionEngine.CLICKHOUSE)
+
+
+def use_auto() -> None:
+    """Use auto-selection for execution engine."""
+    set_execution_engine(ExecutionEngine.AUTO)
+
+
 class DataStoreConfig:
     """
     Configuration class for DataStore.
@@ -138,6 +205,9 @@ class DataStoreConfig:
         >>>
         >>> # Or use the convenience method
         >>> DataStore.config.enable_debug()
+        >>>
+        >>> # Set execution engine
+        >>> DataStore.config.execution_engine = 'pandas'
     """
 
     @property
@@ -175,6 +245,30 @@ class DataStoreConfig:
     def set_log_format(self, format_name: str) -> None:
         """Set log format ('simple' or 'verbose')."""
         set_log_format(format_name)
+
+    # ========== Execution Engine ==========
+
+    @property
+    def execution_engine(self) -> str:
+        """Get current execution engine."""
+        return get_execution_engine()
+
+    @execution_engine.setter
+    def execution_engine(self, engine: str) -> None:
+        """Set execution engine ('auto', 'clickhouse', 'pandas')."""
+        set_execution_engine(engine)
+
+    def use_pandas(self) -> None:
+        """Force Pandas execution."""
+        use_pandas()
+
+    def use_clickhouse(self) -> None:
+        """Force ClickHouse execution."""
+        use_clickhouse()
+
+    def use_auto(self) -> None:
+        """Use auto-selection."""
+        use_auto()
 
 
 # Global config instance

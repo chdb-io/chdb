@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING
 from .base import BaseAccessor
 
 if TYPE_CHECKING:
-    from ..expressions import Expression
     from ..functions import Function
 
 

@@ -24,14 +24,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .function_registry import (
-    FunctionRegistry,
     FunctionType,
     FunctionCategory,
     register_function,
 )
-
-if TYPE_CHECKING:
-    from .functions import Function, AggregateFunction, WindowFunction
 
 __all__ = ['ensure_functions_registered']
 
@@ -352,6 +348,412 @@ def _build_split(expr, sep: str, alias=None):
     from .expressions import Literal
 
     return Function('splitByString', Literal(sep), expr, alias=alias)
+
+
+# ---------- Additional Pandas .str methods ----------
+
+
+@register_function(
+    name='capitalize',
+    clickhouse_name='initcap',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['initcap'],
+    doc='Capitalize first letter. Maps to initcap(s).',
+)
+def _build_capitalize(expr, alias=None):
+    from .functions import Function
+
+    return Function('initcap', expr, alias=alias)
+
+
+@register_function(
+    name='title',
+    clickhouse_name='initcap',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Titlecase string. Maps to initcap(s).',
+)
+def _build_title(expr, alias=None):
+    from .functions import Function
+
+    return Function('initcap', expr, alias=alias)
+
+
+@register_function(
+    name='swapcase',
+    clickhouse_name='swapcase',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Swap case. ClickHouse does not have native swapcase.',
+    accessor_only=True,
+)
+def _build_swapcase(expr, alias=None):
+    # ClickHouse doesn't have swapcase, use expression
+    from .functions import Function
+
+    return Function('swapcase', expr, alias=alias)
+
+
+@register_function(
+    name='center',
+    clickhouse_name='center',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Center string in width. Maps to leftPad + rightPad combination.',
+)
+def _build_center(expr, width: int, fillchar: str = ' ', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    # Use leftPad and rightPad to center
+    return Function(
+        'leftPad',
+        Function('rightPad', expr, Literal(width), Literal(fillchar)),
+        Literal(width),
+        Literal(fillchar),
+        alias=alias,
+    )
+
+
+@register_function(
+    name='ljust',
+    clickhouse_name='rightPad',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Left justify string. Maps to rightPad(s, width, fill).',
+)
+def _build_ljust(expr, width: int, fillchar: str = ' ', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('rightPad', expr, Literal(width), Literal(fillchar), alias=alias)
+
+
+@register_function(
+    name='rjust',
+    clickhouse_name='leftPad',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Right justify string. Maps to leftPad(s, width, fill).',
+)
+def _build_rjust(expr, width: int, fillchar: str = ' ', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('leftPad', expr, Literal(width), Literal(fillchar), alias=alias)
+
+
+@register_function(
+    name='zfill',
+    clickhouse_name='leftPad',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Pad with zeros on the left. Maps to leftPad(s, width, \'0\').',
+)
+def _build_zfill(expr, width: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('leftPad', expr, Literal(width), Literal('0'), alias=alias)
+
+
+@register_function(
+    name='find',
+    clickhouse_name='position',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['index'],
+    doc='Find substring position. Maps to position(s, sub) - returns 0-based index.',
+)
+def _build_find(expr, sub: str, start: int = 0, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if start > 0:
+        return Function('position', expr, Literal(sub), Literal(start + 1), alias=alias)
+    return Function('position', expr, Literal(sub), alias=alias)
+
+
+@register_function(
+    name='rfind',
+    clickhouse_name='positionCaseInsensitiveUTF8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['rindex'],
+    doc='Find last occurrence of substring.',
+)
+def _build_rfind(expr, sub: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    # ClickHouse doesn't have rfind, use last occurrence logic
+    return Function('position', Function('reverse', expr), Literal(sub[::-1]), alias=alias)
+
+
+@register_function(
+    name='count_substring',
+    clickhouse_name='countSubstrings',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['countSubstrings'],
+    doc='Count occurrences of substring. Maps to countSubstrings(s, sub).',
+)
+def _build_count_substring(expr, sub: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('countSubstrings', expr, Literal(sub), alias=alias)
+
+
+@register_function(
+    name='isalpha',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Check if all characters are alphabetic.',
+)
+def _build_isalpha(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', expr, Literal('^[a-zA-Z]+$'), alias=alias)
+
+
+@register_function(
+    name='isdigit',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['isnumeric', 'isdecimal'],
+    doc='Check if all characters are digits.',
+)
+def _build_isdigit(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', expr, Literal('^[0-9]+$'), alias=alias)
+
+
+@register_function(
+    name='isalnum',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Check if all characters are alphanumeric.',
+)
+def _build_isalnum(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', expr, Literal('^[a-zA-Z0-9]+$'), alias=alias)
+
+
+@register_function(
+    name='isspace',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Check if all characters are whitespace.',
+)
+def _build_isspace(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', expr, Literal('^\\s+$'), alias=alias)
+
+
+@register_function(
+    name='isupper',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Check if all characters are uppercase.',
+)
+def _build_isupper(expr, alias=None):
+    from .functions import Function
+
+    return Function('equals', expr, Function('upper', expr), alias=alias)
+
+
+@register_function(
+    name='islower',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Check if all characters are lowercase.',
+)
+def _build_islower(expr, alias=None):
+    from .functions import Function
+
+    return Function('equals', expr, Function('lower', expr), alias=alias)
+
+
+@register_function(
+    name='match',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['regex_match'],
+    doc='Match regex pattern. Maps to match(s, pattern).',
+)
+def _build_match(expr, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', expr, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='extract',
+    clickhouse_name='extract',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['regex_extract'],
+    doc='Extract regex pattern. Maps to extract(s, pattern).',
+)
+def _build_extract(expr, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('extract', expr, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='slice',
+    clickhouse_name='substring',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Slice string. Maps to substring(s, start, length).',
+)
+def _build_slice(expr, start: int = None, stop: int = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if start is None:
+        start = 1
+    else:
+        start = start + 1 if start >= 0 else start
+    if stop is None:
+        return Function('substring', expr, Literal(start), alias=alias)
+    length = stop - (start - 1) if start > 0 else stop
+    return Function('substring', expr, Literal(start), Literal(length), alias=alias)
+
+
+@register_function(
+    name='encode',
+    clickhouse_name='encodeURLComponent',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Encode string. Default to URL encoding.',
+)
+def _build_encode(expr, encoding: str = 'utf-8', alias=None):
+    from .functions import Function
+
+    return Function('encodeURLComponent', expr, alias=alias)
+
+
+@register_function(
+    name='decode',
+    clickhouse_name='decodeURLComponent',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Decode string. Default from URL encoding.',
+)
+def _build_decode(expr, encoding: str = 'utf-8', alias=None):
+    from .functions import Function
+
+    return Function('decodeURLComponent', expr, alias=alias)
+
+
+@register_function(
+    name='wrap',
+    clickhouse_name='wrapText',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Wrap text to specified width.',
+    accessor_only=True,
+)
+def _build_wrap(expr, width: int, alias=None):
+    # ClickHouse doesn't have text wrap, return as-is
+    return expr
+
+
+@register_function(
+    name='join_str',
+    clickhouse_name='arrayStringConcat',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['str_join'],
+    doc='Join array elements with separator.',
+)
+def _build_join_str(expr, sep: str = '', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('arrayStringConcat', expr, Literal(sep), alias=alias)
+
+
+@register_function(
+    name='normalize',
+    clickhouse_name='normalizeUTF8NFD',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Normalize unicode string.',
+)
+def _build_normalize(expr, form: str = 'NFD', alias=None):
+    from .functions import Function
+
+    form_map = {
+        'NFD': 'normalizeUTF8NFD',
+        'NFC': 'normalizeUTF8NFC',
+        'NFKD': 'normalizeUTF8NFKD',
+        'NFKC': 'normalizeUTF8NFKC',
+    }
+    func_name = form_map.get(form.upper(), 'normalizeUTF8NFD')
+    return Function(func_name, expr, alias=alias)
+
+
+@register_function(
+    name='removeprefix',
+    clickhouse_name='trimLeft',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Remove prefix from string.',
+)
+def _build_removeprefix(expr, prefix: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    # if startsWith(s, prefix) then substring(s, length(prefix)+1) else s
+    return Function(
+        'if',
+        Function('startsWith', expr, Literal(prefix)),
+        Function('substring', expr, Literal(len(prefix) + 1)),
+        expr,
+        alias=alias,
+    )
+
+
+@register_function(
+    name='removesuffix',
+    clickhouse_name='trimRight',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Remove suffix from string.',
+)
+def _build_removesuffix(expr, suffix: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    # if endsWith(s, suffix) then substring(s, 1, length(s)-length(suffix)) else s
+    return Function(
+        'if',
+        Function('endsWith', expr, Literal(suffix)),
+        Function('substring', expr, Literal(1), Function('minus', Function('length', expr), Literal(len(suffix)))),
+        expr,
+        alias=alias,
+    )
 
 
 # =============================================================================
@@ -703,6 +1105,544 @@ def _build_to_start_of_year(expr, alias=None):
     from .functions import Function
 
     return Function('toStartOfYear', expr, alias=alias)
+
+
+# ---------- Additional Pandas .dt methods ----------
+
+
+@register_function(
+    name='to_start_of_hour',
+    clickhouse_name='toStartOfHour',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfHour'],
+    doc='Round down to start of hour.',
+    accessor_only=True,
+)
+def _build_to_start_of_hour(expr, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfHour', expr, alias=alias)
+
+
+@register_function(
+    name='to_start_of_minute',
+    clickhouse_name='toStartOfMinute',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfMinute'],
+    doc='Round down to start of minute.',
+    accessor_only=True,
+)
+def _build_to_start_of_minute(expr, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfMinute', expr, alias=alias)
+
+
+@register_function(
+    name='to_start_of_second',
+    clickhouse_name='toStartOfSecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfSecond'],
+    doc='Round down to start of second.',
+    accessor_only=True,
+)
+def _build_to_start_of_second(expr, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfSecond', expr, alias=alias)
+
+
+@register_function(
+    name='millisecond',
+    clickhouse_name='toMillisecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toMillisecond'],
+    doc='Extract millisecond (0-999).',
+    accessor_only=True,
+)
+def _build_millisecond(expr, alias=None):
+    from .functions import Function
+
+    return Function('toMillisecond', expr, alias=alias)
+
+
+@register_function(
+    name='microsecond',
+    clickhouse_name='toMicrosecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toMicrosecond'],
+    doc='Extract microsecond.',
+    accessor_only=True,
+)
+def _build_microsecond(expr, alias=None):
+    from .functions import Function
+
+    return Function('toMicrosecond', expr, alias=alias)
+
+
+@register_function(
+    name='nanosecond',
+    clickhouse_name='toNanosecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toNanosecond'],
+    doc='Extract nanosecond.',
+    accessor_only=True,
+)
+def _build_nanosecond(expr, alias=None):
+    from .functions import Function
+
+    # ClickHouse DateTime64 supports nanoseconds
+    return Function('toNanosecond', expr, alias=alias)
+
+
+@register_function(
+    name='date',
+    clickhouse_name='toDate',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Extract date part from datetime.',
+    accessor_only=True,
+)
+def _build_date_part(expr, alias=None):
+    from .functions import Function
+
+    return Function('toDate', expr, alias=alias)
+
+
+@register_function(
+    name='time',
+    clickhouse_name='toTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toTime'],
+    doc='Extract time part from datetime.',
+    accessor_only=True,
+)
+def _build_time(expr, alias=None):
+    from .functions import Function
+
+    return Function('toTime', expr, alias=alias)
+
+
+@register_function(
+    name='is_month_start',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if date is first day of month.',
+    accessor_only=True,
+)
+def _build_is_month_start(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('equals', Function('toDayOfMonth', expr), Literal(1), alias=alias)
+
+
+@register_function(
+    name='is_month_end',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if date is last day of month.',
+    accessor_only=True,
+)
+def _build_is_month_end(expr, alias=None):
+    from .functions import Function
+
+    return Function(
+        'equals',
+        Function('toDayOfMonth', expr),
+        Function('toDayOfMonth', Function('toLastDayOfMonth', expr)),
+        alias=alias,
+    )
+
+
+@register_function(
+    name='is_quarter_start',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if date is first day of quarter.',
+    accessor_only=True,
+)
+def _build_is_quarter_start(expr, alias=None):
+    from .functions import Function
+
+    return Function('equals', expr, Function('toStartOfQuarter', expr), alias=alias)
+
+
+@register_function(
+    name='is_quarter_end',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if date is last day of quarter.',
+    accessor_only=True,
+)
+def _build_is_quarter_end(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function(
+        'equals',
+        Function('toDate', expr),
+        Function('subtractDays', Function('addMonths', Function('toStartOfQuarter', expr), Literal(3)), Literal(1)),
+        alias=alias,
+    )
+
+
+@register_function(
+    name='is_year_start',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if date is first day of year.',
+    accessor_only=True,
+)
+def _build_is_year_start(expr, alias=None):
+    from .functions import Function
+
+    return Function('equals', expr, Function('toStartOfYear', expr), alias=alias)
+
+
+@register_function(
+    name='is_year_end',
+    clickhouse_name='equals',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if date is last day of year.',
+    accessor_only=True,
+)
+def _build_is_year_end(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function(
+        'equals', Function('toDayOfYear', expr), Literal(365), alias=alias  # Simplified, doesn't handle leap years
+    )
+
+
+@register_function(
+    name='is_leap_year',
+    clickhouse_name='isLeapYear',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Check if year is a leap year.',
+    accessor_only=True,
+)
+def _build_is_leap_year(expr, alias=None):
+    from .functions import Function
+
+    # ClickHouse doesn't have isLeapYear, calculate
+    year_expr = Function('toYear', expr)
+    from .expressions import Literal
+
+    # Leap year: divisible by 4 AND (not divisible by 100 OR divisible by 400)
+    return Function(
+        'or',
+        Function('equals', Function('modulo', year_expr, Literal(400)), Literal(0)),
+        Function(
+            'and',
+            Function('equals', Function('modulo', year_expr, Literal(4)), Literal(0)),
+            Function('notEquals', Function('modulo', year_expr, Literal(100)), Literal(0)),
+        ),
+        alias=alias,
+    )
+
+
+@register_function(
+    name='days_in_month',
+    clickhouse_name='toDayOfMonth',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['daysinmonth'],
+    doc='Get number of days in month.',
+    accessor_only=True,
+)
+def _build_days_in_month(expr, alias=None):
+    from .functions import Function
+
+    return Function('toDayOfMonth', Function('toLastDayOfMonth', expr), alias=alias)
+
+
+@register_function(
+    name='day_name',
+    clickhouse_name='dateName',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Get name of day of week.',
+)
+def _build_day_name(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('dateName', Literal('weekday'), expr, alias=alias)
+
+
+@register_function(
+    name='month_name',
+    clickhouse_name='dateName',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Get name of month.',
+)
+def _build_month_name(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('dateName', Literal('month'), expr, alias=alias)
+
+
+@register_function(
+    name='strftime',
+    clickhouse_name='formatDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['formatDateTime', 'format_datetime'],
+    doc='Format datetime as string. Maps to formatDateTime(dt, format).',
+)
+def _build_strftime(expr, date_format: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('formatDateTime', expr, Literal(date_format), alias=alias)
+
+
+@register_function(
+    name='tz_convert',
+    clickhouse_name='toTimezone',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toTimezone'],
+    doc='Convert to timezone. Maps to toTimezone(dt, tz).',
+)
+def _build_tz_convert(expr, tz: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toTimezone', expr, Literal(tz), alias=alias)
+
+
+@register_function(
+    name='tz_localize',
+    clickhouse_name='toTimezone',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Localize to timezone.',
+)
+def _build_tz_localize(expr, tz: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toTimezone', expr, Literal(tz), alias=alias)
+
+
+@register_function(
+    name='floor_dt',
+    clickhouse_name='toStartOfInterval',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Floor datetime to interval.',
+)
+def _build_floor_dt(expr, freq: str = 'D', alias=None):
+    from .functions import Function
+
+    freq_map = {
+        'D': 'toStartOfDay',
+        'H': 'toStartOfHour',
+        'M': 'toStartOfMonth',
+        'W': 'toStartOfWeek',
+        'Q': 'toStartOfQuarter',
+        'Y': 'toStartOfYear',
+    }
+    func_name = freq_map.get(freq.upper(), 'toStartOfDay')
+    return Function(func_name, expr, alias=alias)
+
+
+@register_function(
+    name='ceil_dt',
+    clickhouse_name='dateCeil',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    doc='Ceil datetime to interval.',
+)
+def _build_ceil_dt(expr, freq: str = 'D', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    # ClickHouse doesn't have direct ceil, use floor + add interval
+    return Function('addDays', Function('toStartOfDay', expr), Literal(1), alias=alias)
+
+
+@register_function(
+    name='total_seconds',
+    clickhouse_name='toUnixTimestamp',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toUnixTimestamp', 'timestamp'],
+    doc='Convert to Unix timestamp (seconds). Maps to toUnixTimestamp(dt).',
+)
+def _build_total_seconds(expr, alias=None):
+    from .functions import Function
+
+    return Function('toUnixTimestamp', expr, alias=alias)
+
+
+@register_function(
+    name='add_years',
+    clickhouse_name='addYears',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addYears'],
+    doc='Add years to date/datetime.',
+)
+def _build_add_years(expr, years: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addYears', expr, Literal(years), alias=alias)
+
+
+@register_function(
+    name='add_months',
+    clickhouse_name='addMonths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addMonths'],
+    doc='Add months to date/datetime.',
+)
+def _build_add_months(expr, months: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addMonths', expr, Literal(months), alias=alias)
+
+
+@register_function(
+    name='add_weeks',
+    clickhouse_name='addWeeks',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addWeeks'],
+    doc='Add weeks to date/datetime.',
+)
+def _build_add_weeks(expr, weeks: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addWeeks', expr, Literal(weeks), alias=alias)
+
+
+@register_function(
+    name='add_days',
+    clickhouse_name='addDays',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addDays'],
+    doc='Add days to date/datetime.',
+)
+def _build_add_days(expr, days: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addDays', expr, Literal(days), alias=alias)
+
+
+@register_function(
+    name='add_hours',
+    clickhouse_name='addHours',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addHours'],
+    doc='Add hours to datetime.',
+)
+def _build_add_hours(expr, hours: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addHours', expr, Literal(hours), alias=alias)
+
+
+@register_function(
+    name='add_minutes',
+    clickhouse_name='addMinutes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addMinutes'],
+    doc='Add minutes to datetime.',
+)
+def _build_add_minutes(expr, minutes: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addMinutes', expr, Literal(minutes), alias=alias)
+
+
+@register_function(
+    name='add_seconds',
+    clickhouse_name='addSeconds',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addSeconds'],
+    doc='Add seconds to datetime.',
+)
+def _build_add_seconds(expr, seconds: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('addSeconds', expr, Literal(seconds), alias=alias)
+
+
+@register_function(
+    name='subtract_years',
+    clickhouse_name='subtractYears',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractYears'],
+    doc='Subtract years from date/datetime.',
+)
+def _build_subtract_years(expr, years: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('subtractYears', expr, Literal(years), alias=alias)
+
+
+@register_function(
+    name='subtract_months',
+    clickhouse_name='subtractMonths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractMonths'],
+    doc='Subtract months from date/datetime.',
+)
+def _build_subtract_months(expr, months: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('subtractMonths', expr, Literal(months), alias=alias)
+
+
+@register_function(
+    name='subtract_days',
+    clickhouse_name='subtractDays',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractDays'],
+    doc='Subtract days from date/datetime.',
+)
+def _build_subtract_days(expr, days: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('subtractDays', expr, Literal(days), alias=alias)
 
 
 # =============================================================================
@@ -1318,6 +2258,346 @@ def _build_any_last(expr, alias=None):
     from .functions import AggregateFunction
 
     return AggregateFunction('anyLast', expr, alias=alias)
+
+
+# ---------- Additional Pandas aggregation/statistics methods ----------
+
+
+@register_function(
+    name='prod',
+    clickhouse_name='product',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['product'],
+    doc='Product of values. Maps to product(x).',
+)
+def _build_prod(expr, alias=None):
+    from .functions import AggregateFunction
+
+    # ClickHouse uses product() or we can use exp(sum(log(x)))
+    return AggregateFunction('product', expr, alias=alias)
+
+
+@register_function(
+    name='all_true',
+    clickhouse_name='min',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['all'],
+    doc='Check if all values are true. Maps to min(x) for boolean.',
+)
+def _build_all_true(expr, alias=None):
+    from .functions import AggregateFunction
+
+    return AggregateFunction('min', expr, alias=alias)
+
+
+@register_function(
+    name='skew',
+    clickhouse_name='skewPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['skewPop', 'skewness'],
+    doc='Skewness of distribution. Maps to skewPop(x).',
+)
+def _build_skew(expr, alias=None):
+    from .functions import AggregateFunction
+
+    return AggregateFunction('skewPop', expr, alias=alias)
+
+
+@register_function(
+    name='kurt',
+    clickhouse_name='kurtPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['kurtPop', 'kurtosis'],
+    doc='Kurtosis of distribution. Maps to kurtPop(x).',
+)
+def _build_kurt(expr, alias=None):
+    from .functions import AggregateFunction
+
+    return AggregateFunction('kurtPop', expr, alias=alias)
+
+
+@register_function(
+    name='corr',
+    clickhouse_name='corr',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['correlation'],
+    doc='Correlation between two columns. Maps to corr(x, y).',
+)
+def _build_corr(expr, other, alias=None):
+    from .functions import AggregateFunction
+    from .expressions import Expression
+
+    return AggregateFunction('corr', expr, Expression.wrap(other), alias=alias)
+
+
+@register_function(
+    name='cov',
+    clickhouse_name='covarPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['covarPop', 'covariance'],
+    doc='Covariance between two columns. Maps to covarPop(x, y).',
+)
+def _build_cov(expr, other, alias=None):
+    from .functions import AggregateFunction
+    from .expressions import Expression
+
+    return AggregateFunction('covarPop', expr, Expression.wrap(other), alias=alias)
+
+
+@register_function(
+    name='mode',
+    clickhouse_name='topK',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    doc='Most frequent value. Maps to topK(1)(x).',
+)
+def _build_mode(expr, alias=None):
+    from .functions import AggregateFunction
+
+    return AggregateFunction('topK(1)', expr, alias=alias)
+
+
+@register_function(
+    name='sem',
+    clickhouse_name='stddevPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    doc='Standard error of mean. Maps to stddevPop(x)/sqrt(count(x)).',
+)
+def _build_sem(expr, alias=None):
+    from .functions import AggregateFunction, Function
+
+    # SEM = stddev / sqrt(n)
+    return Function(
+        'divide', AggregateFunction('stddevPop', expr), Function('sqrt', AggregateFunction('count', expr)), alias=alias
+    )
+
+
+@register_function(
+    name='cumsum',
+    clickhouse_name='runningAccumulate',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['runningSum'],
+    doc='Cumulative sum. Use with window function.',
+    supports_over=True,
+)
+def _build_cumsum(expr, alias=None):
+    from .functions import WindowFunction
+
+    return WindowFunction('sum', expr, alias=alias)
+
+
+@register_function(
+    name='cummax',
+    clickhouse_name='runningAccumulate',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    doc='Cumulative max. Use with window function.',
+    supports_over=True,
+)
+def _build_cummax(expr, alias=None):
+    from .functions import WindowFunction
+
+    return WindowFunction('max', expr, alias=alias)
+
+
+@register_function(
+    name='cummin',
+    clickhouse_name='runningAccumulate',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    doc='Cumulative min. Use with window function.',
+    supports_over=True,
+)
+def _build_cummin(expr, alias=None):
+    from .functions import WindowFunction
+
+    return WindowFunction('min', expr, alias=alias)
+
+
+@register_function(
+    name='diff',
+    clickhouse_name='lagInFrame',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    doc='Difference with previous value. Maps to x - lagInFrame(x, 1).',
+    supports_over=True,
+)
+def _build_diff(expr, periods: int = 1, alias=None):
+    from .functions import Function, WindowFunction
+    from .expressions import Literal
+
+    lag = WindowFunction('lagInFrame', expr, Literal(periods))
+    return Function('minus', expr, lag, alias=alias)
+
+
+@register_function(
+    name='pct_change',
+    clickhouse_name='lagInFrame',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    doc='Percentage change from previous value.',
+    supports_over=True,
+)
+def _build_pct_change(expr, periods: int = 1, alias=None):
+    from .functions import Function, WindowFunction
+    from .expressions import Literal
+
+    lag = WindowFunction('lagInFrame', expr, Literal(periods))
+    # (x - lag) / lag
+    return Function('divide', Function('minus', expr, lag), lag, alias=alias)
+
+
+@register_function(
+    name='shift',
+    clickhouse_name='lagInFrame',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    doc='Shift values by periods. Positive=lag, negative=lead.',
+    supports_over=True,
+)
+def _build_shift(expr, periods: int = 1, alias=None):
+    from .functions import WindowFunction
+    from .expressions import Literal
+
+    if periods >= 0:
+        return WindowFunction('lagInFrame', expr, Literal(periods), alias=alias)
+    else:
+        return WindowFunction('leadInFrame', expr, Literal(-periods), alias=alias)
+
+
+@register_function(
+    name='clip',
+    clickhouse_name='greatest',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    doc='Clip values to range. Maps to greatest(lower, least(upper, x)).',
+)
+def _build_clip(expr, lower=None, upper=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    result = expr
+    if lower is not None:
+        result = Function('greatest', Literal(lower), result)
+    if upper is not None:
+        result = Function('least', Literal(upper), result)
+    if alias:
+        # Add alias handling
+        result.alias = alias
+    return result
+
+
+@register_function(
+    name='fillna',
+    clickhouse_name='ifNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['fill_null'],
+    doc='Fill NULL values. Maps to ifNull(x, value).',
+)
+def _build_fillna(expr, value, alias=None):
+    from .functions import Function
+    from .expressions import Expression
+
+    return Function('ifNull', expr, Expression.wrap(value), alias=alias)
+
+
+@register_function(
+    name='isna',
+    clickhouse_name='isNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isnull'],
+    doc='Check if NULL. Maps to isNull(x).',
+)
+def _build_isna(expr, alias=None):
+    from .functions import Function
+
+    return Function('isNull', expr, alias=alias)
+
+
+@register_function(
+    name='notna',
+    clickhouse_name='isNotNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['notnull'],
+    doc='Check if not NULL. Maps to isNotNull(x).',
+)
+def _build_notna(expr, alias=None):
+    from .functions import Function
+
+    return Function('isNotNull', expr, alias=alias)
+
+
+@register_function(
+    name='where_expr',
+    clickhouse_name='if',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    doc='Where condition is true, return self, else other. Maps to if(cond, x, other).',
+)
+def _build_where_expr(expr, cond, other=None, alias=None):
+    from .functions import Function
+    from .expressions import Expression, Literal
+
+    if other is None:
+        other = Literal(None)
+    return Function('if', Expression.wrap(cond), expr, Expression.wrap(other), alias=alias)
+
+
+@register_function(
+    name='mask',
+    clickhouse_name='if',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    doc='Where condition is true, return other, else self. Maps to if(cond, other, x).',
+)
+def _build_mask(expr, cond, other=None, alias=None):
+    from .functions import Function
+    from .expressions import Expression, Literal
+
+    if other is None:
+        other = Literal(None)
+    return Function('if', Expression.wrap(cond), Expression.wrap(other), expr, alias=alias)
+
+
+@register_function(
+    name='argmin',
+    clickhouse_name='argMin',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['argMin', 'idxmin'],
+    doc='Value of first arg where second arg is minimum. Maps to argMin(arg, val).',
+)
+def _build_argmin(expr, val, alias=None):
+    from .functions import AggregateFunction
+    from .expressions import Expression
+
+    return AggregateFunction('argMin', expr, Expression.wrap(val), alias=alias)
+
+
+@register_function(
+    name='argmax',
+    clickhouse_name='argMax',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['argMax', 'idxmax'],
+    doc='Value of first arg where second arg is maximum. Maps to argMax(arg, val).',
+)
+def _build_argmax(expr, val, alias=None):
+    from .functions import AggregateFunction
+    from .expressions import Expression
+
+    return AggregateFunction('argMax', expr, Expression.wrap(val), alias=alias)
 
 
 # =============================================================================

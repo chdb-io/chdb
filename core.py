@@ -1821,7 +1821,6 @@ class DataStore(PandasCompatMixin):
             instead of materializing the entire DataFrame.
         """
         from .functions import Count
-        from .expressions import Literal
 
         # If we have lazy operations that can't be expressed in SQL, fall back to materialization
         # Check if there are any non-SQL operations in the lazy ops

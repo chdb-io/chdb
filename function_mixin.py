@@ -20,13 +20,11 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Type
 from .function_registry import (
     FunctionRegistry,
     FunctionSpec,
-    FunctionType,
     FunctionCategory,
 )
 
 if TYPE_CHECKING:
     from .expressions import Expression
-    from .functions import Function
 
 __all__ = [
     'generate_expression_method',

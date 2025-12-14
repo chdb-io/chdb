@@ -5,12 +5,11 @@ Provides ClickHouse string functions in a Pandas-like API.
 All methods are dynamically injected from the FunctionRegistry.
 """
 
+from .base import BaseAccessor
 from typing import TYPE_CHECKING
 
-from .base import BaseAccessor
-
 if TYPE_CHECKING:
-    from ..functions import Function
+    from ..expressions import Expression
 
 
 class StringAccessor(BaseAccessor):

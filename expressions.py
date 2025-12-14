@@ -585,7 +585,7 @@ def col(name: str) -> Field:
 
 def _inject_expression_methods():
     """Inject function methods from registry into Expression class."""
-    from .function_registry import FunctionRegistry, FunctionCategory
+    from .function_registry import FunctionRegistry
     from . import function_definitions  # noqa: F401 - ensures registration
 
     function_definitions.ensure_functions_registered()
