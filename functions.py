@@ -129,6 +129,15 @@ class Count(AggregateFunction):
             expr = Literal('*')
         super().__init__('COUNT', expr, alias=alias)
 
+    def __copy__(self):
+        """Preserve Count type when copying (e.g., for .as_() method)."""
+        # Reconstruct with the original argument
+        from .expressions import Literal
+
+        if len(self.args) == 1 and isinstance(self.args[0], Literal) and self.args[0].value == '*':
+            return Count('*', alias=self.alias)
+        return Count(copy(self.args[0]), alias=self.alias)
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Special handling for COUNT(*)."""
         # For COUNT(*), don't quote the *
