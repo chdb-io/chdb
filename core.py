@@ -2440,6 +2440,74 @@ class DataStore(PandasCompatMixin):
             return super().agg(func, axis, *args, **kwargs)
 
     @immutable
+    def assign(self, **kwargs) -> 'DataStore':
+        """
+        Assign new columns to a DataStore.
+
+        Supports two modes:
+        1. SQL-style aggregation when used with groupby (aggregate expressions):
+           >>> ds.groupby("region").assign(
+           ...     total_revenue=col("revenue").sum(),
+           ...     avg_quantity=col("quantity").mean(),
+           ...     order_count=col("order_id").count()
+           ... )
+
+        2. Standard pandas-style assignment (non-aggregate expressions or no groupby):
+           >>> ds.assign(new_col=lambda x: x['old_col'] * 2)
+           >>> ds.assign(doubled=ds['amount'] * 2)
+
+        When used with groupby and aggregate expressions:
+        - Acts like agg(): keyword argument names become output column aliases
+        - Values should be aggregate expressions (e.g., col("x").sum())
+        - Groupby columns are automatically included in SELECT
+
+        Args:
+            **kwargs: alias=expression pairs
+
+        Returns:
+            DataStore with new columns assigned
+        """
+        from .column_expr import ColumnExpr
+        from .functions import AggregateFunction
+
+        # Check if we have groupby and aggregate expressions
+        has_groupby = len(self._groupby_fields) > 0
+        has_agg_expr = any(
+            isinstance(v, (AggregateFunction,)) or
+            (isinstance(v, (Expression, ColumnExpr)) and self._is_aggregate_expr(v))
+            for v in kwargs.values()
+        )
+
+        if has_groupby and has_agg_expr:
+            # Delegate to agg() for groupby + aggregate expressions
+            return self.agg(**kwargs)
+        else:
+            # Standard pandas-style assignment
+            return super().assign(**kwargs)
+
+    def _is_aggregate_expr(self, expr) -> bool:
+        """Check if an expression is an aggregate expression."""
+        from .column_expr import ColumnExpr
+        from .functions import AggregateFunction
+
+        if isinstance(expr, ColumnExpr):
+            expr = expr._expr
+
+        if isinstance(expr, AggregateFunction):
+            return True
+
+        # Check if expression has aggregate function in its tree
+        if hasattr(expr, '_func_name'):
+            # Check registry for aggregate function
+            from .function_registry import get_function_registry
+            registry = get_function_registry()
+            func_def = registry.get(expr._func_name)
+            if func_def and func_def.func_type.name == 'AGGREGATE':
+                return True
+
+        return False
+
+    @immutable
     def sort(self, *fields: Union[str, Expression], ascending: bool = True) -> 'DataStore':
         """
         Sort results (ORDER BY clause).
