@@ -2573,6 +2573,9 @@ class DataStore(PandasCompatMixin):
         """
         return self.sort(*fields, ascending=ascending)
 
+    # Alias: order_by -> orderby
+    order_by = orderby
+
     @immutable
     def limit(self, n: int) -> 'DataStore':
         """Limit number of results."""
