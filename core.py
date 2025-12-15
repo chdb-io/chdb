@@ -2473,8 +2473,8 @@ class DataStore(PandasCompatMixin):
         # Check if we have groupby and aggregate expressions
         has_groupby = len(self._groupby_fields) > 0
         has_agg_expr = any(
-            isinstance(v, (AggregateFunction,)) or
-            (isinstance(v, (Expression, ColumnExpr)) and self._is_aggregate_expr(v))
+            isinstance(v, (AggregateFunction,))
+            or (isinstance(v, (Expression, ColumnExpr)) and self._is_aggregate_expr(v))
             for v in kwargs.values()
         )
 
@@ -2500,6 +2500,7 @@ class DataStore(PandasCompatMixin):
         if hasattr(expr, '_func_name'):
             # Check registry for aggregate function
             from .function_registry import get_function_registry
+
             registry = get_function_registry()
             func_def = registry.get(expr._func_name)
             if func_def and func_def.func_type.name == 'AGGREGATE':
