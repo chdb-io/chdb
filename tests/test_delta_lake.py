@@ -1,8 +1,7 @@
 #!python3
 
 import unittest
-import sys
-import chdb
+import platform
 from chdb import session
 from utils import is_musl_linux
 
