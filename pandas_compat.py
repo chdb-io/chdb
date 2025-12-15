@@ -1867,3 +1867,55 @@ class PandasCompatMixin:
             data, index=index, exclude=exclude, columns=columns, coerce_float=coerce_float, nrows=nrows
         )
         return df
+
+    # ========== Additional Methods for Full Pandas Compatibility ==========
+
+    def to_xml(self, path_or_buffer=None, *, index=True, root_name='data', row_name='row', **kwargs):
+        """Export DataFrame to XML format."""
+        return self._get_df().to_xml(path_or_buffer, index=index, root_name=root_name, row_name=row_name, **kwargs)
+
+    def divide(self, other, axis='columns', level=None, fill_value=None):
+        """Alias for div(). Get floating division of DataFrame and other."""
+        return self.div(other, axis=axis, level=level, fill_value=fill_value)
+
+    def multiply(self, other, axis='columns', level=None, fill_value=None):
+        """Alias for mul(). Get multiplication of DataFrame and other."""
+        return self.mul(other, axis=axis, level=level, fill_value=fill_value)
+
+    def subtract(self, other, axis='columns', level=None, fill_value=None):
+        """Alias for sub(). Get subtraction of DataFrame and other."""
+        return self.sub(other, axis=axis, level=level, fill_value=fill_value)
+
+    def keys(self):
+        """Get the columns. Alias for columns property."""
+        return self._get_df().keys()
+
+    def bool(self):
+        """Return the bool of a single element DataFrame."""
+        return self._get_df().bool()
+
+    @property
+    def index(self):
+        """The index (row labels) of the DataFrame."""
+        return self._get_df().index
+
+    @property
+    def attrs(self):
+        """Dictionary of global attributes of this dataset."""
+        return self._get_df().attrs
+
+    @property
+    def flags(self):
+        """Get the properties associated with this pandas object."""
+        return self._get_df().flags
+
+    def set_flags(self, *, copy=False, allows_duplicate_labels=None):
+        """Return a new object with updated flags."""
+        result = self._get_df().set_flags(copy=copy, allows_duplicate_labels=allows_duplicate_labels)
+        return self._wrap_result(result, 'set_flags')
+
+    def isetitem(self, loc, value):
+        """Set item at position."""
+        df = self._get_df().copy()
+        df.isetitem(loc, value)
+        return self._wrap_result(df, 'isetitem')

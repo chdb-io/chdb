@@ -8,6 +8,9 @@ allowing users to write code like:
     ds['date'].dt.year
     ds['tags'].arr.length()
     ds['data'].json.get_string('$.name')
+    ds['link'].url.domain()
+    ds['ip_addr'].ip.to_ipv4()
+    ds['point'].geo.distance(other_point)
 
 Each accessor method returns a Function expression that generates the
 appropriate ClickHouse SQL when executed.
@@ -16,15 +19,19 @@ appropriate ClickHouse SQL when executed.
 from .base import BaseAccessor
 from .string import StringAccessor
 from .datetime import DateTimeAccessor
-
-# Optional accessors (can be added later)
-# from .array import ArrayAccessor
-# from .json import JsonAccessor
+from .array import ArrayAccessor
+from .json import JsonAccessor
+from .url import UrlAccessor
+from .ip import IpAccessor
+from .geo import GeoAccessor
 
 __all__ = [
     'BaseAccessor',
     'StringAccessor',
     'DateTimeAccessor',
-    # 'ArrayAccessor',
-    # 'JsonAccessor',
+    'ArrayAccessor',
+    'JsonAccessor',
+    'UrlAccessor',
+    'IpAccessor',
+    'GeoAccessor',
 ]

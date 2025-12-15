@@ -29,8 +29,19 @@ class StringAccessor(BaseAccessor):
         https://clickhouse.com/docs/en/sql-reference/functions/string-functions
     """
 
-    # Methods will be injected from registry below
-    pass
+    def count(self, pattern: str, alias=None):
+        """Count occurrences of pattern in string. Alias for str_count."""
+        from ..function_registry import FunctionRegistry
+
+        spec = FunctionRegistry.get('str_count')
+        return spec.sql_builder(self._expr, pattern, alias=alias)
+
+    def join(self, sep: str = '', alias=None):
+        """Join elements of array column with separator. Alias for str_join."""
+        from ..function_registry import FunctionRegistry
+
+        spec = FunctionRegistry.get('str_join')
+        return spec.sql_builder(self._expr, sep, alias=alias)
 
 
 # =============================================================================

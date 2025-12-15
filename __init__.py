@@ -108,6 +108,11 @@ from .function_executor import (  # noqa: E402
 from .accessors import (  # noqa: E402
     StringAccessor,
     DateTimeAccessor,
+    ArrayAccessor,
+    JsonAccessor,
+    UrlAccessor,
+    IpAccessor,
+    GeoAccessor,
 )
 from .conditions import Condition, BinaryCondition  # noqa: E402
 from .connection import Connection, QueryResult  # noqa: E402
@@ -186,6 +191,11 @@ __all__ = [
     # Accessors (for advanced use)
     'StringAccessor',
     'DateTimeAccessor',
+    'ArrayAccessor',
+    'JsonAccessor',
+    'UrlAccessor',
+    'IpAccessor',
+    'GeoAccessor',
     # Function Executor Config
     'FunctionExecutorConfig',
     'ExecutionEngine',

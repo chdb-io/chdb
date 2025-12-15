@@ -12,6 +12,11 @@ if TYPE_CHECKING:
     from .conditions import BinaryCondition, Condition
     from .accessors.string import StringAccessor
     from .accessors.datetime import DateTimeAccessor
+    from .accessors.array import ArrayAccessor
+    from .accessors.json import JsonAccessor
+    from .accessors.url import UrlAccessor
+    from .accessors.ip import IpAccessor
+    from .accessors.geo import GeoAccessor
 
 __all__ = ['Node', 'Expression', 'Field', 'Literal', 'ArithmeticExpression', 'col']
 
@@ -326,6 +331,101 @@ class Expression(Node):
         from .accessors.datetime import DateTimeAccessor
 
         return DateTimeAccessor(self)
+
+    @property
+    def arr(self) -> 'ArrayAccessor':
+        """
+        Accessor for array functions.
+
+        Provides a Pandas-like interface to ClickHouse array functions.
+
+        Example:
+            >>> ds['tags'].arr.length           # length(tags)
+            >>> ds['nums'].arr.array_sum()      # arraySum(nums)
+            >>> ds['arr'].arr.array_first()     # arrayElement(arr, 1)
+            >>> ds['arr'].arr.has('value')      # has(arr, 'value')
+
+        Returns:
+            ArrayAccessor with array function methods
+        """
+        from .accessors.array import ArrayAccessor
+
+        return ArrayAccessor(self)
+
+    @property
+    def json(self) -> 'JsonAccessor':
+        """
+        Accessor for JSON functions.
+
+        Provides a Pandas-like interface to ClickHouse JSON functions.
+
+        Example:
+            >>> ds['data'].json.json_extract_string('name')  # JSONExtractString(data, 'name')
+            >>> ds['data'].json.json_extract_int('age')      # JSONExtractInt(data, 'age')
+            >>> ds['data'].json.is_valid_json()              # isValidJSON(data)
+
+        Returns:
+            JsonAccessor with JSON function methods
+        """
+        from .accessors.json import JsonAccessor
+
+        return JsonAccessor(self)
+
+    @property
+    def url(self) -> 'UrlAccessor':
+        """
+        Accessor for URL functions.
+
+        Provides a Pandas-like interface to ClickHouse URL functions.
+
+        Example:
+            >>> ds['link'].url.domain()                      # domain(link)
+            >>> ds['link'].url.url_path()                    # path(link)
+            >>> ds['link'].url.extract_url_parameter('id')   # extractURLParameter(link, 'id')
+
+        Returns:
+            UrlAccessor with URL function methods
+        """
+        from .accessors.url import UrlAccessor
+
+        return UrlAccessor(self)
+
+    @property
+    def ip(self) -> 'IpAccessor':
+        """
+        Accessor for IP address functions.
+
+        Provides a Pandas-like interface to ClickHouse IP functions.
+
+        Example:
+            >>> ds['ip'].ip.to_ipv4()           # toIPv4(ip)
+            >>> ds['ip'].ip.is_ipv4_string()    # isIPv4String(ip)
+            >>> ds['ip'].ip.ipv4_to_ipv6()      # IPv4ToIPv6(ip)
+
+        Returns:
+            IpAccessor with IP function methods
+        """
+        from .accessors.ip import IpAccessor
+
+        return IpAccessor(self)
+
+    @property
+    def geo(self) -> 'GeoAccessor':
+        """
+        Accessor for geo/distance functions.
+
+        Provides a Pandas-like interface to ClickHouse geo functions.
+
+        Example:
+            >>> ds['vec'].geo.l2_norm()                    # L2Norm(vec)
+            >>> ds['vec'].geo.l2_normalize()               # L2Normalize(vec)
+
+        Returns:
+            GeoAccessor with geo function methods
+        """
+        from .accessors.geo import GeoAccessor
+
+        return GeoAccessor(self)
 
     # ========== Function Methods ==========
     # NOTE: Function methods (abs, round, sum, avg, etc.) are now dynamically

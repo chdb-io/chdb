@@ -396,6 +396,96 @@ class ColumnExprStringAccessor:
 
         return wrapper
 
+    def _materialize_series(self):
+        """Materialize the column as a Pandas Series."""
+        ds = self._column_expr._datastore
+        col_expr = self._column_expr._expr
+
+        # Get the full DataFrame
+        df = ds.to_df()
+
+        # Get column name from expression
+        col_name = str(col_expr)
+
+        # Try to find the column in the DataFrame
+        if col_name in df.columns:
+            return df[col_name]
+
+        # If not found directly, the expression might be complex
+        # In that case, execute a select with this column
+        result = ds.select(col_expr).to_df()
+        return result.iloc[:, 0]
+
+    def cat(self, others=None, sep=None, na_rep=None, join='left'):
+        """
+        Concatenate strings in the Series/Index with given separator.
+
+        Returns:
+            Series with concatenated strings
+        """
+        series = self._materialize_series()
+        return series.str.cat(others=others, sep=sep, na_rep=na_rep, join=join)
+
+    def extractall(self, pat, flags=0):
+        """
+        Extract all matches of pattern from each string.
+
+        Returns:
+            DataStore wrapping the MultiIndex DataFrame result
+        """
+        from .core import DataStore
+
+        series = self._materialize_series()
+        result = series.str.extractall(pat, flags=flags)
+        # Reset index to make it a regular DataFrame
+        result = result.reset_index()
+        return DataStore.from_df(result)
+
+    def get_dummies(self, sep='|'):
+        """
+        Return DataFrame of dummy/indicator variables for Series.
+
+        Returns:
+            DataStore wrapping the dummy DataFrame
+        """
+        from .core import DataStore
+
+        series = self._materialize_series()
+        result = series.str.get_dummies(sep=sep)
+        return DataStore.from_df(result)
+
+    def partition(self, sep=' ', expand=True):
+        """
+        Split the string at the first occurrence of sep.
+
+        Returns:
+            DataStore wrapping the 3-column DataFrame (if expand=True)
+            or Series of tuples (if expand=False)
+        """
+        from .core import DataStore
+
+        series = self._materialize_series()
+        result = series.str.partition(sep=sep, expand=expand)
+        if expand:
+            return DataStore.from_df(result)
+        return result
+
+    def rpartition(self, sep=' ', expand=True):
+        """
+        Split the string at the last occurrence of sep.
+
+        Returns:
+            DataStore wrapping the 3-column DataFrame (if expand=True)
+            or Series of tuples (if expand=False)
+        """
+        from .core import DataStore
+
+        series = self._materialize_series()
+        result = series.str.rpartition(sep=sep, expand=expand)
+        if expand:
+            return DataStore.from_df(result)
+        return result
+
     def __repr__(self) -> str:
         return f"ColumnExprStringAccessor({self._column_expr._expr!r})"
 
