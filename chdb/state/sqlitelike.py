@@ -472,6 +472,28 @@ class Connection:
             raise RuntimeError("AI SQL generation is not available in this build.")
         return self._conn.generate_sql(prompt)
 
+    def ask(self, prompt: str, format: str = "CSV", params=None) -> Any:
+        """Generate SQL from a prompt, execute it, and return the results.
+
+        This convenience method first calls :meth:`generate_sql` to translate
+        a natural language prompt into SQL, then executes the generated SQL via
+        :meth:`query`.
+        Args:
+            prompt (str): Natural language description of the desired query.
+            format (str, optional): Output format for the executed query.
+                Defaults to ``\"CSV\"``.
+            params (dict, optional): Named parameters forwarded to the executed
+                SQL statement. Defaults to None.
+
+        Returns:
+            Query results in the requested format (CSV by default).
+
+        Raises:
+            RuntimeError: If SQL generation is unavailable or query execution fails.
+        """
+        generated_sql = self.generate_sql(prompt)
+        return self.query(generated_sql, format=format, params=params)
+
     def send_query(self, query: str, format: str = "CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 

@@ -13,23 +13,17 @@ class TestAIQuery(unittest.TestCase):
         self.conn = chdb.connect(connection_str)
         self.conn.query("CREATE TABLE users (id UInt32, name String) ENGINE = Memory")
         self.conn.query("INSERT INTO users VALUES (1, 'alice'), (2, 'bob'), (3, 'carol')")
+        self.prompt = "List all rows from the users table ordered by id ascending."
 
     def tearDown(self):
         self.conn.close()
 
-    def test_ai_query_lists_users_in_order(self):
+    def _run_ai_or_skip(self, fn):
         """
-        Run an AI-generated query via generate_sql. If AI is unavailable/configured,
-        the test is skipped to avoid false failures.
+        Execute an AI-assisted call, skipping the test on common provider/configuration failures.
         """
-        prompt = "List all rows from the users table ordered by id ascending."
         try:
-            generated_sql = self.conn.generate_sql(prompt)
-            df = self.conn.query(generated_sql, format="DataFrame")
-
-            self.assertFalse(df.empty)
-            self.assertListEqual(list(df["id"]), [1, 2, 3])
-            self.assertListEqual(list(df["name"]), ["alice", "bob", "carol"])
+            return fn()
         except Exception as exc:
             message = str(exc).lower()
             if (
@@ -39,12 +33,37 @@ class TestAIQuery(unittest.TestCase):
                 or "api key not provided" in message
                 # "unsupported country" "unsupported_country_region_territory"
                 or "unsupported" in message
-                or "Syntax error" in message
+                or "syntax error" in message
                 # musl linux generic error message
-                or "Caught an unknown exception" in message
+                or "caught an unknown exception" in message
             ):
                 self.skipTest("AI provider not configured/enabled or not suppported")
             raise
+
+    def test_ai_query_lists_users_in_order(self):
+        """
+        Run an AI-generated query via generate_sql. If AI is unavailable/configured,
+        the test is skipped to avoid false failures.
+        """
+        def _gen_sql():
+            generated_sql = self.conn.generate_sql(self.prompt)
+            return self.conn.query(generated_sql, format="DataFrame")
+
+        df = self._run_ai_or_skip(_gen_sql)
+        self.assertFalse(df.empty)
+        self.assertListEqual(list(df["id"]), [1, 2, 3])
+        self.assertListEqual(list(df["name"]), ["alice", "bob", "carol"])
+
+    def test_ai_ask_runs_prompt_and_returns_dataframe(self):
+        """
+        Run a prompt end-to-end via ask() using default DataFrame output. Skip if
+        AI is unavailable/configured.
+        """
+        df = self._run_ai_or_skip(lambda: self.conn.ask(self.prompt, format="DataFrame"))
+
+        self.assertFalse(df.empty)
+        self.assertListEqual(list(df["id"]), [1, 2, 3])
+        self.assertListEqual(list(df["name"]), ["alice", "bob", "carol"])
 
 
 

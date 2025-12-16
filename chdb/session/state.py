@@ -213,6 +213,12 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
             raise RuntimeError("Session is closed.")
         return self._conn.generate_sql(prompt)
 
+    def ask(self, prompt: str, fmt: str = "CSV", params=None):
+        """Generate SQL from a prompt, execute it, and return the results."""
+        if self._conn is None:
+            raise RuntimeError("Session is closed.")
+        return self._conn.ask(prompt, format=fmt, params=params)
+
     def send_query(self, sql, fmt="CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 
