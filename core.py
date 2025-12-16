@@ -2397,6 +2397,7 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction
+        from .lazy_ops import LazySQLQuery
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())
@@ -2429,9 +2430,28 @@ class DataStore(PandasCompatMixin):
                         f"expected Expression, got {type(expr).__name__}"
                     )
 
-            # Record in lazy ops as SELECT (so _materialize picks up the fields)
-            field_names = ', '.join([str(f) for f in select_fields])
-            self._lazy_ops.append(LazyRelationalOp('SELECT', field_names, fields=select_fields))
+            # Build complete SQL query with GROUP BY
+            select_parts = []
+            for f in select_fields:
+                if hasattr(f, 'alias') and f.alias:
+                    select_parts.append(f'{f.to_sql()} AS "{f.alias}"')
+                else:
+                    select_parts.append(f.to_sql())
+
+            select_clause = ', '.join(select_parts)
+
+            # Build GROUP BY clause
+            groupby_parts = [gf.to_sql() for gf in self._groupby_fields]
+            groupby_clause = ', '.join(groupby_parts) if groupby_parts else ''
+
+            # Build full SQL
+            if groupby_clause:
+                full_sql = f'SELECT {select_clause} FROM __df__ GROUP BY {groupby_clause}'
+            else:
+                full_sql = f'SELECT {select_clause} FROM __df__'
+
+            # Use LazySQLQuery for proper execution
+            self._lazy_ops.append(LazySQLQuery(full_sql))
 
             return self
         else:

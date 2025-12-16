@@ -3556,6 +3556,451 @@ def _build_to_json_string(expr, alias=None):
     return Function('toJSONString', expr, alias=alias)
 
 
+@register_function(
+    name='json_all_paths',
+    clickhouse_name='JSONAllPaths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONAllPaths', 'all_paths'],
+    doc='Get all paths in JSON document. Maps to JSONAllPaths(json).',
+)
+def _build_json_all_paths(json, alias=None):
+    from .functions import Function
+
+    return Function('JSONAllPaths', json, alias=alias)
+
+
+@register_function(
+    name='json_all_paths_with_types',
+    clickhouse_name='JSONAllPathsWithTypes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONAllPathsWithTypes', 'all_paths_with_types'],
+    doc='Get all paths with their types in JSON document. Maps to JSONAllPathsWithTypes(json).',
+)
+def _build_json_all_paths_with_types(json, alias=None):
+    from .functions import Function
+
+    return Function('JSONAllPathsWithTypes', json, alias=alias)
+
+
+# ---------- More JSON Functions from ClickHouse docs ----------
+
+
+@register_function(
+    name='json_array_length',
+    clickhouse_name='JSONArrayLength',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONArrayLength'],
+    doc='Get length of JSON array. Maps to JSONArrayLength(json, path).',
+)
+def _build_json_array_length(json, path: str = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if path:
+        return Function('JSONArrayLength', json, Literal(path), alias=alias)
+    return Function('JSONArrayLength', json, alias=alias)
+
+
+@register_function(
+    name='json_dynamic_paths',
+    clickhouse_name='JSONDynamicPaths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONDynamicPaths'],
+    doc='Get dynamic paths from JSON column. Maps to JSONDynamicPaths(json).',
+)
+def _build_json_dynamic_paths(json, alias=None):
+    from .functions import Function
+
+    return Function('JSONDynamicPaths', json, alias=alias)
+
+
+@register_function(
+    name='json_dynamic_paths_with_types',
+    clickhouse_name='JSONDynamicPathsWithTypes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONDynamicPathsWithTypes'],
+    doc='Get dynamic paths with types from JSON column. Maps to JSONDynamicPathsWithTypes(json).',
+)
+def _build_json_dynamic_paths_with_types(json, alias=None):
+    from .functions import Function
+
+    return Function('JSONDynamicPathsWithTypes', json, alias=alias)
+
+
+@register_function(
+    name='json_extract',
+    clickhouse_name='JSONExtract',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtract'],
+    doc='Extract value from JSON with type. Maps to JSONExtract(json, path, type).',
+)
+def _build_json_extract(json, path: str, type_name: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtract', json, Literal(path), Literal(type_name), alias=alias)
+
+
+@register_function(
+    name='json_extract_uint',
+    clickhouse_name='JSONExtractUInt',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractUInt'],
+    doc='Extract unsigned integer from JSON. Maps to JSONExtractUInt(json, path).',
+)
+def _build_json_extract_uint(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractUInt', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_extract_keys_and_values',
+    clickhouse_name='JSONExtractKeysAndValues',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractKeysAndValues'],
+    doc='Extract keys and values from JSON. Maps to JSONExtractKeysAndValues(json, path, type).',
+)
+def _build_json_extract_keys_and_values(json, path: str, type_name: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractKeysAndValues', json, Literal(path), Literal(type_name), alias=alias)
+
+
+@register_function(
+    name='json_extract_keys_and_values_raw',
+    clickhouse_name='JSONExtractKeysAndValuesRaw',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractKeysAndValuesRaw'],
+    doc='Extract keys and values as raw strings from JSON. Maps to JSONExtractKeysAndValuesRaw(json, path).',
+)
+def _build_json_extract_keys_and_values_raw(json, path: str = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if path:
+        return Function('JSONExtractKeysAndValuesRaw', json, Literal(path), alias=alias)
+    return Function('JSONExtractKeysAndValuesRaw', json, alias=alias)
+
+
+@register_function(
+    name='json_merge_patch',
+    clickhouse_name='JSONMergePatch',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONMergePatch'],
+    doc='Merge multiple JSON objects. Maps to JSONMergePatch(json1, json2, ...).',
+)
+def _build_json_merge_patch(*jsons, alias=None):
+    from .functions import Function
+
+    return Function('JSONMergePatch', *jsons, alias=alias)
+
+
+@register_function(
+    name='json_shared_data_paths',
+    clickhouse_name='JSONSharedDataPaths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONSharedDataPaths'],
+    doc='Get shared data paths from JSON column. Maps to JSONSharedDataPaths(json).',
+)
+def _build_json_shared_data_paths(json, alias=None):
+    from .functions import Function
+
+    return Function('JSONSharedDataPaths', json, alias=alias)
+
+
+@register_function(
+    name='json_shared_data_paths_with_types',
+    clickhouse_name='JSONSharedDataPathsWithTypes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONSharedDataPathsWithTypes'],
+    doc='Get shared data paths with types from JSON column. Maps to JSONSharedDataPathsWithTypes(json).',
+)
+def _build_json_shared_data_paths_with_types(json, alias=None):
+    from .functions import Function
+
+    return Function('JSONSharedDataPathsWithTypes', json, alias=alias)
+
+
+@register_function(
+    name='json_exists',
+    clickhouse_name='JSON_EXISTS',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSON_EXISTS'],
+    doc='Check if path exists in JSON (SQL/JSON standard). Maps to JSON_EXISTS(json, path).',
+)
+def _build_json_exists(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSON_EXISTS', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_query',
+    clickhouse_name='JSON_QUERY',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSON_QUERY'],
+    doc='Query JSON using JSONPath (SQL/JSON standard). Maps to JSON_QUERY(json, path).',
+)
+def _build_json_query(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSON_QUERY', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_value',
+    clickhouse_name='JSON_VALUE',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSON_VALUE'],
+    doc='Extract scalar value from JSON using JSONPath (SQL/JSON standard). Maps to JSON_VALUE(json, path).',
+)
+def _build_json_value(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSON_VALUE', json, Literal(path), alias=alias)
+
+
+# ---------- simpleJSON functions (faster, limited JSON parsing) ----------
+
+
+@register_function(
+    name='simple_json_has',
+    clickhouse_name='simpleJSONHas',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONHas', 'visitParamHas'],
+    doc='Check if field exists in JSON (fast, limited). Maps to simpleJSONHas(json, field).',
+)
+def _build_simple_json_has(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONHas', json, Literal(field), alias=alias)
+
+
+@register_function(
+    name='simple_json_extract_string',
+    clickhouse_name='simpleJSONExtractString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONExtractString', 'visitParamExtractString'],
+    doc='Extract string from JSON (fast, limited). Maps to simpleJSONExtractString(json, field).',
+)
+def _build_simple_json_extract_string(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONExtractString', json, Literal(field), alias=alias)
+
+
+@register_function(
+    name='simple_json_extract_int',
+    clickhouse_name='simpleJSONExtractInt',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONExtractInt', 'visitParamExtractInt'],
+    doc='Extract integer from JSON (fast, limited). Maps to simpleJSONExtractInt(json, field).',
+)
+def _build_simple_json_extract_int(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONExtractInt', json, Literal(field), alias=alias)
+
+
+@register_function(
+    name='simple_json_extract_uint',
+    clickhouse_name='simpleJSONExtractUInt',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONExtractUInt', 'visitParamExtractUInt'],
+    doc='Extract unsigned integer from JSON (fast, limited). Maps to simpleJSONExtractUInt(json, field).',
+)
+def _build_simple_json_extract_uint(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONExtractUInt', json, Literal(field), alias=alias)
+
+
+@register_function(
+    name='simple_json_extract_float',
+    clickhouse_name='simpleJSONExtractFloat',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONExtractFloat', 'visitParamExtractFloat'],
+    doc='Extract float from JSON (fast, limited). Maps to simpleJSONExtractFloat(json, field).',
+)
+def _build_simple_json_extract_float(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONExtractFloat', json, Literal(field), alias=alias)
+
+
+@register_function(
+    name='simple_json_extract_bool',
+    clickhouse_name='simpleJSONExtractBool',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONExtractBool', 'visitParamExtractBool'],
+    doc='Extract boolean from JSON (fast, limited). Maps to simpleJSONExtractBool(json, field).',
+)
+def _build_simple_json_extract_bool(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONExtractBool', json, Literal(field), alias=alias)
+
+
+@register_function(
+    name='simple_json_extract_raw',
+    clickhouse_name='simpleJSONExtractRaw',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['simpleJSONExtractRaw', 'visitParamExtractRaw'],
+    doc='Extract raw value from JSON (fast, limited). Maps to simpleJSONExtractRaw(json, field).',
+)
+def _build_simple_json_extract_raw(json, field: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('simpleJSONExtractRaw', json, Literal(field), alias=alias)
+
+
+# ---------- Case-insensitive JSON functions ----------
+
+
+@register_function(
+    name='json_extract_string_ci',
+    clickhouse_name='JSONExtractStringCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractStringCaseInsensitive'],
+    doc='Extract string from JSON (case-insensitive). Maps to JSONExtractStringCaseInsensitive(json, path).',
+)
+def _build_json_extract_string_ci(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractStringCaseInsensitive', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_extract_int_ci',
+    clickhouse_name='JSONExtractIntCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractIntCaseInsensitive'],
+    doc='Extract integer from JSON (case-insensitive). Maps to JSONExtractIntCaseInsensitive(json, path).',
+)
+def _build_json_extract_int_ci(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractIntCaseInsensitive', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_extract_float_ci',
+    clickhouse_name='JSONExtractFloatCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractFloatCaseInsensitive'],
+    doc='Extract float from JSON (case-insensitive). Maps to JSONExtractFloatCaseInsensitive(json, path).',
+)
+def _build_json_extract_float_ci(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractFloatCaseInsensitive', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_extract_bool_ci',
+    clickhouse_name='JSONExtractBoolCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractBoolCaseInsensitive'],
+    doc='Extract boolean from JSON (case-insensitive). Maps to JSONExtractBoolCaseInsensitive(json, path).',
+)
+def _build_json_extract_bool_ci(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractBoolCaseInsensitive', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_extract_raw_ci',
+    clickhouse_name='JSONExtractRawCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractRawCaseInsensitive'],
+    doc='Extract raw value from JSON (case-insensitive). Maps to JSONExtractRawCaseInsensitive(json, path).',
+)
+def _build_json_extract_raw_ci(json, path: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('JSONExtractRawCaseInsensitive', json, Literal(path), alias=alias)
+
+
+@register_function(
+    name='json_extract_array_raw_ci',
+    clickhouse_name='JSONExtractArrayRawCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractArrayRawCaseInsensitive'],
+    doc='Extract array as raw strings (case-insensitive). Maps to JSONExtractArrayRawCaseInsensitive(json, path).',
+)
+def _build_json_extract_array_raw_ci(json, path: str = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if path:
+        return Function('JSONExtractArrayRawCaseInsensitive', json, Literal(path), alias=alias)
+    return Function('JSONExtractArrayRawCaseInsensitive', json, alias=alias)
+
+
+@register_function(
+    name='json_extract_keys_ci',
+    clickhouse_name='JSONExtractKeysCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['JSONExtractKeysCaseInsensitive'],
+    doc='Extract keys from JSON (case-insensitive). Maps to JSONExtractKeysCaseInsensitive(json, path).',
+)
+def _build_json_extract_keys_ci(json, path: str = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if path:
+        return Function('JSONExtractKeysCaseInsensitive', json, Literal(path), alias=alias)
+    return Function('JSONExtractKeysCaseInsensitive', json, alias=alias)
+
+
 # =============================================================================
 # URL FUNCTIONS
 # =============================================================================
@@ -5243,6 +5688,7309 @@ def _build_iso_week(expr, alias=None):
     from .functions import Function
 
     return Function('toISOWeek', expr, alias=alias)
+
+
+# =============================================================================
+# HASH FUNCTIONS (Extended)
+# =============================================================================
+
+
+@register_function(
+    name='md5',
+    clickhouse_name='MD5',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['MD5'],
+    doc='Calculate MD5 hash. Maps to MD5(s).',
+)
+def _build_md5(expr, alias=None):
+    from .functions import Function
+
+    return Function('MD5', expr, alias=alias)
+
+
+@register_function(
+    name='sha1',
+    clickhouse_name='SHA1',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['SHA1'],
+    doc='Calculate SHA1 hash. Maps to SHA1(s).',
+)
+def _build_sha1(expr, alias=None):
+    from .functions import Function
+
+    return Function('SHA1', expr, alias=alias)
+
+
+@register_function(
+    name='sha224',
+    clickhouse_name='SHA224',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['SHA224'],
+    doc='Calculate SHA224 hash. Maps to SHA224(s).',
+)
+def _build_sha224(expr, alias=None):
+    from .functions import Function
+
+    return Function('SHA224', expr, alias=alias)
+
+
+@register_function(
+    name='sha256',
+    clickhouse_name='SHA256',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['SHA256'],
+    doc='Calculate SHA256 hash. Maps to SHA256(s).',
+)
+def _build_sha256(expr, alias=None):
+    from .functions import Function
+
+    return Function('SHA256', expr, alias=alias)
+
+
+@register_function(
+    name='sha384',
+    clickhouse_name='SHA384',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['SHA384'],
+    doc='Calculate SHA384 hash. Maps to SHA384(s).',
+)
+def _build_sha384(expr, alias=None):
+    from .functions import Function
+
+    return Function('SHA384', expr, alias=alias)
+
+
+@register_function(
+    name='sha512',
+    clickhouse_name='SHA512',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['SHA512'],
+    doc='Calculate SHA512 hash. Maps to SHA512(s).',
+)
+def _build_sha512(expr, alias=None):
+    from .functions import Function
+
+    return Function('SHA512', expr, alias=alias)
+
+
+@register_function(
+    name='xxhash32',
+    clickhouse_name='xxHash32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['xxHash32'],
+    doc='Calculate xxHash32. Maps to xxHash32(s).',
+)
+def _build_xxhash32(expr, alias=None):
+    from .functions import Function
+
+    return Function('xxHash32', expr, alias=alias)
+
+
+@register_function(
+    name='xxhash64',
+    clickhouse_name='xxHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['xxHash64'],
+    doc='Calculate xxHash64. Maps to xxHash64(s).',
+)
+def _build_xxhash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('xxHash64', expr, alias=alias)
+
+
+@register_function(
+    name='siphash64',
+    clickhouse_name='sipHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['sipHash64'],
+    doc='Calculate sipHash64. Maps to sipHash64(s).',
+)
+def _build_siphash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('sipHash64', expr, alias=alias)
+
+
+@register_function(
+    name='siphash128',
+    clickhouse_name='sipHash128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['sipHash128'],
+    doc='Calculate sipHash128. Maps to sipHash128(s).',
+)
+def _build_siphash128(expr, alias=None):
+    from .functions import Function
+
+    return Function('sipHash128', expr, alias=alias)
+
+
+@register_function(
+    name='cityhash64',
+    clickhouse_name='cityHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['cityHash64'],
+    doc='Calculate cityHash64. Maps to cityHash64(s).',
+)
+def _build_cityhash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('cityHash64', expr, alias=alias)
+
+
+@register_function(
+    name='farmhash64',
+    clickhouse_name='farmHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['farmHash64'],
+    doc='Calculate farmHash64. Maps to farmHash64(s).',
+)
+def _build_farmhash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('farmHash64', expr, alias=alias)
+
+
+@register_function(
+    name='metrohash64',
+    clickhouse_name='metroHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['metroHash64'],
+    doc='Calculate metroHash64. Maps to metroHash64(s).',
+)
+def _build_metrohash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('metroHash64', expr, alias=alias)
+
+
+@register_function(
+    name='murmurhash2_32',
+    clickhouse_name='murmurHash2_32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['murmurHash2_32'],
+    doc='Calculate murmurHash2 32-bit. Maps to murmurHash2_32(s).',
+)
+def _build_murmurhash2_32(expr, alias=None):
+    from .functions import Function
+
+    return Function('murmurHash2_32', expr, alias=alias)
+
+
+@register_function(
+    name='murmurhash2_64',
+    clickhouse_name='murmurHash2_64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['murmurHash2_64'],
+    doc='Calculate murmurHash2 64-bit. Maps to murmurHash2_64(s).',
+)
+def _build_murmurhash2_64(expr, alias=None):
+    from .functions import Function
+
+    return Function('murmurHash2_64', expr, alias=alias)
+
+
+@register_function(
+    name='murmurhash3_32',
+    clickhouse_name='murmurHash3_32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['murmurHash3_32'],
+    doc='Calculate murmurHash3 32-bit. Maps to murmurHash3_32(s).',
+)
+def _build_murmurhash3_32(expr, alias=None):
+    from .functions import Function
+
+    return Function('murmurHash3_32', expr, alias=alias)
+
+
+@register_function(
+    name='murmurhash3_64',
+    clickhouse_name='murmurHash3_64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['murmurHash3_64'],
+    doc='Calculate murmurHash3 64-bit. Maps to murmurHash3_64(s).',
+)
+def _build_murmurhash3_64(expr, alias=None):
+    from .functions import Function
+
+    return Function('murmurHash3_64', expr, alias=alias)
+
+
+@register_function(
+    name='murmurhash3_128',
+    clickhouse_name='murmurHash3_128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['murmurHash3_128'],
+    doc='Calculate murmurHash3 128-bit. Maps to murmurHash3_128(s).',
+)
+def _build_murmurhash3_128(expr, alias=None):
+    from .functions import Function
+
+    return Function('murmurHash3_128', expr, alias=alias)
+
+
+@register_function(
+    name='javahash',
+    clickhouse_name='javaHash',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['javaHash'],
+    doc='Calculate Java hash. Maps to javaHash(s).',
+)
+def _build_javahash(expr, alias=None):
+    from .functions import Function
+
+    return Function('javaHash', expr, alias=alias)
+
+
+@register_function(
+    name='inthash32',
+    clickhouse_name='intHash32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['intHash32'],
+    doc='Hash integer to 32-bit. Maps to intHash32(n).',
+)
+def _build_inthash32(expr, alias=None):
+    from .functions import Function
+
+    return Function('intHash32', expr, alias=alias)
+
+
+@register_function(
+    name='inthash64',
+    clickhouse_name='intHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['intHash64'],
+    doc='Hash integer to 64-bit. Maps to intHash64(n).',
+)
+def _build_inthash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('intHash64', expr, alias=alias)
+
+
+@register_function(
+    name='halfmd5',
+    clickhouse_name='halfMD5',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['halfMD5'],
+    doc='Calculate half MD5 hash. Maps to halfMD5(s).',
+)
+def _build_halfmd5(expr, alias=None):
+    from .functions import Function
+
+    return Function('halfMD5', expr, alias=alias)
+
+
+@register_function(
+    name='crc32',
+    clickhouse_name='CRC32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['CRC32'],
+    doc='Calculate CRC32. Maps to CRC32(s).',
+)
+def _build_crc32(expr, alias=None):
+    from .functions import Function
+
+    return Function('CRC32', expr, alias=alias)
+
+
+@register_function(
+    name='crc64',
+    clickhouse_name='CRC64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['CRC64'],
+    doc='Calculate CRC64. Maps to CRC64(s).',
+)
+def _build_crc64(expr, alias=None):
+    from .functions import Function
+
+    return Function('CRC64', expr, alias=alias)
+
+
+@register_function(
+    name='wyhash64',
+    clickhouse_name='wyHash64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['wyHash64'],
+    doc='Calculate wyHash64. Maps to wyHash64(s).',
+)
+def _build_wyhash64(expr, alias=None):
+    from .functions import Function
+
+    return Function('wyHash64', expr, alias=alias)
+
+
+@register_function(
+    name='urlhash',
+    clickhouse_name='URLHash',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['URLHash'],
+    doc='Calculate URL hash. Maps to URLHash(url, n).',
+)
+def _build_urlhash(url, n: int = 0, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if n:
+        return Function('URLHash', url, Literal(n), alias=alias)
+    return Function('URLHash', url, alias=alias)
+
+
+# =============================================================================
+# MORE ARRAY FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='array_zip',
+    clickhouse_name='arrayZip',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayZip'],
+    doc='Zip multiple arrays. Maps to arrayZip(arr1, arr2, ...).',
+)
+def _build_array_zip(*arrays, alias=None):
+    from .functions import Function
+
+    return Function('arrayZip', *arrays, alias=alias)
+
+
+@register_function(
+    name='array_uniq',
+    clickhouse_name='arrayUniq',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayUniq'],
+    doc='Count unique elements in array. Maps to arrayUniq(arr).',
+)
+def _build_array_uniq(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayUniq', arr, alias=alias)
+
+
+@register_function(
+    name='array_reduce',
+    clickhouse_name='arrayReduce',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayReduce'],
+    doc='Apply aggregate function to array. Maps to arrayReduce(func, arr).',
+)
+def _build_array_reduce(func: str, arr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('arrayReduce', Literal(func), arr, alias=alias)
+
+
+@register_function(
+    name='array_fold',
+    clickhouse_name='arrayFold',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayFold'],
+    doc='Fold array with lambda. Maps to arrayFold(lambda, arr, init).',
+)
+def _build_array_fold(lambda_expr, arr, init, alias=None):
+    from .functions import Function
+
+    return Function('arrayFold', lambda_expr, arr, init, alias=alias)
+
+
+@register_function(
+    name='array_difference',
+    clickhouse_name='arrayDifference',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayDifference'],
+    doc='Calculate differences between consecutive elements. Maps to arrayDifference(arr).',
+)
+def _build_array_difference(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayDifference', arr, alias=alias)
+
+
+@register_function(
+    name='array_cum_sum',
+    clickhouse_name='arrayCumSum',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayCumSum'],
+    doc='Calculate cumulative sum. Maps to arrayCumSum(arr).',
+)
+def _build_array_cum_sum(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayCumSum', arr, alias=alias)
+
+
+@register_function(
+    name='array_cum_sum_non_negative',
+    clickhouse_name='arrayCumSumNonNegative',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayCumSumNonNegative'],
+    doc='Calculate cumulative sum (non-negative). Maps to arrayCumSumNonNegative(arr).',
+)
+def _build_array_cum_sum_non_negative(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayCumSumNonNegative', arr, alias=alias)
+
+
+@register_function(
+    name='array_product',
+    clickhouse_name='arrayProduct',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayProduct'],
+    doc='Calculate product of array elements. Maps to arrayProduct(arr).',
+)
+def _build_array_product(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayProduct', arr, alias=alias)
+
+
+@register_function(
+    name='array_avg',
+    clickhouse_name='arrayAvg',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayAvg'],
+    doc='Calculate average of array elements. Maps to arrayAvg(arr).',
+)
+def _build_array_avg(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayAvg', arr, alias=alias)
+
+
+@register_function(
+    name='array_min',
+    clickhouse_name='arrayMin',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayMin'],
+    doc='Get minimum of array. Maps to arrayMin(arr).',
+)
+def _build_array_min(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayMin', arr, alias=alias)
+
+
+@register_function(
+    name='array_max',
+    clickhouse_name='arrayMax',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayMax'],
+    doc='Get maximum of array. Maps to arrayMax(arr).',
+)
+def _build_array_max(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayMax', arr, alias=alias)
+
+
+@register_function(
+    name='array_sum',
+    clickhouse_name='arraySum',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arraySum'],
+    doc='Calculate sum of array elements. Maps to arraySum(arr).',
+)
+def _build_array_sum(arr, alias=None):
+    from .functions import Function
+
+    return Function('arraySum', arr, alias=alias)
+
+
+@register_function(
+    name='array_count',
+    clickhouse_name='arrayCount',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayCount'],
+    doc='Count elements matching condition. Maps to arrayCount(lambda, arr).',
+)
+def _build_array_count(arr, lambda_expr=None, alias=None):
+    from .functions import Function
+
+    if lambda_expr:
+        return Function('arrayCount', lambda_expr, arr, alias=alias)
+    return Function('arrayCount', arr, alias=alias)
+
+
+@register_function(
+    name='array_exists',
+    clickhouse_name='arrayExists',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayExists'],
+    doc='Check if any element matches condition. Maps to arrayExists(lambda, arr).',
+)
+def _build_array_exists(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayExists', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_all',
+    clickhouse_name='arrayAll',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayAll'],
+    doc='Check if all elements match condition. Maps to arrayAll(lambda, arr).',
+)
+def _build_array_all(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayAll', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_first',
+    clickhouse_name='arrayFirst',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayFirst'],
+    doc='Get first element matching condition. Maps to arrayFirst(lambda, arr).',
+)
+def _build_array_first(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayFirst', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_last',
+    clickhouse_name='arrayLast',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayLast'],
+    doc='Get last element matching condition. Maps to arrayLast(lambda, arr).',
+)
+def _build_array_last(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayLast', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_first_index',
+    clickhouse_name='arrayFirstIndex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayFirstIndex'],
+    doc='Get index of first element matching condition. Maps to arrayFirstIndex(lambda, arr).',
+)
+def _build_array_first_index(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayFirstIndex', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_last_index',
+    clickhouse_name='arrayLastIndex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayLastIndex'],
+    doc='Get index of last element matching condition. Maps to arrayLastIndex(lambda, arr).',
+)
+def _build_array_last_index(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayLastIndex', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_fill',
+    clickhouse_name='arrayFill',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayFill'],
+    doc='Fill array with forward fill. Maps to arrayFill(lambda, arr).',
+)
+def _build_array_fill(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayFill', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_reverse_fill',
+    clickhouse_name='arrayReverseFill',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayReverseFill'],
+    doc='Fill array with backward fill. Maps to arrayReverseFill(lambda, arr).',
+)
+def _build_array_reverse_fill(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayReverseFill', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_split',
+    clickhouse_name='arraySplit',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arraySplit'],
+    doc='Split array by condition. Maps to arraySplit(lambda, arr).',
+)
+def _build_array_split(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arraySplit', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_reverse_split',
+    clickhouse_name='arrayReverseSplit',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayReverseSplit'],
+    doc='Split array by condition (reverse). Maps to arrayReverseSplit(lambda, arr).',
+)
+def _build_array_reverse_split(lambda_expr, arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayReverseSplit', lambda_expr, arr, alias=alias)
+
+
+@register_function(
+    name='array_compact',
+    clickhouse_name='arrayCompact',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayCompact'],
+    doc='Remove consecutive duplicates. Maps to arrayCompact(arr).',
+)
+def _build_array_compact(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayCompact', arr, alias=alias)
+
+
+@register_function(
+    name='array_flatten',
+    clickhouse_name='arrayFlatten',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayFlatten'],
+    doc='Flatten nested arrays. Maps to arrayFlatten(arr).',
+)
+def _build_array_flatten(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayFlatten', arr, alias=alias)
+
+
+@register_function(
+    name='array_pop_back',
+    clickhouse_name='arrayPopBack',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayPopBack'],
+    doc='Remove last element. Maps to arrayPopBack(arr).',
+)
+def _build_array_pop_back(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayPopBack', arr, alias=alias)
+
+
+@register_function(
+    name='array_pop_front',
+    clickhouse_name='arrayPopFront',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayPopFront'],
+    doc='Remove first element. Maps to arrayPopFront(arr).',
+)
+def _build_array_pop_front(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayPopFront', arr, alias=alias)
+
+
+@register_function(
+    name='array_push_back',
+    clickhouse_name='arrayPushBack',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayPushBack'],
+    doc='Add element to end. Maps to arrayPushBack(arr, elem).',
+)
+def _build_array_push_back(arr, elem, alias=None):
+    from .functions import Function
+
+    return Function('arrayPushBack', arr, elem, alias=alias)
+
+
+@register_function(
+    name='array_push_front',
+    clickhouse_name='arrayPushFront',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayPushFront'],
+    doc='Add element to front. Maps to arrayPushFront(arr, elem).',
+)
+def _build_array_push_front(arr, elem, alias=None):
+    from .functions import Function
+
+    return Function('arrayPushFront', arr, elem, alias=alias)
+
+
+@register_function(
+    name='array_resize',
+    clickhouse_name='arrayResize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayResize'],
+    doc='Resize array. Maps to arrayResize(arr, size, default).',
+)
+def _build_array_resize(arr, size: int, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('arrayResize', arr, Literal(size), default, alias=alias)
+    return Function('arrayResize', arr, Literal(size), alias=alias)
+
+
+@register_function(
+    name='array_shuffle',
+    clickhouse_name='arrayShuffle',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayShuffle'],
+    doc='Shuffle array randomly. Maps to arrayShuffle(arr).',
+)
+def _build_array_shuffle(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayShuffle', arr, alias=alias)
+
+
+@register_function(
+    name='array_partial_shuffle',
+    clickhouse_name='arrayPartialShuffle',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayPartialShuffle'],
+    doc='Partially shuffle array. Maps to arrayPartialShuffle(arr, limit).',
+)
+def _build_array_partial_shuffle(arr, limit: int = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if limit is not None:
+        return Function('arrayPartialShuffle', arr, Literal(limit), alias=alias)
+    return Function('arrayPartialShuffle', arr, alias=alias)
+
+
+# =============================================================================
+# MORE AGGREGATE FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='any_heavy',
+    clickhouse_name='anyHeavy',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['anyHeavy'],
+    doc='Get frequently occurring value. Maps to anyHeavy(x).',
+)
+def _build_any_heavy(expr, alias=None):
+    from .functions import Function
+
+    return Function('anyHeavy', expr, alias=alias)
+
+
+@register_function(
+    name='any_last',
+    clickhouse_name='anyLast',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['anyLast'],
+    doc='Get last value. Maps to anyLast(x).',
+)
+def _build_any_last(expr, alias=None):
+    from .functions import Function
+
+    return Function('anyLast', expr, alias=alias)
+
+
+@register_function(
+    name='arg_min',
+    clickhouse_name='argMin',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['argMin'],
+    doc='Get arg at minimum. Maps to argMin(arg, val).',
+)
+def _build_arg_min(arg, val, alias=None):
+    from .functions import Function
+
+    return Function('argMin', arg, val, alias=alias)
+
+
+@register_function(
+    name='arg_max',
+    clickhouse_name='argMax',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['argMax'],
+    doc='Get arg at maximum. Maps to argMax(arg, val).',
+)
+def _build_arg_max(arg, val, alias=None):
+    from .functions import Function
+
+    return Function('argMax', arg, val, alias=alias)
+
+
+@register_function(
+    name='top_k',
+    clickhouse_name='topK',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['topK'],
+    doc='Get top K frequent values. Maps to topK(k)(x).',
+)
+def _build_top_k(expr, k: int = 10, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function(f'topK({k})', expr, alias=alias)
+
+
+@register_function(
+    name='top_k_weighted',
+    clickhouse_name='topKWeighted',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['topKWeighted'],
+    doc='Get top K weighted values. Maps to topKWeighted(k)(x, weight).',
+)
+def _build_top_k_weighted(expr, weight, k: int = 10, alias=None):
+    from .functions import Function
+
+    return Function(f'topKWeighted({k})', expr, weight, alias=alias)
+
+
+@register_function(
+    name='group_array',
+    clickhouse_name='groupArray',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupArray'],
+    doc='Collect values into array. Maps to groupArray(x).',
+)
+def _build_group_array(expr, max_size: int = None, alias=None):
+    from .functions import Function
+
+    if max_size:
+        return Function(f'groupArray({max_size})', expr, alias=alias)
+    return Function('groupArray', expr, alias=alias)
+
+
+@register_function(
+    name='group_uniq_array',
+    clickhouse_name='groupUniqArray',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupUniqArray'],
+    doc='Collect unique values into array. Maps to groupUniqArray(x).',
+)
+def _build_group_uniq_array(expr, max_size: int = None, alias=None):
+    from .functions import Function
+
+    if max_size:
+        return Function(f'groupUniqArray({max_size})', expr, alias=alias)
+    return Function('groupUniqArray', expr, alias=alias)
+
+
+@register_function(
+    name='group_array_insert_at',
+    clickhouse_name='groupArrayInsertAt',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupArrayInsertAt'],
+    doc='Insert values at positions. Maps to groupArrayInsertAt(x, pos).',
+)
+def _build_group_array_insert_at(value, pos, default=None, alias=None):
+    from .functions import Function
+
+    if default is not None:
+        return Function('groupArrayInsertAt', value, pos, default, alias=alias)
+    return Function('groupArrayInsertAt', value, pos, alias=alias)
+
+
+@register_function(
+    name='group_bitmap',
+    clickhouse_name='groupBitmap',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupBitmap'],
+    doc='Create bitmap from values. Maps to groupBitmap(x).',
+)
+def _build_group_bitmap(expr, alias=None):
+    from .functions import Function
+
+    return Function('groupBitmap', expr, alias=alias)
+
+
+@register_function(
+    name='simplelinear_regression',
+    clickhouse_name='simpleLinearRegression',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['simpleLinearRegression'],
+    doc='Simple linear regression. Maps to simpleLinearRegression(x, y).',
+)
+def _build_simplelinear_regression(x, y, alias=None):
+    from .functions import Function
+
+    return Function('simpleLinearRegression', x, y, alias=alias)
+
+
+@register_function(
+    name='stochasticlinear_regression',
+    clickhouse_name='stochasticLinearRegression',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['stochasticLinearRegression'],
+    doc='Stochastic linear regression. Maps to stochasticLinearRegression(...).',
+)
+def _build_stochasticlinear_regression(*args, alias=None):
+    from .functions import Function
+
+    return Function('stochasticLinearRegression', *args, alias=alias)
+
+
+@register_function(
+    name='stochasticlogistic_regression',
+    clickhouse_name='stochasticLogisticRegression',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['stochasticLogisticRegression'],
+    doc='Stochastic logistic regression. Maps to stochasticLogisticRegression(...).',
+)
+def _build_stochasticlogistic_regression(*args, alias=None):
+    from .functions import Function
+
+    return Function('stochasticLogisticRegression', *args, alias=alias)
+
+
+@register_function(
+    name='corr',
+    clickhouse_name='corr',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['corrStable'],
+    doc='Calculate correlation. Maps to corr(x, y).',
+)
+def _build_corr(x, y, alias=None):
+    from .functions import Function
+
+    return Function('corr', x, y, alias=alias)
+
+
+@register_function(
+    name='covar_samp',
+    clickhouse_name='covarSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['covarSamp', 'covarSampStable'],
+    doc='Calculate sample covariance. Maps to covarSamp(x, y).',
+)
+def _build_covar_samp(x, y, alias=None):
+    from .functions import Function
+
+    return Function('covarSamp', x, y, alias=alias)
+
+
+@register_function(
+    name='covar_pop',
+    clickhouse_name='covarPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['covarPop', 'covarPopStable'],
+    doc='Calculate population covariance. Maps to covarPop(x, y).',
+)
+def _build_covar_pop(x, y, alias=None):
+    from .functions import Function
+
+    return Function('covarPop', x, y, alias=alias)
+
+
+@register_function(
+    name='entropy',
+    clickhouse_name='entropy',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['entropyStable'],
+    doc='Calculate Shannon entropy. Maps to entropy(x).',
+)
+def _build_entropy(expr, alias=None):
+    from .functions import Function
+
+    return Function('entropy', expr, alias=alias)
+
+
+@register_function(
+    name='kurtosis',
+    clickhouse_name='kurtSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['kurtSamp', 'kurtosis'],
+    doc='Calculate sample kurtosis. Maps to kurtSamp(x).',
+)
+def _build_kurtosis(expr, alias=None):
+    from .functions import Function
+
+    return Function('kurtSamp', expr, alias=alias)
+
+
+@register_function(
+    name='skewness',
+    clickhouse_name='skewSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['skewSamp', 'skewness'],
+    doc='Calculate sample skewness. Maps to skewSamp(x).',
+)
+def _build_skewness(expr, alias=None):
+    from .functions import Function
+
+    return Function('skewSamp', expr, alias=alias)
+
+
+@register_function(
+    name='uniq_exact',
+    clickhouse_name='uniqExact',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['uniqExact'],
+    doc='Exact unique count. Maps to uniqExact(x).',
+)
+def _build_uniq_exact(expr, alias=None):
+    from .functions import Function
+
+    return Function('uniqExact', expr, alias=alias)
+
+
+@register_function(
+    name='uniq_combined',
+    clickhouse_name='uniqCombined',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['uniqCombined'],
+    doc='Approximate unique count (combined). Maps to uniqCombined(x).',
+)
+def _build_uniq_combined(expr, alias=None):
+    from .functions import Function
+
+    return Function('uniqCombined', expr, alias=alias)
+
+
+@register_function(
+    name='uniq_combined64',
+    clickhouse_name='uniqCombined64',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['uniqCombined64'],
+    doc='Approximate unique count (64-bit). Maps to uniqCombined64(x).',
+)
+def _build_uniq_combined64(expr, alias=None):
+    from .functions import Function
+
+    return Function('uniqCombined64', expr, alias=alias)
+
+
+@register_function(
+    name='uniq_hll12',
+    clickhouse_name='uniqHLL12',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['uniqHLL12'],
+    doc='Approximate unique count (HyperLogLog). Maps to uniqHLL12(x).',
+)
+def _build_uniq_hll12(expr, alias=None):
+    from .functions import Function
+
+    return Function('uniqHLL12', expr, alias=alias)
+
+
+@register_function(
+    name='uniq_theta',
+    clickhouse_name='uniqTheta',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['uniqTheta'],
+    doc='Approximate unique count (Theta sketch). Maps to uniqTheta(x).',
+)
+def _build_uniq_theta(expr, alias=None):
+    from .functions import Function
+
+    return Function('uniqTheta', expr, alias=alias)
+
+
+@register_function(
+    name='histogram',
+    clickhouse_name='histogram',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['histogramAgg'],
+    doc='Build histogram. Maps to histogram(num_bins)(x).',
+)
+def _build_histogram(expr, num_bins: int = 10, alias=None):
+    from .functions import Function
+
+    return Function(f'histogram({num_bins})', expr, alias=alias)
+
+
+@register_function(
+    name='quantile_timing',
+    clickhouse_name='quantileTiming',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileTiming'],
+    doc='Quantile for timing data. Maps to quantileTiming(level)(x).',
+)
+def _build_quantile_timing(expr, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileTiming({level})', expr, alias=alias)
+
+
+@register_function(
+    name='quantile_exact',
+    clickhouse_name='quantileExact',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileExact'],
+    doc='Exact quantile. Maps to quantileExact(level)(x).',
+)
+def _build_quantile_exact(expr, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileExact({level})', expr, alias=alias)
+
+
+@register_function(
+    name='quantile_exact_weighted',
+    clickhouse_name='quantileExactWeighted',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileExactWeighted'],
+    doc='Weighted exact quantile. Maps to quantileExactWeighted(level)(x, weight).',
+)
+def _build_quantile_exact_weighted(expr, weight, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileExactWeighted({level})', expr, weight, alias=alias)
+
+
+@register_function(
+    name='quantile_tdigest',
+    clickhouse_name='quantileTDigest',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileTDigest'],
+    doc='Quantile using t-digest. Maps to quantileTDigest(level)(x).',
+)
+def _build_quantile_tdigest(expr, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileTDigest({level})', expr, alias=alias)
+
+
+@register_function(
+    name='quantile_bfloat16',
+    clickhouse_name='quantileBFloat16',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileBFloat16'],
+    doc='Quantile using bfloat16. Maps to quantileBFloat16(level)(x).',
+)
+def _build_quantile_bfloat16(expr, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileBFloat16({level})', expr, alias=alias)
+
+
+# =============================================================================
+# MATHEMATICAL FUNCTIONS (Extended)
+# =============================================================================
+
+
+@register_function(
+    name='e',
+    clickhouse_name='e',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['euler'],
+    doc='Euler number e. Maps to e().',
+)
+def _build_e(alias=None):
+    from .functions import Function
+
+    return Function('e', alias=alias)
+
+
+@register_function(
+    name='pi',
+    clickhouse_name='pi',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['pi_value'],
+    doc='Pi constant. Maps to pi().',
+)
+def _build_pi(alias=None):
+    from .functions import Function
+
+    return Function('pi', alias=alias)
+
+
+@register_function(
+    name='exp2',
+    clickhouse_name='exp2',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['exp2'],
+    doc='2^x. Maps to exp2(x).',
+)
+def _build_exp2(expr, alias=None):
+    from .functions import Function
+
+    return Function('exp2', expr, alias=alias)
+
+
+@register_function(
+    name='exp10',
+    clickhouse_name='exp10',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['exp10'],
+    doc='10^x. Maps to exp10(x).',
+)
+def _build_exp10(expr, alias=None):
+    from .functions import Function
+
+    return Function('exp10', expr, alias=alias)
+
+
+@register_function(
+    name='log2',
+    clickhouse_name='log2',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['log2'],
+    doc='Log base 2. Maps to log2(x).',
+)
+def _build_log2(expr, alias=None):
+    from .functions import Function
+
+    return Function('log2', expr, alias=alias)
+
+
+@register_function(
+    name='log1p',
+    clickhouse_name='log1p',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['log1p'],
+    doc='log(1 + x). Maps to log1p(x).',
+)
+def _build_log1p(expr, alias=None):
+    from .functions import Function
+
+    return Function('log1p', expr, alias=alias)
+
+
+@register_function(
+    name='cbrt',
+    clickhouse_name='cbrt',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['cbrt'],
+    doc='Cube root. Maps to cbrt(x).',
+)
+def _build_cbrt(expr, alias=None):
+    from .functions import Function
+
+    return Function('cbrt', expr, alias=alias)
+
+
+@register_function(
+    name='erf',
+    clickhouse_name='erf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['erf'],
+    doc='Error function. Maps to erf(x).',
+)
+def _build_erf(expr, alias=None):
+    from .functions import Function
+
+    return Function('erf', expr, alias=alias)
+
+
+@register_function(
+    name='erfc',
+    clickhouse_name='erfc',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['erfc'],
+    doc='Complementary error function. Maps to erfc(x).',
+)
+def _build_erfc(expr, alias=None):
+    from .functions import Function
+
+    return Function('erfc', expr, alias=alias)
+
+
+@register_function(
+    name='lgamma',
+    clickhouse_name='lgamma',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['lgamma'],
+    doc='Log gamma function. Maps to lgamma(x).',
+)
+def _build_lgamma(expr, alias=None):
+    from .functions import Function
+
+    return Function('lgamma', expr, alias=alias)
+
+
+@register_function(
+    name='tgamma',
+    clickhouse_name='tgamma',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['tgamma', 'gamma'],
+    doc='Gamma function. Maps to tgamma(x).',
+)
+def _build_tgamma(expr, alias=None):
+    from .functions import Function
+
+    return Function('tgamma', expr, alias=alias)
+
+
+@register_function(
+    name='asinh',
+    clickhouse_name='asinh',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['asinh'],
+    doc='Inverse hyperbolic sine. Maps to asinh(x).',
+)
+def _build_asinh(expr, alias=None):
+    from .functions import Function
+
+    return Function('asinh', expr, alias=alias)
+
+
+@register_function(
+    name='acosh',
+    clickhouse_name='acosh',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['acosh'],
+    doc='Inverse hyperbolic cosine. Maps to acosh(x).',
+)
+def _build_acosh(expr, alias=None):
+    from .functions import Function
+
+    return Function('acosh', expr, alias=alias)
+
+
+@register_function(
+    name='atanh',
+    clickhouse_name='atanh',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['atanh'],
+    doc='Inverse hyperbolic tangent. Maps to atanh(x).',
+)
+def _build_atanh(expr, alias=None):
+    from .functions import Function
+
+    return Function('atanh', expr, alias=alias)
+
+
+@register_function(
+    name='sinh',
+    clickhouse_name='sinh',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['sinh'],
+    doc='Hyperbolic sine. Maps to sinh(x).',
+)
+def _build_sinh(expr, alias=None):
+    from .functions import Function
+
+    return Function('sinh', expr, alias=alias)
+
+
+@register_function(
+    name='cosh',
+    clickhouse_name='cosh',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['cosh'],
+    doc='Hyperbolic cosine. Maps to cosh(x).',
+)
+def _build_cosh(expr, alias=None):
+    from .functions import Function
+
+    return Function('cosh', expr, alias=alias)
+
+
+@register_function(
+    name='tanh',
+    clickhouse_name='tanh',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['tanh'],
+    doc='Hyperbolic tangent. Maps to tanh(x).',
+)
+def _build_tanh(expr, alias=None):
+    from .functions import Function
+
+    return Function('tanh', expr, alias=alias)
+
+
+@register_function(
+    name='hypot',
+    clickhouse_name='hypot',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['hypot'],
+    doc='Hypotenuse. Maps to hypot(x, y).',
+)
+def _build_hypot(x, y, alias=None):
+    from .functions import Function
+
+    return Function('hypot', x, y, alias=alias)
+
+
+@register_function(
+    name='degrees',
+    clickhouse_name='degrees',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['degrees', 'toDegrees'],
+    doc='Radians to degrees. Maps to degrees(x).',
+)
+def _build_degrees(expr, alias=None):
+    from .functions import Function
+
+    return Function('degrees', expr, alias=alias)
+
+
+@register_function(
+    name='radians',
+    clickhouse_name='radians',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['radians', 'toRadians'],
+    doc='Degrees to radians. Maps to radians(x).',
+)
+def _build_radians(expr, alias=None):
+    from .functions import Function
+
+    return Function('radians', expr, alias=alias)
+
+
+@register_function(
+    name='gcd',
+    clickhouse_name='gcd',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['gcd'],
+    doc='Greatest common divisor. Maps to gcd(a, b).',
+)
+def _build_gcd(a, b, alias=None):
+    from .functions import Function
+
+    return Function('gcd', a, b, alias=alias)
+
+
+@register_function(
+    name='lcm',
+    clickhouse_name='lcm',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['lcm'],
+    doc='Least common multiple. Maps to lcm(a, b).',
+)
+def _build_lcm(a, b, alias=None):
+    from .functions import Function
+
+    return Function('lcm', a, b, alias=alias)
+
+
+# =============================================================================
+# TYPE CONVERSION FUNCTIONS (Extended)
+# =============================================================================
+
+
+@register_function(
+    name='to_string',
+    clickhouse_name='toString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toString'],
+    doc='Convert to string. Maps to toString(x).',
+)
+def _build_to_string(expr, alias=None):
+    from .functions import Function
+
+    return Function('toString', expr, alias=alias)
+
+
+@register_function(
+    name='to_fixed_string',
+    clickhouse_name='toFixedString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toFixedString'],
+    doc='Convert to fixed-length string. Maps to toFixedString(s, n).',
+)
+def _build_to_fixed_string(expr, n: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toFixedString', expr, Literal(n), alias=alias)
+
+
+@register_function(
+    name='to_int8',
+    clickhouse_name='toInt8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt8'],
+    doc='Convert to Int8. Maps to toInt8(x).',
+)
+def _build_to_int8(expr, alias=None):
+    from .functions import Function
+
+    return Function('toInt8', expr, alias=alias)
+
+
+@register_function(
+    name='to_int16',
+    clickhouse_name='toInt16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt16'],
+    doc='Convert to Int16. Maps to toInt16(x).',
+)
+def _build_to_int16(expr, alias=None):
+    from .functions import Function
+
+    return Function('toInt16', expr, alias=alias)
+
+
+@register_function(
+    name='to_int32',
+    clickhouse_name='toInt32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt32'],
+    doc='Convert to Int32. Maps to toInt32(x).',
+)
+def _build_to_int32(expr, alias=None):
+    from .functions import Function
+
+    return Function('toInt32', expr, alias=alias)
+
+
+@register_function(
+    name='to_int64',
+    clickhouse_name='toInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt64'],
+    doc='Convert to Int64. Maps to toInt64(x).',
+)
+def _build_to_int64(expr, alias=None):
+    from .functions import Function
+
+    return Function('toInt64', expr, alias=alias)
+
+
+@register_function(
+    name='to_uint8',
+    clickhouse_name='toUInt8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt8'],
+    doc='Convert to UInt8. Maps to toUInt8(x).',
+)
+def _build_to_uint8(expr, alias=None):
+    from .functions import Function
+
+    return Function('toUInt8', expr, alias=alias)
+
+
+@register_function(
+    name='to_uint16',
+    clickhouse_name='toUInt16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt16'],
+    doc='Convert to UInt16. Maps to toUInt16(x).',
+)
+def _build_to_uint16(expr, alias=None):
+    from .functions import Function
+
+    return Function('toUInt16', expr, alias=alias)
+
+
+@register_function(
+    name='to_uint32',
+    clickhouse_name='toUInt32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt32'],
+    doc='Convert to UInt32. Maps to toUInt32(x).',
+)
+def _build_to_uint32(expr, alias=None):
+    from .functions import Function
+
+    return Function('toUInt32', expr, alias=alias)
+
+
+@register_function(
+    name='to_uint64',
+    clickhouse_name='toUInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt64'],
+    doc='Convert to UInt64. Maps to toUInt64(x).',
+)
+def _build_to_uint64(expr, alias=None):
+    from .functions import Function
+
+    return Function('toUInt64', expr, alias=alias)
+
+
+@register_function(
+    name='to_float32',
+    clickhouse_name='toFloat32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toFloat32'],
+    doc='Convert to Float32. Maps to toFloat32(x).',
+)
+def _build_to_float32(expr, alias=None):
+    from .functions import Function
+
+    return Function('toFloat32', expr, alias=alias)
+
+
+@register_function(
+    name='to_float64',
+    clickhouse_name='toFloat64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toFloat64'],
+    doc='Convert to Float64. Maps to toFloat64(x).',
+)
+def _build_to_float64(expr, alias=None):
+    from .functions import Function
+
+    return Function('toFloat64', expr, alias=alias)
+
+
+@register_function(
+    name='to_decimal32',
+    clickhouse_name='toDecimal32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal32'],
+    doc='Convert to Decimal32. Maps to toDecimal32(x, scale).',
+)
+def _build_to_decimal32(expr, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal32', expr, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='to_decimal64',
+    clickhouse_name='toDecimal64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal64'],
+    doc='Convert to Decimal64. Maps to toDecimal64(x, scale).',
+)
+def _build_to_decimal64(expr, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal64', expr, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='to_decimal128',
+    clickhouse_name='toDecimal128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal128'],
+    doc='Convert to Decimal128. Maps to toDecimal128(x, scale).',
+)
+def _build_to_decimal128(expr, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal128', expr, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_string',
+    clickhouse_name='reinterpretAsString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsString'],
+    doc='Reinterpret as string. Maps to reinterpretAsString(x).',
+)
+def _build_reinterpret_as_string(expr, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsString', expr, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int64',
+    clickhouse_name='reinterpretAsInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt64'],
+    doc='Reinterpret as Int64. Maps to reinterpretAsInt64(x).',
+)
+def _build_reinterpret_as_int64(expr, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt64', expr, alias=alias)
+
+
+# =============================================================================
+# LOGICAL AND COMPARISON FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='if_func',
+    clickhouse_name='if',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['if_', 'ifFunc'],
+    doc='Conditional. Maps to if(cond, then, else).',
+)
+def _build_if_func(cond, then_val, else_val, alias=None):
+    from .functions import Function
+
+    return Function('if', cond, then_val, else_val, alias=alias)
+
+
+@register_function(
+    name='multi_if',
+    clickhouse_name='multiIf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['multiIf'],
+    doc='Multiple conditions. Maps to multiIf(cond1, val1, cond2, val2, ..., default).',
+)
+def _build_multi_if(*args, alias=None):
+    from .functions import Function
+
+    return Function('multiIf', *args, alias=alias)
+
+
+@register_function(
+    name='null_if',
+    clickhouse_name='nullIf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['nullIf'],
+    doc='Return NULL if equal. Maps to nullIf(x, y).',
+)
+def _build_null_if(x, y, alias=None):
+    from .functions import Function
+
+    return Function('nullIf', x, y, alias=alias)
+
+
+@register_function(
+    name='if_null',
+    clickhouse_name='ifNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['ifNull'],
+    doc='Return value if not NULL. Maps to ifNull(x, alt).',
+)
+def _build_if_null(x, alt, alias=None):
+    from .functions import Function
+
+    return Function('ifNull', x, alt, alias=alias)
+
+
+@register_function(
+    name='is_null',
+    clickhouse_name='isNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isNull'],
+    doc='Check if NULL. Maps to isNull(x).',
+)
+def _build_is_null(expr, alias=None):
+    from .functions import Function
+
+    return Function('isNull', expr, alias=alias)
+
+
+@register_function(
+    name='is_not_null',
+    clickhouse_name='isNotNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isNotNull'],
+    doc='Check if not NULL. Maps to isNotNull(x).',
+)
+def _build_is_not_null(expr, alias=None):
+    from .functions import Function
+
+    return Function('isNotNull', expr, alias=alias)
+
+
+@register_function(
+    name='assume_not_null',
+    clickhouse_name='assumeNotNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['assumeNotNull'],
+    doc='Assume not NULL. Maps to assumeNotNull(x).',
+)
+def _build_assume_not_null(expr, alias=None):
+    from .functions import Function
+
+    return Function('assumeNotNull', expr, alias=alias)
+
+
+@register_function(
+    name='to_nullable',
+    clickhouse_name='toNullable',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['toNullable'],
+    doc='Convert to Nullable. Maps to toNullable(x).',
+)
+def _build_to_nullable(expr, alias=None):
+    from .functions import Function
+
+    return Function('toNullable', expr, alias=alias)
+
+
+@register_function(
+    name='greatest',
+    clickhouse_name='greatest',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['greatest'],
+    doc='Return greatest value. Maps to greatest(a, b, ...).',
+)
+def _build_greatest(*args, alias=None):
+    from .functions import Function
+
+    return Function('greatest', *args, alias=alias)
+
+
+@register_function(
+    name='least',
+    clickhouse_name='least',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['least'],
+    doc='Return least value. Maps to least(a, b, ...).',
+)
+def _build_least(*args, alias=None):
+    from .functions import Function
+
+    return Function('least', *args, alias=alias)
+
+
+# =============================================================================
+# BIT FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='bit_and',
+    clickhouse_name='bitAnd',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitAnd'],
+    doc='Bitwise AND. Maps to bitAnd(a, b).',
+)
+def _build_bit_and(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitAnd', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_or',
+    clickhouse_name='bitOr',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitOr'],
+    doc='Bitwise OR. Maps to bitOr(a, b).',
+)
+def _build_bit_or(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitOr', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_xor',
+    clickhouse_name='bitXor',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitXor'],
+    doc='Bitwise XOR. Maps to bitXor(a, b).',
+)
+def _build_bit_xor(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitXor', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_not',
+    clickhouse_name='bitNot',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitNot'],
+    doc='Bitwise NOT. Maps to bitNot(a).',
+)
+def _build_bit_not(a, alias=None):
+    from .functions import Function
+
+    return Function('bitNot', a, alias=alias)
+
+
+@register_function(
+    name='bit_shift_left',
+    clickhouse_name='bitShiftLeft',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitShiftLeft'],
+    doc='Bit shift left. Maps to bitShiftLeft(a, b).',
+)
+def _build_bit_shift_left(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitShiftLeft', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_shift_right',
+    clickhouse_name='bitShiftRight',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitShiftRight'],
+    doc='Bit shift right. Maps to bitShiftRight(a, b).',
+)
+def _build_bit_shift_right(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitShiftRight', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_rotate_left',
+    clickhouse_name='bitRotateLeft',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitRotateLeft'],
+    doc='Bit rotate left. Maps to bitRotateLeft(a, b).',
+)
+def _build_bit_rotate_left(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitRotateLeft', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_rotate_right',
+    clickhouse_name='bitRotateRight',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitRotateRight'],
+    doc='Bit rotate right. Maps to bitRotateRight(a, b).',
+)
+def _build_bit_rotate_right(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitRotateRight', a, b, alias=alias)
+
+
+@register_function(
+    name='bit_test',
+    clickhouse_name='bitTest',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitTest'],
+    doc='Test bit at position. Maps to bitTest(a, pos).',
+)
+def _build_bit_test(a, pos, alias=None):
+    from .functions import Function
+
+    return Function('bitTest', a, pos, alias=alias)
+
+
+@register_function(
+    name='bit_count',
+    clickhouse_name='bitCount',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitCount'],
+    doc='Count set bits (popcount). Maps to bitCount(a).',
+)
+def _build_bit_count(a, alias=None):
+    from .functions import Function
+
+    return Function('bitCount', a, alias=alias)
+
+
+@register_function(
+    name='bit_hamming_distance',
+    clickhouse_name='bitHammingDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['bitHammingDistance'],
+    doc='Hamming distance between bits. Maps to bitHammingDistance(a, b).',
+)
+def _build_bit_hamming_distance(a, b, alias=None):
+    from .functions import Function
+
+    return Function('bitHammingDistance', a, b, alias=alias)
+
+
+# =============================================================================
+# RANDOM FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='rand',
+    clickhouse_name='rand',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['rand', 'random'],
+    doc='Random UInt32. Maps to rand().',
+)
+def _build_rand(alias=None):
+    from .functions import Function
+
+    return Function('rand', alias=alias)
+
+
+@register_function(
+    name='rand64',
+    clickhouse_name='rand64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['rand64'],
+    doc='Random UInt64. Maps to rand64().',
+)
+def _build_rand64(alias=None):
+    from .functions import Function
+
+    return Function('rand64', alias=alias)
+
+
+@register_function(
+    name='rand_constant',
+    clickhouse_name='randConstant',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randConstant'],
+    doc='Random constant per block. Maps to randConstant().',
+)
+def _build_rand_constant(alias=None):
+    from .functions import Function
+
+    return Function('randConstant', alias=alias)
+
+
+@register_function(
+    name='rand_uniform',
+    clickhouse_name='randUniform',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randUniform'],
+    doc='Random uniform distribution. Maps to randUniform(min, max).',
+)
+def _build_rand_uniform(min_val, max_val, alias=None):
+    from .functions import Function
+
+    return Function('randUniform', min_val, max_val, alias=alias)
+
+
+@register_function(
+    name='rand_normal',
+    clickhouse_name='randNormal',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randNormal'],
+    doc='Random normal distribution. Maps to randNormal(mean, stddev).',
+)
+def _build_rand_normal(mean, stddev, alias=None):
+    from .functions import Function
+
+    return Function('randNormal', mean, stddev, alias=alias)
+
+
+@register_function(
+    name='rand_log_normal',
+    clickhouse_name='randLogNormal',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randLogNormal'],
+    doc='Random log-normal distribution. Maps to randLogNormal(mean, stddev).',
+)
+def _build_rand_log_normal(mean, stddev, alias=None):
+    from .functions import Function
+
+    return Function('randLogNormal', mean, stddev, alias=alias)
+
+
+@register_function(
+    name='rand_exponential',
+    clickhouse_name='randExponential',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randExponential'],
+    doc='Random exponential distribution. Maps to randExponential(lambda).',
+)
+def _build_rand_exponential(lam, alias=None):
+    from .functions import Function
+
+    return Function('randExponential', lam, alias=alias)
+
+
+@register_function(
+    name='rand_binomial',
+    clickhouse_name='randBinomial',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randBinomial'],
+    doc='Random binomial distribution. Maps to randBinomial(n, p).',
+)
+def _build_rand_binomial(n, p, alias=None):
+    from .functions import Function
+
+    return Function('randBinomial', n, p, alias=alias)
+
+
+@register_function(
+    name='rand_poisson',
+    clickhouse_name='randPoisson',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randPoisson'],
+    doc='Random Poisson distribution. Maps to randPoisson(lambda).',
+)
+def _build_rand_poisson(lam, alias=None):
+    from .functions import Function
+
+    return Function('randPoisson', lam, alias=alias)
+
+
+@register_function(
+    name='rand_bernoulli',
+    clickhouse_name='randBernoulli',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['randBernoulli'],
+    doc='Random Bernoulli distribution. Maps to randBernoulli(p).',
+)
+def _build_rand_bernoulli(p, alias=None):
+    from .functions import Function
+
+    return Function('randBernoulli', p, alias=alias)
+
+
+# =============================================================================
+# MAP FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='map_func',
+    clickhouse_name='map',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['map', 'createMap'],
+    doc='Create map from keys and values. Maps to map(k1, v1, k2, v2, ...).',
+)
+def _build_map_func(*args, alias=None):
+    from .functions import Function
+
+    return Function('map', *args, alias=alias)
+
+
+@register_function(
+    name='map_keys',
+    clickhouse_name='mapKeys',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapKeys'],
+    doc='Get keys from map. Maps to mapKeys(map).',
+)
+def _build_map_keys(m, alias=None):
+    from .functions import Function
+
+    return Function('mapKeys', m, alias=alias)
+
+
+@register_function(
+    name='map_values',
+    clickhouse_name='mapValues',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapValues'],
+    doc='Get values from map. Maps to mapValues(map).',
+)
+def _build_map_values(m, alias=None):
+    from .functions import Function
+
+    return Function('mapValues', m, alias=alias)
+
+
+@register_function(
+    name='map_contains_key',
+    clickhouse_name='mapContainsKey',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapContainsKey', 'mapContains'],
+    doc='Check if map contains key. Maps to mapContainsKey(map, key).',
+)
+def _build_map_contains_key(m, key, alias=None):
+    from .functions import Function
+
+    return Function('mapContainsKey', m, key, alias=alias)
+
+
+@register_function(
+    name='map_concat',
+    clickhouse_name='mapConcat',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapConcat'],
+    doc='Concatenate maps. Maps to mapConcat(map1, map2, ...).',
+)
+def _build_map_concat(*maps, alias=None):
+    from .functions import Function
+
+    return Function('mapConcat', *maps, alias=alias)
+
+
+@register_function(
+    name='map_exists',
+    clickhouse_name='mapExists',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapExists'],
+    doc='Check if any key-value pair matches. Maps to mapExists(lambda, map).',
+)
+def _build_map_exists(lambda_expr, m, alias=None):
+    from .functions import Function
+
+    return Function('mapExists', lambda_expr, m, alias=alias)
+
+
+@register_function(
+    name='map_all',
+    clickhouse_name='mapAll',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapAll'],
+    doc='Check if all key-value pairs match. Maps to mapAll(lambda, map).',
+)
+def _build_map_all(lambda_expr, m, alias=None):
+    from .functions import Function
+
+    return Function('mapAll', lambda_expr, m, alias=alias)
+
+
+@register_function(
+    name='map_filter',
+    clickhouse_name='mapFilter',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapFilter'],
+    doc='Filter map by condition. Maps to mapFilter(lambda, map).',
+)
+def _build_map_filter(lambda_expr, m, alias=None):
+    from .functions import Function
+
+    return Function('mapFilter', lambda_expr, m, alias=alias)
+
+
+@register_function(
+    name='map_apply',
+    clickhouse_name='mapApply',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapApply'],
+    doc='Apply function to map. Maps to mapApply(lambda, map).',
+)
+def _build_map_apply(lambda_expr, m, alias=None):
+    from .functions import Function
+
+    return Function('mapApply', lambda_expr, m, alias=alias)
+
+
+@register_function(
+    name='map_add',
+    clickhouse_name='mapAdd',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapAdd'],
+    doc='Add values for same keys. Maps to mapAdd(map1, map2).',
+)
+def _build_map_add(m1, m2, alias=None):
+    from .functions import Function
+
+    return Function('mapAdd', m1, m2, alias=alias)
+
+
+@register_function(
+    name='map_subtract',
+    clickhouse_name='mapSubtract',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['mapSubtract'],
+    doc='Subtract values for same keys. Maps to mapSubtract(map1, map2).',
+)
+def _build_map_subtract(m1, m2, alias=None):
+    from .functions import Function
+
+    return Function('mapSubtract', m1, m2, alias=alias)
+
+
+# =============================================================================
+# TUPLE FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='tuple_func',
+    clickhouse_name='tuple',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['tuple', 'makeTuple'],
+    doc='Create tuple. Maps to tuple(v1, v2, ...).',
+)
+def _build_tuple_func(*args, alias=None):
+    from .functions import Function
+
+    return Function('tuple', *args, alias=alias)
+
+
+@register_function(
+    name='tuple_element',
+    clickhouse_name='tupleElement',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['tupleElement'],
+    doc='Get element from tuple. Maps to tupleElement(tuple, n).',
+)
+def _build_tuple_element(t, n, alias=None):
+    from .functions import Function
+
+    return Function('tupleElement', t, n, alias=alias)
+
+
+@register_function(
+    name='tuple_plus',
+    clickhouse_name='tuplePlus',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['tuplePlus'],
+    doc='Add tuples element-wise. Maps to tuplePlus(t1, t2).',
+)
+def _build_tuple_plus(t1, t2, alias=None):
+    from .functions import Function
+
+    return Function('tuplePlus', t1, t2, alias=alias)
+
+
+@register_function(
+    name='tuple_minus',
+    clickhouse_name='tupleMinus',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['tupleMinus'],
+    doc='Subtract tuples element-wise. Maps to tupleMinus(t1, t2).',
+)
+def _build_tuple_minus(t1, t2, alias=None):
+    from .functions import Function
+
+    return Function('tupleMinus', t1, t2, alias=alias)
+
+
+@register_function(
+    name='tuple_multiply',
+    clickhouse_name='tupleMultiply',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['tupleMultiply'],
+    doc='Multiply tuples element-wise. Maps to tupleMultiply(t1, t2).',
+)
+def _build_tuple_multiply(t1, t2, alias=None):
+    from .functions import Function
+
+    return Function('tupleMultiply', t1, t2, alias=alias)
+
+
+@register_function(
+    name='tuple_divide',
+    clickhouse_name='tupleDivide',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['tupleDivide'],
+    doc='Divide tuples element-wise. Maps to tupleDivide(t1, t2).',
+)
+def _build_tuple_divide(t1, t2, alias=None):
+    from .functions import Function
+
+    return Function('tupleDivide', t1, t2, alias=alias)
+
+
+# =============================================================================
+# MORE DATETIME FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='add_seconds',
+    clickhouse_name='addSeconds',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addSeconds'],
+    doc='Add seconds to datetime. Maps to addSeconds(dt, n).',
+)
+def _build_add_seconds(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addSeconds', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_minutes',
+    clickhouse_name='addMinutes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addMinutes'],
+    doc='Add minutes to datetime. Maps to addMinutes(dt, n).',
+)
+def _build_add_minutes(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addMinutes', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_hours',
+    clickhouse_name='addHours',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addHours'],
+    doc='Add hours to datetime. Maps to addHours(dt, n).',
+)
+def _build_add_hours(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addHours', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_days',
+    clickhouse_name='addDays',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addDays'],
+    doc='Add days to datetime. Maps to addDays(dt, n).',
+)
+def _build_add_days(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addDays', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_weeks',
+    clickhouse_name='addWeeks',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addWeeks'],
+    doc='Add weeks to datetime. Maps to addWeeks(dt, n).',
+)
+def _build_add_weeks(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addWeeks', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_months',
+    clickhouse_name='addMonths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addMonths'],
+    doc='Add months to datetime. Maps to addMonths(dt, n).',
+)
+def _build_add_months(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addMonths', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_quarters',
+    clickhouse_name='addQuarters',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addQuarters'],
+    doc='Add quarters to datetime. Maps to addQuarters(dt, n).',
+)
+def _build_add_quarters(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addQuarters', dt, n, alias=alias)
+
+
+@register_function(
+    name='add_years',
+    clickhouse_name='addYears',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['addYears'],
+    doc='Add years to datetime. Maps to addYears(dt, n).',
+)
+def _build_add_years(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('addYears', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_seconds',
+    clickhouse_name='subtractSeconds',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractSeconds'],
+    doc='Subtract seconds. Maps to subtractSeconds(dt, n).',
+)
+def _build_subtract_seconds(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractSeconds', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_minutes',
+    clickhouse_name='subtractMinutes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractMinutes'],
+    doc='Subtract minutes. Maps to subtractMinutes(dt, n).',
+)
+def _build_subtract_minutes(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractMinutes', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_hours',
+    clickhouse_name='subtractHours',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractHours'],
+    doc='Subtract hours. Maps to subtractHours(dt, n).',
+)
+def _build_subtract_hours(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractHours', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_days',
+    clickhouse_name='subtractDays',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractDays'],
+    doc='Subtract days. Maps to subtractDays(dt, n).',
+)
+def _build_subtract_days(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractDays', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_weeks',
+    clickhouse_name='subtractWeeks',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractWeeks'],
+    doc='Subtract weeks. Maps to subtractWeeks(dt, n).',
+)
+def _build_subtract_weeks(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractWeeks', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_months',
+    clickhouse_name='subtractMonths',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractMonths'],
+    doc='Subtract months. Maps to subtractMonths(dt, n).',
+)
+def _build_subtract_months(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractMonths', dt, n, alias=alias)
+
+
+@register_function(
+    name='subtract_years',
+    clickhouse_name='subtractYears',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['subtractYears'],
+    doc='Subtract years. Maps to subtractYears(dt, n).',
+)
+def _build_subtract_years(dt, n, alias=None):
+    from .functions import Function
+
+    return Function('subtractYears', dt, n, alias=alias)
+
+
+@register_function(
+    name='date_diff',
+    clickhouse_name='dateDiff',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['dateDiff', 'date_diff'],
+    doc='Difference between dates. Maps to dateDiff(unit, start, end).',
+)
+def _build_date_diff(unit: str, start, end, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('dateDiff', Literal(unit), start, end, alias=alias)
+
+
+@register_function(
+    name='date_trunc',
+    clickhouse_name='dateTrunc',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['dateTrunc', 'date_trunc'],
+    doc='Truncate date to unit. Maps to dateTrunc(unit, dt).',
+)
+def _build_date_trunc(unit: str, dt, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('dateTrunc', Literal(unit), dt, alias=alias)
+
+
+@register_function(
+    name='date_name',
+    clickhouse_name='dateName',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['dateName'],
+    doc='Get date part name. Maps to dateName(part, dt).',
+)
+def _build_date_name(part: str, dt, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('dateName', Literal(part), dt, alias=alias)
+
+
+@register_function(
+    name='month_name',
+    clickhouse_name='monthName',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['monthName'],
+    doc='Get month name. Maps to monthName(dt).',
+)
+def _build_month_name(dt, alias=None):
+    from .functions import Function
+
+    return Function('monthName', dt, alias=alias)
+
+
+@register_function(
+    name='age_func',
+    clickhouse_name='age',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['age'],
+    doc='Age between dates. Maps to age(unit, start, end).',
+)
+def _build_age_func(unit: str, start, end, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('age', Literal(unit), start, end, alias=alias)
+
+
+@register_function(
+    name='make_date',
+    clickhouse_name='makeDate',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['makeDate'],
+    doc='Create date from parts. Maps to makeDate(year, month, day).',
+)
+def _build_make_date(year, month, day, alias=None):
+    from .functions import Function
+
+    return Function('makeDate', year, month, day, alias=alias)
+
+
+@register_function(
+    name='make_datetime',
+    clickhouse_name='makeDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['makeDateTime'],
+    doc='Create datetime from parts. Maps to makeDateTime(year, month, day, hour, minute, second).',
+)
+def _build_make_datetime(year, month, day, hour=0, minute=0, second=0, alias=None):
+    from .functions import Function
+
+    return Function('makeDateTime', year, month, day, hour, minute, second, alias=alias)
+
+
+@register_function(
+    name='from_unix_timestamp',
+    clickhouse_name='fromUnixTimestamp',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['fromUnixTimestamp'],
+    doc='Convert unix timestamp to datetime. Maps to fromUnixTimestamp(ts).',
+)
+def _build_from_unix_timestamp(ts, alias=None):
+    from .functions import Function
+
+    return Function('fromUnixTimestamp', ts, alias=alias)
+
+
+@register_function(
+    name='to_unix_timestamp',
+    clickhouse_name='toUnixTimestamp',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toUnixTimestamp'],
+    doc='Convert datetime to unix timestamp. Maps to toUnixTimestamp(dt).',
+)
+def _build_to_unix_timestamp(dt, alias=None):
+    from .functions import Function
+
+    return Function('toUnixTimestamp', dt, alias=alias)
+
+
+@register_function(
+    name='parse_datetime_best_effort',
+    clickhouse_name='parseDateTimeBestEffort',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTimeBestEffort'],
+    doc='Parse datetime with best effort. Maps to parseDateTimeBestEffort(s).',
+)
+def _build_parse_datetime_best_effort(s, alias=None):
+    from .functions import Function
+
+    return Function('parseDateTimeBestEffort', s, alias=alias)
+
+
+@register_function(
+    name='parse_datetime_best_effort_or_null',
+    clickhouse_name='parseDateTimeBestEffortOrNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTimeBestEffortOrNull'],
+    doc='Parse datetime or NULL. Maps to parseDateTimeBestEffortOrNull(s).',
+)
+def _build_parse_datetime_best_effort_or_null(s, alias=None):
+    from .functions import Function
+
+    return Function('parseDateTimeBestEffortOrNull', s, alias=alias)
+
+
+@register_function(
+    name='to_last_day_of_month',
+    clickhouse_name='toLastDayOfMonth',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toLastDayOfMonth'],
+    doc='Get last day of month. Maps to toLastDayOfMonth(dt).',
+)
+def _build_to_last_day_of_month(dt, alias=None):
+    from .functions import Function
+
+    return Function('toLastDayOfMonth', dt, alias=alias)
+
+
+@register_function(
+    name='to_monday',
+    clickhouse_name='toMonday',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toMonday'],
+    doc='Get Monday of week. Maps to toMonday(dt).',
+)
+def _build_to_monday(dt, alias=None):
+    from .functions import Function
+
+    return Function('toMonday', dt, alias=alias)
+
+
+# =============================================================================
+# STRING DISTANCE FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='levenshtein_distance',
+    clickhouse_name='editDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['editDistance', 'levenshteinDistance'],
+    doc='Levenshtein distance. Maps to editDistance(s1, s2).',
+)
+def _build_levenshtein_distance(s1, s2, alias=None):
+    from .functions import Function
+
+    return Function('editDistance', s1, s2, alias=alias)
+
+
+@register_function(
+    name='damerau_levenshtein_distance',
+    clickhouse_name='damerauLevenshteinDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['damerauLevenshteinDistance'],
+    doc='Damerau-Levenshtein distance. Maps to damerauLevenshteinDistance(s1, s2).',
+)
+def _build_damerau_levenshtein_distance(s1, s2, alias=None):
+    from .functions import Function
+
+    return Function('damerauLevenshteinDistance', s1, s2, alias=alias)
+
+
+@register_function(
+    name='jaro_similarity',
+    clickhouse_name='jaroSimilarity',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['jaroSimilarity'],
+    doc='Jaro similarity. Maps to jaroSimilarity(s1, s2).',
+)
+def _build_jaro_similarity(s1, s2, alias=None):
+    from .functions import Function
+
+    return Function('jaroSimilarity', s1, s2, alias=alias)
+
+
+@register_function(
+    name='jaro_winkler_similarity',
+    clickhouse_name='jaroWinklerSimilarity',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['jaroWinklerSimilarity'],
+    doc='Jaro-Winkler similarity. Maps to jaroWinklerSimilarity(s1, s2).',
+)
+def _build_jaro_winkler_similarity(s1, s2, alias=None):
+    from .functions import Function
+
+    return Function('jaroWinklerSimilarity', s1, s2, alias=alias)
+
+
+@register_function(
+    name='ngram_distance',
+    clickhouse_name='ngramDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['ngramDistance'],
+    doc='N-gram distance. Maps to ngramDistance(s1, s2).',
+)
+def _build_ngram_distance(s1, s2, alias=None):
+    from .functions import Function
+
+    return Function('ngramDistance', s1, s2, alias=alias)
+
+
+@register_function(
+    name='ngram_search',
+    clickhouse_name='ngramSearch',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['ngramSearch'],
+    doc='N-gram search score. Maps to ngramSearch(haystack, needle).',
+)
+def _build_ngram_search(haystack, needle, alias=None):
+    from .functions import Function
+
+    return Function('ngramSearch', haystack, needle, alias=alias)
+
+
+@register_function(
+    name='cosine_distance',
+    clickhouse_name='cosineDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['cosineDistance'],
+    doc='Cosine distance. Maps to cosineDistance(v1, v2).',
+)
+def _build_cosine_distance(v1, v2, alias=None):
+    from .functions import Function
+
+    return Function('cosineDistance', v1, v2, alias=alias)
+
+
+# =============================================================================
+# MORE STRING FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='char_func',
+    clickhouse_name='char',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['char'],
+    doc='Character from code. Maps to char(code).',
+)
+def _build_char_func(code, alias=None):
+    from .functions import Function
+
+    return Function('char', code, alias=alias)
+
+
+@register_function(
+    name='ascii_func',
+    clickhouse_name='ASCII',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['ASCII', 'ascii'],
+    doc='ASCII code of first character. Maps to ASCII(s).',
+)
+def _build_ascii_func(s, alias=None):
+    from .functions import Function
+
+    return Function('ASCII', s, alias=alias)
+
+
+@register_function(
+    name='left_pad',
+    clickhouse_name='leftPad',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['leftPad', 'lpad'],
+    doc='Left pad string. Maps to leftPad(s, len, pad).',
+)
+def _build_left_pad(s, length: int, pad: str = ' ', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('leftPad', s, Literal(length), Literal(pad), alias=alias)
+
+
+@register_function(
+    name='right_pad',
+    clickhouse_name='rightPad',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['rightPad', 'rpad'],
+    doc='Right pad string. Maps to rightPad(s, len, pad).',
+)
+def _build_right_pad(s, length: int, pad: str = ' ', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('rightPad', s, Literal(length), Literal(pad), alias=alias)
+
+
+@register_function(
+    name='format_func',
+    clickhouse_name='format',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['format'],
+    doc='Format string with arguments. Maps to format(template, arg1, ...).',
+)
+def _build_format_func(template, *args, alias=None):
+    from .functions import Function
+
+    return Function('format', template, *args, alias=alias)
+
+
+@register_function(
+    name='concat_func',
+    clickhouse_name='concat',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['concat'],
+    doc='Concatenate strings. Maps to concat(s1, s2, ...).',
+)
+def _build_concat_func(*args, alias=None):
+    from .functions import Function
+
+    return Function('concat', *args, alias=alias)
+
+
+@register_function(
+    name='concat_with_separator',
+    clickhouse_name='concatWithSeparator',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['concatWithSeparator'],
+    doc='Concatenate with separator. Maps to concatWithSeparator(sep, s1, s2, ...).',
+)
+def _build_concat_with_separator(sep, *args, alias=None):
+    from .functions import Function
+
+    return Function('concatWithSeparator', sep, *args, alias=alias)
+
+
+@register_function(
+    name='tokens',
+    clickhouse_name='tokens',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['tokens'],
+    doc='Split into tokens. Maps to tokens(s).',
+)
+def _build_tokens(s, alias=None):
+    from .functions import Function
+
+    return Function('tokens', s, alias=alias)
+
+
+@register_function(
+    name='ngrams',
+    clickhouse_name='ngrams',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['ngrams'],
+    doc='Generate n-grams. Maps to ngrams(s, n).',
+)
+def _build_ngrams(s, n: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('ngrams', s, Literal(n), alias=alias)
+
+
+@register_function(
+    name='extract_text_from_html',
+    clickhouse_name='extractTextFromHTML',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['extractTextFromHTML'],
+    doc='Extract text from HTML. Maps to extractTextFromHTML(html).',
+)
+def _build_extract_text_from_html(html, alias=None):
+    from .functions import Function
+
+    return Function('extractTextFromHTML', html, alias=alias)
+
+
+@register_function(
+    name='regexp_extract',
+    clickhouse_name='regexpExtract',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['regexpExtract', 'regexp_extract'],
+    doc='Extract using regex. Maps to regexpExtract(s, pattern, index).',
+)
+def _build_regexp_extract(s, pattern: str, index: int = 0, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('regexpExtract', s, Literal(pattern), Literal(index), alias=alias)
+
+
+@register_function(
+    name='regexp_replace',
+    clickhouse_name='replaceRegexpAll',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['replaceRegexpAll', 'regexp_replace'],
+    doc='Replace using regex. Maps to replaceRegexpAll(s, pattern, replacement).',
+)
+def _build_regexp_replace(s, pattern: str, replacement: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('replaceRegexpAll', s, Literal(pattern), Literal(replacement), alias=alias)
+
+
+@register_function(
+    name='multi_match_any',
+    clickhouse_name='multiMatchAny',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['multiMatchAny'],
+    doc='Check if any pattern matches. Maps to multiMatchAny(s, [patterns]).',
+)
+def _build_multi_match_any(s, patterns, alias=None):
+    from .functions import Function
+
+    return Function('multiMatchAny', s, patterns, alias=alias)
+
+
+@register_function(
+    name='multi_match_any_index',
+    clickhouse_name='multiMatchAnyIndex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['multiMatchAnyIndex'],
+    doc='Get index of first matching pattern. Maps to multiMatchAnyIndex(s, [patterns]).',
+)
+def _build_multi_match_any_index(s, patterns, alias=None):
+    from .functions import Function
+
+    return Function('multiMatchAnyIndex', s, patterns, alias=alias)
+
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='to_type_name',
+    clickhouse_name='toTypeName',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toTypeName'],
+    doc='Get type name of value. Maps to toTypeName(x).',
+)
+def _build_to_type_name(expr, alias=None):
+    from .functions import Function
+
+    return Function('toTypeName', expr, alias=alias)
+
+
+@register_function(
+    name='materialize',
+    clickhouse_name='materialize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['materialize'],
+    doc='Force materialization. Maps to materialize(x).',
+)
+def _build_materialize(expr, alias=None):
+    from .functions import Function
+
+    return Function('materialize', expr, alias=alias)
+
+
+@register_function(
+    name='ignore_func',
+    clickhouse_name='ignore',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['ignore'],
+    doc='Ignore values. Maps to ignore(...).',
+)
+def _build_ignore_func(*args, alias=None):
+    from .functions import Function
+
+    return Function('ignore', *args, alias=alias)
+
+
+@register_function(
+    name='sleep_func',
+    clickhouse_name='sleep',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['sleep'],
+    doc='Sleep for seconds. Maps to sleep(seconds).',
+)
+def _build_sleep_func(seconds, alias=None):
+    from .functions import Function
+
+    return Function('sleep', seconds, alias=alias)
+
+
+@register_function(
+    name='throw_if',
+    clickhouse_name='throwIf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['throwIf'],
+    doc='Throw exception if condition. Maps to throwIf(cond, message).',
+)
+def _build_throw_if(cond, message: str = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if message:
+        return Function('throwIf', cond, Literal(message), alias=alias)
+    return Function('throwIf', cond, alias=alias)
+
+
+@register_function(
+    name='format_readable_size',
+    clickhouse_name='formatReadableSize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['formatReadableSize'],
+    doc='Format bytes as readable. Maps to formatReadableSize(bytes).',
+)
+def _build_format_readable_size(bytes_val, alias=None):
+    from .functions import Function
+
+    return Function('formatReadableSize', bytes_val, alias=alias)
+
+
+@register_function(
+    name='format_readable_quantity',
+    clickhouse_name='formatReadableQuantity',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['formatReadableQuantity'],
+    doc='Format number with suffix. Maps to formatReadableQuantity(x).',
+)
+def _build_format_readable_quantity(x, alias=None):
+    from .functions import Function
+
+    return Function('formatReadableQuantity', x, alias=alias)
+
+
+@register_function(
+    name='format_readable_time_delta',
+    clickhouse_name='formatReadableTimeDelta',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['formatReadableTimeDelta'],
+    doc='Format seconds as readable time. Maps to formatReadableTimeDelta(seconds).',
+)
+def _build_format_readable_time_delta(seconds, alias=None):
+    from .functions import Function
+
+    return Function('formatReadableTimeDelta', seconds, alias=alias)
+
+
+@register_function(
+    name='generate_uuid_v4',
+    clickhouse_name='generateUUIDv4',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.UUID,
+    aliases=['generateUUIDv4'],
+    doc='Generate UUIDv4. Maps to generateUUIDv4().',
+)
+def _build_generate_uuid_v4(alias=None):
+    from .functions import Function
+
+    return Function('generateUUIDv4', alias=alias)
+
+
+@register_function(
+    name='generate_uuid_v7',
+    clickhouse_name='generateUUIDv7',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.UUID,
+    aliases=['generateUUIDv7'],
+    doc='Generate UUIDv7. Maps to generateUUIDv7().',
+)
+def _build_generate_uuid_v7(alias=None):
+    from .functions import Function
+
+    return Function('generateUUIDv7', alias=alias)
+
+
+@register_function(
+    name='snowflake_to_datetime',
+    clickhouse_name='snowflakeToDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['snowflakeToDateTime'],
+    doc='Convert Snowflake ID to datetime. Maps to snowflakeToDateTime(id).',
+)
+def _build_snowflake_to_datetime(id_val, alias=None):
+    from .functions import Function
+
+    return Function('snowflakeToDateTime', id_val, alias=alias)
+
+
+@register_function(
+    name='datetime_to_snowflake',
+    clickhouse_name='dateTimeToSnowflake',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['dateTimeToSnowflake'],
+    doc='Convert datetime to Snowflake ID. Maps to dateTimeToSnowflake(dt).',
+)
+def _build_datetime_to_snowflake(dt, alias=None):
+    from .functions import Function
+
+    return Function('dateTimeToSnowflake', dt, alias=alias)
+
+
+# =============================================================================
+# VECTOR DISTANCE FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='l1_norm',
+    clickhouse_name='L1Norm',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['L1Norm'],
+    doc='L1 norm of vector. Maps to L1Norm(vec).',
+)
+def _build_l1_norm(vec, alias=None):
+    from .functions import Function
+
+    return Function('L1Norm', vec, alias=alias)
+
+
+@register_function(
+    name='l2_norm',
+    clickhouse_name='L2Norm',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['L2Norm'],
+    doc='L2 norm of vector. Maps to L2Norm(vec).',
+)
+def _build_l2_norm(vec, alias=None):
+    from .functions import Function
+
+    return Function('L2Norm', vec, alias=alias)
+
+
+@register_function(
+    name='linf_norm',
+    clickhouse_name='LinfNorm',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['LinfNorm'],
+    doc='Linf norm of vector. Maps to LinfNorm(vec).',
+)
+def _build_linf_norm(vec, alias=None):
+    from .functions import Function
+
+    return Function('LinfNorm', vec, alias=alias)
+
+
+@register_function(
+    name='linf_distance',
+    clickhouse_name='LinfDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['LinfDistance'],
+    doc='Linf distance. Maps to LinfDistance(v1, v2).',
+)
+def _build_linf_distance(v1, v2, alias=None):
+    from .functions import Function
+
+    return Function('LinfDistance', v1, v2, alias=alias)
+
+
+@register_function(
+    name='lp_norm',
+    clickhouse_name='LpNorm',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['LpNorm'],
+    doc='Lp norm of vector. Maps to LpNorm(vec, p).',
+)
+def _build_lp_norm(vec, p, alias=None):
+    from .functions import Function
+
+    return Function('LpNorm', vec, p, alias=alias)
+
+
+@register_function(
+    name='lp_distance',
+    clickhouse_name='LpDistance',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['LpDistance'],
+    doc='Lp distance. Maps to LpDistance(v1, v2, p).',
+)
+def _build_lp_distance(v1, v2, p, alias=None):
+    from .functions import Function
+
+    return Function('LpDistance', v1, v2, p, alias=alias)
+
+
+@register_function(
+    name='l1_normalize',
+    clickhouse_name='L1Normalize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['L1Normalize'],
+    doc='L1 normalize vector. Maps to L1Normalize(vec).',
+)
+def _build_l1_normalize(vec, alias=None):
+    from .functions import Function
+
+    return Function('L1Normalize', vec, alias=alias)
+
+
+@register_function(
+    name='l2_normalize',
+    clickhouse_name='L2Normalize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.GEO,
+    aliases=['L2Normalize'],
+    doc='L2 normalize vector. Maps to L2Normalize(vec).',
+)
+def _build_l2_normalize(vec, alias=None):
+    from .functions import Function
+
+    return Function('L2Normalize', vec, alias=alias)
+
+
+# =============================================================================
+# MORE AGGREGATE FUNCTIONS (Extended)
+# =============================================================================
+
+
+@register_function(
+    name='avg_weighted',
+    clickhouse_name='avgWeighted',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['avgWeighted'],
+    doc='Weighted average. Maps to avgWeighted(x, weight).',
+)
+def _build_avg_weighted(x, weight, alias=None):
+    from .functions import Function
+
+    return Function('avgWeighted', x, weight, alias=alias)
+
+
+@register_function(
+    name='sum_count',
+    clickhouse_name='sumCount',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['sumCount'],
+    doc='Sum and count. Maps to sumCount(x).',
+)
+def _build_sum_count(x, alias=None):
+    from .functions import Function
+
+    return Function('sumCount', x, alias=alias)
+
+
+@register_function(
+    name='sum_kahan',
+    clickhouse_name='sumKahan',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['sumKahan'],
+    doc='Kahan summation. Maps to sumKahan(x).',
+)
+def _build_sum_kahan(x, alias=None):
+    from .functions import Function
+
+    return Function('sumKahan', x, alias=alias)
+
+
+@register_function(
+    name='count_equal',
+    clickhouse_name='countEqual',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['countEqual'],
+    doc='Count equal elements in array. Maps to countEqual(arr, x).',
+)
+def _build_count_equal(arr, x, alias=None):
+    from .functions import Function
+
+    return Function('countEqual', arr, x, alias=alias)
+
+
+@register_function(
+    name='group_array_moving_avg',
+    clickhouse_name='groupArrayMovingAvg',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupArrayMovingAvg'],
+    doc='Moving average in array. Maps to groupArrayMovingAvg(window)(x).',
+)
+def _build_group_array_moving_avg(x, window: int = None, alias=None):
+    from .functions import Function
+
+    if window:
+        return Function(f'groupArrayMovingAvg({window})', x, alias=alias)
+    return Function('groupArrayMovingAvg', x, alias=alias)
+
+
+@register_function(
+    name='group_array_moving_sum',
+    clickhouse_name='groupArrayMovingSum',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupArrayMovingSum'],
+    doc='Moving sum in array. Maps to groupArrayMovingSum(window)(x).',
+)
+def _build_group_array_moving_sum(x, window: int = None, alias=None):
+    from .functions import Function
+
+    if window:
+        return Function(f'groupArrayMovingSum({window})', x, alias=alias)
+    return Function('groupArrayMovingSum', x, alias=alias)
+
+
+@register_function(
+    name='group_array_sample',
+    clickhouse_name='groupArraySample',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupArraySample'],
+    doc='Random sample from group. Maps to groupArraySample(n)(x).',
+)
+def _build_group_array_sample(x, n: int, alias=None):
+    from .functions import Function
+
+    return Function(f'groupArraySample({n})', x, alias=alias)
+
+
+@register_function(
+    name='group_array_sorted',
+    clickhouse_name='groupArraySorted',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupArraySorted'],
+    doc='Sorted array from group. Maps to groupArraySorted(n)(x).',
+)
+def _build_group_array_sorted(x, n: int = None, alias=None):
+    from .functions import Function
+
+    if n:
+        return Function(f'groupArraySorted({n})', x, alias=alias)
+    return Function('groupArraySorted', x, alias=alias)
+
+
+@register_function(
+    name='group_bit_or',
+    clickhouse_name='groupBitOr',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupBitOr'],
+    doc='Bitwise OR of group. Maps to groupBitOr(x).',
+)
+def _build_group_bit_or(x, alias=None):
+    from .functions import Function
+
+    return Function('groupBitOr', x, alias=alias)
+
+
+@register_function(
+    name='group_bit_and',
+    clickhouse_name='groupBitAnd',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupBitAnd'],
+    doc='Bitwise AND of group. Maps to groupBitAnd(x).',
+)
+def _build_group_bit_and(x, alias=None):
+    from .functions import Function
+
+    return Function('groupBitAnd', x, alias=alias)
+
+
+@register_function(
+    name='group_bit_xor',
+    clickhouse_name='groupBitXor',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['groupBitXor'],
+    doc='Bitwise XOR of group. Maps to groupBitXor(x).',
+)
+def _build_group_bit_xor(x, alias=None):
+    from .functions import Function
+
+    return Function('groupBitXor', x, alias=alias)
+
+
+@register_function(
+    name='retention',
+    clickhouse_name='retention',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['retention'],
+    doc='Retention analysis. Maps to retention(cond1, cond2, ...).',
+)
+def _build_retention(*conds, alias=None):
+    from .functions import Function
+
+    return Function('retention', *conds, alias=alias)
+
+
+@register_function(
+    name='uniq_up_to',
+    clickhouse_name='uniqUpTo',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['uniqUpTo'],
+    doc='Count uniques up to limit. Maps to uniqUpTo(n)(x).',
+)
+def _build_uniq_up_to(x, n: int = 5, alias=None):
+    from .functions import Function
+
+    return Function(f'uniqUpTo({n})', x, alias=alias)
+
+
+@register_function(
+    name='sequence_match',
+    clickhouse_name='sequenceMatch',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['sequenceMatch'],
+    doc='Sequence pattern matching. Maps to sequenceMatch(pattern)(ts, cond1, ...).',
+)
+def _build_sequence_match(pattern: str, ts, *conds, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function(f"sequenceMatch('{pattern}')", ts, *conds, alias=alias)
+
+
+@register_function(
+    name='sequence_count',
+    clickhouse_name='sequenceCount',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['sequenceCount'],
+    doc='Count sequence matches. Maps to sequenceCount(pattern)(ts, cond1, ...).',
+)
+def _build_sequence_count(pattern: str, ts, *conds, alias=None):
+    from .functions import Function
+
+    return Function(f"sequenceCount('{pattern}')", ts, *conds, alias=alias)
+
+
+@register_function(
+    name='window_funnel',
+    clickhouse_name='windowFunnel',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['windowFunnel'],
+    doc='Funnel analysis. Maps to windowFunnel(window)(ts, cond1, cond2, ...).',
+)
+def _build_window_funnel(window: int, ts, *conds, alias=None):
+    from .functions import Function
+
+    return Function(f'windowFunnel({window})', ts, *conds, alias=alias)
+
+
+@register_function(
+    name='exponential_moving_average',
+    clickhouse_name='exponentialMovingAverage',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['exponentialMovingAverage', 'ema'],
+    doc='Exponential moving average. Maps to exponentialMovingAverage(x, ts, alpha).',
+)
+def _build_exponential_moving_average(x, ts, alpha, alias=None):
+    from .functions import Function
+
+    return Function('exponentialMovingAverage', x, ts, alpha, alias=alias)
+
+
+@register_function(
+    name='rank_corr',
+    clickhouse_name='rankCorr',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['rankCorr', 'spearmanRankCorr'],
+    doc='Spearman rank correlation. Maps to rankCorr(x, y).',
+)
+def _build_rank_corr(x, y, alias=None):
+    from .functions import Function
+
+    return Function('rankCorr', x, y, alias=alias)
+
+
+@register_function(
+    name='contingency',
+    clickhouse_name='contingency',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['contingency'],
+    doc='Contingency coefficient. Maps to contingency(x, y).',
+)
+def _build_contingency(x, y, alias=None):
+    from .functions import Function
+
+    return Function('contingency', x, y, alias=alias)
+
+
+@register_function(
+    name='cramers_v',
+    clickhouse_name='cramersV',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['cramersV'],
+    doc="Cramer's V. Maps to cramersV(x, y).",
+)
+def _build_cramers_v(x, y, alias=None):
+    from .functions import Function
+
+    return Function('cramersV', x, y, alias=alias)
+
+
+@register_function(
+    name='theils_u',
+    clickhouse_name='theilsU',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['theilsU'],
+    doc="Theil's U. Maps to theilsU(x, y).",
+)
+def _build_theils_u(x, y, alias=None):
+    from .functions import Function
+
+    return Function('theilsU', x, y, alias=alias)
+
+
+@register_function(
+    name='mann_whitney_u_test',
+    clickhouse_name='mannWhitneyUTest',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['mannWhitneyUTest'],
+    doc='Mann-Whitney U test. Maps to mannWhitneyUTest(x, y).',
+)
+def _build_mann_whitney_u_test(x, y, alias=None):
+    from .functions import Function
+
+    return Function('mannWhitneyUTest', x, y, alias=alias)
+
+
+@register_function(
+    name='student_t_test',
+    clickhouse_name='studentTTest',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['studentTTest'],
+    doc="Student's t-test. Maps to studentTTest(x, y).",
+)
+def _build_student_t_test(x, y, alias=None):
+    from .functions import Function
+
+    return Function('studentTTest', x, y, alias=alias)
+
+
+@register_function(
+    name='welch_t_test',
+    clickhouse_name='welchTTest',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['welchTTest'],
+    doc="Welch's t-test. Maps to welchTTest(x, y).",
+)
+def _build_welch_t_test(x, y, alias=None):
+    from .functions import Function
+
+    return Function('welchTTest', x, y, alias=alias)
+
+
+@register_function(
+    name='kolmogorov_smirnov_test',
+    clickhouse_name='kolmogorovSmirnovTest',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['kolmogorovSmirnovTest', 'ksTest'],
+    doc='Kolmogorov-Smirnov test. Maps to kolmogorovSmirnovTest(x, y).',
+)
+def _build_kolmogorov_smirnov_test(x, y, alias=None):
+    from .functions import Function
+
+    return Function('kolmogorovSmirnovTest', x, y, alias=alias)
+
+
+@register_function(
+    name='delta_sum',
+    clickhouse_name='deltaSum',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['deltaSum'],
+    doc='Sum of differences. Maps to deltaSum(x).',
+)
+def _build_delta_sum(x, alias=None):
+    from .functions import Function
+
+    return Function('deltaSum', x, alias=alias)
+
+
+@register_function(
+    name='delta_sum_timestamp',
+    clickhouse_name='deltaSumTimestamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['deltaSumTimestamp'],
+    doc='Sum of differences with timestamp. Maps to deltaSumTimestamp(x, ts).',
+)
+def _build_delta_sum_timestamp(x, ts, alias=None):
+    from .functions import Function
+
+    return Function('deltaSumTimestamp', x, ts, alias=alias)
+
+
+@register_function(
+    name='bounding_ratio',
+    clickhouse_name='boundingRatio',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['boundingRatio'],
+    doc='Slope of bounding line. Maps to boundingRatio(x, y).',
+)
+def _build_bounding_ratio(x, y, alias=None):
+    from .functions import Function
+
+    return Function('boundingRatio', x, y, alias=alias)
+
+
+@register_function(
+    name='spark_bar',
+    clickhouse_name='sparkBar',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['sparkBar', 'sparkbar'],
+    doc='Sparkline bar chart. Maps to sparkBar(buckets)(x, y).',
+)
+def _build_spark_bar(x, y=None, buckets: int = 10, alias=None):
+    from .functions import Function
+
+    if y is not None:
+        return Function(f'sparkBar({buckets})', x, y, alias=alias)
+    return Function(f'sparkBar({buckets})', x, alias=alias)
+
+
+# =============================================================================
+# MORE WINDOW FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='row_number_func',
+    clickhouse_name='row_number',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['row_number', 'rowNumber'],
+    doc='Row number in window. Maps to row_number() OVER (...).',
+)
+def _build_row_number_func(alias=None):
+    from .functions import Function
+
+    return Function('row_number', alias=alias)
+
+
+@register_function(
+    name='rank_func',
+    clickhouse_name='rank',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['rank'],
+    doc='Rank with gaps. Maps to rank() OVER (...).',
+)
+def _build_rank_func(alias=None):
+    from .functions import Function
+
+    return Function('rank', alias=alias)
+
+
+@register_function(
+    name='dense_rank_func',
+    clickhouse_name='dense_rank',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['dense_rank', 'denseRank'],
+    doc='Dense rank without gaps. Maps to dense_rank() OVER (...).',
+)
+def _build_dense_rank_func(alias=None):
+    from .functions import Function
+
+    return Function('dense_rank', alias=alias)
+
+
+@register_function(
+    name='ntile_func',
+    clickhouse_name='ntile',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['ntile'],
+    doc='N-tile bucket number. Maps to ntile(n) OVER (...).',
+)
+def _build_ntile_func(n: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('ntile', Literal(n), alias=alias)
+
+
+@register_function(
+    name='lead_func',
+    clickhouse_name='lead',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['lead'],
+    doc='Value from next row. Maps to lead(x, offset, default) OVER (...).',
+)
+def _build_lead_func(x, offset: int = 1, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('lead', x, Literal(offset), default, alias=alias)
+    return Function('lead', x, Literal(offset), alias=alias)
+
+
+@register_function(
+    name='lag_func',
+    clickhouse_name='lag',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['lag'],
+    doc='Value from previous row. Maps to lag(x, offset, default) OVER (...).',
+)
+def _build_lag_func(x, offset: int = 1, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('lag', x, Literal(offset), default, alias=alias)
+    return Function('lag', x, Literal(offset), alias=alias)
+
+
+@register_function(
+    name='nth_value_func',
+    clickhouse_name='nth_value',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['nth_value', 'nthValue'],
+    doc='N-th value in window. Maps to nth_value(x, n) OVER (...).',
+)
+def _build_nth_value_func(x, n: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('nth_value', x, Literal(n), alias=alias)
+
+
+@register_function(
+    name='lag_in_frame',
+    clickhouse_name='lagInFrame',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['lagInFrame'],
+    doc='Lag within frame. Maps to lagInFrame(x, offset, default).',
+)
+def _build_lag_in_frame(x, offset: int = 1, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('lagInFrame', x, Literal(offset), default, alias=alias)
+    return Function('lagInFrame', x, Literal(offset), alias=alias)
+
+
+@register_function(
+    name='lead_in_frame',
+    clickhouse_name='leadInFrame',
+    func_type=FunctionType.WINDOW,
+    category=FunctionCategory.WINDOW,
+    aliases=['leadInFrame'],
+    doc='Lead within frame. Maps to leadInFrame(x, offset, default).',
+)
+def _build_lead_in_frame(x, offset: int = 1, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('leadInFrame', x, Literal(offset), default, alias=alias)
+    return Function('leadInFrame', x, Literal(offset), alias=alias)
+
+
+# =============================================================================
+# MORE DATETIME FUNCTIONS (Extended)
+# =============================================================================
+
+
+@register_function(
+    name='to_yyyymm',
+    clickhouse_name='toYYYYMM',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toYYYYMM'],
+    doc='Convert to YYYYMM format. Maps to toYYYYMM(dt).',
+)
+def _build_to_yyyymm(dt, alias=None):
+    from .functions import Function
+
+    return Function('toYYYYMM', dt, alias=alias)
+
+
+@register_function(
+    name='to_yyyymmdd',
+    clickhouse_name='toYYYYMMDD',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toYYYYMMDD'],
+    doc='Convert to YYYYMMDD format. Maps to toYYYYMMDD(dt).',
+)
+def _build_to_yyyymmdd(dt, alias=None):
+    from .functions import Function
+
+    return Function('toYYYYMMDD', dt, alias=alias)
+
+
+@register_function(
+    name='to_yyyymmddhhmmss',
+    clickhouse_name='toYYYYMMDDhhmmss',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toYYYYMMDDhhmmss'],
+    doc='Convert to YYYYMMDDhhmmss format. Maps to toYYYYMMDDhhmmss(dt).',
+)
+def _build_to_yyyymmddhhmmss(dt, alias=None):
+    from .functions import Function
+
+    return Function('toYYYYMMDDhhmmss', dt, alias=alias)
+
+
+@register_function(
+    name='format_datetime',
+    clickhouse_name='formatDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['formatDateTime'],
+    doc='Format datetime. Maps to formatDateTime(dt, format).',
+)
+def _build_format_datetime(dt, format_str: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('formatDateTime', dt, Literal(format_str), alias=alias)
+
+
+@register_function(
+    name='parse_datetime',
+    clickhouse_name='parseDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTime'],
+    doc='Parse datetime string. Maps to parseDateTime(s, format).',
+)
+def _build_parse_datetime(s, format_str: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('parseDateTime', s, Literal(format_str), alias=alias)
+
+
+@register_function(
+    name='to_timezone',
+    clickhouse_name='toTimezone',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toTimezone', 'toTimeZone'],
+    doc='Convert to timezone. Maps to toTimezone(dt, tz).',
+)
+def _build_to_timezone(dt, tz: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toTimezone', dt, Literal(tz), alias=alias)
+
+
+@register_function(
+    name='timezone_func',
+    clickhouse_name='timezone',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['timezone', 'serverTimezone'],
+    doc='Get server timezone. Maps to timezone().',
+)
+def _build_timezone_func(alias=None):
+    from .functions import Function
+
+    return Function('timezone', alias=alias)
+
+
+@register_function(
+    name='timezone_of',
+    clickhouse_name='timezoneOf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['timezoneOf', 'timeZoneOf'],
+    doc='Get timezone of datetime. Maps to timezoneOf(dt).',
+)
+def _build_timezone_of(dt, alias=None):
+    from .functions import Function
+
+    return Function('timezoneOf', dt, alias=alias)
+
+
+@register_function(
+    name='to_start_of_second',
+    clickhouse_name='toStartOfSecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfSecond'],
+    doc='Truncate to second. Maps to toStartOfSecond(dt).',
+)
+def _build_to_start_of_second(dt, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfSecond', dt, alias=alias)
+
+
+@register_function(
+    name='to_start_of_minute',
+    clickhouse_name='toStartOfMinute',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfMinute'],
+    doc='Truncate to minute. Maps to toStartOfMinute(dt).',
+)
+def _build_to_start_of_minute(dt, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfMinute', dt, alias=alias)
+
+
+@register_function(
+    name='to_start_of_five_minutes',
+    clickhouse_name='toStartOfFiveMinutes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfFiveMinutes'],
+    doc='Truncate to 5 minutes. Maps to toStartOfFiveMinutes(dt).',
+)
+def _build_to_start_of_five_minutes(dt, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfFiveMinutes', dt, alias=alias)
+
+
+@register_function(
+    name='to_start_of_ten_minutes',
+    clickhouse_name='toStartOfTenMinutes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfTenMinutes'],
+    doc='Truncate to 10 minutes. Maps to toStartOfTenMinutes(dt).',
+)
+def _build_to_start_of_ten_minutes(dt, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfTenMinutes', dt, alias=alias)
+
+
+@register_function(
+    name='to_start_of_fifteen_minutes',
+    clickhouse_name='toStartOfFifteenMinutes',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfFifteenMinutes'],
+    doc='Truncate to 15 minutes. Maps to toStartOfFifteenMinutes(dt).',
+)
+def _build_to_start_of_fifteen_minutes(dt, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfFifteenMinutes', dt, alias=alias)
+
+
+@register_function(
+    name='to_start_of_interval',
+    clickhouse_name='toStartOfInterval',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toStartOfInterval'],
+    doc='Truncate to interval. Maps to toStartOfInterval(dt, INTERVAL n unit).',
+)
+def _build_to_start_of_interval(dt, interval, alias=None):
+    from .functions import Function
+
+    return Function('toStartOfInterval', dt, interval, alias=alias)
+
+
+@register_function(
+    name='to_time',
+    clickhouse_name='toTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toTime'],
+    doc='Extract time part. Maps to toTime(dt).',
+)
+def _build_to_time(dt, alias=None):
+    from .functions import Function
+
+    return Function('toTime', dt, alias=alias)
+
+
+@register_function(
+    name='to_year_week',
+    clickhouse_name='toYearWeek',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toYearWeek'],
+    doc='Get year and week number. Maps to toYearWeek(dt, mode).',
+)
+def _build_to_year_week(dt, mode: int = 0, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toYearWeek', dt, Literal(mode), alias=alias)
+
+
+@register_function(
+    name='to_iso_year',
+    clickhouse_name='toISOYear',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toISOYear'],
+    doc='Get ISO year. Maps to toISOYear(dt).',
+)
+def _build_to_iso_year(dt, alias=None):
+    from .functions import Function
+
+    return Function('toISOYear', dt, alias=alias)
+
+
+@register_function(
+    name='to_days_since_year_zero',
+    clickhouse_name='toDaysSinceYearZero',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toDaysSinceYearZero'],
+    doc='Days since year 0. Maps to toDaysSinceYearZero(dt).',
+)
+def _build_to_days_since_year_zero(dt, alias=None):
+    from .functions import Function
+
+    return Function('toDaysSinceYearZero', dt, alias=alias)
+
+
+@register_function(
+    name='from_days_since_year_zero',
+    clickhouse_name='fromDaysSinceYearZero',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['fromDaysSinceYearZero'],
+    doc='Date from days since year 0. Maps to fromDaysSinceYearZero(days).',
+)
+def _build_from_days_since_year_zero(days, alias=None):
+    from .functions import Function
+
+    return Function('fromDaysSinceYearZero', days, alias=alias)
+
+
+@register_function(
+    name='utc_timestamp',
+    clickhouse_name='UTCTimestamp',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['UTCTimestamp'],
+    doc='Current UTC timestamp. Maps to UTCTimestamp().',
+)
+def _build_utc_timestamp(alias=None):
+    from .functions import Function
+
+    return Function('UTCTimestamp', alias=alias)
+
+
+# =============================================================================
+# MORE ENCODING FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='hex_func',
+    clickhouse_name='hex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ENCODING,
+    aliases=['hex'],
+    doc='Convert to hex string. Maps to hex(x).',
+)
+def _build_hex_func(x, alias=None):
+    from .functions import Function
+
+    return Function('hex', x, alias=alias)
+
+
+@register_function(
+    name='unhex_func',
+    clickhouse_name='unhex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ENCODING,
+    aliases=['unhex'],
+    doc='Convert from hex string. Maps to unhex(s).',
+)
+def _build_unhex_func(s, alias=None):
+    from .functions import Function
+
+    return Function('unhex', s, alias=alias)
+
+
+@register_function(
+    name='bin_func',
+    clickhouse_name='bin',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ENCODING,
+    aliases=['bin'],
+    doc='Convert to binary string. Maps to bin(x).',
+)
+def _build_bin_func(x, alias=None):
+    from .functions import Function
+
+    return Function('bin', x, alias=alias)
+
+
+@register_function(
+    name='unbin_func',
+    clickhouse_name='unbin',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ENCODING,
+    aliases=['unbin'],
+    doc='Convert from binary string. Maps to unbin(s).',
+)
+def _build_unbin_func(s, alias=None):
+    from .functions import Function
+
+    return Function('unbin', s, alias=alias)
+
+
+@register_function(
+    name='bitmask_to_array',
+    clickhouse_name='bitmaskToArray',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ENCODING,
+    aliases=['bitmaskToArray'],
+    doc='Convert bitmask to array of bit positions. Maps to bitmaskToArray(x).',
+)
+def _build_bitmask_to_array(x, alias=None):
+    from .functions import Function
+
+    return Function('bitmaskToArray', x, alias=alias)
+
+
+@register_function(
+    name='bitmask_to_list',
+    clickhouse_name='bitmaskToList',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ENCODING,
+    aliases=['bitmaskToList'],
+    doc='Convert bitmask to list string. Maps to bitmaskToList(x).',
+)
+def _build_bitmask_to_list(x, alias=None):
+    from .functions import Function
+
+    return Function('bitmaskToList', x, alias=alias)
+
+
+# =============================================================================
+# UTILITY FUNCTIONS (Extended)
+# =============================================================================
+
+
+@register_function(
+    name='coalesce_func',
+    clickhouse_name='coalesce',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['coalesce'],
+    doc='Return first non-NULL. Maps to coalesce(x1, x2, ...).',
+)
+def _build_coalesce_func(*args, alias=None):
+    from .functions import Function
+
+    return Function('coalesce', *args, alias=alias)
+
+
+@register_function(
+    name='if_not_finite',
+    clickhouse_name='ifNotFinite',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['ifNotFinite'],
+    doc='Replace non-finite with value. Maps to ifNotFinite(x, alt).',
+)
+def _build_if_not_finite(x, alt, alias=None):
+    from .functions import Function
+
+    return Function('ifNotFinite', x, alt, alias=alias)
+
+
+@register_function(
+    name='is_finite',
+    clickhouse_name='isFinite',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isFinite'],
+    doc='Check if finite. Maps to isFinite(x).',
+)
+def _build_is_finite(x, alias=None):
+    from .functions import Function
+
+    return Function('isFinite', x, alias=alias)
+
+
+@register_function(
+    name='is_infinite',
+    clickhouse_name='isInfinite',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isInfinite'],
+    doc='Check if infinite. Maps to isInfinite(x).',
+)
+def _build_is_infinite(x, alias=None):
+    from .functions import Function
+
+    return Function('isInfinite', x, alias=alias)
+
+
+@register_function(
+    name='is_nan',
+    clickhouse_name='isNaN',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isNaN'],
+    doc='Check if NaN. Maps to isNaN(x).',
+)
+def _build_is_nan(x, alias=None):
+    from .functions import Function
+
+    return Function('isNaN', x, alias=alias)
+
+
+@register_function(
+    name='transform_func',
+    clickhouse_name='transform',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['transform'],
+    doc='Transform values. Maps to transform(x, from, to, default).',
+)
+def _build_transform_func(x, from_arr, to_arr, default=None, alias=None):
+    from .functions import Function
+
+    if default is not None:
+        return Function('transform', x, from_arr, to_arr, default, alias=alias)
+    return Function('transform', x, from_arr, to_arr, alias=alias)
+
+
+@register_function(
+    name='bar_func',
+    clickhouse_name='bar',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['bar'],
+    doc='Draw bar chart. Maps to bar(x, min, max, width).',
+)
+def _build_bar_func(x, min_val, max_val, width: int = 80, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('bar', x, min_val, max_val, Literal(width), alias=alias)
+
+
+@register_function(
+    name='array_join_func',
+    clickhouse_name='arrayJoin',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['arrayJoin'],
+    doc='Expand array to rows. Maps to arrayJoin(arr).',
+)
+def _build_array_join_func(arr, alias=None):
+    from .functions import Function
+
+    return Function('arrayJoin', arr, alias=alias)
+
+
+@register_function(
+    name='running_difference',
+    clickhouse_name='runningDifference',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['runningDifference'],
+    doc='Running difference. Maps to runningDifference(x).',
+)
+def _build_running_difference(x, alias=None):
+    from .functions import Function
+
+    return Function('runningDifference', x, alias=alias)
+
+
+@register_function(
+    name='running_difference_starting_with_first_value',
+    clickhouse_name='runningDifferenceStartingWithFirstValue',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['runningDifferenceStartingWithFirstValue'],
+    doc='Running difference starting with first. Maps to runningDifferenceStartingWithFirstValue(x).',
+)
+def _build_running_difference_starting_with_first_value(x, alias=None):
+    from .functions import Function
+
+    return Function('runningDifferenceStartingWithFirstValue', x, alias=alias)
+
+
+@register_function(
+    name='neighbor_func',
+    clickhouse_name='neighbor',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['neighbor'],
+    doc='Get neighbor value. Maps to neighbor(x, offset, default).',
+)
+def _build_neighbor_func(x, offset: int, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('neighbor', x, Literal(offset), default, alias=alias)
+    return Function('neighbor', x, Literal(offset), alias=alias)
+
+
+@register_function(
+    name='current_database',
+    clickhouse_name='currentDatabase',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['currentDatabase', 'database'],
+    doc='Get current database. Maps to currentDatabase().',
+)
+def _build_current_database(alias=None):
+    from .functions import Function
+
+    return Function('currentDatabase', alias=alias)
+
+
+@register_function(
+    name='current_user',
+    clickhouse_name='currentUser',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['currentUser', 'user'],
+    doc='Get current user. Maps to currentUser().',
+)
+def _build_current_user(alias=None):
+    from .functions import Function
+
+    return Function('currentUser', alias=alias)
+
+
+@register_function(
+    name='host_name',
+    clickhouse_name='hostName',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['hostName', 'hostname'],
+    doc='Get hostname. Maps to hostName().',
+)
+def _build_host_name(alias=None):
+    from .functions import Function
+
+    return Function('hostName', alias=alias)
+
+
+@register_function(
+    name='version_func',
+    clickhouse_name='version',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['version'],
+    doc='Get ClickHouse version. Maps to version().',
+)
+def _build_version_func(alias=None):
+    from .functions import Function
+
+    return Function('version', alias=alias)
+
+
+@register_function(
+    name='uptime_func',
+    clickhouse_name='uptime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['uptime'],
+    doc='Get server uptime in seconds. Maps to uptime().',
+)
+def _build_uptime_func(alias=None):
+    from .functions import Function
+
+    return Function('uptime', alias=alias)
+
+
+@register_function(
+    name='block_size',
+    clickhouse_name='blockSize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['blockSize'],
+    doc='Get block size. Maps to blockSize().',
+)
+def _build_block_size(alias=None):
+    from .functions import Function
+
+    return Function('blockSize', alias=alias)
+
+
+@register_function(
+    name='block_number',
+    clickhouse_name='blockNumber',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['blockNumber'],
+    doc='Get block number. Maps to blockNumber().',
+)
+def _build_block_number(alias=None):
+    from .functions import Function
+
+    return Function('blockNumber', alias=alias)
+
+
+@register_function(
+    name='row_number_in_block',
+    clickhouse_name='rowNumberInBlock',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['rowNumberInBlock'],
+    doc='Row number within block. Maps to rowNumberInBlock().',
+)
+def _build_row_number_in_block(alias=None):
+    from .functions import Function
+
+    return Function('rowNumberInBlock', alias=alias)
+
+
+@register_function(
+    name='row_number_in_all_blocks',
+    clickhouse_name='rowNumberInAllBlocks',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['rowNumberInAllBlocks'],
+    doc='Row number across all blocks. Maps to rowNumberInAllBlocks().',
+)
+def _build_row_number_in_all_blocks(alias=None):
+    from .functions import Function
+
+    return Function('rowNumberInAllBlocks', alias=alias)
+
+
+@register_function(
+    name='identity_func',
+    clickhouse_name='identity',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['identity'],
+    doc='Identity function. Maps to identity(x).',
+)
+def _build_identity_func(x, alias=None):
+    from .functions import Function
+
+    return Function('identity', x, alias=alias)
+
+
+@register_function(
+    name='is_constant',
+    clickhouse_name='isConstant',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['isConstant'],
+    doc='Check if constant. Maps to isConstant(x).',
+)
+def _build_is_constant(x, alias=None):
+    from .functions import Function
+
+    return Function('isConstant', x, alias=alias)
+
+
+@register_function(
+    name='byte_size',
+    clickhouse_name='byteSize',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['byteSize'],
+    doc='Get byte size. Maps to byteSize(x).',
+)
+def _build_byte_size(x, alias=None):
+    from .functions import Function
+
+    return Function('byteSize', x, alias=alias)
+
+
+@register_function(
+    name='filesystem_available',
+    clickhouse_name='filesystemAvailable',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['filesystemAvailable'],
+    doc='Get available filesystem space. Maps to filesystemAvailable().',
+)
+def _build_filesystem_available(alias=None):
+    from .functions import Function
+
+    return Function('filesystemAvailable', alias=alias)
+
+
+@register_function(
+    name='filesystem_capacity',
+    clickhouse_name='filesystemCapacity',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['filesystemCapacity'],
+    doc='Get filesystem capacity. Maps to filesystemCapacity().',
+)
+def _build_filesystem_capacity(alias=None):
+    from .functions import Function
+
+    return Function('filesystemCapacity', alias=alias)
+
+
+@register_function(
+    name='to_interval_second',
+    clickhouse_name='toIntervalSecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalSecond'],
+    doc='Create interval in seconds. Maps to toIntervalSecond(n).',
+)
+def _build_to_interval_second(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalSecond', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_minute',
+    clickhouse_name='toIntervalMinute',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalMinute'],
+    doc='Create interval in minutes. Maps to toIntervalMinute(n).',
+)
+def _build_to_interval_minute(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalMinute', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_hour',
+    clickhouse_name='toIntervalHour',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalHour'],
+    doc='Create interval in hours. Maps to toIntervalHour(n).',
+)
+def _build_to_interval_hour(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalHour', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_day',
+    clickhouse_name='toIntervalDay',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalDay'],
+    doc='Create interval in days. Maps to toIntervalDay(n).',
+)
+def _build_to_interval_day(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalDay', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_week',
+    clickhouse_name='toIntervalWeek',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalWeek'],
+    doc='Create interval in weeks. Maps to toIntervalWeek(n).',
+)
+def _build_to_interval_week(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalWeek', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_month',
+    clickhouse_name='toIntervalMonth',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalMonth'],
+    doc='Create interval in months. Maps to toIntervalMonth(n).',
+)
+def _build_to_interval_month(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalMonth', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_quarter',
+    clickhouse_name='toIntervalQuarter',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalQuarter'],
+    doc='Create interval in quarters. Maps to toIntervalQuarter(n).',
+)
+def _build_to_interval_quarter(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalQuarter', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_year',
+    clickhouse_name='toIntervalYear',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalYear'],
+    doc='Create interval in years. Maps to toIntervalYear(n).',
+)
+def _build_to_interval_year(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalYear', n, alias=alias)
+
+
+@register_function(
+    name='to_decimal_string',
+    clickhouse_name='toDecimalString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimalString'],
+    doc='Convert to decimal string. Maps to toDecimalString(x, scale).',
+)
+def _build_to_decimal_string(x, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimalString', x, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='accurate_cast',
+    clickhouse_name='accurateCast',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['accurateCast'],
+    doc='Accurate type cast. Maps to accurateCast(x, T).',
+)
+def _build_accurate_cast(x, type_name: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('accurateCast', x, Literal(type_name), alias=alias)
+
+
+# =============================================================================
+# TYPE CONVERSION FUNCTIONS (Complete from ClickHouse docs)
+# https://clickhouse.com/docs/sql-reference/functions/type-conversion-functions
+# =============================================================================
+
+
+# --- Integer conversions ---
+@register_function(
+    name='to_int8',
+    clickhouse_name='toInt8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt8'],
+    doc='Convert to Int8. Maps to toInt8(x).',
+)
+def _build_to_int8(x, alias=None):
+    from .functions import Function
+
+    return Function('toInt8', x, alias=alias)
+
+
+@register_function(
+    name='to_int16',
+    clickhouse_name='toInt16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt16'],
+    doc='Convert to Int16. Maps to toInt16(x).',
+)
+def _build_to_int16(x, alias=None):
+    from .functions import Function
+
+    return Function('toInt16', x, alias=alias)
+
+
+@register_function(
+    name='to_int32',
+    clickhouse_name='toInt32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt32'],
+    doc='Convert to Int32. Maps to toInt32(x).',
+)
+def _build_to_int32(x, alias=None):
+    from .functions import Function
+
+    return Function('toInt32', x, alias=alias)
+
+
+@register_function(
+    name='to_int64',
+    clickhouse_name='toInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt64'],
+    doc='Convert to Int64. Maps to toInt64(x).',
+)
+def _build_to_int64(x, alias=None):
+    from .functions import Function
+
+    return Function('toInt64', x, alias=alias)
+
+
+@register_function(
+    name='to_int128',
+    clickhouse_name='toInt128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt128'],
+    doc='Convert to Int128. Maps to toInt128(x).',
+)
+def _build_to_int128(x, alias=None):
+    from .functions import Function
+
+    return Function('toInt128', x, alias=alias)
+
+
+@register_function(
+    name='to_int256',
+    clickhouse_name='toInt256',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toInt256'],
+    doc='Convert to Int256. Maps to toInt256(x).',
+)
+def _build_to_int256(x, alias=None):
+    from .functions import Function
+
+    return Function('toInt256', x, alias=alias)
+
+
+# --- Unsigned integer conversions ---
+@register_function(
+    name='to_uint8',
+    clickhouse_name='toUInt8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt8'],
+    doc='Convert to UInt8. Maps to toUInt8(x).',
+)
+def _build_to_uint8(x, alias=None):
+    from .functions import Function
+
+    return Function('toUInt8', x, alias=alias)
+
+
+@register_function(
+    name='to_uint16',
+    clickhouse_name='toUInt16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt16'],
+    doc='Convert to UInt16. Maps to toUInt16(x).',
+)
+def _build_to_uint16(x, alias=None):
+    from .functions import Function
+
+    return Function('toUInt16', x, alias=alias)
+
+
+@register_function(
+    name='to_uint32',
+    clickhouse_name='toUInt32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt32'],
+    doc='Convert to UInt32. Maps to toUInt32(x).',
+)
+def _build_to_uint32(x, alias=None):
+    from .functions import Function
+
+    return Function('toUInt32', x, alias=alias)
+
+
+@register_function(
+    name='to_uint64',
+    clickhouse_name='toUInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt64'],
+    doc='Convert to UInt64. Maps to toUInt64(x).',
+)
+def _build_to_uint64(x, alias=None):
+    from .functions import Function
+
+    return Function('toUInt64', x, alias=alias)
+
+
+@register_function(
+    name='to_uint128',
+    clickhouse_name='toUInt128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt128'],
+    doc='Convert to UInt128. Maps to toUInt128(x).',
+)
+def _build_to_uint128(x, alias=None):
+    from .functions import Function
+
+    return Function('toUInt128', x, alias=alias)
+
+
+@register_function(
+    name='to_uint256',
+    clickhouse_name='toUInt256',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toUInt256'],
+    doc='Convert to UInt256. Maps to toUInt256(x).',
+)
+def _build_to_uint256(x, alias=None):
+    from .functions import Function
+
+    return Function('toUInt256', x, alias=alias)
+
+
+# --- Float conversions ---
+@register_function(
+    name='to_float32',
+    clickhouse_name='toFloat32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toFloat32'],
+    doc='Convert to Float32. Maps to toFloat32(x).',
+)
+def _build_to_float32(x, alias=None):
+    from .functions import Function
+
+    return Function('toFloat32', x, alias=alias)
+
+
+@register_function(
+    name='to_float64',
+    clickhouse_name='toFloat64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toFloat64'],
+    doc='Convert to Float64. Maps to toFloat64(x).',
+)
+def _build_to_float64(x, alias=None):
+    from .functions import Function
+
+    return Function('toFloat64', x, alias=alias)
+
+
+@register_function(
+    name='to_bfloat16',
+    clickhouse_name='toBFloat16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toBFloat16'],
+    doc='Convert to BFloat16. Maps to toBFloat16(x).',
+)
+def _build_to_bfloat16(x, alias=None):
+    from .functions import Function
+
+    return Function('toBFloat16', x, alias=alias)
+
+
+# --- Date/DateTime conversions ---
+@register_function(
+    name='to_date',
+    clickhouse_name='toDate',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDate'],
+    doc='Convert to Date. Maps to toDate(x).',
+)
+def _build_to_date(x, alias=None):
+    from .functions import Function
+
+    return Function('toDate', x, alias=alias)
+
+
+@register_function(
+    name='to_date32',
+    clickhouse_name='toDate32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDate32'],
+    doc='Convert to Date32. Maps to toDate32(x).',
+)
+def _build_to_date32(x, alias=None):
+    from .functions import Function
+
+    return Function('toDate32', x, alias=alias)
+
+
+@register_function(
+    name='to_datetime',
+    clickhouse_name='toDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDateTime'],
+    doc='Convert to DateTime. Maps to toDateTime(x).',
+)
+def _build_to_datetime(x, alias=None):
+    from .functions import Function
+
+    return Function('toDateTime', x, alias=alias)
+
+
+@register_function(
+    name='to_datetime32',
+    clickhouse_name='toDateTime32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDateTime32'],
+    doc='Convert to DateTime32. Maps to toDateTime32(x).',
+)
+def _build_to_datetime32(x, alias=None):
+    from .functions import Function
+
+    return Function('toDateTime32', x, alias=alias)
+
+
+@register_function(
+    name='to_datetime64',
+    clickhouse_name='toDateTime64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDateTime64'],
+    doc='Convert to DateTime64. Maps to toDateTime64(x, scale).',
+)
+def _build_to_datetime64(x, scale: int = 3, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDateTime64', x, Literal(scale), alias=alias)
+
+
+# --- Decimal conversions ---
+@register_function(
+    name='to_decimal32',
+    clickhouse_name='toDecimal32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal32'],
+    doc='Convert to Decimal32. Maps to toDecimal32(x, scale).',
+)
+def _build_to_decimal32(x, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal32', x, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='to_decimal64',
+    clickhouse_name='toDecimal64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal64'],
+    doc='Convert to Decimal64. Maps to toDecimal64(x, scale).',
+)
+def _build_to_decimal64(x, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal64', x, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='to_decimal128',
+    clickhouse_name='toDecimal128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal128'],
+    doc='Convert to Decimal128. Maps to toDecimal128(x, scale).',
+)
+def _build_to_decimal128(x, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal128', x, Literal(scale), alias=alias)
+
+
+@register_function(
+    name='to_decimal256',
+    clickhouse_name='toDecimal256',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toDecimal256'],
+    doc='Convert to Decimal256. Maps to toDecimal256(x, scale).',
+)
+def _build_to_decimal256(x, scale: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toDecimal256', x, Literal(scale), alias=alias)
+
+
+# --- String conversions ---
+@register_function(
+    name='to_string',
+    clickhouse_name='toString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toString'],
+    doc='Convert to String. Maps to toString(x).',
+)
+def _build_to_string(x, alias=None):
+    from .functions import Function
+
+    return Function('toString', x, alias=alias)
+
+
+@register_function(
+    name='to_fixed_string',
+    clickhouse_name='toFixedString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toFixedString'],
+    doc='Convert to FixedString. Maps to toFixedString(s, n).',
+)
+def _build_to_fixed_string(s, n: int, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('toFixedString', s, Literal(n), alias=alias)
+
+
+@register_function(
+    name='to_string_cut_to_zero',
+    clickhouse_name='toStringCutToZero',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toStringCutToZero'],
+    doc='Convert to string, cut at zero byte. Maps to toStringCutToZero(s).',
+)
+def _build_to_string_cut_to_zero(s, alias=None):
+    from .functions import Function
+
+    return Function('toStringCutToZero', s, alias=alias)
+
+
+# --- Reinterpret functions ---
+@register_function(
+    name='reinterpret_as_uint8',
+    clickhouse_name='reinterpretAsUInt8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUInt8'],
+    doc='Reinterpret as UInt8. Maps to reinterpretAsUInt8(x).',
+)
+def _build_reinterpret_as_uint8(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUInt8', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_uint16',
+    clickhouse_name='reinterpretAsUInt16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUInt16'],
+    doc='Reinterpret as UInt16. Maps to reinterpretAsUInt16(x).',
+)
+def _build_reinterpret_as_uint16(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUInt16', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_uint32',
+    clickhouse_name='reinterpretAsUInt32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUInt32'],
+    doc='Reinterpret as UInt32. Maps to reinterpretAsUInt32(x).',
+)
+def _build_reinterpret_as_uint32(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUInt32', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_uint64',
+    clickhouse_name='reinterpretAsUInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUInt64'],
+    doc='Reinterpret as UInt64. Maps to reinterpretAsUInt64(x).',
+)
+def _build_reinterpret_as_uint64(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUInt64', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_uint128',
+    clickhouse_name='reinterpretAsUInt128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUInt128'],
+    doc='Reinterpret as UInt128. Maps to reinterpretAsUInt128(x).',
+)
+def _build_reinterpret_as_uint128(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUInt128', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_uint256',
+    clickhouse_name='reinterpretAsUInt256',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUInt256'],
+    doc='Reinterpret as UInt256. Maps to reinterpretAsUInt256(x).',
+)
+def _build_reinterpret_as_uint256(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUInt256', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int8',
+    clickhouse_name='reinterpretAsInt8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt8'],
+    doc='Reinterpret as Int8. Maps to reinterpretAsInt8(x).',
+)
+def _build_reinterpret_as_int8(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt8', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int16',
+    clickhouse_name='reinterpretAsInt16',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt16'],
+    doc='Reinterpret as Int16. Maps to reinterpretAsInt16(x).',
+)
+def _build_reinterpret_as_int16(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt16', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int32',
+    clickhouse_name='reinterpretAsInt32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt32'],
+    doc='Reinterpret as Int32. Maps to reinterpretAsInt32(x).',
+)
+def _build_reinterpret_as_int32(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt32', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int64',
+    clickhouse_name='reinterpretAsInt64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt64'],
+    doc='Reinterpret as Int64. Maps to reinterpretAsInt64(x).',
+)
+def _build_reinterpret_as_int64(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt64', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int128',
+    clickhouse_name='reinterpretAsInt128',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt128'],
+    doc='Reinterpret as Int128. Maps to reinterpretAsInt128(x).',
+)
+def _build_reinterpret_as_int128(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt128', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_int256',
+    clickhouse_name='reinterpretAsInt256',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsInt256'],
+    doc='Reinterpret as Int256. Maps to reinterpretAsInt256(x).',
+)
+def _build_reinterpret_as_int256(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsInt256', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_float32',
+    clickhouse_name='reinterpretAsFloat32',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsFloat32'],
+    doc='Reinterpret as Float32. Maps to reinterpretAsFloat32(x).',
+)
+def _build_reinterpret_as_float32(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsFloat32', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_float64',
+    clickhouse_name='reinterpretAsFloat64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsFloat64'],
+    doc='Reinterpret as Float64. Maps to reinterpretAsFloat64(x).',
+)
+def _build_reinterpret_as_float64(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsFloat64', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_date',
+    clickhouse_name='reinterpretAsDate',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsDate'],
+    doc='Reinterpret as Date. Maps to reinterpretAsDate(x).',
+)
+def _build_reinterpret_as_date(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsDate', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_datetime',
+    clickhouse_name='reinterpretAsDateTime',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsDateTime'],
+    doc='Reinterpret as DateTime. Maps to reinterpretAsDateTime(x).',
+)
+def _build_reinterpret_as_datetime(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsDateTime', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_string',
+    clickhouse_name='reinterpretAsString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsString'],
+    doc='Reinterpret as String. Maps to reinterpretAsString(x).',
+)
+def _build_reinterpret_as_string(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsString', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_fixed_string',
+    clickhouse_name='reinterpretAsFixedString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsFixedString'],
+    doc='Reinterpret as FixedString. Maps to reinterpretAsFixedString(x).',
+)
+def _build_reinterpret_as_fixed_string(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsFixedString', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret_as_uuid',
+    clickhouse_name='reinterpretAsUUID',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpretAsUUID'],
+    doc='Reinterpret as UUID. Maps to reinterpretAsUUID(x).',
+)
+def _build_reinterpret_as_uuid(x, alias=None):
+    from .functions import Function
+
+    return Function('reinterpretAsUUID', x, alias=alias)
+
+
+@register_function(
+    name='reinterpret',
+    clickhouse_name='reinterpret',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['reinterpret'],
+    doc='Generic reinterpret. Maps to reinterpret(x, T).',
+)
+def _build_reinterpret(x, type_name: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('reinterpret', x, Literal(type_name), alias=alias)
+
+
+# --- CAST ---
+@register_function(
+    name='cast_func',
+    clickhouse_name='CAST',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['CAST', 'cast'],
+    doc='Type cast. Maps to CAST(x AS T) or CAST(x, T).',
+)
+def _build_cast_func(x, type_name: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('CAST', x, Literal(type_name), alias=alias)
+
+
+@register_function(
+    name='accurate_cast_or_null',
+    clickhouse_name='accurateCastOrNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['accurateCastOrNull'],
+    doc='Accurate cast or NULL. Maps to accurateCastOrNull(x, T).',
+)
+def _build_accurate_cast_or_null(x, type_name: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('accurateCastOrNull', x, Literal(type_name), alias=alias)
+
+
+@register_function(
+    name='accurate_cast_or_default',
+    clickhouse_name='accurateCastOrDefault',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['accurateCastOrDefault'],
+    doc='Accurate cast or default. Maps to accurateCastOrDefault(x, T, default).',
+)
+def _build_accurate_cast_or_default(x, type_name: str, default=None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if default is not None:
+        return Function('accurateCastOrDefault', x, Literal(type_name), default, alias=alias)
+    return Function('accurateCastOrDefault', x, Literal(type_name), alias=alias)
+
+
+# --- parseDateTime variants ---
+@register_function(
+    name='parse_datetime_or_null',
+    clickhouse_name='parseDateTimeOrNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTimeOrNull'],
+    doc='Parse datetime or NULL. Maps to parseDateTimeOrNull(s, format).',
+)
+def _build_parse_datetime_or_null(s, format_str: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('parseDateTimeOrNull', s, Literal(format_str), alias=alias)
+
+
+@register_function(
+    name='parse_datetime_or_zero',
+    clickhouse_name='parseDateTimeOrZero',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTimeOrZero'],
+    doc='Parse datetime or zero. Maps to parseDateTimeOrZero(s, format).',
+)
+def _build_parse_datetime_or_zero(s, format_str: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('parseDateTimeOrZero', s, Literal(format_str), alias=alias)
+
+
+@register_function(
+    name='parse_datetime_in_joda_syntax',
+    clickhouse_name='parseDateTimeInJodaSyntax',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTimeInJodaSyntax'],
+    doc='Parse datetime with Joda syntax. Maps to parseDateTimeInJodaSyntax(s, format).',
+)
+def _build_parse_datetime_in_joda_syntax(s, format_str: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('parseDateTimeInJodaSyntax', s, Literal(format_str), alias=alias)
+
+
+@register_function(
+    name='parse_datetime64',
+    clickhouse_name='parseDateTime64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTime64'],
+    doc='Parse DateTime64. Maps to parseDateTime64(s, scale, format).',
+)
+def _build_parse_datetime64(s, scale: int, format_str: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('parseDateTime64', s, Literal(scale), Literal(format_str), alias=alias)
+
+
+@register_function(
+    name='parse_datetime64_best_effort',
+    clickhouse_name='parseDateTime64BestEffort',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTime64BestEffort'],
+    doc='Parse DateTime64 with best effort. Maps to parseDateTime64BestEffort(s).',
+)
+def _build_parse_datetime64_best_effort(s, alias=None):
+    from .functions import Function
+
+    return Function('parseDateTime64BestEffort', s, alias=alias)
+
+
+@register_function(
+    name='parse_datetime64_best_effort_or_null',
+    clickhouse_name='parseDateTime64BestEffortOrNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTime64BestEffortOrNull'],
+    doc='Parse DateTime64 best effort or NULL. Maps to parseDateTime64BestEffortOrNull(s).',
+)
+def _build_parse_datetime64_best_effort_or_null(s, alias=None):
+    from .functions import Function
+
+    return Function('parseDateTime64BestEffortOrNull', s, alias=alias)
+
+
+@register_function(
+    name='parse_datetime64_best_effort_or_zero',
+    clickhouse_name='parseDateTime64BestEffortOrZero',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTime64BestEffortOrZero'],
+    doc='Parse DateTime64 best effort or zero. Maps to parseDateTime64BestEffortOrZero(s).',
+)
+def _build_parse_datetime64_best_effort_or_zero(s, alias=None):
+    from .functions import Function
+
+    return Function('parseDateTime64BestEffortOrZero', s, alias=alias)
+
+
+@register_function(
+    name='parse_datetime_best_effort_us',
+    clickhouse_name='parseDateTimeBestEffortUS',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['parseDateTimeBestEffortUS'],
+    doc='Parse datetime best effort US format. Maps to parseDateTimeBestEffortUS(s).',
+)
+def _build_parse_datetime_best_effort_us(s, alias=None):
+    from .functions import Function
+
+    return Function('parseDateTimeBestEffortUS', s, alias=alias)
+
+
+# --- toLowCardinality ---
+@register_function(
+    name='to_low_cardinality',
+    clickhouse_name='toLowCardinality',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toLowCardinality'],
+    doc='Convert to LowCardinality. Maps to toLowCardinality(x).',
+)
+def _build_to_low_cardinality(x, alias=None):
+    from .functions import Function
+
+    return Function('toLowCardinality', x, alias=alias)
+
+
+# --- toNullable ---
+@register_function(
+    name='to_nullable',
+    clickhouse_name='toNullable',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toNullable'],
+    doc='Convert to Nullable. Maps to toNullable(x).',
+)
+def _build_to_nullable(x, alias=None):
+    from .functions import Function
+
+    return Function('toNullable', x, alias=alias)
+
+
+@register_function(
+    name='assume_not_null',
+    clickhouse_name='assumeNotNull',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['assumeNotNull'],
+    doc='Assume not NULL. Maps to assumeNotNull(x).',
+)
+def _build_assume_not_null(x, alias=None):
+    from .functions import Function
+
+    return Function('assumeNotNull', x, alias=alias)
+
+
+@register_function(
+    name='null_if',
+    clickhouse_name='nullIf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['nullIf'],
+    doc='Return NULL if equal. Maps to nullIf(x, y).',
+)
+def _build_null_if(x, y, alias=None):
+    from .functions import Function
+
+    return Function('nullIf', x, y, alias=alias)
+
+
+# --- Unix timestamp 64-bit variants ---
+@register_function(
+    name='to_unix_timestamp64_second',
+    clickhouse_name='toUnixTimestamp64Second',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toUnixTimestamp64Second'],
+    doc='Convert to Unix timestamp 64 (seconds). Maps to toUnixTimestamp64Second(dt).',
+)
+def _build_to_unix_timestamp64_second(dt, alias=None):
+    from .functions import Function
+
+    return Function('toUnixTimestamp64Second', dt, alias=alias)
+
+
+@register_function(
+    name='to_unix_timestamp64_milli',
+    clickhouse_name='toUnixTimestamp64Milli',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toUnixTimestamp64Milli'],
+    doc='Convert to Unix timestamp 64 (milliseconds). Maps to toUnixTimestamp64Milli(dt).',
+)
+def _build_to_unix_timestamp64_milli(dt, alias=None):
+    from .functions import Function
+
+    return Function('toUnixTimestamp64Milli', dt, alias=alias)
+
+
+@register_function(
+    name='to_unix_timestamp64_micro',
+    clickhouse_name='toUnixTimestamp64Micro',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toUnixTimestamp64Micro'],
+    doc='Convert to Unix timestamp 64 (microseconds). Maps to toUnixTimestamp64Micro(dt).',
+)
+def _build_to_unix_timestamp64_micro(dt, alias=None):
+    from .functions import Function
+
+    return Function('toUnixTimestamp64Micro', dt, alias=alias)
+
+
+@register_function(
+    name='to_unix_timestamp64_nano',
+    clickhouse_name='toUnixTimestamp64Nano',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toUnixTimestamp64Nano'],
+    doc='Convert to Unix timestamp 64 (nanoseconds). Maps to toUnixTimestamp64Nano(dt).',
+)
+def _build_to_unix_timestamp64_nano(dt, alias=None):
+    from .functions import Function
+
+    return Function('toUnixTimestamp64Nano', dt, alias=alias)
+
+
+@register_function(
+    name='from_unix_timestamp64_second',
+    clickhouse_name='fromUnixTimestamp64Second',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['fromUnixTimestamp64Second'],
+    doc='Convert from Unix timestamp 64 (seconds). Maps to fromUnixTimestamp64Second(ts).',
+)
+def _build_from_unix_timestamp64_second(ts, alias=None):
+    from .functions import Function
+
+    return Function('fromUnixTimestamp64Second', ts, alias=alias)
+
+
+@register_function(
+    name='from_unix_timestamp64_milli',
+    clickhouse_name='fromUnixTimestamp64Milli',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['fromUnixTimestamp64Milli'],
+    doc='Convert from Unix timestamp 64 (milliseconds). Maps to fromUnixTimestamp64Milli(ts).',
+)
+def _build_from_unix_timestamp64_milli(ts, alias=None):
+    from .functions import Function
+
+    return Function('fromUnixTimestamp64Milli', ts, alias=alias)
+
+
+@register_function(
+    name='from_unix_timestamp64_micro',
+    clickhouse_name='fromUnixTimestamp64Micro',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['fromUnixTimestamp64Micro'],
+    doc='Convert from Unix timestamp 64 (microseconds). Maps to fromUnixTimestamp64Micro(ts).',
+)
+def _build_from_unix_timestamp64_micro(ts, alias=None):
+    from .functions import Function
+
+    return Function('fromUnixTimestamp64Micro', ts, alias=alias)
+
+
+@register_function(
+    name='from_unix_timestamp64_nano',
+    clickhouse_name='fromUnixTimestamp64Nano',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['fromUnixTimestamp64Nano'],
+    doc='Convert from Unix timestamp 64 (nanoseconds). Maps to fromUnixTimestamp64Nano(ts).',
+)
+def _build_from_unix_timestamp64_nano(ts, alias=None):
+    from .functions import Function
+
+    return Function('fromUnixTimestamp64Nano', ts, alias=alias)
+
+
+# --- UUID conversions ---
+@register_function(
+    name='to_uuid',
+    clickhouse_name='toUUID',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.UUID,
+    aliases=['toUUID'],
+    doc='Convert to UUID. Maps to toUUID(s).',
+)
+def _build_to_uuid(s, alias=None):
+    from .functions import Function
+
+    return Function('toUUID', s, alias=alias)
+
+
+@register_function(
+    name='to_uuid_or_zero',
+    clickhouse_name='toUUIDOrZero',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.UUID,
+    aliases=['toUUIDOrZero'],
+    doc='Convert to UUID or zero. Maps to toUUIDOrZero(s).',
+)
+def _build_to_uuid_or_zero(s, alias=None):
+    from .functions import Function
+
+    return Function('toUUIDOrZero', s, alias=alias)
+
+
+# --- toBool ---
+@register_function(
+    name='to_bool',
+    clickhouse_name='toBool',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['toBool'],
+    doc='Convert to Bool. Maps to toBool(x).',
+)
+def _build_to_bool(x, alias=None):
+    from .functions import Function
+
+    return Function('toBool', x, alias=alias)
+
+
+# --- formatRow ---
+@register_function(
+    name='format_row',
+    clickhouse_name='formatRow',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['formatRow'],
+    doc='Format row in given format. Maps to formatRow(format, x, ...).',
+)
+def _build_format_row(format_name: str, *args, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('formatRow', Literal(format_name), *args, alias=alias)
+
+
+@register_function(
+    name='format_row_no_newline',
+    clickhouse_name='formatRowNoNewline',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.TYPE_CONVERSION,
+    aliases=['formatRowNoNewline'],
+    doc='Format row without newline. Maps to formatRowNoNewline(format, x, ...).',
+)
+def _build_format_row_no_newline(format_name: str, *args, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('formatRowNoNewline', Literal(format_name), *args, alias=alias)
+
+
+# --- toTime ---
+@register_function(
+    name='to_time64',
+    clickhouse_name='toTime64',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toTime64'],
+    doc='Convert to Time64. Maps to toTime64(dt).',
+)
+def _build_to_time64(dt, alias=None):
+    from .functions import Function
+
+    return Function('toTime64', dt, alias=alias)
+
+
+# =============================================================================
+# INTERVAL FUNCTIONS (Additional)
+# =============================================================================
+
+
+@register_function(
+    name='to_interval_millisecond',
+    clickhouse_name='toIntervalMillisecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalMillisecond'],
+    doc='Create interval in milliseconds. Maps to toIntervalMillisecond(n).',
+)
+def _build_to_interval_millisecond(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalMillisecond', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_microsecond',
+    clickhouse_name='toIntervalMicrosecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalMicrosecond'],
+    doc='Create interval in microseconds. Maps to toIntervalMicrosecond(n).',
+)
+def _build_to_interval_microsecond(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalMicrosecond', n, alias=alias)
+
+
+@register_function(
+    name='to_interval_nanosecond',
+    clickhouse_name='toIntervalNanosecond',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.DATETIME,
+    aliases=['toIntervalNanosecond'],
+    doc='Create interval in nanoseconds. Maps to toIntervalNanosecond(n).',
+)
+def _build_to_interval_nanosecond(n, alias=None):
+    from .functions import Function
+
+    return Function('toIntervalNanosecond', n, alias=alias)
+
+
+# =============================================================================
+# ROUNDING FUNCTIONS (Data Science Core)
+# =============================================================================
+
+
+@register_function(
+    name='floor_func',
+    clickhouse_name='floor',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['floor'],
+    doc='Round down to nearest integer. Maps to floor(x).',
+)
+def _build_floor_func(x, n: int = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if n is not None:
+        return Function('floor', x, Literal(n), alias=alias)
+    return Function('floor', x, alias=alias)
+
+
+@register_function(
+    name='ceil_func',
+    clickhouse_name='ceil',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['ceil', 'ceiling'],
+    doc='Round up to nearest integer. Maps to ceil(x).',
+)
+def _build_ceil_func(x, n: int = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if n is not None:
+        return Function('ceil', x, Literal(n), alias=alias)
+    return Function('ceil', x, alias=alias)
+
+
+@register_function(
+    name='round_func',
+    clickhouse_name='round',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['round'],
+    doc='Round to nearest integer. Maps to round(x, n).',
+)
+def _build_round_func(x, n: int = 0, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('round', x, Literal(n), alias=alias)
+
+
+@register_function(
+    name='trunc_func',
+    clickhouse_name='trunc',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['trunc', 'truncate'],
+    doc='Truncate to integer. Maps to trunc(x).',
+)
+def _build_trunc_func(x, n: int = None, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    if n is not None:
+        return Function('trunc', x, Literal(n), alias=alias)
+    return Function('trunc', x, alias=alias)
+
+
+@register_function(
+    name='round_bankers',
+    clickhouse_name='roundBankers',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['roundBankers'],
+    doc="Banker's rounding. Maps to roundBankers(x, n).",
+)
+def _build_round_bankers(x, n: int = 0, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('roundBankers', x, Literal(n), alias=alias)
+
+
+@register_function(
+    name='round_down',
+    clickhouse_name='roundDown',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['roundDown'],
+    doc='Round down to array element. Maps to roundDown(x, arr).',
+)
+def _build_round_down(x, arr, alias=None):
+    from .functions import Function
+
+    return Function('roundDown', x, arr, alias=alias)
+
+
+@register_function(
+    name='round_to_exp2',
+    clickhouse_name='roundToExp2',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['roundToExp2'],
+    doc='Round down to power of 2. Maps to roundToExp2(x).',
+)
+def _build_round_to_exp2(x, alias=None):
+    from .functions import Function
+
+    return Function('roundToExp2', x, alias=alias)
+
+
+@register_function(
+    name='round_age',
+    clickhouse_name='roundAge',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['roundAge'],
+    doc='Round age to standard age groups. Maps to roundAge(x).',
+)
+def _build_round_age(x, alias=None):
+    from .functions import Function
+
+    return Function('roundAge', x, alias=alias)
+
+
+@register_function(
+    name='round_duration',
+    clickhouse_name='roundDuration',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.MATH,
+    aliases=['roundDuration'],
+    doc='Round duration to standard intervals. Maps to roundDuration(x).',
+)
+def _build_round_duration(x, alias=None):
+    from .functions import Function
+
+    return Function('roundDuration', x, alias=alias)
+
+
+# =============================================================================
+# STATISTICS FUNCTIONS (Statistical Analysis Core)
+# =============================================================================
+
+
+@register_function(
+    name='var_pop',
+    clickhouse_name='varPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['varPop', 'var_pop'],
+    doc='Population variance. Maps to varPop(x).',
+)
+def _build_var_pop(x, alias=None):
+    from .functions import Function
+
+    return Function('varPop', x, alias=alias)
+
+
+@register_function(
+    name='var_samp',
+    clickhouse_name='varSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['varSamp', 'var_samp', 'variance'],
+    doc='Sample variance. Maps to varSamp(x).',
+)
+def _build_var_samp(x, alias=None):
+    from .functions import Function
+
+    return Function('varSamp', x, alias=alias)
+
+
+@register_function(
+    name='stddev_pop',
+    clickhouse_name='stddevPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['stddevPop', 'stddev_pop'],
+    doc='Population standard deviation. Maps to stddevPop(x).',
+)
+def _build_stddev_pop(x, alias=None):
+    from .functions import Function
+
+    return Function('stddevPop', x, alias=alias)
+
+
+@register_function(
+    name='stddev_samp',
+    clickhouse_name='stddevSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['stddevSamp', 'stddev_samp', 'stddev'],
+    doc='Sample standard deviation. Maps to stddevSamp(x).',
+)
+def _build_stddev_samp(x, alias=None):
+    from .functions import Function
+
+    return Function('stddevSamp', x, alias=alias)
+
+
+@register_function(
+    name='covar_pop',
+    clickhouse_name='covarPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['covarPop', 'covar_pop'],
+    doc='Population covariance. Maps to covarPop(x, y).',
+)
+def _build_covar_pop(x, y, alias=None):
+    from .functions import Function
+
+    return Function('covarPop', x, y, alias=alias)
+
+
+@register_function(
+    name='covar_samp',
+    clickhouse_name='covarSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['covarSamp', 'covar_samp', 'covariance'],
+    doc='Sample covariance. Maps to covarSamp(x, y).',
+)
+def _build_covar_samp(x, y, alias=None):
+    from .functions import Function
+
+    return Function('covarSamp', x, y, alias=alias)
+
+
+@register_function(
+    name='corr_func',
+    clickhouse_name='corr',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['corr', 'correlation'],
+    doc='Pearson correlation. Maps to corr(x, y).',
+)
+def _build_corr_func(x, y, alias=None):
+    from .functions import Function
+
+    return Function('corr', x, y, alias=alias)
+
+
+@register_function(
+    name='skew_pop',
+    clickhouse_name='skewPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['skewPop', 'skew_pop'],
+    doc='Population skewness. Maps to skewPop(x).',
+)
+def _build_skew_pop(x, alias=None):
+    from .functions import Function
+
+    return Function('skewPop', x, alias=alias)
+
+
+@register_function(
+    name='skew_samp',
+    clickhouse_name='skewSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['skewSamp', 'skew_samp', 'skewness'],
+    doc='Sample skewness. Maps to skewSamp(x).',
+)
+def _build_skew_samp(x, alias=None):
+    from .functions import Function
+
+    return Function('skewSamp', x, alias=alias)
+
+
+@register_function(
+    name='kurt_pop',
+    clickhouse_name='kurtPop',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['kurtPop', 'kurt_pop'],
+    doc='Population kurtosis. Maps to kurtPop(x).',
+)
+def _build_kurt_pop(x, alias=None):
+    from .functions import Function
+
+    return Function('kurtPop', x, alias=alias)
+
+
+@register_function(
+    name='kurt_samp',
+    clickhouse_name='kurtSamp',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['kurtSamp', 'kurt_samp', 'kurtosis'],
+    doc='Sample kurtosis. Maps to kurtSamp(x).',
+)
+def _build_kurt_samp(x, alias=None):
+    from .functions import Function
+
+    return Function('kurtSamp', x, alias=alias)
+
+
+@register_function(
+    name='entropy_func',
+    clickhouse_name='entropy',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['entropy'],
+    doc='Shannon entropy. Maps to entropy(x).',
+)
+def _build_entropy_func(x, alias=None):
+    from .functions import Function
+
+    return Function('entropy', x, alias=alias)
+
+
+@register_function(
+    name='simple_linear_regression',
+    clickhouse_name='simpleLinearRegression',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['simpleLinearRegression'],
+    doc='Simple linear regression. Maps to simpleLinearRegression(x, y).',
+)
+def _build_simple_linear_regression(x, y, alias=None):
+    from .functions import Function
+
+    return Function('simpleLinearRegression', x, y, alias=alias)
+
+
+# =============================================================================
+# QUANTILE FUNCTIONS (Quantile Statistics)
+# =============================================================================
+
+
+@register_function(
+    name='quantile_func',
+    clickhouse_name='quantile',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantile'],
+    doc='Quantile. Maps to quantile(level)(x).',
+)
+def _build_quantile_func(x, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantile({level})', x, alias=alias)
+
+
+@register_function(
+    name='quantile_exact',
+    clickhouse_name='quantileExact',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileExact'],
+    doc='Exact quantile. Maps to quantileExact(level)(x).',
+)
+def _build_quantile_exact(x, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileExact({level})', x, alias=alias)
+
+
+@register_function(
+    name='quantile_timing',
+    clickhouse_name='quantileTiming',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileTiming'],
+    doc='Quantile for timing data. Maps to quantileTiming(level)(x).',
+)
+def _build_quantile_timing(x, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileTiming({level})', x, alias=alias)
+
+
+@register_function(
+    name='quantile_deterministic',
+    clickhouse_name='quantileDeterministic',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantileDeterministic'],
+    doc='Deterministic quantile. Maps to quantileDeterministic(level)(x, determinator).',
+)
+def _build_quantile_deterministic(x, determinator, level: float = 0.5, alias=None):
+    from .functions import Function
+
+    return Function(f'quantileDeterministic({level})', x, determinator, alias=alias)
+
+
+@register_function(
+    name='quantiles_func',
+    clickhouse_name='quantiles',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['quantiles'],
+    doc='Multiple quantiles. Maps to quantiles(l1, l2, ...)(x).',
+)
+def _build_quantiles_func(x, *levels, alias=None):
+    from .functions import Function
+
+    levels_str = ', '.join(str(l) for l in levels) if levels else '0.25, 0.5, 0.75'
+    return Function(f'quantiles({levels_str})', x, alias=alias)
+
+
+@register_function(
+    name='median_func',
+    clickhouse_name='median',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['median'],
+    doc='Median (quantile 0.5). Maps to median(x).',
+)
+def _build_median_func(x, alias=None):
+    from .functions import Function
+
+    return Function('median', x, alias=alias)
+
+
+@register_function(
+    name='median_exact',
+    clickhouse_name='medianExact',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['medianExact'],
+    doc='Exact median. Maps to medianExact(x).',
+)
+def _build_median_exact(x, alias=None):
+    from .functions import Function
+
+    return Function('medianExact', x, alias=alias)
+
+
+# =============================================================================
+# STRING SPLITTING FUNCTIONS (String Splitting - Common in ETL)
+# =============================================================================
+
+
+@register_function(
+    name='split_by_char',
+    clickhouse_name='splitByChar',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['splitByChar'],
+    doc='Split string by character. Maps to splitByChar(sep, s).',
+)
+def _build_split_by_char(sep: str, s, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('splitByChar', Literal(sep), s, alias=alias)
+
+
+@register_function(
+    name='split_by_string',
+    clickhouse_name='splitByString',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['splitByString'],
+    doc='Split string by substring. Maps to splitByString(sep, s).',
+)
+def _build_split_by_string(sep: str, s, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('splitByString', Literal(sep), s, alias=alias)
+
+
+@register_function(
+    name='split_by_regexp',
+    clickhouse_name='splitByRegexp',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['splitByRegexp'],
+    doc='Split string by regexp. Maps to splitByRegexp(pattern, s).',
+)
+def _build_split_by_regexp(pattern: str, s, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('splitByRegexp', Literal(pattern), s, alias=alias)
+
+
+@register_function(
+    name='split_by_whitespace',
+    clickhouse_name='splitByWhitespace',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['splitByWhitespace'],
+    doc='Split string by whitespace. Maps to splitByWhitespace(s).',
+)
+def _build_split_by_whitespace(s, alias=None):
+    from .functions import Function
+
+    return Function('splitByWhitespace', s, alias=alias)
+
+
+@register_function(
+    name='split_by_non_alpha',
+    clickhouse_name='splitByNonAlpha',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['splitByNonAlpha'],
+    doc='Split string by non-alpha characters. Maps to splitByNonAlpha(s).',
+)
+def _build_split_by_non_alpha(s, alias=None):
+    from .functions import Function
+
+    return Function('splitByNonAlpha', s, alias=alias)
+
+
+@register_function(
+    name='alpha_tokens',
+    clickhouse_name='alphaTokens',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['alphaTokens'],
+    doc='Extract alphabetic tokens. Maps to alphaTokens(s).',
+)
+def _build_alpha_tokens(s, alias=None):
+    from .functions import Function
+
+    return Function('alphaTokens', s, alias=alias)
+
+
+@register_function(
+    name='array_string_concat',
+    clickhouse_name='arrayStringConcat',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['arrayStringConcat'],
+    doc='Concatenate array elements. Maps to arrayStringConcat(arr, sep).',
+)
+def _build_array_string_concat(arr, sep: str = '', alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('arrayStringConcat', arr, Literal(sep), alias=alias)
+
+
+# =============================================================================
+# STRING SEARCH/MATCH FUNCTIONS (Pattern Matching)
+# =============================================================================
+
+
+@register_function(
+    name='like_func',
+    clickhouse_name='like',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['like'],
+    doc='SQL LIKE pattern match. Maps to like(s, pattern).',
+)
+def _build_like_func(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('like', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='not_like',
+    clickhouse_name='notLike',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['notLike'],
+    doc='SQL NOT LIKE pattern match. Maps to notLike(s, pattern).',
+)
+def _build_not_like(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('notLike', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='ilike_func',
+    clickhouse_name='ilike',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['ilike'],
+    doc='Case-insensitive LIKE. Maps to ilike(s, pattern).',
+)
+def _build_ilike_func(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('ilike', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='not_ilike',
+    clickhouse_name='notILike',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['notILike'],
+    doc='Case-insensitive NOT LIKE. Maps to notILike(s, pattern).',
+)
+def _build_not_ilike(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('notILike', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='match_func',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['match'],
+    doc='Regexp match. Maps to match(s, pattern).',
+)
+def _build_match_func(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='extract_func',
+    clickhouse_name='extract',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['extract'],
+    doc='Extract using regexp. Maps to extract(s, pattern).',
+)
+def _build_extract_func(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('extract', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='extract_all',
+    clickhouse_name='extractAll',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['extractAll'],
+    doc='Extract all matches. Maps to extractAll(s, pattern).',
+)
+def _build_extract_all(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('extractAll', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='extract_all_groups',
+    clickhouse_name='extractAllGroups',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['extractAllGroups'],
+    doc='Extract all regexp groups. Maps to extractAllGroups(s, pattern).',
+)
+def _build_extract_all_groups(s, pattern: str, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('extractAllGroups', s, Literal(pattern), alias=alias)
+
+
+@register_function(
+    name='position_utf8',
+    clickhouse_name='positionUTF8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['positionUTF8'],
+    doc='Position in UTF-8 string. Maps to positionUTF8(haystack, needle).',
+)
+def _build_position_utf8(haystack, needle, alias=None):
+    from .functions import Function
+
+    return Function('positionUTF8', haystack, needle, alias=alias)
+
+
+@register_function(
+    name='position_case_insensitive',
+    clickhouse_name='positionCaseInsensitive',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['positionCaseInsensitive'],
+    doc='Case-insensitive position. Maps to positionCaseInsensitive(haystack, needle).',
+)
+def _build_position_case_insensitive(haystack, needle, alias=None):
+    from .functions import Function
+
+    return Function('positionCaseInsensitive', haystack, needle, alias=alias)
+
+
+@register_function(
+    name='multi_search_any',
+    clickhouse_name='multiSearchAny',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['multiSearchAny'],
+    doc='Check if any needle found. Maps to multiSearchAny(haystack, [needles]).',
+)
+def _build_multi_search_any(haystack, needles, alias=None):
+    from .functions import Function
+
+    return Function('multiSearchAny', haystack, needles, alias=alias)
+
+
+@register_function(
+    name='multi_search_first_index',
+    clickhouse_name='multiSearchFirstIndex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['multiSearchFirstIndex'],
+    doc='Index of first found needle. Maps to multiSearchFirstIndex(haystack, [needles]).',
+)
+def _build_multi_search_first_index(haystack, needles, alias=None):
+    from .functions import Function
+
+    return Function('multiSearchFirstIndex', haystack, needles, alias=alias)
+
+
+@register_function(
+    name='multi_search_first_position',
+    clickhouse_name='multiSearchFirstPosition',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['multiSearchFirstPosition'],
+    doc='Position of first found needle. Maps to multiSearchFirstPosition(haystack, [needles]).',
+)
+def _build_multi_search_first_position(haystack, needles, alias=None):
+    from .functions import Function
+
+    return Function('multiSearchFirstPosition', haystack, needles, alias=alias)
+
+
+@register_function(
+    name='multi_search_all_positions',
+    clickhouse_name='multiSearchAllPositions',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['multiSearchAllPositions'],
+    doc='All positions of all needles. Maps to multiSearchAllPositions(haystack, [needles]).',
+)
+def _build_multi_search_all_positions(haystack, needles, alias=None):
+    from .functions import Function
+
+    return Function('multiSearchAllPositions', haystack, needles, alias=alias)
+
+
+# =============================================================================
+# TOP-K & ARG MIN/MAX (Ranking Analysis)
+# =============================================================================
+
+
+@register_function(
+    name='any_heavy',
+    clickhouse_name='anyHeavy',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['anyHeavy'],
+    doc='Heavy hitter (frequent value). Maps to anyHeavy(x).',
+)
+def _build_any_heavy(x, alias=None):
+    from .functions import Function
+
+    return Function('anyHeavy', x, alias=alias)
+
+
+@register_function(
+    name='any_last',
+    clickhouse_name='anyLast',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['anyLast'],
+    doc='Last encountered value. Maps to anyLast(x).',
+)
+def _build_any_last(x, alias=None):
+    from .functions import Function
+
+    return Function('anyLast', x, alias=alias)
+
+
+@register_function(
+    name='arg_min',
+    clickhouse_name='argMin',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['argMin'],
+    doc='Value at minimum of arg. Maps to argMin(val, arg).',
+)
+def _build_arg_min(val, arg, alias=None):
+    from .functions import Function
+
+    return Function('argMin', val, arg, alias=alias)
+
+
+@register_function(
+    name='arg_max',
+    clickhouse_name='argMax',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['argMax'],
+    doc='Value at maximum of arg. Maps to argMax(val, arg).',
+)
+def _build_arg_max(val, arg, alias=None):
+    from .functions import Function
+
+    return Function('argMax', val, arg, alias=alias)
+
+
+@register_function(
+    name='top_k',
+    clickhouse_name='topK',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['topK'],
+    doc='Top K frequent values. Maps to topK(k)(x).',
+)
+def _build_top_k(x, k: int = 10, alias=None):
+    from .functions import Function
+
+    return Function(f'topK({k})', x, alias=alias)
+
+
+@register_function(
+    name='top_k_weighted',
+    clickhouse_name='topKWeighted',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['topKWeighted'],
+    doc='Top K weighted values. Maps to topKWeighted(k)(x, weight).',
+)
+def _build_top_k_weighted(x, weight, k: int = 10, alias=None):
+    from .functions import Function
+
+    return Function(f'topKWeighted({k})', x, weight, alias=alias)
+
+
+# =============================================================================
+# BITMAP FUNCTIONS (Efficient Set Operations)
+# =============================================================================
+
+
+@register_function(
+    name='bitmap_build',
+    clickhouse_name='bitmapBuild',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapBuild'],
+    doc='Build bitmap from array. Maps to bitmapBuild(arr).',
+)
+def _build_bitmap_build(arr, alias=None):
+    from .functions import Function
+
+    return Function('bitmapBuild', arr, alias=alias)
+
+
+@register_function(
+    name='bitmap_cardinality',
+    clickhouse_name='bitmapCardinality',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapCardinality'],
+    doc='Bitmap cardinality. Maps to bitmapCardinality(bitmap).',
+)
+def _build_bitmap_cardinality(bitmap, alias=None):
+    from .functions import Function
+
+    return Function('bitmapCardinality', bitmap, alias=alias)
+
+
+@register_function(
+    name='bitmap_to_array',
+    clickhouse_name='bitmapToArray',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapToArray'],
+    doc='Convert bitmap to array. Maps to bitmapToArray(bitmap).',
+)
+def _build_bitmap_to_array(bitmap, alias=None):
+    from .functions import Function
+
+    return Function('bitmapToArray', bitmap, alias=alias)
+
+
+@register_function(
+    name='bitmap_contains',
+    clickhouse_name='bitmapContains',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapContains'],
+    doc='Check if bitmap contains value. Maps to bitmapContains(bitmap, x).',
+)
+def _build_bitmap_contains(bitmap, x, alias=None):
+    from .functions import Function
+
+    return Function('bitmapContains', bitmap, x, alias=alias)
+
+
+@register_function(
+    name='bitmap_and',
+    clickhouse_name='bitmapAnd',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapAnd'],
+    doc='Bitmap AND. Maps to bitmapAnd(b1, b2).',
+)
+def _build_bitmap_and(b1, b2, alias=None):
+    from .functions import Function
+
+    return Function('bitmapAnd', b1, b2, alias=alias)
+
+
+@register_function(
+    name='bitmap_or',
+    clickhouse_name='bitmapOr',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapOr'],
+    doc='Bitmap OR. Maps to bitmapOr(b1, b2).',
+)
+def _build_bitmap_or(b1, b2, alias=None):
+    from .functions import Function
+
+    return Function('bitmapOr', b1, b2, alias=alias)
+
+
+@register_function(
+    name='bitmap_xor',
+    clickhouse_name='bitmapXor',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapXor'],
+    doc='Bitmap XOR. Maps to bitmapXor(b1, b2).',
+)
+def _build_bitmap_xor(b1, b2, alias=None):
+    from .functions import Function
+
+    return Function('bitmapXor', b1, b2, alias=alias)
+
+
+@register_function(
+    name='bitmap_andnot',
+    clickhouse_name='bitmapAndnot',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapAndnot'],
+    doc='Bitmap AND NOT. Maps to bitmapAndnot(b1, b2).',
+)
+def _build_bitmap_andnot(b1, b2, alias=None):
+    from .functions import Function
+
+    return Function('bitmapAndnot', b1, b2, alias=alias)
+
+
+@register_function(
+    name='bitmap_has_any',
+    clickhouse_name='bitmapHasAny',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapHasAny'],
+    doc='Check if bitmaps have any common element. Maps to bitmapHasAny(b1, b2).',
+)
+def _build_bitmap_has_any(b1, b2, alias=None):
+    from .functions import Function
+
+    return Function('bitmapHasAny', b1, b2, alias=alias)
+
+
+@register_function(
+    name='bitmap_has_all',
+    clickhouse_name='bitmapHasAll',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.ARRAY,
+    aliases=['bitmapHasAll'],
+    doc='Check if b1 contains all elements of b2. Maps to bitmapHasAll(b1, b2).',
+)
+def _build_bitmap_has_all(b1, b2, alias=None):
+    from .functions import Function
+
+    return Function('bitmapHasAll', b1, b2, alias=alias)
+
+
+# =============================================================================
+# UTILITY VALIDATION FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='is_valid_json',
+    clickhouse_name='isValidJSON',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.JSON,
+    aliases=['isValidJSON'],
+    doc='Check if string is valid JSON. Maps to isValidJSON(s).',
+)
+def _build_is_valid_json(s, alias=None):
+    from .functions import Function
+
+    return Function('isValidJSON', s, alias=alias)
+
+
+@register_function(
+    name='is_valid_utf8',
+    clickhouse_name='isValidUTF8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['isValidUTF8'],
+    doc='Check if string is valid UTF-8. Maps to isValidUTF8(s).',
+)
+def _build_is_valid_utf8(s, alias=None):
+    from .functions import Function
+
+    return Function('isValidUTF8', s, alias=alias)
+
+
+@register_function(
+    name='to_valid_utf8',
+    clickhouse_name='toValidUTF8',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['toValidUTF8'],
+    doc='Convert to valid UTF-8. Maps to toValidUTF8(s).',
+)
+def _build_to_valid_utf8(s, alias=None):
+    from .functions import Function
+
+    return Function('toValidUTF8', s, alias=alias)
+
+
+@register_function(
+    name='soundex',
+    clickhouse_name='soundex',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['soundex'],
+    doc='Soundex code. Maps to soundex(s).',
+)
+def _build_soundex(s, alias=None):
+    from .functions import Function
+
+    return Function('soundex', s, alias=alias)
+
+
+@register_function(
+    name='normalize_query',
+    clickhouse_name='normalizeQuery',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['normalizeQuery'],
+    doc='Normalize SQL query. Maps to normalizeQuery(s).',
+)
+def _build_normalize_query(s, alias=None):
+    from .functions import Function
+
+    return Function('normalizeQuery', s, alias=alias)
+
+
+@register_function(
+    name='normalized_query_hash',
+    clickhouse_name='normalizedQueryHash',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.HASH,
+    aliases=['normalizedQueryHash'],
+    doc='Hash of normalized query. Maps to normalizedQueryHash(s).',
+)
+def _build_normalized_query_hash(s, alias=None):
+    from .functions import Function
+
+    return Function('normalizedQueryHash', s, alias=alias)
+
+
+# =============================================================================
+# NLP/TEXT FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='ngram_min_hash',
+    clickhouse_name='ngramMinHash',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['ngramMinHash'],
+    doc='N-gram MinHash. Maps to ngramMinHash(s).',
+)
+def _build_ngram_min_hash(s, alias=None):
+    from .functions import Function
+
+    return Function('ngramMinHash', s, alias=alias)
+
+
+@register_function(
+    name='word_shingle_min_hash',
+    clickhouse_name='wordShingleMinHash',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['wordShingleMinHash'],
+    doc='Word shingle MinHash. Maps to wordShingleMinHash(s).',
+)
+def _build_word_shingle_min_hash(s, alias=None):
+    from .functions import Function
+
+    return Function('wordShingleMinHash', s, alias=alias)
+
+
+@register_function(
+    name='word_shingle_sim_hash',
+    clickhouse_name='wordShingleSimHash',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    aliases=['wordShingleSimHash'],
+    doc='Word shingle SimHash. Maps to wordShingleSimHash(s).',
+)
+def _build_word_shingle_sim_hash(s, alias=None):
+    from .functions import Function
+
+    return Function('wordShingleSimHash', s, alias=alias)
+
+
+# =============================================================================
+# MACHINE LEARNING FUNCTIONS
+# =============================================================================
+
+
+@register_function(
+    name='stochastic_linear_regression',
+    clickhouse_name='stochasticLinearRegression',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['stochasticLinearRegression'],
+    doc='Stochastic gradient descent linear regression. Maps to stochasticLinearRegression(...).',
+)
+def _build_stochastic_linear_regression(*args, alias=None):
+    from .functions import Function
+
+    return Function('stochasticLinearRegression', *args, alias=alias)
+
+
+@register_function(
+    name='stochastic_logistic_regression',
+    clickhouse_name='stochasticLogisticRegression',
+    func_type=FunctionType.AGGREGATE,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['stochasticLogisticRegression'],
+    doc='Stochastic gradient descent logistic regression. Maps to stochasticLogisticRegression(...).',
+)
+def _build_stochastic_logistic_regression(*args, alias=None):
+    from .functions import Function
+
+    return Function('stochasticLogisticRegression', *args, alias=alias)
+
+
+@register_function(
+    name='min_sample_size_continuous',
+    clickhouse_name='minSampleSizeContinuous',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['minSampleSizeContinuous'],
+    doc='Minimum sample size for continuous metric. Maps to minSampleSizeContinuous(baseline, mde, power, alpha).',
+)
+def _build_min_sample_size_continuous(baseline, mde, power, alpha, alias=None):
+    from .functions import Function
+
+    return Function('minSampleSizeContinuous', baseline, mde, power, alpha, alias=alias)
+
+
+@register_function(
+    name='min_sample_size_conversion',
+    clickhouse_name='minSampleSizeConversion',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.AGGREGATE,
+    aliases=['minSampleSizeConversion'],
+    doc='Minimum sample size for conversion. Maps to minSampleSizeConversion(baseline, mde, power, alpha).',
+)
+def _build_min_sample_size_conversion(baseline, mde, power, alpha, alias=None):
+    from .functions import Function
+
+    return Function('minSampleSizeConversion', baseline, mde, power, alpha, alias=alias)
 
 
 # Ensure functions are registered when this module is imported
