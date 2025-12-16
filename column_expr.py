@@ -317,8 +317,9 @@ class ColumnExpr:
 
     # ========== Pandas Series Methods (for compatibility) ==========
 
+    @property
     def values(self) -> Any:
-        """Return underlying numpy array."""
+        """Return underlying numpy array (property for pandas compatibility)."""
         return self._materialize().values
 
     @property
@@ -343,6 +344,286 @@ class ColumnExpr:
     def to_numpy(self):
         """Convert to numpy array."""
         return self._materialize().to_numpy()
+
+    def __array__(self, dtype=None, copy=None):
+        """
+        NumPy array interface for compatibility with numpy functions.
+
+        This allows ColumnExpr to be used directly with numpy functions like:
+        - np.allclose(ds['a'], ds['b'])
+        - np.mean(ds['a'])
+        - np.array(ds['a'])
+
+        Args:
+            dtype: Optional dtype for the resulting array
+            copy: If True, ensure the returned array is a copy (numpy 2.0+)
+
+        Returns:
+            numpy array representation of the column
+        """
+        arr = self._materialize().values
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        # Handle copy parameter for numpy 2.0+ compatibility
+        if copy:
+            import numpy as np
+
+            arr = np.array(arr, copy=True)
+        return arr
+
+    # ========== NumPy-Compatible Statistical Methods ==========
+    # These methods accept NumPy-style parameters (axis, dtype, out, keepdims)
+    # to enable direct usage with np.mean(), np.sum(), np.std(), etc.
+
+    def mean(self, axis=None, dtype=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Compute the mean of the column.
+
+        When called without NumPy-style parameters, returns a SQL expression.
+        When called with NumPy-style parameters (by np.mean()), materializes and computes.
+
+        Args:
+            axis: NumPy axis parameter (ignored for 1D data, enables np.mean() compatibility)
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported, for signature compatibility)
+            keepdims: NumPy keepdims parameter (ignored for 1D data)
+            skipna: Whether to skip NA values (pandas style)
+            **kwargs: Additional arguments
+
+        Returns:
+            float: The computed mean value
+        """
+        # Materialize and compute using pandas Series
+        series = self._materialize()
+        return series.mean(axis=axis, skipna=skipna, **kwargs)
+
+    def sum(self, axis=None, dtype=None, out=None, keepdims=False, *, skipna=True, min_count=0, **kwargs):
+        """
+        Compute the sum of the column.
+
+        Args:
+            axis: NumPy axis parameter (enables np.sum() compatibility)
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            min_count: Minimum number of non-NA values required
+            **kwargs: Additional arguments
+
+        Returns:
+            float: The computed sum value
+        """
+        series = self._materialize()
+        return series.sum(axis=axis, skipna=skipna, min_count=min_count, **kwargs)
+
+    def std(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Compute the standard deviation of the column.
+
+        Args:
+            axis: NumPy axis parameter (enables np.std() compatibility)
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported)
+            ddof: Delta degrees of freedom (default 1 for sample std)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            float: The computed standard deviation
+        """
+        series = self._materialize()
+        return series.std(axis=axis, ddof=ddof, skipna=skipna, **kwargs)
+
+    def var(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Compute the variance of the column.
+
+        Args:
+            axis: NumPy axis parameter (enables np.var() compatibility)
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported)
+            ddof: Delta degrees of freedom (default 1 for sample variance)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            float: The computed variance
+        """
+        series = self._materialize()
+        return series.var(axis=axis, ddof=ddof, skipna=skipna, **kwargs)
+
+    def min(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Compute the minimum value of the column.
+
+        Args:
+            axis: NumPy axis parameter (enables np.min() compatibility)
+            out: NumPy out parameter (not supported)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            The minimum value
+        """
+        series = self._materialize()
+        return series.min(axis=axis, skipna=skipna, **kwargs)
+
+    def max(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Compute the maximum value of the column.
+
+        Args:
+            axis: NumPy axis parameter (enables np.max() compatibility)
+            out: NumPy out parameter (not supported)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            The maximum value
+        """
+        series = self._materialize()
+        return series.max(axis=axis, skipna=skipna, **kwargs)
+
+    def prod(self, axis=None, dtype=None, out=None, keepdims=False, *, skipna=True, min_count=0, **kwargs):
+        """
+        Compute the product of the column values.
+
+        Args:
+            axis: NumPy axis parameter (enables np.prod() compatibility)
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            min_count: Minimum number of non-NA values required
+            **kwargs: Additional arguments
+
+        Returns:
+            float: The computed product
+        """
+        series = self._materialize()
+        return series.prod(axis=axis, skipna=skipna, min_count=min_count, **kwargs)
+
+    def cumsum(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
+        """
+        Compute cumulative sum of the column.
+
+        Args:
+            axis: NumPy axis parameter
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported)
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            Series: Cumulative sum
+        """
+        series = self._materialize()
+        return series.cumsum(axis=axis, skipna=skipna, **kwargs)
+
+    def cumprod(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
+        """
+        Compute cumulative product of the column.
+
+        Args:
+            axis: NumPy axis parameter
+            dtype: NumPy dtype parameter
+            out: NumPy out parameter (not supported)
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            Series: Cumulative product
+        """
+        series = self._materialize()
+        return series.cumprod(axis=axis, skipna=skipna, **kwargs)
+
+    def median(self, axis=None, out=None, overwrite_input=False, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Compute the median of the column.
+
+        Args:
+            axis: NumPy axis parameter (enables np.median() compatibility)
+            out: NumPy out parameter (not supported)
+            overwrite_input: NumPy parameter (ignored)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            float: The computed median
+        """
+        series = self._materialize()
+        return series.median(axis=axis, skipna=skipna, **kwargs)
+
+    def argmin(self, axis=None, out=None, *, skipna=True, **kwargs):
+        """
+        Return the index of the minimum value.
+
+        Args:
+            axis: NumPy axis parameter
+            out: NumPy out parameter (not supported)
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            int: Index of the minimum value
+        """
+        series = self._materialize()
+        return series.argmin(axis=axis, skipna=skipna, **kwargs)
+
+    def argmax(self, axis=None, out=None, *, skipna=True, **kwargs):
+        """
+        Return the index of the maximum value.
+
+        Args:
+            axis: NumPy axis parameter
+            out: NumPy out parameter (not supported)
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            int: Index of the maximum value
+        """
+        series = self._materialize()
+        return series.argmax(axis=axis, skipna=skipna, **kwargs)
+
+    def any(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Return whether any element is True.
+
+        Args:
+            axis: NumPy axis parameter
+            out: NumPy out parameter (not supported)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            bool: True if any element is True
+        """
+        series = self._materialize()
+        return series.any(axis=axis, skipna=skipna, **kwargs)
+
+    def all(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        """
+        Return whether all elements are True.
+
+        Args:
+            axis: NumPy axis parameter
+            out: NumPy out parameter (not supported)
+            keepdims: NumPy keepdims parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            bool: True if all elements are True
+        """
+        series = self._materialize()
+        return series.all(axis=axis, skipna=skipna, **kwargs)
 
     # ========== Dynamic Method Delegation ==========
 

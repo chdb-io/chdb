@@ -3050,6 +3050,38 @@ class DataStore(PandasCompatMixin):
         # Use SQL-based count_rows() for efficiency
         return self.count_rows()
 
+    def __array__(self, dtype=None, copy=None):
+        """
+        NumPy array interface for compatibility with numpy functions.
+
+        This allows DataStore to be used directly with numpy functions like:
+        - np.array(ds)
+        - np.mean(ds)
+        - np.sum(ds)
+
+        Args:
+            dtype: Optional dtype for the resulting array
+            copy: If True, ensure the returned array is a copy (numpy 2.0+)
+
+        Returns:
+            numpy array representation of the DataFrame
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> arr = np.array(ds)  # Convert entire DataFrame to array
+            >>> mean = np.mean(ds)  # Compute mean across all values
+        """
+        df = self._materialize()
+        arr = df.values
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        # Handle copy parameter for numpy 2.0+ compatibility
+        if copy:
+            import numpy as np
+
+            arr = np.array(arr, copy=True)
+        return arr
+
     # ========== String Representation ==========
 
     def __str__(self) -> str:
