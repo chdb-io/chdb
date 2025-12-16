@@ -625,6 +625,244 @@ class ColumnExpr:
         series = self._materialize()
         return series.all(axis=axis, skipna=skipna, **kwargs)
 
+    # ========== Pandas Series Methods ==========
+
+    def apply(self, func, convert_dtype=True, args=(), **kwargs):
+        """
+        Apply a function to each element of the column.
+
+        This method materializes the column and applies the function element-wise,
+        similar to pandas Series.apply().
+
+        Args:
+            func: Function to apply to each element
+            convert_dtype: Try to find better dtype for results (default True)
+            args: Positional arguments to pass to func
+            **kwargs: Additional keyword arguments to pass to func
+
+        Returns:
+            pd.Series: Series with the function applied
+
+        Example:
+            >>> ds = DataStore.from_file('data.csv')
+            >>> ds['name'].apply(str.upper)
+            0    ALICE
+            1      BOB
+            2    CAROL
+            Name: name, dtype: object
+
+            >>> ds['age'].apply(lambda x: x * 2)
+            0    56
+            1    62
+            2    58
+            Name: age, dtype: int64
+        """
+        series = self._materialize()
+        return series.apply(func, convert_dtype=convert_dtype, args=args, **kwargs)
+
+    def value_counts(
+        self,
+        normalize: bool = False,
+        sort: bool = True,
+        ascending: bool = False,
+        bins=None,
+        dropna: bool = True,
+    ):
+        """
+        Return a Series containing counts of unique values.
+
+        The resulting object will be in descending order so that the
+        first element is the most frequently-occurring element.
+
+        Args:
+            normalize: If True, return relative frequencies instead of counts
+            sort: Sort by frequencies (default True)
+            ascending: Sort in ascending order (default False)
+            bins: Group values into half-open bins (for numeric data)
+            dropna: Don't include counts of NaN (default True)
+
+        Returns:
+            pd.Series: Series with value counts
+
+        Example:
+            >>> ds = DataStore.from_file('data.csv')
+            >>> ds['category'].value_counts()
+            A    150
+            B    100
+            C     50
+            Name: category, dtype: int64
+
+            >>> ds['category'].value_counts(normalize=True)
+            A    0.50
+            B    0.33
+            C    0.17
+            Name: category, dtype: float64
+        """
+        series = self._materialize()
+        return series.value_counts(
+            normalize=normalize,
+            sort=sort,
+            ascending=ascending,
+            bins=bins,
+            dropna=dropna,
+        )
+
+    def unique(self):
+        """
+        Return unique values of the column.
+
+        Returns:
+            numpy.ndarray: Unique values in order of appearance
+
+        Example:
+            >>> ds['category'].unique()
+            array(['A', 'B', 'C'], dtype=object)
+        """
+        series = self._materialize()
+        return series.unique()
+
+    def nunique(self, dropna: bool = True):
+        """
+        Return number of unique values.
+
+        Args:
+            dropna: Don't include NaN in the count (default True)
+
+        Returns:
+            int: Number of unique values
+
+        Example:
+            >>> ds['category'].nunique()
+            3
+        """
+        series = self._materialize()
+        return series.nunique(dropna=dropna)
+
+    def map(self, arg, na_action=None):
+        """
+        Map values of Series according to input mapping or function.
+
+        Args:
+            arg: Mapping correspondence (dict, Series, or function)
+            na_action: If 'ignore', propagate NaN values without passing to mapping
+
+        Returns:
+            pd.Series: Series with mapped values
+
+        Example:
+            >>> ds['grade'].map({'A': 4.0, 'B': 3.0, 'C': 2.0})
+            0    4.0
+            1    3.0
+            2    2.0
+            Name: grade, dtype: float64
+        """
+        series = self._materialize()
+        return series.map(arg, na_action=na_action)
+
+    def fillna(self, value=None, method=None, axis=None, inplace=False, limit=None):
+        """
+        Fill NA/NaN values.
+
+        Args:
+            value: Value to use to fill holes
+            method: Method to use for filling holes ('ffill', 'bfill')
+            axis: Axis along which to fill (0 or 'index')
+            inplace: Not supported, always returns new Series
+            limit: Maximum number of consecutive NaN values to fill
+
+        Returns:
+            pd.Series: Series with NA values filled
+
+        Example:
+            >>> ds['value'].fillna(0)
+        """
+        if inplace:
+            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+        series = self._materialize()
+        return series.fillna(value=value, method=method, axis=axis, limit=limit)
+
+    def dropna(self):
+        """
+        Return Series with missing values removed.
+
+        Returns:
+            pd.Series: Series with NA values removed
+
+        Example:
+            >>> ds['value'].dropna()
+        """
+        series = self._materialize()
+        return series.dropna()
+
+    def astype(self, dtype, copy=True, errors='raise'):
+        """
+        Cast to a specified dtype.
+
+        Args:
+            dtype: Data type to cast to
+            copy: Return a copy (default True)
+            errors: Control raising of exceptions ('raise' or 'ignore')
+
+        Returns:
+            pd.Series: Series with new dtype
+
+        Example:
+            >>> ds['age'].astype(float)
+        """
+        series = self._materialize()
+        return series.astype(dtype, copy=copy, errors=errors)
+
+    def sort_values(
+        self, axis=0, ascending=True, inplace=False, kind='quicksort', na_position='last', ignore_index=False, key=None
+    ):
+        """
+        Sort by the values.
+
+        Args:
+            axis: Axis to sort along
+            ascending: Sort ascending vs. descending
+            inplace: Not supported
+            kind: Sort algorithm
+            na_position: Position of NaN values ('first' or 'last')
+            ignore_index: If True, the resulting axis will be labeled 0, 1, …, n - 1
+            key: Apply the key function to values before sorting
+
+        Returns:
+            pd.Series: Sorted Series
+        """
+        if inplace:
+            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+        series = self._materialize()
+        return series.sort_values(
+            axis=axis, ascending=ascending, kind=kind, na_position=na_position, ignore_index=ignore_index, key=key
+        )
+
+    def head(self, n: int = 5):
+        """
+        Return the first n elements.
+
+        Args:
+            n: Number of elements to return (default 5)
+
+        Returns:
+            pd.Series: First n elements
+        """
+        series = self._materialize()
+        return series.head(n)
+
+    def tail(self, n: int = 5):
+        """
+        Return the last n elements.
+
+        Args:
+            n: Number of elements to return (default 5)
+
+        Returns:
+            pd.Series: Last n elements
+        """
+        series = self._materialize()
+        return series.tail(n)
+
     # ========== Dynamic Method Delegation ==========
 
     def __getattr__(self, name: str):
