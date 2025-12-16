@@ -2666,8 +2666,8 @@ class DataStore(PandasCompatMixin):
         Support various indexing operations for lazy evaluation.
 
         - str: Return ColumnExpr that shows actual values when displayed
-        - list: Record column selection operation (lazy)
-        - slice: LIMIT/OFFSET (lazy SQL operation)
+        - list: Record column selection operation (lazy, returns copy to avoid modifying original)
+        - slice: LIMIT/OFFSET (lazy SQL operation, modifies self)
 
         Examples:
             >>> ds[:10]          # LIMIT 10
@@ -2675,9 +2675,10 @@ class DataStore(PandasCompatMixin):
             >>> ds[10:20]        # LIMIT 10 OFFSET 10
             >>> ds['column']     # Returns ColumnExpr (displays like pandas Series)
             >>> ds['column'] - 1 # Returns ColumnExpr with computed values
-            >>> ds[['col1', 'col2']]  # Select multiple columns (lazy)
+            >>> ds[['col1', 'col2']]  # Select multiple columns (lazy, returns copy)
         """
         from .column_expr import ColumnExpr
+        from copy import copy
 
         if isinstance(key, str):
             # Return ColumnExpr that wraps a Field and can materialize
@@ -2687,11 +2688,15 @@ class DataStore(PandasCompatMixin):
 
         elif isinstance(key, list):
             # Multi-column selection: record as lazy operation
-            self._lazy_ops.append(LazyColumnSelection(key))
-            return self
+            # Create a copy to avoid modifying the original DataStore's _lazy_ops
+            # This fixes the bug where df[['col1', 'col2']].head() would modify df
+            result = copy(self) if getattr(self, 'is_immutable', True) else self
+            result._lazy_ops.append(LazyColumnSelection(key))
+            return result
 
         elif isinstance(key, slice):
             # LIMIT/OFFSET - this is a SQL operation
+            # Modifies self and returns self (mutable behavior by design)
             start, stop, step = key.start, key.stop, key.step
 
             if step is not None:

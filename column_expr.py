@@ -371,141 +371,235 @@ class ColumnExpr:
             arr = np.array(arr, copy=True)
         return arr
 
-    # ========== NumPy-Compatible Statistical Methods ==========
-    # These methods accept NumPy-style parameters (axis, dtype, out, keepdims)
-    # to enable direct usage with np.mean(), np.sum(), np.std(), etc.
+    # ========== Aggregate Methods ==========
+    # These methods return ColumnExpr for SQL when called with default args,
+    # or materialize and compute when called with pandas/numpy-style args.
 
-    def mean(self, axis=None, dtype=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+    def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs):
         """
-        Compute the mean of the column.
+        Compute mean or return AVG() SQL expression.
 
-        When called without NumPy-style parameters, returns a SQL expression.
-        When called with NumPy-style parameters (by np.mean()), materializes and computes.
+        Returns ColumnExpr for SQL when called without args.
+        Materializes and computes when called with pandas-style args.
 
         Args:
-            axis: NumPy axis parameter (ignored for 1D data, enables np.mean() compatibility)
-            dtype: NumPy dtype parameter
-            out: NumPy out parameter (not supported, for signature compatibility)
-            keepdims: NumPy keepdims parameter (ignored for 1D data)
-            skipna: Whether to skip NA values (pandas style)
-            **kwargs: Additional arguments
-
-        Returns:
-            float: The computed mean value
-        """
-        # Materialize and compute using pandas Series
-        series = self._materialize()
-        return series.mean(axis=axis, skipna=skipna, **kwargs)
-
-    def sum(self, axis=None, dtype=None, out=None, keepdims=False, *, skipna=True, min_count=0, **kwargs):
-        """
-        Compute the sum of the column.
-
-        Args:
-            axis: NumPy axis parameter (enables np.sum() compatibility)
-            dtype: NumPy dtype parameter
-            out: NumPy out parameter (not supported)
-            keepdims: NumPy keepdims parameter
+            axis: Axis for computation (pandas/numpy compatibility)
             skipna: Whether to skip NA values
-            min_count: Minimum number of non-NA values required
-            **kwargs: Additional arguments
+            numeric_only: Include only numeric columns
+            **kwargs: Additional pandas arguments
 
         Returns:
-            float: The computed sum value
-        """
-        series = self._materialize()
-        return series.sum(axis=axis, skipna=skipna, min_count=min_count, **kwargs)
+            ColumnExpr (for SQL) or scalar (when materialized)
 
-    def std(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, *, skipna=True, **kwargs):
+        Example:
+            >>> ds.select(ds['value'].mean().as_('avg_value'))  # SQL
+            >>> ds['value'].mean(skipna=False)  # Materialize
         """
-        Compute the standard deviation of the column.
+        # Return SQL expression if called with default args
+        if axis is None and skipna and not numeric_only and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('avg', self._expr), self._datastore)
+        # Materialize for pandas-style computation
+        series = self._materialize()
+        return series.mean(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+
+    def sum(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
+        """
+        Compute sum or return SUM() SQL expression.
+
+        Returns ColumnExpr for SQL when called without args.
+        Materializes and computes when called with pandas-style args.
 
         Args:
-            axis: NumPy axis parameter (enables np.std() compatibility)
-            dtype: NumPy dtype parameter
-            out: NumPy out parameter (not supported)
-            ddof: Delta degrees of freedom (default 1 for sample std)
-            keepdims: NumPy keepdims parameter
+            axis: Axis for computation (pandas/numpy compatibility)
             skipna: Whether to skip NA values
-            **kwargs: Additional arguments
+            numeric_only: Include only numeric columns
+            min_count: Minimum count of valid values
+            **kwargs: Additional pandas arguments
 
         Returns:
-            float: The computed standard deviation
-        """
-        series = self._materialize()
-        return series.std(axis=axis, ddof=ddof, skipna=skipna, **kwargs)
+            ColumnExpr (for SQL) or scalar (when materialized)
 
-    def var(self, axis=None, dtype=None, out=None, ddof=1, keepdims=False, *, skipna=True, **kwargs):
+        Example:
+            >>> ds.select(ds['value'].sum().as_('total'))  # SQL
+            >>> ds['value'].sum(min_count=1)  # Materialize
         """
-        Compute the variance of the column.
+        if axis is None and skipna and not numeric_only and min_count == 0 and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('sum', self._expr), self._datastore)
+        series = self._materialize()
+        return series.sum(axis=axis, skipna=skipna, numeric_only=numeric_only, min_count=min_count, **kwargs)
+
+    def std(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs):
+        """
+        Compute standard deviation or return stddevSamp() SQL expression.
+
+        Returns ColumnExpr for SQL when called without args (uses sample std).
+        Materializes and computes when called with pandas-style args.
 
         Args:
-            axis: NumPy axis parameter (enables np.var() compatibility)
-            dtype: NumPy dtype parameter
-            out: NumPy out parameter (not supported)
-            ddof: Delta degrees of freedom (default 1 for sample variance)
-            keepdims: NumPy keepdims parameter
+            axis: Axis for computation
             skipna: Whether to skip NA values
-            **kwargs: Additional arguments
+            ddof: Delta degrees of freedom (1=sample, 0=population)
+            numeric_only: Include only numeric columns
+            **kwargs: Additional pandas arguments
 
         Returns:
-            float: The computed variance
-        """
-        series = self._materialize()
-        return series.var(axis=axis, ddof=ddof, skipna=skipna, **kwargs)
+            ColumnExpr (for SQL) or scalar (when materialized)
 
-    def min(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        Example:
+            >>> ds.select(ds['value'].std().as_('std_value'))  # SQL (sample)
+            >>> ds['value'].std(ddof=0)  # Materialize (population)
         """
-        Compute the minimum value of the column.
+        if axis is None and skipna and ddof == 1 and not numeric_only and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('stddevSamp', self._expr), self._datastore)
+        series = self._materialize()
+        return series.std(axis=axis, skipna=skipna, ddof=ddof, numeric_only=numeric_only, **kwargs)
+
+    def var(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs):
+        """
+        Compute variance or return varSamp() SQL expression.
+
+        Returns ColumnExpr for SQL when called without args (uses sample var).
+        Materializes and computes when called with pandas-style args.
 
         Args:
-            axis: NumPy axis parameter (enables np.min() compatibility)
-            out: NumPy out parameter (not supported)
-            keepdims: NumPy keepdims parameter
+            axis: Axis for computation
             skipna: Whether to skip NA values
-            **kwargs: Additional arguments
+            ddof: Delta degrees of freedom (1=sample, 0=population)
+            numeric_only: Include only numeric columns
+            **kwargs: Additional pandas arguments
 
         Returns:
-            The minimum value
-        """
-        series = self._materialize()
-        return series.min(axis=axis, skipna=skipna, **kwargs)
+            ColumnExpr (for SQL) or scalar (when materialized)
 
-    def max(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
+        Example:
+            >>> ds.select(ds['value'].var().as_('var_value'))  # SQL (sample)
+            >>> ds['value'].var(ddof=0)  # Materialize (population)
         """
-        Compute the maximum value of the column.
+        if axis is None and skipna and ddof == 1 and not numeric_only and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('varSamp', self._expr), self._datastore)
+        series = self._materialize()
+        return series.var(axis=axis, skipna=skipna, ddof=ddof, numeric_only=numeric_only, **kwargs)
+
+    def min(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+        """
+        Compute minimum or return MIN() SQL expression.
+
+        Returns ColumnExpr for SQL when called without args.
+        Materializes and computes when called with pandas-style args.
 
         Args:
-            axis: NumPy axis parameter (enables np.max() compatibility)
-            out: NumPy out parameter (not supported)
-            keepdims: NumPy keepdims parameter
+            axis: Axis for computation
             skipna: Whether to skip NA values
-            **kwargs: Additional arguments
+            numeric_only: Include only numeric columns
+            **kwargs: Additional pandas arguments
 
         Returns:
-            The maximum value
-        """
-        series = self._materialize()
-        return series.max(axis=axis, skipna=skipna, **kwargs)
+            ColumnExpr (for SQL) or scalar (when materialized)
 
-    def prod(self, axis=None, dtype=None, out=None, keepdims=False, *, skipna=True, min_count=0, **kwargs):
+        Example:
+            >>> ds.select(ds['value'].min().as_('min_value'))  # SQL
+            >>> ds['value'].min(skipna=False)  # Materialize
         """
-        Compute the product of the column values.
+        if axis is None and skipna and not numeric_only and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('min', self._expr), self._datastore)
+        series = self._materialize()
+        return series.min(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+
+    def max(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+        """
+        Compute maximum or return MAX() SQL expression.
+
+        Returns ColumnExpr for SQL when called without args.
+        Materializes and computes when called with pandas-style args.
 
         Args:
-            axis: NumPy axis parameter (enables np.prod() compatibility)
-            dtype: NumPy dtype parameter
-            out: NumPy out parameter (not supported)
-            keepdims: NumPy keepdims parameter
+            axis: Axis for computation
             skipna: Whether to skip NA values
-            min_count: Minimum number of non-NA values required
-            **kwargs: Additional arguments
+            numeric_only: Include only numeric columns
+            **kwargs: Additional pandas arguments
 
         Returns:
-            float: The computed product
+            ColumnExpr (for SQL) or scalar (when materialized)
+
+        Example:
+            >>> ds.select(ds['value'].max().as_('max_value'))  # SQL
+            >>> ds['value'].max(skipna=False)  # Materialize
+        """
+        if axis is None and skipna and not numeric_only and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('max', self._expr), self._datastore)
+        series = self._materialize()
+        return series.max(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+
+    def count(self):
+        """
+        Return COUNT() SQL expression.
+
+        Returns:
+            ColumnExpr: SQL expression for COUNT(column)
+
+        Example:
+            >>> ds.select(ds['value'].count().as_('cnt'))
+        """
+        from .functions import AggregateFunction
+
+        return ColumnExpr(AggregateFunction('count', self._expr), self._datastore)
+
+    def median(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+        """
+        Compute median or return median() SQL expression.
+
+        Returns ColumnExpr for SQL when called without args.
+        Materializes and computes when called with pandas-style args.
+
+        Args:
+            axis: Axis for computation
+            skipna: Whether to skip NA values
+            numeric_only: Include only numeric columns
+            **kwargs: Additional pandas arguments
+
+        Returns:
+            ColumnExpr (for SQL) or scalar (when materialized)
+
+        Example:
+            >>> ds.select(ds['value'].median().as_('med_value'))  # SQL
+        """
+        if axis is None and skipna and not numeric_only and not kwargs:
+            from .functions import AggregateFunction
+
+            return ColumnExpr(AggregateFunction('median', self._expr), self._datastore)
+        series = self._materialize()
+        return series.median(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+
+    def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
+        """
+        Compute product of values.
+
+        Note: No direct SQL equivalent, always materializes.
+
+        Args:
+            axis: Axis for computation
+            skipna: Whether to skip NA values
+            numeric_only: Include only numeric columns
+            min_count: Minimum count of valid values
+            **kwargs: Additional pandas arguments
+
+        Returns:
+            scalar: Product of values
         """
         series = self._materialize()
-        return series.prod(axis=axis, skipna=skipna, min_count=min_count, **kwargs)
+        return series.prod(axis=axis, skipna=skipna, numeric_only=numeric_only, min_count=min_count, **kwargs)
 
     def cumsum(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
         """
@@ -763,6 +857,9 @@ class ColumnExpr:
         """
         Fill NA/NaN values.
 
+        When called with just a value, returns a ColumnExpr wrapping ifNull() for SQL.
+        When called with method/axis/limit, materializes and computes.
+
         Args:
             value: Value to use to fill holes
             method: Method to use for filling holes ('ffill', 'bfill')
@@ -771,13 +868,25 @@ class ColumnExpr:
             limit: Maximum number of consecutive NaN values to fill
 
         Returns:
-            pd.Series: Series with NA values filled
+            ColumnExpr or pd.Series: SQL expression or Series with NA values filled
 
         Example:
-            >>> ds['value'].fillna(0)
+            >>> ds['value'].fillna(0)  # Returns ColumnExpr for SQL
+            >>> ds['value'].fillna(0, method='ffill')  # Materializes
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+
+        # If only value is provided (simple case), return SQL expression
+        if value is not None and method is None and axis is None and limit is None:
+            from .functions import Function
+            from .expressions import Literal
+
+            # Use ifNull(column, value) for ClickHouse
+            fill_value = Literal(value) if not isinstance(value, Expression) else value
+            return ColumnExpr(Function('ifNull', self._expr, fill_value), self._datastore)
+
+        # Complex case: materialize and use pandas
         series = self._materialize()
         return series.fillna(value=value, method=method, axis=axis, limit=limit)
 
