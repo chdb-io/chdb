@@ -23,17 +23,27 @@ __all__ = [
 class Condition(Expression):
     """Base class for all conditions (used in WHERE, HAVING clauses)."""
 
+    def _convert_to_condition(self, other):
+        """Convert ColumnExpr to condition if needed."""
+        from .column_expr import ColumnExpr
+        from .expressions import Literal
+
+        if isinstance(other, ColumnExpr):
+            # Convert boolean ColumnExpr (like isNull()) to condition: expr = 1
+            return BinaryCondition('=', other._expr, Literal(1))
+        return other
+
     def __and__(self, other: 'Condition') -> 'CompoundCondition':
         """Combine conditions with AND."""
-        return CompoundCondition('AND', self, other)
+        return CompoundCondition('AND', self, self._convert_to_condition(other))
 
     def __or__(self, other: 'Condition') -> 'CompoundCondition':
         """Combine conditions with OR."""
-        return CompoundCondition('OR', self, other)
+        return CompoundCondition('OR', self, self._convert_to_condition(other))
 
     def __xor__(self, other: 'Condition') -> 'CompoundCondition':
         """Combine conditions with XOR."""
-        return CompoundCondition('XOR', self, other)
+        return CompoundCondition('XOR', self, self._convert_to_condition(other))
 
     def __invert__(self) -> 'NotCondition':
         """Negate condition with NOT."""

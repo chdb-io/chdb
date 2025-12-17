@@ -265,6 +265,7 @@ class Connection:
 
         IMPORTANT: This method preserves row order by adding an index column and
         ORDER BY clause to ensure results align with the original DataFrame.
+        For aggregate expressions, ORDER BY is skipped as they return single values.
 
         Args:
             expr_sql: SQL expression to evaluate (e.g., "CAST(value AS Float64)")
@@ -277,24 +278,73 @@ class Connection:
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
-        # Add row index to preserve order
-        row_idx_col = '__row_idx__'
-        __df__ = df.copy()  # noqa: F841
-        __df__[row_idx_col] = range(len(df))
+        # Check if expression contains aggregate functions
+        is_aggregate = self._is_aggregate_expression(expr_sql)
 
-        query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__) ORDER BY {row_idx_col}"
+        if is_aggregate:
+            # Aggregate expressions return single value, no ORDER BY needed
+            __df__ = df  # noqa: F841
+            query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__)"
+        else:
+            # Add row index to preserve order for row-level expressions
+            row_idx_col = '__row_idx__'
+            __df__ = df.copy()  # noqa: F841
+            __df__[row_idx_col] = range(len(df))
+            query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__) ORDER BY {row_idx_col}"
 
         self._log_query(query, "Expression")
 
         try:
             result_df = self._conn.query(query, 'DataFrame')
             result_series = result_df[result_column]
-            result_series.index = df.index
+            if not is_aggregate:
+                result_series.index = df.index
             self._logger.debug("[chDB] Expression result: %d values", len(result_series))
             return result_series
         except Exception as e:
             self._logger.error("[chDB] Expression evaluation failed: %s", e)
             raise ExecutionError(f"Failed to evaluate expression '{expr_sql}': {e}")
+
+    def _is_aggregate_expression(self, expr_sql: str) -> bool:
+        """
+        Check if SQL expression contains aggregate functions.
+
+        Aggregate functions return a single value and cannot be used with ORDER BY
+        on non-aggregated columns.
+
+        Args:
+            expr_sql: SQL expression to check
+
+        Returns:
+            True if expression contains aggregate functions
+        """
+        import re
+
+        # Common aggregate function patterns (case-insensitive)
+        aggregate_patterns = [
+            r'\bavg\s*\(',
+            r'\bsum\s*\(',
+            r'\bcount\s*\(',
+            r'\bmin\s*\(',
+            r'\bmax\s*\(',
+            r'\bmedian\s*\(',
+            r'\bstddev\w*\s*\(',
+            r'\bvar\w*\s*\(',
+            r'\bany\s*\(',
+            r'\ball\s*\(',
+            r'\bargMin\s*\(',
+            r'\bargMax\s*\(',
+            r'\buniq\w*\s*\(',
+            r'\bgroupArray\s*\(',
+            r'\bgroupUniqArray\s*\(',
+            r'\bquantile\w*\s*\(',
+        ]
+
+        expr_lower = expr_sql.lower()
+        for pattern in aggregate_patterns:
+            if re.search(pattern, expr_lower, re.IGNORECASE):
+                return True
+        return False
 
     def _log_query(self, sql: str, query_type: str = "Query", output_format: str = None):
         """Unified query logging."""

@@ -557,6 +557,17 @@ class Literal(Expression):
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for literal."""
+        # Handle ColumnExpr - delegate to its to_sql() to avoid infinite recursion
+        # (ColumnExpr.__str__ materializes, which could call to_sql again)
+        from .column_expr import ColumnExpr
+
+        if isinstance(self.value, ColumnExpr):
+            return self.value.to_sql(quote_char=quote_char, **kwargs)
+
+        # Handle Expression - delegate to its to_sql()
+        if isinstance(self.value, Expression):
+            return self.value.to_sql(quote_char=quote_char, **kwargs)
+
         # Convert Python value to SQL literal
         if self.value is None:
             sql = 'NULL'
@@ -569,8 +580,27 @@ class Literal(Expression):
             escaped = self.value.replace("'", "''")
             sql = f"'{escaped}'"
         else:
-            # Fallback: convert to string
-            sql = f"'{str(self.value)}'"
+            # Handle special types
+            import datetime
+            import uuid
+
+            if isinstance(self.value, datetime.datetime):
+                # Format datetime as ISO string
+                sql = f"'{self.value.strftime('%Y-%m-%d %H:%M:%S')}'"
+                if self.value.microsecond:
+                    sql = f"'{self.value.strftime('%Y-%m-%d %H:%M:%S.%f')}'"
+            elif isinstance(self.value, datetime.date):
+                # Format date as ISO string
+                sql = f"'{self.value.strftime('%Y-%m-%d')}'"
+            elif isinstance(self.value, datetime.time):
+                # Format time as ISO string
+                sql = f"'{self.value.strftime('%H:%M:%S')}'"
+            elif isinstance(self.value, uuid.UUID):
+                # Format UUID as string
+                sql = f"'{str(self.value)}'"
+            else:
+                # Fallback: convert to string (use repr to avoid triggering __str__ side effects)
+                sql = f"'{repr(self.value)}'"
 
         # Add alias if present and requested
         if kwargs.get('with_alias', False) and self.alias:

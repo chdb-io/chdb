@@ -2,8 +2,11 @@
 Core DataStore class - main entry point for data operations
 """
 
-from typing import Any, Optional, List, Dict, Union
+from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
 from copy import copy
+
+if TYPE_CHECKING:
+    from .column_expr import ColumnExpr
 
 from .expressions import Field, Expression
 from .conditions import Condition
@@ -2148,17 +2151,29 @@ class DataStore(PandasCompatMixin):
         return self
 
     @immutable
-    def filter(self, condition: Union[Condition, str]) -> 'DataStore':
+    def filter(self, condition: Union[Condition, str, 'ColumnExpr']) -> 'DataStore':
         """
         Filter rows (WHERE clause).
 
         Args:
-            condition: Condition object or SQL string
+            condition: Condition object, ColumnExpr (boolean expression), or SQL string
 
         Example:
             >>> ds.filter(ds.age > 18)
             >>> ds.filter((ds.age > 18) & (ds.city == 'NYC'))
+            >>> ds.filter(ds['email'].isnull())  # ColumnExpr is also supported
         """
+        from .column_expr import ColumnExpr
+        from .conditions import BinaryCondition
+        from .expressions import Literal
+
+        # Convert ColumnExpr to Condition (e.g., isNull(col) -> isNull(col) = 1)
+        # In ClickHouse, boolean expressions like isNull() return 0/1,
+        # so we can use them directly in WHERE or compare to 1
+        if isinstance(condition, ColumnExpr):
+            # Create a condition: expr = 1 (truthy check)
+            condition = BinaryCondition('=', condition._expr, Literal(1))
+
         # Convert condition to string for tracking
         if isinstance(condition, str):
             condition_str = condition
@@ -2395,12 +2410,14 @@ class DataStore(PandasCompatMixin):
         Returns:
             DataStore with aggregation applied
         """
-        from .column_expr import ColumnExpr
+        from .column_expr import ColumnExpr, LazyAggregate
         from .functions import AggregateFunction
         from .lazy_ops import LazySQLQuery
 
         # Check if we have SQL-style keyword arguments with expressions
-        has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())
+        has_sql_agg = any(
+            isinstance(v, (Expression, ColumnExpr, AggregateFunction, LazyAggregate)) for v in kwargs.values()
+        )
 
         if has_sql_agg or (func is None and kwargs and not args):
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)
@@ -2415,7 +2432,10 @@ class DataStore(PandasCompatMixin):
 
             # Add aggregate expressions with aliases
             for alias, expr in kwargs.items():
-                if isinstance(expr, ColumnExpr):
+                if isinstance(expr, LazyAggregate):
+                    # Unwrap LazyAggregate to get underlying AggregateFunction
+                    expr = expr._expr
+                elif isinstance(expr, ColumnExpr):
                     # Unwrap ColumnExpr to get underlying expression
                     expr = expr._expr
                 if isinstance(expr, Expression):
@@ -2425,10 +2445,28 @@ class DataStore(PandasCompatMixin):
                     select_fields.append(expr_with_alias)
                     self._select_fields.append(expr_with_alias)
                 else:
-                    raise QueryError(
-                        f"Invalid aggregate expression for '{alias}': "
-                        f"expected Expression, got {type(expr).__name__}"
-                    )
+                    # Provide helpful error message for common mistakes
+                    import numpy as np
+                    import pandas as pd
+
+                    if isinstance(expr, (int, float, np.integer, np.floating)):
+                        raise QueryError(
+                            f"Invalid aggregate expression for '{alias}': got scalar value {type(expr).__name__}. "
+                            f"Did you mean to use col('{alias}').mean() or col('{alias}').sum() instead of ds['{alias}'].mean()? "
+                            f"Use col() from datastore.expressions for SQL aggregations in agg()."
+                        )
+                    elif isinstance(expr, pd.Series):
+                        raise QueryError(
+                            f"Invalid aggregate expression for '{alias}': got pandas Series. "
+                            f"Did you mean to use col('{alias}').mean() instead of ds.groupby(...)['col'].mean()? "
+                            f"Use col() from datastore.expressions for SQL aggregations in agg()."
+                        )
+                    else:
+                        raise QueryError(
+                            f"Invalid aggregate expression for '{alias}': "
+                            f"expected Expression, got {type(expr).__name__}. "
+                            f"Use col() from datastore.expressions for SQL aggregations."
+                        )
 
             # Build complete SQL query with GROUP BY
             select_parts = []

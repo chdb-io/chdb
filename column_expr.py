@@ -129,6 +129,83 @@ class ColumnExpr:
         sql_expr = self._expr.to_sql(quote_char='"')
         return executor.execute_expression(sql_expr, df)
 
+    def _aggregate_with_groupby(
+        self, agg_func_name: str, pandas_agg_func: str = None, skipna: bool = True
+    ) -> pd.Series:
+        """
+        Execute aggregation with GROUP BY and return a pandas Series.
+
+        When the DataStore has _groupby_fields set, this method executes
+        a GROUP BY aggregation query and returns a Series with the groupby
+        column(s) as index.
+
+        Args:
+            agg_func_name: SQL aggregate function name (e.g., 'avg', 'sum')
+            pandas_agg_func: Pandas aggregation method name (e.g., 'mean', 'sum').
+                            If None, uses agg_func_name.
+            skipna: Whether to skip NaN values (default True, matching pandas behavior)
+
+        Returns:
+            pd.Series: Aggregated values with groupby column(s) as index
+        """
+        from .executor import get_executor
+
+        pandas_agg_func = pandas_agg_func or agg_func_name
+
+        # Get the groupby fields from the datastore
+        groupby_fields = self._datastore._groupby_fields
+
+        # Get the materialized DataFrame from the DataStore (without groupby applied)
+        df = self._datastore._materialize()
+
+        # Get the column name for the aggregation
+        col_expr_sql = self._expr.to_sql(quote_char='"')
+
+        # Get groupby column names
+        groupby_col_names = []
+        for gf in groupby_fields:
+            if isinstance(gf, Field):
+                groupby_col_names.append(gf.name)
+            else:
+                groupby_col_names.append(gf.to_sql(quote_char='"'))
+
+        # Build SQL query with GROUP BY
+        groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
+
+        # Use -If suffix to skip NaN values (matching pandas skipna=True behavior)
+        # In chDB, pandas NaN is recognized as isNaN(), not isNull()
+        if skipna:
+            # Use aggregate function with If suffix to skip NaN values
+            agg_sql = f'{agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
+        else:
+            agg_sql = f'{agg_func_name}({col_expr_sql})'
+
+        sql = f'SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}'
+
+        # Execute via chDB
+        executor = get_executor()
+        result_df = executor.query_dataframe(sql, df)
+
+        # Convert result to Series with proper index
+        if len(groupby_col_names) == 1:
+            # Single groupby column - use it as index
+            result_series = result_df.set_index(groupby_col_names[0])['__agg_result__']
+            result_series.name = self._get_column_name()
+        else:
+            # Multiple groupby columns - use MultiIndex
+            result_series = result_df.set_index(groupby_col_names)['__agg_result__']
+            result_series.name = self._get_column_name()
+
+        return result_series
+
+    def _get_column_name(self) -> str:
+        """Get the column name for this expression."""
+        if self._alias:
+            return self._alias
+        if isinstance(self._expr, Field):
+            return self._expr.name
+        return self._expr.to_sql(quote_char='"')
+
     # ========== Display Methods ==========
 
     def __repr__(self) -> str:
@@ -199,6 +276,87 @@ class ColumnExpr:
 
         return BinaryCondition('<=', self._expr, Expression.wrap(other))
 
+    # ========== Logical Operators (for combining boolean ColumnExpr with Conditions) ==========
+
+    def __and__(self, other: Any) -> 'Condition':
+        """
+        Combine with AND operator.
+
+        Allows combining boolean ColumnExpr (like isnull()) with Conditions.
+        Converts self to a condition (expr = 1) before combining.
+
+        Example:
+            >>> ds.filter(ds['email'].isnull() & (ds['status'] == 'active'))
+        """
+        from .conditions import CompoundCondition, BinaryCondition
+        from .expressions import Literal
+
+        # Convert self to condition: self._expr = 1
+        self_cond = BinaryCondition('=', self._expr, Literal(1))
+
+        # Handle other operand
+        if isinstance(other, ColumnExpr):
+            other_cond = BinaryCondition('=', other._expr, Literal(1))
+        else:
+            other_cond = other
+
+        return CompoundCondition('AND', self_cond, other_cond)
+
+    def __rand__(self, other: Any) -> 'Condition':
+        """Right AND operator."""
+        from .conditions import CompoundCondition, BinaryCondition
+        from .expressions import Literal
+
+        self_cond = BinaryCondition('=', self._expr, Literal(1))
+        return CompoundCondition('AND', other, self_cond)
+
+    def __or__(self, other: Any) -> 'Condition':
+        """
+        Combine with OR operator.
+
+        Allows combining boolean ColumnExpr (like isnull()) with Conditions.
+        Converts self to a condition (expr = 1) before combining.
+
+        Example:
+            >>> ds.filter(ds['email'].isnull() | ds['phone'].isnull())
+        """
+        from .conditions import CompoundCondition, BinaryCondition
+        from .expressions import Literal
+
+        # Convert self to condition: self._expr = 1
+        self_cond = BinaryCondition('=', self._expr, Literal(1))
+
+        # Handle other operand
+        if isinstance(other, ColumnExpr):
+            other_cond = BinaryCondition('=', other._expr, Literal(1))
+        else:
+            other_cond = other
+
+        return CompoundCondition('OR', self_cond, other_cond)
+
+    def __ror__(self, other: Any) -> 'Condition':
+        """Right OR operator."""
+        from .conditions import CompoundCondition, BinaryCondition
+        from .expressions import Literal
+
+        self_cond = BinaryCondition('=', self._expr, Literal(1))
+        return CompoundCondition('OR', other, self_cond)
+
+    def __invert__(self) -> 'Condition':
+        """
+        Negate with NOT operator.
+
+        For boolean ColumnExpr (like isnull()), returns NOT(expr = 1).
+
+        Example:
+            >>> ds.filter(~ds['email'].isnull())  # Equivalent to notnull()
+        """
+        from .conditions import NotCondition, BinaryCondition
+        from .expressions import Literal
+
+        self_cond = BinaryCondition('=', self._expr, Literal(1))
+        return NotCondition(self_cond)
+
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
     def __add__(self, other: Any) -> 'ColumnExpr':
@@ -261,6 +419,25 @@ class ColumnExpr:
         new_expr = ArithmeticExpression('-', Literal(0), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
+    def __round__(self, ndigits: Optional[int] = None) -> 'ColumnExpr':
+        """
+        Support Python's built-in round() function.
+
+        Args:
+            ndigits: Number of decimal places to round to (default 0)
+
+        Returns:
+            ColumnExpr: SQL expression for round(column, ndigits)
+
+        Example:
+            >>> round(ds['value'].mean(), 2)
+        """
+        from .functions import Function
+
+        if ndigits is None:
+            return ColumnExpr(Function('round', self._expr), self._datastore)
+        return ColumnExpr(Function('round', self._expr, Literal(ndigits)), self._datastore)
+
     # ========== Accessor Properties ==========
 
     @property
@@ -275,12 +452,67 @@ class ColumnExpr:
 
     # ========== Condition Methods (for filtering) ==========
 
-    def isnull(self) -> 'Condition':
-        """Create IS NULL condition."""
+    def isnull(self) -> 'ColumnExpr':
+        """
+        Detect missing values (NULL), returns a boolean-like ColumnExpr.
+
+        Uses SQL isNull() function. Note: pandas NaN values should be converted
+        to SQL NULL by chDB for proper detection.
+
+        This can be used:
+        1. For filtering: ds.filter(ds['email'].isnull())
+        2. For value computation: ds['value'].isnull().astype(int)
+        3. For column assignment: ds['is_null'] = ds['value'].isnull()
+
+        Example:
+            >>> ds.filter(ds['email'].isnull())
+            >>> ds['value'].isnull().astype(int)  # Returns Series of 0/1
+
+        Returns:
+            ColumnExpr: Expression that evaluates to 1 (NULL) or 0 (not NULL)
+        """
+        from .functions import Function
+
+        return ColumnExpr(Function('isNull', self._expr), self._datastore)
+
+    def notnull(self) -> 'ColumnExpr':
+        """
+        Detect non-missing values (not NULL), returns a boolean-like ColumnExpr.
+
+        Uses SQL isNotNull() function. Note: pandas NaN values should be converted
+        to SQL NULL by chDB for proper detection.
+
+        This can be used:
+        1. For filtering: ds.filter(ds['email'].notnull())
+        2. For value computation: ds['value'].notnull().astype(int)
+        3. For column assignment: ds['is_not_null'] = ds['value'].notnull()
+
+        Example:
+            >>> ds.filter(ds['email'].notnull())
+            >>> ds['value'].notnull().astype(int)  # Returns Series of 0/1
+
+        Returns:
+            ColumnExpr: Expression that evaluates to 1 (not NULL) or 0 (NULL)
+        """
+        from .functions import Function
+
+        return ColumnExpr(Function('isNotNull', self._expr), self._datastore)
+
+    # Aliases for pandas compatibility
+    def isna(self) -> 'ColumnExpr':
+        """Alias for isnull() - pandas compatibility."""
+        return self.isnull()
+
+    def notna(self) -> 'ColumnExpr':
+        """Alias for notnull() - pandas compatibility."""
+        return self.notnull()
+
+    def isnull_condition(self) -> 'Condition':
+        """Create IS NULL condition for filtering (SQL style)."""
         return self._expr.isnull()
 
-    def notnull(self) -> 'Condition':
-        """Create IS NOT NULL condition."""
+    def notnull_condition(self) -> 'Condition':
+        """Create IS NOT NULL condition for filtering (SQL style)."""
         return self._expr.notnull()
 
     def isin(self, values) -> 'Condition':
@@ -337,6 +569,20 @@ class ColumnExpr:
         """Iterate over materialized values."""
         return iter(self._materialize())
 
+    def __getitem__(self, key):
+        """
+        Support indexing/subscripting like pandas Series.
+
+        This allows patterns like: df['col'].mode()[0]
+
+        Args:
+            key: Index, slice, or array of indices
+
+        Returns:
+            Single value or Series depending on key type
+        """
+        return self._materialize()[key]
+
     def tolist(self) -> list:
         """Convert to Python list."""
         return self._materialize().tolist()
@@ -377,210 +623,220 @@ class ColumnExpr:
 
     def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs):
         """
-        Compute mean or return AVG() SQL expression.
+        Compute mean of the column.
 
-        Returns ColumnExpr for SQL when called without args.
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that:
+        - Displays the result when shown in notebook/REPL
+        - Can be used in agg() for SQL building
+        - Returns Series with groupby, scalar without
 
         Args:
             axis: Axis for computation (pandas/numpy compatibility)
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             numeric_only: Include only numeric columns
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
+            LazyAggregate: Lazy aggregate that executes on display
 
         Example:
-            >>> ds.select(ds['value'].mean().as_('avg_value'))  # SQL
-            >>> ds['value'].mean(skipna=False)  # Materialize
+            >>> ds['value'].mean()  # Displays scalar when shown
+            31.0
+            >>> ds.groupby('category')['value'].mean()  # Displays Series
+            category
+            A    25.5
+            B    30.0
+            Name: value, dtype: float64
+            >>> ds.groupby('x').agg(avg=ds['value'].mean())  # Uses in SQL
         """
-        # Return SQL expression if called with default args
-        if axis is None and skipna and not numeric_only and not kwargs:
-            from .functions import AggregateFunction
+        return LazyAggregate(self, 'avg', 'mean', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
 
-            return ColumnExpr(AggregateFunction('avg', self._expr), self._datastore)
-        # Materialize for pandas-style computation
-        series = self._materialize()
-        return series.mean(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+    def mean_sql(self):
+        """
+        Return AVG() SQL expression for use in select().
+
+        Unlike mean(), this returns a ColumnExpr for building SQL queries.
+        Note: SQL avg() may handle NaN differently than pandas.
+
+        Returns:
+            ColumnExpr: SQL expression for AVG(column)
+
+        Example:
+            >>> ds.select(ds['value'].mean_sql().as_('avg_value'))
+        """
+        from .functions import AggregateFunction
+
+        return ColumnExpr(AggregateFunction('avg', self._expr), self._datastore)
 
     def sum(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
         """
-        Compute sum or return SUM() SQL expression.
+        Compute sum of the column.
 
-        Returns ColumnExpr for SQL when called without args.
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation (pandas/numpy compatibility)
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             numeric_only: Include only numeric columns
             min_count: Minimum count of valid values
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
-
-        Example:
-            >>> ds.select(ds['value'].sum().as_('total'))  # SQL
-            >>> ds['value'].sum(min_count=1)  # Materialize
+            LazyAggregate: Lazy aggregate that executes on display
         """
-        if axis is None and skipna and not numeric_only and min_count == 0 and not kwargs:
-            from .functions import AggregateFunction
+        return LazyAggregate(
+            self, 'sum', 'sum', skipna=skipna, axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs
+        )
 
-            return ColumnExpr(AggregateFunction('sum', self._expr), self._datastore)
-        series = self._materialize()
-        return series.sum(axis=axis, skipna=skipna, numeric_only=numeric_only, min_count=min_count, **kwargs)
+    def sum_sql(self):
+        """Return SUM() SQL expression for use in select()."""
+        from .functions import AggregateFunction
+
+        return ColumnExpr(AggregateFunction('sum', self._expr), self._datastore)
 
     def std(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs):
         """
-        Compute standard deviation or return stddevSamp() SQL expression.
+        Compute standard deviation of the column.
 
-        Returns ColumnExpr for SQL when called without args (uses sample std).
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             ddof: Delta degrees of freedom (1=sample, 0=population)
             numeric_only: Include only numeric columns
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
-
-        Example:
-            >>> ds.select(ds['value'].std().as_('std_value'))  # SQL (sample)
-            >>> ds['value'].std(ddof=0)  # Materialize (population)
+            LazyAggregate: Lazy aggregate that executes on display
         """
-        if axis is None and skipna and ddof == 1 and not numeric_only and not kwargs:
-            from .functions import AggregateFunction
+        # Use sample std by default (ddof=1)
+        func_name = 'stddevSamp' if ddof == 1 else 'stddevPop'
+        return LazyAggregate(
+            self, func_name, 'std', skipna=skipna, axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs
+        )
 
-            return ColumnExpr(AggregateFunction('stddevSamp', self._expr), self._datastore)
-        series = self._materialize()
-        return series.std(axis=axis, skipna=skipna, ddof=ddof, numeric_only=numeric_only, **kwargs)
+    def std_sql(self, sample=True):
+        """Return stddevSamp() or stddevPop() SQL expression for use in select()."""
+        from .functions import AggregateFunction
+
+        func_name = 'stddevSamp' if sample else 'stddevPop'
+        return ColumnExpr(AggregateFunction(func_name, self._expr), self._datastore)
 
     def var(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs):
         """
-        Compute variance or return varSamp() SQL expression.
+        Compute variance of the column.
 
-        Returns ColumnExpr for SQL when called without args (uses sample var).
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             ddof: Delta degrees of freedom (1=sample, 0=population)
             numeric_only: Include only numeric columns
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
-
-        Example:
-            >>> ds.select(ds['value'].var().as_('var_value'))  # SQL (sample)
-            >>> ds['value'].var(ddof=0)  # Materialize (population)
+            LazyAggregate: Lazy aggregate that executes on display
         """
-        if axis is None and skipna and ddof == 1 and not numeric_only and not kwargs:
-            from .functions import AggregateFunction
+        # Use sample var by default (ddof=1)
+        func_name = 'varSamp' if ddof == 1 else 'varPop'
+        return LazyAggregate(
+            self, func_name, 'var', skipna=skipna, axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs
+        )
 
-            return ColumnExpr(AggregateFunction('varSamp', self._expr), self._datastore)
-        series = self._materialize()
-        return series.var(axis=axis, skipna=skipna, ddof=ddof, numeric_only=numeric_only, **kwargs)
+    def var_sql(self, sample=True):
+        """Return varSamp() or varPop() SQL expression for use in select()."""
+        from .functions import AggregateFunction
+
+        func_name = 'varSamp' if sample else 'varPop'
+        return ColumnExpr(AggregateFunction(func_name, self._expr), self._datastore)
 
     def min(self, axis=None, skipna=True, numeric_only=False, **kwargs):
         """
-        Compute minimum or return MIN() SQL expression.
+        Compute minimum of the column.
 
-        Returns ColumnExpr for SQL when called without args.
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             numeric_only: Include only numeric columns
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
-
-        Example:
-            >>> ds.select(ds['value'].min().as_('min_value'))  # SQL
-            >>> ds['value'].min(skipna=False)  # Materialize
+            LazyAggregate: Lazy aggregate that executes on display
         """
-        if axis is None and skipna and not numeric_only and not kwargs:
-            from .functions import AggregateFunction
+        return LazyAggregate(self, 'min', 'min', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
 
-            return ColumnExpr(AggregateFunction('min', self._expr), self._datastore)
-        series = self._materialize()
-        return series.min(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+    def min_sql(self):
+        """Return MIN() SQL expression for use in select()."""
+        from .functions import AggregateFunction
+
+        return ColumnExpr(AggregateFunction('min', self._expr), self._datastore)
 
     def max(self, axis=None, skipna=True, numeric_only=False, **kwargs):
         """
-        Compute maximum or return MAX() SQL expression.
+        Compute maximum of the column.
 
-        Returns ColumnExpr for SQL when called without args.
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             numeric_only: Include only numeric columns
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
-
-        Example:
-            >>> ds.select(ds['value'].max().as_('max_value'))  # SQL
-            >>> ds['value'].max(skipna=False)  # Materialize
+            LazyAggregate: Lazy aggregate that executes on display
         """
-        if axis is None and skipna and not numeric_only and not kwargs:
-            from .functions import AggregateFunction
+        return LazyAggregate(self, 'max', 'max', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
 
-            return ColumnExpr(AggregateFunction('max', self._expr), self._datastore)
-        series = self._materialize()
-        return series.max(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+    def max_sql(self):
+        """Return MAX() SQL expression for use in select()."""
+        from .functions import AggregateFunction
+
+        return ColumnExpr(AggregateFunction('max', self._expr), self._datastore)
 
     def count(self):
         """
-        Return COUNT() SQL expression.
+        Count non-NA values in the column.
+
+        Returns a LazyAggregate that executes on display.
 
         Returns:
-            ColumnExpr: SQL expression for COUNT(column)
-
-        Example:
-            >>> ds.select(ds['value'].count().as_('cnt'))
+            LazyAggregate: Lazy aggregate that executes on display
         """
+        return LazyAggregate(self, 'count', 'count', skipna=True)
+
+    def count_sql(self):
+        """Return COUNT() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
         return ColumnExpr(AggregateFunction('count', self._expr), self._datastore)
 
     def median(self, axis=None, skipna=True, numeric_only=False, **kwargs):
         """
-        Compute median or return median() SQL expression.
+        Compute median of the column.
 
-        Returns ColumnExpr for SQL when called without args.
-        Materializes and computes when called with pandas-style args.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation
-            skipna: Whether to skip NA values
+            skipna: Whether to skip NA values (default True)
             numeric_only: Include only numeric columns
             **kwargs: Additional pandas arguments
 
         Returns:
-            ColumnExpr (for SQL) or scalar (when materialized)
-
-        Example:
-            >>> ds.select(ds['value'].median().as_('med_value'))  # SQL
+            LazyAggregate: Lazy aggregate that executes on display
         """
-        if axis is None and skipna and not numeric_only and not kwargs:
-            from .functions import AggregateFunction
+        return LazyAggregate(self, 'median', 'median', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
 
-            return ColumnExpr(AggregateFunction('median', self._expr), self._datastore)
-        series = self._materialize()
-        return series.median(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
+    def median_sql(self):
+        """Return median() SQL expression for use in select()."""
+        from .functions import AggregateFunction
+
+        return ColumnExpr(AggregateFunction('median', self._expr), self._datastore)
 
     def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
         """
@@ -652,6 +908,30 @@ class ColumnExpr:
         """
         series = self._materialize()
         return series.median(axis=axis, skipna=skipna, **kwargs)
+
+    def mode(self, dropna: bool = True):
+        """
+        Return the mode(s) of the column.
+
+        The mode is the value that appears most frequently.
+        Materializes the column and computes mode using pandas.
+
+        Args:
+            dropna: Don't consider NaN/NaT values (default True)
+
+        Returns:
+            pd.Series: Series containing the mode value(s)
+
+        Example:
+            >>> ds['category'].mode()
+            0    A
+            dtype: object
+
+            >>> ds['category'].mode()[0]  # Get first mode value
+            'A'
+        """
+        series = self._materialize()
+        return series.mode(dropna=dropna)
 
     def argmin(self, axis=None, out=None, *, skipna=True, **kwargs):
         """
@@ -855,10 +1135,10 @@ class ColumnExpr:
 
     def fillna(self, value=None, method=None, axis=None, inplace=False, limit=None):
         """
-        Fill NA/NaN values.
+        Fill NA/NaN values using pandas.
 
-        When called with just a value, returns a ColumnExpr wrapping ifNull() for SQL.
-        When called with method/axis/limit, materializes and computes.
+        Materializes the column and uses pandas fillna() for proper NaN handling.
+        This ensures compatibility with pandas behavior for both numeric and string columns.
 
         Args:
             value: Value to use to fill holes
@@ -868,27 +1148,101 @@ class ColumnExpr:
             limit: Maximum number of consecutive NaN values to fill
 
         Returns:
-            ColumnExpr or pd.Series: SQL expression or Series with NA values filled
+            pd.Series: Series with NA values filled
 
         Example:
-            >>> ds['value'].fillna(0)  # Returns ColumnExpr for SQL
-            >>> ds['value'].fillna(0, method='ffill')  # Materializes
+            >>> ds['value'].fillna(0)
+            >>> ds['Cabin'].fillna('Unknown')
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
 
-        # If only value is provided (simple case), return SQL expression
-        if value is not None and method is None and axis is None and limit is None:
-            from .functions import Function
-            from .expressions import Literal
+        # Handle ColumnExpr, LazyAggregate, or other values - materialize them first
+        fill_value = value
+        if isinstance(value, LazyAggregate):
+            # Execute LazyAggregate to get the scalar value
+            result = value._execute()
+            if isinstance(result, pd.Series):
+                fill_value = result.iloc[0] if len(result) == 1 else result
+            else:
+                fill_value = result
+        elif isinstance(value, ColumnExpr):
+            # Materialize to get actual value(s)
+            materialized = value._materialize()
+            # If it's a single value (aggregate), extract scalar
+            if len(materialized) == 1:
+                fill_value = materialized.iloc[0]
+            else:
+                fill_value = materialized
 
-            # Use ifNull(column, value) for ClickHouse
-            fill_value = Literal(value) if not isinstance(value, Expression) else value
-            return ColumnExpr(Function('ifNull', self._expr, fill_value), self._datastore)
-
-        # Complex case: materialize and use pandas
+        # Always use pandas fillna for proper NaN handling
         series = self._materialize()
-        return series.fillna(value=value, method=method, axis=axis, limit=limit)
+        return series.fillna(value=fill_value, method=method, axis=axis, limit=limit)
+
+    def fillna_sql(self, value):
+        """
+        Return ifNull() SQL expression for use in SQL queries.
+
+        Note: SQL ifNull() only handles SQL NULL, not pandas NaN.
+        For pandas compatibility, use fillna() instead.
+
+        Args:
+            value: Value to use to fill NULL values
+
+        Returns:
+            ColumnExpr: SQL expression for ifNull(column, value)
+        """
+        from .functions import Function
+        from .expressions import Literal
+
+        if isinstance(value, ColumnExpr):
+            fill_value = value._expr
+        elif isinstance(value, Expression):
+            fill_value = value
+        else:
+            fill_value = Literal(value)
+
+        return ColumnExpr(Function('ifNull', self._expr, fill_value), self._datastore)
+
+    def _contains_aggregate(self, expr) -> bool:
+        """Check if an expression contains aggregate functions."""
+        from .functions import Function, AggregateFunction
+
+        if isinstance(expr, AggregateFunction):
+            return True
+
+        if isinstance(expr, Function):
+            # Check function name for common aggregates
+            agg_names = {
+                'avg',
+                'sum',
+                'count',
+                'min',
+                'max',
+                'median',
+                'stddevSamp',
+                'stddevPop',
+                'varSamp',
+                'varPop',
+                'any',
+                'argMin',
+                'argMax',
+                'groupArray',
+            }
+            if expr.name.lower() in agg_names:
+                return True
+            # Recursively check arguments
+            for arg in expr.args:
+                if self._contains_aggregate(arg):
+                    return True
+
+        # Check other expression types that might contain nested expressions
+        if hasattr(expr, 'args'):
+            for arg in expr.args:
+                if self._contains_aggregate(arg):
+                    return True
+
+        return False
 
     def dropna(self):
         """
@@ -1141,3 +1495,307 @@ class ColumnExprDateTimeAccessor:
 
     def __repr__(self) -> str:
         return f"ColumnExprDateTimeAccessor({self._column_expr._expr!r})"
+
+
+class LazyAggregate:
+    """
+    A lazy aggregate expression that executes only when displayed.
+
+    This class allows aggregate methods like mean(), sum() to return an object
+    that:
+    1. In notebooks/REPL: Displays the computed result when __repr__ is called
+    2. In agg(): Can be recognized as an Expression and used for SQL building
+    3. With groupby: Returns a Series with group keys as index
+    4. Without groupby: Returns a scalar value
+
+    This design allows both:
+    - ds.groupby('x')['col'].mean()  -> displays Series
+    - ds.groupby('x').agg(avg=ds['col'].mean())  -> uses Expression for SQL
+    """
+
+    def __init__(
+        self, column_expr: ColumnExpr, agg_func_name: str, pandas_agg_func: str = None, skipna: bool = True, **kwargs
+    ):
+        """
+        Initialize a lazy aggregate.
+
+        Args:
+            column_expr: The ColumnExpr being aggregated
+            agg_func_name: SQL aggregate function name (e.g., 'avg', 'sum')
+            pandas_agg_func: Pandas aggregation method name (e.g., 'mean', 'sum')
+            skipna: Whether to skip NaN values
+            **kwargs: Additional arguments for the aggregation
+        """
+        self._column_expr = column_expr
+        self._agg_func_name = agg_func_name
+        self._pandas_agg_func = pandas_agg_func or agg_func_name
+        self._skipna = skipna
+        self._kwargs = kwargs
+
+        # Create the underlying AggregateFunction expression for SQL building
+        from .functions import AggregateFunction
+
+        self._expr = AggregateFunction(agg_func_name, column_expr._expr)
+
+    @property
+    def _datastore(self):
+        """Get the DataStore reference."""
+        return self._column_expr._datastore
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        """Generate SQL for the aggregate expression."""
+        return self._expr.to_sql(quote_char=quote_char, **kwargs)
+
+    def as_(self, alias: str) -> 'LazyAggregate':
+        """Set an alias for this aggregate expression."""
+        self._expr.alias = alias
+        return self
+
+    @property
+    def alias(self):
+        """Get the alias."""
+        return self._expr.alias
+
+    @alias.setter
+    def alias(self, value):
+        """Set the alias."""
+        self._expr.alias = value
+
+    def _execute(self):
+        """
+        Execute the aggregation and return the result.
+
+        Returns:
+            pd.Series if groupby is present, scalar otherwise
+        """
+        # Cache the result to avoid re-execution
+        if hasattr(self, '_cached_result'):
+            return self._cached_result
+
+        datastore = self._column_expr._datastore
+
+        # Check if we have groupby fields
+        if datastore._groupby_fields:
+            result = self._column_expr._aggregate_with_groupby(
+                self._agg_func_name, self._pandas_agg_func, skipna=self._skipna
+            )
+        else:
+            # No groupby - compute scalar value
+            series = self._column_expr._materialize()
+            agg_method = getattr(series, self._pandas_agg_func)
+            result = agg_method(**self._kwargs)
+
+        self._cached_result = result
+        return result
+
+    # Proxy attributes to the executed result (for Series-like behavior)
+    @property
+    def index(self):
+        """Get the index of the result (for Series)."""
+        result = self._execute()
+        if hasattr(result, 'index'):
+            return result.index
+        raise AttributeError("Scalar result has no 'index' attribute")
+
+    @property
+    def values(self):
+        """Get the values of the result."""
+        result = self._execute()
+        if hasattr(result, 'values'):
+            return result.values
+        return result
+
+    @property
+    def name(self):
+        """Get the name of the result Series."""
+        result = self._execute()
+        if hasattr(result, 'name'):
+            return result.name
+        return None
+
+    @property
+    def dtype(self):
+        """Get the dtype of the result."""
+        result = self._execute()
+        if hasattr(result, 'dtype'):
+            return result.dtype
+        import numpy as np
+
+        return np.dtype(type(result))
+
+    def tolist(self):
+        """Convert to list."""
+        result = self._execute()
+        if hasattr(result, 'tolist'):
+            return result.tolist()
+        return [result]
+
+    def __len__(self):
+        """Get length of the result."""
+        result = self._execute()
+        if hasattr(result, '__len__'):
+            return len(result)
+        return 1
+
+    def __iter__(self):
+        """Iterate over the result."""
+        result = self._execute()
+        if hasattr(result, '__iter__'):
+            return iter(result)
+        return iter([result])
+
+    def __repr__(self) -> str:
+        """Display the computed result when shown in notebook/REPL."""
+        try:
+            result = self._execute()
+            return repr(result)
+        except Exception as e:
+            return f"LazyAggregate({self._agg_func_name}({self._column_expr._expr!r})) [Error: {e}]"
+
+    def __str__(self) -> str:
+        """String representation showing the result."""
+        try:
+            result = self._execute()
+            return str(result)
+        except Exception:
+            return f"{self._agg_func_name}({self._column_expr._expr.to_sql()})"
+
+    def _repr_html_(self) -> str:
+        """HTML representation for Jupyter notebooks."""
+        try:
+            result = self._execute()
+            if hasattr(result, '_repr_html_'):
+                return result._repr_html_()
+            return f"<pre>{repr(result)}</pre>"
+        except Exception as e:
+            return f"<pre>LazyAggregate({self._agg_func_name}(...)) [Error: {e}]</pre>"
+
+    # Support numeric operations on the result
+    def __float__(self):
+        """Convert to float (executes the aggregation)."""
+        result = self._execute()
+        return float(result) if not isinstance(result, pd.Series) else float(result.iloc[0])
+
+    def __int__(self):
+        """Convert to int (executes the aggregation)."""
+        result = self._execute()
+        return int(result) if not isinstance(result, pd.Series) else int(result.iloc[0])
+
+    def __array__(self, dtype=None):
+        """
+        Support numpy array protocol.
+
+        This allows numpy ufuncs to work with LazyAggregate.
+        """
+        import numpy as np
+
+        result = self._execute()
+        if isinstance(result, pd.Series):
+            arr = result.values
+        else:
+            arr = np.array([result])
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        return arr
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        """
+        Support numpy ufuncs on LazyAggregate.
+
+        Converts to scalar before applying the ufunc.
+        """
+        import numpy as np
+
+        # Convert LazyAggregate inputs to actual values
+        converted_inputs = []
+        for inp in inputs:
+            if isinstance(inp, LazyAggregate):
+                result = inp._execute()
+                if isinstance(result, pd.Series):
+                    converted_inputs.append(result.values)
+                else:
+                    converted_inputs.append(result)
+            else:
+                converted_inputs.append(inp)
+        return getattr(ufunc, method)(*converted_inputs, **kwargs)
+
+    # Comparison operators (execute and compare)
+    def __eq__(self, other):
+        result = self._execute()
+        return result == other
+
+    def __ne__(self, other):
+        result = self._execute()
+        return result != other
+
+    def __lt__(self, other):
+        result = self._execute()
+        return result < other
+
+    def __le__(self, other):
+        result = self._execute()
+        return result <= other
+
+    def __gt__(self, other):
+        result = self._execute()
+        return result > other
+
+    def __ge__(self, other):
+        result = self._execute()
+        return result >= other
+
+    # Arithmetic operators (execute and compute)
+    def __add__(self, other):
+        result = self._execute()
+        return result + other
+
+    def __radd__(self, other):
+        result = self._execute()
+        return other + result
+
+    def __sub__(self, other):
+        result = self._execute()
+        return result - other
+
+    def __rsub__(self, other):
+        result = self._execute()
+        return other - result
+
+    def __mul__(self, other):
+        result = self._execute()
+        return result * other
+
+    def __rmul__(self, other):
+        result = self._execute()
+        return other * result
+
+    def __truediv__(self, other):
+        result = self._execute()
+        return result / other
+
+    def __rtruediv__(self, other):
+        result = self._execute()
+        return other / result
+
+    def __round__(self, ndigits: int = None) -> 'ColumnExpr':
+        """
+        Support Python's built-in round() function.
+
+        Returns a ColumnExpr wrapping round(agg_func(...), ndigits) for SQL.
+
+        Args:
+            ndigits: Number of decimal places to round to (default 0)
+
+        Returns:
+            ColumnExpr: Expression for round(aggregate, ndigits)
+        """
+        from .functions import Function
+
+        if ndigits is None:
+            round_expr = Function('round', self._expr)
+        else:
+            from .expressions import Literal
+
+            round_expr = Function('round', self._expr, Literal(ndigits))
+
+        return ColumnExpr(round_expr, self._column_expr._datastore)
