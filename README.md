@@ -473,6 +473,50 @@ For more examples, see [examples](examples) and [tests](tests).
 
 <br>
 
+## AI-assisted SQL generation
+
+chDB can translate natural language prompts into SQL. Configure the AI client through the connection (or session) string parameters:
+
+- `ai_provider`: `openai` or `anthropic`. Defaults to OpenAI-compatible when `ai_base_url` is set, otherwise auto-detected.
+- `ai_api_key`: API key; falls back to `AI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` env vars.
+- `ai_base_url`: Custom base URL for OpenAI-compatible endpoints.
+- `ai_model`: Model name (e.g., `gpt-4o-mini`, `claude-3-opus-20240229`).
+- `ai_temperature`: Generation temperature (default `0.0`).
+- `ai_max_tokens`: Maximum tokens to generate (default `1000`).
+- `ai_timeout_seconds`: Request timeout in seconds (default `30`).
+- `ai_system_prompt`: Custom system prompt to steer SQL generation.
+- `ai_max_steps`: Maximum tool-calling steps (default `5`).
+- `ai_enable_schema_access`: Allow the AI to inspect database/table metadata (default `true`).
+
+If AI is not enabled in the build or the provider is misconfigured, `generate_sql`/`ask` raise a `RuntimeError`.
+
+```python
+import chdb
+
+# Use env OPENAI_API_KEY/AI_API_KEY/ANTHROPIC_API_KEY for credentials
+conn = chdb.connect("file::memory:?ai_provider=openai&ai_model=gpt-4o-mini")
+conn.query("CREATE TABLE nums (n UInt32) ENGINE = Memory")
+conn.query("INSERT INTO nums VALUES (1), (2), (3)")
+
+sql = conn.generate_sql("Select all rows from nums ordered by n desc")
+print(sql)  # e.g., SELECT * FROM nums ORDER BY n DESC
+
+# ask() = generate_sql() + query(), format mirrors query()
+print(conn.ask("List the numbers table", format="Pretty"))
+```
+
+`Session` objects support the same helpers and defaults; `Session.ask()` defaults to `CSV` output (match `ask`/`query` defaults) and you can request other formats explicitly:
+
+```python
+from chdb import session as chs
+
+with chs.Session("file::memory:?ai_provider=openai") as sess:
+    sess.query("CREATE TABLE users (id UInt32, name String) ENGINE = Memory")
+    sess.query("INSERT INTO users VALUES (1, 'alice'), (2, 'bob')")
+    df = sess.ask("Show all users ordered by id", format="DataFrame")
+    print(df)
+```
+
 ## Demos and Examples
 
 - [Project Documentation](https://clickhouse.com/docs/en/chdb) and [Usage Examples](https://clickhouse.com/docs/en/chdb/install/python)
