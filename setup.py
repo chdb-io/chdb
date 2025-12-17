@@ -170,8 +170,8 @@ if __name__ == "__main__":
         setup(
             packages=["chdb"],
             version=versionStr,
+            include_package_data=False,
             package_data={"chdb": pkg_files},
-            exclude_package_data={"": ["*.pyc", "src/**"]},
             ext_modules=ext_modules,
             python_requires=">=3.8",
             install_requires=[
