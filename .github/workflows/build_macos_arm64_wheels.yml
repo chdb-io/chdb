@@ -232,6 +232,18 @@ jobs:
           done
           ls -lh ./libchdb.so ./libchdb.a
           ls -lh ./chdb/*.so ./chdb/*.dylib
+      - name: Sign macOS binaries
+        run: |
+          echo "Signing cross-compiled binaries for macOS..."
+          codesign -f -s - ./libchdb.so
+          codesign -f -s - ./chdb/_chdb.abi3.so
+          codesign -f -s - ./chdb/libpybind11nonlimitedapi_stubs.dylib
+          for f in ./chdb/libpybind11nonlimitedapi_chdb_3.*.dylib; do
+            codesign -f -s - "$f"
+          done
+          echo "Verifying signatures..."
+          codesign -dvv ./libchdb.so
+          codesign -dvv ./chdb/_chdb.abi3.so
       - name: Run chdb/test_smoke.sh
         timeout-minutes: 600
         run: |
