@@ -240,6 +240,50 @@ sess.close()
 
 更多示例，请参见 [examples](examples) 和 [tests](tests)。
 
+## AI 辅助 SQL 生成
+
+chDB 可以将自然语言提示转换为 SQL。通过连接/会话字符串配置 AI 客户端参数：
+
+- `ai_provider`：`openai` 或 `anthropic`。当设置了 `ai_base_url` 时默认使用 OpenAI 兼容接口，否则自动检测。
+- `ai_api_key`：API 密钥；也可从环境变量 `AI_API_KEY`、`OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY` 读取。
+- `ai_base_url`：OpenAI 兼容服务的自定义 Base URL。
+- `ai_model`：模型名称（如 `gpt-4o-mini`、`claude-3-opus-20240229`）。
+- `ai_temperature`：生成温度，默认 `0.0`。
+- `ai_max_tokens`：最大全量生成 token 数，默认 `1000`。
+- `ai_timeout_seconds`：请求超时时间（秒），默认 `30`。
+- `ai_system_prompt`：自定义系统提示词。
+- `ai_max_steps`：工具调用的最大步数，默认 `5`。
+- `ai_enable_schema_access`：允许 AI 查看数据库/表元数据，默认 `true`。
+
+未开启 AI 或配置缺失时，调用 `generate_sql`/`ask` 会抛出 `RuntimeError`。
+
+```python
+import chdb
+
+# 使用环境变量 OPENAI_API_KEY/AI_API_KEY/ANTHROPIC_API_KEY 提供凭据
+conn = chdb.connect("file::memory:?ai_provider=openai&ai_model=gpt-4o-mini")
+conn.query("CREATE TABLE nums (n UInt32) ENGINE = Memory")
+conn.query("INSERT INTO nums VALUES (1), (2), (3)")
+
+sql = conn.generate_sql("Select all rows from nums ordered by n desc")
+print(sql)  # 例如：SELECT * FROM nums ORDER BY n DESC
+
+# ask() = generate_sql() + query()，format 与 query 一致
+print(conn.ask("List the numbers table", format="Pretty"))
+```
+
+`Session` 同样支持以上能力；`Session.ask()` 默认返回 `CSV`（与 `ask`/`query` 的默认格式一致），其他格式请显式指定：
+
+```python
+from chdb import session as chs
+
+with chs.Session("file::memory:?ai_provider=openai") as sess:
+    sess.query("CREATE TABLE users (id UInt32, name String) ENGINE = Memory")
+    sess.query("INSERT INTO users VALUES (1, 'alice'), (2, 'bob')")
+    df = sess.ask("Show all users ordered by id", format="DataFrame")
+    print(df)
+```
+
 ## 演示和示例
 
 - [Colab Notebook](https://colab.research.google.com/drive/1-zKB6oKfXeptggXi0kUX87iR8ZTSr4P3?usp=sharing) 和更多 [示例](examples)
