@@ -116,6 +116,27 @@ res = chdb.query('select * from file("data.csv", CSV)', 'CSV');  print(res)
 print(f"SQL read {res.rows_read()} rows, {res.bytes_read()} bytes, storage read {res.storage_rows_read()} rows, {res.storage_bytes_read()} bytes, elapsed {res.elapsed()} seconds")
 ```
 
+### Parameterized queries
+```python
+import chdb
+
+df = chdb.query(
+    "SELECT toDate({base_date:String}) + number AS date "
+    "FROM numbers({total_days:UInt64}) "
+    "LIMIT {items_per_page:UInt64}",
+    "DataFrame",
+    params={"base_date": "2025-01-01", "total_days": 10, "items_per_page": 2},
+)
+print(df)
+#         date
+# 0 2025-01-01
+# 1 2025-01-02
+```
+
+For more details, see: 
+* [ClickHouse SQL syntax: defining and using query parameters](https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters)
+* [How to Use Query Parameters in ClickHouse](https://clickhouse.com/videos/how-to-use-query-parameters-in-clickhouse)
+
 ### Pandas dataframe output
 ```python
 # See more in https://clickhouse.com/docs/en/interfaces/formats

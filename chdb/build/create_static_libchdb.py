@@ -57,7 +57,7 @@ def parse_libchdb_cmd(build_dir_override=None):
     if build_dir_override:
         build_dir = build_dir_override
     else:
-        build_dir = 'build-static-lib'
+        build_dir = 'buildlib'
 
     BUILD_DIR = build_dir
     print(f"Using build directory: {build_dir}")
