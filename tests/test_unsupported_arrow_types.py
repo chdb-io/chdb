@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
 import unittest
-import platform
-import subprocess
 import pyarrow as pa
 import pyarrow.compute as pc
 import chdb

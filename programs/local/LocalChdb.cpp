@@ -4,11 +4,14 @@
 #include "ChunkCollectorOutputFormat.h"
 #include "PythonImporter.h"
 #include "StoragePython.h"
+#include <ChdbClient.h>
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
 #include <Poco/String.h>
 #include <Common/logger_useful.h>
+#include <vector>
+#include <sstream>
 #if USE_JEMALLOC
 #    include <Common/memory.h>
 #endif
@@ -16,6 +19,84 @@
 namespace py = pybind11;
 
 extern bool inside_main = true;
+
+namespace
+{
+
+std::string paramValueToString(const py::handle & value)
+{
+    if (value.is_none())
+        return "NULL";
+    if (py::isinstance<py::bool_>(value))
+        return py::cast<bool>(value) ? "1" : "0";
+
+    if (py::isinstance<py::list>(value) || py::isinstance<py::tuple>(value))
+    {
+        std::vector<std::string> parts;
+        parts.reserve(static_cast<size_t>(py::len(value)));
+        for (const auto & item : value)
+            parts.emplace_back(paramValueToString(item));
+
+        std::ostringstream out;
+        out << '[';
+        for (size_t i = 0; i < parts.size(); ++i)
+        {
+            if (i)
+                out << ',';
+            out << parts[i];
+        }
+        out << ']';
+        return out.str();
+    }
+
+    return py::cast<std::string>(py::str(value));
+}
+
+DB::NameToNameMap parseParametersDict(const py::dict & params)
+{
+    DB::NameToNameMap parsed;
+    for (const auto & item : params)
+    {
+        const std::string key = py::cast<std::string>(item.first);
+        const auto & value = item.second;
+        parsed.emplace(key, paramValueToString(value));
+    }
+    return parsed;
+}
+
+class QueryParameterGuard
+{
+public:
+    QueryParameterGuard(DB::ChdbClient * client_, const DB::NameToNameMap & params) : client(client_)
+    {
+        if (client && !params.empty())
+        {
+            client->setQueryParameters(params);
+            applied = true;
+        }
+    }
+
+    ~QueryParameterGuard()
+    {
+        if (client && applied)
+            client->clearQueryParameters();
+    }
+
+private:
+    DB::ChdbClient * client;
+    bool applied = false;
+};
+
+DB::ChdbClient * getChdbClient(chdb_connection handle)
+{
+    auto * connection = reinterpret_cast<chdb_conn *>(handle);
+    if (!checkConnectionValidity(connection))
+        return nullptr;
+
+    return static_cast<DB::ChdbClient *>(connection->server);
+}
+
+}
 
 namespace CHDB
 {
@@ -30,7 +111,8 @@ chdb_result * queryToBuffer(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
-    const std::string & udfPath = {})
+    const std::string & udfPath = {},
+    const DB::NameToNameMap & params = {})
 {
     std::vector<std::string> argv = {"clickhouse", "--multiquery"};
 
@@ -67,6 +149,11 @@ chdb_result * queryToBuffer(
         argv.push_back("--user_defined_executable_functions_config=" + udfPath + "/*.xml");
     }
 
+    for (const auto & [key, value] : params)
+    {
+        argv.push_back("--param_" + key + "=" + value);
+    }
+
     // Convert std::string to char*
     std::vector<char *> argv_char;
     argv_char.reserve(argv.size());
@@ -83,9 +170,10 @@ query_result * query(
     const std::string & queryStr,
     const std::string & output_format = "CSV",
     const std::string & path = {},
-    const std::string & udfPath = {})
+    const std::string & udfPath = {},
+    const py::dict & params = py::dict())
 {
-    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath));
+    return new query_result(queryToBuffer(queryStr, output_format, path, udfPath, parseParametersDict(params)));
 }
 
 // The `query_result` and `memoryview_wrapper` will hold `local_result_wrapper` with shared_ptr
@@ -263,10 +351,14 @@ void connection_wrapper::commit()
     // do nothing
 }
 
-query_result * connection_wrapper::query(const std::string & query_str, const std::string & format)
+query_result * connection_wrapper::query(const std::string & query_str, const std::string & format, const py::dict & params)
 {
     if (Poco::toLower(format) == "dataframe")
         throw std::runtime_error("Unsupported output format dataframe, please use 'query_df' function");
+
+    const auto parsed_params = parseParametersDict(params);
+    auto * client = getChdbClient(*conn);
+    QueryParameterGuard guard(client, parsed_params);
 
     CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
@@ -284,12 +376,16 @@ query_result * connection_wrapper::query(const std::string & query_str, const st
     return new query_result(result, false);
 }
 
-py::object connection_wrapper::query_df(const std::string & query_str)
+py::object connection_wrapper::query_df(const std::string & query_str, const py::dict & params)
 {
     static const std::string format = "dataframe";
 
     chdb_result * result = nullptr;
     CHDB::ChunkQueryResult * chunk_result = nullptr;
+
+    const auto parsed_params = parseParametersDict(params);
+    auto * client = getChdbClient(*conn);
+    QueryParameterGuard guard(client, parsed_params);
 
     CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
 
@@ -317,8 +413,12 @@ py::object connection_wrapper::query_df(const std::string & query_str)
     return df;
 }
 
-streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format)
+streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format, const py::dict & params)
 {
+    const auto parsed_params = parseParametersDict(params);
+    auto * client = getChdbClient(*conn);
+    QueryParameterGuard guard(client, parsed_params);
+
     CHDB::cachePythonTablesFromQuery(reinterpret_cast<chdb_conn *>(*conn), query_str);
     py::gil_scoped_release release;
     auto * result = chdb_stream_query_n(*conn, query_str.data(), query_str.size(), format.data(), format.size());
@@ -494,17 +594,23 @@ PYBIND11_MODULE(_chdb, m)
             &connection_wrapper::query,
             py::arg("query_str"),
             py::arg("format") = "CSV",
+            py::kw_only(),
+            py::arg("params") = py::dict(),
             "Execute a query and return a query_result object")
         .def(
             "query_df",
             &connection_wrapper::query_df,
             py::arg("query_str"),
+            py::kw_only(),
+            py::arg("params") = py::dict(),
             "Execute a query and return a DataFrame")
         .def(
             "send_query",
             &connection_wrapper::send_query,
             py::arg("query_str"),
             py::arg("format") = "CSV",
+            py::kw_only(),
+            py::arg("params") = py::dict(),
             "Send a streaming query and return a streaming query result object")
         .def(
             "streaming_fetch_result",
@@ -530,6 +636,7 @@ PYBIND11_MODULE(_chdb, m)
         py::kw_only(),
         py::arg("path") = "",
         py::arg("udf_path") = "",
+        py::arg("params") = py::dict(),
         "Query chDB and return a query_result object or DataFrame");
 
     auto destroy_import_cache = []()

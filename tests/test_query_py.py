@@ -363,6 +363,16 @@ class TestQueryPy(unittest.TestCase):
 
         self.assertEqual(str(ret), EXPECTED_MULTILPE_TABLES)
 
+    def test_query_df_with_datetime(self):
+        df = pd.DataFrame({
+            'datetime_col': pd.to_datetime(['2024-01-01', '2024-06-15', '2024-12-31']).tz_localize('UTC').astype('datetime64[ms, UTC]')
+        })
+        ret = chdb.query("SELECT * FROM Python(df)", 'DataFrame')
+        result_utc = ret['datetime_col'].dt.tz_convert('UTC')
+        self.assertEqual(result_utc[0], pd.Timestamp('2024-01-01', tz='UTC'))
+        self.assertEqual(result_utc[1], pd.Timestamp('2024-06-15', tz='UTC'))
+        self.assertEqual(result_utc[2], pd.Timestamp('2024-12-31', tz='UTC'))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=3)

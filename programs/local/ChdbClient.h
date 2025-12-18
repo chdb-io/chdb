@@ -4,6 +4,7 @@
 #include <Client/LocalConnection.h>
 #include <Interpreters/Session.h>
 #include <Common/Config/ConfigProcessor.h>
+#include <Core/Names.h>
 #include "QueryResult.h"
 
 #include <memory>
@@ -44,6 +45,9 @@ public:
     size_t getStorageBytesRead() const;
 
 #if USE_PYTHON
+    void setQueryParameters(const NameToNameMap & params);
+    void clearQueryParameters();
+
     void findQueryableObjFromPyCache(const String & query_str) const;
 #endif
 

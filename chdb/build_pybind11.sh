@@ -53,7 +53,32 @@ build_pybind11_nonlimitedapi() {
     local py_version=$1
     echo "Building pybind11 nonlimitedapi library for Python ${py_version}..."
 
+    local full_py_version=""
+    local custom_python_path=""
+
+    if command -v pyenv >/dev/null 2>&1; then
+        full_py_version=$(pyenv versions --bare | grep "^${py_version}\." | head -n 1)
+
+        if [ -n "$full_py_version" ]; then
+            custom_python_path="$HOME/.pyenv/versions/${full_py_version}/bin/python3"
+            if [ -f "$custom_python_path" ]; then
+                echo "Found pyenv Python ${full_py_version} at: $custom_python_path"
+            else
+                echo "Warning: pyenv Python ${full_py_version} not found at expected path"
+                custom_python_path=""
+            fi
+        else
+            echo "Warning: Python ${py_version}.x not found in pyenv versions"
+        fi
+    else
+        echo "Warning: pyenv not found"
+    fi
+
     local py_cmake_args="${CMAKE_ARGS} -DPYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION=${py_version}"
+
+    if [ -n "$custom_python_path" ]; then
+        py_cmake_args="${py_cmake_args} -DCHDB_CUSTOM_PYTHON_EXECUTABLE=${custom_python_path}"
+    fi
 
     # Add cross-compile flags if needed
     if [ "$cross_compile" = true ]; then
