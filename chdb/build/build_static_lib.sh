@@ -137,7 +137,7 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the libchdb_minimal.a:"
-    ${STRIP} --strip-debug --remove-section=.comment --remove-section=.note libchdb_minimal.a
+    ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note libchdb_minimal.a
 fi
 
 
