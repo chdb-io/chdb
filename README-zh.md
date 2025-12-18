@@ -240,7 +240,8 @@ sess.close()
 
 更多示例，请参见 [examples](examples) 和 [tests](tests)。
 
-## AI 辅助 SQL 生成
+<details>
+  <summary><h4>🧠 AI 辅助 SQL 生成</h4></summary>
 
 chDB 可以将自然语言提示转换为 SQL。通过连接/会话字符串配置 AI 客户端参数：
 
@@ -268,11 +269,12 @@ conn.query("INSERT INTO nums VALUES (1), (2), (3)")
 sql = conn.generate_sql("Select all rows from nums ordered by n desc")
 print(sql)  # 例如：SELECT * FROM nums ORDER BY n DESC
 
-# ask() = generate_sql() + query()，format 与 query 一致
+# ask()：一键生成并执行 SQL
+# `ask()` 会先调用 `generate_sql` 再执行 `query`，关键字参数会透传给 `query`。
 print(conn.ask("List the numbers table", format="Pretty"))
 ```
 
-`Session` 同样支持以上能力；`Session.ask()` 默认返回 `CSV`（与 `ask`/`query` 的默认格式一致），其他格式请显式指定：
+`Session` 同样支持以上能力；`Session.ask()` 会将关键字参数透传给 `Session.query`：
 
 ```python
 from chdb import session as chs
@@ -283,6 +285,8 @@ with chs.Session("file::memory:?ai_provider=openai") as sess:
     df = sess.ask("Show all users ordered by id", format="DataFrame")
     print(df)
 ```
+
+</details>
 
 ## 演示和示例
 
