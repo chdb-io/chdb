@@ -473,7 +473,8 @@ For more examples, see [examples](examples) and [tests](tests).
 
 <br>
 
-## AI-assisted SQL generation
+<details>
+  <summary><h4>🧠 AI-assisted SQL generation</h4></summary>
 
 chDB can translate natural language prompts into SQL. Configure the AI client through the connection (or session) string parameters:
 
@@ -501,21 +502,24 @@ conn.query("INSERT INTO nums VALUES (1), (2), (3)")
 sql = conn.generate_sql("Select all rows from nums ordered by n desc")
 print(sql)  # e.g., SELECT * FROM nums ORDER BY n DESC
 
-# ask() = generate_sql() + query(), format mirrors query()
+# ask(): one-call generate + execute
+# `ask()` first calls `generate_sql` then runs `query`; keyword arguments are forwarded to `query`.
 print(conn.ask("List the numbers table", format="Pretty"))
 ```
 
-`Session` objects support the same helpers and defaults; `Session.ask()` defaults to `CSV` output (match `ask`/`query` defaults) and you can request other formats explicitly:
+`Session` objects support the same helpers and defaults; `Session.ask()` forwards keyword arguments to `Session.query`:
 
 ```python
 from chdb import session as chs
 
 with chs.Session("file::memory:?ai_provider=openai") as sess:
     sess.query("CREATE TABLE users (id UInt32, name String) ENGINE = Memory")
-    sess.query("INSERT INTO users VALUES (1, 'alice'), (2, 'bob')")
+    sess.query("INSERT INTO users VALUES (1), (2), (3)")
     df = sess.ask("Show all users ordered by id", format="DataFrame")
     print(df)
 ```
+
+</details>
 
 ## Demos and Examples
 
