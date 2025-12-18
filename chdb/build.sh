@@ -38,7 +38,7 @@ if [ "$(uname)" == "Darwin" ]; then
         else
             # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
             CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-            # # If target macos version is 12, we need to test if support AVX2, 
+            # # If target macos version is 12, we need to test if support AVX2,
             # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
             # # just test it on the github action, hope you don't using Mac Pro Late 2013.
             # # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
@@ -250,8 +250,8 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${LIBCHDB}
 fi
 echo -e "\nStripe the binary:"
 

@@ -19,7 +19,6 @@ if [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=1"
     JEMALLOC="-DENABLE_JEMALLOC=0"
-    PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     ICU="-DENABLE_ICU=1"
     SED_INPLACE="sed -i"
     # only x86_64, enable AVX, enable embedded compiler
@@ -112,7 +111,7 @@ fi
 
 # extract the command to generate CHDB_PY_MODULE
 PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
+    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
     | sed 's/ -Xlinker --no-undefined//g' \
@@ -125,6 +124,7 @@ if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
 fi
 
 PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,\$ORIGIN|g')
+PYCHDB_CMD="${PYCHDB_CMD} -Wl,--undefined=PyInit__chdb -Wl,--version-script=${CHDB_DIR}/pychdb_export.map"
 
 echo ${PYCHDB_CMD} > pychdb_cmd.sh
 
@@ -138,7 +138,7 @@ if [ ${build_type} == "Debug" ]; then
     echo -e "\nDebug build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
+    ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${PYCHDB}
 fi
 echo -e "\nStripe the binary:"
 
