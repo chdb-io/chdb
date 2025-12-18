@@ -21,6 +21,7 @@ from .utils import immutable
 if TYPE_CHECKING:
     from .core import DataStore
     from .conditions import Condition, BinaryCondition
+    from .lazy_result import LazySlice
 
 
 class ColumnExpr:
@@ -1300,31 +1301,46 @@ class ColumnExpr:
             axis=axis, ascending=ascending, kind=kind, na_position=na_position, ignore_index=ignore_index, key=key
         )
 
-    def head(self, n: int = 5):
+    def head(self, n: int = 5) -> 'LazySlice':
         """
-        Return the first n elements.
+        Return the first n elements (lazy).
+
+        The result is not materialized until displayed or explicitly converted.
+        This allows for SQL LIMIT optimization and consistent lazy behavior.
 
         Args:
             n: Number of elements to return (default 5)
 
         Returns:
-            pd.Series: First n elements
-        """
-        series = self._materialize()
-        return series.head(n)
+            LazySlice: Lazy wrapper that materializes on display
 
-    def tail(self, n: int = 5):
+        Example:
+            >>> ds['age'].head(5)  # Lazy, no execution yet
+            >>> print(ds['age'].head(5))  # Triggers execution
         """
-        Return the last n elements.
+        from .lazy_result import LazySlice
+
+        return LazySlice(self, 'head', n)
+
+    def tail(self, n: int = 5) -> 'LazySlice':
+        """
+        Return the last n elements (lazy).
+
+        The result is not materialized until displayed or explicitly converted.
 
         Args:
             n: Number of elements to return (default 5)
 
         Returns:
-            pd.Series: Last n elements
+            LazySlice: Lazy wrapper that materializes on display
+
+        Example:
+            >>> ds['age'].tail(5)  # Lazy, no execution yet
+            >>> print(ds['age'].tail(5))  # Triggers execution
         """
-        series = self._materialize()
-        return series.tail(n)
+        from .lazy_result import LazySlice
+
+        return LazySlice(self, 'tail', n)
 
     # ========== Dynamic Method Delegation ==========
 
@@ -1799,3 +1815,43 @@ class LazyAggregate:
             round_expr = Function('round', self._expr, Literal(ndigits))
 
         return ColumnExpr(round_expr, self._column_expr._datastore)
+
+    def head(self, n: int = 5) -> 'LazySlice':
+        """
+        Return the first n elements of the aggregated result (lazy).
+
+        The result is not materialized until displayed or explicitly converted.
+
+        Args:
+            n: Number of elements to return (default 5)
+
+        Returns:
+            LazySlice: Lazy wrapper that materializes on display
+
+        Example:
+            >>> ds.groupby('category')['value'].mean().head(5)  # Lazy
+            >>> print(ds.groupby('category')['value'].mean().head(5))  # Executes
+        """
+        from .lazy_result import LazySlice
+
+        return LazySlice(self, 'head', n)
+
+    def tail(self, n: int = 5) -> 'LazySlice':
+        """
+        Return the last n elements of the aggregated result (lazy).
+
+        The result is not materialized until displayed or explicitly converted.
+
+        Args:
+            n: Number of elements to return (default 5)
+
+        Returns:
+            LazySlice: Lazy wrapper that materializes on display
+
+        Example:
+            >>> ds.groupby('category')['value'].mean().tail(5)  # Lazy
+            >>> print(ds.groupby('category')['value'].mean().tail(5))  # Executes
+        """
+        from .lazy_result import LazySlice
+
+        return LazySlice(self, 'tail', n)

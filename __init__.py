@@ -64,6 +64,7 @@ Core Classes:
 from .core import DataStore
 from .expressions import Expression, Field, Literal, col
 from .column_expr import ColumnExpr
+from .lazy_result import LazySlice
 from .functions import (
     Function,
     AggregateFunction,
@@ -544,6 +545,7 @@ __all__ = [
     'Field',
     'Literal',
     'ColumnExpr',
+    'LazySlice',
     'col',
     # Functions
     'Function',
