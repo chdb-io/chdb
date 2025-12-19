@@ -68,11 +68,11 @@ class LazyOp(ABC):
         return 'Pandas'  # Default: most LazyOps use Pandas
 
     def _log_execute(self, op_name: str, details: str = None, prefix: str = "Pandas"):
-        """Log operation execution at DEBUG level."""
+        """Log operation execution at DEBUG level with indentation."""
         if details:
-            self._logger.debug("[%s] Executing %s: %s", prefix, op_name, details)
+            self._logger.debug("    [%s] Executing %s: %s", prefix, op_name, details)
         else:
-            self._logger.debug("[%s] Executing %s", prefix, op_name)
+            self._logger.debug("    [%s] Executing %s", prefix, op_name)
 
 
 class LazyColumnAssignment(LazyOp):
@@ -101,7 +101,7 @@ class LazyColumnAssignment(LazyOp):
 
         # Assign
         df[self.column] = value
-        self._logger.debug("[Pandas]   -> DataFrame shape after assignment: %s", df.shape)
+        self._logger.debug("      -> DataFrame shape after assignment: %s", df.shape)
         return df
 
     def describe(self) -> str:
@@ -112,8 +112,19 @@ class LazyColumnAssignment(LazyOp):
             expr_str = self.expr._expr.to_sql(quote_char='"')
         elif isinstance(self.expr, Expression):
             expr_str = self.expr.to_sql(quote_char='"')
+        elif isinstance(self.expr, pd.Series):
+            # Avoid printing entire Series content
+            expr_str = f"<Series: {self.expr.dtype}, len={len(self.expr)}>"
+        elif isinstance(self.expr, pd.DataFrame):
+            # Avoid printing entire DataFrame content
+            expr_str = f"<DataFrame: {self.expr.shape}>"
         else:
-            expr_str = repr(self.expr)
+            # For other types, limit repr length to avoid verbose output
+            raw_repr = repr(self.expr)
+            if len(raw_repr) > 80:
+                expr_str = raw_repr[:77] + "..."
+            else:
+                expr_str = raw_repr
         return f"Assign column '{self.column}' = {expr_str}"
 
     def execution_engine(self) -> str:
@@ -178,7 +189,7 @@ class LazyColumnSelection(LazyOp):
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("ColumnSelection", f"columns={self.columns}")
         result = df[self.columns]
-        self._logger.debug("[Pandas]   -> DataFrame shape after selection: %s", result.shape)
+        self._logger.debug("      -> DataFrame shape after selection: %s", result.shape)
         return result
 
     def describe(self) -> str:
@@ -199,7 +210,7 @@ class LazyDropColumns(LazyOp):
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("DropColumns", f"columns={self.columns}")
         result = df.drop(columns=self.columns)
-        self._logger.debug("[Pandas]   -> DataFrame shape after drop: %s", result.shape)
+        self._logger.debug("      -> DataFrame shape after drop: %s", result.shape)
         return result
 
     def describe(self) -> str:
@@ -216,7 +227,7 @@ class LazyRenameColumns(LazyOp):
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("RenameColumns", f"mapping={self.mapping}")
         result = df.rename(columns=self.mapping)
-        self._logger.debug("[Pandas]   -> New columns: %s", list(result.columns))
+        self._logger.debug("      -> New columns: %s", list(result.columns))
         return result
 
     def describe(self) -> str:
@@ -234,7 +245,7 @@ class LazyAddPrefix(LazyOp):
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("AddPrefix", f"prefix='{self.prefix}'")
         result = df.add_prefix(self.prefix)
-        self._logger.debug("[Pandas]   -> New columns: %s", list(result.columns))
+        self._logger.debug("      -> New columns: %s", list(result.columns))
         return result
 
     def describe(self) -> str:
@@ -251,7 +262,7 @@ class LazyAddSuffix(LazyOp):
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("AddSuffix", f"suffix='{self.suffix}'")
         result = df.add_suffix(self.suffix)
-        self._logger.debug("[Pandas]   -> New columns: %s", list(result.columns))
+        self._logger.debug("      -> New columns: %s", list(result.columns))
         return result
 
     def describe(self) -> str:
@@ -311,7 +322,7 @@ class LazyAsType(LazyOp):
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("AsType", f"dtype={self.dtype}")
         result = df.astype(self.dtype)
-        self._logger.debug("[Pandas]   -> New dtypes: %s", dict(result.dtypes))
+        self._logger.debug("      -> New dtypes: %s", dict(result.dtypes))
         return result
 
     def describe(self) -> str:
@@ -385,22 +396,22 @@ class LazyRelationalOp(LazyOp):
             cols = [f if isinstance(f, str) else f.name for f in self.fields]
             existing_cols = [c for c in cols if c in df.columns]
             # Log column selection
-            self._logger.debug("[Pandas]   -> df[%s]", existing_cols)
+            self._logger.debug("      -> df[%s]", existing_cols)
             if existing_cols:
                 result = df[existing_cols]
-                self._logger.debug("[Pandas]   -> Selected columns: %s", existing_cols)
+                self._logger.debug("      -> Selected columns: %s", existing_cols)
                 return result
             return df
         elif self.op_type == 'WHERE' and self.condition is not None:
             # Log the condition (executed via pandas boolean mask)
             try:
                 condition_sql = self.condition.to_sql(quote_char='"')
-                self._logger.debug("[Pandas]   -> Condition: %s", condition_sql)
+                self._logger.debug("      -> Condition: %s", condition_sql)
             except Exception:
                 pass
             # Apply filter condition on DataFrame using pandas
             result = self._apply_condition(df, self.condition, context)
-            self._logger.debug("[Pandas]   -> df[mask]: %d -> %d rows", rows_before, len(result))
+            self._logger.debug("      -> df[mask]: %d -> %d rows", rows_before, len(result))
             return result
         elif self.op_type == 'ORDER BY' and self.fields:
             # Sort DataFrame
@@ -409,23 +420,23 @@ class LazyRelationalOp(LazyOp):
             # Log sort info
             try:
                 direction = 'ascending' if self.ascending else 'descending'
-                self._logger.debug("[Pandas]   -> df.sort_values(by=%s, ascending=%s)", existing_cols, self.ascending)
+                self._logger.debug("      -> df.sort_values(by=%s, ascending=%s)", existing_cols, self.ascending)
             except Exception:
                 pass
             if existing_cols:
                 result = df.sort_values(by=existing_cols, ascending=self.ascending)
-                self._logger.debug("[Pandas]   -> Sorted by: %s (%s)", existing_cols, direction)
+                self._logger.debug("      -> Sorted by: %s (%s)", existing_cols, direction)
                 return result
             return df
         elif self.op_type == 'LIMIT' and self.limit_value is not None:
-            self._logger.debug("[Pandas]   -> df.head(%d)", self.limit_value)
+            self._logger.debug("      -> df.head(%d)", self.limit_value)
             result = df.head(self.limit_value)
-            self._logger.debug("[Pandas]   -> Limited to %d rows", self.limit_value)
+            self._logger.debug("      -> Limited to %d rows", self.limit_value)
             return result
         elif self.op_type == 'OFFSET' and self.offset_value is not None:
-            self._logger.debug("[Pandas]   -> df.iloc[%d:]", self.offset_value)
+            self._logger.debug("      -> df.iloc[%d:]", self.offset_value)
             result = df.iloc[self.offset_value :]
-            self._logger.debug("[Pandas]   -> Offset by %d rows", self.offset_value)
+            self._logger.debug("      -> Offset by %d rows", self.offset_value)
             return result
         return df
 
@@ -638,8 +649,8 @@ class LazySQLQuery(LazyOp):
 
         self._log_execute("SQL Query", f"rows={len(df)}", prefix="chDB")
 
-        self._logger.debug("[chDB] Original input: %s", self.original_query)
-        self._logger.debug("[chDB] Expanded query: %s", self.query)
+        self._logger.debug("    [chDB] Original input: %s", self.original_query)
+        self._logger.debug("    [chDB] Expanded query: %s", self.query)
 
         # Use centralized executor
         executor = get_executor()
