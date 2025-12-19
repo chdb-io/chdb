@@ -1196,8 +1196,11 @@ class ColumnExpr:
         elif isinstance(value, ColumnExpr):
             # Materialize to get actual value(s)
             materialized = value._materialize()
+            # Handle scalar results (e.g., from round(agg_func(...)))
+            if not isinstance(materialized, pd.Series):
+                fill_value = materialized
             # If it's a single value (aggregate), extract scalar
-            if len(materialized) == 1:
+            elif len(materialized) == 1:
                 fill_value = materialized.iloc[0]
             else:
                 fill_value = materialized

@@ -256,6 +256,28 @@ class FunctionExecutorConfig:
         'to_pytimedelta',
     }
 
+    # Alias mappings: maps user-facing names to canonical SQL function names
+    # This allows users to configure using either name (e.g., 'mean' or 'avg')
+    FUNCTION_ALIASES: Dict[str, str] = {
+        # Aggregate function aliases (pandas name -> SQL name)
+        'mean': 'avg',
+        'std': 'stddev',
+        'var': 'variance',
+        'prod': 'product',
+        'kurt': 'kurtosis',
+        # String function aliases
+        'len': 'length',
+        'strip': 'trim',
+        'lstrip': 'ltrim',
+        'rstrip': 'rtrim',
+        # Math function aliases
+        'ceil': 'ceiling',
+        'pow': 'power',
+    }
+
+    # Reverse alias mappings (SQL name -> pandas name)
+    REVERSE_ALIASES: Dict[str, str] = {v: k for k, v in FUNCTION_ALIASES.items()}
+
     def __init__(self):
         """Initialize with default configuration (prefer chDB)."""
         self._default_engine = ExecutionEngine.CHDB
@@ -569,21 +591,44 @@ class FunctionExecutorConfig:
         """Set the default execution engine."""
         self._default_engine = engine
 
+    def _get_all_names(self, name: str) -> list:
+        """
+        Get all equivalent names for a function (original + aliases).
+
+        Args:
+            name: Function name (lowercase)
+
+        Returns:
+            List of all equivalent function names
+        """
+        names = [name]
+        # Check if this name has an alias (pandas name -> SQL name)
+        if name in self.FUNCTION_ALIASES:
+            names.append(self.FUNCTION_ALIASES[name])
+        # Check if this name has a reverse alias (SQL name -> pandas name)
+        if name in self.REVERSE_ALIASES:
+            names.append(self.REVERSE_ALIASES[name])
+        return names
+
     def use_chdb(self, *function_names: str) -> 'FunctionExecutorConfig':
         """
         Configure functions to use chDB SQL engine.
 
         Args:
-            *function_names: Function names to configure
+            *function_names: Function names to configure (supports aliases like 'mean'/'avg')
 
         Returns:
             self for chaining
 
         Example:
             >>> function_config.use_chdb('upper', 'lower', 'length')
+            >>> function_config.use_chdb('mean')  # Also sets 'avg'
         """
         for name in function_names:
-            self._function_engines[name.lower()] = ExecutionEngine.CHDB
+            name_lower = name.lower()
+            # Set for all equivalent names (original + aliases)
+            for equiv_name in self._get_all_names(name_lower):
+                self._function_engines[equiv_name] = ExecutionEngine.CHDB
         return self
 
     def use_pandas(self, *function_names: str) -> 'FunctionExecutorConfig':
@@ -591,16 +636,20 @@ class FunctionExecutorConfig:
         Configure functions to use Pandas execution.
 
         Args:
-            *function_names: Function names to configure
+            *function_names: Function names to configure (supports aliases like 'mean'/'avg')
 
         Returns:
             self for chaining
 
         Example:
             >>> function_config.use_pandas('upper', 'lower')
+            >>> function_config.use_pandas('mean')  # Also sets 'avg'
         """
         for name in function_names:
-            self._function_engines[name.lower()] = ExecutionEngine.PANDAS
+            name_lower = name.lower()
+            # Set for all equivalent names (original + aliases)
+            for equiv_name in self._get_all_names(name_lower):
+                self._function_engines[equiv_name] = ExecutionEngine.PANDAS
         return self
 
     def get_engine(self, function_name: str) -> ExecutionEngine:
@@ -608,7 +657,7 @@ class FunctionExecutorConfig:
         Get the execution engine for a specific function.
 
         Args:
-            function_name: The function name
+            function_name: The function name (supports aliases like 'mean'/'avg')
 
         Returns:
             ExecutionEngine for the function
@@ -619,9 +668,10 @@ class FunctionExecutorConfig:
         if name_lower in self.PANDAS_ONLY_FUNCTIONS:
             return ExecutionEngine.PANDAS
 
-        # Check user configuration
-        if name_lower in self._function_engines:
-            return self._function_engines[name_lower]
+        # Check user configuration for this name or any of its aliases
+        for equiv_name in self._get_all_names(name_lower):
+            if equiv_name in self._function_engines:
+                return self._function_engines[equiv_name]
 
         return self._default_engine
 
