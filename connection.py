@@ -16,9 +16,79 @@ All chDB execution should go through this module for:
 from typing import Any, Optional, Dict, List, Tuple
 import chdb
 import pandas as pd
+import numpy as np
 
 from .exceptions import ConnectionError, ExecutionError
 from .config import get_logger
+
+
+def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert nullable pandas dtypes to non-nullable equivalents for chDB compatibility.
+
+    On Python 3.8, chDB has issues reading from DataFrames with nullable dtypes
+    (Int64, Float64, etc.) which can cause uninitialized memory reads.
+
+    This function converts:
+    - Float64 -> float64 (NaN preserved as np.nan)
+    - Int64 -> int64 (NA values become 0, use with caution)
+    - Other nullable types -> their non-nullable equivalents
+
+    Args:
+        df: DataFrame that may contain nullable dtypes
+
+    Returns:
+        DataFrame with non-nullable dtypes
+    """
+    import sys
+
+    # Only apply fix for Python 3.8.x
+    if sys.version_info[:2] != (3, 8):
+        return df
+
+    result = df
+    needs_copy = False
+
+    for col in df.columns:
+        dtype = df[col].dtype
+        dtype_str = str(dtype)
+
+        # Check for nullable extension types
+        if dtype_str == 'Float64':
+            if not needs_copy:
+                result = df.copy()
+                needs_copy = True
+            # Convert to float64, preserving NaN
+            result[col] = df[col].astype('float64')
+        elif dtype_str == 'Float32':
+            if not needs_copy:
+                result = df.copy()
+                needs_copy = True
+            result[col] = df[col].astype('float32')
+        elif dtype_str in ('Int64', 'Int32', 'Int16', 'Int8', 'UInt64', 'UInt32', 'UInt16', 'UInt8'):
+            if not needs_copy:
+                result = df.copy()
+                needs_copy = True
+            # For nullable integers with NA, convert to float to preserve NaN
+            if df[col].isna().any():
+                result[col] = df[col].astype('float64')
+            else:
+                result[col] = df[col].astype(dtype_str.lower())
+        elif dtype_str == 'boolean':
+            if not needs_copy:
+                result = df.copy()
+                needs_copy = True
+            if df[col].isna().any():
+                result[col] = df[col].astype('object')
+            else:
+                result[col] = df[col].astype('bool')
+        elif dtype_str == 'string':
+            if not needs_copy:
+                result = df.copy()
+                needs_copy = True
+            result[col] = df[col].astype('object')
+
+    return result
 
 
 class Connection:
@@ -252,9 +322,11 @@ class Connection:
         chDB's Python() table function requires the DataFrame to be
         accessible in the local scope where conn.query() is called.
         """
-        __df__ = df  # noqa: F841 - Required for conn.query to access via Python(__df__)
+        # Convert nullable dtypes to non-nullable for Python 3.8 compatibility
+        df_converted = _convert_nullable_dtypes(df)
+        __df__ = df_converted  # noqa: F841 - Required for conn.query to access via Python(__df__)
         if df_name != '__df__':
-            exec(f"{df_name} = df")
+            exec(f"{df_name} = df_converted")
         return self._conn.query(sql, 'DataFrame')
 
     def eval_expression(self, expr_sql: str, df: pd.DataFrame, result_column: str = '__result__') -> pd.Series:
@@ -281,14 +353,17 @@ class Connection:
         # Check if expression contains aggregate functions
         is_aggregate = self._is_aggregate_expression(expr_sql)
 
+        # Convert nullable dtypes to non-nullable for Python 3.8 compatibility
+        df_converted = _convert_nullable_dtypes(df)
+
         if is_aggregate:
             # Aggregate expressions return single value, no ORDER BY needed
-            __df__ = df  # noqa: F841
+            __df__ = df_converted  # noqa: F841
             query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__)"
         else:
             # Add row index to preserve order for row-level expressions
             row_idx_col = '__row_idx__'
-            __df__ = df.copy()  # noqa: F841
+            __df__ = df_converted.copy()  # noqa: F841
             __df__[row_idx_col] = range(len(df))
             query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__) ORDER BY {row_idx_col}"
 
