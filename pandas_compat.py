@@ -98,6 +98,14 @@ class PandasCompatMixin:
             # Set the DataFrame as the data source via lazy op
             new_ds._lazy_ops = [LazyDataFrameSource(result)]
 
+            # Reset cache state for the new DataStore
+            # This is critical: copy() copies cache state, but the new DataStore
+            # has a different lazy op chain, so the old cache is invalid
+            new_ds._cached_result = None
+            new_ds._cache_version = 0
+            new_ds._cached_at_version = -1
+            new_ds._cache_timestamp = None
+
             return new_ds
         return result
 
@@ -217,7 +225,7 @@ class PandasCompatMixin:
             raise TypeError(f"Column assignment requires string key, got {type(key)}")
 
         # Record the lazy operation
-        self._lazy_ops.append(LazyColumnAssignment(key, value))
+        self._add_lazy_op(LazyColumnAssignment(key, value))
 
     def select_dtypes(self, include=None, exclude=None):
         """Return subset of columns based on column dtypes."""
@@ -1535,14 +1543,14 @@ class PandasCompatMixin:
         """Prefix labels with string prefix (lazy operation)."""
         from .lazy_ops import LazyAddPrefix
 
-        self._lazy_ops.append(LazyAddPrefix(prefix))
+        self._add_lazy_op(LazyAddPrefix(prefix))
         return self
 
     def add_suffix(self, suffix, axis=None):
         """Suffix labels with string suffix (lazy operation)."""
         from .lazy_ops import LazyAddSuffix
 
-        self._lazy_ops.append(LazyAddSuffix(suffix))
+        self._add_lazy_op(LazyAddSuffix(suffix))
         return self
 
     def align(self, other, **kwargs):

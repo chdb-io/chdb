@@ -167,7 +167,7 @@ class FunctionExecutorConfig:
         'value_counts',
         'duplicated',
         'drop_duplicates',
-        # Missing value handling
+        # Missing value handling (pandas method names)
         'isna',
         'isnull',
         'notna',
@@ -177,6 +177,9 @@ class FunctionExecutorConfig:
         'ffill',
         'bfill',
         'interpolate',
+        # Missing value handling (SQL function names - use Pandas for NaN support)
+        'isnull',  # SQL isNull() function
+        'isnotnull',  # SQL isNotNull() function
         # Type checking
         'isin',
         'between',
@@ -512,7 +515,7 @@ class FunctionExecutorConfig:
         self._pandas_implementations['duplicated'] = lambda s, keep='first': s.duplicated(keep=keep)
         self._pandas_implementations['drop_duplicates'] = lambda s, keep='first': s.drop_duplicates(keep=keep)
 
-        # Missing value handling
+        # Missing value handling (pandas method names)
         self._pandas_implementations['isna'] = lambda s: s.isna()
         self._pandas_implementations['isnull'] = lambda s: s.isnull()
         self._pandas_implementations['notna'] = lambda s: s.notna()
@@ -522,6 +525,10 @@ class FunctionExecutorConfig:
         self._pandas_implementations['ffill'] = lambda s: s.ffill()
         self._pandas_implementations['bfill'] = lambda s: s.bfill()
         self._pandas_implementations['interpolate'] = lambda s, method='linear': s.interpolate(method=method)
+        # Missing value handling (SQL function names - map to pandas for NaN support)
+        # Note: keys must be lowercase as function names are lowercased before lookup
+        self._pandas_implementations['isnull'] = lambda s: s.isna()
+        self._pandas_implementations['isnotnull'] = lambda s: s.notna()
 
         # Type checking
         self._pandas_implementations['isin'] = lambda s, values: s.isin(values)
