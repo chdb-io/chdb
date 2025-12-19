@@ -548,24 +548,27 @@ class DataStore(PandasCompatMixin):
                 first_df_op_idx = i
                 break
 
-        if first_df_op_idx is not None:
-            self._logger.debug("First non-SQL operation at index %d", first_df_op_idx)
-        else:
-            self._logger.debug("All operations are SQL operations")
+        # Build SQL query from operations before first DataFrame op
+        early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
+        has_sql_source = self._table_function or self.table_name
+        has_two_phases = has_sql_source and first_df_op_idx is not None
 
-        # Phase 1: Build SQL query from operations before first DataFrame op
-        # We need to build the SQL state from scratch using only the early SQL ops
-        self._logger.debug("-" * 70)
-        self._logger.debug("Phase 1: Building SQL query from early operations")
-        self._logger.debug("-" * 70)
+        # Only show SQL phase header if we have SQL source
+        if has_sql_source:
+            if has_two_phases:
+                self._logger.debug("-" * 70)
+                self._logger.debug("Phase 1: Executing SQL query")
+                self._logger.debug("-" * 70)
+            else:
+                self._logger.debug("-" * 70)
+                self._logger.debug("Executing SQL query")
+                self._logger.debug("-" * 70)
 
         sql_select_fields = []
         sql_where_conditions = []
         sql_orderby_fields = []
         sql_limit = None
         sql_offset = None
-
-        early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
 
         for op in early_sql_ops:
             if isinstance(op, LazyRelationalOp):
@@ -611,19 +614,23 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("Executing initial SQL query...")
             result = self._executor.execute(sql)
             df = result.to_df()
-            self._logger.debug("SQL query returned DataFrame with shape: %s", df.shape)
+            self._logger.debug("  SQL query returned DataFrame with shape: %s", df.shape)
         else:
-            self._logger.debug("No data source, starting with empty DataFrame")
+            # No SQL source - start with empty DataFrame (will be populated by DataFrame operations)
             df = pd.DataFrame()
 
-        # Phase 2: Execute remaining operations in order
+        # Execute DataFrame operations
         if first_df_op_idx is not None:
+            num_df_ops = len(self._lazy_ops) - first_df_op_idx
             self._logger.debug("-" * 70)
-            self._logger.debug("Phase 2: Executing %d DataFrame operations", len(self._lazy_ops) - first_df_op_idx)
+            if has_two_phases:
+                self._logger.debug("Phase 2: Executing %d DataFrame operations", num_df_ops)
+            else:
+                self._logger.debug("Executing %d DataFrame operations", num_df_ops)
             self._logger.debug("-" * 70)
 
             for i, op in enumerate(self._lazy_ops[first_df_op_idx:], first_df_op_idx + 1):
-                self._logger.debug("[%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
+                self._logger.debug("  [%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
                 df = op.execute(df, self)
 
         self._logger.debug("=" * 70)
@@ -3275,6 +3282,34 @@ class DataStore(PandasCompatMixin):
 
             arr = np.array(arr, copy=True)
         return arr
+
+    def __dataframe__(self, nan_as_null: bool = False, allow_copy: bool = True):
+        """
+        DataFrame Interchange Protocol implementation.
+
+        This enables DataStore to be used directly with libraries that support
+        the DataFrame Interchange Protocol (e.g., seaborn, plotly, altair).
+
+        Instead of:
+            seaborn.countplot(x="col", data=ds.to_df())
+
+        You can now write:
+            seaborn.countplot(x="col", data=ds)
+
+        Args:
+            nan_as_null: Whether to convert NaN values to null (default: False)
+            allow_copy: Whether to allow copying the data (default: True)
+
+        Returns:
+            DataFrame interchange object from the underlying pandas DataFrame
+
+        Example:
+            >>> import seaborn as sns
+            >>> ds = DataStore.from_file("data.csv")
+            >>> sns.countplot(x="Survived", hue="Sex", data=ds)  # Works directly!
+        """
+        df = self._materialize()
+        return df.__dataframe__(nan_as_null=nan_as_null, allow_copy=allow_copy)
 
     # ========== String Representation ==========
 
