@@ -124,6 +124,73 @@ def set_log_format(format_name: str) -> None:
 
 
 # =============================================================================
+# CACHE CONFIGURATION
+# =============================================================================
+
+# Default cache settings
+_cache_enabled: bool = True  # Caching enabled by default
+_cache_ttl: float = 0.0  # TTL in seconds, 0 means no expiration
+
+
+def is_cache_enabled() -> bool:
+    """Check if caching is enabled."""
+    return _cache_enabled
+
+
+def get_cache_ttl() -> float:
+    """Get cache TTL in seconds (0 = no expiration)."""
+    return _cache_ttl
+
+
+def enable_cache() -> None:
+    """
+    Enable automatic caching of materialized results.
+
+    When enabled, repeated calls to repr/str/display will use cached results
+    instead of re-executing the entire pipeline.
+
+    Example:
+        >>> from datastore import config
+        >>> config.enable_cache()
+    """
+    global _cache_enabled
+    _cache_enabled = True
+
+
+def disable_cache() -> None:
+    """
+    Disable automatic caching.
+
+    When disabled, every access triggers fresh execution.
+
+    Example:
+        >>> from datastore import config
+        >>> config.disable_cache()
+    """
+    global _cache_enabled
+    _cache_enabled = False
+
+
+def set_cache_ttl(ttl_seconds: float) -> None:
+    """
+    Set cache Time-To-Live in seconds.
+
+    Args:
+        ttl_seconds: TTL in seconds. Use 0 for no expiration (default).
+                     The cache will be invalidated after this duration.
+
+    Example:
+        >>> from datastore import config
+        >>> config.set_cache_ttl(60)  # Cache expires after 60 seconds
+        >>> config.set_cache_ttl(0)   # No TTL (cache never expires based on time)
+    """
+    global _cache_ttl
+    if ttl_seconds < 0:
+        raise ValueError("TTL must be non-negative")
+    _cache_ttl = ttl_seconds
+
+
+# =============================================================================
 # EXECUTION ENGINE CONFIGURATION
 # =============================================================================
 
@@ -132,7 +199,7 @@ class ExecutionEngine:
     """Execution engine options."""
 
     AUTO = "auto"  # Auto-select best engine
-    CLICKHOUSE = "clickhouse"  # Force ClickHouse/chDB
+    CHDB = "chdb"  # Force chDB
     PANDAS = "pandas"  # Force Pandas
 
 
@@ -150,16 +217,16 @@ def set_execution_engine(engine: str) -> None:
     Set the execution engine.
 
     Args:
-        engine: One of 'auto', 'clickhouse', 'pandas'
+        engine: One of 'auto', 'chdb', 'pandas'
 
     Example:
         >>> from datastore import config
         >>> config.set_execution_engine('pandas')  # Force pandas
-        >>> config.set_execution_engine('clickhouse')  # Force ClickHouse
+        >>> config.set_execution_engine('chdb')  # Force chDB
         >>> config.set_execution_engine('auto')  # Auto-select
     """
     global _execution_engine
-    valid = {ExecutionEngine.AUTO, ExecutionEngine.CLICKHOUSE, ExecutionEngine.PANDAS}
+    valid = {ExecutionEngine.AUTO, ExecutionEngine.CHDB, ExecutionEngine.PANDAS}
     if engine not in valid:
         raise ValueError(f"Invalid engine: {engine}. Use one of {valid}")
     _execution_engine = engine
@@ -169,7 +236,7 @@ def set_execution_engine(engine: str) -> None:
 
     if engine == ExecutionEngine.PANDAS:
         function_config.prefer_pandas()
-    elif engine == ExecutionEngine.CLICKHOUSE:
+    elif engine == ExecutionEngine.CHDB:
         function_config.prefer_chdb()
     else:
         function_config.reset()  # Auto mode uses default (chDB)
@@ -180,9 +247,9 @@ def use_pandas() -> None:
     set_execution_engine(ExecutionEngine.PANDAS)
 
 
-def use_clickhouse() -> None:
-    """Force ClickHouse execution engine."""
-    set_execution_engine(ExecutionEngine.CLICKHOUSE)
+def use_chdb() -> None:
+    """Force chDB execution engine."""
+    set_execution_engine(ExecutionEngine.CHDB)
 
 
 def use_auto() -> None:
@@ -255,20 +322,57 @@ class DataStoreConfig:
 
     @execution_engine.setter
     def execution_engine(self, engine: str) -> None:
-        """Set execution engine ('auto', 'clickhouse', 'pandas')."""
+        """Set execution engine ('auto', 'chdb', 'pandas')."""
         set_execution_engine(engine)
 
     def use_pandas(self) -> None:
         """Force Pandas execution."""
         use_pandas()
 
-    def use_clickhouse(self) -> None:
-        """Force ClickHouse execution."""
-        use_clickhouse()
+    def use_chdb(self) -> None:
+        """Force chDB execution."""
+        use_chdb()
 
     def use_auto(self) -> None:
         """Use auto-selection."""
         use_auto()
+
+    # ========== Cache Configuration ==========
+
+    @property
+    def cache_enabled(self) -> bool:
+        """Check if caching is enabled."""
+        return is_cache_enabled()
+
+    @cache_enabled.setter
+    def cache_enabled(self, enabled: bool) -> None:
+        """Enable or disable caching."""
+        if enabled:
+            enable_cache()
+        else:
+            disable_cache()
+
+    @property
+    def cache_ttl(self) -> float:
+        """Get cache TTL in seconds."""
+        return get_cache_ttl()
+
+    @cache_ttl.setter
+    def cache_ttl(self, ttl_seconds: float) -> None:
+        """Set cache TTL in seconds."""
+        set_cache_ttl(ttl_seconds)
+
+    def enable_cache(self) -> None:
+        """Enable automatic caching."""
+        enable_cache()
+
+    def disable_cache(self) -> None:
+        """Disable automatic caching."""
+        disable_cache()
+
+    def set_cache_ttl(self, ttl_seconds: float) -> None:
+        """Set cache TTL in seconds."""
+        set_cache_ttl(ttl_seconds)
 
 
 # Global config instance
