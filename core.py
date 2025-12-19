@@ -2,11 +2,14 @@
 Core DataStore class - main entry point for data operations
 """
 
+import time
+import pandas as pd
 from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
 from copy import copy
 
 if TYPE_CHECKING:
     from .column_expr import ColumnExpr
+    from .groupby import LazyGroupBy
 
 from .expressions import Field, Expression
 from .conditions import Condition
@@ -18,7 +21,7 @@ from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
 from .lazy_ops import LazyOp, LazyColumnSelection, LazyRelationalOp
-from .config import get_logger, config as _global_config, DataStoreConfig
+from .config import get_logger, config as _global_config, DataStoreConfig, is_cache_enabled, get_cache_ttl
 
 __all__ = ['DataStore']
 
@@ -167,6 +170,14 @@ class DataStore(PandasCompatMixin):
 
         # Logger instance
         self._logger = get_logger()
+
+        # Cache state for materialized results
+        # This implements intelligent automatic caching to avoid re-execution
+        # when repr/__str__ are called multiple times
+        self._cached_result: Optional[pd.DataFrame] = None
+        self._cache_version: int = 0  # Incremented when operations are added
+        self._cached_at_version: int = -1  # Version when cache was created
+        self._cache_timestamp: Optional[float] = None  # For TTL support
 
     # ========== Operation Tracking for explain() ==========
 
@@ -419,28 +430,107 @@ class DataStore(PandasCompatMixin):
             or self.table_name
         )
 
+    def _is_cache_valid(self) -> bool:
+        """
+        Check if the cached result is still valid.
+
+        Returns:
+            True if cache is valid and can be used, False otherwise.
+        """
+        # Check if caching is enabled globally
+        if not is_cache_enabled():
+            return False
+
+        # Check if we have a cached result
+        if self._cached_result is None:
+            return False
+
+        # Check version match (cache invalidated if operations were added)
+        if self._cached_at_version != self._cache_version:
+            self._logger.debug(
+                "Cache invalid: version mismatch (cached=%d, current=%d)", self._cached_at_version, self._cache_version
+            )
+            return False
+
+        # Check TTL if configured
+        ttl = get_cache_ttl()
+        if ttl > 0 and self._cache_timestamp is not None:
+            age = time.time() - self._cache_timestamp
+            if age > ttl:
+                self._logger.debug("Cache invalid: TTL expired (age=%.2fs, ttl=%.2fs)", age, ttl)
+                return False
+
+        return True
+
+    def _invalidate_cache(self):
+        """
+        Invalidate the cached result.
+
+        Called when new operations are added to the pipeline.
+        """
+        self._cache_version += 1
+        self._logger.debug("Cache invalidated: version now %d", self._cache_version)
+
+    def clear_cache(self):
+        """
+        Manually clear the cached result.
+
+        This forces re-execution on the next access.
+
+        Example:
+            >>> ds = DataStore.from_dataframe(df)
+            >>> ds = ds.filter(ds['value'] > 10)
+            >>> print(ds)  # Executes and caches
+            >>> ds.clear_cache()  # Clear cache
+            >>> print(ds)  # Re-executes
+        """
+        self._cached_result = None
+        self._cached_at_version = -1
+        self._cache_timestamp = None
+        self._logger.debug("Cache manually cleared")
+
+    def _add_lazy_op(self, op: LazyOp):
+        """
+        Add a lazy operation to the pipeline and invalidate cache.
+
+        This is the central method for adding lazy operations. It ensures
+        that the cache is properly invalidated when the pipeline changes.
+
+        Args:
+            op: The lazy operation to add
+        """
+        self._lazy_ops.append(op)
+        self._invalidate_cache()
+
     def _materialize(self):
         """
         Materialize all lazy operations into a DataFrame.
 
         Execute all pending operations and return a DataFrame.
 
-        This is the core of lazy execution - operations are only executed here.
-        No caching - each call executes fresh.
+        This is the core of lazy execution. When caching is enabled (default),
+        results are cached and reused for repeated accesses (e.g., multiple repr calls).
+        Cache is automatically invalidated when new operations are added.
 
         Execution strategy:
-        1. Find the first non-SQL operation (e.g., add_prefix, column assignment)
-        2. Build and execute SQL query for operations before that point
-        3. Execute remaining operations (including SQL) on the DataFrame in order
+        1. Check if valid cache exists (return cached result if so)
+        2. Find the first non-SQL operation (e.g., add_prefix, column assignment)
+        3. Build and execute SQL query for operations before that point
+        4. Execute remaining operations (including SQL) on the DataFrame in order
+        5. Cache the result if caching is enabled
 
         Returns:
             pandas DataFrame with all operations applied
         """
-        import pandas as pd
         from .lazy_ops import LazyRelationalOp
 
+        # Check cache first
+        if self._is_cache_valid():
+            self._logger.debug("Using cached result (version=%d)", self._cached_at_version)
+            return self._cached_result
+
         self._logger.debug("=" * 70)
-        self._logger.debug("Starting materialization")
+        self._logger.debug("Starting materialization (version=%d)", self._cache_version)
         self._logger.debug("=" * 70)
 
         # Log all lazy operations
@@ -539,6 +629,47 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("=" * 70)
         self._logger.debug("Materialization complete. Final DataFrame shape: %s", df.shape)
         self._logger.debug("=" * 70)
+
+        # Cache the result if caching is enabled
+        if is_cache_enabled():
+            self._cached_result = df
+            self._cache_timestamp = time.time()
+
+            # Only checkpoint (replace lazy_ops with DataFrame source) if there were
+            # DataFrame operations executed. For pure SQL queries, keep the SQL state
+            # intact so that to_sql() continues to work correctly.
+            if first_df_op_idx is not None:
+                from .lazy_ops import LazyDataFrameSource
+
+                # IMPORTANT: Replace lazy_ops with a single DataFrame source
+                # This is the key to incremental execution:
+                # - Old ops are "collapsed" into the cached DataFrame
+                # - New ops will be appended after this source
+                # - Next materialization only executes new ops
+                self._lazy_ops = [LazyDataFrameSource(df)]
+
+                # Clear SQL state since we're now working from a DataFrame
+                # This ensures subsequent SQL operations use Python() table function
+                self._table_function = None
+                self.table_name = None
+                self._select_fields = []
+                self._where_condition = None
+                self._joins = []
+                self._groupby_fields = []
+                self._having_condition = None
+                self._orderby_fields = []
+                self._limit_value = None
+                self._offset_value = None
+                self._distinct = False
+
+                self._logger.debug("Pipeline checkpointed: lazy_ops replaced with DataFrame source")
+            else:
+                self._logger.debug("Pure SQL execution: SQL state preserved")
+
+            # Reset cache version to 0 (fresh start)
+            # New ops will increment from here
+            self._cache_version = 0
+            self._cached_at_version = 0
 
         return df
 
@@ -1502,15 +1633,12 @@ class DataStore(PandasCompatMixin):
         new_ds._offset_value = None
         new_ds._distinct = False
         new_ds._lazy_ops = [LazyDataFrameSource(result_df)]
-        new_ds._select_fields = []
-        new_ds._where_condition = None
-        new_ds._joins = []
-        new_ds._groupby_fields = []
-        new_ds._having_condition = None
-        new_ds._orderby_fields = []
-        new_ds._limit_value = None
-        new_ds._offset_value = None
-        new_ds._distinct = False
+
+        # Reset cache state for the new DataStore
+        new_ds._cached_result = None
+        new_ds._cache_version = 0
+        new_ds._cached_at_version = -1
+        new_ds._cache_timestamp = None
         new_ds._table_function = None
         new_ds.table_name = None
         return new_ds
@@ -2132,7 +2260,7 @@ class DataStore(PandasCompatMixin):
 
         # Record in lazy ops for correct execution order in explain()
         # Store fields for DataFrame execution
-        self._lazy_ops.append(LazyRelationalOp('SELECT', field_names, fields=list(fields)))
+        self._add_lazy_op(LazyRelationalOp('SELECT', field_names, fields=list(fields)))
 
         for field in fields:
             if isinstance(field, str):
@@ -2185,7 +2313,7 @@ class DataStore(PandasCompatMixin):
 
         # Record in lazy ops for correct execution order in explain()
         # Store condition object for DataFrame execution
-        self._lazy_ops.append(LazyRelationalOp('WHERE', condition_str, condition=condition))
+        self._add_lazy_op(LazyRelationalOp('WHERE', condition_str, condition=condition))
 
         if isinstance(condition, str):
             # TODO: Parse string conditions
@@ -2292,7 +2420,7 @@ class DataStore(PandasCompatMixin):
 
         # Record the SQL query operation
         lazy_op = LazySQLQuery(query, df_alias='__df__')
-        self._lazy_ops.append(lazy_op)
+        self._add_lazy_op(lazy_op)
 
         return self
 
@@ -2362,23 +2490,40 @@ class DataStore(PandasCompatMixin):
         self._joins.append((other, join_type, join_condition))
         return self
 
-    @immutable
-    def groupby(self, *fields: Union[str, Expression]) -> 'DataStore':
+    def groupby(self, *fields: Union[str, Expression]) -> 'LazyGroupBy':
         """
         Group by columns.
+
+        Returns a LazyGroupBy object that references the ORIGINAL DataStore.
+        This matches pandas semantics where groupby() returns a GroupBy object,
+        not a copy of the DataFrame.
+
+        When aggregation methods are called on the GroupBy object, they materialize
+        and checkpoint the ORIGINAL DataStore. This ensures that subsequent calls
+        to df.to_df() use the cached result without re-execution.
 
         Args:
             *fields: Column names (strings) or Expression objects
 
+        Returns:
+            LazyGroupBy: GroupBy wrapper referencing this DataStore
+
         Example:
-            >>> ds.groupby("category")
-            >>> ds.groupby(ds.category, ds.region)
+            >>> ds.groupby("category")  # Returns LazyGroupBy
+            >>> ds.groupby("category")["sales"].mean()  # Materializes ds, returns Series
+            >>> ds.to_df()  # Uses cached result (no re-computation!)
         """
+        from .groupby import LazyGroupBy
+
+        groupby_fields = []
         for field in fields:
             if isinstance(field, str):
                 # Don't add table prefix for string fields
                 field = Field(field)
-            self._groupby_fields.append(field)
+            groupby_fields.append(field)
+
+        # Return a GroupBy wrapper that references self (not a copy!)
+        return LazyGroupBy(self, groupby_fields)
 
     @immutable
     def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':
@@ -2489,7 +2634,7 @@ class DataStore(PandasCompatMixin):
                 full_sql = f'SELECT {select_clause} FROM __df__'
 
             # Use LazySQLQuery for proper execution
-            self._lazy_ops.append(LazySQLQuery(full_sql))
+            self._add_lazy_op(LazySQLQuery(full_sql))
 
             return self
         else:
@@ -2597,7 +2742,7 @@ class DataStore(PandasCompatMixin):
 
         # Record in lazy ops for correct execution order in explain()
         # Store fields and ascending for DataFrame execution
-        self._lazy_ops.append(
+        self._add_lazy_op(
             LazyRelationalOp('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending)
         )
 
@@ -2639,7 +2784,7 @@ class DataStore(PandasCompatMixin):
         """Limit number of results."""
         # Record in lazy ops for correct execution order in explain()
         # Store limit_value for DataFrame execution
-        self._lazy_ops.append(LazyRelationalOp('LIMIT', str(n), limit_value=n))
+        self._add_lazy_op(LazyRelationalOp('LIMIT', str(n), limit_value=n))
         self._limit_value = n
         return self
 
@@ -2648,7 +2793,7 @@ class DataStore(PandasCompatMixin):
         """Skip first n results."""
         # Record in lazy ops for correct execution order in explain()
         # Store offset_value for DataFrame execution
-        self._lazy_ops.append(LazyRelationalOp('OFFSET', str(n), offset_value=n))
+        self._add_lazy_op(LazyRelationalOp('OFFSET', str(n), offset_value=n))
         self._offset_value = n
 
     @immutable
@@ -2729,7 +2874,13 @@ class DataStore(PandasCompatMixin):
             # Create a copy to avoid modifying the original DataStore's _lazy_ops
             # This fixes the bug where df[['col1', 'col2']].head() would modify df
             result = copy(self) if getattr(self, 'is_immutable', True) else self
-            result._lazy_ops.append(LazyColumnSelection(key))
+            if result is not self:
+                # Reset cache state for the new copy
+                result._cached_result = None
+                result._cache_version = 0
+                result._cached_at_version = -1
+                result._cache_timestamp = None
+            result._add_lazy_op(LazyColumnSelection(key))
             return result
 
         elif isinstance(key, slice):

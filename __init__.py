@@ -62,6 +62,7 @@ Core Classes:
 """
 
 from .core import DataStore
+from .groupby import LazyGroupBy
 from .expressions import Expression, Field, Literal, col
 from .column_expr import ColumnExpr
 from .lazy_result import LazySlice
@@ -527,6 +528,7 @@ __author__ = "DataStore Contributors"
 __all__ = [
     # Core
     'DataStore',
+    'LazyGroupBy',
     # Pandas-Compatible IO Functions
     'read_csv',
     'read_parquet',

@@ -11,7 +11,7 @@ for all operations. This ensures pandas-like behavior is preserved.
 
 from __future__ import annotations
 
-from typing import Any, Optional, TYPE_CHECKING, Iterator
+from typing import Any, Optional, TYPE_CHECKING, Iterator, List
 
 import pandas as pd
 
@@ -56,7 +56,13 @@ class ColumnExpr:
         BinaryCondition('"age" > 25')
     """
 
-    def __init__(self, expr: Expression, datastore: 'DataStore', alias: Optional[str] = None):
+    def __init__(
+        self,
+        expr: Expression,
+        datastore: 'DataStore',
+        alias: Optional[str] = None,
+        groupby_fields: Optional[List] = None,
+    ):
         """
         Initialize ColumnExpr with expression and DataStore reference.
 
@@ -64,10 +70,12 @@ class ColumnExpr:
             expr: The underlying expression (Field, ArithmeticExpression, Function, etc.)
             datastore: Reference to the DataStore for materialization
             alias: Optional alias for the expression
+            groupby_fields: Optional groupby fields from LazyGroupBy (to avoid polluting DataStore state)
         """
         self._expr = expr
         self._datastore = datastore
         self._alias = alias
+        self._groupby_fields = groupby_fields or []
 
     @property
     def expr(self) -> Expression:
@@ -90,40 +98,35 @@ class ColumnExpr:
         """
         Materialize this expression and return a pandas Series.
 
-        This executes the expression against the DataStore's data.
+        This executes the expression against the DataStore's data using the
+        unified ExpressionEvaluator, which respects function_config settings.
         """
-        from .functions import Function, CastFunction
+        from .expression_evaluator import ExpressionEvaluator
 
         # Get the materialized DataFrame from the DataStore
         df = self._datastore._materialize()
 
-        # Handle different expression types
-        if isinstance(self._expr, Field):
-            # Simple column access
-            col_name = self._expr.name
-            if col_name in df.columns:
-                return df[col_name]
-            else:
-                raise KeyError(f"Column '{col_name}' not found in DataFrame")
+        # Use unified expression evaluator (respects function_config)
+        evaluator = ExpressionEvaluator(df, self._datastore)
+        result = evaluator.evaluate(self._expr)
 
-        elif isinstance(self._expr, ArithmeticExpression):
-            # Evaluate arithmetic expression via chDB
-            return self._evaluate_via_chdb(df)
-
-        elif isinstance(self._expr, (Function, CastFunction)):
-            # Evaluate function via chDB
-            return self._evaluate_via_chdb(df)
-
+        # Ensure we return a Series with proper index
+        if isinstance(result, pd.Series):
+            return result
         elif isinstance(self._expr, Literal):
-            # Return scalar as Series
-            return pd.Series([self._expr.value] * len(df), index=df.index)
-
+            # Literal value - expand to Series
+            return pd.Series([result] * len(df), index=df.index)
         else:
-            # Try to evaluate via chDB for other expression types
-            return self._evaluate_via_chdb(df)
+            # Scalar result - return as is (will be wrapped if needed)
+            return result
 
     def _evaluate_via_chdb(self, df: pd.DataFrame) -> pd.Series:
-        """Evaluate the expression using chDB's Python() table function."""
+        """
+        Evaluate the expression using chDB's Python() table function.
+
+        Note: This is kept for backward compatibility but the preferred path
+        is now through ExpressionEvaluator which respects function_config.
+        """
         from .executor import get_executor
 
         executor = get_executor()
@@ -140,6 +143,10 @@ class ColumnExpr:
         a GROUP BY aggregation query and returns a Series with the groupby
         column(s) as index.
 
+        Respects the execution engine configuration:
+        - PANDAS: Use pure pandas groupby
+        - CHDB/AUTO: Use chDB for SQL execution
+
         Args:
             agg_func_name: SQL aggregate function name (e.g., 'avg', 'sum')
             pandas_agg_func: Pandas aggregation method name (e.g., 'mean', 'sum').
@@ -149,18 +156,17 @@ class ColumnExpr:
         Returns:
             pd.Series: Aggregated values with groupby column(s) as index
         """
-        from .executor import get_executor
+        from .config import get_execution_engine, ExecutionEngine
 
         pandas_agg_func = pandas_agg_func or agg_func_name
 
-        # Get the groupby fields from the datastore
-        groupby_fields = self._datastore._groupby_fields
+        # Get the groupby fields from the datastore and clear them before materialization
+        # This prevents _materialize() from generating SQL with GROUP BY
+        groupby_fields = self._datastore._groupby_fields.copy()
+        self._datastore._groupby_fields = []
 
         # Get the materialized DataFrame from the DataStore (without groupby applied)
         df = self._datastore._materialize()
-
-        # Get the column name for the aggregation
-        col_expr_sql = self._expr.to_sql(quote_char='"')
 
         # Get groupby column names
         groupby_col_names = []
@@ -170,32 +176,52 @@ class ColumnExpr:
             else:
                 groupby_col_names.append(gf.to_sql(quote_char='"'))
 
-        # Build SQL query with GROUP BY
-        groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
+        # Check execution engine configuration
+        engine = get_execution_engine()
 
-        # Use -If suffix to skip NaN values (matching pandas skipna=True behavior)
-        # In chDB, pandas NaN is recognized as isNaN(), not isNull()
-        if skipna:
-            # Use aggregate function with If suffix to skip NaN values
-            agg_sql = f'{agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
+        if engine == ExecutionEngine.PANDAS:
+            # Use pure pandas groupby
+            col_name = self._get_column_name()
+            grouped = df.groupby(groupby_col_names, sort=True)
+            agg_method = getattr(grouped[col_name], pandas_agg_func)
+            result_series = agg_method()
+            result_series.name = col_name
         else:
-            agg_sql = f'{agg_func_name}({col_expr_sql})'
+            # Use chDB for CHDB or AUTO
+            from .executor import get_executor
 
-        sql = f'SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}'
+            # Get the column name for the aggregation
+            col_expr_sql = self._expr.to_sql(quote_char='"')
 
-        # Execute via chDB
-        executor = get_executor()
-        result_df = executor.query_dataframe(sql, df)
+            # Build SQL query with GROUP BY
+            groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
 
-        # Convert result to Series with proper index
-        if len(groupby_col_names) == 1:
-            # Single groupby column - use it as index
-            result_series = result_df.set_index(groupby_col_names[0])['__agg_result__']
-            result_series.name = self._get_column_name()
-        else:
-            # Multiple groupby columns - use MultiIndex
-            result_series = result_df.set_index(groupby_col_names)['__agg_result__']
-            result_series.name = self._get_column_name()
+            # Use -If suffix to skip NaN values (matching pandas skipna=True behavior)
+            # In chDB, pandas NaN is recognized as isNaN(), not isNull()
+            if skipna:
+                # Use aggregate function with If suffix to skip NaN values
+                agg_sql = f'{agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
+            else:
+                agg_sql = f'{agg_func_name}({col_expr_sql})'
+
+            sql = f'SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}'
+
+            # Execute via chDB
+            executor = get_executor()
+            result_df = executor.query_dataframe(sql, df)
+
+            # Convert result to Series with proper index
+            if len(groupby_col_names) == 1:
+                # Single groupby column - use it as index
+                result_series = result_df.set_index(groupby_col_names[0])['__agg_result__']
+                result_series.name = self._get_column_name()
+            else:
+                # Multiple groupby columns - use MultiIndex
+                result_series = result_df.set_index(groupby_col_names)['__agg_result__']
+                result_series.name = self._get_column_name()
+
+            # Sort by index to match pandas default behavior (sort=True)
+            result_series = result_series.sort_index()
 
         return result_series
 
@@ -455,22 +481,22 @@ class ColumnExpr:
 
     def isnull(self) -> 'ColumnExpr':
         """
-        Detect missing values (NULL), returns a boolean-like ColumnExpr.
+        Detect missing values (NULL/NaN), returns a boolean-like ColumnExpr.
 
-        Uses SQL isNull() function. Note: pandas NaN values should be converted
-        to SQL NULL by chDB for proper detection.
+        Uses isNull function. The execution engine (chDB or Pandas) is determined
+        by function_config - by default uses Pandas for proper NaN handling.
 
         This can be used:
         1. For filtering: ds.filter(ds['email'].isnull())
-        2. For value computation: ds['value'].isnull().astype(int)
+        2. For value computation: ds['value'].isnull()
         3. For column assignment: ds['is_null'] = ds['value'].isnull()
 
         Example:
             >>> ds.filter(ds['email'].isnull())
-            >>> ds['value'].isnull().astype(int)  # Returns Series of 0/1
+            >>> ds['value'].isnull()  # Returns boolean Series when materialized
 
         Returns:
-            ColumnExpr: Expression that evaluates to 1 (NULL) or 0 (not NULL)
+            ColumnExpr: Expression that evaluates to True (NULL/NaN) or False
         """
         from .functions import Function
 
@@ -478,22 +504,22 @@ class ColumnExpr:
 
     def notnull(self) -> 'ColumnExpr':
         """
-        Detect non-missing values (not NULL), returns a boolean-like ColumnExpr.
+        Detect non-missing values (not NULL/NaN), returns a boolean-like ColumnExpr.
 
-        Uses SQL isNotNull() function. Note: pandas NaN values should be converted
-        to SQL NULL by chDB for proper detection.
+        Uses isNotNull function. The execution engine (chDB or Pandas) is determined
+        by function_config - by default uses Pandas for proper NaN handling.
 
         This can be used:
         1. For filtering: ds.filter(ds['email'].notnull())
-        2. For value computation: ds['value'].notnull().astype(int)
+        2. For value computation: ds['value'].notnull()
         3. For column assignment: ds['is_not_null'] = ds['value'].notnull()
 
         Example:
             >>> ds.filter(ds['email'].notnull())
-            >>> ds['value'].notnull().astype(int)  # Returns Series of 0/1
+            >>> ds['value'].notnull()  # Returns boolean Series when materialized
 
         Returns:
-            ColumnExpr: Expression that evaluates to 1 (not NULL) or 0 (NULL)
+            ColumnExpr: Expression that evaluates to True (not NULL/NaN) or False
         """
         from .functions import Function
 
@@ -1548,6 +1574,9 @@ class LazyAggregate:
         self._skipna = skipna
         self._kwargs = kwargs
 
+        # Capture groupby fields from ColumnExpr (if any) to avoid polluting DataStore state
+        self._groupby_fields = column_expr._groupby_fields.copy() if column_expr._groupby_fields else []
+
         # Create the underlying AggregateFunction expression for SQL building
         from .functions import AggregateFunction
 
@@ -1590,8 +1619,11 @@ class LazyAggregate:
 
         datastore = self._column_expr._datastore
 
-        # Check if we have groupby fields
-        if datastore._groupby_fields:
+        # Check if we have groupby fields (from LazyGroupBy, stored in self._groupby_fields)
+        if self._groupby_fields:
+            # Set groupby fields on datastore temporarily for _aggregate_with_groupby
+            # This will be cleared by _aggregate_with_groupby after materialization
+            datastore._groupby_fields = self._groupby_fields.copy()
             result = self._column_expr._aggregate_with_groupby(
                 self._agg_func_name, self._pandas_agg_func, skipna=self._skipna
             )
@@ -1659,6 +1691,13 @@ class LazyAggregate:
         if hasattr(result, '__iter__'):
             return iter(result)
         return iter([result])
+
+    def __getitem__(self, key):
+        """Support indexing/subscripting like pandas Series."""
+        result = self._execute()
+        if hasattr(result, '__getitem__'):
+            return result[key]
+        raise TypeError(f"'{type(result).__name__}' object is not subscriptable")
 
     def __repr__(self) -> str:
         """Display the computed result when shown in notebook/REPL."""

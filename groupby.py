@@ -1,0 +1,308 @@
+"""
+LazyGroupBy - Lazy GroupBy wrapper for DataStore.
+
+This implements pandas-like groupby semantics where:
+- df.groupby('col') returns a GroupBy object (not a copy of DataFrame)
+- The GroupBy object references the original DataFrame
+- Aggregation operations materialize and checkpoint the ORIGINAL DataFrame
+
+This design ensures that:
+1. When groupby().agg() materializes, the original df is checkpointed
+2. Subsequent calls to df.to_df() use the cached result
+3. No redundant computation occurs
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, List, Union, Any
+
+import pandas as pd
+
+from .expressions import Expression, Field
+
+if TYPE_CHECKING:
+    from .core import DataStore
+    from .column_expr import ColumnExpr
+
+
+class LazyGroupBy:
+    """
+    A GroupBy wrapper for DataStore that references the original DataStore.
+
+    Similar to pandas DataFrameGroupBy, this object:
+    - Holds a reference to the original DataStore (not a copy)
+    - Stores the groupby fields
+    - Provides aggregation methods that operate on the original DataStore
+
+    Example:
+        >>> df = DataStore.from_dataframe(pd.DataFrame(...))
+        >>> df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
+        >>>
+        >>> grp = df.groupby('FamilySize')  # Returns LazyGroupBy
+        >>> result = grp['Survived'].mean()  # Materializes ORIGINAL df
+        >>>
+        >>> df.to_df()  # Uses cached result (no re-execution!)
+    """
+
+    def __init__(self, datastore: 'DataStore', groupby_fields: List[Expression]):
+        """
+        Initialize LazyGroupBy.
+
+        Args:
+            datastore: Reference to the ORIGINAL DataStore (not a copy)
+            groupby_fields: List of Field expressions to group by
+        """
+        self._datastore = datastore
+        self._groupby_fields = groupby_fields.copy()  # Copy the list, not the DataStore
+
+    @property
+    def datastore(self) -> 'DataStore':
+        """Get the original DataStore reference."""
+        return self._datastore
+
+    @property
+    def groupby_fields(self) -> List[Expression]:
+        """Get the groupby fields."""
+        return self._groupby_fields
+
+    def __getitem__(self, key: Union[str, List[str]]) -> 'ColumnExpr':
+        """
+        Access a column or columns for aggregation.
+
+        Returns a ColumnExpr that references the ORIGINAL DataStore
+        with the groupby fields set.
+
+        Args:
+            key: Column name (str) or list of column names
+
+        Returns:
+            ColumnExpr for single column, or LazyGroupBy for multiple
+        """
+        from .column_expr import ColumnExpr
+
+        if isinstance(key, str):
+            # Single column - return ColumnExpr with groupby fields attached
+            # This avoids polluting _datastore._groupby_fields which would affect to_df()
+            field = Field(key)
+            return ColumnExpr(field, self._datastore, groupby_fields=self._groupby_fields.copy())
+
+        elif isinstance(key, list):
+            # Multiple columns - return new GroupBy with column selection
+            return self
+
+        else:
+            raise TypeError(f"Expected str or list, got {type(key).__name__}")
+
+    def __getattr__(self, name: str):
+        """
+        Support attribute access for column names.
+
+        Example:
+            >>> grp.Survived.mean()  # Same as grp['Survived'].mean()
+        """
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        return self[name]
+
+    def __setitem__(self, key, value):
+        """
+        Support column assignment after groupby.
+
+        This delegates to the underlying datastore's __setitem__ for backward
+        compatibility. Note: in pandas, you cannot assign to a GroupBy object.
+
+        Example:
+            >>> grp = ds.groupby('category')
+            >>> grp['new_col'] = grp['value'] * 2  # Assigns to underlying ds
+        """
+        self._datastore[key] = value
+
+    # ========== Aggregation Methods ==========
+
+    def agg(self, func=None, **kwargs) -> 'DataStore':
+        """
+        Aggregate using one or more operations.
+
+        Args:
+            func: Aggregation function(s) - dict or string
+            **kwargs: Named aggregate expressions
+
+        Returns:
+            DataStore with aggregated results
+        """
+        # Set groupby fields on original datastore
+        self._datastore._groupby_fields = self._groupby_fields.copy()
+
+        # Delegate to datastore's agg method
+        return self._datastore.agg(func, **kwargs)
+
+    def mean(self, numeric_only: bool = False) -> pd.DataFrame:
+        """Compute mean of groups."""
+        return self._apply_agg('mean', numeric_only=numeric_only)
+
+    def sum(self, numeric_only: bool = False) -> pd.DataFrame:
+        """Compute sum of groups."""
+        return self._apply_agg('sum', numeric_only=numeric_only)
+
+    def count(self) -> pd.DataFrame:
+        """Compute count of groups."""
+        return self._apply_agg('count')
+
+    def min(self, numeric_only: bool = False) -> pd.DataFrame:
+        """Compute min of groups."""
+        return self._apply_agg('min', numeric_only=numeric_only)
+
+    def max(self, numeric_only: bool = False) -> pd.DataFrame:
+        """Compute max of groups."""
+        return self._apply_agg('max', numeric_only=numeric_only)
+
+    def std(self, numeric_only: bool = False) -> pd.DataFrame:
+        """Compute standard deviation of groups."""
+        return self._apply_agg('std', numeric_only=numeric_only)
+
+    def var(self, numeric_only: bool = False) -> pd.DataFrame:
+        """Compute variance of groups."""
+        return self._apply_agg('var', numeric_only=numeric_only)
+
+    def first(self) -> pd.DataFrame:
+        """Return first value in each group."""
+        return self._apply_agg('first')
+
+    def last(self) -> pd.DataFrame:
+        """Return last value in each group."""
+        return self._apply_agg('last')
+
+    def _apply_agg(self, func_name: str, **kwargs) -> pd.DataFrame:
+        """
+        Apply aggregation function to all columns.
+
+        This materializes the ORIGINAL DataStore and performs
+        pandas groupby aggregation.
+        """
+        # Materialize the ORIGINAL datastore (this checkpoints it!)
+        df = self._datastore._materialize()
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Apply pandas groupby
+        grouped = df.groupby(groupby_cols)
+
+        # Apply aggregation
+        agg_method = getattr(grouped, func_name)
+        return agg_method(**kwargs)
+
+    # ========== SQL Building Methods ==========
+    # These methods support SQL building patterns like:
+    #   ds.select(...).groupby("col").to_sql()
+    #
+    # IMPORTANT: For SQL building operations, we create a copy of the datastore
+    # to avoid modifying the original. This maintains immutability for SQL building
+    # while still allowing efficient execution for data operations.
+
+    def _get_sql_copy(self) -> 'DataStore':
+        """
+        Get a copy of the datastore with groupby fields set for SQL building.
+
+        This preserves immutability for SQL building operations.
+        """
+        from copy import copy
+
+        ds_copy = copy(self._datastore)
+        ds_copy._groupby_fields = self._groupby_fields.copy()
+        return ds_copy
+
+    def to_sql(self, **kwargs) -> str:
+        """
+        Generate SQL query with GROUP BY.
+
+        Uses a copy to avoid modifying the original datastore.
+        """
+        return self._get_sql_copy().to_sql(**kwargs)
+
+    def having(self, condition) -> 'LazyGroupBy':
+        """
+        Add HAVING clause.
+
+        Creates a copy with groupby fields and applies having.
+        """
+        ds_copy = self._get_sql_copy()
+        result_ds = ds_copy.having(condition)
+        return LazyGroupBy(result_ds, self._groupby_fields)
+
+    def select(self, *fields) -> 'DataStore':
+        """
+        Select fields after groupby - uses copy to preserve immutability.
+        """
+        ds_copy = self._get_sql_copy()
+        return ds_copy.select(*fields)
+
+    def sort(self, *fields, ascending: bool = True) -> 'LazyGroupBy':
+        """
+        Sort results after groupby.
+        """
+        ds_copy = self._get_sql_copy()
+        result_ds = ds_copy.sort(*fields, ascending=ascending)
+        return LazyGroupBy(result_ds, self._groupby_fields)
+
+    def orderby(self, *fields, ascending: bool = True) -> 'LazyGroupBy':
+        """Alias for sort()."""
+        return self.sort(*fields, ascending=ascending)
+
+    def limit(self, n: int) -> 'LazyGroupBy':
+        """Limit results after groupby."""
+        ds_copy = self._get_sql_copy()
+        result_ds = ds_copy.limit(n)
+        return LazyGroupBy(result_ds, self._groupby_fields)
+
+    def offset(self, n: int) -> 'LazyGroupBy':
+        """Offset results after groupby."""
+        ds_copy = self._get_sql_copy()
+        result_ds = ds_copy.offset(n)
+        return LazyGroupBy(result_ds, self._groupby_fields)
+
+    def filter(self, condition) -> 'LazyGroupBy':
+        """Filter after groupby (applies HAVING in SQL context)."""
+        return self.having(condition)
+
+    def execute(self):
+        """
+        Execute the query with GROUP BY.
+
+        For execution, we use a COPY to preserve immutability of the original.
+        """
+        ds_copy = self._get_sql_copy()
+        return ds_copy.execute()
+
+    def to_df(self) -> pd.DataFrame:
+        """
+        Materialize the grouped data.
+
+        For execution, we set groupby fields on the ORIGINAL datastore
+        so that the checkpoint is properly applied.
+        """
+        self._datastore._groupby_fields = self._groupby_fields.copy()
+        return self._datastore.to_df()
+
+    def as_(self, alias: str) -> 'DataStore':
+        """
+        Set an alias for this grouped query (for use as subquery).
+
+        Returns a DataStore with the alias set.
+        """
+        ds_copy = self._get_sql_copy()
+        return ds_copy.as_(alias)
+
+    def __repr__(self) -> str:
+        """String representation."""
+        fields = [f.name if isinstance(f, Field) else str(f) for f in self._groupby_fields]
+        return f"LazyGroupBy(fields={fields})"
+
+    def __str__(self) -> str:
+        return self.__repr__()

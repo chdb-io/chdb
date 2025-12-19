@@ -89,259 +89,20 @@ class LazyColumnAssignment(LazyOp):
         self.expr = expr
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
-        """Execute column assignment."""
+        """Execute column assignment using unified ExpressionEvaluator."""
+        from .expression_evaluator import ExpressionEvaluator
+
         self._log_execute("ColumnAssignment", f"column='{self.column}'")
         df = df.copy()  # Don't modify input
 
-        # Evaluate expression
-        value = self._evaluate_expr(self.expr, df, context)
+        # Use unified expression evaluator (respects function_config)
+        evaluator = ExpressionEvaluator(df, context)
+        value = evaluator.evaluate(self.expr)
 
         # Assign
         df[self.column] = value
         self._logger.debug("[Pandas]   -> DataFrame shape after assignment: %s", df.shape)
         return df
-
-    def _evaluate_expr(self, expr, df: pd.DataFrame, context: 'DataStore'):
-        """
-        Recursively evaluate an expression.
-
-        Supports:
-        - ColumnExpr: unwrap and evaluate the underlying expression
-        - Field references: nat["col"]
-        - Literals: 1, "hello"
-        - Arithmetic: nat["a"] + 1
-        - Functions: nat["col"].str.upper(), nat["value"].cast("Float64")
-        - Series: direct pandas Series
-        """
-        from .functions import Function, CastFunction
-        from .function_executor import function_config
-        from .column_expr import ColumnExpr
-
-        # Handle ColumnExpr - unwrap to get the underlying expression
-        if isinstance(expr, ColumnExpr):
-            return self._evaluate_expr(expr._expr, df, context)
-
-        if isinstance(expr, Field):
-            # Column reference
-            return df[expr.name]
-
-        elif isinstance(expr, Literal):
-            # Literal value
-            return expr.value
-
-        elif isinstance(expr, ArithmeticExpression):
-            # Arithmetic operation: recursively evaluate
-            left = self._evaluate_expr(expr.left, df, context)
-            right = self._evaluate_expr(expr.right, df, context)
-
-            # Apply operator
-            if expr.operator == '+':
-                return left + right
-            elif expr.operator == '-':
-                return left - right
-            elif expr.operator == '*':
-                return left * right
-            elif expr.operator == '/':
-                return left / right
-            elif expr.operator == '//':
-                return left // right
-            elif expr.operator == '%':
-                return left % right
-            elif expr.operator == '**':
-                return left**right
-            else:
-                raise ValueError(f"Unknown operator: {expr.operator}")
-
-        elif isinstance(expr, CastFunction):
-            # Special handling for CAST - use chDB via Python() table function
-            return self._evaluate_function_via_chdb(expr, df, context)
-
-        elif isinstance(expr, Function):
-            # Function call - check execution config
-            func_name = expr.name.lower()
-
-            # Priority order:
-            # 1. Pandas-only functions or explicitly configured to use Pandas
-            # 2. Has registered Pandas implementation
-            # 3. Try dynamic Pandas method (for unregistered functions)
-            # 4. Fallback to chDB
-
-            if function_config.should_use_pandas(func_name):
-                # Pandas-only or configured for Pandas
-                return self._evaluate_function_via_pandas(expr, df, context)
-            elif function_config.has_pandas_implementation(func_name):
-                # Has registered implementation - prefer chDB by default unless configured
-                return self._evaluate_function_via_chdb(expr, df, context)
-            else:
-                # Unknown function - try Pandas dynamic first, then chDB
-                return self._evaluate_unknown_function(expr, df, context)
-
-        elif isinstance(expr, pd.Series):
-            # Direct pandas Series
-            return expr
-
-        else:
-            # Scalar value
-            return expr
-
-    def _evaluate_function_via_pandas(self, expr, df: pd.DataFrame, context: 'DataStore'):
-        """
-        Evaluate a Function expression using Pandas implementation.
-
-        Supports three modes:
-        1. Registered implementation: use function_config._pandas_implementations
-        2. Dynamic method: try to call method on Series (e.g., s.str.title(), s.abs())
-        3. Fallback to chDB if nothing works
-
-        Args:
-            expr: Function expression
-            df: DataFrame to operate on
-            context: DataStore context
-
-        Returns:
-            Result of the Pandas operation (typically a Series)
-        """
-        from .function_executor import function_config
-
-        func_name = expr.name.lower()
-        pandas_impl = function_config.get_pandas_implementation(func_name)
-
-        # Evaluate first argument (the column/expression)
-        if not expr.args:
-            return self._evaluate_function_via_chdb(expr, df, context)
-
-        first_arg = self._evaluate_expr(expr.args[0], df, context)
-        other_args = [self._evaluate_expr(arg, df, context) for arg in expr.args[1:]]
-
-        # Mode 1: Try registered implementation first
-        if pandas_impl is not None:
-            try:
-                return pandas_impl(first_arg, *other_args)
-            except Exception as e:
-                self._logger.debug("[Pandas] Registered impl for %s failed: %s", func_name, e)
-
-        # Mode 2: Try dynamic Pandas method invocation
-        result = self._try_dynamic_pandas_method(func_name, first_arg, other_args)
-        if result is not None:
-            return result
-
-        # Mode 3: Fallback to chDB
-        self._logger.debug("[Pandas] No Pandas method found for %s, falling back to chDB", func_name)
-        return self._evaluate_function_via_chdb(expr, df, context)
-
-    def _try_dynamic_pandas_method(self, func_name: str, series: pd.Series, args: list):
-        """
-        Try to dynamically call a Pandas method on a Series.
-
-        Attempts to find and call the method in this order:
-        1. Direct Series method: series.func_name(*args)
-        2. Series.str accessor: series.str.func_name(*args)
-        3. Series.dt accessor: series.dt.func_name(*args)
-
-        Args:
-            func_name: Function name to look for
-            series: Pandas Series to operate on
-            args: Additional arguments
-
-        Returns:
-            Result Series if successful, None if method not found
-        """
-        if not isinstance(series, pd.Series):
-            return None
-
-        # Try direct Series method
-        if hasattr(series, func_name):
-            method = getattr(series, func_name)
-            if callable(method):
-                try:
-                    self._logger.debug("[Pandas] Dynamic call: series.%s(*args)", func_name)
-                    return method(*args) if args else method()
-                except Exception as e:
-                    self._logger.debug("[Pandas] series.%s failed: %s", func_name, e)
-
-        # Try Series.str accessor
-        if hasattr(series, 'str') and hasattr(series.str, func_name):
-            method = getattr(series.str, func_name)
-            if callable(method):
-                try:
-                    self._logger.debug("[Pandas] Dynamic call: series.str.%s(*args)", func_name)
-                    return method(*args) if args else method()
-                except Exception as e:
-                    self._logger.debug("[Pandas] series.str.%s failed: %s", func_name, e)
-
-        # Try Series.dt accessor
-        if hasattr(series, 'dt') and hasattr(series.dt, func_name):
-            attr = getattr(series.dt, func_name)
-            try:
-                if callable(attr):
-                    self._logger.debug("[Pandas] Dynamic call: series.dt.%s(*args)", func_name)
-                    return attr(*args) if args else attr()
-                else:
-                    # It's a property
-                    self._logger.debug("[Pandas] Dynamic access: series.dt.%s", func_name)
-                    return attr
-            except Exception as e:
-                self._logger.debug("[Pandas] series.dt.%s failed: %s", func_name, e)
-
-        return None
-
-    def _evaluate_unknown_function(self, expr, df: pd.DataFrame, context: 'DataStore'):
-        """
-        Evaluate an unknown function - try Pandas dynamic method first, then chDB.
-
-        For functions not registered in function_config, we try:
-        1. Dynamic Pandas method invocation
-        2. Fallback to chDB (which may have the function)
-
-        Args:
-            expr: Function expression
-            df: DataFrame to operate on
-            context: DataStore context
-
-        Returns:
-            Result of the function evaluation
-        """
-        func_name = expr.name.lower()
-
-        # Evaluate first argument
-        if not expr.args:
-            return self._evaluate_function_via_chdb(expr, df, context)
-
-        first_arg = self._evaluate_expr(expr.args[0], df, context)
-        other_args = [self._evaluate_expr(arg, df, context) for arg in expr.args[1:]]
-
-        # Try dynamic Pandas method first
-        result = self._try_dynamic_pandas_method(func_name, first_arg, other_args)
-        if result is not None:
-            self._logger.debug("[Pandas] Dynamic method '%s' succeeded", func_name)
-            return result
-
-        # Fallback to chDB
-        self._logger.debug("[Pandas] No dynamic method for '%s', trying chDB", func_name)
-        return self._evaluate_function_via_chdb(expr, df, context)
-
-    def _evaluate_function_via_chdb(self, expr, df: pd.DataFrame, context: 'DataStore'):
-        """
-        Evaluate a Function expression using chDB's Python() table function.
-
-        This executes the function as SQL on the DataFrame via the centralized Executor.
-
-        Args:
-            expr: Function expression
-            df: DataFrame to operate on
-            context: DataStore context
-
-        Returns:
-            Result Series from chDB execution
-        """
-        from .executor import get_executor
-
-        # Build the SQL expression
-        sql_expr = expr.to_sql(quote_char='"')
-
-        # Use centralized executor
-        executor = get_executor()
-        return executor.execute_expression(sql_expr, df)
 
     def describe(self) -> str:
         from .column_expr import ColumnExpr
@@ -765,89 +526,15 @@ class LazyRelationalOp(LazyOp):
         return pd.Series([True] * len(df), index=df.index)
 
     def _evaluate_operand(self, df: pd.DataFrame, operand, context: 'DataStore'):
-        """Evaluate an operand (field, expression, or literal value)."""
-        from .expressions import Field, ArithmeticExpression, Literal
-        from .functions import Function, CastFunction
-        from .column_expr import ColumnExpr
-
-        # Handle ColumnExpr - unwrap to get the underlying expression
-        if isinstance(operand, ColumnExpr):
-            return self._evaluate_operand(df, operand._expr, context)
-
-        if isinstance(operand, Literal):
-            # Return the actual value from Literal
-            return operand.value
-        elif isinstance(operand, Field):
-            if operand.name in df.columns:
-                return df[operand.name]
-            return operand.name  # Return as literal if column doesn't exist
-        elif isinstance(operand, ArithmeticExpression):
-            left = self._evaluate_operand(df, operand.left, context)
-            right = self._evaluate_operand(df, operand.right, context)
-            op = operand.operator
-            if op == '+':
-                return left + right
-            elif op == '-':
-                return left - right
-            elif op == '*':
-                return left * right
-            elif op == '/':
-                return left / right
-            elif op == '//':
-                return left // right
-            elif op == '**':
-                return left**right
-            elif op == '%':
-                return left % right
-        elif isinstance(operand, (Function, CastFunction)):
-            # Handle Function expressions - evaluate via chDB or Pandas
-            return self._evaluate_function(operand, df, context)
-        elif isinstance(operand, Expression):
-            # Handle other expression types - try to get value if available
-            if hasattr(operand, 'value'):
-                return operand.value
-            return operand
-        return operand  # Return literal value as-is
-
-    def _evaluate_function(self, expr, df: pd.DataFrame, context: 'DataStore'):
         """
-        Evaluate a Function expression.
+        Evaluate an operand using unified ExpressionEvaluator.
 
-        Uses chDB via Python() table function or Pandas implementation
-        based on function_config.
+        This delegates to ExpressionEvaluator which respects function_config.
         """
-        from .functions import CastFunction
-        from .function_executor import function_config
+        from .expression_evaluator import ExpressionEvaluator
 
-        func_name = expr.name.lower()
-
-        # For CastFunction or if no Pandas implementation, use chDB
-        if isinstance(expr, CastFunction) or not function_config.has_pandas_implementation(func_name):
-            return self._evaluate_function_via_chdb(expr, df)
-
-        # Check config for execution preference
-        if function_config.should_use_pandas(func_name):
-            pandas_impl = function_config.get_pandas_implementation(func_name)
-            if pandas_impl and expr.args:
-                try:
-                    first_arg = self._evaluate_operand(df, expr.args[0], context)
-                    other_args = [self._evaluate_operand(df, arg, context) for arg in expr.args[1:]]
-                    return pandas_impl(first_arg, *other_args)
-                except Exception as e:
-                    self._logger.debug("[Pandas] Function %s failed: %s, falling back to chDB", func_name, e)
-
-        # Fallback to chDB
-        return self._evaluate_function_via_chdb(expr, df)
-
-    def _evaluate_function_via_chdb(self, expr, df: pd.DataFrame):
-        """Execute function via chDB's Python() table function using centralized Executor."""
-        from .executor import get_executor
-
-        sql_expr = expr.to_sql(quote_char='"')
-
-        # Use centralized executor
-        executor = get_executor()
-        return executor.execute_expression(sql_expr, df)
+        evaluator = ExpressionEvaluator(df, context)
+        return evaluator.evaluate(operand)
 
     def describe(self) -> str:
         return f"{self.op_type}: {self.description}"
