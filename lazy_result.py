@@ -368,6 +368,68 @@ class LazySlice:
         """Greater than or equal comparison."""
         return self._get_result() >= other
 
+    # ========== Pandas-compatible comparison methods ==========
+
+    def equals(self, other) -> bool:
+        """
+        Test whether two objects contain the same elements.
+
+        This method allows you to compare a LazySlice with a pd.Series
+        or another LazySlice and returns a single boolean.
+
+        Args:
+            other: The other object to compare with (Series, LazySlice, etc.)
+
+        Returns:
+            bool: True if objects are equal, False otherwise
+
+        Example:
+            >>> ds_result = ds.groupby('col')['val'].mean().head(5)
+            >>> pd_result = df.groupby('col')['val'].mean().head(5)
+            >>> ds_result.equals(pd_result)  # True if equal
+        """
+        result = self._get_result()
+        if hasattr(other, '_execute'):
+            other = other._execute()
+        elif hasattr(other, '_get_result'):
+            other = other._get_result()
+
+        if hasattr(result, 'equals'):
+            return result.equals(other)
+        return result == other
+
+    def eq(self, other):
+        """
+        Element-wise equality comparison.
+
+        Returns a boolean Series showing element-wise equality.
+        """
+        result = self._get_result()
+        if hasattr(other, '_execute'):
+            other = other._execute()
+        elif hasattr(other, '_get_result'):
+            other = other._get_result()
+
+        if hasattr(result, 'eq'):
+            return result.eq(other)
+        return result == other
+
+    def compare(self, other, **kwargs):
+        """
+        Compare to another Series and show differences.
+
+        Returns a DataFrame with differences between the two objects.
+        """
+        result = self._get_result()
+        if hasattr(other, '_execute'):
+            other = other._execute()
+        elif hasattr(other, '_get_result'):
+            other = other._get_result()
+
+        if hasattr(result, 'compare'):
+            return result.compare(other, **kwargs)
+        raise TypeError(f"Cannot compare {type(result)} with compare()")
+
     # ========== Arithmetic Operators (trigger execution) ==========
 
     def __add__(self, other):
