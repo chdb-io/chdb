@@ -303,6 +303,123 @@ class ColumnExpr:
 
         return BinaryCondition('<=', self._expr, Expression.wrap(other))
 
+    # ========== Pandas-style Comparison Methods ==========
+
+    def eq(self, other: Any) -> pd.Series:
+        """
+        Element-wise equality comparison, returns boolean Series.
+
+        Unlike __eq__ which returns a Condition for filtering,
+        this method materializes and returns a pandas boolean Series.
+
+        Args:
+            other: Value or Series to compare with
+
+        Returns:
+            pd.Series: Boolean Series indicating equality
+
+        Example:
+            >>> ds['value'].eq(5)
+            0    False
+            1     True
+            2    False
+            dtype: bool
+        """
+        series = self._materialize()
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        return series.eq(other)
+
+    def ne(self, other: Any) -> pd.Series:
+        """
+        Element-wise not-equal comparison, returns boolean Series.
+
+        Args:
+            other: Value or Series to compare with
+
+        Returns:
+            pd.Series: Boolean Series indicating inequality
+
+        Example:
+            >>> ds['value'].ne(5)
+        """
+        series = self._materialize()
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        return series.ne(other)
+
+    def lt(self, other: Any) -> pd.Series:
+        """
+        Element-wise less-than comparison, returns boolean Series.
+
+        Args:
+            other: Value or Series to compare with
+
+        Returns:
+            pd.Series: Boolean Series
+
+        Example:
+            >>> ds['value'].lt(5)
+        """
+        series = self._materialize()
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        return series.lt(other)
+
+    def le(self, other: Any) -> pd.Series:
+        """
+        Element-wise less-than-or-equal comparison, returns boolean Series.
+
+        Args:
+            other: Value or Series to compare with
+
+        Returns:
+            pd.Series: Boolean Series
+
+        Example:
+            >>> ds['value'].le(5)
+        """
+        series = self._materialize()
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        return series.le(other)
+
+    def gt(self, other: Any) -> pd.Series:
+        """
+        Element-wise greater-than comparison, returns boolean Series.
+
+        Args:
+            other: Value or Series to compare with
+
+        Returns:
+            pd.Series: Boolean Series
+
+        Example:
+            >>> ds['value'].gt(5)
+        """
+        series = self._materialize()
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        return series.gt(other)
+
+    def ge(self, other: Any) -> pd.Series:
+        """
+        Element-wise greater-than-or-equal comparison, returns boolean Series.
+
+        Args:
+            other: Value or Series to compare with
+
+        Returns:
+            pd.Series: Boolean Series
+
+        Example:
+            >>> ds['value'].ge(5)
+        """
+        series = self._materialize()
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        return series.ge(other)
+
     # ========== Logical Operators (for combining boolean ColumnExpr with Conditions) ==========
 
     def __and__(self, other: Any) -> 'Condition':
@@ -1286,6 +1403,77 @@ class ColumnExpr:
         """
         series = self._materialize()
         return series.dropna()
+
+    def ffill(self, axis=None, inplace=False, limit=None, limit_area=None):
+        """
+        Fill NA/NaN values by propagating the last valid observation forward.
+
+        Args:
+            axis: Not used, for pandas compatibility
+            inplace: Not supported (ColumnExpr is immutable)
+            limit: Maximum number of consecutive NaN values to forward fill
+            limit_area: Restrict filling to 'inside' or 'outside' values
+
+        Returns:
+            pd.Series: Series with forward-filled values
+
+        Example:
+            >>> ds['value'].ffill()
+        """
+        if inplace:
+            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+        series = self._materialize()
+        return series.ffill(axis=axis, limit=limit, limit_area=limit_area)
+
+    def bfill(self, axis=None, inplace=False, limit=None, limit_area=None):
+        """
+        Fill NA/NaN values by propagating the next valid observation backward.
+
+        Args:
+            axis: Not used, for pandas compatibility
+            inplace: Not supported (ColumnExpr is immutable)
+            limit: Maximum number of consecutive NaN values to backward fill
+            limit_area: Restrict filling to 'inside' or 'outside' values
+
+        Returns:
+            pd.Series: Series with backward-filled values
+
+        Example:
+            >>> ds['value'].bfill()
+        """
+        if inplace:
+            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+        series = self._materialize()
+        return series.bfill(axis=axis, limit=limit, limit_area=limit_area)
+
+    def interpolate(
+        self, method='linear', axis=0, limit=None, inplace=False, limit_direction=None, limit_area=None, **kwargs
+    ):
+        """
+        Fill NaN values using an interpolation method.
+
+        Args:
+            method: Interpolation method ('linear', 'index', 'pad', etc.)
+            axis: Axis to interpolate along
+            limit: Maximum number of consecutive NaNs to fill
+            inplace: Not supported (ColumnExpr is immutable)
+            limit_direction: Direction to fill ('forward', 'backward', 'both')
+            limit_area: Restrict filling to 'inside' or 'outside' values
+            **kwargs: Additional arguments passed to pandas interpolate
+
+        Returns:
+            pd.Series: Series with interpolated values
+
+        Example:
+            >>> ds['value'].interpolate()
+            >>> ds['value'].interpolate(method='polynomial', order=2)
+        """
+        if inplace:
+            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+        series = self._materialize()
+        return series.interpolate(
+            method=method, axis=axis, limit=limit, limit_direction=limit_direction, limit_area=limit_area, **kwargs
+        )
 
     def astype(self, dtype, copy=True, errors='raise'):
         """

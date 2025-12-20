@@ -2286,21 +2286,68 @@ class DataStore(PandasCompatMixin):
         return self
 
     @immutable
-    def filter(self, condition: Union[Condition, str, 'ColumnExpr']) -> 'DataStore':
+    def filter(
+        self, condition: Union[Condition, str, 'ColumnExpr', None] = None, items=None, like=None, regex=None, axis=None
+    ) -> 'DataStore':
         """
-        Filter rows (WHERE clause).
+        Filter rows or columns.
+
+        This method supports two modes:
+        1. SQL-style row filtering (when condition is provided)
+        2. Pandas-style column selection (when items/like/regex is provided)
 
         Args:
             condition: Condition object, ColumnExpr (boolean expression), or SQL string
+                       for row filtering
+            items: List of column names to select (pandas-style)
+            like: Keep columns where column name contains this string (pandas-style)
+            regex: Keep columns where column name matches this regex (pandas-style)
+            axis: Axis to filter on (0 for rows, 1 for columns). Default None.
+                  For pandas compatibility, axis=1 uses items/like/regex.
 
         Example:
+            >>> # SQL-style row filtering
             >>> ds.filter(ds.age > 18)
             >>> ds.filter((ds.age > 18) & (ds.city == 'NYC'))
-            >>> ds.filter(ds['email'].isnull())  # ColumnExpr is also supported
+            >>> ds.filter(ds['email'].isnull())
+
+            >>> # Pandas-style column selection
+            >>> ds.filter(items=['a', 'b'])
+            >>> ds.filter(like='name')
+            >>> ds.filter(regex='^col_')
         """
+        import re
         from .column_expr import ColumnExpr
         from .conditions import BinaryCondition
         from .expressions import Literal
+
+        # Check if pandas-style column filtering is requested
+        if items is not None or like is not None or regex is not None:
+            # Pandas-style: select columns by name
+            df = self._materialize()
+            cols = df.columns.tolist()
+
+            if items is not None:
+                # Select specific columns
+                selected = [c for c in items if c in cols]
+            elif like is not None:
+                # Select columns containing substring
+                selected = [c for c in cols if like in c]
+            elif regex is not None:
+                # Select columns matching regex
+                pattern = re.compile(regex)
+                selected = [c for c in cols if pattern.search(c)]
+            else:
+                selected = cols
+
+            # Return DataStore with selected columns
+            return self[selected] if selected else self
+
+        # SQL-style row filtering
+        if condition is None:
+            raise ValueError(
+                "Must provide either 'condition' for row filtering or 'items'/'like'/'regex' for column selection"
+            )
 
         # Convert ColumnExpr to Condition (e.g., isNull(col) -> isNull(col) = 1)
         # In ClickHouse, boolean expressions like isNull() return 0/1,
@@ -2858,6 +2905,7 @@ class DataStore(PandasCompatMixin):
         - str: Return ColumnExpr that shows actual values when displayed
         - list: Record column selection operation (lazy, returns copy to avoid modifying original)
         - slice: LIMIT/OFFSET (lazy SQL operation, modifies self)
+        - Condition/ColumnExpr: Boolean indexing (filter rows, returns copy)
 
         Examples:
             >>> ds[:10]          # LIMIT 10
@@ -2866,8 +2914,11 @@ class DataStore(PandasCompatMixin):
             >>> ds['column']     # Returns ColumnExpr (displays like pandas Series)
             >>> ds['column'] - 1 # Returns ColumnExpr with computed values
             >>> ds[['col1', 'col2']]  # Select multiple columns (lazy, returns copy)
+            >>> ds[ds['age'] > 18]    # Boolean indexing (filter, returns copy)
+            >>> ds[(ds['a'] > 0) & (ds['b'] > 0)]  # Compound condition
         """
         from .column_expr import ColumnExpr
+        from .conditions import Condition
         from copy import copy
 
         if isinstance(key, str):
@@ -2910,8 +2961,23 @@ class DataStore(PandasCompatMixin):
                 # ds[start:] -> OFFSET start
                 self._offset_value = start
             return self
+
+        elif isinstance(key, (Condition, ColumnExpr)):
+            # Boolean indexing: filter rows like pandas df[condition]
+            # Create a copy to avoid modifying the original DataStore
+            result = copy(self) if getattr(self, 'is_immutable', True) else self
+            if result is not self:
+                # Reset cache state for the new copy
+                result._cached_result = None
+                result._cache_version = 0
+                result._cached_at_version = -1
+                result._cache_timestamp = None
+            return result.filter(key)
+
         else:
-            raise TypeError(f"DataStore indices must be slices, strings, or lists, not {type(key).__name__}")
+            raise TypeError(
+                f"DataStore indices must be slices, strings, lists, or conditions, not {type(key).__name__}"
+            )
 
     # ========== SQL Generation ==========
 
