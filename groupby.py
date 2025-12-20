@@ -149,6 +149,38 @@ class LazyGroupBy:
         """Compute count of groups."""
         return self._apply_agg('count')
 
+    def size(self) -> pd.Series:
+        """
+        Compute group sizes (number of rows in each group).
+
+        Unlike count(), size() includes NaN values and returns a Series
+        (not a DataFrame).
+
+        Returns:
+            pd.Series: Series with group sizes, indexed by group keys.
+
+        Example:
+            >>> ds.groupby('department').size()
+            department
+            Engineering    10
+            Sales           5
+            Marketing       3
+            dtype: int64
+        """
+        # Materialize the ORIGINAL datastore (this checkpoints it!)
+        df = self._datastore._materialize()
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Apply pandas groupby and size
+        return df.groupby(groupby_cols).size()
+
     def min(self, numeric_only: bool = False) -> pd.DataFrame:
         """Compute min of groups."""
         return self._apply_agg('min', numeric_only=numeric_only)

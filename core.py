@@ -2544,7 +2544,7 @@ class DataStore(PandasCompatMixin):
         self._joins.append((other, join_type, join_condition))
         return self
 
-    def groupby(self, *fields: Union[str, Expression]) -> 'LazyGroupBy':
+    def groupby(self, *fields: Union[str, Expression, List]) -> 'LazyGroupBy':
         """
         Group by columns.
 
@@ -2557,13 +2557,17 @@ class DataStore(PandasCompatMixin):
         to df.to_df() use the cached result without re-execution.
 
         Args:
-            *fields: Column names (strings) or Expression objects
+            *fields: Column names (strings), Expression objects, or a list of column names.
+                     Supports both pandas-style `groupby(["a", "b"])` and
+                     `groupby("a", "b")` syntax.
 
         Returns:
             LazyGroupBy: GroupBy wrapper referencing this DataStore
 
         Example:
             >>> ds.groupby("category")  # Returns LazyGroupBy
+            >>> ds.groupby(["a", "b"])  # pandas-style list argument
+            >>> ds.groupby("a", "b")    # Also supported
             >>> ds.groupby("category")["sales"].mean()  # Materializes ds, returns Series
             >>> ds.to_df()  # Uses cached result (no re-computation!)
         """
@@ -2571,10 +2575,18 @@ class DataStore(PandasCompatMixin):
 
         groupby_fields = []
         for field in fields:
-            if isinstance(field, str):
+            # Handle list argument (pandas-style): groupby(["a", "b"])
+            if isinstance(field, (list, tuple)):
+                for f in field:
+                    if isinstance(f, str):
+                        groupby_fields.append(Field(f))
+                    else:
+                        groupby_fields.append(f)
+            elif isinstance(field, str):
                 # Don't add table prefix for string fields
-                field = Field(field)
-            groupby_fields.append(field)
+                groupby_fields.append(Field(field))
+            else:
+                groupby_fields.append(field)
 
         # Return a GroupBy wrapper that references self (not a copy!)
         return LazyGroupBy(self, groupby_fields)
