@@ -1797,6 +1797,269 @@ class ColumnExpr:
         series = self._materialize()
         return series.cumprod(axis=axis, skipna=skipna, **kwargs)
 
+    def cummax(self, axis=None, skipna=True, **kwargs):
+        """
+        Compute cumulative maximum of the column.
+
+        Args:
+            axis: Axis parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            Series: Cumulative maximum
+        """
+        series = self._materialize()
+        return series.cummax(axis=axis, skipna=skipna, **kwargs)
+
+    def cummin(self, axis=None, skipna=True, **kwargs):
+        """
+        Compute cumulative minimum of the column.
+
+        Args:
+            axis: Axis parameter
+            skipna: Whether to skip NA values
+            **kwargs: Additional arguments
+
+        Returns:
+            Series: Cumulative minimum
+        """
+        series = self._materialize()
+        return series.cummin(axis=axis, skipna=skipna, **kwargs)
+
+    # ========== Window / Rolling Methods ==========
+
+    def rolling(
+        self,
+        window,
+        min_periods=None,
+        center=False,
+        win_type=None,
+        on=None,
+        closed=None,
+        step=None,
+        method='single',
+    ):
+        """
+        Provide rolling window calculations.
+
+        Materializes the column and returns a pandas Rolling object.
+
+        Args:
+            window: Size of the moving window
+            min_periods: Minimum observations in window required to have a value
+            center: Set labels at center of window
+            win_type: Window type for weighted calculations
+            on: Column label to use for index
+            closed: Endpoints inclusion for interval
+            step: Step size between windows (pandas >= 1.5)
+            method: Execution method ('single' or 'table')
+
+        Returns:
+            Rolling: pandas Rolling object for chaining aggregations
+
+        Example:
+            >>> ds['value'].rolling(3).mean()
+            >>> ds['value'].rolling(5, min_periods=1).sum()
+            >>> ds['value'].rolling(window=3, center=True).std()
+        """
+        series = self._materialize()
+        # Build kwargs, excluding None values and deprecated params
+        kwargs = {
+            'window': window,
+            'min_periods': min_periods,
+            'center': center,
+            'win_type': win_type,
+            'on': on,
+            'closed': closed,
+            'method': method,
+        }
+        # step parameter added in pandas 1.5
+        if step is not None:
+            kwargs['step'] = step
+        # Remove None values
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        return series.rolling(**kwargs)
+
+    def expanding(self, min_periods=1, method='single'):
+        """
+        Provide expanding window calculations.
+
+        Materializes the column and returns a pandas Expanding object.
+
+        Args:
+            min_periods: Minimum observations in window required to have a value
+            method: Execution method ('single' or 'table')
+
+        Returns:
+            Expanding: pandas Expanding object for chaining aggregations
+
+        Example:
+            >>> ds['value'].expanding().mean()
+            >>> ds['value'].expanding(min_periods=3).sum()
+        """
+        series = self._materialize()
+        return series.expanding(min_periods=min_periods, method=method)
+
+    def ewm(
+        self,
+        com=None,
+        span=None,
+        halflife=None,
+        alpha=None,
+        min_periods=0,
+        adjust=True,
+        ignore_na=False,
+        times=None,
+        method='single',
+    ):
+        """
+        Provide exponentially weighted (EW) calculations.
+
+        Materializes the column and returns a pandas ExponentialMovingWindow object.
+
+        Args:
+            com: Decay in terms of center of mass
+            span: Decay in terms of span
+            halflife: Decay in terms of half-life
+            alpha: Smoothing factor directly
+            min_periods: Minimum observations required
+            adjust: Adjust weights for imbalance
+            ignore_na: Ignore NA values in weights
+            times: Times for observations (for halflife)
+            method: Execution method ('single' or 'table')
+
+        Returns:
+            ExponentialMovingWindow: pandas EWM object for chaining
+
+        Example:
+            >>> ds['value'].ewm(span=10).mean()
+            >>> ds['value'].ewm(alpha=0.5).std()
+        """
+        series = self._materialize()
+        kwargs = {
+            'com': com,
+            'span': span,
+            'halflife': halflife,
+            'alpha': alpha,
+            'min_periods': min_periods,
+            'adjust': adjust,
+            'ignore_na': ignore_na,
+            'times': times,
+            'method': method,
+        }
+        # Remove None values
+        kwargs = {k: v for k, v in kwargs.items() if v is not None}
+        return series.ewm(**kwargs)
+
+    def shift(self, periods=1, freq=None, axis=0, fill_value=None):
+        """
+        Shift values by desired number of periods.
+
+        Materializes the column and shifts values.
+
+        Args:
+            periods: Number of periods to shift (positive = shift down)
+            freq: Offset to use from tseries
+            axis: Axis to shift on
+            fill_value: Value to use for filling new missing values
+
+        Returns:
+            Series: Shifted series
+
+        Example:
+            >>> ds['value'].shift(1)  # Previous value
+            >>> ds['value'].shift(-1)  # Next value
+            >>> ds['value'].shift(1, fill_value=0)
+        """
+        series = self._materialize()
+        return series.shift(periods=periods, freq=freq, axis=axis, fill_value=fill_value)
+
+    def diff(self, periods=1):
+        """
+        First discrete difference of element.
+
+        Materializes the column and computes difference.
+
+        Args:
+            periods: Periods to shift for calculating difference
+
+        Returns:
+            Series: First differences
+
+        Example:
+            >>> ds['value'].diff()  # Difference from previous
+            >>> ds['value'].diff(2)  # Difference from 2 periods ago
+        """
+        series = self._materialize()
+        return series.diff(periods=periods)
+
+    def pct_change(self, periods=1, fill_method=None, limit=None, freq=None, **kwargs):
+        """
+        Percentage change between current and prior element.
+
+        Materializes the column and computes percentage change.
+
+        Args:
+            periods: Periods to shift for calculation
+            fill_method: Method to use for filling NA (deprecated)
+            limit: Number of NA values to fill (deprecated)
+            freq: Increment for time series
+            **kwargs: Additional arguments
+
+        Returns:
+            Series: Percentage change
+
+        Example:
+            >>> ds['value'].pct_change()  # % change from previous
+            >>> ds['value'].pct_change(periods=2)  # % change from 2 ago
+        """
+        series = self._materialize()
+        # Handle deprecated parameters
+        kwargs_clean = {'periods': periods}
+        if freq is not None:
+            kwargs_clean['freq'] = freq
+        return series.pct_change(**kwargs_clean, **kwargs)
+
+    def rank(
+        self,
+        axis=0,
+        method='average',
+        numeric_only=False,
+        na_option='keep',
+        ascending=True,
+        pct=False,
+    ):
+        """
+        Compute numerical data ranks along axis.
+
+        Materializes the column and computes ranks.
+
+        Args:
+            axis: Axis for ranking
+            method: How to rank equal values ('average', 'min', 'max', 'first', 'dense')
+            numeric_only: Include only numeric columns
+            na_option: How to handle NA values ('keep', 'top', 'bottom')
+            ascending: Ascending or descending
+            pct: Return ranks as percentile
+
+        Returns:
+            Series: Ranks of values
+
+        Example:
+            >>> ds['score'].rank()
+            >>> ds['score'].rank(method='dense', ascending=False)
+        """
+        series = self._materialize()
+        return series.rank(
+            axis=axis,
+            method=method,
+            numeric_only=numeric_only,
+            na_option=na_option,
+            ascending=ascending,
+            pct=pct,
+        )
+
     def median(self, axis=None, out=None, overwrite_input=False, keepdims=False, *, skipna=True, **kwargs):
         """
         Compute the median of the column.
