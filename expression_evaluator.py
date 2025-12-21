@@ -14,6 +14,7 @@ Key Features:
 
 from typing import Any, Union, TYPE_CHECKING
 import pandas as pd
+import numpy as np
 
 from .expressions import Expression, Field, Literal, ArithmeticExpression
 from .config import get_logger
@@ -323,15 +324,57 @@ class ExpressionEvaluator:
         sql_expr = expr.to_sql(quote_char='"')
         self._logger.debug("[ExprEval] chDB executing: %s", sql_expr)
 
+        # Get original column's null mask for restoration
+        # (chDB converts NULL to empty string, need to restore)
+        original_name = self._extract_column_name(expr)
+        original_null_mask = None
+        if original_name and original_name in self.df.columns:
+            original_null_mask = self.df[original_name].isna()
+
         # Use centralized executor
         executor = get_executor()
         result = executor.execute_expression(sql_expr, self.df)
 
+        # Workaround for chDB NULL handling issue (#447)
+        # chDB converts NULL to empty string, restore NULL positions
+        if original_null_mask is not None and original_null_mask.any():
+            result = self._restore_nulls(result, original_null_mask)
+
         # Preserve original column name for accessor operations
         # For functions like upper(name), the series name should be 'name', not '__result__'
-        original_name = self._extract_column_name(expr)
         if original_name and hasattr(result, 'name'):
             result = result.rename(original_name)
+
+        return result
+
+    def _restore_nulls(self, result: pd.Series, null_mask: pd.Series) -> pd.Series:
+        """
+        Restore NULL values in result based on original null mask.
+
+        Workaround for chDB issue #447 where NULL becomes empty string.
+
+        Args:
+            result: Result series from chDB
+            null_mask: Boolean series indicating original NULL positions
+
+        Returns:
+            Series with NaN restored at original NULL positions
+        """
+        if len(result) != len(null_mask):
+            self._logger.debug("[ExprEval] Length mismatch, skipping NULL restoration")
+            return result
+
+        # Make a copy to avoid modifying the original
+        result = result.copy()
+
+        # For string columns, empty strings at NULL positions should become NaN
+        if result.dtype == 'object':
+            # Set NaN where original was null
+            result.loc[null_mask] = None
+        elif pd.api.types.is_numeric_dtype(result.dtype):
+            # For numeric columns, use np.nan
+            result = result.astype(float)
+            result.loc[null_mask] = np.nan
 
         return result
 

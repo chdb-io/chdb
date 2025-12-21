@@ -1856,14 +1856,178 @@ class ColumnExprStringAccessor:
 
 
 class ColumnExprDateTimeAccessor:
-    """DateTime accessor for ColumnExpr that returns ColumnExpr for each method."""
+    """
+    DateTime accessor for ColumnExpr that returns ColumnExpr for each method.
+
+    Includes workaround for chDB issue #448 - automatically converts string columns
+    to datetime before applying datetime operations.
+    """
 
     def __init__(self, column_expr: ColumnExpr):
         self._column_expr = column_expr
         self._base_accessor = column_expr._expr.dt
 
+    def _get_datetime_series(self) -> pd.Series:
+        """
+        Get the column as a datetime Series, converting if necessary.
+
+        Workaround for chDB issue #448 - string columns need conversion
+        before datetime operations.
+
+        Returns:
+            pandas Series with datetime dtype
+        """
+        # Materialize the column
+        series = self._column_expr._materialize()
+
+        # If already datetime, return as-is
+        if pd.api.types.is_datetime64_any_dtype(series):
+            return series
+
+        # Try to convert string/object columns to datetime
+        if series.dtype == 'object' or pd.api.types.is_string_dtype(series):
+            try:
+                return pd.to_datetime(series, errors='coerce')
+            except Exception:
+                pass
+
+        return series
+
+    @property
+    def year(self) -> pd.Series:
+        """Extract year from date/datetime."""
+        return self._get_datetime_series().dt.year
+
+    @property
+    def month(self) -> pd.Series:
+        """Extract month from date/datetime (1-12)."""
+        return self._get_datetime_series().dt.month
+
+    @property
+    def day(self) -> pd.Series:
+        """Extract day of month from date/datetime (1-31)."""
+        return self._get_datetime_series().dt.day
+
+    @property
+    def hour(self) -> pd.Series:
+        """Extract hour from datetime (0-23)."""
+        return self._get_datetime_series().dt.hour
+
+    @property
+    def minute(self) -> pd.Series:
+        """Extract minute from datetime (0-59)."""
+        return self._get_datetime_series().dt.minute
+
+    @property
+    def second(self) -> pd.Series:
+        """Extract second from datetime (0-59)."""
+        return self._get_datetime_series().dt.second
+
+    @property
+    def microsecond(self) -> pd.Series:
+        """Extract microsecond from datetime."""
+        return self._get_datetime_series().dt.microsecond
+
+    @property
+    def nanosecond(self) -> pd.Series:
+        """Extract nanosecond from datetime."""
+        return self._get_datetime_series().dt.nanosecond
+
+    @property
+    def dayofweek(self) -> pd.Series:
+        """Return day of the week (Monday=0, Sunday=6)."""
+        return self._get_datetime_series().dt.dayofweek
+
+    @property
+    def weekday(self) -> pd.Series:
+        """Return day of the week (Monday=0, Sunday=6). Alias for dayofweek."""
+        return self._get_datetime_series().dt.weekday
+
+    @property
+    def dayofyear(self) -> pd.Series:
+        """Return day of the year (1-366)."""
+        return self._get_datetime_series().dt.dayofyear
+
+    @property
+    def quarter(self) -> pd.Series:
+        """Return quarter of the year (1-4)."""
+        return self._get_datetime_series().dt.quarter
+
+    @property
+    def is_month_start(self) -> pd.Series:
+        """Indicate whether the date is the first day of a month."""
+        return self._get_datetime_series().dt.is_month_start
+
+    @property
+    def is_month_end(self) -> pd.Series:
+        """Indicate whether the date is the last day of a month."""
+        return self._get_datetime_series().dt.is_month_end
+
+    @property
+    def is_quarter_start(self) -> pd.Series:
+        """Indicate whether the date is the first day of a quarter."""
+        return self._get_datetime_series().dt.is_quarter_start
+
+    @property
+    def is_quarter_end(self) -> pd.Series:
+        """Indicate whether the date is the last day of a quarter."""
+        return self._get_datetime_series().dt.is_quarter_end
+
+    @property
+    def is_year_start(self) -> pd.Series:
+        """Indicate whether the date is the first day of a year."""
+        return self._get_datetime_series().dt.is_year_start
+
+    @property
+    def is_year_end(self) -> pd.Series:
+        """Indicate whether the date is the last day of a year."""
+        return self._get_datetime_series().dt.is_year_end
+
+    @property
+    def days_in_month(self) -> pd.Series:
+        """Return the number of days in the month."""
+        return self._get_datetime_series().dt.days_in_month
+
+    @property
+    def date(self) -> pd.Series:
+        """Return the date part of the datetime."""
+        return self._get_datetime_series().dt.date
+
+    @property
+    def time(self) -> pd.Series:
+        """Return the time part of the datetime."""
+        return self._get_datetime_series().dt.time
+
+    def strftime(self, date_format: str) -> pd.Series:
+        """Format datetime as string using strftime format."""
+        return self._get_datetime_series().dt.strftime(date_format)
+
+    def floor(self, freq: str) -> pd.Series:
+        """Floor datetime to specified frequency."""
+        return self._get_datetime_series().dt.floor(freq)
+
+    def ceil(self, freq: str) -> pd.Series:
+        """Ceil datetime to specified frequency."""
+        return self._get_datetime_series().dt.ceil(freq)
+
+    def round(self, freq: str) -> pd.Series:
+        """Round datetime to specified frequency."""
+        return self._get_datetime_series().dt.round(freq)
+
+    def tz_localize(self, tz, ambiguous='raise', nonexistent='raise'):
+        """Localize tz-naive datetime to tz-aware datetime."""
+        return self._get_datetime_series().dt.tz_localize(tz, ambiguous=ambiguous, nonexistent=nonexistent)
+
+    def tz_convert(self, tz):
+        """Convert tz-aware datetime to another timezone."""
+        return self._get_datetime_series().dt.tz_convert(tz)
+
+    def normalize(self) -> pd.Series:
+        """Normalize times to midnight."""
+        return self._get_datetime_series().dt.normalize()
+
     def __getattr__(self, name: str):
-        """Delegate to base accessor and wrap result in ColumnExpr."""
+        """Fallback: delegate to base accessor and wrap result in ColumnExpr."""
         base_method = getattr(self._base_accessor, name)
 
         # Check if it's a property (like .year, .month)
