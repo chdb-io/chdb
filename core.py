@@ -3044,8 +3044,11 @@ class DataStore(PandasCompatMixin):
             # but ds['col'] > 18 still returns Condition for filtering
             return ColumnExpr(Field(key), self)
 
-        elif isinstance(key, list):
+        elif isinstance(key, (list, pd.Index)):
             # Multi-column selection: record as lazy operation
+            # Convert pandas Index to list if needed
+            if isinstance(key, pd.Index):
+                key = key.tolist()
             # Create a copy to avoid modifying the original DataStore's _lazy_ops
             # This fixes the bug where df[['col1', 'col2']].head() would modify df
             result = copy(self) if getattr(self, 'is_immutable', True) else self
@@ -3108,6 +3111,18 @@ class DataStore(PandasCompatMixin):
             raise TypeError(
                 f"DataStore indices must be slices, strings, lists, or conditions, not {type(key).__name__}"
             )
+
+    def __iter__(self):
+        """
+        Iterate over column names.
+
+        Matches pandas DataFrame behavior where iterating yields column names.
+
+        Example:
+            >>> for col in ds:
+            ...     print(col)
+        """
+        return iter(self.columns)
 
     # ========== SQL Generation ==========
 
