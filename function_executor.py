@@ -65,7 +65,7 @@ class FunctionExecutorConfig:
         'concat',
         'startswith',
         'endswith',
-        'contains',
+        # 'contains' moved to PANDAS_ONLY_FUNCTIONS due to chDB NaN handling issues
         'split',
         'initcap',  # ClickHouse has initcap, not capitalize/title
         # Math functions
@@ -147,8 +147,10 @@ class FunctionExecutorConfig:
         'astype',
     }
 
-    # Pandas-only functions (no ClickHouse equivalent)
+    # Pandas-only functions (no ClickHouse equivalent or chDB has issues)
     PANDAS_ONLY_FUNCTIONS: Set[str] = {
+        # String functions with NaN handling issues in chDB
+        'contains',  # chDB has issues with NaN handling, use pandas for na parameter support
         # Cumulative functions
         'cumsum',
         'cummax',
@@ -319,8 +321,8 @@ class FunctionExecutorConfig:
         self._pandas_implementations['casefold'] = lambda s: s.str.casefold()
 
         # String search and match
-        self._pandas_implementations['contains'] = lambda s, pat, case=True, regex=True: s.str.contains(
-            pat, case=case, regex=regex
+        self._pandas_implementations['contains'] = lambda s, pat, case=True, flags=0, na=None, regex=True: s.str.contains(
+            pat, case=case, flags=flags, na=na, regex=regex
         )
         self._pandas_implementations['startswith'] = lambda s, pat: s.str.startswith(pat)
         self._pandas_implementations['endswith'] = lambda s, pat: s.str.endswith(pat)

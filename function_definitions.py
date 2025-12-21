@@ -254,13 +254,44 @@ def _build_ends_with(expr, suffix: str, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['has_substring'],
-    doc='Check if string contains substring. Returns position (>0 if found). Maps to position(s, needle).',
+    doc='Check if string contains substring. Returns position (>0 if found). Maps to position(s, needle). Supports pandas-compatible parameters: case, flags, na, regex.',
 )
-def _build_contains(expr, needle: str, alias=None):
+def _build_contains(expr, needle: str, case: bool = True, flags: int = 0, na=None, regex: bool = True, alias=None):
+    """
+    Build contains expression.
+    
+    Args:
+        expr: The expression to check
+        needle: Pattern to search for
+        case: If True (default), case sensitive matching
+        flags: Regex flags (currently ignored for chDB, used by pandas)
+        na: Fill value for missing values (currently passed to pandas execution)
+        regex: If True (default), treat needle as regex pattern
+        alias: Optional alias for the result
+    
+    Note:
+        The `na` and `flags` parameters are primarily for pandas compatibility.
+        chDB currently has issues with NaN handling, so operations with na parameter
+        should be executed via pandas.
+    """
     from .functions import Function
     from .expressions import Literal
 
-    return Function('position', expr, Literal(needle), alias=alias)
+    # Store pandas-specific kwargs for execution
+    pandas_kwargs = {
+        'pat': needle,
+        'case': case,
+        'flags': flags,
+        'na': na,
+        'regex': regex,
+    }
+
+    # For case-insensitive matching, use positionCaseInsensitive
+    # Set pandas_name='contains' so ExpressionEvaluator knows to use pandas execution
+    if not case:
+        return Function('positionCaseInsensitive', expr, Literal(needle), alias=alias, pandas_name='contains', pandas_kwargs=pandas_kwargs)
+    
+    return Function('position', expr, Literal(needle), alias=alias, pandas_name='contains', pandas_kwargs=pandas_kwargs)
 
 
 @register_function(

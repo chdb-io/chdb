@@ -38,10 +38,16 @@ class Function(Expression):
 
     is_aggregate = False
 
-    def __init__(self, name: str, *args: Expression, alias: Optional[str] = None):
+    def __init__(self, name: str, *args: Expression, alias: Optional[str] = None, pandas_name: Optional[str] = None, pandas_kwargs: Optional[dict] = None):
         super().__init__(alias)
         self.name = name  # Keep original case for database compatibility
         self.args = [self.wrap(arg) for arg in args]
+        # pandas_name is used for execution engine decisions when the SQL function
+        # name differs from the user-facing/pandas function name
+        self.pandas_name = pandas_name
+        # pandas_kwargs stores extra keyword arguments for pandas implementation
+        # (e.g., case, flags, na, regex for str.contains)
+        self.pandas_kwargs = pandas_kwargs or {}
 
     def get_special_params_sql(self, **kwargs) -> str:
         """
@@ -71,7 +77,7 @@ class Function(Expression):
         return sql
 
     def __copy__(self):
-        return Function(self.name, *[copy(arg) for arg in self.args], alias=self.alias)
+        return Function(self.name, *[copy(arg) for arg in self.args], alias=self.alias, pandas_name=self.pandas_name, pandas_kwargs=self.pandas_kwargs.copy() if self.pandas_kwargs else None)
 
 
 class AggregateFunction(Function):

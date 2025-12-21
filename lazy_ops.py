@@ -152,7 +152,8 @@ class LazyColumnAssignment(LazyOp):
 
         elif isinstance(expr, Function):
             # Check function config
-            func_name = expr.name.lower()
+            # Use pandas_name if available (for functions where SQL name differs from user-facing name)
+            func_name = (getattr(expr, 'pandas_name', None) or expr.name).lower()
             if function_config.should_use_pandas(func_name) and function_config.has_pandas_implementation(func_name):
                 return 'Pandas'
             else:

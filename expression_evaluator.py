@@ -111,7 +111,9 @@ class ExpressionEvaluator:
 
         elif isinstance(expr, Function):
             # Function call - check execution config
-            func_name = expr.name.lower()
+            # Use pandas_name if available (for functions where SQL name differs from user-facing name)
+            # e.g., contains uses SQL 'position' but should be checked as 'contains' for execution engine
+            func_name = (getattr(expr, 'pandas_name', None) or expr.name).lower()
 
             # Priority order:
             # 1. Pandas-only functions or explicitly configured to use Pandas
@@ -179,7 +181,8 @@ class ExpressionEvaluator:
         """
         from .function_executor import function_config
 
-        func_name = expr.name.lower()
+        # Use pandas_name if available (for functions where SQL name differs from user-facing name)
+        func_name = (getattr(expr, 'pandas_name', None) or expr.name).lower()
         pandas_impl = function_config.get_pandas_implementation(func_name)
 
         # Evaluate first argument (the column/expression)
@@ -188,12 +191,19 @@ class ExpressionEvaluator:
 
         first_arg = self.evaluate(expr.args[0])
         other_args = [self.evaluate(arg) for arg in expr.args[1:]]
+        
+        # Get pandas_kwargs if available (for functions with extra parameters like contains)
+        pandas_kwargs = getattr(expr, 'pandas_kwargs', {}) or {}
 
         # Mode 1: Try registered implementation first
         if pandas_impl is not None:
             try:
                 self._logger.debug("[ExprEval] Using registered Pandas impl for '%s'", func_name)
-                return pandas_impl(first_arg, *other_args)
+                # If we have pandas_kwargs, use them instead of positional args
+                if pandas_kwargs:
+                    return pandas_impl(first_arg, **pandas_kwargs)
+                else:
+                    return pandas_impl(first_arg, *other_args)
             except Exception as e:
                 self._logger.debug("[ExprEval] Registered impl for '%s' failed: %s", func_name, e)
 
