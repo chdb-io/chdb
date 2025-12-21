@@ -616,9 +616,67 @@ class PandasCompatMixin:
         ignore_index=False,
         key=None,
     ):
-        """Sort by values along an axis."""
+        """
+        Sort by values along an axis.
+
+        When possible, this uses lazy SQL execution (ORDER BY) for better performance.
+        Falls back to pandas sort_values for complex cases (key function, axis!=0, etc.).
+
+        Args:
+            by: Column name(s) to sort by
+            axis: Axis to sort along (only 0 supported for lazy execution)
+            ascending: Sort ascending (True) or descending (False)
+            inplace: Not supported (DataStore is immutable)
+            kind: Sort algorithm (ignored for SQL execution)
+            na_position: Position of NaN values (only 'last' supported for SQL)
+            ignore_index: Whether to relabel axis (requires materialization)
+            key: Function to transform values before sorting (requires materialization)
+
+        Returns:
+            Sorted DataStore
+        """
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
+
+        # Check if we can use lazy SQL execution
+        # Simple cases: axis=0, no key function, na_position='last', ignore_index=False
+        can_use_lazy = (
+            axis == 0
+            and key is None
+            and na_position == 'last'
+            and not ignore_index
+            and hasattr(self, 'sort')  # Ensure sort() method exists
+        )
+
+        if can_use_lazy:
+            # Use lazy SQL ORDER BY for better performance
+            # Normalize 'by' to a list
+            if isinstance(by, str):
+                by_list = [by]
+            else:
+                by_list = list(by)
+
+            # Handle ascending as list or scalar
+            if isinstance(ascending, bool):
+                # All columns have the same sort direction
+                # Use the SQL-style sort() method
+                return self.sort(*by_list, ascending=ascending)
+            else:
+                # Multiple columns with different sort directions
+                # Need to call sort() multiple times in reverse order
+                # (last sort is primary, first sort is secondary)
+                ascending_list = list(ascending)
+                if len(ascending_list) != len(by_list):
+                    # Fall back to pandas if lengths don't match
+                    pass
+                else:
+                    result = self
+                    # Apply sorts in reverse order so that the first column is primary
+                    for col, asc in reversed(list(zip(by_list, ascending_list))):
+                        result = result.sort(col, ascending=asc)
+                    return result
+
+        # Fall back to pandas sort_values for complex cases
         return self._wrap_result(
             self._get_df().sort_values(
                 by=by,

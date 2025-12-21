@@ -1813,28 +1813,24 @@ class DataStore(PandasCompatMixin):
         Return the first n rows of the query result.
         Convenience method that applies limit and returns as DataStore.
 
-        If DataStore is materialized, operates on cached DataFrame.
-        Otherwise, adds LIMIT to SQL query.
+        This method uses lazy execution - the LIMIT is added to the SQL query
+        and only executed when the result is materialized (e.g., via to_df() or print).
 
         Args:
             n: Number of rows to return (default: 5)
 
         Returns:
-            DataStore with first n rows
+            DataStore with first n rows (lazy - not yet executed)
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
-            >>> first_rows = ds.select("*").head()
-            >>> first_10 = ds.select("*").head(10)
+            >>> first_rows = ds.select("*").head()  # Lazy
+            >>> first_10 = ds.head(10).to_df()      # Executes here
         """
-        # Execute the query with LIMIT and wrap result
-        result_df = self.limit(n).to_df()
-
-        # Wrap result in DataStore
-        if hasattr(self, '_wrap_result'):
-            return self._wrap_result(result_df, f'head({n})')
-        else:
-            return self._wrap_result_fallback(result_df)
+        # Use limit() which adds a lazy LazyRelationalOp
+        # This allows head() to be chained with other operations
+        # and merged into a single SQL query
+        return self.limit(n)
 
     def tail(self, n: int = 5):
         """
@@ -2051,6 +2047,9 @@ class DataStore(PandasCompatMixin):
         making it suitable for large datasets. Unlike count() which returns per-column
         non-null counts, this returns the total row count.
 
+        If LIMIT is applied (e.g., via head() or limit()), materializes the query
+        with LIMIT and returns the actual row count.
+
         Returns:
             int: Total number of rows
 
@@ -2058,6 +2057,7 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> total = ds.select("*").filter(ds.age > 18).count_rows()
             >>> print(f"Found {total} rows")
+            >>> limited = ds.head(10).count_rows()  # Materializes with LIMIT, returns actual count
 
         Note:
             This is more efficient than len() for large datasets as it uses SQL COUNT(*)
@@ -2081,6 +2081,12 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("count_rows() falling back to materialization due to non-SQL operations")
             return len(self._materialize())
 
+        # If LIMIT is applied, materialize with LIMIT and return actual count
+        # This is more accurate than COUNT(*) without LIMIT
+        if self._limit_value is not None:
+            self._logger.debug("count_rows() materializing due to LIMIT")
+            return len(self._materialize())
+
         # Build a COUNT(*) query
         # Create a copy of the current DataStore to modify for counting
         from copy import copy
@@ -2093,8 +2099,7 @@ class DataStore(PandasCompatMixin):
         # Clear ORDER BY (not needed for COUNT)
         count_ds._orderby_fields = []
 
-        # Clear LIMIT/OFFSET (we want total count)
-        count_ds._limit_value = None
+        # Clear OFFSET (not applicable for COUNT without LIMIT)
         count_ds._offset_value = None
 
         # Clear DISTINCT (COUNT(*) counts all rows)
