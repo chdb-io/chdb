@@ -46,7 +46,7 @@ class DataStore(PandasCompatMixin):
 
     def __init__(
         self,
-        source_type: str = None,
+        source: Union[str, pd.DataFrame] = None,
         table: str = None,
         database: str = ":memory:",
         connection: Connection = None,
@@ -56,13 +56,20 @@ class DataStore(PandasCompatMixin):
         Initialize DataStore.
 
         Args:
-            source_type: Type of data source ('file', 's3', 'mysql', 'clickhouse', etc.)
+            source: Data source - can be:
+                   - pandas DataFrame: wrap directly for manipulation
+                   - str: source type ('file', 's3', 'mysql', 'clickhouse', etc.)
+                   - None: create empty DataStore
             table: Table name (for regular tables or remote ClickHouse)
             database: Database path (":memory:" for in-memory, or file path)
             connection: Existing Connection object (creates new if None)
             **kwargs: Additional parameters (path, url, format, host, etc.)
 
         Examples:
+            >>> # From pandas DataFrame (most convenient)
+            >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+            >>> ds = DataStore(df)
+
             >>> # Local file (auto-detect format)
             >>> ds = DataStore("file", path="data.parquet")
 
@@ -85,7 +92,21 @@ class DataStore(PandasCompatMixin):
             >>> # Regular ClickHouse table (no table function)
             >>> ds = DataStore(table="my_table")
         """
-        self.source_type = source_type or 'chdb'
+        # Handle backward compatibility: source_type keyword argument
+        if 'source_type' in kwargs:
+            if source is None:
+                source = kwargs.pop('source_type')
+            else:
+                # If both provided, just remove from kwargs to avoid passing to connection
+                kwargs.pop('source_type')
+
+        # Handle DataFrame input directly
+        if isinstance(source, pd.DataFrame):
+            # Initialize with DataFrame - delegate to _init_from_dataframe
+            self._init_from_dataframe(source, database, connection, **kwargs)
+            return
+
+        self.source_type = source or 'chdb'
         self.table_name = table
         self.database = database
         self.connection_params = kwargs
@@ -94,11 +115,11 @@ class DataStore(PandasCompatMixin):
         self._table_function: Optional[TableFunction] = None
         self._format_settings: Dict[str, Any] = {}
 
-        # Create table function if source_type is specified
-        if source_type and source_type.lower() != 'chdb':
+        # Create table function if source is specified
+        if source and source.lower() != 'chdb':
             try:
                 # For database sources with explicit table, pass table name
-                if table and source_type.lower() in [
+                if table and source.lower() in [
                     'clickhouse',
                     'remote',
                     'mysql',
@@ -114,12 +135,12 @@ class DataStore(PandasCompatMixin):
                 if (
                     database
                     and database != ":memory:"
-                    and source_type.lower()
+                    and source.lower()
                     in ['clickhouse', 'remote', 'mysql', 'postgresql', 'postgres', 'mongodb', 'mongo', 'sqlite']
                 ):
                     kwargs['database'] = database
 
-                self._table_function = create_table_function(source_type, **kwargs)
+                self._table_function = create_table_function(source, **kwargs)
             except Exception:
                 # If table function creation fails, it might be a regular table
                 # We'll treat it as a regular table and table_function remains None
@@ -178,6 +199,90 @@ class DataStore(PandasCompatMixin):
         self._cache_version: int = 0  # Incremented when operations are added
         self._cached_at_version: int = -1  # Version when cache was created
         self._cache_timestamp: Optional[float] = None  # For TTL support
+
+    def _init_from_dataframe(
+        self,
+        df: pd.DataFrame,
+        database: str = ":memory:",
+        connection: Connection = None,
+        **kwargs,
+    ):
+        """
+        Initialize DataStore from a pandas DataFrame.
+
+        This is called internally when DataStore(df) is used.
+        """
+        from .lazy_ops import LazyDataFrameSource
+
+        if not isinstance(df, pd.DataFrame):
+            raise TypeError(f"Expected pandas DataFrame, got {type(df).__name__}")
+
+        # Basic setup
+        self.source_type = 'dataframe'
+        self.table_name = None
+        self.database = database
+        self.connection_params = kwargs
+
+        # Table function support
+        self._table_function: Optional[TableFunction] = None
+        self._format_settings: Dict[str, Any] = {}
+
+        # Query state - all cleared for DataFrame source
+        self._select_fields: List[Expression] = []
+        self._where_condition: Optional[Condition] = None
+        self._joins: List[tuple] = []
+        self._groupby_fields: List[Expression] = []
+        self._having_condition: Optional[Condition] = None
+        self._orderby_fields: List[tuple] = []
+        self._limit_value: Optional[int] = None
+        self._offset_value: Optional[int] = None
+        self._distinct: bool = False
+
+        # INSERT/UPDATE/DELETE state
+        self._insert_columns: List[str] = []
+        self._insert_values: List[List[Any]] = []
+        self._insert_select: Optional['DataStore'] = None
+        self._update_fields: List[tuple] = []
+        self._delete_flag: bool = False
+
+        # Subquery support
+        self._alias: Optional[str] = None
+        self._is_subquery: bool = False
+
+        # Connection and execution
+        self._connection: Optional[Connection] = connection
+        self._executor: Optional[Executor] = None
+
+        # Build schema from DataFrame dtypes
+        self._schema: Optional[Dict[str, str]] = {col: str(dtype) for col, dtype in df.dtypes.items()}
+
+        # Configuration
+        self.quote_char = '"'
+
+        # Add the DataFrame as a lazy source
+        self._lazy_ops: List[LazyOp] = [LazyDataFrameSource(df)]
+
+        # Generate unique variable name
+        import uuid
+
+        self._df_var_name: str = f"__ds_df_{uuid.uuid4().hex}__"
+
+        # Set source description for explain()
+        name = kwargs.get('name')
+        shape_str = f"{df.shape[0]} rows x {df.shape[1]} cols"
+        self._original_source_desc: Optional[str] = f"DataFrame({name or 'unnamed'}, {shape_str})"
+
+        # Operation tracking
+        self._operation_history: List[Dict[str, Any]] = []
+
+        # Logger instance
+        self._logger = get_logger()
+
+        # Cache state
+        self._cached_result: Optional[pd.DataFrame] = None
+        self._cache_version: int = 0
+        self._cached_at_version: int = -1
+        self._cache_timestamp: Optional[float] = None
 
     # ========== Operation Tracking for explain() ==========
 
@@ -1326,7 +1431,7 @@ class DataStore(PandasCompatMixin):
         table = final_kwargs.pop('table', None)
 
         # Create and return DataStore
-        return cls(source_type=source_type, table=table, **final_kwargs)
+        return cls(source=source_type, table=table, **final_kwargs)
 
     # ========== Data Source Operations ==========
 

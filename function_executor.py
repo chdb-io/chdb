@@ -321,8 +321,10 @@ class FunctionExecutorConfig:
         self._pandas_implementations['casefold'] = lambda s: s.str.casefold()
 
         # String search and match
-        self._pandas_implementations['contains'] = lambda s, pat, case=True, flags=0, na=None, regex=True: s.str.contains(
-            pat, case=case, flags=flags, na=na, regex=regex
+        self._pandas_implementations['contains'] = (
+            lambda s, pat, case=True, flags=0, na=None, regex=True: s.str.contains(
+                pat, case=case, flags=flags, na=na, regex=regex
+            )
         )
         self._pandas_implementations['startswith'] = lambda s, pat: s.str.startswith(pat)
         self._pandas_implementations['endswith'] = lambda s, pat: s.str.endswith(pat)

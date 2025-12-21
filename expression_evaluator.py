@@ -191,7 +191,7 @@ class ExpressionEvaluator:
 
         first_arg = self.evaluate(expr.args[0])
         other_args = [self.evaluate(arg) for arg in expr.args[1:]]
-        
+
         # Get pandas_kwargs if available (for functions with extra parameters like contains)
         pandas_kwargs = getattr(expr, 'pandas_kwargs', {}) or {}
 
