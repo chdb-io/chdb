@@ -144,8 +144,7 @@ class LazyGroupBy:
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(
-            isinstance(v, (Expression, ColumnExpr, AggregateFunction, LazyAggregate))
-            for v in kwargs.values()
+            isinstance(v, (Expression, ColumnExpr, AggregateFunction, LazyAggregate)) for v in kwargs.values()
         )
 
         if has_sql_agg:

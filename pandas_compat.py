@@ -2057,8 +2057,7 @@ class PandasCompatMixin:
             # Check dtypes if required
             if check_dtype and self_col.dtype != other_col.dtype:
                 # Allow compatible numeric dtypes
-                if not (np.issubdtype(self_col.dtype, np.number) and
-                        np.issubdtype(other_col.dtype, np.number)):
+                if not (np.issubdtype(self_col.dtype, np.number) and np.issubdtype(other_col.dtype, np.number)):
                     return False
 
             # Handle numeric columns with tolerance
