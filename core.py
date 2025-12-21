@@ -3610,14 +3610,22 @@ class DataStore(PandasCompatMixin):
             >>> arr = np.array(ds)  # Convert entire DataFrame to array
             >>> mean = np.mean(ds)  # Compute mean across all values
         """
+        import numpy as np
+
         df = self._materialize()
-        arr = df.values
+        if isinstance(df, pd.DataFrame):
+            arr = df.values
+        elif isinstance(df, pd.Series):
+            arr = df.values
+        elif df is None:
+            arr = np.array([])
+        else:
+            arr = np.array(df)
+
         if dtype is not None:
             arr = arr.astype(dtype)
         # Handle copy parameter for numpy 2.0+ compatibility
         if copy:
-            import numpy as np
-
             arr = np.array(arr, copy=True)
         return arr
 

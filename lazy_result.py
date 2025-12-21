@@ -329,17 +329,28 @@ class LazySlice:
             raise ValueError("Truth value of multi-element result is ambiguous")
         return bool(result)
 
-    def __array__(self, dtype=None):
-        """Support numpy array protocol."""
+    def __array__(self, dtype=None, copy=None):
+        """
+        Support numpy array protocol.
+
+        Args:
+            dtype: Optional dtype for the resulting array
+            copy: If True, ensure the returned array is a copy (numpy 2.0+)
+        """
         import numpy as np
 
         result = self._get_result()
         if isinstance(result, (pd.Series, pd.DataFrame)):
             arr = result.values
+        elif result is None:
+            arr = np.array([])
         else:
             arr = np.array([result])
         if dtype is not None:
             arr = arr.astype(dtype)
+        # Handle copy parameter for numpy 2.0+ compatibility
+        if copy:
+            arr = np.array(arr, copy=True)
         return arr
 
     # ========== Comparison Operators (trigger execution) ==========

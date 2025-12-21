@@ -1513,13 +1513,23 @@ class ColumnExpr:
         Returns:
             numpy array representation of the column
         """
-        arr = self._materialize().values
+        import numpy as np
+
+        result = self._materialize()
+        if isinstance(result, pd.Series):
+            arr = result.values
+        elif isinstance(result, pd.DataFrame):
+            arr = result.values
+        elif result is None:
+            arr = np.array([])
+        else:
+            # Scalar result - wrap in array
+            arr = np.array([result])
+
         if dtype is not None:
             arr = arr.astype(dtype)
         # Handle copy parameter for numpy 2.0+ compatibility
         if copy:
-            import numpy as np
-
             arr = np.array(arr, copy=True)
         return arr
 
@@ -3125,21 +3135,30 @@ class LazyAggregate:
         result = self._execute()
         return int(result) if not isinstance(result, pd.Series) else int(result.iloc[0])
 
-    def __array__(self, dtype=None):
+    def __array__(self, dtype=None, copy=None):
         """
         Support numpy array protocol.
 
         This allows numpy ufuncs to work with LazyAggregate.
+
+        Args:
+            dtype: Optional dtype for the resulting array
+            copy: If True, ensure the returned array is a copy (numpy 2.0+)
         """
         import numpy as np
 
         result = self._execute()
         if isinstance(result, pd.Series):
             arr = result.values
+        elif result is None:
+            arr = np.array([])
         else:
             arr = np.array([result])
         if dtype is not None:
             arr = arr.astype(dtype)
+        # Handle copy parameter for numpy 2.0+ compatibility
+        if copy:
+            arr = np.array(arr, copy=True)
         return arr
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
