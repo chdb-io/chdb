@@ -246,6 +246,110 @@ class ColumnExpr:
             return self._expr.name
         return self._expr.to_sql(quote_char='"')
 
+    # ========== Value Comparison Methods ==========
+
+    def _compare_values(self, other, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
+        """
+        Compare materialized values with another Series/array.
+
+        Args:
+            other: Series, list, or array-like to compare with
+            rtol: Relative tolerance for float comparison
+            atol: Absolute tolerance for float comparison
+
+        Returns:
+            bool: True if values are equivalent
+        """
+        import pandas as pd
+        import numpy as np
+
+        self_series = self._materialize()
+
+        # Convert other to Series if needed
+        if isinstance(other, pd.DataFrame):
+            if len(other.columns) == 1:
+                other = other.iloc[:, 0]
+            else:
+                return False
+        elif not isinstance(other, pd.Series):
+            other = pd.Series(other)
+
+        # Check lengths
+        if len(self_series) != len(other):
+            return False
+
+        # Reset index for comparison
+        s1 = self_series.reset_index(drop=True)
+        s2 = other.reset_index(drop=True)
+
+        # Check null positions
+        null1 = s1.isna()
+        null2 = s2.isna()
+        if not null1.equals(null2):
+            return False
+
+        # If all null, they're equal
+        if null1.all():
+            return True
+
+        # Get non-null values
+        vals1 = s1[~null1]
+        vals2 = s2[~null2]
+
+        # Handle numeric comparison with tolerance
+        if np.issubdtype(s1.dtype, np.number) and np.issubdtype(s2.dtype, np.number):
+            return np.allclose(vals1.values, vals2.values, rtol=rtol, atol=atol, equal_nan=True)
+
+        # Handle datetime comparison
+        if np.issubdtype(s1.dtype, np.datetime64) or np.issubdtype(s2.dtype, np.datetime64):
+            try:
+                dt1 = pd.to_datetime(vals1, errors='coerce')
+                dt2 = pd.to_datetime(vals2, errors='coerce')
+                return dt1.equals(dt2)
+            except Exception:
+                pass
+
+        # String/object comparison
+        return list(vals1) == list(vals2)
+
+    def equals(self, other, check_names: bool = False, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
+        """
+        Test whether ColumnExpr contains the same elements as another object.
+
+        This is similar to pandas Series.equals() but with more flexibility.
+
+        Args:
+            other: Series, ColumnExpr, list, or array-like to compare with
+            check_names: Whether to check Series names match (default False)
+            rtol: Relative tolerance for float comparison
+            atol: Absolute tolerance for float comparison
+
+        Returns:
+            bool: True if values are equivalent
+
+        Examples:
+            >>> ds['name'].str.upper().equals(pd_df['name'].str.upper())
+            True
+        """
+        import pandas as pd
+
+        # Unwrap ColumnExpr or lazy objects
+        if isinstance(other, ColumnExpr):
+            other = other._materialize()
+        elif hasattr(other, '_materialize'):
+            other = other._materialize()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
+
+        result = self._compare_values(other, rtol=rtol, atol=atol)
+
+        if result and check_names:
+            self_series = self._materialize()
+            if isinstance(other, pd.Series):
+                return self_series.name == other.name
+
+        return result
+
     # ========== Display Methods ==========
 
     def __repr__(self) -> str:
@@ -286,9 +390,33 @@ class ColumnExpr:
 
     # ========== Comparison Operators (Return Conditions for filtering) ==========
 
-    def __eq__(self, other: Any) -> 'BinaryCondition':
+    def __eq__(self, other: Any):
+        """
+        Compare ColumnExpr with another value.
+
+        If other is a pandas Series/DataFrame (already materialized data),
+        performs value comparison and returns bool.
+
+        Otherwise, returns a BinaryCondition for SQL filtering.
+
+        Examples:
+            # Value comparison (returns bool)
+            >>> ds['name'].str.upper() == pd_df['name'].str.upper()  # True/False
+
+            # SQL condition (returns BinaryCondition)
+            >>> ds['age'] == 30  # BinaryCondition for WHERE clause
+            >>> ds1['id'] == ds2['id']  # BinaryCondition for JOIN
+        """
+        import pandas as pd
         from .conditions import BinaryCondition
 
+        # Value comparison only with pandas Series/DataFrame (materialized data)
+        if isinstance(other, pd.Series):
+            return self._compare_values(other)
+        if isinstance(other, pd.DataFrame):
+            return self._compare_values(other)
+
+        # SQL condition for filtering (including ColumnExpr == ColumnExpr for JOIN)
         return BinaryCondition('=', self._expr, Expression.wrap(other))
 
     def __ne__(self, other: Any) -> 'BinaryCondition':
@@ -1989,12 +2117,103 @@ class LazyAggregate:
 
     # Comparison operators (execute and compare)
     def __eq__(self, other):
+        """
+        Compare LazyAggregate with another value.
+
+        If other is a pandas Series or another lazy object, performs
+        value comparison and returns bool.
+
+        Otherwise, performs element-wise comparison.
+        """
+        import numpy as np
+
         result = self._execute()
+
+        # Unwrap other if it's a lazy object
+        if isinstance(other, (ColumnExpr, LazyAggregate)):
+            other = other._execute() if hasattr(other, '_execute') else other._materialize()
+        elif hasattr(other, '_materialize'):
+            other = other._materialize()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
+
+        # Value comparison with pandas Series
+        if isinstance(result, pd.Series) and isinstance(other, pd.Series):
+            return self._compare_series(result, other)
+
         return result == other
 
     def __ne__(self, other):
         result = self._execute()
+
+        # Unwrap other if it's a lazy object
+        if isinstance(other, (ColumnExpr, LazyAggregate)):
+            other = other._execute() if hasattr(other, '_execute') else other._materialize()
+        elif hasattr(other, '_materialize'):
+            other = other._materialize()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
+
+        # Value comparison with pandas Series
+        if isinstance(result, pd.Series) and isinstance(other, pd.Series):
+            return not self._compare_series(result, other)
+
         return result != other
+
+    def _compare_series(self, s1, s2, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
+        """Compare two Series for equality."""
+        import numpy as np
+
+        if len(s1) != len(s2):
+            return False
+
+        s1 = s1.reset_index(drop=True)
+        s2 = s2.reset_index(drop=True)
+
+        # Check null positions
+        null1 = s1.isna()
+        null2 = s2.isna()
+        if not null1.equals(null2):
+            return False
+
+        if null1.all():
+            return True
+
+        vals1 = s1[~null1]
+        vals2 = s2[~null2]
+
+        # Numeric comparison with tolerance
+        if np.issubdtype(s1.dtype, np.number) and np.issubdtype(s2.dtype, np.number):
+            return np.allclose(vals1.values, vals2.values, rtol=rtol, atol=atol, equal_nan=True)
+
+        return list(vals1) == list(vals2)
+
+    def equals(self, other, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
+        """
+        Test whether LazyAggregate contains the same elements as another object.
+
+        Args:
+            other: Series, scalar, or lazy object to compare with
+            rtol: Relative tolerance for float comparison
+            atol: Absolute tolerance for float comparison
+
+        Returns:
+            bool: True if values are equivalent
+        """
+        result = self._execute()
+
+        # Unwrap other
+        if isinstance(other, (ColumnExpr, LazyAggregate)):
+            other = other._execute() if hasattr(other, '_execute') else other._materialize()
+        elif hasattr(other, '_materialize'):
+            other = other._materialize()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
+
+        if isinstance(result, pd.Series) and isinstance(other, pd.Series):
+            return self._compare_series(result, other, rtol, atol)
+
+        return result == other
 
     def __lt__(self, other):
         result = self._execute()

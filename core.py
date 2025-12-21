@@ -3060,24 +3060,37 @@ class DataStore(PandasCompatMixin):
 
         elif isinstance(key, slice):
             # LIMIT/OFFSET - this is a SQL operation
-            # Modifies self and returns self (mutable behavior by design)
+            # Create a copy to avoid modifying the original DataStore (pandas-like behavior)
             start, stop, step = key.start, key.stop, key.step
 
             if step is not None:
                 raise ValueError("Step not supported in slice notation")
 
+            result = copy(self) if getattr(self, 'is_immutable', True) else self
+            if result is not self:
+                # Reset cache state for the new copy
+                result._cached_result = None
+                result._cache_version = 0
+                result._cached_at_version = -1
+                result._cache_timestamp = None
+
             if stop is not None:
                 if start is not None:
                     # ds[start:stop] -> LIMIT (stop-start) OFFSET start
-                    self._limit_value = stop - start if stop > start else stop
-                    self._offset_value = start
+                    limit_val = stop - start if stop > start else stop
+                    result._offset_value = start
+                    result._limit_value = limit_val
+                    result._add_lazy_op(LazyRelationalOp('OFFSET', f'OFFSET {start}', offset_value=start))
+                    result._add_lazy_op(LazyRelationalOp('LIMIT', f'LIMIT {limit_val}', limit_value=limit_val))
                 else:
                     # ds[:stop] -> LIMIT stop
-                    self._limit_value = stop
+                    result._limit_value = stop
+                    result._add_lazy_op(LazyRelationalOp('LIMIT', f'LIMIT {stop}', limit_value=stop))
             elif start is not None:
                 # ds[start:] -> OFFSET start
-                self._offset_value = start
-            return self
+                result._offset_value = start
+                result._add_lazy_op(LazyRelationalOp('OFFSET', f'OFFSET {start}', offset_value=start))
+            return result
 
         elif isinstance(key, (Condition, ColumnExpr)):
             # Boolean indexing: filter rows like pandas df[condition]

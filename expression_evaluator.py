@@ -325,7 +325,43 @@ class ExpressionEvaluator:
 
         # Use centralized executor
         executor = get_executor()
-        return executor.execute_expression(sql_expr, self.df)
+        result = executor.execute_expression(sql_expr, self.df)
+
+        # Preserve original column name for accessor operations
+        # For functions like upper(name), the series name should be 'name', not '__result__'
+        original_name = self._extract_column_name(expr)
+        if original_name and hasattr(result, 'name'):
+            result = result.rename(original_name)
+
+        return result
+
+    def _extract_column_name(self, expr) -> str:
+        """
+        Extract the original column name from an expression.
+
+        For Field expressions, returns the field name.
+        For Function expressions, recursively looks for the first Field argument.
+
+        Args:
+            expr: Expression to extract column name from
+
+        Returns:
+            Column name if found, None otherwise
+        """
+        from .functions import Function
+
+        if isinstance(expr, Field):
+            return expr.name
+        elif isinstance(expr, Function):
+            # Look for Field in arguments
+            for arg in expr.args:
+                if isinstance(arg, Field):
+                    return arg.name
+                elif isinstance(arg, Expression):
+                    name = self._extract_column_name(arg)
+                    if name:
+                        return name
+        return None
 
 
 # Convenience function for quick evaluation

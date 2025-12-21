@@ -120,22 +120,54 @@ class LazyGroupBy:
 
     # ========== Aggregation Methods ==========
 
-    def agg(self, func=None, **kwargs) -> 'DataStore':
+    def agg(self, func=None, **kwargs):
         """
         Aggregate using one or more operations.
+
+        Supports two modes:
+        1. Pandas-style aggregation with dict:
+           >>> df.groupby('dept').agg({'salary': 'mean', 'age': 'max'})
+
+        2. SQL-style aggregation with keyword arguments:
+           >>> from datastore import col
+           >>> df.groupby('dept').agg(avg_salary=col('salary').mean())
 
         Args:
             func: Aggregation function(s) - dict or string
             **kwargs: Named aggregate expressions
 
         Returns:
-            DataStore with aggregated results
+            pd.DataFrame for pandas-style, DataStore for SQL-style
         """
-        # Set groupby fields on original datastore
-        self._datastore._groupby_fields = self._groupby_fields.copy()
+        from .column_expr import ColumnExpr, LazyAggregate
+        from .functions import AggregateFunction
 
-        # Delegate to datastore's agg method
-        return self._datastore.agg(func, **kwargs)
+        # Check if we have SQL-style keyword arguments with expressions
+        has_sql_agg = any(
+            isinstance(v, (Expression, ColumnExpr, AggregateFunction, LazyAggregate))
+            for v in kwargs.values()
+        )
+
+        if has_sql_agg:
+            # SQL-style aggregation: agg(alias=col("x").sum(), ...)
+            # Set groupby fields on original datastore and delegate
+            self._datastore._groupby_fields = self._groupby_fields.copy()
+            return self._datastore.agg(func, **kwargs)
+        else:
+            # Pandas-style aggregation: agg({'col': 'func'})
+            # Materialize the DataFrame and apply groupby().agg() directly
+            df = self._datastore._materialize()
+
+            # Get groupby column names
+            groupby_cols = []
+            for gf in self._groupby_fields:
+                if isinstance(gf, Field):
+                    groupby_cols.append(gf.name)
+                else:
+                    groupby_cols.append(str(gf))
+
+            # Apply pandas groupby and agg
+            return df.groupby(groupby_cols).agg(func, **kwargs)
 
     def mean(self, numeric_only: bool = False) -> pd.DataFrame:
         """Compute mean of groups."""

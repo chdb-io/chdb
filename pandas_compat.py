@@ -1952,3 +1952,142 @@ class PandasCompatMixin:
         df = self._get_df().copy()
         df.isetitem(loc, value)
         return self._wrap_result(df, 'isetitem')
+
+    # ========== Comparison Methods ==========
+
+    def __eq__(self, other):
+        """
+        Compare DataStore with another object for equality.
+
+        Supports comparison with:
+        - Another DataStore: compares underlying DataFrames
+        - pandas DataFrame: compares with materialized DataFrame
+        - pandas Series: element-wise comparison (returns DataFrame of booleans)
+        - Scalar: element-wise comparison (returns DataFrame of booleans)
+
+        For DataFrame/DataStore comparison, uses pandas.DataFrame.equals()
+        which handles NaN values correctly.
+
+        Returns:
+            bool: True if equal (for DataFrame comparison)
+            DataFrame: Boolean DataFrame (for element-wise comparison)
+        """
+        # Get our DataFrame
+        self_df = self._get_df()
+
+        # Handle DataStore comparison
+        if hasattr(other, '_get_df'):
+            other_df = other._get_df()
+            return self_df.equals(other_df)
+
+        # Handle pandas DataFrame comparison
+        if isinstance(other, pd.DataFrame):
+            return self_df.equals(other)
+
+        # Handle pandas Series comparison - element-wise
+        if isinstance(other, pd.Series):
+            return self_df == other
+
+        # Handle scalar or other comparison - element-wise
+        return self_df == other
+
+    def equals(self, other, check_dtype=True, check_names=True, rtol=1e-5, atol=1e-8):
+        """
+        Test whether two DataStore/DataFrame objects contain the same elements.
+
+        This method allows for more flexible comparison than __eq__, with options
+        to ignore dtype differences, name differences, and floating point tolerance.
+
+        Args:
+            other: DataStore, DataFrame, Series, or scalar to compare with
+            check_dtype: Whether to check dtypes match (default True)
+            check_names: Whether to check names match (default True)
+            rtol: Relative tolerance for float comparison (default 1e-5)
+            atol: Absolute tolerance for float comparison (default 1e-8)
+
+        Returns:
+            bool: True if equal within tolerance
+
+        Examples:
+            >>> ds1 = DataStore.from_df(pd.DataFrame({'a': [1, 2, 3]}))
+            >>> ds2 = DataStore.from_df(pd.DataFrame({'a': [1, 2, 3]}))
+            >>> ds1.equals(ds2)
+            True
+        """
+        import numpy as np
+
+        # Get our DataFrame
+        self_df = self._get_df()
+
+        # Handle DataStore
+        if hasattr(other, '_get_df'):
+            other_df = other._get_df()
+        elif isinstance(other, pd.DataFrame):
+            other_df = other
+        elif isinstance(other, pd.Series):
+            # Compare with Series - check if all elements are equal
+            try:
+                return (self_df == other).all().all()
+            except Exception:
+                return False
+        else:
+            # Scalar comparison
+            try:
+                return (self_df == other).all().all()
+            except Exception:
+                return False
+
+        # Check shapes
+        if self_df.shape != other_df.shape:
+            return False
+
+        # Check columns
+        if not self_df.columns.equals(other_df.columns):
+            if check_names:
+                return False
+
+        # Compare values column by column
+        for col in self_df.columns:
+            if col not in other_df.columns:
+                return False
+
+            self_col = self_df[col]
+            other_col = other_df[col]
+
+            # Check dtypes if required
+            if check_dtype and self_col.dtype != other_col.dtype:
+                # Allow compatible numeric dtypes
+                if not (np.issubdtype(self_col.dtype, np.number) and
+                        np.issubdtype(other_col.dtype, np.number)):
+                    return False
+
+            # Handle numeric columns with tolerance
+            if np.issubdtype(self_col.dtype, np.number) and np.issubdtype(other_col.dtype, np.number):
+                # Handle NaN values
+                self_nan = self_col.isna()
+                other_nan = other_col.isna()
+                if not self_nan.equals(other_nan):
+                    return False
+
+                # Compare non-NaN values with tolerance
+                if not self_nan.all():
+                    self_vals = self_col[~self_nan].values
+                    other_vals = other_col[~other_nan].values
+                    if not np.allclose(self_vals, other_vals, rtol=rtol, atol=atol, equal_nan=True):
+                        return False
+            else:
+                # Non-numeric comparison
+                # Handle NaN/None values
+                self_null = self_col.isna()
+                other_null = other_col.isna()
+                if not self_null.equals(other_null):
+                    return False
+
+                # Compare non-null values
+                if not self_null.all():
+                    self_vals = self_col[~self_null]
+                    other_vals = other_col[~other_null]
+                    if not self_vals.equals(other_vals):
+                        return False
+
+        return True
