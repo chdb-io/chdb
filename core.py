@@ -670,11 +670,8 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("-" * 70)
 
         sql_select_fields = []
-        sql_where_conditions = []
-        sql_orderby_fields = []
-        sql_limit = None
-        sql_offset = None
 
+        # Collect SELECT fields from all operations
         for op in early_sql_ops:
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == 'SELECT' and op.fields:
@@ -684,18 +681,31 @@ class DataStore(PandasCompatMixin):
                                 sql_select_fields.append(Field(f))
                         else:
                             sql_select_fields.append(f)
-                elif op.op_type == 'WHERE' and op.condition is not None:
-                    sql_where_conditions.append(op.condition)
-                elif op.op_type == 'ORDER BY' and op.fields:
-                    for f in op.fields:
-                        if isinstance(f, str):
-                            sql_orderby_fields.append((Field(f), op.ascending))
-                        else:
-                            sql_orderby_fields.append((f, op.ascending))
-                elif op.op_type == 'LIMIT':
-                    sql_limit = op.limit_value
-                elif op.op_type == 'OFFSET':
-                    sql_offset = op.offset_value
+
+        # Split operations into layers for nested subqueries
+        # Layer boundaries are created when:
+        # - WHERE follows LIMIT/OFFSET (pandas: slice then filter)
+        # - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
+        # This preserves pandas-like execution order semantics
+        layers = []  # List of operation lists, innermost first
+        current_layer = []
+        pending_limit_offset = False
+
+        for op in early_sql_ops:
+            if isinstance(op, LazyRelationalOp):
+                if op.op_type in ('WHERE', 'ORDER BY') and pending_limit_offset:
+                    # WHERE or ORDER BY after LIMIT/OFFSET - start new layer
+                    if current_layer:
+                        layers.append(current_layer)
+                    current_layer = [op]
+                    pending_limit_offset = False
+                else:
+                    current_layer.append(op)
+                    if op.op_type in ('LIMIT', 'OFFSET'):
+                        pending_limit_offset = True
+
+        if current_layer:
+            layers.append(current_layer)
 
         # Build and execute SQL query
         if self._table_function or self.table_name:
@@ -704,18 +714,130 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("Connecting to data source...")
                 self.connect()
 
-            # Build SQL with only early operations (include joins, distinct, groupby, having)
-            sql = self._build_sql_from_state(
-                sql_select_fields,
-                sql_where_conditions,
-                sql_orderby_fields,
-                sql_limit,
-                sql_offset,
-                joins=self._joins,
-                distinct=self._distinct,
-                groupby_fields=self._groupby_fields,
-                having_condition=self._having_condition,
-            )
+            if len(layers) <= 1:
+                # No subqueries needed - simple case
+                sql_where_conditions = []
+                sql_orderby_fields = []
+                sql_limit = None
+                sql_offset = None
+
+                for op in layers[0] if layers else []:
+                    if isinstance(op, LazyRelationalOp):
+                        if op.op_type == 'WHERE' and op.condition is not None:
+                            sql_where_conditions.append(op.condition)
+                        elif op.op_type == 'ORDER BY' and op.fields:
+                            # Later ORDER BY replaces earlier ones (pandas semantics)
+                            sql_orderby_fields = []
+                            for f in op.fields:
+                                if isinstance(f, str):
+                                    sql_orderby_fields.append((Field(f), op.ascending))
+                                else:
+                                    sql_orderby_fields.append((f, op.ascending))
+                        elif op.op_type == 'LIMIT':
+                            sql_limit = op.limit_value
+                        elif op.op_type == 'OFFSET':
+                            sql_offset = op.offset_value
+
+                sql = self._build_sql_from_state(
+                    sql_select_fields,
+                    sql_where_conditions,
+                    sql_orderby_fields,
+                    sql_limit,
+                    sql_offset,
+                    joins=self._joins,
+                    distinct=self._distinct,
+                    groupby_fields=self._groupby_fields,
+                    having_condition=self._having_condition,
+                )
+            else:
+                # Multiple layers - build nested subqueries
+                # layers[0] is innermost (closest to data source)
+                self._logger.debug("Building %d nested subqueries for LIMIT-before-WHERE patterns", len(layers))
+
+                # Build innermost query (layer 0) with full table settings
+                inner_where = []
+                inner_orderby = []
+                inner_limit = None
+                inner_offset = None
+
+                for op in layers[0]:
+                    if isinstance(op, LazyRelationalOp):
+                        if op.op_type == 'WHERE' and op.condition is not None:
+                            inner_where.append(op.condition)
+                        elif op.op_type == 'ORDER BY' and op.fields:
+                            # Later ORDER BY replaces earlier ones (pandas semantics)
+                            inner_orderby = []
+                            for f in op.fields:
+                                if isinstance(f, str):
+                                    inner_orderby.append((Field(f), op.ascending))
+                                else:
+                                    inner_orderby.append((f, op.ascending))
+                        elif op.op_type == 'LIMIT':
+                            inner_limit = op.limit_value
+                        elif op.op_type == 'OFFSET':
+                            inner_offset = op.offset_value
+
+                sql = self._build_sql_from_state(
+                    sql_select_fields,
+                    inner_where,
+                    inner_orderby,
+                    inner_limit,
+                    inner_offset,
+                    joins=self._joins,
+                    distinct=self._distinct,
+                    groupby_fields=self._groupby_fields,
+                    having_condition=self._having_condition,
+                )
+
+                # Wrap with outer layers (layer 1, 2, ...)
+                for layer_idx, layer_ops in enumerate(layers[1:], 1):
+                    layer_where = []
+                    layer_orderby = []
+                    layer_limit = None
+                    layer_offset = None
+
+                    for op in layer_ops:
+                        if isinstance(op, LazyRelationalOp):
+                            if op.op_type == 'WHERE' and op.condition is not None:
+                                layer_where.append(op.condition)
+                            elif op.op_type == 'ORDER BY' and op.fields:
+                                # Later ORDER BY replaces earlier ones (pandas semantics)
+                                layer_orderby = []
+                                for f in op.fields:
+                                    if isinstance(f, str):
+                                        layer_orderby.append((Field(f), op.ascending))
+                                    else:
+                                        layer_orderby.append((f, op.ascending))
+                            elif op.op_type == 'LIMIT':
+                                layer_limit = op.limit_value
+                            elif op.op_type == 'OFFSET':
+                                layer_offset = op.offset_value
+
+                    # Build outer query wrapping the current sql
+                    outer_parts = ["SELECT *"]
+                    outer_parts.append(f"FROM ({sql}) AS __subq{layer_idx}__")
+
+                    if layer_where:
+                        combined = layer_where[0]
+                        for cond in layer_where[1:]:
+                            combined = combined & cond
+                        outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+                    if layer_orderby:
+                        order_parts = []
+                        for field, asc in layer_orderby:
+                            direction = 'ASC' if asc else 'DESC'
+                            order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
+                        outer_parts.append(f"ORDER BY {', '.join(order_parts)}")
+
+                    if layer_limit is not None:
+                        outer_parts.append(f"LIMIT {layer_limit}")
+
+                    if layer_offset is not None:
+                        outer_parts.append(f"OFFSET {layer_offset}")
+
+                    sql = ' '.join(outer_parts)
+
             self._logger.debug("Executing initial SQL query...")
             result = self._executor.execute(sql)
             df = result.to_df()
