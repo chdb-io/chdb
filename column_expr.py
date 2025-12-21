@@ -18,6 +18,19 @@ import pandas as pd
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
 from .utils import immutable
 
+
+def _parse_pandas_version():
+    """Parse pandas version to a tuple for comparison."""
+    try:
+        parts = pd.__version__.split('.')[:2]
+        return tuple(int(p) for p in parts)
+    except (ValueError, AttributeError):
+        return (0, 0)
+
+
+# Check if pandas version supports limit_area parameter (added in pandas 2.1.0)
+_PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
+
 if TYPE_CHECKING:
     from .core import DataStore
     from .conditions import Condition, BinaryCondition
@@ -1412,7 +1425,7 @@ class ColumnExpr:
             axis: Not used, for pandas compatibility
             inplace: Not supported (ColumnExpr is immutable)
             limit: Maximum number of consecutive NaN values to forward fill
-            limit_area: Restrict filling to 'inside' or 'outside' values
+            limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
 
         Returns:
             pd.Series: Series with forward-filled values
@@ -1423,7 +1436,10 @@ class ColumnExpr:
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
         series = self._materialize()
-        return series.ffill(axis=axis, limit=limit, limit_area=limit_area)
+        if _PANDAS_HAS_LIMIT_AREA:
+            return series.ffill(axis=axis, limit=limit, limit_area=limit_area)
+        else:
+            return series.ffill(axis=axis, limit=limit)
 
     def bfill(self, axis=None, inplace=False, limit=None, limit_area=None):
         """
@@ -1433,7 +1449,7 @@ class ColumnExpr:
             axis: Not used, for pandas compatibility
             inplace: Not supported (ColumnExpr is immutable)
             limit: Maximum number of consecutive NaN values to backward fill
-            limit_area: Restrict filling to 'inside' or 'outside' values
+            limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
 
         Returns:
             pd.Series: Series with backward-filled values
@@ -1444,7 +1460,10 @@ class ColumnExpr:
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
         series = self._materialize()
-        return series.bfill(axis=axis, limit=limit, limit_area=limit_area)
+        if _PANDAS_HAS_LIMIT_AREA:
+            return series.bfill(axis=axis, limit=limit, limit_area=limit_area)
+        else:
+            return series.bfill(axis=axis, limit=limit)
 
     def interpolate(
         self, method='linear', axis=0, limit=None, inplace=False, limit_direction=None, limit_area=None, **kwargs
@@ -1458,7 +1477,7 @@ class ColumnExpr:
             limit: Maximum number of consecutive NaNs to fill
             inplace: Not supported (ColumnExpr is immutable)
             limit_direction: Direction to fill ('forward', 'backward', 'both')
-            limit_area: Restrict filling to 'inside' or 'outside' values
+            limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
             **kwargs: Additional arguments passed to pandas interpolate
 
         Returns:
@@ -1471,9 +1490,12 @@ class ColumnExpr:
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
         series = self._materialize()
-        return series.interpolate(
-            method=method, axis=axis, limit=limit, limit_direction=limit_direction, limit_area=limit_area, **kwargs
-        )
+        if _PANDAS_HAS_LIMIT_AREA:
+            return series.interpolate(
+                method=method, axis=axis, limit=limit, limit_direction=limit_direction, limit_area=limit_area, **kwargs
+            )
+        else:
+            return series.interpolate(method=method, axis=axis, limit=limit, limit_direction=limit_direction, **kwargs)
 
     def astype(self, dtype, copy=True, errors='raise'):
         """

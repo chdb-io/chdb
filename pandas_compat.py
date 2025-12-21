@@ -24,6 +24,19 @@ from copy import copy
 import pandas as pd
 
 
+def _parse_pandas_version():
+    """Parse pandas version to a tuple for comparison."""
+    try:
+        parts = pd.__version__.split('.')[:2]
+        return tuple(int(p) for p in parts)
+    except (ValueError, AttributeError):
+        return (0, 0)
+
+
+# Check if pandas version supports limit_area parameter (added in pandas 2.1.0)
+_PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
+
+
 class PandasCompatMixin:
     """
     Mixin class that adds pandas DataFrame compatibility to DataStore.
@@ -481,17 +494,29 @@ class PandasCompatMixin:
         """Fill NaN values using interpolation method."""
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
-        return self._wrap_result(
-            self._get_df().interpolate(
-                method=method,
-                axis=axis,
-                limit=limit,
-                limit_direction=limit_direction,
-                limit_area=limit_area,
-                downcast=downcast,
-                **kwargs,
+        if _PANDAS_HAS_LIMIT_AREA:
+            return self._wrap_result(
+                self._get_df().interpolate(
+                    method=method,
+                    axis=axis,
+                    limit=limit,
+                    limit_direction=limit_direction,
+                    limit_area=limit_area,
+                    downcast=downcast,
+                    **kwargs,
+                )
             )
-        )
+        else:
+            return self._wrap_result(
+                self._get_df().interpolate(
+                    method=method,
+                    axis=axis,
+                    limit=limit,
+                    limit_direction=limit_direction,
+                    downcast=downcast,
+                    **kwargs,
+                )
+            )
 
     def rename(
         self, mapper=None, *, index=None, columns=None, axis=None, copy=True, inplace=False, level=None, errors='ignore'
