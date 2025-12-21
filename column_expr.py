@@ -735,6 +735,75 @@ class ColumnExpr:
         """Accessor for date/time functions."""
         return ColumnExprDateTimeAccessor(self)
 
+    @property
+    def plot(self):
+        """
+        Accessor for pandas plotting functions.
+
+        Materializes the column and returns the pandas Series plot accessor.
+        Supports all pandas Series plotting methods like .plot(), .plot.bar(),
+        .plot.hist(), etc.
+
+        Example:
+            >>> ds['age'].plot(kind='hist')
+            >>> ds['value'].plot.line()
+            >>> ds['category'].plot(title='My Plot', figsize=(10, 6))
+
+        Returns:
+            pandas.plotting.PlotAccessor: The plot accessor from the materialized Series
+        """
+        return self._materialize().plot
+
+    @property
+    def cat(self):
+        """
+        Accessor for categorical data methods.
+
+        Materializes the column and returns the pandas Series categorical accessor.
+        Only works if the underlying data is categorical.
+
+        Example:
+            >>> ds['category'].cat.categories
+            Index(['A', 'B', 'C'], dtype='object')
+            >>> ds['category'].cat.codes
+            0    0
+            1    1
+            2    2
+            dtype: int8
+            >>> ds['category'].cat.ordered
+            False
+
+        Returns:
+            pandas.core.arrays.categorical.CategoricalAccessor: The cat accessor
+
+        Raises:
+            AttributeError: If the data is not categorical
+        """
+        return self._materialize().cat
+
+    @property
+    def sparse(self):
+        """
+        Accessor for sparse data methods.
+
+        Materializes the column and returns the pandas Series sparse accessor.
+        Only works if the underlying data is sparse.
+
+        Example:
+            >>> sparse_series = pd.arrays.SparseArray([0, 0, 1, 0, 2])
+            >>> ds['sparse_col'].sparse.density
+            0.4
+            >>> ds['sparse_col'].sparse.fill_value
+            0
+
+        Returns:
+            pandas.core.arrays.sparse.accessor.SparseAccessor: The sparse accessor
+
+        Raises:
+            AttributeError: If the data is not sparse
+        """
+        return self._materialize().sparse
+
     # ========== Condition Methods (for filtering) ==========
 
     def isnull(self) -> 'ColumnExpr':
@@ -846,6 +915,160 @@ class ColumnExpr:
             return self._expr.name
         return None
 
+    @property
+    def dtype(self):
+        """
+        Return the dtype of the materialized column.
+
+        Example:
+            >>> ds['age'].dtype
+            dtype('int64')
+        """
+        return self._materialize().dtype
+
+    @property
+    def dtypes(self):
+        """
+        Return the dtype of the column (alias for dtype).
+
+        For Series, dtypes is the same as dtype.
+        """
+        return self.dtype
+
+    @property
+    def shape(self) -> tuple:
+        """
+        Return shape of the materialized column.
+
+        Example:
+            >>> ds['age'].shape
+            (5,)
+        """
+        return self._materialize().shape
+
+    @property
+    def ndim(self) -> int:
+        """
+        Return number of dimensions (always 1 for Series).
+
+        Example:
+            >>> ds['age'].ndim
+            1
+        """
+        return 1
+
+    @property
+    def index(self):
+        """
+        Return the index of the materialized column.
+
+        Example:
+            >>> ds['age'].index
+            RangeIndex(start=0, stop=5, step=1)
+        """
+        return self._materialize().index
+
+    @property
+    def empty(self) -> bool:
+        """
+        Return True if the column has no elements.
+
+        Example:
+            >>> ds['age'].empty
+            False
+        """
+        return len(self) == 0
+
+    @property
+    def T(self):
+        """
+        Return the transpose (same as values for Series).
+
+        Example:
+            >>> ds['age'].T
+            array([28, 31, 29, 45, 22])
+        """
+        return self._materialize().T
+
+    @property
+    def axes(self) -> list:
+        """
+        Return a list of the row axis labels.
+
+        Example:
+            >>> ds['age'].axes
+            [RangeIndex(start=0, stop=5, step=1)]
+        """
+        return self._materialize().axes
+
+    @property
+    def nbytes(self) -> int:
+        """
+        Return the number of bytes in the underlying data.
+
+        Example:
+            >>> ds['age'].nbytes
+            40
+        """
+        return self._materialize().nbytes
+
+    @property
+    def hasnans(self) -> bool:
+        """
+        Return True if there are any NaN values.
+
+        Example:
+            >>> ds['age'].hasnans
+            False
+        """
+        return self._materialize().hasnans
+
+    @property
+    def is_unique(self) -> bool:
+        """
+        Return True if values are unique.
+
+        Example:
+            >>> ds['age'].is_unique
+            True
+        """
+        return self._materialize().is_unique
+
+    @property
+    def is_monotonic_increasing(self) -> bool:
+        """
+        Return True if values are monotonic increasing.
+
+        Example:
+            >>> ds['value'].is_monotonic_increasing
+            True
+        """
+        return self._materialize().is_monotonic_increasing
+
+    @property
+    def is_monotonic_decreasing(self) -> bool:
+        """
+        Return True if values are monotonic decreasing.
+
+        Example:
+            >>> ds['value'].is_monotonic_decreasing
+            False
+        """
+        return self._materialize().is_monotonic_decreasing
+
+    @property
+    def array(self):
+        """
+        Return the ExtensionArray of the data.
+
+        Example:
+            >>> ds['age'].array
+            <IntegerArray>
+            [28, 31, 29, 45, 22]
+            Length: 5, dtype: Int64
+        """
+        return self._materialize().array
+
     def __len__(self) -> int:
         """Return length of the materialized series."""
         return len(self._materialize())
@@ -872,9 +1095,407 @@ class ColumnExpr:
         """Convert to Python list."""
         return self._materialize().tolist()
 
+    def to_list(self) -> list:
+        """
+        Convert to Python list (alias for tolist).
+
+        Example:
+            >>> ds['age'].to_list()
+            [28, 31, 29, 45, 22]
+        """
+        return self.tolist()
+
     def to_numpy(self):
         """Convert to numpy array."""
         return self._materialize().to_numpy()
+
+    def to_dict(self, into=dict):
+        """
+        Convert Series to dict.
+
+        Args:
+            into: The collections.abc.Mapping subclass to use as the return
+                object. Default is dict.
+
+        Returns:
+            dict: Dict with index as keys and values as values.
+
+        Example:
+            >>> ds['age'].to_dict()
+            {0: 28, 1: 31, 2: 29, 3: 45, 4: 22}
+        """
+        return self._materialize().to_dict(into=into)
+
+    def to_frame(self, name=None):
+        """
+        Convert Series to DataFrame.
+
+        Args:
+            name: The passed name should substitute for the series name (if it has one).
+
+        Returns:
+            DataStore: DataStore wrapping single-column DataFrame
+
+        Example:
+            >>> ds['age'].to_frame()
+               age
+            0   28
+            1   31
+            ...
+        """
+        from .core import DataStore
+
+        series = self._materialize()
+        df = series.to_frame(name=name)
+        return DataStore.from_df(df)
+
+    def copy(self, deep=True):
+        """
+        Make a copy of this ColumnExpr's data.
+
+        Args:
+            deep: Make a deep copy (default True)
+
+        Returns:
+            pd.Series: A copy of the materialized data
+
+        Example:
+            >>> s = ds['age'].copy()
+            >>> type(s)
+            <class 'pandas.core.series.Series'>
+        """
+        return self._materialize().copy(deep=deep)
+
+    def describe(self, percentiles=None, include=None, exclude=None):
+        """
+        Generate descriptive statistics.
+
+        Args:
+            percentiles: The percentiles to include in the output.
+            include: A white list of data types to include.
+            exclude: A black list of data types to exclude.
+
+        Returns:
+            pd.Series: Summary statistics
+
+        Example:
+            >>> ds['age'].describe()
+            count     5.000000
+            mean     31.000000
+            std       8.602325
+            min      22.000000
+            25%      28.000000
+            50%      29.000000
+            75%      31.000000
+            max      45.000000
+            Name: age, dtype: float64
+        """
+        return self._materialize().describe(percentiles=percentiles, include=include, exclude=exclude)
+
+    def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
+        """
+        Print a concise summary of a Series.
+
+        Args:
+            verbose: Whether to print the full summary.
+            buf: Where to send the output (default: sys.stdout).
+            max_cols: Not used for Series.
+            memory_usage: Specifies whether memory usage should be displayed.
+            show_counts: Whether to show non-null counts.
+
+        Returns:
+            None: Prints to stdout (or buf)
+
+        Example:
+            >>> ds['age'].info()
+            <class 'pandas.core.series.Series'>
+            RangeIndex: 5 entries, 0 to 4
+            Series name: age
+            Non-Null Count  Dtype
+            --------------  -----
+            5 non-null      int64
+            dtypes: int64(1)
+            memory usage: 168.0 bytes
+        """
+        return self._materialize().info(
+            verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts
+        )
+
+    def sample(self, n=None, frac=None, replace=False, weights=None, random_state=None, axis=None, ignore_index=False):
+        """
+        Return a random sample of items.
+
+        Args:
+            n: Number of items to return.
+            frac: Fraction of items to return.
+            replace: Allow or disallow sampling with replacement.
+            weights: Weight values for sampling probability.
+            random_state: Seed for random number generator.
+            axis: Axis to sample (0 or 'index').
+            ignore_index: If True, reset index in result.
+
+        Returns:
+            pd.Series: Random sample of values
+
+        Example:
+            >>> ds['age'].sample(3, random_state=42)
+            2    29
+            4    22
+            0    28
+            Name: age, dtype: int64
+        """
+        return self._materialize().sample(
+            n=n,
+            frac=frac,
+            replace=replace,
+            weights=weights,
+            random_state=random_state,
+            axis=axis,
+            ignore_index=ignore_index,
+        )
+
+    def nlargest(self, n=5, keep='first'):
+        """
+        Return the largest n elements.
+
+        Args:
+            n: Number of largest elements to return.
+            keep: How to handle duplicate values ('first', 'last', 'all').
+
+        Returns:
+            pd.Series: The n largest values
+
+        Example:
+            >>> ds['salary'].nlargest(3)
+            3    120000.0
+            1     75000.0
+            2     60000.0
+            Name: salary, dtype: float64
+        """
+        return self._materialize().nlargest(n=n, keep=keep)
+
+    def nsmallest(self, n=5, keep='first'):
+        """
+        Return the smallest n elements.
+
+        Args:
+            n: Number of smallest elements to return.
+            keep: How to handle duplicate values ('first', 'last', 'all').
+
+        Returns:
+            pd.Series: The n smallest values
+
+        Example:
+            >>> ds['salary'].nsmallest(3)
+            4    45000.0
+            0    50000.0
+            2    60000.0
+            Name: salary, dtype: float64
+        """
+        return self._materialize().nsmallest(n=n, keep=keep)
+
+    def drop_duplicates(self, keep='first', inplace=False, ignore_index=False):
+        """
+        Return Series with duplicate values removed.
+
+        Args:
+            keep: Which duplicates to keep ('first', 'last', False to drop all).
+            inplace: Not used (always returns new Series).
+            ignore_index: If True, reset index in result.
+
+        Returns:
+            pd.Series: Series with duplicates removed
+
+        Example:
+            >>> ds['department'].drop_duplicates()
+            0             HR
+            1    Engineering
+            3     Management
+            Name: department, dtype: object
+        """
+        return self._materialize().drop_duplicates(keep=keep, ignore_index=ignore_index)
+
+    def duplicated(self, keep='first'):
+        """
+        Indicate duplicate values.
+
+        Args:
+            keep: How to mark duplicates ('first', 'last', False).
+
+        Returns:
+            pd.Series: Boolean Series indicating duplicates
+
+        Example:
+            >>> ds['department'].duplicated()
+            0    False
+            1    False
+            2     True
+            3    False
+            4     True
+            Name: department, dtype: bool
+        """
+        return self._materialize().duplicated(keep=keep)
+
+    def hist(self, bins=10, **kwargs):
+        """
+        Draw histogram of the column values.
+
+        Args:
+            bins: Number of histogram bins.
+            **kwargs: Additional arguments passed to matplotlib.
+
+        Returns:
+            matplotlib.axes.Axes: The histogram plot
+
+        Example:
+            >>> ds['age'].hist(bins=5)
+        """
+        return self._materialize().hist(bins=bins, **kwargs)
+
+    def agg(self, func=None, axis=0, *args, **kwargs):
+        """
+        Aggregate using one or more operations.
+
+        Args:
+            func: Function to use for aggregating (str, list, or dict).
+            axis: Axis to aggregate (0 for index).
+            *args: Positional arguments to pass to func.
+            **kwargs: Keyword arguments to pass to func.
+
+        Returns:
+            Scalar, Series or DataFrame depending on func
+
+        Example:
+            >>> ds['age'].agg('mean')
+            31.0
+            >>> ds['age'].agg(['sum', 'mean', 'std'])
+            sum     155.000000
+            mean     31.000000
+            std       8.602325
+            dtype: float64
+        """
+        return self._materialize().agg(func=func, axis=axis, *args, **kwargs)
+
+    def aggregate(self, func=None, axis=0, *args, **kwargs):
+        """
+        Aggregate using one or more operations (alias for agg).
+
+        Args:
+            func: Function to use for aggregating.
+            axis: Axis to aggregate.
+            *args: Positional arguments to pass to func.
+            **kwargs: Keyword arguments to pass to func.
+
+        Returns:
+            Scalar, Series or DataFrame depending on func
+
+        Example:
+            >>> ds['age'].aggregate(['sum', 'mean'])
+            sum     155.0
+            mean     31.0
+            dtype: float64
+        """
+        return self.agg(func=func, axis=axis, *args, **kwargs)
+
+    def where(self, cond, other=pd.NA, inplace=False, axis=None, level=None):
+        """
+        Replace values where the condition is False.
+
+        Args:
+            cond: Where True, keep the original value. Where False, replace.
+            other: Replacement value where cond is False.
+            inplace: Not used (always returns new Series).
+            axis: Alignment axis.
+            level: Alignment level.
+
+        Returns:
+            pd.Series: Series with replaced values
+
+        Example:
+            >>> ds['age'].where(ds['age'] > 25, 0)
+            0    28
+            1    31
+            2    29
+            3    45
+            4     0
+            Name: age, dtype: int64
+        """
+        series = self._materialize()
+
+        # Handle condition
+        if isinstance(cond, ColumnExpr):
+            cond = cond._materialize()
+        elif hasattr(cond, '_execute'):
+            cond = cond._execute()
+
+        return series.where(cond, other=other, axis=axis, level=level)
+
+    def argsort(self, axis=0, kind='quicksort', order=None, stable=None):
+        """
+        Return the indices that would sort the Series.
+
+        Args:
+            axis: Axis to sort (0 for index).
+            kind: Sorting algorithm ('quicksort', 'mergesort', 'heapsort', 'stable').
+            order: Not used for Series.
+            stable: If True, use stable sorting.
+
+        Returns:
+            pd.Series: Integer indices that would sort the Series
+
+        Example:
+            >>> ds['age'].argsort()
+            0    4
+            1    0
+            2    2
+            3    1
+            4    3
+            dtype: int64
+        """
+        return self._materialize().argsort(axis=axis, kind=kind, order=order)
+
+    def sort_index(
+        self,
+        axis=0,
+        level=None,
+        ascending=True,
+        inplace=False,
+        kind='quicksort',
+        na_position='last',
+        sort_remaining=True,
+        ignore_index=False,
+        key=None,
+    ):
+        """
+        Sort Series by index labels.
+
+        Args:
+            axis: Axis to sort.
+            level: If not None, sort on values in specified index level.
+            ascending: Sort ascending vs descending.
+            inplace: Not used.
+            kind: Sorting algorithm.
+            na_position: Where to put NaN values ('first' or 'last').
+            sort_remaining: If True, sort remaining levels.
+            ignore_index: If True, reset index in result.
+            key: Function to transform index before sorting.
+
+        Returns:
+            pd.Series: Sorted Series
+
+        Example:
+            >>> ds['age'].sort_index(ascending=False)
+        """
+        return self._materialize().sort_index(
+            axis=axis,
+            level=level,
+            ascending=ascending,
+            kind=kind,
+            na_position=na_position,
+            sort_remaining=sort_remaining,
+            ignore_index=ignore_index,
+            key=key,
+        )
 
     def __array__(self, dtype=None, copy=None):
         """
