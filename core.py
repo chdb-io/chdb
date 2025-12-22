@@ -3614,9 +3614,10 @@ class DataStore(PandasCompatMixin):
 
         df = self._materialize()
         if isinstance(df, pd.DataFrame):
-            arr = df.values
+            # Use to_numpy() to handle categorical/extension dtypes
+            arr = df.to_numpy()
         elif isinstance(df, pd.Series):
-            arr = df.values
+            arr = df.to_numpy()
         elif df is None:
             arr = np.array([])
         else:

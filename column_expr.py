@@ -1517,9 +1517,10 @@ class ColumnExpr:
 
         result = self._materialize()
         if isinstance(result, pd.Series):
-            arr = result.values
+            # Use to_numpy() instead of .values to handle categorical/extension dtypes
+            arr = result.to_numpy()
         elif isinstance(result, pd.DataFrame):
-            arr = result.values
+            arr = result.to_numpy()
         elif result is None:
             arr = np.array([])
         else:
@@ -3149,7 +3150,8 @@ class LazyAggregate:
 
         result = self._execute()
         if isinstance(result, pd.Series):
-            arr = result.values
+            # Use to_numpy() to handle categorical/extension dtypes
+            arr = result.to_numpy()
         elif result is None:
             arr = np.array([])
         else:

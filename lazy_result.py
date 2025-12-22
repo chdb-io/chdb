@@ -341,7 +341,8 @@ class LazySlice:
 
         result = self._get_result()
         if isinstance(result, (pd.Series, pd.DataFrame)):
-            arr = result.values
+            # Use to_numpy() to handle categorical/extension dtypes
+            arr = result.to_numpy()
         elif result is None:
             arr = np.array([])
         else:
