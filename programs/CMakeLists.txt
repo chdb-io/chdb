@@ -36,6 +36,7 @@ macro(clickhouse_program_add name)
 endmacro()
 
 add_subdirectory (local)
+add_subdirectory (server)
 
 clickhouse_add_executable (clickhouse main.cpp)
 
@@ -69,3 +70,4 @@ function(clickhouse_program_install name lib_name)
 endfunction()
 
 clickhouse_program_install(clickhouse-local local chl ch)
+clickhouse_program_install(clickhouse-server server)
