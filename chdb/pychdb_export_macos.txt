@@ -1,9 +1,1 @@
 _PyInit__chdb
-___cxa_*
-___gxx_personality_v0
-__Unwind_*
-__ZTI*
-__ZTS*
-__ZTV*
-__ZNSt*
-__ZNKSt*

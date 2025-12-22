@@ -35,10 +35,3 @@ _chdb_result_error
 _chdb_arrow_scan
 _chdb_arrow_array_scan
 _chdb_arrow_unregister_table
-
-___cxa_*
-___gxx_personality_v0
-__Unwind_*
-__ZTI*
-__ZTS*
-__ZTV*

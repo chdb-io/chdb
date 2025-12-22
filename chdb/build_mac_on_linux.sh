@@ -311,4 +311,7 @@ echo -e "\nCross-compilation for macOS ${TARGET_ARCH} completed successfully!"
 echo -e "Generated files:"
 echo -e "  - ${PROJ_DIR}/${LIBCHDB_SO}"
 echo -e "  - ${CHDB_DIR}/${CHDB_PY_MODULE}"
+echo -e "\nFile sizes:"
+ls -lh ${PROJ_DIR}/${LIBCHDB_SO}
+ls -lh ${CHDB_DIR}/${CHDB_PY_MODULE}
 echo -e "\nBuild directory: ${BUILD_DIR}"
