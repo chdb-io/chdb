@@ -388,7 +388,18 @@ class ColumnExpr:
         """Traverse expression tree."""
         yield from self._expr.nodes()
 
-    # ========== Comparison Operators (Return Conditions for filtering) ==========
+    # ========== Comparison Operators (Return ColumnExpr wrapping Condition) ==========
+    #
+    # Design Note: Comparison operators return ColumnExpr (not a separate BoolColumnExpr).
+    # The underlying Expression is a Condition, which:
+    # 1. Can be materialized to boolean Series via ExpressionEvaluator
+    # 2. Can be used in filter() for SQL WHERE clause generation
+    # 3. Supports value_counts(), sum(), mean() etc. (inherited from ColumnExpr)
+    #
+    # This unified design allows:
+    # - (ds['col'] > 5).value_counts()  # Works
+    # - ds.filter(ds['col'] > 5)        # Works
+    # - (ds['a'] > 0) & (ds['b'] < 10)  # Works
 
     def __eq__(self, other: Any):
         """
@@ -397,15 +408,18 @@ class ColumnExpr:
         If other is a pandas Series/DataFrame (already materialized data),
         performs value comparison and returns bool.
 
-        Otherwise, returns a BinaryCondition for SQL filtering.
+        Otherwise, returns a ColumnExpr wrapping a Condition that can both:
+        - Materialize to a boolean Series (for value_counts(), sum(), etc.)
+        - Be used as a filter condition in ds.filter()
 
         Examples:
-            # Value comparison (returns bool)
+            # Value comparison with materialized data (returns bool)
             >>> ds['name'].str.upper() == pd_df['name'].str.upper()  # True/False
 
-            # SQL condition (returns BinaryCondition)
-            >>> ds['age'] == 30  # BinaryCondition for WHERE clause
-            >>> ds1['id'] == ds2['id']  # BinaryCondition for JOIN
+            # ColumnExpr wrapping Condition (supports both operations)
+            >>> bool_col = ds['age'] == 30  # Returns ColumnExpr
+            >>> bool_col.value_counts()  # Counts True/False
+            >>> ds.filter(bool_col)  # Filters rows
         """
         import pandas as pd
         from .conditions import BinaryCondition
@@ -416,33 +430,39 @@ class ColumnExpr:
         if isinstance(other, pd.DataFrame):
             return self._compare_values(other)
 
-        # SQL condition for filtering (including ColumnExpr == ColumnExpr for JOIN)
-        return BinaryCondition('=', self._expr, Expression.wrap(other))
+        # Return ColumnExpr wrapping Condition for lazy boolean column
+        condition = BinaryCondition('=', self._expr, Expression.wrap(other))
+        return ColumnExpr(condition, self._datastore)
 
-    def __ne__(self, other: Any) -> 'BinaryCondition':
+    def __ne__(self, other: Any) -> 'ColumnExpr':
         from .conditions import BinaryCondition
 
-        return BinaryCondition('!=', self._expr, Expression.wrap(other))
+        condition = BinaryCondition('!=', self._expr, Expression.wrap(other))
+        return ColumnExpr(condition, self._datastore)
 
-    def __gt__(self, other: Any) -> 'BinaryCondition':
+    def __gt__(self, other: Any) -> 'ColumnExpr':
         from .conditions import BinaryCondition
 
-        return BinaryCondition('>', self._expr, Expression.wrap(other))
+        condition = BinaryCondition('>', self._expr, Expression.wrap(other))
+        return ColumnExpr(condition, self._datastore)
 
-    def __ge__(self, other: Any) -> 'BinaryCondition':
+    def __ge__(self, other: Any) -> 'ColumnExpr':
         from .conditions import BinaryCondition
 
-        return BinaryCondition('>=', self._expr, Expression.wrap(other))
+        condition = BinaryCondition('>=', self._expr, Expression.wrap(other))
+        return ColumnExpr(condition, self._datastore)
 
-    def __lt__(self, other: Any) -> 'BinaryCondition':
+    def __lt__(self, other: Any) -> 'ColumnExpr':
         from .conditions import BinaryCondition
 
-        return BinaryCondition('<', self._expr, Expression.wrap(other))
+        condition = BinaryCondition('<', self._expr, Expression.wrap(other))
+        return ColumnExpr(condition, self._datastore)
 
-    def __le__(self, other: Any) -> 'BinaryCondition':
+    def __le__(self, other: Any) -> 'ColumnExpr':
         from .conditions import BinaryCondition
 
-        return BinaryCondition('<=', self._expr, Expression.wrap(other))
+        condition = BinaryCondition('<=', self._expr, Expression.wrap(other))
+        return ColumnExpr(condition, self._datastore)
 
     # ========== Pandas-style Comparison Methods ==========
 
@@ -561,86 +581,126 @@ class ColumnExpr:
             other = other._materialize()
         return series.ge(other)
 
-    # ========== Logical Operators (for combining boolean ColumnExpr with Conditions) ==========
+    # ========== Logical Operators (Return ColumnExpr wrapping Condition) ==========
+    #
+    # These operators combine boolean expressions and return ColumnExpr.
+    # If the underlying _expr is already a Condition, use it directly;
+    # otherwise convert to a truthy check (expr = 1).
 
-    def __and__(self, other: Any) -> 'Condition':
+    def _to_condition(self):
+        """Convert this ColumnExpr to a Condition for logical operations."""
+        from .conditions import Condition, BinaryCondition
+        from .expressions import Literal
+
+        if isinstance(self._expr, Condition):
+            return self._expr
+        else:
+            # Non-condition expression, convert to truthy check: expr = 1
+            return BinaryCondition('=', self._expr, Literal(1))
+
+    def __and__(self, other: Any) -> 'ColumnExpr':
         """
         Combine with AND operator.
 
-        Allows combining boolean ColumnExpr (like isnull()) with Conditions.
-        Converts self to a condition (expr = 1) before combining.
+        Returns a ColumnExpr wrapping CompoundCondition('AND', ...).
+        This allows chaining: (ds['a'] > 0) & (ds['b'] < 10)
 
         Example:
-            >>> ds.filter(ds['email'].isnull() & (ds['status'] == 'active'))
+            >>> ds.filter((ds['age'] > 18) & (ds['status'] == 'active'))
+            >>> ((ds['a'] > 0) & (ds['b'] < 10)).value_counts()
         """
-        from .conditions import CompoundCondition, BinaryCondition
-        from .expressions import Literal
+        from .conditions import CompoundCondition, Condition
 
-        # Convert self to condition: self._expr = 1
-        self_cond = BinaryCondition('=', self._expr, Literal(1))
+        self_cond = self._to_condition()
 
         # Handle other operand
         if isinstance(other, ColumnExpr):
-            other_cond = BinaryCondition('=', other._expr, Literal(1))
-        else:
+            other_cond = other._to_condition()
+        elif isinstance(other, Condition):
             other_cond = other
+        else:
+            raise TypeError(f"Cannot AND ColumnExpr with {type(other).__name__}")
 
-        return CompoundCondition('AND', self_cond, other_cond)
+        return ColumnExpr(CompoundCondition('AND', self_cond, other_cond), self._datastore)
 
-    def __rand__(self, other: Any) -> 'Condition':
+    def __rand__(self, other: Any) -> 'ColumnExpr':
         """Right AND operator."""
-        from .conditions import CompoundCondition, BinaryCondition
-        from .expressions import Literal
+        from .conditions import CompoundCondition, Condition
 
-        self_cond = BinaryCondition('=', self._expr, Literal(1))
-        return CompoundCondition('AND', other, self_cond)
+        self_cond = self._to_condition()
 
-    def __or__(self, other: Any) -> 'Condition':
+        if isinstance(other, Condition):
+            return ColumnExpr(CompoundCondition('AND', other, self_cond), self._datastore)
+        else:
+            raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
+
+    def __or__(self, other: Any) -> 'ColumnExpr':
         """
         Combine with OR operator.
 
-        Allows combining boolean ColumnExpr (like isnull()) with Conditions.
-        Converts self to a condition (expr = 1) before combining.
+        Returns a ColumnExpr wrapping CompoundCondition('OR', ...).
 
         Example:
-            >>> ds.filter(ds['email'].isnull() | ds['phone'].isnull())
+            >>> ds.filter((ds['age'] < 18) | (ds['age'] > 65))
         """
-        from .conditions import CompoundCondition, BinaryCondition
-        from .expressions import Literal
+        from .conditions import CompoundCondition, Condition
 
-        # Convert self to condition: self._expr = 1
-        self_cond = BinaryCondition('=', self._expr, Literal(1))
+        self_cond = self._to_condition()
 
         # Handle other operand
         if isinstance(other, ColumnExpr):
-            other_cond = BinaryCondition('=', other._expr, Literal(1))
-        else:
+            other_cond = other._to_condition()
+        elif isinstance(other, Condition):
             other_cond = other
+        else:
+            raise TypeError(f"Cannot OR ColumnExpr with {type(other).__name__}")
 
-        return CompoundCondition('OR', self_cond, other_cond)
+        return ColumnExpr(CompoundCondition('OR', self_cond, other_cond), self._datastore)
 
-    def __ror__(self, other: Any) -> 'Condition':
+    def __ror__(self, other: Any) -> 'ColumnExpr':
         """Right OR operator."""
-        from .conditions import CompoundCondition, BinaryCondition
-        from .expressions import Literal
+        from .conditions import CompoundCondition, Condition
 
-        self_cond = BinaryCondition('=', self._expr, Literal(1))
-        return CompoundCondition('OR', other, self_cond)
+        self_cond = self._to_condition()
 
-    def __invert__(self) -> 'Condition':
+        if isinstance(other, Condition):
+            return ColumnExpr(CompoundCondition('OR', other, self_cond), self._datastore)
+        else:
+            raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
+
+    def __xor__(self, other: Any) -> 'ColumnExpr':
+        """
+        Combine with XOR operator.
+
+        Returns a ColumnExpr wrapping CompoundCondition('XOR', ...).
+        """
+        from .conditions import CompoundCondition, Condition
+
+        self_cond = self._to_condition()
+
+        if isinstance(other, ColumnExpr):
+            other_cond = other._to_condition()
+        elif isinstance(other, Condition):
+            other_cond = other
+        else:
+            raise TypeError(f"Cannot XOR ColumnExpr with {type(other).__name__}")
+
+        return ColumnExpr(CompoundCondition('XOR', self_cond, other_cond), self._datastore)
+
+    def __invert__(self) -> 'ColumnExpr':
         """
         Negate with NOT operator.
 
-        For boolean ColumnExpr (like isnull()), returns NOT(expr = 1).
+        Returns a ColumnExpr wrapping NotCondition.
 
         Example:
-            >>> ds.filter(~ds['email'].isnull())  # Equivalent to notnull()
+            >>> ds.filter(~(ds['age'] > 18))  # age <= 18
+            >>> (~(ds['col'] > 5)).value_counts()
         """
-        from .conditions import NotCondition, BinaryCondition
-        from .expressions import Literal
+        from .conditions import NotCondition
 
-        self_cond = BinaryCondition('=', self._expr, Literal(1))
-        return NotCondition(self_cond)
+        self_cond = self._to_condition()
+        return ColumnExpr(NotCondition(self_cond), self._datastore)
 
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
@@ -2937,6 +2997,15 @@ class ColumnExprDateTimeAccessor:
 
     def __repr__(self) -> str:
         return f"ColumnExprDateTimeAccessor({self._column_expr._expr!r})"
+
+
+# NOTE: BoolColumnExpr has been removed in favor of unified ColumnExpr.
+# Comparison operators now return ColumnExpr wrapping Condition objects.
+# This simplifies the architecture while maintaining full functionality:
+# - (ds['col'] > 5).value_counts()  # Works
+# - ds.filter(ds['col'] > 5)        # Works
+# - (ds['a'] > 0) & (ds['b'] < 10)  # Works
+# See ARCHITECTURE_PROPOSAL.md for design rationale.
 
 
 class LazyAggregate:

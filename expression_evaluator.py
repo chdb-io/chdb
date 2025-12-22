@@ -17,6 +17,16 @@ import pandas as pd
 import numpy as np
 
 from .expressions import Expression, Field, Literal, ArithmeticExpression
+from .conditions import (
+    Condition,
+    BinaryCondition,
+    CompoundCondition,
+    NotCondition,
+    UnaryCondition,
+    InCondition,
+    BetweenCondition,
+    LikeCondition,
+)
 from .config import get_logger
 
 if TYPE_CHECKING:
@@ -134,6 +144,34 @@ class ExpressionEvaluator:
                 # Unknown function - try Pandas dynamic first, then chDB
                 return self._evaluate_unknown_function(expr)
 
+        elif isinstance(expr, BinaryCondition):
+            # Binary comparison condition -> boolean Series
+            return self._evaluate_binary_condition(expr)
+
+        elif isinstance(expr, CompoundCondition):
+            # Compound condition (AND, OR, XOR) -> boolean Series
+            return self._evaluate_compound_condition(expr)
+
+        elif isinstance(expr, NotCondition):
+            # NOT condition -> boolean Series
+            return self._evaluate_not_condition(expr)
+
+        elif isinstance(expr, UnaryCondition):
+            # Unary condition (IS NULL, IS NOT NULL) -> boolean Series
+            return self._evaluate_unary_condition(expr)
+
+        elif isinstance(expr, InCondition):
+            # IN condition -> boolean Series
+            return self._evaluate_in_condition(expr)
+
+        elif isinstance(expr, BetweenCondition):
+            # BETWEEN condition -> boolean Series
+            return self._evaluate_between_condition(expr)
+
+        elif isinstance(expr, LikeCondition):
+            # LIKE condition -> boolean Series
+            return self._evaluate_like_condition(expr)
+
         elif isinstance(expr, pd.Series):
             # Direct pandas Series - pass through
             return expr
@@ -164,6 +202,109 @@ class ExpressionEvaluator:
             return left**right
         else:
             raise ValueError(f"Unknown operator: {operator}")
+
+    # ========== Condition Evaluation Methods ==========
+
+    def _evaluate_binary_condition(self, cond: BinaryCondition) -> pd.Series:
+        """Evaluate a binary comparison condition to a boolean Series."""
+        left = self.evaluate(cond.left)
+        right = self.evaluate(cond.right)
+
+        op = cond.operator
+        if op == '=':
+            return left == right
+        elif op in ('!=', '<>'):
+            return left != right
+        elif op == '>':
+            return left > right
+        elif op == '>=':
+            return left >= right
+        elif op == '<':
+            return left < right
+        elif op == '<=':
+            return left <= right
+        elif op == 'IS':
+            # IS NULL handling
+            if right is None:
+                return left.isna() if isinstance(left, pd.Series) else pd.Series([left is None])
+            return left == right
+        else:
+            raise ValueError(f"Unknown comparison operator: {op}")
+
+    def _evaluate_compound_condition(self, cond: CompoundCondition) -> pd.Series:
+        """Evaluate a compound condition (AND, OR, XOR) to a boolean Series."""
+        left = self.evaluate(cond.left)
+        right = self.evaluate(cond.right)
+
+        op = cond.operator
+        if op == 'AND':
+            return left & right
+        elif op == 'OR':
+            return left | right
+        elif op == 'XOR':
+            return left ^ right
+        else:
+            raise ValueError(f"Unknown logical operator: {op}")
+
+    def _evaluate_not_condition(self, cond: NotCondition) -> pd.Series:
+        """Evaluate a NOT condition to a boolean Series."""
+        inner = self.evaluate(cond.condition)
+        return ~inner
+
+    def _evaluate_unary_condition(self, cond: UnaryCondition) -> pd.Series:
+        """Evaluate a unary condition (IS NULL, IS NOT NULL) to a boolean Series."""
+        expr_val = self.evaluate(cond.expression)
+
+        op = cond.operator
+        if op == 'IS NULL':
+            return expr_val.isna() if isinstance(expr_val, pd.Series) else pd.Series([expr_val is None])
+        elif op == 'IS NOT NULL':
+            return expr_val.notna() if isinstance(expr_val, pd.Series) else pd.Series([expr_val is not None])
+        else:
+            raise ValueError(f"Unknown unary operator: {op}")
+
+    def _evaluate_in_condition(self, cond: InCondition) -> pd.Series:
+        """Evaluate an IN condition to a boolean Series."""
+        expr_val = self.evaluate(cond.expression)
+
+        # Handle subquery values
+        if hasattr(cond.values, 'to_sql') and hasattr(cond.values, 'table_name'):
+            # Subquery - materialize and get values
+            values = cond.values._materialize().iloc[:, 0].tolist()
+        else:
+            values = cond.values
+
+        result = expr_val.isin(values)
+        return ~result if cond.negate else result
+
+    def _evaluate_between_condition(self, cond: BetweenCondition) -> pd.Series:
+        """Evaluate a BETWEEN condition to a boolean Series."""
+        expr_val = self.evaluate(cond.expression)
+        lower = self.evaluate(cond.lower)
+        upper = self.evaluate(cond.upper)
+
+        return (expr_val >= lower) & (expr_val <= upper)
+
+    def _evaluate_like_condition(self, cond: LikeCondition) -> pd.Series:
+        """Evaluate a LIKE condition to a boolean Series."""
+        import re
+
+        expr_val = self.evaluate(cond.expression)
+
+        # Convert SQL LIKE pattern to regex
+        pattern = cond.pattern
+        # Escape regex special chars except % and _
+        pattern = re.escape(pattern)
+        # Convert SQL wildcards to regex
+        pattern = pattern.replace(r'\%', '.*').replace(r'\_', '.')
+        # Anchor the pattern
+        pattern = f'^{pattern}$'
+
+        flags = 0 if cond.case_sensitive else re.IGNORECASE
+        regex = re.compile(pattern, flags)
+
+        result = expr_val.astype(str).str.match(pattern, case=cond.case_sensitive)
+        return ~result if cond.negate else result
 
     def _evaluate_function_via_pandas(self, expr) -> Any:
         """

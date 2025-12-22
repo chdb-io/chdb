@@ -2581,12 +2581,17 @@ class DataStore(PandasCompatMixin):
                 "Must provide either 'condition' for row filtering or 'items'/'like'/'regex' for column selection"
             )
 
-        # Convert ColumnExpr to Condition (e.g., isNull(col) -> isNull(col) = 1)
-        # In ClickHouse, boolean expressions like isNull() return 0/1,
-        # so we can use them directly in WHERE or compare to 1
+        # Unified handling: extract Condition from ColumnExpr._expr
+        # Since comparison operators now return ColumnExpr wrapping Condition,
+        # we just need to check if _expr is already a Condition.
         if isinstance(condition, ColumnExpr):
-            # Create a condition: expr = 1 (truthy check)
-            condition = BinaryCondition('=', condition._expr, Literal(1))
+            if isinstance(condition._expr, Condition):
+                # ColumnExpr wrapping Condition (e.g., ds['col'] > 5)
+                condition = condition._expr
+            else:
+                # Non-condition ColumnExpr (e.g., boolean function result)
+                # Convert to truthy check: expr = 1
+                condition = BinaryCondition('=', condition._expr, Literal(1))
 
         # Convert condition to string for tracking
         if isinstance(condition, str):
