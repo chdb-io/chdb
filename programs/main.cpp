@@ -76,7 +76,63 @@ void main_musl_compile_stub(int arg)
 #endif
 
 /// Universal executable for various clickhouse applications
+int mainEntryClickHouseBenchmark(int argc, char ** argv);
+int mainEntryClickHouseCheckMarks(int argc, char ** argv);
+int mainEntryClickHouseChecksumForCompressedBlock(int, char **);
+int mainEntryClickHouseClient(int argc, char ** argv);
+int mainEntryClickHouseCompressor(int argc, char ** argv);
+int mainEntryClickHouseDisks(int argc, char ** argv);
+int mainEntryClickHouseExtractFromConfig(int argc, char ** argv);
+int mainEntryClickHouseFormat(int argc, char ** argv);
+int mainEntryClickHouseFstDumpTree(int argc, char ** argv);
+int mainEntryClickHouseGitImport(int argc, char ** argv);
 int mainEntryClickHouseLocal(int argc, char ** argv);
+int mainEntryClickHouseObfuscator(int argc, char ** argv);
+int mainEntryClickHouseSU(int argc, char ** argv);
+int mainEntryClickHouseServer(int argc, char ** argv);
+int mainEntryClickHouseStaticFilesDiskUploader(int argc, char ** argv);
+int mainEntryClickHouseZooKeeperDumpTree(int argc, char ** argv);
+int mainEntryClickHouseZooKeeperRemoveByList(int argc, char ** argv);
+
+int mainEntryClickHouseHashBinary(int, char **)
+{
+    /// Intentionally without newline. So you can run:
+    /// objcopy --add-section .clickhouse.hash=<(./clickhouse hash-binary) clickhouse
+    std::cout << getHashOfLoadedBinaryHex();
+    return 0;
+}
+
+#if ENABLE_CLICKHOUSE_KEEPER
+int mainEntryClickHouseKeeper(int argc, char ** argv);
+#endif
+#if ENABLE_CLICKHOUSE_KEEPER_CONVERTER
+int mainEntryClickHouseKeeperConverter(int argc, char ** argv);
+#endif
+#if ENABLE_CLICKHOUSE_KEEPER_CLIENT
+int mainEntryClickHouseKeeperClient(int argc, char ** argv);
+#endif
+#if USE_RAPIDJSON && USE_NURAFT
+int mainEntryClickHouseKeeperBench(int argc, char ** argv);
+#endif
+#if USE_NURAFT
+int mainEntryClickHouseKeeperDataDumper(int argc, char ** argv);
+int mainEntryClickHouseKeeperUtils(int argc, char ** argv);
+#endif
+
+#if USE_CHDIG
+extern "C" int chdig_main(int argc, char ** argv);
+int mainEntryClickHouseChdig(int argc, char ** argv)
+{
+    return chdig_main(argc, argv);
+}
+#endif
+
+// install
+int mainEntryClickHouseInstall(int argc, char ** argv);
+int mainEntryClickHouseStart(int argc, char ** argv);
+int mainEntryClickHouseStop(int argc, char ** argv);
+int mainEntryClickHouseStatus(int argc, char ** argv);
+int mainEntryClickHouseRestart(int argc, char ** argv);
 
 namespace
 {
@@ -89,7 +145,52 @@ using MainFunc = int (*)(int, char**);
 /// Currently we will prefer the latter option.
 std::pair<std::string_view, MainFunc> clickhouse_applications[] =
 {
-    {"local", mainEntryClickHouseLocal}
+    {"local", mainEntryClickHouseLocal},
+    {"client", mainEntryClickHouseClient},
+#if USE_CHDIG
+    {"chdig", mainEntryClickHouseChdig},
+    {"dig", mainEntryClickHouseChdig},
+#endif
+    {"benchmark", mainEntryClickHouseBenchmark},
+    {"server", mainEntryClickHouseServer},
+    {"extract-from-config", mainEntryClickHouseExtractFromConfig},
+    {"compressor", mainEntryClickHouseCompressor},
+    {"format", mainEntryClickHouseFormat},
+    {"obfuscator", mainEntryClickHouseObfuscator},
+    {"git-import", mainEntryClickHouseGitImport},
+    {"static-files-disk-uploader", mainEntryClickHouseStaticFilesDiskUploader},
+    {"su", mainEntryClickHouseSU},
+    {"hash-binary", mainEntryClickHouseHashBinary},
+    {"disks", mainEntryClickHouseDisks},
+    {"check-marks", mainEntryClickHouseCheckMarks},
+    {"checksum-for-compressed-block", mainEntryClickHouseChecksumForCompressedBlock},
+    {"zookeeper-dump-tree", mainEntryClickHouseZooKeeperDumpTree},
+    {"zookeeper-remove-by-list", mainEntryClickHouseZooKeeperRemoveByList},
+    {"fst-dump-tree", mainEntryClickHouseFstDumpTree},
+
+    // keeper
+#if ENABLE_CLICKHOUSE_KEEPER
+    {"keeper", mainEntryClickHouseKeeper},
+#endif
+#if ENABLE_CLICKHOUSE_KEEPER_CONVERTER
+    {"keeper-converter", mainEntryClickHouseKeeperConverter},
+#endif
+#if ENABLE_CLICKHOUSE_KEEPER_CLIENT
+    {"keeper-client", mainEntryClickHouseKeeperClient},
+#endif
+#if USE_RAPIDJSON && USE_NURAFT
+    {"keeper-bench", mainEntryClickHouseKeeperBench},
+#endif
+#if USE_NURAFT
+    {"keeper-data-dumper", mainEntryClickHouseKeeperDataDumper},
+    {"keeper-utils", mainEntryClickHouseKeeperUtils},
+#endif
+    // install
+    {"install", mainEntryClickHouseInstall},
+    {"start", mainEntryClickHouseStart},
+    {"stop", mainEntryClickHouseStop},
+    {"status", mainEntryClickHouseStatus},
+    {"restart", mainEntryClickHouseRestart},
 };
 
 int printHelp(int, char **)
@@ -250,6 +351,22 @@ int main(int argc_, char ** argv_)
         {
             main_func = application.second;
             break;
+        }
+    }
+
+    /// If host/port arguments are passed to clickhouse/ch shortcuts,
+    /// interpret it as clickhouse-client invocation for usability.
+    if (main_func == printHelp && argv.size() >= 2)
+    {
+        for (size_t i = 1, num_args = argv.size(); i < num_args; ++i)
+        {
+            if ((i + 1 < num_args && argv[i] == std::string_view("--host")) || startsWith(argv[i], "--host=")
+                || (i + 1 < num_args && argv[i] == std::string_view("--port")) || startsWith(argv[i], "--port=")
+                || startsWith(argv[i], "-h"))
+            {
+                main_func = mainEntryClickHouseClient;
+                break;
+            }
         }
     }
 

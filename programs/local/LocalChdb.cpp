@@ -651,6 +651,54 @@ void cursor_wrapper::execute(const std::string & query_str)
 }
 
 
+#    ifdef PY_TEST_MAIN
+#        include <string_view>
+#        include <arrow/api.h>
+#        include <arrow/buffer.h>
+#        include <arrow/io/memory.h>
+#        include <arrow/ipc/api.h>
+#        include <arrow/python/pyarrow.h>
+
+
+std::shared_ptr<arrow::Table> queryToArrow(const std::string & queryStr)
+{
+    auto result = queryToBuffer(queryStr, "Arrow");
+    if (result)
+    {
+        // Create an Arrow input stream from the Arrow buffer
+        auto input_stream = std::make_shared<arrow::io::BufferReader>(reinterpret_cast<uint8_t *>(result->buf), result->len);
+        auto arrow_reader = arrow::ipc::RecordBatchFileReader::Open(input_stream, result->len).ValueOrDie();
+
+        // Read all the record batches from the Arrow reader
+        auto batch = arrow_reader->ReadRecordBatch(0).ValueOrDie();
+        std::shared_ptr<arrow::Table> arrow_table = arrow::Table::FromRecordBatches({batch}).ValueOrDie();
+
+        // Free the memory used by the result
+        free_result(result);
+
+        return arrow_table;
+    }
+    else
+    {
+        return nullptr;
+    }
+}
+
+int main()
+{
+    // auto out = queryToVector("SELECT * FROM file('/home/Clickhouse/bench/result.parquet', Parquet) LIMIT 10");
+    // out with string_view
+    // std::cerr << std::string_view(out->data(), out->size()) << std::endl;
+    // std::cerr << "out.size() = " << out->size() << std::endl;
+    auto out = queryToArrow("SELECT * FROM file('/home/Clickhouse/bench/result.parquet', Parquet) LIMIT 10");
+    std::cerr << "out->num_columns() = " << out->num_columns() << std::endl;
+    std::cerr << "out->num_rows() = " << out->num_rows() << std::endl;
+    std::cerr << "out.ToString() = " << out->ToString() << std::endl;
+    std::cerr << "out->schema()->ToString() = " << out->schema()->ToString() << std::endl;
+
+    return 0;
+}
+#    else
 PYBIND11_MODULE(_chdb, m)
 {
     m.doc() = "chDB module for query function";
@@ -799,3 +847,5 @@ PYBIND11_MODULE(_chdb, m)
     };
     m.add_object("_destroy_import_cache", py::capsule(destroy_import_cache));
 }
+
+#    endif // PY_TEST_MAIN
