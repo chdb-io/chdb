@@ -240,22 +240,87 @@ class PandasCompatMixin:
         # Record the lazy operation
         self._add_lazy_op(LazyColumnAssignment(key, value))
 
+    def __delitem__(self, key):
+        """
+        Delete column from DataFrame (in-place modification).
+
+        This method mimics pandas DataFrame del operation:
+        - Modifies the DataStore in-place
+        - Returns None
+
+        Args:
+            key: Column name to delete
+
+        Example:
+            >>> del ds['column_to_remove']
+        """
+        from .lazy_ops import LazyDropColumns
+
+        if not isinstance(key, str):
+            raise TypeError(f"Column deletion requires string key, got {type(key)}")
+
+        if key not in self.columns:
+            raise KeyError(key)
+
+        # Record the lazy drop operation
+        self._add_lazy_op(LazyDropColumns([key]))
+
     def select_dtypes(self, include=None, exclude=None):
         """Return subset of columns based on column dtypes."""
         return self._wrap_result(self._get_df().select_dtypes(include=include, exclude=exclude))
 
     def insert(self, loc, column, value, allow_duplicates=False):
-        """Insert column into DataFrame at specified location."""
+        """
+        Insert column into DataFrame at specified location.
+
+        Note: This returns a new DataStore (immutable operation) because
+        DataStore.insert() in core.py is used for SQL row insertion.
+        For in-place column addition, use: ds['column'] = value
+
+        Args:
+            loc: Insertion index (ignored, column is appended)
+            column: Label of the inserted column
+            value: Scalar, Series, or array-like
+            allow_duplicates: Allow duplicate column names
+
+        Example:
+            >>> ds = ds.insert(0, 'new_col', [1, 2, 3])  # Returns new DataStore
+            >>> # Or use in-place assignment:
+            >>> ds['new_col'] = [1, 2, 3]
+        """
         df = self._get_df().copy()
         df.insert(loc, column, value, allow_duplicates=allow_duplicates)
         return self._wrap_result(df)
 
     def pop(self, item):
-        """Return item and drop from DataFrame."""
-        df = self._get_df().copy()
-        result = df.pop(item)
-        # Return both the popped series (as DataStore) and modified df (as DataStore)
-        return self._wrap_result(result)
+        """
+        Return item and drop from DataFrame (in-place modification).
+
+        This method mimics pandas DataFrame.pop():
+        - Returns the column being popped
+        - Modifies the DataStore in-place to remove the column
+
+        Args:
+            item: Column name to pop
+
+        Returns:
+            The popped column as a pandas Series
+
+        Example:
+            >>> X = ds.copy()
+            >>> y = X.pop('target')  # y gets target column, X no longer has it
+        """
+        from .lazy_ops import LazyDropColumns
+
+        # Materialize the column BEFORE adding the drop operation
+        # This ensures we get the column values before it's removed
+        col_expr = self[item]
+        result = col_expr._materialize() if hasattr(col_expr, '_materialize') else col_expr
+
+        # Record the lazy drop operation (modifies self in-place)
+        self._add_lazy_op(LazyDropColumns([item]))
+
+        return result
 
     def xs(self, key, axis=0, level=None, drop_level=True):
         """Return cross-section from the DataFrame."""
@@ -1817,11 +1882,35 @@ class PandasCompatMixin:
         )
 
     def update(self, other, join='left', overwrite=True, filter_func=None, errors='ignore'):
-        """Modify in place using non-NA values from another DataFrame."""
-        # Since DataStore is immutable, we need to create a copy
+        """
+        Modify in place using non-NA values from another DataFrame.
+
+        This method mimics pandas DataFrame.update():
+        - Modifies the DataStore in-place
+        - Returns None
+
+        Args:
+            other: DataFrame or DataStore to update from
+            join: How to handle indexes ('left' keeps self's index)
+            overwrite: Whether to overwrite existing values with non-NA
+            filter_func: Function to filter values before updating
+            errors: How to handle errors ('raise' or 'ignore')
+
+        Example:
+            >>> ds.update(other_ds)  # Update ds with values from other_ds
+        """
+        from .lazy_ops import LazyDataFrameSource
+
+        # Materialize both DataFrames
         df = self._get_df().copy()
+        if hasattr(other, '_get_df'):
+            other = other._get_df()
+
+        # Apply the update
         df.update(other, join=join, overwrite=overwrite, filter_func=filter_func, errors=errors)
-        return self._wrap_result(df)
+
+        # Replace the entire lazy pipeline with the updated DataFrame
+        self._add_lazy_op(LazyDataFrameSource(df))
 
     # ========== Additional Statistical Methods ==========
 
