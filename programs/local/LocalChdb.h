@@ -5,6 +5,17 @@
 #include "config.h"
 
 #include <filesystem>
+#include <optional>
+
+#if USE_CLIENT_AI
+#    include <Client/AI/AIConfiguration.h>
+namespace DB
+{
+class AISQLGenerator;
+struct AIConfiguration;
+}
+class AIQueryProcessor;
+#endif
 
 namespace py = pybind11;
 
@@ -22,6 +33,10 @@ private:
     std::string db_path;
     bool is_memory_db;
     bool is_readonly;
+#if USE_CLIENT_AI
+    std::unique_ptr<AIQueryProcessor> ai_processor;
+    std::optional<DB::AIConfiguration> ai_config;
+#endif
 
 public:
     explicit connection_wrapper(const std::string & conn_str);
@@ -36,10 +51,16 @@ public:
     query_result * streaming_fetch_result(streaming_query_result * streaming_result);
     py::object streaming_fetch_df(streaming_query_result * streaming_result);
     void streaming_cancel_query(streaming_query_result * streaming_result);
+    std::string generate_sql(const std::string & prompt);
 
     // Move the private methods declarations here
     std::pair<std::string, std::map<std::string, std::string>> parse_connection_string(const std::string & conn_str);
     std::vector<std::string> build_clickhouse_args(const std::string & path, const std::map<std::string, std::string> & params);
+
+#if USE_CLIENT_AI
+private:
+    void applyAIParams(std::map<std::string, std::string> & params);
+#endif
 };
 
 class local_result_wrapper

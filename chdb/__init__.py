@@ -214,6 +214,7 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None):
 # alias for query
 sql = query
 
+
 PyReader = _chdb.PyReader
 
 from . import dbapi, session, udf, utils  # noqa: E402

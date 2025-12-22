@@ -207,6 +207,21 @@ Eg: conn = connect(f"db_path?verbose&log-level=test")"""
     # alias sql = query
     sql = query
 
+    def generate_sql(self, prompt: str) -> str:
+        """Generate SQL text from a natural language prompt using the configured AI provider."""
+        if self._conn is None:
+            raise RuntimeError("Session is closed.")
+        return self._conn.generate_sql(prompt)
+
+    def ask(self, prompt: str, **kwargs):
+        """Generate SQL from a prompt, execute it, and return the results.
+
+        All keyword arguments are forwarded to the underlying :meth:`query`.
+        """
+        if self._conn is None:
+            raise RuntimeError("Session is closed.")
+        return self._conn.ask(prompt, **kwargs)
+
     def send_query(self, sql, fmt="CSV", params=None) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 
