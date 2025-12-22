@@ -91,6 +91,7 @@ RUST_FEATURES="-DENABLE_RUST=0"
 GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
 UNWIND="-DUSE_UNWIND=0"
 JEMALLOC="-DENABLE_JEMALLOC=0"
+PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
 HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
 MYSQL="-DENABLE_MYSQL=0"
 ICU="-DENABLE_ICU=0"
@@ -182,7 +183,7 @@ if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
 fi
 
 # For macOS, replace PyInit entry point with exported symbols for libchdb
-LIBCHDB_CMD="${LIBCHDB_CMD} -Wl,-exported_symbols_list,${CHDB_DIR}/libchdb_export_macos.txt"
+LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
 
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
 
@@ -220,7 +221,7 @@ fi
 
 # Extract the command to generate CHDB_PY_MODULE
 PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared -o ${CHDB_PY_MODULE}/" \
+    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
     | sed 's/ -Xlinker --no-undefined//g' \
@@ -229,7 +230,6 @@ PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
 
 # For macOS, set rpath
 PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,@loader_path|g')
-PYCHDB_CMD="${PYCHDB_CMD} -Wl,-exported_symbols_list,${CHDB_DIR}/pychdb_export_macos.txt"
 
 # Save the command to a file for debug
 echo ${PYCHDB_CMD} > pychdb_cmd.sh
