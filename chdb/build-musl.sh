@@ -124,7 +124,7 @@ if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
 fi
 
 PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,\$ORIGIN|g')
-PYCHDB_CMD="${PYCHDB_CMD} -Wl,--undefined=PyInit__chdb -Wl,--version-script=${CHDB_DIR}/pychdb_export.map"
+PYCHDB_CMD="${PYCHDB_CMD} -Wl,--undefined=PyInit__chdb -Wl,--version-script=${CHDB_DIR}/pychdb_musllinux_export.map"
 
 echo ${PYCHDB_CMD} > pychdb_cmd.sh
 
