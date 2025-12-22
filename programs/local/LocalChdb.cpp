@@ -11,10 +11,17 @@
 #include <Poco/String.h>
 #include <Common/logger_useful.h>
 #include <vector>
-#include <sstream>
 #if USE_JEMALLOC
 #    include <Common/memory.h>
 #endif
+
+#if USE_CLIENT_AI
+#    include "AIQueryProcessor.h"
+#endif
+
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
 
 namespace py = pybind11;
 
@@ -310,7 +317,12 @@ connection_wrapper::build_clickhouse_args(const std::string & path, const std::m
 
 connection_wrapper::connection_wrapper(const std::string & conn_str)
 {
+    is_readonly = false;
     auto [path, params] = parse_connection_string(conn_str);
+
+#if USE_CLIENT_AI
+    applyAIParams(params);
+#endif
 
     auto argv = build_clickhouse_args(path, params);
     std::vector<char *> argv_char;
@@ -413,6 +425,28 @@ py::object connection_wrapper::query_df(const std::string & query_str, const py:
     return df;
 }
 
+std::string connection_wrapper::generate_sql(const std::string & prompt)
+{
+#if USE_CLIENT_AI
+    if (!ai_config.has_value())
+        ai_config = DB::AIConfiguration{};
+
+    try
+    {
+        if (!ai_processor)
+            ai_processor = std::make_unique<AIQueryProcessor>(conn, *ai_config);
+        return ai_processor->generateSQL(prompt);
+    }
+    catch (const std::exception & e)
+    {
+        throw std::runtime_error(std::string("AI SQL generation failed: ") + e.what());
+    }
+#else
+    (void)prompt;
+    throw std::runtime_error("AI SQL generation is not available in this build. Rebuild with USE_CLIENT_AI enabled.");
+#endif
+}
+
 streaming_query_result * connection_wrapper::send_query(const std::string & query_str, const std::string & format, const py::dict & params)
 {
     const auto parsed_params = parseParametersDict(params);
@@ -493,6 +527,119 @@ void connection_wrapper::streaming_cancel_query(streaming_query_result * streami
 
     chdb_stream_cancel_query(*conn, streaming_result->get_result());
 }
+
+#if USE_CLIENT_AI
+void connection_wrapper::applyAIParams(std::map<std::string, std::string> & params)
+{
+    DB::AIConfiguration config;
+
+    auto consume_string = [&](const std::string & target, std::string DB::AIConfiguration::* field)
+    {
+        for (auto it = params.begin(); it != params.end();)
+        {
+            if (Poco::toLower(it->first) == target)
+            {
+                if (!it->second.empty())
+                {
+                    if ((config.*field).empty())
+                        config.*field = it->second;
+                }
+                it = params.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    };
+
+    auto consume_double = [&](const std::string & target, double DB::AIConfiguration::* field)
+    {
+        for (auto it = params.begin(); it != params.end();)
+        {
+            if (Poco::toLower(it->first) == target)
+            {
+                if (!it->second.empty())
+                {
+                    try
+                    {
+                        config.*field = std::stod(it->second);
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                it = params.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    };
+
+    auto consume_size_t = [&](const std::string & target, size_t DB::AIConfiguration::* field)
+    {
+        for (auto it = params.begin(); it != params.end();)
+        {
+            if (Poco::toLower(it->first) == target)
+            {
+                if (!it->second.empty())
+                {
+                    try
+                    {
+                        config.*field = static_cast<size_t>(std::stoul(it->second));
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+                it = params.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    };
+
+    auto consume_bool = [&](const std::string & target, bool DB::AIConfiguration::* field)
+    {
+        for (auto it = params.begin(); it != params.end();)
+        {
+            if (Poco::toLower(it->first) == target)
+            {
+                if (!it->second.empty())
+                {
+                    std::string val = Poco::toLower(it->second);
+                    if (val == "1" || val == "true" || val == "yes" || val == "on")
+                        config.*field = true;
+                    else if (val == "0" || val == "false" || val == "no" || val == "off")
+                        config.*field = false;
+                }
+                it = params.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    };
+
+    consume_string("ai_api_key", &DB::AIConfiguration::api_key);
+    consume_string("ai_base_url", &DB::AIConfiguration::base_url);
+    consume_string("ai_model", &DB::AIConfiguration::model);
+    consume_string("ai_provider", &DB::AIConfiguration::provider);
+    consume_double("ai_temperature", &DB::AIConfiguration::temperature);
+    consume_size_t("ai_max_tokens", &DB::AIConfiguration::max_tokens);
+    consume_size_t("ai_timeout_seconds", &DB::AIConfiguration::timeout_seconds);
+    consume_string("ai_system_prompt", &DB::AIConfiguration::system_prompt);
+    consume_size_t("ai_max_steps", &DB::AIConfiguration::max_steps);
+    consume_bool("ai_enable_schema_access", &DB::AIConfiguration::enable_schema_access);
+
+    ai_config = config;
+}
+#endif
 
 void cursor_wrapper::execute(const std::string & query_str)
 {
@@ -604,6 +751,13 @@ PYBIND11_MODULE(_chdb, m)
             py::kw_only(),
             py::arg("params") = py::dict(),
             "Execute a query and return a DataFrame")
+#if USE_CLIENT_AI
+        .def(
+            "generate_sql",
+            &connection_wrapper::generate_sql,
+            py::arg("prompt"),
+            "Generate SQL text from a natural language prompt using the configured AI provider")
+#endif
         .def(
             "send_query",
             &connection_wrapper::send_query,
