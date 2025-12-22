@@ -1,4 +1,3 @@
-# Deprecated API
 _query_stable
 _free_result
 _query_stable_v2
@@ -14,7 +13,6 @@ _chdb_streaming_fetch_result
 _chdb_streaming_cancel_query
 _chdb_destroy_result
 
-# New API
 _chdb_connect
 _chdb_close_conn
 _chdb_query
@@ -34,7 +32,13 @@ _chdb_result_storage_rows_read
 _chdb_result_storage_bytes_read
 _chdb_result_error
 
-# Arrow Integration
 _chdb_arrow_scan
 _chdb_arrow_array_scan
 _chdb_arrow_unregister_table
+
+___cxa_*
+___gxx_personality_v0
+__Unwind_*
+__ZTI*
+__ZTS*
+__ZTV*
