@@ -63,30 +63,47 @@ class LazySeries:
 
     def __init__(
         self,
-        column_expr: 'ColumnExpr',
-        method_name: str,
+        column_expr: 'ColumnExpr' = None,
+        method_name: str = None,
         *args,
+        executor: Callable[[], Any] = None,
+        datastore: 'DataStore' = None,
         **kwargs,
     ):
         """
         Initialize a LazySeries.
 
+        Supports two modes:
+        1. Method mode: column_expr + method_name (traditional)
+           >>> LazySeries(column_expr, 'value_counts')
+
+        2. Executor mode: executor callable (for complex operations like groupby.size())
+           >>> LazySeries(executor=lambda: df.groupby(cols).size(), datastore=ds)
+
         Args:
-            column_expr: The source ColumnExpr
-            method_name: Name of the Series method to call (e.g., 'value_counts', 'unique')
+            column_expr: The source ColumnExpr (method mode)
+            method_name: Name of the Series method to call (method mode)
             *args: Positional arguments for the method
+            executor: Callable that returns the result when executed (executor mode)
+            datastore: DataStore reference for executor mode
             **kwargs: Keyword arguments for the method
         """
         self._column_expr = column_expr
         self._method_name = method_name
         self._args = args
+        self._executor = executor
+        self._explicit_datastore = datastore
         self._kwargs = kwargs
         self._cached_result = None
 
     @property
     def _datastore(self) -> Optional['DataStore']:
         """Get the DataStore reference."""
-        return self._column_expr._datastore
+        if self._explicit_datastore is not None:
+            return self._explicit_datastore
+        if self._column_expr is not None:
+            return self._column_expr._datastore
+        return None
 
     def _execute(self) -> Union[pd.Series, pd.DataFrame, np.ndarray, Any]:
         """
@@ -102,7 +119,12 @@ class LazySeries:
         if self._cached_result is not None:
             return self._cached_result
 
-        # Execute the source - support ColumnExpr, LazyAggregate, and LazySeries
+        # Executor mode: directly call the executor callable
+        if self._executor is not None:
+            self._cached_result = self._executor()
+            return self._cached_result
+
+        # Method mode: execute column_expr and call method
         from .column_expr import LazyAggregate
 
         if isinstance(self._column_expr, LazyAggregate):
@@ -176,7 +198,8 @@ class LazySeries:
             result = self._execute()
             return repr(result)
         except Exception as e:
-            return f"LazySeries({self._method_name}) [Error: {e}]"
+            name = self._method_name or 'executor'
+            return f"LazySeries({name}) [Error: {e}]"
 
     def __str__(self) -> str:
         """String representation showing the result."""
@@ -184,7 +207,8 @@ class LazySeries:
             result = self._execute()
             return str(result)
         except Exception:
-            return f"LazySeries({self._method_name})"
+            name = self._method_name or 'executor'
+            return f"LazySeries({name})"
 
     def _repr_html_(self) -> str:
         """HTML representation for Jupyter notebooks."""
@@ -540,150 +564,3 @@ class LazySeries:
     def count(self, *args, **kwargs):
         """Count non-NA values (lazy)."""
         return LazySeries(self, 'count', *args, **kwargs)
-
-
-class LazyGroupBySize:
-    """
-    Lazy wrapper for groupby().size() that returns pd.Series when executed.
-
-    This maintains pandas compatibility where size() returns a Series,
-    not a DataFrame.
-
-    Example:
-        >>> ds.groupby('category').size()  # Returns LazyGroupBySize
-        LazyGroupBySize(['category'])
-
-        >>> print(ds.groupby('category').size())  # Triggers execution, returns Series
-        category
-        A    10
-        B     5
-        dtype: int64
-    """
-
-    def __init__(self, datastore: 'DataStore', groupby_cols: list):
-        """
-        Args:
-            datastore: The source DataStore
-            groupby_cols: List of column names to group by
-        """
-        self._datastore = datastore
-        self._groupby_cols = groupby_cols
-        self._cached_result: Optional[pd.Series] = None
-
-    def _execute(self) -> pd.Series:
-        """Execute the groupby size operation."""
-        if self._cached_result is not None:
-            return self._cached_result
-
-        # Execute the datastore to get DataFrame
-        df = self._datastore._execute()
-
-        # Apply groupby and size
-        self._cached_result = df.groupby(self._groupby_cols).size()
-        return self._cached_result
-
-    # ========== Natural Execution Triggers ==========
-
-    @property
-    def values(self) -> np.ndarray:
-        """Get values array (triggers execution)."""
-        return self._execute().values
-
-    @property
-    def index(self) -> pd.Index:
-        """Get index (triggers execution)."""
-        return self._execute().index
-
-    @property
-    def dtype(self):
-        """Get dtype (triggers execution)."""
-        return self._execute().dtype
-
-    @property
-    def name(self):
-        """Get series name (triggers execution)."""
-        return self._execute().name
-
-    @property
-    def shape(self):
-        """Get shape (triggers execution)."""
-        return self._execute().shape
-
-    def __len__(self) -> int:
-        """Get length (triggers execution)."""
-        return len(self._execute())
-
-    def __iter__(self):
-        """Iterate over values (triggers execution)."""
-        return iter(self._execute())
-
-    def __array__(self, dtype=None):
-        """NumPy array protocol (triggers execution)."""
-        result = self._execute()
-        if dtype is not None:
-            return np.asarray(result, dtype=dtype)
-        return np.asarray(result)
-
-    def __getitem__(self, key):
-        """Get item by key (triggers execution)."""
-        return self._execute()[key]
-
-    def __repr__(self) -> str:
-        """String representation (triggers execution)."""
-        return repr(self._execute())
-
-    def __str__(self) -> str:
-        """String representation (triggers execution)."""
-        return str(self._execute())
-
-    def _repr_html_(self) -> str:
-        """HTML representation for Jupyter (triggers execution)."""
-        result = self._execute()
-        if hasattr(result, '_repr_html_'):
-            return result._repr_html_()
-        return f"<pre>{result}</pre>"
-
-    # ========== Comparison Operators ==========
-
-    def __eq__(self, other):
-        """Equality comparison (triggers execution)."""
-        result = self._execute()
-        if isinstance(other, LazyGroupBySize):
-            other = other._execute()
-        return result.equals(other) if isinstance(other, pd.Series) else result == other
-
-    def __ne__(self, other):
-        return not self.__eq__(other)
-
-    # ========== Series Methods ==========
-
-    def sort_index(self, *args, **kwargs) -> pd.Series:
-        """Sort by index (triggers execution)."""
-        return self._execute().sort_index(*args, **kwargs)
-
-    def sort_values(self, *args, **kwargs) -> pd.Series:
-        """Sort by values (triggers execution)."""
-        return self._execute().sort_values(*args, **kwargs)
-
-    def reset_index(self, *args, **kwargs):
-        """Reset index (triggers execution)."""
-        return self._execute().reset_index(*args, **kwargs)
-
-    def to_frame(self, *args, **kwargs) -> pd.DataFrame:
-        """Convert to DataFrame (triggers execution)."""
-        return self._execute().to_frame(*args, **kwargs)
-
-    def to_list(self) -> list:
-        """Convert to list (triggers execution)."""
-        return self._execute().to_list()
-
-    def to_dict(self, *args, **kwargs) -> dict:
-        """Convert to dict (triggers execution)."""
-        return self._execute().to_dict(*args, **kwargs)
-
-    def equals(self, other) -> bool:
-        """Check equality with another Series (triggers execution)."""
-        result = self._execute()
-        if isinstance(other, LazyGroupBySize):
-            other = other._execute()
-        return result.equals(other)

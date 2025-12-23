@@ -23,6 +23,7 @@ from .expressions import Expression, Field
 if TYPE_CHECKING:
     from .core import DataStore
     from .column_expr import ColumnExpr
+    from .lazy_result import LazySeries
 
 
 class LazyGroupBy:
@@ -169,7 +170,7 @@ class LazyGroupBy:
         """Compute count of groups. Returns lazy DataStore."""
         return self._apply_agg('count')
 
-    def size(self) -> 'LazyGroupBySize':
+    def size(self) -> 'LazySeries':
         """
         Compute group sizes (number of rows in each group).
 
@@ -177,7 +178,7 @@ class LazyGroupBy:
         (matching pandas behavior).
 
         Returns:
-            LazyGroupBySize: Lazy wrapper that returns pd.Series when executed.
+            LazySeries: Lazy wrapper that returns pd.Series when executed.
 
         Example:
             >>> ds.groupby('department').size()
@@ -187,7 +188,7 @@ class LazyGroupBy:
             Marketing       3
             dtype: int64
         """
-        from .lazy_result import LazyGroupBySize
+        from .lazy_result import LazySeries
 
         # Get groupby column names
         groupby_cols = []
@@ -197,7 +198,15 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        return LazyGroupBySize(self._datastore, groupby_cols)
+        # Capture datastore and cols for closure
+        ds = self._datastore
+        cols = groupby_cols
+
+        def executor():
+            df = ds._execute()
+            return df.groupby(cols).size()
+
+        return LazySeries(executor=executor, datastore=ds)
 
     def min(self, numeric_only: bool = False) -> 'DataStore':
         """Compute min of groups. Returns lazy DataStore."""

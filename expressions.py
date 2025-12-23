@@ -18,7 +18,16 @@ if TYPE_CHECKING:
     from .accessors.ip import IpAccessor
     from .accessors.geo import GeoAccessor
 
-__all__ = ['Node', 'Expression', 'Field', 'Literal', 'ArithmeticExpression', 'col', 'DateTimePropertyExpr', 'DateTimeMethodExpr']
+__all__ = [
+    'Node',
+    'Expression',
+    'Field',
+    'Literal',
+    'ArithmeticExpression',
+    'col',
+    'DateTimePropertyExpr',
+    'DateTimeMethodExpr',
+]
 
 
 class Node:
@@ -703,18 +712,18 @@ def col(name: str) -> Field:
 class DateTimePropertyExpr(Expression):
     """
     Expression representing a datetime accessor property (.dt.year, .dt.month, etc.)
-    
+
     This is a lazy expression that defers execution to ExpressionEvaluator,
     which decides at runtime whether to use chDB SQL functions or pandas .dt accessor
     based on function_config settings.
-    
+
     Example:
         >>> expr = DateTimePropertyExpr(Field('date_col'), 'year')
         >>> # At execution time, evaluator checks function_config.should_use_pandas('year')
         >>> # If pandas: s.dt.year
         >>> # If chDB: toYear(date_col)
     """
-    
+
     # Mapping from property name to chDB function name
     CHDB_FUNCTION_MAP = {
         'year': 'toYear',
@@ -731,7 +740,7 @@ class DateTimePropertyExpr(Expression):
         'quarter': 'toQuarter',
         'date': 'toDate',
     }
-    
+
     def __init__(self, source_expr: Expression, property_name: str, alias: Optional[str] = None):
         """
         Args:
@@ -742,25 +751,25 @@ class DateTimePropertyExpr(Expression):
         super().__init__(alias)
         self.source_expr = source_expr
         self.property_name = property_name
-    
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL using chDB function."""
         ch_func = self.CHDB_FUNCTION_MAP.get(self.property_name)
         if not ch_func:
             raise ValueError(f"No chDB function mapping for datetime property: {self.property_name}")
-        
+
         source_sql = self.source_expr.to_sql(quote_char=quote_char, **kwargs)
-        
+
         # Handle dayofweek adjustment (chDB is 1-7 Monday, pandas is 0-6 Monday)
         if self.property_name in ('dayofweek', 'weekday'):
             result = f"({ch_func}({source_sql}) - 1)"
         else:
             result = f"{ch_func}({source_sql})"
-        
+
         if self.alias:
             return f"{result} AS {format_alias(self.alias, quote_char)}"
         return result
-    
+
     def nodes(self) -> Iterator['Node']:
         yield self
         yield from self.source_expr.nodes()
@@ -769,40 +778,47 @@ class DateTimePropertyExpr(Expression):
 class DateTimeMethodExpr(Expression):
     """
     Expression representing a datetime accessor method call (.dt.strftime(), .dt.floor(), etc.)
-    
+
     Similar to DateTimePropertyExpr but for methods that take arguments.
     """
-    
+
     # Mapping from method name to chDB function name
     CHDB_FUNCTION_MAP = {
         'strftime': 'formatDateTime',
     }
-    
-    def __init__(self, source_expr: Expression, method_name: str, args: tuple = (), kwargs: dict = None, alias: Optional[str] = None):
+
+    def __init__(
+        self,
+        source_expr: Expression,
+        method_name: str,
+        args: tuple = (),
+        kwargs: dict = None,
+        alias: Optional[str] = None,
+    ):
         super().__init__(alias)
         self.source_expr = source_expr
         self.method_name = method_name
         self.args = args
         self.kwargs = kwargs or {}
-    
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL using chDB function."""
         ch_func = self.CHDB_FUNCTION_MAP.get(self.method_name)
         if not ch_func:
             raise ValueError(f"No chDB function mapping for datetime method: {self.method_name}")
-        
+
         source_sql = self.source_expr.to_sql(quote_char=quote_char, **kwargs)
-        
+
         if self.method_name == 'strftime' and self.args:
             fmt = self.args[0]
             result = f"{ch_func}({source_sql}, '{fmt}')"
         else:
             result = f"{ch_func}({source_sql})"
-        
+
         if self.alias:
             return f"{result} AS {format_alias(self.alias, quote_char)}"
         return result
-    
+
     def nodes(self) -> Iterator['Node']:
         yield self
         yield from self.source_expr.nodes()
