@@ -24,6 +24,7 @@ import numpy as np
 if TYPE_CHECKING:
     from .column_expr import ColumnExpr, LazyAggregate
     from .core import DataStore
+    from .expressions import Field
 
 
 class LazySeries:
@@ -114,6 +115,25 @@ class LazySeries:
         # Execute any ColumnExpr in args or kwargs
         args = tuple(self._execute_if_needed(arg) for arg in self._args)
         kwargs = {k: self._execute_if_needed(v) for k, v in self._kwargs.items()}
+
+        # Handle special _dt_* methods for datetime operations (pandas fallback)
+        if self._method_name.startswith('_dt_'):
+            dt_attr = self._method_name[4:]  # Remove '_dt_' prefix
+            # Convert to datetime if needed
+            if not pd.api.types.is_datetime64_any_dtype(series):
+                if series.dtype == 'object' or pd.api.types.is_string_dtype(series):
+                    try:
+                        series = pd.to_datetime(series, errors='coerce')
+                    except Exception:
+                        pass
+            # Access .dt accessor
+            dt_accessor = series.dt
+            attr = getattr(dt_accessor, dt_attr)
+            if callable(attr):
+                self._cached_result = attr(*args, **kwargs)
+            else:
+                self._cached_result = attr
+            return self._cached_result
 
         # Execute the method - handle case where method doesn't exist (e.g., head() on scalar)
         if not hasattr(series, self._method_name):
@@ -295,66 +315,87 @@ class LazySeries:
     # ========== Comparison Operators ==========
 
     def __eq__(self, other):
-        result = self._execute()
-        return result == other
+        """Element-wise equality (lazy)."""
+        return LazySeries(self, '__eq__', other)
 
     def __ne__(self, other):
-        result = self._execute()
-        return result != other
+        """Element-wise not-equal (lazy)."""
+        return LazySeries(self, '__ne__', other)
 
     def __lt__(self, other):
-        result = self._execute()
-        return result < other
+        """Element-wise less-than (lazy)."""
+        return LazySeries(self, '__lt__', other)
 
     def __le__(self, other):
-        result = self._execute()
-        return result <= other
+        """Element-wise less-than-or-equal (lazy)."""
+        return LazySeries(self, '__le__', other)
 
     def __gt__(self, other):
-        result = self._execute()
-        return result > other
+        """Element-wise greater-than (lazy)."""
+        return LazySeries(self, '__gt__', other)
 
     def __ge__(self, other):
-        result = self._execute()
-        return result >= other
+        """Element-wise greater-than-or-equal (lazy)."""
+        return LazySeries(self, '__ge__', other)
 
-    # ========== Series Method Proxies ==========
-    # These methods execute and return the result (or chain lazily where possible)
+    # ========== Chaining Methods (lazy - return LazySeries) ==========
+    # These methods return LazySeries to maintain lazy evaluation chain
 
     def sort_index(self, **kwargs):
-        """Sort by index."""
-        result = self._execute()
-        if hasattr(result, 'sort_index'):
-            return result.sort_index(**kwargs)
-        return result
+        """Sort by index (lazy)."""
+        return LazySeries(self, 'sort_index', **kwargs)
 
     def sort_values(self, **kwargs):
-        """Sort by values."""
-        result = self._execute()
-        if hasattr(result, 'sort_values'):
-            return result.sort_values(**kwargs)
-        return result
+        """Sort by values (lazy)."""
+        return LazySeries(self, 'sort_values', **kwargs)
 
     def reset_index(self, **kwargs):
-        """Reset index."""
-        result = self._execute()
-        if hasattr(result, 'reset_index'):
-            return result.reset_index(**kwargs)
-        return result
+        """Reset index (lazy)."""
+        return LazySeries(self, 'reset_index', **kwargs)
 
     def astype(self, dtype):
-        """Cast to dtype."""
-        result = self._execute()
-        if hasattr(result, 'astype'):
-            return result.astype(dtype)
-        return result
+        """Cast to dtype (lazy)."""
+        return LazySeries(self, 'astype', dtype)
 
-    def copy(self):
-        """Return copy of result."""
-        result = self._execute()
-        if hasattr(result, 'copy'):
-            return result.copy()
-        return result
+    def copy(self, deep=True):
+        """Return copy of result (lazy)."""
+        return LazySeries(self, 'copy', deep=deep)
+
+    def dropna(self, **kwargs):
+        """Remove missing values (lazy)."""
+        return LazySeries(self, 'dropna', **kwargs)
+
+    def fillna(self, value=None, **kwargs):
+        """Fill missing values (lazy)."""
+        return LazySeries(self, 'fillna', value, **kwargs)
+
+    def drop_duplicates(self, **kwargs):
+        """Remove duplicate values (lazy)."""
+        return LazySeries(self, 'drop_duplicates', **kwargs)
+
+    def clip(self, lower=None, upper=None, **kwargs):
+        """Clip values at thresholds (lazy)."""
+        return LazySeries(self, 'clip', lower=lower, upper=upper, **kwargs)
+
+    def abs(self):
+        """Return absolute value (lazy)."""
+        return LazySeries(self, 'abs')
+
+    def round(self, decimals=0):
+        """Round to given number of decimals (lazy)."""
+        return LazySeries(self, 'round', decimals)
+
+    def replace(self, to_replace=None, value=None, **kwargs):
+        """Replace values (lazy)."""
+        return LazySeries(self, 'replace', to_replace=to_replace, value=value, **kwargs)
+
+    def where(self, cond, other=None, **kwargs):
+        """Replace values where condition is False (lazy)."""
+        return LazySeries(self, 'where', cond, other=other, **kwargs)
+
+    def mask(self, cond, other=None, **kwargs):
+        """Replace values where condition is True (lazy)."""
+        return LazySeries(self, 'mask', cond, other=other, **kwargs)
 
     def equals(self, other):
         """Test equality with another object."""
@@ -466,36 +507,183 @@ class LazySeries:
             raise ValueError("Truth value of multi-element result is ambiguous")
         return bool(result)
 
-    # ========== Aggregation Methods (trigger execution, return scalar) ==========
+    # ========== Aggregation Methods (lazy) ==========
 
     def sum(self, *args, **kwargs):
-        """Compute sum of the result."""
-        return self._execute().sum(*args, **kwargs)
+        """Compute sum of the result (lazy)."""
+        return LazySeries(self, 'sum', *args, **kwargs)
 
     def mean(self, *args, **kwargs):
-        """Compute mean of the result."""
-        return self._execute().mean(*args, **kwargs)
+        """Compute mean of the result (lazy)."""
+        return LazySeries(self, 'mean', *args, **kwargs)
 
     def min(self, *args, **kwargs):
-        """Compute min of the result."""
-        return self._execute().min(*args, **kwargs)
+        """Compute min of the result (lazy)."""
+        return LazySeries(self, 'min', *args, **kwargs)
 
     def max(self, *args, **kwargs):
-        """Compute max of the result."""
-        return self._execute().max(*args, **kwargs)
+        """Compute max of the result (lazy)."""
+        return LazySeries(self, 'max', *args, **kwargs)
 
     def std(self, *args, **kwargs):
-        """Compute standard deviation of the result."""
-        return self._execute().std(*args, **kwargs)
+        """Compute standard deviation of the result (lazy)."""
+        return LazySeries(self, 'std', *args, **kwargs)
 
     def var(self, *args, **kwargs):
-        """Compute variance of the result."""
-        return self._execute().var(*args, **kwargs)
+        """Compute variance of the result (lazy)."""
+        return LazySeries(self, 'var', *args, **kwargs)
 
     def median(self, *args, **kwargs):
-        """Compute median of the result."""
-        return self._execute().median(*args, **kwargs)
+        """Compute median of the result (lazy)."""
+        return LazySeries(self, 'median', *args, **kwargs)
 
     def count(self, *args, **kwargs):
-        """Count non-NA values."""
-        return self._execute().count(*args, **kwargs)
+        """Count non-NA values (lazy)."""
+        return LazySeries(self, 'count', *args, **kwargs)
+
+
+class LazyGroupBySize:
+    """
+    Lazy wrapper for groupby().size() that returns pd.Series when executed.
+
+    This maintains pandas compatibility where size() returns a Series,
+    not a DataFrame.
+
+    Example:
+        >>> ds.groupby('category').size()  # Returns LazyGroupBySize
+        LazyGroupBySize(['category'])
+
+        >>> print(ds.groupby('category').size())  # Triggers execution, returns Series
+        category
+        A    10
+        B     5
+        dtype: int64
+    """
+
+    def __init__(self, datastore: 'DataStore', groupby_cols: list):
+        """
+        Args:
+            datastore: The source DataStore
+            groupby_cols: List of column names to group by
+        """
+        self._datastore = datastore
+        self._groupby_cols = groupby_cols
+        self._cached_result: Optional[pd.Series] = None
+
+    def _execute(self) -> pd.Series:
+        """Execute the groupby size operation."""
+        if self._cached_result is not None:
+            return self._cached_result
+
+        # Execute the datastore to get DataFrame
+        df = self._datastore._execute()
+
+        # Apply groupby and size
+        self._cached_result = df.groupby(self._groupby_cols).size()
+        return self._cached_result
+
+    # ========== Natural Execution Triggers ==========
+
+    @property
+    def values(self) -> np.ndarray:
+        """Get values array (triggers execution)."""
+        return self._execute().values
+
+    @property
+    def index(self) -> pd.Index:
+        """Get index (triggers execution)."""
+        return self._execute().index
+
+    @property
+    def dtype(self):
+        """Get dtype (triggers execution)."""
+        return self._execute().dtype
+
+    @property
+    def name(self):
+        """Get series name (triggers execution)."""
+        return self._execute().name
+
+    @property
+    def shape(self):
+        """Get shape (triggers execution)."""
+        return self._execute().shape
+
+    def __len__(self) -> int:
+        """Get length (triggers execution)."""
+        return len(self._execute())
+
+    def __iter__(self):
+        """Iterate over values (triggers execution)."""
+        return iter(self._execute())
+
+    def __array__(self, dtype=None):
+        """NumPy array protocol (triggers execution)."""
+        result = self._execute()
+        if dtype is not None:
+            return np.asarray(result, dtype=dtype)
+        return np.asarray(result)
+
+    def __getitem__(self, key):
+        """Get item by key (triggers execution)."""
+        return self._execute()[key]
+
+    def __repr__(self) -> str:
+        """String representation (triggers execution)."""
+        return repr(self._execute())
+
+    def __str__(self) -> str:
+        """String representation (triggers execution)."""
+        return str(self._execute())
+
+    def _repr_html_(self) -> str:
+        """HTML representation for Jupyter (triggers execution)."""
+        result = self._execute()
+        if hasattr(result, '_repr_html_'):
+            return result._repr_html_()
+        return f"<pre>{result}</pre>"
+
+    # ========== Comparison Operators ==========
+
+    def __eq__(self, other):
+        """Equality comparison (triggers execution)."""
+        result = self._execute()
+        if isinstance(other, LazyGroupBySize):
+            other = other._execute()
+        return result.equals(other) if isinstance(other, pd.Series) else result == other
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    # ========== Series Methods ==========
+
+    def sort_index(self, *args, **kwargs) -> pd.Series:
+        """Sort by index (triggers execution)."""
+        return self._execute().sort_index(*args, **kwargs)
+
+    def sort_values(self, *args, **kwargs) -> pd.Series:
+        """Sort by values (triggers execution)."""
+        return self._execute().sort_values(*args, **kwargs)
+
+    def reset_index(self, *args, **kwargs):
+        """Reset index (triggers execution)."""
+        return self._execute().reset_index(*args, **kwargs)
+
+    def to_frame(self, *args, **kwargs) -> pd.DataFrame:
+        """Convert to DataFrame (triggers execution)."""
+        return self._execute().to_frame(*args, **kwargs)
+
+    def to_list(self) -> list:
+        """Convert to list (triggers execution)."""
+        return self._execute().to_list()
+
+    def to_dict(self, *args, **kwargs) -> dict:
+        """Convert to dict (triggers execution)."""
+        return self._execute().to_dict(*args, **kwargs)
+
+    def equals(self, other) -> bool:
+        """Check equality with another Series (triggers execution)."""
+        result = self._execute()
+        if isinstance(other, LazyGroupBySize):
+            other = other._execute()
+        return result.equals(other)

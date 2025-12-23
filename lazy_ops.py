@@ -145,6 +145,7 @@ class LazyColumnAssignment(LazyOp):
         from .functions import Function, CastFunction
         from .function_executor import function_config
         from .column_expr import ColumnExpr
+        from .expressions import DateTimePropertyExpr, DateTimeMethodExpr
 
         # Handle ColumnExpr - unwrap
         if isinstance(expr, ColumnExpr):
@@ -153,6 +154,20 @@ class LazyColumnAssignment(LazyOp):
         if isinstance(expr, CastFunction):
             # CastFunction always uses chDB
             return 'chDB'
+
+        elif isinstance(expr, DateTimePropertyExpr):
+            # DateTime property - check function_config for engine selection
+            if function_config.should_use_pandas(expr.property_name):
+                return 'Pandas'
+            else:
+                return 'chDB'
+
+        elif isinstance(expr, DateTimeMethodExpr):
+            # DateTime method - check function_config for engine selection
+            if function_config.should_use_pandas(expr.method_name):
+                return 'Pandas'
+            else:
+                return 'chDB'
 
         elif isinstance(expr, Function):
             # Check function config
@@ -562,6 +577,63 @@ class LazyRelationalOp(LazyOp):
 
     def can_push_to_sql(self) -> bool:
         return True
+
+
+class LazyGroupByAgg(LazyOp):
+    """
+    Lazy groupby aggregation operation.
+
+    This allows groupby operations to remain lazy until execution is triggered.
+    Returns a DataFrame with group keys as index (or columns if as_index=False).
+
+    Example:
+        ds.groupby('category').mean()  # Returns DataStore with LazyGroupByAgg
+        ds.groupby('category').agg({'value': 'sum'})
+    """
+
+    def __init__(self, groupby_cols: List[str], agg_func: str = None, agg_dict: dict = None, **kwargs):
+        """
+        Args:
+            groupby_cols: Column names to group by
+            agg_func: Aggregation function name ('mean', 'sum', etc.) for all columns
+            agg_dict: Dict mapping columns to aggregation functions (for pandas-style agg)
+            **kwargs: Additional arguments passed to aggregation function
+        """
+        super().__init__()
+        self.groupby_cols = groupby_cols
+        self.agg_func = agg_func
+        self.agg_dict = agg_dict
+        self.kwargs = kwargs
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute groupby aggregation on DataFrame."""
+        self._log_execute("GroupByAgg", f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict}")
+
+        grouped = df.groupby(self.groupby_cols)
+
+        if self.agg_dict is not None:
+            # Pandas-style: agg({'col': 'func'})
+            result = grouped.agg(self.agg_dict, **self.kwargs)
+        elif self.agg_func == 'size':
+            # size() returns Series, convert to DataFrame
+            result = grouped.size().to_frame('size')
+        else:
+            # Single function for all columns
+            agg_method = getattr(grouped, self.agg_func)
+            result = agg_method(**self.kwargs)
+
+        # Keep group keys as index (pandas default behavior)
+        # Users can call .reset_index() if they want group keys as columns
+
+        self._logger.debug("      -> GroupBy result shape: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        if self.agg_dict:
+            func_str = str(self.agg_dict)
+        else:
+            func_str = self.agg_func
+        return f"GroupBy({self.groupby_cols}).{func_str}()"
 
 
 class LazyDataFrameSource(LazyOp):

@@ -952,9 +952,13 @@ class ColumnExpr:
 
     @property
     def name(self) -> Optional[str]:
-        """Return the name of the column if it's a simple Field."""
+        """Return the name of the column (triggers execution if not a simple Field)."""
         if isinstance(self._expr, Field):
             return self._expr.name
+        # For complex expressions, execute and get the result's name
+        result = self._execute()
+        if hasattr(result, 'name'):
+            return result.name
         return None
 
     @property
@@ -1193,20 +1197,20 @@ class ColumnExpr:
 
     def copy(self, deep=True):
         """
-        Make a copy of this ColumnExpr's data.
+        Make a copy of this ColumnExpr's data (lazy).
 
         Args:
             deep: Make a deep copy (default True)
 
         Returns:
-            pd.Series: A copy of the executed data
+            LazySeries: Lazy wrapper returning a copy of the data
 
         Example:
             >>> s = ds['age'].copy()
-            >>> type(s)
-            <class 'pandas.core.series.Series'>
+            >>> s.values  # Triggers execution
+            array([28, 31, 29, 45, 22])
         """
-        return self._execute().copy(deep=deep)
+        return LazySeries(self, 'copy', deep=deep)
 
     def describe(self, percentiles=None, include=None, exclude=None):
         """
@@ -1443,7 +1447,7 @@ class ColumnExpr:
 
     def where(self, cond, other=pd.NA, inplace=False, axis=None, level=None):
         """
-        Replace values where the condition is False.
+        Replace values where the condition is False (lazy).
 
         Args:
             cond: Where True, keep the original value. Where False, replace.
@@ -1453,7 +1457,7 @@ class ColumnExpr:
             level: Alignment level.
 
         Returns:
-            pd.Series: Series with replaced values
+            LazySeries: Lazy wrapper returning Series with replaced values
 
         Example:
             >>> ds['age'].where(ds['age'] > 25, 0)
@@ -1464,13 +1468,7 @@ class ColumnExpr:
             4     0
             Name: age, dtype: int64
         """
-        series = self._execute()
-        # Handle condition
-        if isinstance(cond, ColumnExpr):
-            cond = cond._execute()
-        elif hasattr(cond, '_execute'):
-            cond = cond._execute()
-        return series.where(cond, other=other, axis=axis, level=level)
+        return LazySeries(self, 'where', cond, other=other, axis=axis, level=level)
 
     def argsort(self, axis=0, kind='quicksort', order=None, stable=None):
         """
@@ -2741,188 +2739,188 @@ class ColumnExprStringAccessor:
 
 class ColumnExprDateTimeAccessor:
     """
-    DateTime accessor for ColumnExpr that returns ColumnExpr for each method.
+    DateTime accessor for ColumnExpr that defers engine selection to execution time.
 
-    Includes workaround for chDB issue #448 - automatically converts string columns
-    to datetime before applying datetime operations.
+    All properties return ColumnExpr wrapping DateTimePropertyExpr, which is evaluated
+    by ExpressionEvaluator at execution time. The evaluator checks function_config
+    to determine whether to use chDB SQL functions or pandas .dt accessor.
+
+    This design:
+    1. Defers engine selection to execution time (not definition time)
+    2. Supports function-level engine configuration via function_config
+    3. Allows the same expression tree to be evaluated differently based on config
+
+    Example:
+        >>> ds['date'].dt.year  # Returns ColumnExpr with DateTimePropertyExpr
+        >>> # At execution time:
+        >>> # - If function_config.should_use_pandas('year'): s.dt.year
+        >>> # - Otherwise: toYear(date_col) via chDB
     """
 
     def __init__(self, column_expr: ColumnExpr):
         self._column_expr = column_expr
-        self._base_accessor = column_expr._expr.dt
 
-    def _get_datetime_series(self) -> pd.Series:
-        """
-        Get the column as a datetime Series, converting if necessary.
+    def _make_property_expr(self, property_name: str) -> ColumnExpr:
+        """Create a ColumnExpr wrapping DateTimePropertyExpr for lazy evaluation."""
+        from .expressions import DateTimePropertyExpr
 
-        Workaround for chDB issue #448 - string columns need conversion
-        before datetime operations.
+        expr = DateTimePropertyExpr(self._column_expr._expr, property_name)
+        return ColumnExpr(expr, self._column_expr._datastore)
 
-        Returns:
-            pandas Series with datetime dtype
-        """
-        # Execute the column
-        series = self._column_expr._execute()
+    def _make_method_expr(self, method_name: str, *args, **kwargs) -> ColumnExpr:
+        """Create a ColumnExpr wrapping DateTimeMethodExpr for lazy evaluation."""
+        from .expressions import DateTimeMethodExpr
 
-        # If already datetime, return as-is
-        if pd.api.types.is_datetime64_any_dtype(series):
-            return series
-
-        # Try to convert string/object columns to datetime
-        if series.dtype == 'object' or pd.api.types.is_string_dtype(series):
-            try:
-                return pd.to_datetime(series, errors='coerce')
-            except Exception:
-                pass
-
-        return series
+        expr = DateTimeMethodExpr(self._column_expr._expr, method_name, args, kwargs)
+        return ColumnExpr(expr, self._column_expr._datastore)
 
     @property
-    def year(self) -> pd.Series:
-        """Extract year from date/datetime."""
-        return self._get_datetime_series().dt.year
+    def year(self) -> ColumnExpr:
+        """Extract year from date/datetime. Engine selected at execution time."""
+        return self._make_property_expr('year')
 
     @property
-    def month(self) -> pd.Series:
-        """Extract month from date/datetime (1-12)."""
-        return self._get_datetime_series().dt.month
+    def month(self) -> ColumnExpr:
+        """Extract month from date/datetime (1-12). Engine selected at execution time."""
+        return self._make_property_expr('month')
 
     @property
-    def day(self) -> pd.Series:
-        """Extract day of month from date/datetime (1-31)."""
-        return self._get_datetime_series().dt.day
+    def day(self) -> ColumnExpr:
+        """Extract day of month from date/datetime (1-31). Engine selected at execution time."""
+        return self._make_property_expr('day')
 
     @property
-    def hour(self) -> pd.Series:
-        """Extract hour from datetime (0-23)."""
-        return self._get_datetime_series().dt.hour
+    def hour(self) -> ColumnExpr:
+        """Extract hour from datetime (0-23). Engine selected at execution time."""
+        return self._make_property_expr('hour')
 
     @property
-    def minute(self) -> pd.Series:
-        """Extract minute from datetime (0-59)."""
-        return self._get_datetime_series().dt.minute
+    def minute(self) -> ColumnExpr:
+        """Extract minute from datetime (0-59). Engine selected at execution time."""
+        return self._make_property_expr('minute')
 
     @property
-    def second(self) -> pd.Series:
-        """Extract second from datetime (0-59)."""
-        return self._get_datetime_series().dt.second
+    def second(self) -> ColumnExpr:
+        """Extract second from datetime (0-59). Engine selected at execution time."""
+        return self._make_property_expr('second')
 
     @property
-    def microsecond(self) -> pd.Series:
-        """Extract microsecond from datetime."""
-        return self._get_datetime_series().dt.microsecond
+    def microsecond(self) -> ColumnExpr:
+        """Extract microsecond from datetime. Always uses pandas (no chDB equivalent)."""
+        return self._make_property_expr('microsecond')
 
     @property
-    def nanosecond(self) -> pd.Series:
-        """Extract nanosecond from datetime."""
-        return self._get_datetime_series().dt.nanosecond
+    def nanosecond(self) -> ColumnExpr:
+        """Extract nanosecond from datetime. Always uses pandas (no chDB equivalent)."""
+        return self._make_property_expr('nanosecond')
 
     @property
-    def dayofweek(self) -> pd.Series:
-        """Return day of the week (Monday=0, Sunday=6)."""
-        return self._get_datetime_series().dt.dayofweek
+    def dayofweek(self) -> ColumnExpr:
+        """Return day of the week (Monday=0). Engine selected at execution time."""
+        return self._make_property_expr('dayofweek')
 
     @property
-    def weekday(self) -> pd.Series:
-        """Return day of the week (Monday=0, Sunday=6). Alias for dayofweek."""
-        return self._get_datetime_series().dt.weekday
+    def weekday(self) -> ColumnExpr:
+        """Alias for dayofweek."""
+        return self._make_property_expr('weekday')
 
     @property
-    def dayofyear(self) -> pd.Series:
-        """Return day of the year (1-366)."""
-        return self._get_datetime_series().dt.dayofyear
+    def dayofyear(self) -> ColumnExpr:
+        """Return day of the year (1-366). Engine selected at execution time."""
+        return self._make_property_expr('dayofyear')
 
     @property
-    def quarter(self) -> pd.Series:
-        """Return quarter of the year (1-4)."""
-        return self._get_datetime_series().dt.quarter
+    def quarter(self) -> ColumnExpr:
+        """Return quarter of the year (1-4). Engine selected at execution time."""
+        return self._make_property_expr('quarter')
 
     @property
-    def is_month_start(self) -> pd.Series:
-        """Indicate whether the date is the first day of a month."""
-        return self._get_datetime_series().dt.is_month_start
+    def week(self) -> ColumnExpr:
+        """Return ISO week number. Engine selected at execution time."""
+        return self._make_property_expr('week')
 
     @property
-    def is_month_end(self) -> pd.Series:
-        """Indicate whether the date is the last day of a month."""
-        return self._get_datetime_series().dt.is_month_end
+    def weekofyear(self) -> ColumnExpr:
+        """Alias for week."""
+        return self._make_property_expr('weekofyear')
 
     @property
-    def is_quarter_start(self) -> pd.Series:
-        """Indicate whether the date is the first day of a quarter."""
-        return self._get_datetime_series().dt.is_quarter_start
+    def date(self) -> ColumnExpr:
+        """Return date part. Engine selected at execution time."""
+        return self._make_property_expr('date')
 
     @property
-    def is_quarter_end(self) -> pd.Series:
-        """Indicate whether the date is the last day of a quarter."""
-        return self._get_datetime_series().dt.is_quarter_end
+    def is_month_start(self) -> ColumnExpr:
+        """Indicate whether the date is the first day of a month. Always uses pandas."""
+        return self._make_property_expr('is_month_start')
 
     @property
-    def is_year_start(self) -> pd.Series:
-        """Indicate whether the date is the first day of a year."""
-        return self._get_datetime_series().dt.is_year_start
+    def is_month_end(self) -> ColumnExpr:
+        """Indicate whether the date is the last day of a month. Always uses pandas."""
+        return self._make_property_expr('is_month_end')
 
     @property
-    def is_year_end(self) -> pd.Series:
-        """Indicate whether the date is the last day of a year."""
-        return self._get_datetime_series().dt.is_year_end
+    def is_quarter_start(self) -> ColumnExpr:
+        """Indicate whether the date is the first day of a quarter. Always uses pandas."""
+        return self._make_property_expr('is_quarter_start')
 
     @property
-    def days_in_month(self) -> pd.Series:
-        """Return the number of days in the month."""
-        return self._get_datetime_series().dt.days_in_month
+    def is_quarter_end(self) -> ColumnExpr:
+        """Indicate whether the date is the last day of a quarter. Always uses pandas."""
+        return self._make_property_expr('is_quarter_end')
 
     @property
-    def date(self) -> pd.Series:
-        """Return the date part of the datetime."""
-        return self._get_datetime_series().dt.date
+    def is_year_start(self) -> ColumnExpr:
+        """Indicate whether the date is the first day of a year. Always uses pandas."""
+        return self._make_property_expr('is_year_start')
 
     @property
-    def time(self) -> pd.Series:
-        """Return the time part of the datetime."""
-        return self._get_datetime_series().dt.time
+    def is_year_end(self) -> ColumnExpr:
+        """Indicate whether the date is the last day of a year. Always uses pandas."""
+        return self._make_property_expr('is_year_end')
 
-    def strftime(self, date_format: str) -> pd.Series:
-        """Format datetime as string using strftime format."""
-        return self._get_datetime_series().dt.strftime(date_format)
+    @property
+    def is_leap_year(self) -> ColumnExpr:
+        """Indicate whether the date is in a leap year. Always uses pandas."""
+        return self._make_property_expr('is_leap_year')
 
-    def floor(self, freq: str) -> pd.Series:
-        """Floor datetime to specified frequency."""
-        return self._get_datetime_series().dt.floor(freq)
+    @property
+    def days_in_month(self) -> ColumnExpr:
+        """Return number of days in month. Always uses pandas."""
+        return self._make_property_expr('days_in_month')
 
-    def ceil(self, freq: str) -> pd.Series:
-        """Ceil datetime to specified frequency."""
-        return self._get_datetime_series().dt.ceil(freq)
+    def strftime(self, fmt: str) -> ColumnExpr:
+        """Format datetime as string. Engine selected at execution time."""
+        return self._make_method_expr('strftime', fmt)
 
-    def round(self, freq: str) -> pd.Series:
-        """Round datetime to specified frequency."""
-        return self._get_datetime_series().dt.round(freq)
+    def floor(self, freq: str) -> ColumnExpr:
+        """Floor datetime to frequency. Always uses pandas."""
+        return self._make_method_expr('floor_dt', freq)
 
-    def tz_localize(self, tz, ambiguous='raise', nonexistent='raise'):
-        """Localize tz-naive datetime to tz-aware datetime."""
-        return self._get_datetime_series().dt.tz_localize(tz, ambiguous=ambiguous, nonexistent=nonexistent)
+    def ceil(self, freq: str) -> ColumnExpr:
+        """Ceil datetime to frequency. Always uses pandas."""
+        return self._make_method_expr('ceil_dt', freq)
 
-    def tz_convert(self, tz):
-        """Convert tz-aware datetime to another timezone."""
-        return self._get_datetime_series().dt.tz_convert(tz)
+    def round(self, freq: str) -> ColumnExpr:
+        """Round datetime to frequency. Always uses pandas."""
+        return self._make_method_expr('round_dt', freq)
 
-    def normalize(self) -> pd.Series:
-        """Normalize times to midnight."""
-        return self._get_datetime_series().dt.normalize()
+    def tz_localize(self, tz) -> ColumnExpr:
+        """Localize to timezone. Always uses pandas."""
+        return self._make_method_expr('tz_localize', tz)
 
-    def __getattr__(self, name: str):
-        """Fallback: delegate to base accessor and wrap result in ColumnExpr."""
-        base_method = getattr(self._base_accessor, name)
+    def tz_convert(self, tz) -> ColumnExpr:
+        """Convert to timezone. Always uses pandas."""
+        return self._make_method_expr('tz_convert', tz)
 
-        # Check if it's a property (like .year, .month)
-        if not callable(base_method):
-            return ColumnExpr(base_method, self._column_expr._datastore)
+    def normalize(self) -> ColumnExpr:
+        """Normalize times to midnight. Always uses pandas."""
+        return self._make_method_expr('normalize')
 
-        def wrapper(*args, **kwargs):
-            result = base_method(*args, **kwargs)
-            return ColumnExpr(result, self._column_expr._datastore)
-
-        return wrapper
+    @property
+    def time(self) -> ColumnExpr:
+        """Return the time part of the datetime. Always uses pandas."""
+        return self._make_property_expr('time')
 
     def __repr__(self) -> str:
         return f"ColumnExprDateTimeAccessor({self._column_expr._expr!r})"
@@ -3283,20 +3281,20 @@ class LazyAggregate:
         return result == other
 
     def __lt__(self, other):
-        result = self._execute()
-        return result < other
+        """Element-wise less-than (lazy)."""
+        return LazySeries(self, '__lt__', other)
 
     def __le__(self, other):
-        result = self._execute()
-        return result <= other
+        """Element-wise less-than-or-equal (lazy)."""
+        return LazySeries(self, '__le__', other)
 
     def __gt__(self, other):
-        result = self._execute()
-        return result > other
+        """Element-wise greater-than (lazy)."""
+        return LazySeries(self, '__gt__', other)
 
     def __ge__(self, other):
-        result = self._execute()
-        return result >= other
+        """Element-wise greater-than-or-equal (lazy)."""
+        return LazySeries(self, '__ge__', other)
 
     # ========== Pandas-compatible comparison methods ==========
 

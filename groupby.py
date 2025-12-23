@@ -154,41 +154,30 @@ class LazyGroupBy:
             return self._datastore.agg(func, **kwargs)
         else:
             # Pandas-style aggregation: agg({'col': 'func'})
-            # Execute the DataFrame and apply groupby().agg() directly
-            df = self._datastore._execute()
+            # Return lazy DataStore with LazyGroupByAgg operation
+            return self._create_lazy_agg_datastore(agg_dict=func, **kwargs)
 
-            # Get groupby column names
-            groupby_cols = []
-            for gf in self._groupby_fields:
-                if isinstance(gf, Field):
-                    groupby_cols.append(gf.name)
-                else:
-                    groupby_cols.append(str(gf))
-
-            # Apply pandas groupby and agg
-            return df.groupby(groupby_cols).agg(func, **kwargs)
-
-    def mean(self, numeric_only: bool = False) -> pd.DataFrame:
-        """Compute mean of groups."""
+    def mean(self, numeric_only: bool = False) -> 'DataStore':
+        """Compute mean of groups. Returns lazy DataStore."""
         return self._apply_agg('mean', numeric_only=numeric_only)
 
-    def sum(self, numeric_only: bool = False) -> pd.DataFrame:
-        """Compute sum of groups."""
+    def sum(self, numeric_only: bool = False) -> 'DataStore':
+        """Compute sum of groups. Returns lazy DataStore."""
         return self._apply_agg('sum', numeric_only=numeric_only)
 
-    def count(self) -> pd.DataFrame:
-        """Compute count of groups."""
+    def count(self) -> 'DataStore':
+        """Compute count of groups. Returns lazy DataStore."""
         return self._apply_agg('count')
 
-    def size(self) -> pd.Series:
+    def size(self) -> 'LazyGroupBySize':
         """
         Compute group sizes (number of rows in each group).
 
         Unlike count(), size() includes NaN values and returns a Series
-        (not a DataFrame).
+        (matching pandas behavior).
 
         Returns:
-            pd.Series: Series with group sizes, indexed by group keys.
+            LazyGroupBySize: Lazy wrapper that returns pd.Series when executed.
 
         Example:
             >>> ds.groupby('department').size()
@@ -198,8 +187,7 @@ class LazyGroupBy:
             Marketing       3
             dtype: int64
         """
-        # Execute the ORIGINAL datastore (this checkpoints it!)
-        df = self._datastore._execute()
+        from .lazy_result import LazyGroupBySize
 
         # Get groupby column names
         groupby_cols = []
@@ -209,42 +197,54 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Apply pandas groupby and size
-        return df.groupby(groupby_cols).size()
+        return LazyGroupBySize(self._datastore, groupby_cols)
 
-    def min(self, numeric_only: bool = False) -> pd.DataFrame:
-        """Compute min of groups."""
+    def min(self, numeric_only: bool = False) -> 'DataStore':
+        """Compute min of groups. Returns lazy DataStore."""
         return self._apply_agg('min', numeric_only=numeric_only)
 
-    def max(self, numeric_only: bool = False) -> pd.DataFrame:
-        """Compute max of groups."""
+    def max(self, numeric_only: bool = False) -> 'DataStore':
+        """Compute max of groups. Returns lazy DataStore."""
         return self._apply_agg('max', numeric_only=numeric_only)
 
-    def std(self, numeric_only: bool = False) -> pd.DataFrame:
-        """Compute standard deviation of groups."""
+    def std(self, numeric_only: bool = False) -> 'DataStore':
+        """Compute standard deviation of groups. Returns lazy DataStore."""
         return self._apply_agg('std', numeric_only=numeric_only)
 
-    def var(self, numeric_only: bool = False) -> pd.DataFrame:
-        """Compute variance of groups."""
+    def var(self, numeric_only: bool = False) -> 'DataStore':
+        """Compute variance of groups. Returns lazy DataStore."""
         return self._apply_agg('var', numeric_only=numeric_only)
 
-    def first(self) -> pd.DataFrame:
-        """Return first value in each group."""
+    def first(self) -> 'DataStore':
+        """Return first value in each group. Returns lazy DataStore."""
         return self._apply_agg('first')
 
-    def last(self) -> pd.DataFrame:
-        """Return last value in each group."""
+    def last(self) -> 'DataStore':
+        """Return last value in each group. Returns lazy DataStore."""
         return self._apply_agg('last')
 
-    def _apply_agg(self, func_name: str, **kwargs) -> pd.DataFrame:
+    def _apply_agg(self, func_name: str, **kwargs) -> 'DataStore':
         """
         Apply aggregation function to all columns.
 
-        This executes the ORIGINAL DataStore and performs
-        pandas groupby aggregation.
+        Returns a lazy DataStore with the aggregation operation.
         """
-        # Execute the ORIGINAL datastore (this checkpoints it!)
-        df = self._datastore._execute()
+        return self._create_lazy_agg_datastore(agg_func=func_name, **kwargs)
+
+    def _create_lazy_agg_datastore(self, agg_func: str = None, agg_dict: dict = None, **kwargs) -> 'DataStore':
+        """
+        Create a new DataStore with lazy groupby aggregation.
+
+        Args:
+            agg_func: Aggregation function name ('mean', 'sum', etc.)
+            agg_dict: Dict mapping columns to aggregation functions
+            **kwargs: Additional arguments for the aggregation function
+
+        Returns:
+            DataStore: New DataStore with lazy groupby aggregation
+        """
+        from .lazy_ops import LazyGroupByAgg
+        from copy import copy
 
         # Get groupby column names
         groupby_cols = []
@@ -254,12 +254,13 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Apply pandas groupby
-        grouped = df.groupby(groupby_cols)
+        # Create a shallow copy of the datastore
+        new_ds = copy(self._datastore)
 
-        # Apply aggregation
-        agg_method = getattr(grouped, func_name)
-        return agg_method(**kwargs)
+        # Add the lazy groupby aggregation operation
+        new_ds._add_lazy_op(LazyGroupByAgg(groupby_cols=groupby_cols, agg_func=agg_func, agg_dict=agg_dict, **kwargs))
+
+        return new_ds
 
     # ========== SQL Building Methods ==========
     # These methods support SQL building patterns like:

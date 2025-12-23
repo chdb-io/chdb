@@ -131,6 +131,24 @@ class ExpressionEvaluator:
             args = tuple(_execute_arg(arg) for arg in expr._args)
             kwargs = {k: _execute_arg(v) for k, v in expr._kwargs.items()}
 
+            # Handle special _dt_* methods for datetime operations (pandas fallback)
+            if expr._method_name.startswith('_dt_'):
+                dt_attr = expr._method_name[4:]  # Remove '_dt_' prefix
+                # Convert to datetime if needed
+                if not pd.api.types.is_datetime64_any_dtype(source_series):
+                    if source_series.dtype == 'object' or pd.api.types.is_string_dtype(source_series):
+                        try:
+                            source_series = pd.to_datetime(source_series, errors='coerce')
+                        except Exception:
+                            pass
+                # Access .dt accessor
+                dt_accessor = source_series.dt
+                attr = getattr(dt_accessor, dt_attr)
+                if callable(attr):
+                    return attr(*args, **kwargs)
+                else:
+                    return attr
+
             # Apply the method on the series
             method = getattr(source_series, expr._method_name)
             return method(*args, **kwargs)
@@ -155,6 +173,16 @@ class ExpressionEvaluator:
         elif isinstance(expr, CastFunction):
             # Special handling for CAST - always use chDB
             return self._evaluate_via_chdb(expr)
+
+        # Handle DateTimePropertyExpr and DateTimeMethodExpr
+        # Engine selection happens here at execution time based on function_config
+        elif hasattr(expr, 'property_name') and hasattr(expr, 'source_expr'):
+            # DateTimePropertyExpr
+            return self._evaluate_datetime_property(expr)
+
+        elif hasattr(expr, 'method_name') and hasattr(expr, 'source_expr') and hasattr(expr, 'args'):
+            # DateTimeMethodExpr
+            return self._evaluate_datetime_method(expr)
 
         elif isinstance(expr, Function):
             # Function call - check execution config
@@ -341,6 +369,141 @@ class ExpressionEvaluator:
 
         result = expr_val.astype(str).str.match(pattern, case=cond.case_sensitive)
         return ~result if cond.negate else result
+
+    def _evaluate_datetime_property(self, expr) -> pd.Series:
+        """
+        Evaluate a DateTimePropertyExpr using function_config to select engine.
+
+        At execution time, checks function_config.should_use_pandas(property_name)
+        to determine whether to use pandas .dt accessor or chDB SQL function.
+        """
+        from .function_executor import function_config
+
+        property_name = expr.property_name
+
+        # Check if this property should use pandas
+        if function_config.should_use_pandas(property_name):
+            self._logger.debug("[ExprEval] DateTime property '%s' -> Pandas", property_name)
+            return self._evaluate_datetime_property_pandas(expr)
+        else:
+            self._logger.debug("[ExprEval] DateTime property '%s' -> chDB", property_name)
+            return self._evaluate_datetime_property_chdb(expr)
+
+    def _evaluate_datetime_property_pandas(self, expr) -> pd.Series:
+        """Evaluate datetime property using pandas .dt accessor."""
+        source_series = self.evaluate(expr.source_expr)
+
+        # Convert to datetime if needed
+        if not pd.api.types.is_datetime64_any_dtype(source_series):
+            if source_series.dtype == 'object' or pd.api.types.is_string_dtype(source_series):
+                try:
+                    source_series = pd.to_datetime(source_series, errors='coerce')
+                except Exception:
+                    pass
+
+        # Access .dt accessor
+        dt_accessor = source_series.dt
+        result = getattr(dt_accessor, expr.property_name)
+
+        # Handle dayofweek/weekday already returning 0-indexed Monday in pandas
+        return result
+
+    def _evaluate_datetime_property_chdb(self, expr) -> pd.Series:
+        """Evaluate datetime property using chDB SQL function."""
+        from .expressions import DateTimePropertyExpr
+        from .functions import Function
+
+        # For chDB, we need to construct a Function expression and evaluate via chDB
+        # First convert source to datetime, then apply function
+        source_sql = expr.source_expr.to_sql(quote_char='"')
+
+        ch_func = DateTimePropertyExpr.CHDB_FUNCTION_MAP.get(expr.property_name)
+        if not ch_func:
+            # No chDB mapping, fall back to pandas
+            self._logger.debug("[ExprEval] No chDB mapping for '%s', using pandas", expr.property_name)
+            return self._evaluate_datetime_property_pandas(expr)
+
+        # Build the SQL expression with proper datetime handling
+        # Use toString + parseDateTimeBestEffort for robust type handling
+        sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})))"
+
+        # Handle dayofweek adjustment (chDB is 1-7 Monday, pandas is 0-6 Monday)
+        if expr.property_name in ('dayofweek', 'weekday'):
+            sql_expr = f"({sql_expr} - 1)"
+
+        # Execute via chDB
+        return self._execute_sql_expression(sql_expr)
+
+    def _evaluate_datetime_method(self, expr) -> pd.Series:
+        """
+        Evaluate a DateTimeMethodExpr using function_config to select engine.
+        """
+        from .function_executor import function_config
+
+        method_name = expr.method_name
+
+        # Check if this method should use pandas
+        if function_config.should_use_pandas(method_name):
+            self._logger.debug("[ExprEval] DateTime method '%s' -> Pandas", method_name)
+            return self._evaluate_datetime_method_pandas(expr)
+        else:
+            self._logger.debug("[ExprEval] DateTime method '%s' -> chDB", method_name)
+            return self._evaluate_datetime_method_chdb(expr)
+
+    def _evaluate_datetime_method_pandas(self, expr) -> pd.Series:
+        """Evaluate datetime method using pandas .dt accessor."""
+        source_series = self.evaluate(expr.source_expr)
+
+        # Convert to datetime if needed
+        if not pd.api.types.is_datetime64_any_dtype(source_series):
+            if source_series.dtype == 'object' or pd.api.types.is_string_dtype(source_series):
+                try:
+                    source_series = pd.to_datetime(source_series, errors='coerce')
+                except Exception:
+                    pass
+
+        # Get method from .dt accessor
+        dt_accessor = source_series.dt
+
+        # Handle special method names that differ from pandas
+        method_name = expr.method_name
+        if method_name == 'floor_dt':
+            method_name = 'floor'
+        elif method_name == 'ceil_dt':
+            method_name = 'ceil'
+        elif method_name == 'round_dt':
+            method_name = 'round'
+
+        method = getattr(dt_accessor, method_name)
+        return method(*expr.args, **expr.kwargs)
+
+    def _evaluate_datetime_method_chdb(self, expr) -> pd.Series:
+        """Evaluate datetime method using chDB SQL function."""
+        from .expressions import DateTimeMethodExpr
+
+        source_sql = expr.source_expr.to_sql(quote_char='"')
+
+        ch_func = DateTimeMethodExpr.CHDB_FUNCTION_MAP.get(expr.method_name)
+        if not ch_func:
+            # No chDB mapping, fall back to pandas
+            self._logger.debug("[ExprEval] No chDB mapping for method '%s', using pandas", expr.method_name)
+            return self._evaluate_datetime_method_pandas(expr)
+
+        # Build SQL expression
+        if expr.method_name == 'strftime' and expr.args:
+            fmt = expr.args[0]
+            sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})), '{fmt}')"
+        else:
+            sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})))"
+
+        return self._execute_sql_expression(sql_expr)
+
+    def _execute_sql_expression(self, sql_expr: str) -> pd.Series:
+        """Execute a SQL expression against the current DataFrame using chDB."""
+        from .executor import get_executor
+
+        executor = get_executor()
+        return executor.execute_expression(sql_expr, self.df)
 
     def _evaluate_function_via_pandas(self, expr) -> Any:
         """
