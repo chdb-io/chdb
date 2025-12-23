@@ -93,11 +93,47 @@ class ExpressionEvaluator:
         """
         from .functions import Function, CastFunction
         from .function_executor import function_config
-        from .column_expr import ColumnExpr
+        from .column_expr import ColumnExpr, LazyAggregate
+        from .lazy_result import LazySeries
 
         # Handle ColumnExpr - unwrap to get the underlying expression
         if isinstance(expr, ColumnExpr):
             return self.evaluate(expr._expr)
+
+        # Handle LazyAggregate - evaluate using current df context
+        # to avoid recursion when inside DataStore._materialize
+        if isinstance(expr, LazyAggregate):
+            # Get the underlying column expression and evaluate it
+            source_series = self.evaluate(expr._column_expr)
+            # Apply the aggregate method
+            agg_method = getattr(source_series, expr._pandas_agg_func)
+            result = agg_method(**expr._kwargs)
+            return result
+
+        # Handle LazySeries - evaluate the underlying column expr first
+        # to avoid circular materialization, then apply the method
+        if isinstance(expr, LazySeries):
+            # Evaluate the source ColumnExpr using this evaluator's df
+            # (avoids circular materialization when inside DataStore._materialize)
+            source_series = self.evaluate(expr._column_expr)
+
+            # Helper to materialize lazy arguments
+            def _materialize_arg(arg):
+                if isinstance(arg, (ColumnExpr, LazySeries, LazyAggregate)):
+                    result = self.evaluate(arg)
+                    # If it's a single-value Series, extract scalar for fillna-like operations
+                    if isinstance(result, pd.Series) and len(result) == 1:
+                        return result.iloc[0]
+                    return result
+                return arg
+
+            # Materialize any lazy objects in args or kwargs
+            args = tuple(_materialize_arg(arg) for arg in expr._args)
+            kwargs = {k: _materialize_arg(v) for k, v in expr._kwargs.items()}
+
+            # Apply the method on the series
+            method = getattr(source_series, expr._method_name)
+            return method(*args, **kwargs)
 
         if isinstance(expr, Field):
             # Column reference

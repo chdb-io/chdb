@@ -65,7 +65,7 @@ from .core import DataStore
 from .groupby import LazyGroupBy
 from .expressions import Expression, Field, Literal, col
 from .column_expr import ColumnExpr
-from .lazy_result import LazySlice
+from .lazy_result import LazySeries
 from .functions import (
     Function,
     AggregateFunction,
@@ -308,7 +308,7 @@ __all__ = [
     'Field',
     'Literal',
     'ColumnExpr',
-    'LazySlice',
+    'LazySeries',
     'col',
     # Functions
     'Function',

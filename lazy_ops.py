@@ -106,12 +106,16 @@ class LazyColumnAssignment(LazyOp):
 
     def describe(self) -> str:
         from .column_expr import ColumnExpr
+        from .lazy_result import LazySeries
 
         if isinstance(self.expr, ColumnExpr):
             # Use underlying expression's SQL, don't call repr (would materialize)
             expr_str = self.expr._expr.to_sql(quote_char='"')
         elif isinstance(self.expr, Expression):
             expr_str = self.expr.to_sql(quote_char='"')
+        elif isinstance(self.expr, LazySeries):
+            # Avoid triggering execution - use descriptive string
+            expr_str = f"<LazySeries: {self.expr._method_name}>"
         elif isinstance(self.expr, pd.Series):
             # Avoid printing entire Series content
             expr_str = f"<Series: {self.expr.dtype}, len={len(self.expr)}>"

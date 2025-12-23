@@ -6,303 +6,440 @@ immediately. These classes maintain the lazy evaluation chain and only execute
 when display or explicit conversion is triggered.
 
 Key classes:
-- LazySlice: Wraps head()/tail() operations for lazy evaluation
+- LazySeries: Wraps any Series method call for lazy evaluation
+- LazySeries: Wraps any Series method call for lazy evaluation (including head/tail)
+
+Design Principle:
+    All operations on ColumnExpr should return lazy objects that:
+    1. Build an expression tree (don't execute immediately)
+    2. Execute only when displayed or explicitly converted
+    3. Can choose execution engine (Pandas vs SQL) at execution time
+    4. Cache results to avoid re-execution
 """
 
-from typing import TYPE_CHECKING, Union, Optional, Any
+from typing import TYPE_CHECKING, Union, Optional, Any, Callable
 import pandas as pd
+import numpy as np
 
 if TYPE_CHECKING:
     from .column_expr import ColumnExpr, LazyAggregate
     from .core import DataStore
 
 
-class LazySlice:
+class LazySeries:
     """
-    A lazy slice of a Series/DataFrame that executes only when displayed.
+    A lazy wrapper for Series method calls that executes only when displayed.
 
-    Wraps head()/tail() operations to maintain lazy evaluation chain.
-    This allows SQL LIMIT optimization and consistent lazy behavior.
+    This class enables delayed execution of pandas Series methods on ColumnExpr.
+    The method is not executed until the result needs to be displayed or
+    explicitly converted to a pandas object.
+
+    Key features:
+    - Delayed execution: method runs only when result is needed
+    - Result caching: avoids re-execution on repeated access
+    - Execution engine selection: can choose Pandas or SQL (extensible)
+    - Series interface: exposes common Series properties for chaining
 
     Example:
-        >>> ds['age'].head(5)  # Returns LazySlice, not pd.Series
-        LazySlice(ColumnExpr("age"), head=5)
+        >>> ds['category'].value_counts()  # Returns LazySeries, not pd.Series
+        LazySeries(value_counts)
 
-        >>> print(ds['age'].head(5))  # Triggers materialization
-        0    28
-        1    31
-        2    29
-        3    45
-        4    22
-        Name: age, dtype: int64
+        >>> print(ds['category'].value_counts())  # Triggers execution
+        A    150
+        B    100
+        C     50
+        Name: category, dtype: int64
 
-        >>> # Chainable
-        >>> ds['age'].head(10).tail(3)  # Still lazy
+        >>> # Can chain with other lazy operations
+        >>> ds['category'].value_counts().head(3)  # Still lazy
 
     Attributes:
-        _source: The source object (ColumnExpr, LazyAggregate, LazySlice, etc.)
-        _slice_type: Type of slice ('head' or 'tail')
-        _n: Number of elements to return
+        _column_expr: The source ColumnExpr
+        _method_name: Name of the Series method to call
+        _args: Positional arguments for the method
+        _kwargs: Keyword arguments for the method
     """
 
     def __init__(
         self,
-        source: Union['ColumnExpr', 'LazyAggregate', 'LazySlice', pd.Series, pd.DataFrame],
-        slice_type: str,
-        n: int = 5,
+        column_expr: 'ColumnExpr',
+        method_name: str,
+        *args,
+        **kwargs,
     ):
         """
-        Initialize a LazySlice.
+        Initialize a LazySeries.
 
         Args:
-            source: The source object to slice
-            slice_type: Type of slice ('head' or 'tail')
-            n: Number of elements to return (default 5)
+            column_expr: The source ColumnExpr
+            method_name: Name of the Series method to call (e.g., 'value_counts', 'unique')
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
         """
-        if slice_type not in ('head', 'tail'):
-            raise ValueError(f"slice_type must be 'head' or 'tail', got '{slice_type}'")
-
-        self._source = source
-        self._slice_type = slice_type
-        self._n = n
+        self._column_expr = column_expr
+        self._method_name = method_name
+        self._args = args
+        self._kwargs = kwargs
         self._cached_result = None
 
     @property
     def _datastore(self) -> Optional['DataStore']:
-        """Get the DataStore reference if available."""
-        if hasattr(self._source, '_datastore'):
-            return self._source._datastore
-        return None
+        """Get the DataStore reference."""
+        return self._column_expr._datastore
 
-    def _get_result(self):
+    def _execute(self) -> Union[pd.Series, pd.DataFrame, np.ndarray, Any]:
         """
-        Execute and cache the result.
+        Execute the method and return the result.
+
+        This is where execution engine selection can be implemented.
+        Currently uses Pandas, but can be extended to use SQL for
+        operations like value_counts (GROUP BY COUNT).
 
         Returns:
-            pd.Series or pd.DataFrame: The sliced result
+            The result of the method call (typically pd.Series)
         """
         if self._cached_result is not None:
             return self._cached_result
 
-        # Get the source result
-        source_result = self._get_source_result()
+        # Materialize the source - support ColumnExpr, LazyAggregate, and LazySeries
+        from .column_expr import LazyAggregate
 
-        # Apply slice
-        if self._slice_type == 'head':
-            if hasattr(source_result, 'head'):
-                self._cached_result = source_result.head(self._n)
-            else:
-                # Scalar or non-sliceable - return as is
-                self._cached_result = source_result
-        elif self._slice_type == 'tail':
-            if hasattr(source_result, 'tail'):
-                self._cached_result = source_result.tail(self._n)
-            else:
-                self._cached_result = source_result
+        if isinstance(self._column_expr, LazyAggregate):
+            series = self._column_expr._execute()
+        elif isinstance(self._column_expr, LazySeries):
+            series = self._column_expr._execute()
+        else:
+            series = self._column_expr._materialize()
+
+        # Materialize any ColumnExpr in args or kwargs
+        args = tuple(self._materialize_if_needed(arg) for arg in self._args)
+        kwargs = {k: self._materialize_if_needed(v) for k, v in self._kwargs.items()}
+
+        # Execute the method - handle case where method doesn't exist (e.g., head() on scalar)
+        if not hasattr(series, self._method_name):
+            # Method doesn't exist on this type (e.g., calling head() on a scalar)
+            # Return the series as-is
+            self._cached_result = series
+            return self._cached_result
+
+        method = getattr(series, self._method_name)
+        self._cached_result = method(*args, **kwargs)
 
         return self._cached_result
 
-    def _get_source_result(self):
-        """Get the materialized result from the source."""
-        if hasattr(self._source, '_get_result'):
-            # Another LazySlice or similar
-            return self._source._get_result()
-        elif hasattr(self._source, '_materialize'):
-            # ColumnExpr
-            return self._source._materialize()
-        elif hasattr(self._source, '_execute'):
-            # LazyAggregate
-            return self._source._execute()
-        elif isinstance(self._source, (pd.Series, pd.DataFrame)):
-            return self._source
-        else:
-            # Unknown type - try to use directly
-            return self._source
+    def _materialize_if_needed(self, value: Any) -> Any:
+        """Materialize ColumnExpr, LazySeries, or LazyAggregate arguments."""
+        from .column_expr import ColumnExpr, LazyAggregate
 
-    # ========== Display Methods (trigger execution) ==========
+        if isinstance(value, LazyAggregate):
+            # Execute LazyAggregate to get the result
+            result = value._execute()
+            # If it's a single-value Series, extract scalar for fillna-like operations
+            if isinstance(result, pd.Series) and len(result) == 1:
+                return result.iloc[0]
+            return result
+        if isinstance(value, ColumnExpr):
+            materialized = value._materialize()
+            # If it's a single-value Series, extract scalar for fillna-like operations
+            if isinstance(materialized, pd.Series) and len(materialized) == 1:
+                return materialized.iloc[0]
+            return materialized
+        if isinstance(value, LazySeries):
+            return value._execute()
+        return value
+
+    # ========== Display Methods ==========
 
     def __repr__(self) -> str:
-        """Return representation showing actual values."""
+        """Display the result when shown in notebook/REPL."""
         try:
-            result = self._get_result()
+            result = self._execute()
             return repr(result)
         except Exception as e:
-            return f"LazySlice({self._slice_type}={self._n}) [Error: {e}]"
+            return f"LazySeries({self._method_name}) [Error: {e}]"
 
     def __str__(self) -> str:
-        """Return string representation showing actual values."""
+        """String representation showing the result."""
         try:
-            result = self._get_result()
+            result = self._execute()
             return str(result)
         except Exception:
-            return f"LazySlice({self._slice_type}={self._n})"
+            return f"LazySeries({self._method_name})"
 
     def _repr_html_(self) -> str:
         """HTML representation for Jupyter notebooks."""
         try:
-            result = self._get_result()
+            result = self._execute()
             if hasattr(result, '_repr_html_'):
                 return result._repr_html_()
             return f"<pre>{repr(result)}</pre>"
         except Exception as e:
-            return f"<pre>LazySlice({self._slice_type}={self._n}) [Error: {e}]</pre>"
+            return f"<pre>LazySeries({self._method_name}) [Error: {e}]</pre>"
 
-    # ========== Chainable Methods (return new LazySlice) ==========
+    # ========== Chaining Methods ==========
 
-    def head(self, n: int = 5) -> 'LazySlice':
-        """
-        Return the first n elements (lazy).
+    def head(self, n: int = 5) -> 'LazySeries':
+        """Return the first n elements (lazy)."""
+        return LazySeries(self, 'head', n)
 
-        Can be chained: ds['col'].head(10).head(5)
+    def tail(self, n: int = 5) -> 'LazySeries':
+        """Return the last n elements (lazy)."""
+        return LazySeries(self, 'tail', n)
 
-        Args:
-            n: Number of elements to return (default 5)
-
-        Returns:
-            LazySlice: New lazy wrapper
-        """
-        return LazySlice(self, 'head', n)
-
-    def tail(self, n: int = 5) -> 'LazySlice':
-        """
-        Return the last n elements (lazy).
-
-        Can be chained: ds['col'].head(10).tail(5)
-
-        Args:
-            n: Number of elements to return (default 5)
-
-        Returns:
-            LazySlice: New lazy wrapper
-        """
-        return LazySlice(self, 'tail', n)
-
-    # ========== Terminal Methods (trigger execution) ==========
+    # ========== Conversion Methods ==========
 
     def to_pandas(self) -> Union[pd.Series, pd.DataFrame]:
-        """
-        Explicitly materialize to pandas Series/DataFrame.
+        """Execute and return as pandas object."""
+        return self._execute()
 
-        Returns:
-            pd.Series or pd.DataFrame: The materialized result
-        """
-        return self._get_result()
+    def to_numpy(self) -> np.ndarray:
+        """Execute and return as numpy array."""
+        result = self._execute()
+        if hasattr(result, 'to_numpy'):
+            return result.to_numpy()
+        return np.array(result)
 
-    def to_series(self) -> pd.Series:
-        """
-        Explicitly materialize to pandas Series.
-
-        Returns:
-            pd.Series: The materialized result
-        """
-        result = self._get_result()
-        if isinstance(result, pd.DataFrame):
-            if len(result.columns) == 1:
-                return result.iloc[:, 0]
-            raise ValueError("Cannot convert multi-column DataFrame to Series")
-        return result
-
-    def tolist(self) -> list:
-        """
-        Convert to list.
-
-        Returns:
-            list: The values as a list
-        """
-        result = self._get_result()
+    def to_list(self) -> list:
+        """Execute and return as list."""
+        result = self._execute()
         if hasattr(result, 'tolist'):
             return result.tolist()
         return list(result)
 
-    def to_numpy(self):
-        """
-        Convert to numpy array.
+    def tolist(self) -> list:
+        """Alias for to_list()."""
+        return self.to_list()
 
-        Returns:
-            numpy.ndarray: The values as a numpy array
-        """
-        result = self._get_result()
+    # ========== Numeric Operations ==========
+
+    def __len__(self) -> int:
+        """Return length of result."""
+        result = self._execute()
+        return len(result)
+
+    def __iter__(self):
+        """Iterate over result."""
+        result = self._execute()
+        return iter(result)
+
+    def __getitem__(self, key):
+        """Index into result."""
+        result = self._execute()
+        return result[key]
+
+    def __array__(self, dtype=None, copy=None):
+        """Support numpy array protocol."""
+        result = self._execute()
         if hasattr(result, 'to_numpy'):
-            return result.to_numpy()
-        import numpy as np
+            arr = result.to_numpy()
+        else:
+            arr = np.array(result)
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        if copy:
+            arr = np.array(arr, copy=True)
+        return arr
 
-        return np.array(result)
-
-    # ========== Series-like Properties (trigger execution) ==========
+    # ========== Property Proxies ==========
 
     @property
-    def values(self):
-        """Get the values of the result."""
-        result = self._get_result()
+    def values(self) -> np.ndarray:
+        """Return values as numpy array."""
+        result = self._execute()
         if hasattr(result, 'values'):
             return result.values
-        return result
+        return np.array(result)
 
     @property
     def index(self):
-        """Get the index of the result."""
-        result = self._get_result()
+        """Return index of result."""
+        result = self._execute()
         if hasattr(result, 'index'):
             return result.index
-        raise AttributeError("Result has no 'index' attribute")
+        return None
 
     @property
     def dtype(self):
-        """Get the dtype of the result."""
-        result = self._get_result()
+        """Return dtype of result."""
+        result = self._execute()
         if hasattr(result, 'dtype'):
             return result.dtype
-        import numpy as np
-
-        return np.dtype(type(result))
+        return type(result)
 
     @property
     def name(self):
-        """Get the name of the result Series."""
-        result = self._get_result()
+        """Return name of result."""
+        result = self._execute()
         if hasattr(result, 'name'):
             return result.name
         return None
 
     @property
     def shape(self):
-        """Get the shape of the result."""
-        result = self._get_result()
+        """Return shape of result."""
+        result = self._execute()
         if hasattr(result, 'shape'):
             return result.shape
-        return (1,)
+        return (len(result),) if hasattr(result, '__len__') else ()
 
-    # ========== Iteration & Indexing (trigger execution) ==========
+    # ========== Plotting Support ==========
 
-    def __len__(self) -> int:
-        """Get length of the result."""
-        result = self._get_result()
-        if hasattr(result, '__len__'):
-            return len(result)
-        return 1
+    @property
+    def plot(self):
+        """Access plot accessor for visualization."""
+        result = self._execute()
+        if hasattr(result, 'plot'):
+            return result.plot
+        raise AttributeError(f"'{type(result).__name__}' has no 'plot' attribute")
 
-    def __iter__(self):
-        """Iterate over the result."""
-        result = self._get_result()
-        if hasattr(result, '__iter__'):
-            return iter(result)
-        return iter([result])
+    # ========== Comparison Operators ==========
 
-    def __getitem__(self, key):
-        """Support indexing/subscripting."""
-        result = self._get_result()
-        return result[key]
+    def __eq__(self, other):
+        result = self._execute()
+        return result == other
 
-    def __contains__(self, item) -> bool:
-        """Support 'in' operator."""
-        result = self._get_result()
-        return item in result
+    def __ne__(self, other):
+        result = self._execute()
+        return result != other
+
+    def __lt__(self, other):
+        result = self._execute()
+        return result < other
+
+    def __le__(self, other):
+        result = self._execute()
+        return result <= other
+
+    def __gt__(self, other):
+        result = self._execute()
+        return result > other
+
+    def __ge__(self, other):
+        result = self._execute()
+        return result >= other
+
+    # ========== Series Method Proxies ==========
+    # These methods execute and return the result (or chain lazily where possible)
+
+    def sort_index(self, **kwargs):
+        """Sort by index."""
+        result = self._execute()
+        if hasattr(result, 'sort_index'):
+            return result.sort_index(**kwargs)
+        return result
+
+    def sort_values(self, **kwargs):
+        """Sort by values."""
+        result = self._execute()
+        if hasattr(result, 'sort_values'):
+            return result.sort_values(**kwargs)
+        return result
+
+    def reset_index(self, **kwargs):
+        """Reset index."""
+        result = self._execute()
+        if hasattr(result, 'reset_index'):
+            return result.reset_index(**kwargs)
+        return result
+
+    def astype(self, dtype):
+        """Cast to dtype."""
+        result = self._execute()
+        if hasattr(result, 'astype'):
+            return result.astype(dtype)
+        return result
+
+    def copy(self):
+        """Return copy of result."""
+        result = self._execute()
+        if hasattr(result, 'copy'):
+            return result.copy()
+        return result
+
+    def equals(self, other):
+        """Test equality with another object."""
+        result = self._execute()
+        if hasattr(result, 'equals'):
+            if hasattr(other, '_execute'):
+                other = other._execute()
+            return result.equals(other)
+        return result == other
+
+    # ========== Arithmetic Operators (lazy - return LazySeries) ==========
+
+    def __add__(self, other):
+        """Addition (lazy)."""
+        return LazySeries(self, '__add__', other)
+
+    def __radd__(self, other):
+        """Right addition (lazy)."""
+        return LazySeries(self, '__radd__', other)
+
+    def __sub__(self, other):
+        """Subtraction (lazy)."""
+        return LazySeries(self, '__sub__', other)
+
+    def __rsub__(self, other):
+        """Right subtraction (lazy)."""
+        return LazySeries(self, '__rsub__', other)
+
+    def __mul__(self, other):
+        """Multiplication (lazy)."""
+        return LazySeries(self, '__mul__', other)
+
+    def __rmul__(self, other):
+        """Right multiplication (lazy)."""
+        return LazySeries(self, '__rmul__', other)
+
+    def __truediv__(self, other):
+        """Division (lazy)."""
+        return LazySeries(self, '__truediv__', other)
+
+    def __rtruediv__(self, other):
+        """Right division (lazy)."""
+        return LazySeries(self, '__rtruediv__', other)
+
+    def __floordiv__(self, other):
+        """Floor division (lazy)."""
+        return LazySeries(self, '__floordiv__', other)
+
+    def __rfloordiv__(self, other):
+        """Right floor division (lazy)."""
+        return LazySeries(self, '__rfloordiv__', other)
+
+    def __mod__(self, other):
+        """Modulo (lazy)."""
+        return LazySeries(self, '__mod__', other)
+
+    def __rmod__(self, other):
+        """Right modulo (lazy)."""
+        return LazySeries(self, '__rmod__', other)
+
+    def __pow__(self, other):
+        """Power (lazy)."""
+        return LazySeries(self, '__pow__', other)
+
+    def __rpow__(self, other):
+        """Right power (lazy)."""
+        return LazySeries(self, '__rpow__', other)
+
+    def __neg__(self):
+        """Negation (lazy)."""
+        return LazySeries(self, '__neg__')
+
+    def __pos__(self):
+        """Positive (lazy)."""
+        return LazySeries(self, '__pos__')
+
+    def __abs__(self):
+        """Absolute value (lazy)."""
+        return LazySeries(self, '__abs__')
 
     # ========== Numeric Conversions (trigger execution) ==========
 
     def __float__(self) -> float:
         """Convert to float."""
-        result = self._get_result()
+        result = self._execute()
         if isinstance(result, (pd.Series, pd.DataFrame)):
             if len(result) == 1:
                 return float(result.iloc[0])
@@ -311,7 +448,7 @@ class LazySlice:
 
     def __int__(self) -> int:
         """Convert to int."""
-        result = self._get_result()
+        result = self._execute()
         if isinstance(result, (pd.Series, pd.DataFrame)):
             if len(result) == 1:
                 return int(result.iloc[0])
@@ -320,7 +457,7 @@ class LazySlice:
 
     def __bool__(self) -> bool:
         """Convert to bool."""
-        result = self._get_result()
+        result = self._execute()
         if isinstance(result, (pd.Series, pd.DataFrame)):
             if len(result) == 0:
                 return False
@@ -329,219 +466,36 @@ class LazySlice:
             raise ValueError("Truth value of multi-element result is ambiguous")
         return bool(result)
 
-    def __array__(self, dtype=None, copy=None):
-        """
-        Support numpy array protocol.
-
-        Args:
-            dtype: Optional dtype for the resulting array
-            copy: If True, ensure the returned array is a copy (numpy 2.0+)
-        """
-        import numpy as np
-
-        result = self._get_result()
-        if isinstance(result, (pd.Series, pd.DataFrame)):
-            # Use to_numpy() to handle categorical/extension dtypes
-            arr = result.to_numpy()
-        elif result is None:
-            arr = np.array([])
-        else:
-            arr = np.array([result])
-        if dtype is not None:
-            arr = arr.astype(dtype)
-        # Handle copy parameter for numpy 2.0+ compatibility
-        if copy:
-            arr = np.array(arr, copy=True)
-        return arr
-
-    # ========== Comparison Operators (trigger execution) ==========
-
-    def __eq__(self, other):
-        """Equal comparison."""
-        return self._get_result() == other
-
-    def __ne__(self, other):
-        """Not equal comparison."""
-        return self._get_result() != other
-
-    def __lt__(self, other):
-        """Less than comparison."""
-        return self._get_result() < other
-
-    def __le__(self, other):
-        """Less than or equal comparison."""
-        return self._get_result() <= other
-
-    def __gt__(self, other):
-        """Greater than comparison."""
-        return self._get_result() > other
-
-    def __ge__(self, other):
-        """Greater than or equal comparison."""
-        return self._get_result() >= other
-
-    # ========== Pandas-compatible comparison methods ==========
-
-    def equals(self, other) -> bool:
-        """
-        Test whether two objects contain the same elements.
-
-        This method allows you to compare a LazySlice with a pd.Series
-        or another LazySlice and returns a single boolean.
-
-        Args:
-            other: The other object to compare with (Series, LazySlice, etc.)
-
-        Returns:
-            bool: True if objects are equal, False otherwise
-
-        Example:
-            >>> ds_result = ds.groupby('col')['val'].mean().head(5)
-            >>> pd_result = df.groupby('col')['val'].mean().head(5)
-            >>> ds_result.equals(pd_result)  # True if equal
-        """
-        result = self._get_result()
-        if hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_get_result'):
-            other = other._get_result()
-
-        if hasattr(result, 'equals'):
-            return result.equals(other)
-        return result == other
-
-    def eq(self, other):
-        """
-        Element-wise equality comparison.
-
-        Returns a boolean Series showing element-wise equality.
-        """
-        result = self._get_result()
-        if hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_get_result'):
-            other = other._get_result()
-
-        if hasattr(result, 'eq'):
-            return result.eq(other)
-        return result == other
-
-    def compare(self, other, **kwargs):
-        """
-        Compare to another Series and show differences.
-
-        Returns a DataFrame with differences between the two objects.
-        """
-        result = self._get_result()
-        if hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_get_result'):
-            other = other._get_result()
-
-        if hasattr(result, 'compare'):
-            return result.compare(other, **kwargs)
-        raise TypeError(f"Cannot compare {type(result)} with compare()")
-
-    # ========== Arithmetic Operators (trigger execution) ==========
-
-    def __add__(self, other):
-        """Addition."""
-        return self._get_result() + other
-
-    def __radd__(self, other):
-        """Right addition."""
-        return other + self._get_result()
-
-    def __sub__(self, other):
-        """Subtraction."""
-        return self._get_result() - other
-
-    def __rsub__(self, other):
-        """Right subtraction."""
-        return other - self._get_result()
-
-    def __mul__(self, other):
-        """Multiplication."""
-        return self._get_result() * other
-
-    def __rmul__(self, other):
-        """Right multiplication."""
-        return other * self._get_result()
-
-    def __truediv__(self, other):
-        """Division."""
-        return self._get_result() / other
-
-    def __rtruediv__(self, other):
-        """Right division."""
-        return other / self._get_result()
-
-    def __floordiv__(self, other):
-        """Floor division."""
-        return self._get_result() // other
-
-    def __rfloordiv__(self, other):
-        """Right floor division."""
-        return other // self._get_result()
-
-    def __mod__(self, other):
-        """Modulo."""
-        return self._get_result() % other
-
-    def __rmod__(self, other):
-        """Right modulo."""
-        return other % self._get_result()
-
-    def __pow__(self, other):
-        """Power."""
-        return self._get_result() ** other
-
-    def __rpow__(self, other):
-        """Right power."""
-        return other ** self._get_result()
-
-    def __neg__(self):
-        """Negation."""
-        return -self._get_result()
-
-    def __pos__(self):
-        """Positive."""
-        return +self._get_result()
-
-    def __abs__(self):
-        """Absolute value."""
-        return abs(self._get_result())
-
     # ========== Aggregation Methods (trigger execution, return scalar) ==========
 
     def sum(self, *args, **kwargs):
-        """Compute sum of the sliced result."""
-        return self._get_result().sum(*args, **kwargs)
+        """Compute sum of the result."""
+        return self._execute().sum(*args, **kwargs)
 
     def mean(self, *args, **kwargs):
-        """Compute mean of the sliced result."""
-        return self._get_result().mean(*args, **kwargs)
+        """Compute mean of the result."""
+        return self._execute().mean(*args, **kwargs)
 
     def min(self, *args, **kwargs):
-        """Compute min of the sliced result."""
-        return self._get_result().min(*args, **kwargs)
+        """Compute min of the result."""
+        return self._execute().min(*args, **kwargs)
 
     def max(self, *args, **kwargs):
-        """Compute max of the sliced result."""
-        return self._get_result().max(*args, **kwargs)
+        """Compute max of the result."""
+        return self._execute().max(*args, **kwargs)
 
     def std(self, *args, **kwargs):
-        """Compute standard deviation of the sliced result."""
-        return self._get_result().std(*args, **kwargs)
+        """Compute standard deviation of the result."""
+        return self._execute().std(*args, **kwargs)
 
     def var(self, *args, **kwargs):
-        """Compute variance of the sliced result."""
-        return self._get_result().var(*args, **kwargs)
+        """Compute variance of the result."""
+        return self._execute().var(*args, **kwargs)
 
     def median(self, *args, **kwargs):
-        """Compute median of the sliced result."""
-        return self._get_result().median(*args, **kwargs)
+        """Compute median of the result."""
+        return self._execute().median(*args, **kwargs)
 
     def count(self, *args, **kwargs):
         """Count non-NA values."""
-        return self._get_result().count(*args, **kwargs)
+        return self._execute().count(*args, **kwargs)

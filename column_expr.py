@@ -16,6 +16,7 @@ from typing import Any, Optional, TYPE_CHECKING, Iterator, List
 import pandas as pd
 
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
+from .lazy_result import LazySeries
 from .utils import immutable
 
 
@@ -34,7 +35,6 @@ _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 if TYPE_CHECKING:
     from .core import DataStore
     from .conditions import Condition, BinaryCondition
-    from .lazy_result import LazySlice
 
 
 class ColumnExpr:
@@ -466,18 +466,18 @@ class ColumnExpr:
 
     # ========== Pandas-style Comparison Methods ==========
 
-    def eq(self, other: Any) -> pd.Series:
+    def eq(self, other: Any) -> 'LazySeries':
         """
-        Element-wise equality comparison, returns boolean Series.
+        Element-wise equality comparison, returns boolean Series (lazy).
 
-        Unlike __eq__ which returns a Condition for filtering,
-        this method materializes and returns a pandas boolean Series.
+        Unlike __eq__ which returns a ColumnExpr for filtering,
+        this method returns a lazy wrapper that produces a pandas boolean Series.
 
         Args:
             other: Value or Series to compare with
 
         Returns:
-            pd.Series: Boolean Series indicating equality
+            LazySeries: Lazy wrapper returning boolean Series indicating equality
 
         Example:
             >>> ds['value'].eq(5)
@@ -486,100 +486,82 @@ class ColumnExpr:
             2    False
             dtype: bool
         """
-        series = self._materialize()
-        if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        return series.eq(other)
+        return LazySeries(self, 'eq', other)
 
-    def ne(self, other: Any) -> pd.Series:
+    def ne(self, other: Any) -> 'LazySeries':
         """
-        Element-wise not-equal comparison, returns boolean Series.
+        Element-wise not-equal comparison, returns boolean Series (lazy).
 
         Args:
             other: Value or Series to compare with
 
         Returns:
-            pd.Series: Boolean Series indicating inequality
+            LazySeries: Lazy wrapper returning boolean Series indicating inequality
 
         Example:
             >>> ds['value'].ne(5)
         """
-        series = self._materialize()
-        if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        return series.ne(other)
+        return LazySeries(self, 'ne', other)
 
-    def lt(self, other: Any) -> pd.Series:
+    def lt(self, other: Any) -> 'LazySeries':
         """
-        Element-wise less-than comparison, returns boolean Series.
+        Element-wise less-than comparison, returns boolean Series (lazy).
 
         Args:
             other: Value or Series to compare with
 
         Returns:
-            pd.Series: Boolean Series
+            LazySeries: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].lt(5)
         """
-        series = self._materialize()
-        if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        return series.lt(other)
+        return LazySeries(self, 'lt', other)
 
-    def le(self, other: Any) -> pd.Series:
+    def le(self, other: Any) -> 'LazySeries':
         """
-        Element-wise less-than-or-equal comparison, returns boolean Series.
+        Element-wise less-than-or-equal comparison, returns boolean Series (lazy).
 
         Args:
             other: Value or Series to compare with
 
         Returns:
-            pd.Series: Boolean Series
+            LazySeries: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].le(5)
         """
-        series = self._materialize()
-        if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        return series.le(other)
+        return LazySeries(self, 'le', other)
 
-    def gt(self, other: Any) -> pd.Series:
+    def gt(self, other: Any) -> 'LazySeries':
         """
-        Element-wise greater-than comparison, returns boolean Series.
+        Element-wise greater-than comparison, returns boolean Series (lazy).
 
         Args:
             other: Value or Series to compare with
 
         Returns:
-            pd.Series: Boolean Series
+            LazySeries: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].gt(5)
         """
-        series = self._materialize()
-        if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        return series.gt(other)
+        return LazySeries(self, 'gt', other)
 
-    def ge(self, other: Any) -> pd.Series:
+    def ge(self, other: Any) -> 'LazySeries':
         """
-        Element-wise greater-than-or-equal comparison, returns boolean Series.
+        Element-wise greater-than-or-equal comparison, returns boolean Series (lazy).
 
         Args:
             other: Value or Series to compare with
 
         Returns:
-            pd.Series: Boolean Series
+            LazySeries: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].ge(5)
         """
-        series = self._materialize()
-        if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        return series.ge(other)
+        return LazySeries(self, 'ge', other)
 
     # ========== Logical Operators (Return ColumnExpr wrapping Condition) ==========
     #
@@ -1236,7 +1218,7 @@ class ColumnExpr:
             exclude: A black list of data types to exclude.
 
         Returns:
-            pd.Series: Summary statistics
+            LazySeries: Lazy wrapper returning summary statistics Series
 
         Example:
             >>> ds['age'].describe()
@@ -1250,7 +1232,7 @@ class ColumnExpr:
             max      45.000000
             Name: age, dtype: float64
         """
-        return self._materialize().describe(percentiles=percentiles, include=include, exclude=exclude)
+        return LazySeries(self, 'describe', percentiles=percentiles, include=include, exclude=exclude)
 
     def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
         """
@@ -1283,7 +1265,7 @@ class ColumnExpr:
 
     def sample(self, n=None, frac=None, replace=False, weights=None, random_state=None, axis=None, ignore_index=False):
         """
-        Return a random sample of items.
+        Return a random sample of items (lazy).
 
         Args:
             n: Number of items to return.
@@ -1295,7 +1277,7 @@ class ColumnExpr:
             ignore_index: If True, reset index in result.
 
         Returns:
-            pd.Series: Random sample of values
+            LazySeries: Lazy wrapper returning random sample Series
 
         Example:
             >>> ds['age'].sample(3, random_state=42)
@@ -1304,7 +1286,9 @@ class ColumnExpr:
             0    28
             Name: age, dtype: int64
         """
-        return self._materialize().sample(
+        return LazySeries(
+            self,
+            'sample',
             n=n,
             frac=frac,
             replace=replace,
@@ -1316,14 +1300,14 @@ class ColumnExpr:
 
     def nlargest(self, n=5, keep='first'):
         """
-        Return the largest n elements.
+        Return the largest n elements (lazy).
 
         Args:
             n: Number of largest elements to return.
             keep: How to handle duplicate values ('first', 'last', 'all').
 
         Returns:
-            pd.Series: The n largest values
+            LazySeries: Lazy wrapper returning n largest values Series
 
         Example:
             >>> ds['salary'].nlargest(3)
@@ -1332,18 +1316,18 @@ class ColumnExpr:
             2     60000.0
             Name: salary, dtype: float64
         """
-        return self._materialize().nlargest(n=n, keep=keep)
+        return LazySeries(self, 'nlargest', n=n, keep=keep)
 
     def nsmallest(self, n=5, keep='first'):
         """
-        Return the smallest n elements.
+        Return the smallest n elements (lazy).
 
         Args:
             n: Number of smallest elements to return.
             keep: How to handle duplicate values ('first', 'last', 'all').
 
         Returns:
-            pd.Series: The n smallest values
+            LazySeries: Lazy wrapper returning n smallest values Series
 
         Example:
             >>> ds['salary'].nsmallest(3)
@@ -1352,11 +1336,11 @@ class ColumnExpr:
             2    60000.0
             Name: salary, dtype: float64
         """
-        return self._materialize().nsmallest(n=n, keep=keep)
+        return LazySeries(self, 'nsmallest', n=n, keep=keep)
 
     def drop_duplicates(self, keep='first', inplace=False, ignore_index=False):
         """
-        Return Series with duplicate values removed.
+        Return Series with duplicate values removed (lazy).
 
         Args:
             keep: Which duplicates to keep ('first', 'last', False to drop all).
@@ -1364,7 +1348,7 @@ class ColumnExpr:
             ignore_index: If True, reset index in result.
 
         Returns:
-            pd.Series: Series with duplicates removed
+            LazySeries: Lazy wrapper returning Series with duplicates removed
 
         Example:
             >>> ds['department'].drop_duplicates()
@@ -1373,17 +1357,17 @@ class ColumnExpr:
             3     Management
             Name: department, dtype: object
         """
-        return self._materialize().drop_duplicates(keep=keep, ignore_index=ignore_index)
+        return LazySeries(self, 'drop_duplicates', keep=keep, ignore_index=ignore_index)
 
     def duplicated(self, keep='first'):
         """
-        Indicate duplicate values.
+        Indicate duplicate values (lazy).
 
         Args:
             keep: How to mark duplicates ('first', 'last', False).
 
         Returns:
-            pd.Series: Boolean Series indicating duplicates
+            LazySeries: Lazy wrapper returning boolean Series indicating duplicates
 
         Example:
             >>> ds['department'].duplicated()
@@ -1394,7 +1378,7 @@ class ColumnExpr:
             4     True
             Name: department, dtype: bool
         """
-        return self._materialize().duplicated(keep=keep)
+        return LazySeries(self, 'duplicated', keep=keep)
 
     def hist(self, bins=10, **kwargs):
         """
@@ -1414,7 +1398,7 @@ class ColumnExpr:
 
     def agg(self, func=None, axis=0, *args, **kwargs):
         """
-        Aggregate using one or more operations.
+        Aggregate using one or more operations (lazy).
 
         Args:
             func: Function to use for aggregating (str, list, or dict).
@@ -1423,7 +1407,7 @@ class ColumnExpr:
             **kwargs: Keyword arguments to pass to func.
 
         Returns:
-            Scalar, Series or DataFrame depending on func
+            LazySeries: Lazy wrapper returning scalar, Series or DataFrame depending on func
 
         Example:
             >>> ds['age'].agg('mean')
@@ -1434,7 +1418,7 @@ class ColumnExpr:
             std       8.602325
             dtype: float64
         """
-        return self._materialize().agg(func=func, axis=axis, *args, **kwargs)
+        return LazySeries(self, 'agg', func, axis=axis, *args, **kwargs)
 
     def aggregate(self, func=None, axis=0, *args, **kwargs):
         """
@@ -1481,18 +1465,16 @@ class ColumnExpr:
             Name: age, dtype: int64
         """
         series = self._materialize()
-
         # Handle condition
         if isinstance(cond, ColumnExpr):
             cond = cond._materialize()
         elif hasattr(cond, '_execute'):
             cond = cond._execute()
-
         return series.where(cond, other=other, axis=axis, level=level)
 
     def argsort(self, axis=0, kind='quicksort', order=None, stable=None):
         """
-        Return the indices that would sort the Series.
+        Return the indices that would sort the Series (lazy).
 
         Args:
             axis: Axis to sort (0 for index).
@@ -1501,7 +1483,7 @@ class ColumnExpr:
             stable: If True, use stable sorting.
 
         Returns:
-            pd.Series: Integer indices that would sort the Series
+            LazySeries: Lazy wrapper returning integer indices Series
 
         Example:
             >>> ds['age'].argsort()
@@ -1512,7 +1494,7 @@ class ColumnExpr:
             4    3
             dtype: int64
         """
-        return self._materialize().argsort(axis=axis, kind=kind, order=order)
+        return LazySeries(self, 'argsort', axis=axis, kind=kind, order=order)
 
     def sort_index(
         self,
@@ -1527,7 +1509,7 @@ class ColumnExpr:
         key=None,
     ):
         """
-        Sort Series by index labels.
+        Sort Series by index labels (lazy).
 
         Args:
             axis: Axis to sort.
@@ -1541,12 +1523,14 @@ class ColumnExpr:
             key: Function to transform index before sorting.
 
         Returns:
-            pd.Series: Sorted Series
+            LazySeries: Lazy wrapper returning sorted Series
 
         Example:
             >>> ds['age'].sort_index(ascending=False)
         """
-        return self._materialize().sort_index(
+        return LazySeries(
+            self,
+            'sort_index',
             axis=axis,
             level=level,
             ascending=ascending,
@@ -1817,9 +1801,9 @@ class ColumnExpr:
 
     def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
         """
-        Compute product of values.
+        Compute product of values (lazy).
 
-        Note: No direct SQL equivalent, always materializes.
+        Returns a LazyAggregate that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1829,14 +1813,15 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            scalar: Product of values
+            LazyAggregate: Lazy wrapper returning product of values
         """
-        series = self._materialize()
-        return series.prod(axis=axis, skipna=skipna, numeric_only=numeric_only, min_count=min_count, **kwargs)
+        return LazyAggregate(
+            self, 'prod', axis=axis, skipna=skipna, numeric_only=numeric_only, min_count=min_count, **kwargs
+        )
 
     def cumsum(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
         """
-        Compute cumulative sum of the column.
+        Compute cumulative sum of the column (lazy).
 
         Args:
             axis: NumPy axis parameter
@@ -1846,14 +1831,13 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            Series: Cumulative sum
+            LazySeries: Lazy wrapper returning cumulative sum Series
         """
-        series = self._materialize()
-        return series.cumsum(axis=axis, skipna=skipna, **kwargs)
+        return LazySeries(self, 'cumsum', axis=axis, skipna=skipna, **kwargs)
 
     def cumprod(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
         """
-        Compute cumulative product of the column.
+        Compute cumulative product of the column (lazy).
 
         Args:
             axis: NumPy axis parameter
@@ -1863,14 +1847,13 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            Series: Cumulative product
+            LazySeries: Lazy wrapper returning cumulative product Series
         """
-        series = self._materialize()
-        return series.cumprod(axis=axis, skipna=skipna, **kwargs)
+        return LazySeries(self, 'cumprod', axis=axis, skipna=skipna, **kwargs)
 
     def cummax(self, axis=None, skipna=True, **kwargs):
         """
-        Compute cumulative maximum of the column.
+        Compute cumulative maximum of the column (lazy).
 
         Args:
             axis: Axis parameter
@@ -1878,14 +1861,13 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            Series: Cumulative maximum
+            LazySeries: Lazy wrapper returning cumulative maximum Series
         """
-        series = self._materialize()
-        return series.cummax(axis=axis, skipna=skipna, **kwargs)
+        return LazySeries(self, 'cummax', axis=axis, skipna=skipna, **kwargs)
 
     def cummin(self, axis=None, skipna=True, **kwargs):
         """
-        Compute cumulative minimum of the column.
+        Compute cumulative minimum of the column (lazy).
 
         Args:
             axis: Axis parameter
@@ -1893,10 +1875,9 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            Series: Cumulative minimum
+            LazySeries: Lazy wrapper returning cumulative minimum Series
         """
-        series = self._materialize()
-        return series.cummin(axis=axis, skipna=skipna, **kwargs)
+        return LazySeries(self, 'cummin', axis=axis, skipna=skipna, **kwargs)
 
     # ========== Window / Rolling Methods ==========
 
@@ -2025,9 +2006,7 @@ class ColumnExpr:
 
     def shift(self, periods=1, freq=None, axis=0, fill_value=None):
         """
-        Shift values by desired number of periods.
-
-        Materializes the column and shifts values.
+        Shift values by desired number of periods (lazy).
 
         Args:
             periods: Number of periods to shift (positive = shift down)
@@ -2036,40 +2015,34 @@ class ColumnExpr:
             fill_value: Value to use for filling new missing values
 
         Returns:
-            Series: Shifted series
+            LazySeries: Lazy wrapper returning shifted Series
 
         Example:
             >>> ds['value'].shift(1)  # Previous value
             >>> ds['value'].shift(-1)  # Next value
             >>> ds['value'].shift(1, fill_value=0)
         """
-        series = self._materialize()
-        return series.shift(periods=periods, freq=freq, axis=axis, fill_value=fill_value)
+        return LazySeries(self, 'shift', periods=periods, freq=freq, axis=axis, fill_value=fill_value)
 
     def diff(self, periods=1):
         """
-        First discrete difference of element.
-
-        Materializes the column and computes difference.
+        First discrete difference of element (lazy).
 
         Args:
             periods: Periods to shift for calculating difference
 
         Returns:
-            Series: First differences
+            LazySeries: Lazy wrapper returning first differences Series
 
         Example:
             >>> ds['value'].diff()  # Difference from previous
             >>> ds['value'].diff(2)  # Difference from 2 periods ago
         """
-        series = self._materialize()
-        return series.diff(periods=periods)
+        return LazySeries(self, 'diff', periods=periods)
 
     def pct_change(self, periods=1, fill_method=None, limit=None, freq=None, **kwargs):
         """
-        Percentage change between current and prior element.
-
-        Materializes the column and computes percentage change.
+        Percentage change between current and prior element (lazy).
 
         Args:
             periods: Periods to shift for calculation
@@ -2079,18 +2052,18 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            Series: Percentage change
+            LazySeries: Lazy wrapper returning percentage change Series
 
         Example:
             >>> ds['value'].pct_change()  # % change from previous
             >>> ds['value'].pct_change(periods=2)  # % change from 2 ago
         """
-        series = self._materialize()
-        # Handle deprecated parameters
-        kwargs_clean = {'periods': periods}
+        # Handle deprecated parameters - pass only valid ones
+        pct_kwargs = {'periods': periods}
         if freq is not None:
-            kwargs_clean['freq'] = freq
-        return series.pct_change(**kwargs_clean, **kwargs)
+            pct_kwargs['freq'] = freq
+        pct_kwargs.update(kwargs)
+        return LazySeries(self, 'pct_change', **pct_kwargs)
 
     def rank(
         self,
@@ -2102,9 +2075,7 @@ class ColumnExpr:
         pct=False,
     ):
         """
-        Compute numerical data ranks along axis.
-
-        Materializes the column and computes ranks.
+        Compute numerical data ranks along axis (lazy).
 
         Args:
             axis: Axis for ranking
@@ -2115,14 +2086,15 @@ class ColumnExpr:
             pct: Return ranks as percentile
 
         Returns:
-            Series: Ranks of values
+            LazySeries: Lazy wrapper returning ranks Series
 
         Example:
             >>> ds['score'].rank()
             >>> ds['score'].rank(method='dense', ascending=False)
         """
-        series = self._materialize()
-        return series.rank(
+        return LazySeries(
+            self,
+            'rank',
             axis=axis,
             method=method,
             numeric_only=numeric_only,
@@ -2131,36 +2103,17 @@ class ColumnExpr:
             pct=pct,
         )
 
-    def median(self, axis=None, out=None, overwrite_input=False, keepdims=False, *, skipna=True, **kwargs):
-        """
-        Compute the median of the column.
-
-        Args:
-            axis: NumPy axis parameter (enables np.median() compatibility)
-            out: NumPy out parameter (not supported)
-            overwrite_input: NumPy parameter (ignored)
-            keepdims: NumPy keepdims parameter
-            skipna: Whether to skip NA values
-            **kwargs: Additional arguments
-
-        Returns:
-            float: The computed median
-        """
-        series = self._materialize()
-        return series.median(axis=axis, skipna=skipna, **kwargs)
-
     def mode(self, dropna: bool = True):
         """
         Return the mode(s) of the column.
 
         The mode is the value that appears most frequently.
-        Materializes the column and computes mode using pandas.
 
         Args:
             dropna: Don't consider NaN/NaT values (default True)
 
         Returns:
-            pd.Series: Series containing the mode value(s)
+            LazySeries: Lazy wrapper returning Series containing the mode value(s)
 
         Example:
             >>> ds['category'].mode()
@@ -2170,8 +2123,7 @@ class ColumnExpr:
             >>> ds['category'].mode()[0]  # Get first mode value
             'A'
         """
-        series = self._materialize()
-        return series.mode(dropna=dropna)
+        return LazySeries(self, 'mode', dropna=dropna)
 
     def argmin(self, axis=None, out=None, *, skipna=True, **kwargs):
         """
@@ -2186,8 +2138,7 @@ class ColumnExpr:
         Returns:
             int: Index of the minimum value
         """
-        series = self._materialize()
-        return series.argmin(axis=axis, skipna=skipna, **kwargs)
+        return self._materialize().argmin(axis=axis, skipna=skipna, **kwargs)
 
     def argmax(self, axis=None, out=None, *, skipna=True, **kwargs):
         """
@@ -2202,8 +2153,7 @@ class ColumnExpr:
         Returns:
             int: Index of the maximum value
         """
-        series = self._materialize()
-        return series.argmax(axis=axis, skipna=skipna, **kwargs)
+        return self._materialize().argmax(axis=axis, skipna=skipna, **kwargs)
 
     def any(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
         """
@@ -2219,8 +2169,7 @@ class ColumnExpr:
         Returns:
             bool: True if any element is True
         """
-        series = self._materialize()
-        return series.any(axis=axis, skipna=skipna, **kwargs)
+        return self._materialize().any(axis=axis, skipna=skipna, **kwargs)
 
     def all(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
         """
@@ -2236,17 +2185,15 @@ class ColumnExpr:
         Returns:
             bool: True if all elements are True
         """
-        series = self._materialize()
-        return series.all(axis=axis, skipna=skipna, **kwargs)
+        return self._materialize().all(axis=axis, skipna=skipna, **kwargs)
 
     # ========== Pandas Series Methods ==========
 
     def apply(self, func, convert_dtype=True, args=(), **kwargs):
         """
-        Apply a function to each element of the column.
+        Apply a function to each element of the column (lazy).
 
-        This method materializes the column and applies the function element-wise,
-        similar to pandas Series.apply().
+        Note: Functions cannot be translated to SQL, so this always uses pandas.
 
         Args:
             func: Function to apply to each element
@@ -2255,7 +2202,7 @@ class ColumnExpr:
             **kwargs: Additional keyword arguments to pass to func
 
         Returns:
-            pd.Series: Series with the function applied
+            LazySeries: Lazy wrapper returning Series with the function applied
 
         Example:
             >>> ds = DataStore.from_file('data.csv')
@@ -2271,8 +2218,7 @@ class ColumnExpr:
             2    58
             Name: age, dtype: int64
         """
-        series = self._materialize()
-        return series.apply(func, convert_dtype=convert_dtype, args=args, **kwargs)
+        return LazySeries(self, 'apply', func, convert_dtype=convert_dtype, args=args, **kwargs)
 
     def value_counts(
         self,
@@ -2283,10 +2229,13 @@ class ColumnExpr:
         dropna: bool = True,
     ):
         """
-        Return a Series containing counts of unique values.
+        Return a Series containing counts of unique values (lazy).
 
-        The resulting object will be in descending order so that the
-        first element is the most frequently-occurring element.
+        Returns a LazySeries that executes only when displayed
+        or explicitly converted. This enables:
+        - Delayed execution until result is needed
+        - Chaining with other operations (e.g., .head(), .plot.pie())
+        - Future: SQL-based execution via GROUP BY COUNT
 
         Args:
             normalize: If True, return relative frequencies instead of counts
@@ -2296,24 +2245,26 @@ class ColumnExpr:
             dropna: Don't include counts of NaN (default True)
 
         Returns:
-            pd.Series: Series with value counts
+            LazySeries: Lazy wrapper that executes on display
 
         Example:
             >>> ds = DataStore.from_file('data.csv')
-            >>> ds['category'].value_counts()
+            >>> ds['category'].value_counts()  # Lazy - not executed yet
             A    150
             B    100
             C     50
             Name: category, dtype: int64
 
-            >>> ds['category'].value_counts(normalize=True)
-            A    0.50
-            B    0.33
-            C    0.17
-            Name: category, dtype: float64
+            >>> ds['category'].value_counts().head(2)  # Still lazy
+            A    150
+            B    100
+            Name: category, dtype: int64
+
+            >>> (ds['col'] > 0.5).value_counts().plot.pie()  # Works!
         """
-        series = self._materialize()
-        return series.value_counts(
+        return LazySeries(
+            self,
+            'value_counts',
             normalize=normalize,
             sort=sort,
             ascending=ascending,
@@ -2323,45 +2274,47 @@ class ColumnExpr:
 
     def unique(self):
         """
-        Return unique values of the column.
+        Return unique values of the column (lazy).
+
+        Returns a LazySeries that executes only when displayed.
 
         Returns:
-            numpy.ndarray: Unique values in order of appearance
+            LazySeries: Lazy wrapper returning unique values
 
         Example:
-            >>> ds['category'].unique()
+            >>> ds['category'].unique()  # Lazy
             array(['A', 'B', 'C'], dtype=object)
         """
-        series = self._materialize()
-        return series.unique()
+        return LazySeries(self, 'unique')
 
     def nunique(self, dropna: bool = True):
         """
-        Return number of unique values.
+        Return number of unique values (lazy).
+
+        Returns a LazySeries that executes only when displayed.
 
         Args:
             dropna: Don't include NaN in the count (default True)
 
         Returns:
-            int: Number of unique values
+            LazySeries: Lazy wrapper returning count of unique values
 
         Example:
-            >>> ds['category'].nunique()
+            >>> ds['category'].nunique()  # Lazy
             3
         """
-        series = self._materialize()
-        return series.nunique(dropna=dropna)
+        return LazySeries(self, 'nunique', dropna=dropna)
 
     def map(self, arg, na_action=None):
         """
-        Map values of Series according to input mapping or function.
+        Map values of Series according to input mapping or function (lazy).
 
         Args:
             arg: Mapping correspondence (dict, Series, or function)
             na_action: If 'ignore', propagate NaN values without passing to mapping
 
         Returns:
-            pd.Series: Series with mapped values
+            LazySeries: Lazy wrapper returning Series with mapped values
 
         Example:
             >>> ds['grade'].map({'A': 4.0, 'B': 3.0, 'C': 2.0})
@@ -2370,25 +2323,21 @@ class ColumnExpr:
             2    2.0
             Name: grade, dtype: float64
         """
-        series = self._materialize()
-        return series.map(arg, na_action=na_action)
+        return LazySeries(self, 'map', arg, na_action=na_action)
 
     def fillna(self, value=None, method=None, axis=None, inplace=False, limit=None):
         """
-        Fill NA/NaN values using pandas.
-
-        Materializes the column and uses pandas fillna() for proper NaN handling.
-        This ensures compatibility with pandas behavior for both numeric and string columns.
+        Fill NA/NaN values using pandas (lazy).
 
         Args:
-            value: Value to use to fill holes
+            value: Value to use to fill holes (can be ColumnExpr, LazyAggregate, or scalar)
             method: Method to use for filling holes ('ffill', 'bfill')
             axis: Axis along which to fill (0 or 'index')
             inplace: Not supported, always returns new Series
             limit: Maximum number of consecutive NaN values to fill
 
         Returns:
-            pd.Series: Series with NA values filled
+            LazySeries: Lazy wrapper returning Series with NA values filled
 
         Example:
             >>> ds['value'].fillna(0)
@@ -2397,30 +2346,8 @@ class ColumnExpr:
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
 
-        # Handle ColumnExpr, LazyAggregate, or other values - materialize them first
-        fill_value = value
-        if isinstance(value, LazyAggregate):
-            # Execute LazyAggregate to get the scalar value
-            result = value._execute()
-            if isinstance(result, pd.Series):
-                fill_value = result.iloc[0] if len(result) == 1 else result
-            else:
-                fill_value = result
-        elif isinstance(value, ColumnExpr):
-            # Materialize to get actual value(s)
-            materialized = value._materialize()
-            # Handle scalar results (e.g., from round(agg_func(...)))
-            if not isinstance(materialized, pd.Series):
-                fill_value = materialized
-            # If it's a single value (aggregate), extract scalar
-            elif len(materialized) == 1:
-                fill_value = materialized.iloc[0]
-            else:
-                fill_value = materialized
-
-        # Always use pandas fillna for proper NaN handling
-        series = self._materialize()
-        return series.fillna(value=fill_value, method=method, axis=axis, limit=limit)
+        # LazySeries._materialize_if_needed handles ColumnExpr/LazyAggregate values
+        return LazySeries(self, 'fillna', value=value, method=method, axis=axis, limit=limit)
 
     def fillna_sql(self, value):
         """
@@ -2489,20 +2416,19 @@ class ColumnExpr:
 
     def dropna(self):
         """
-        Return Series with missing values removed.
+        Return Series with missing values removed (lazy).
 
         Returns:
-            pd.Series: Series with NA values removed
+            LazySeries: Lazy wrapper returning Series with NA values removed
 
         Example:
             >>> ds['value'].dropna()
         """
-        series = self._materialize()
-        return series.dropna()
+        return LazySeries(self, 'dropna')
 
     def ffill(self, axis=None, inplace=False, limit=None, limit_area=None):
         """
-        Fill NA/NaN values by propagating the last valid observation forward.
+        Fill NA/NaN values by propagating the last valid observation forward (lazy).
 
         Args:
             axis: Not used, for pandas compatibility
@@ -2511,22 +2437,23 @@ class ColumnExpr:
             limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
 
         Returns:
-            pd.Series: Series with forward-filled values
+            LazySeries: Lazy wrapper returning forward-filled Series
 
         Example:
             >>> ds['value'].ffill()
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
-        series = self._materialize()
-        if _PANDAS_HAS_LIMIT_AREA:
-            return series.ffill(axis=axis, limit=limit, limit_area=limit_area)
-        else:
-            return series.ffill(axis=axis, limit=limit)
+
+        # Build kwargs, excluding limit_area if pandas doesn't support it
+        ffill_kwargs = {'axis': axis, 'limit': limit}
+        if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
+            ffill_kwargs['limit_area'] = limit_area
+        return LazySeries(self, 'ffill', **ffill_kwargs)
 
     def bfill(self, axis=None, inplace=False, limit=None, limit_area=None):
         """
-        Fill NA/NaN values by propagating the next valid observation backward.
+        Fill NA/NaN values by propagating the next valid observation backward (lazy).
 
         Args:
             axis: Not used, for pandas compatibility
@@ -2535,24 +2462,25 @@ class ColumnExpr:
             limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
 
         Returns:
-            pd.Series: Series with backward-filled values
+            LazySeries: Lazy wrapper returning backward-filled Series
 
         Example:
             >>> ds['value'].bfill()
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
-        series = self._materialize()
-        if _PANDAS_HAS_LIMIT_AREA:
-            return series.bfill(axis=axis, limit=limit, limit_area=limit_area)
-        else:
-            return series.bfill(axis=axis, limit=limit)
+
+        # Build kwargs, excluding limit_area if pandas doesn't support it
+        bfill_kwargs = {'axis': axis, 'limit': limit}
+        if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
+            bfill_kwargs['limit_area'] = limit_area
+        return LazySeries(self, 'bfill', **bfill_kwargs)
 
     def interpolate(
         self, method='linear', axis=0, limit=None, inplace=False, limit_direction=None, limit_area=None, **kwargs
     ):
         """
-        Fill NaN values using an interpolation method.
+        Fill NaN values using an interpolation method (lazy).
 
         Args:
             method: Interpolation method ('linear', 'index', 'pad', etc.)
@@ -2564,7 +2492,7 @@ class ColumnExpr:
             **kwargs: Additional arguments passed to pandas interpolate
 
         Returns:
-            pd.Series: Series with interpolated values
+            LazySeries: Lazy wrapper returning interpolated Series
 
         Example:
             >>> ds['value'].interpolate()
@@ -2572,17 +2500,17 @@ class ColumnExpr:
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
-        series = self._materialize()
-        if _PANDAS_HAS_LIMIT_AREA:
-            return series.interpolate(
-                method=method, axis=axis, limit=limit, limit_direction=limit_direction, limit_area=limit_area, **kwargs
-            )
-        else:
-            return series.interpolate(method=method, axis=axis, limit=limit, limit_direction=limit_direction, **kwargs)
+
+        # Build kwargs, excluding limit_area if pandas doesn't support it
+        interp_kwargs = {'method': method, 'axis': axis, 'limit': limit, 'limit_direction': limit_direction}
+        if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
+            interp_kwargs['limit_area'] = limit_area
+        interp_kwargs.update(kwargs)
+        return LazySeries(self, 'interpolate', **interp_kwargs)
 
     def astype(self, dtype, copy=True, errors='raise'):
         """
-        Cast to a specified dtype.
+        Cast to a specified dtype (lazy).
 
         Args:
             dtype: Data type to cast to
@@ -2590,19 +2518,18 @@ class ColumnExpr:
             errors: Control raising of exceptions ('raise' or 'ignore')
 
         Returns:
-            pd.Series: Series with new dtype
+            LazySeries: Lazy wrapper returning Series with new dtype
 
         Example:
             >>> ds['age'].astype(float)
         """
-        series = self._materialize()
-        return series.astype(dtype, copy=copy, errors=errors)
+        return LazySeries(self, 'astype', dtype, copy=copy, errors=errors)
 
     def sort_values(
         self, axis=0, ascending=True, inplace=False, kind='quicksort', na_position='last', ignore_index=False, key=None
     ):
         """
-        Sort by the values.
+        Sort by the values (lazy).
 
         Args:
             axis: Axis to sort along
@@ -2614,16 +2541,22 @@ class ColumnExpr:
             key: Apply the key function to values before sorting
 
         Returns:
-            pd.Series: Sorted Series
+            LazySeries: Lazy wrapper returning sorted Series
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
-        series = self._materialize()
-        return series.sort_values(
-            axis=axis, ascending=ascending, kind=kind, na_position=na_position, ignore_index=ignore_index, key=key
+        return LazySeries(
+            self,
+            'sort_values',
+            axis=axis,
+            ascending=ascending,
+            kind=kind,
+            na_position=na_position,
+            ignore_index=ignore_index,
+            key=key,
         )
 
-    def head(self, n: int = 5) -> 'LazySlice':
+    def head(self, n: int = 5) -> 'LazySeries':
         """
         Return the first n elements (lazy).
 
@@ -2634,17 +2567,15 @@ class ColumnExpr:
             n: Number of elements to return (default 5)
 
         Returns:
-            LazySlice: Lazy wrapper that materializes on display
+            LazySeries: Lazy wrapper that materializes on display
 
         Example:
             >>> ds['age'].head(5)  # Lazy, no execution yet
             >>> print(ds['age'].head(5))  # Triggers execution
         """
-        from .lazy_result import LazySlice
+        return LazySeries(self, 'head', n)
 
-        return LazySlice(self, 'head', n)
-
-    def tail(self, n: int = 5) -> 'LazySlice':
+    def tail(self, n: int = 5) -> 'LazySeries':
         """
         Return the last n elements (lazy).
 
@@ -2654,15 +2585,13 @@ class ColumnExpr:
             n: Number of elements to return (default 5)
 
         Returns:
-            LazySlice: Lazy wrapper that materializes on display
+            LazySeries: Lazy wrapper that materializes on display
 
         Example:
             >>> ds['age'].tail(5)  # Lazy, no execution yet
             >>> print(ds['age'].tail(5))  # Triggers execution
         """
-        from .lazy_result import LazySlice
-
-        return LazySlice(self, 'tail', n)
+        return LazySeries(self, 'tail', n)
 
     # ========== Dynamic Method Delegation ==========
 
@@ -3451,38 +3380,117 @@ class LazyAggregate:
         # Scalar - wrap in Series
         return pd.Series([result])
 
-    # Arithmetic operators (execute and compute)
+    # ========== Chaining Methods (return LazySeries) ==========
+    def sort_values(
+        self, ascending=True, inplace=False, kind='quicksort', na_position='last', ignore_index=False, key=None
+    ):
+        """Sort by the values (lazy)."""
+        return LazySeries(
+            self,
+            'sort_values',
+            ascending=ascending,
+            kind=kind,
+            na_position=na_position,
+            ignore_index=ignore_index,
+            key=key,
+        )
+
+    def reset_index(self, level=None, drop=False, name=None, inplace=False, allow_duplicates=False):
+        """Reset the index (lazy)."""
+        return LazySeries(self, 'reset_index', level=level, drop=drop, name=name, allow_duplicates=allow_duplicates)
+
+    def head(self, n: int = 5):
+        """Return the first n elements (lazy)."""
+        return LazySeries(self, 'head', n)
+
+    def tail(self, n: int = 5):
+        """Return the last n elements (lazy)."""
+        return LazySeries(self, 'tail', n)
+
+    def nlargest(self, n: int = 5, keep: str = 'first'):
+        """Return the largest n elements (lazy)."""
+        return LazySeries(self, 'nlargest', n=n, keep=keep)
+
+    def nsmallest(self, n: int = 5, keep: str = 'first'):
+        """Return the smallest n elements (lazy)."""
+        return LazySeries(self, 'nsmallest', n=n, keep=keep)
+
+    def sort_index(self, ascending: bool = True, na_position: str = 'last'):
+        """Sort by the index (lazy)."""
+        return LazySeries(self, 'sort_index', ascending=ascending, na_position=na_position)
+
+    def fillna(self, value=None, method=None, axis=None, limit=None):
+        """Fill NA/NaN values (lazy)."""
+        return LazySeries(self, 'fillna', value=value, method=method, axis=axis, limit=limit)
+
+    def dropna(self):
+        """Remove NA/NaN values (lazy)."""
+        return LazySeries(self, 'dropna')
+
+    def apply(self, func, convert_dtype=True, args=(), **kwargs):
+        """Apply a function to each element (lazy)."""
+        return LazySeries(self, 'apply', func, convert_dtype=convert_dtype, args=args, **kwargs)
+
+    def map(self, arg, na_action=None):
+        """Map values according to input mapping (lazy)."""
+        return LazySeries(self, 'map', arg, na_action=na_action)
+
+    def astype(self, dtype, copy=True, errors='raise'):
+        """Cast to a specified dtype (lazy)."""
+        return LazySeries(self, 'astype', dtype, copy=copy, errors=errors)
+
+    def drop_duplicates(self, keep='first'):
+        """Remove duplicate values (lazy)."""
+        return LazySeries(self, 'drop_duplicates', keep=keep)
+
+    def value_counts(self, normalize=False, sort=True, ascending=False, bins=None, dropna=True):
+        """Return a Series containing counts of unique values (lazy)."""
+        return LazySeries(
+            self, 'value_counts', normalize=normalize, sort=sort, ascending=ascending, bins=bins, dropna=dropna
+        )
+
+    # Arithmetic operators (lazy - return LazySeries)
     def __add__(self, other):
-        result = self._execute()
-        return result + other
+        return LazySeries(self, '__add__', other)
 
     def __radd__(self, other):
-        result = self._execute()
-        return other + result
+        return LazySeries(self, '__radd__', other)
 
     def __sub__(self, other):
-        result = self._execute()
-        return result - other
+        return LazySeries(self, '__sub__', other)
 
     def __rsub__(self, other):
-        result = self._execute()
-        return other - result
+        return LazySeries(self, '__rsub__', other)
 
     def __mul__(self, other):
-        result = self._execute()
-        return result * other
+        return LazySeries(self, '__mul__', other)
 
     def __rmul__(self, other):
-        result = self._execute()
-        return other * result
+        return LazySeries(self, '__rmul__', other)
 
     def __truediv__(self, other):
-        result = self._execute()
-        return result / other
+        return LazySeries(self, '__truediv__', other)
 
     def __rtruediv__(self, other):
-        result = self._execute()
-        return other / result
+        return LazySeries(self, '__rtruediv__', other)
+
+    def __floordiv__(self, other):
+        return LazySeries(self, '__floordiv__', other)
+
+    def __rfloordiv__(self, other):
+        return LazySeries(self, '__rfloordiv__', other)
+
+    def __mod__(self, other):
+        return LazySeries(self, '__mod__', other)
+
+    def __rmod__(self, other):
+        return LazySeries(self, '__rmod__', other)
+
+    def __pow__(self, other):
+        return LazySeries(self, '__pow__', other)
+
+    def __rpow__(self, other):
+        return LazySeries(self, '__rpow__', other)
 
     def __round__(self, ndigits: int = None) -> 'ColumnExpr':
         """
@@ -3506,43 +3514,3 @@ class LazyAggregate:
             round_expr = Function('round', self._expr, Literal(ndigits))
 
         return ColumnExpr(round_expr, self._column_expr._datastore)
-
-    def head(self, n: int = 5) -> 'LazySlice':
-        """
-        Return the first n elements of the aggregated result (lazy).
-
-        The result is not materialized until displayed or explicitly converted.
-
-        Args:
-            n: Number of elements to return (default 5)
-
-        Returns:
-            LazySlice: Lazy wrapper that materializes on display
-
-        Example:
-            >>> ds.groupby('category')['value'].mean().head(5)  # Lazy
-            >>> print(ds.groupby('category')['value'].mean().head(5))  # Executes
-        """
-        from .lazy_result import LazySlice
-
-        return LazySlice(self, 'head', n)
-
-    def tail(self, n: int = 5) -> 'LazySlice':
-        """
-        Return the last n elements of the aggregated result (lazy).
-
-        The result is not materialized until displayed or explicitly converted.
-
-        Args:
-            n: Number of elements to return (default 5)
-
-        Returns:
-            LazySlice: Lazy wrapper that materializes on display
-
-        Example:
-            >>> ds.groupby('category')['value'].mean().tail(5)  # Lazy
-            >>> print(ds.groupby('category')['value'].mean().tail(5))  # Executes
-        """
-        from .lazy_result import LazySlice
-
-        return LazySlice(self, 'tail', n)
