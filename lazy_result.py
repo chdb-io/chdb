@@ -114,7 +114,7 @@ class LazySeries:
         operations like value_counts (GROUP BY COUNT).
 
         Returns:
-            The result of the method call (typically pd.Series)
+            The result of the method call (typically pd.Series or pd.DataFrame)
         """
         if self._cached_result is not None:
             return self._cached_result
@@ -125,7 +125,53 @@ class LazySeries:
             return self._cached_result
 
         # Method mode: execute column_expr and call method
-        from .column_expr import LazyAggregate
+        from .column_expr import ColumnExpr, LazyAggregate
+        from .expressions import Field
+
+        # Execute any ColumnExpr in args or kwargs
+        args = tuple(self._execute_if_needed(arg) for arg in self._args)
+        kwargs = {k: self._execute_if_needed(v) for k, v in self._kwargs.items()}
+
+        # Handle groupby + agg scenario: df.groupby('col')['value'].agg(['sum', 'mean'])
+        # When _column_expr has _groupby_fields, we need to do groupby first, then agg
+        if (
+            isinstance(self._column_expr, ColumnExpr)
+            and hasattr(self._column_expr, '_groupby_fields')
+            and self._column_expr._groupby_fields
+            and self._method_name in ('agg', 'aggregate')
+        ):
+            # Get groupby column names
+            groupby_col_names = []
+            for gf in self._column_expr._groupby_fields:
+                if isinstance(gf, Field):
+                    groupby_col_names.append(gf.name)
+                else:
+                    groupby_col_names.append(str(gf))
+
+            # Get the column name being aggregated
+            col_name = None
+            if isinstance(self._column_expr._expr, Field):
+                col_name = self._column_expr._expr.name
+            else:
+                col_name = str(self._column_expr._expr)
+
+            # Execute the DataFrame
+            df = self._column_expr._datastore._execute()
+
+            # Filter out 'axis' from kwargs - pandas groupby agg doesn't accept axis
+            agg_kwargs = {k: v for k, v in kwargs.items() if k != 'axis'}
+
+            # Perform groupby and agg
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_col_names)[col_name]
+                self._cached_result = grouped.agg(*args, **agg_kwargs)
+            else:
+                # Fallback: just execute the column and agg without groupby
+                series = self._column_expr._execute()
+                method = getattr(series, self._method_name)
+                self._cached_result = method(*args, **agg_kwargs)
+
+            return self._cached_result
 
         if isinstance(self._column_expr, LazyAggregate):
             series = self._column_expr._execute()
@@ -133,10 +179,6 @@ class LazySeries:
             series = self._column_expr._execute()
         else:
             series = self._column_expr._execute()
-
-        # Execute any ColumnExpr in args or kwargs
-        args = tuple(self._execute_if_needed(arg) for arg in self._args)
-        kwargs = {k: self._execute_if_needed(v) for k, v in self._kwargs.items()}
 
         # Handle special _dt_* methods for datetime operations (pandas fallback)
         if self._method_name.startswith('_dt_'):

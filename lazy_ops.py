@@ -533,22 +533,21 @@ class LazyRelationalOp(LazyOp):
             return pd.Series([True] * len(df), index=df.index)
 
         if isinstance(condition, InCondition):
-            left = self._evaluate_operand(df, condition.field, context)
+            left = self._evaluate_operand(df, condition.expression, context)
             values = condition.values
-            if condition.negated:
+            if condition.negate:
                 return ~left.isin(values)
             return left.isin(values)
 
         if isinstance(condition, BetweenCondition):
-            field = self._evaluate_operand(df, condition.field, context)
-            low = self._evaluate_operand(df, condition.low, context)
-            high = self._evaluate_operand(df, condition.high, context)
-            if condition.negated:
-                return (field < low) | (field > high)
+            field = self._evaluate_operand(df, condition.expression, context)
+            low = self._evaluate_operand(df, condition.lower, context)
+            high = self._evaluate_operand(df, condition.upper, context)
+            # BetweenCondition doesn't have negate attribute, always inclusive
             return (field >= low) & (field <= high)
 
         if isinstance(condition, UnaryCondition):
-            field = self._evaluate_operand(df, condition.field, context)
+            field = self._evaluate_operand(df, condition.expression, context)
             if condition.operator == 'IS NULL':
                 return field.isna()
             elif condition.operator == 'IS NOT NULL':

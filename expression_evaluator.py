@@ -729,6 +729,11 @@ class ExpressionEvaluator:
         if original_name and hasattr(result, 'name'):
             result = result.rename(original_name)
 
+        # Convert uint64 to int64 to match pandas behavior
+        # (chDB returns uint64 for count, length etc., but pandas uses int64)
+        if hasattr(result, 'dtype') and result.dtype == 'uint64':
+            result = result.astype('int64')
+
         return result
 
     def _restore_nulls(self, result: pd.Series, null_mask: pd.Series) -> pd.Series:

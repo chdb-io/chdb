@@ -1823,6 +1823,22 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("to_df() called - triggering execution")
         return self._execute()
 
+    def to_pandas(self) -> pd.DataFrame:
+        """
+        Execute all operations and return pandas DataFrame.
+
+        Alias for to_df() to provide API consistency with Polars, Dask, and other
+        DataFrame libraries that use to_pandas() for conversion.
+
+        Returns:
+            pandas DataFrame
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> df = ds.select("*").filter(ds.age > 18).to_pandas()
+        """
+        return self.to_df()
+
     def to_dict(self) -> List[Dict[str, Any]]:
         """
         Execute the query and return results as a list of dictionaries.
@@ -3517,6 +3533,8 @@ class DataStore(PandasCompatMixin):
             'empty',
             'T',
             'axes',
+            'to_pandas',  # Prevent being treated as column name
+            'to_df',
         }
     )
 

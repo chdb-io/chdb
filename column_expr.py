@@ -133,6 +133,31 @@ class ColumnExpr:
             # Scalar result - return as is (will be wrapped if needed)
             return result
 
+    def to_pandas(self) -> pd.Series:
+        """
+        Execute this expression and return as pandas Series.
+
+        This provides API consistency with Polars, Dask, and other
+        DataFrame libraries that use to_pandas() for conversion.
+
+        Returns:
+            pd.Series: The executed expression as a pandas Series
+
+        Example:
+            >>> ds['age'].to_pandas()
+            0    28
+            1    31
+            2    29
+            Name: age, dtype: int64
+
+            >>> (ds['age'] * 2).to_pandas()
+            0    56
+            1    62
+            2    58
+            Name: age, dtype: int64
+        """
+        return self._execute()
+
     def _evaluate_via_chdb(self, df: pd.DataFrame) -> pd.Series:
         """
         Evaluate the expression using chDB's Python() table function.
@@ -235,6 +260,11 @@ class ColumnExpr:
 
             # Sort by index to match pandas default behavior (sort=True)
             result_series = result_series.sort_index()
+
+            # Convert count result to int64 to match pandas behavior
+            # (chDB count returns uint64, but pandas returns int64)
+            if agg_func_name == 'count' and result_series.dtype == 'uint64':
+                result_series = result_series.astype('int64')
 
         return result_series
 
