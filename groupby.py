@@ -177,6 +177,9 @@ class LazyGroupBy:
         Unlike count(), size() includes NaN values and returns a Series
         (matching pandas behavior).
 
+        When possible, this uses SQL pushdown for better performance:
+        SELECT groupby_col, COUNT(*) FROM ... GROUP BY groupby_col
+
         Returns:
             LazySeries: Lazy wrapper that returns pd.Series when executed.
 
@@ -203,8 +206,54 @@ class LazyGroupBy:
         cols = groupby_cols
 
         def executor():
-            df = ds._execute()
-            return df.groupby(cols).size()
+            # Check if we can use SQL pushdown
+            if ds._table_function or ds.table_name:
+                # Use SQL GROUP BY for performance
+                # Build: SELECT col, COUNT(*) FROM ... GROUP BY col
+                from .expressions import Star
+                from .functions import AggregateFunction
+
+                # Ensure connection exists
+                if ds._executor is None:
+                    ds.connect()
+
+                # Build SELECT fields: groupby cols + COUNT(*)
+                select_parts = [f'"{col}"' for col in cols]
+                select_parts.append('COUNT(*) AS "size"')
+                select_sql = ', '.join(select_parts)
+
+                # Build GROUP BY
+                groupby_sql = ', '.join(f'"{col}"' for col in cols)
+
+                # Get base table SQL
+                if ds._table_function:
+                    table_sql = ds._table_function.to_sql()
+                else:
+                    table_sql = f'"{ds.table_name}"'
+
+                # Build WHERE clause from lazy ops if any
+                where_sql = ''
+                from .lazy_ops import LazyRelationalOp
+
+                where_conditions = []
+                for op in ds._lazy_ops:
+                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+                        where_conditions.append(op.condition.to_sql(quote_char='"'))
+                if where_conditions:
+                    where_sql = ' WHERE ' + ' AND '.join(where_conditions)
+
+                sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}'
+                result_df = ds._executor.execute(sql).to_df()
+
+                # Convert to Series with groupby col as index
+                if len(cols) == 1:
+                    return result_df.set_index(cols[0])['size']
+                else:
+                    return result_df.set_index(cols)['size']
+            else:
+                # Fall back to pandas
+                df = ds._execute()
+                return df.groupby(cols).size()
 
         return LazySeries(executor=executor, datastore=ds)
 

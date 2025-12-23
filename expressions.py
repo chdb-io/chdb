@@ -550,6 +550,26 @@ class Field(Expression):
         return Field(self.name, self.table, self.alias)
 
 
+class Star(Expression):
+    """
+    Represents * in SQL (e.g., SELECT *, COUNT(*)).
+
+    Example:
+        >>> Star()  # generates: *
+        >>> AggregateFunction('count', Star())  # generates: count(*)
+    """
+
+    def __init__(self, alias: Optional[str] = None):
+        super().__init__(alias)
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        """Generate SQL for star (*)."""
+        return '*'
+
+    def __repr__(self):
+        return 'Star()'
+
+
 class Literal(Expression):
     """
     Represents a literal value (constant).

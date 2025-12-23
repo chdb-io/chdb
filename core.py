@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .column_expr import ColumnExpr
     from .groupby import LazyGroupBy
 
-from .expressions import Field, Expression
+from .expressions import Field, Expression, Literal, Star
 from .conditions import Condition
 from .utils import immutable, ignore_copy, format_identifier
 from .exceptions import QueryError, ConnectionError, ExecutionError
@@ -664,15 +664,67 @@ class DataStore(PandasCompatMixin):
 
             # Query planning phase
             with profiler.step("Query Planning", ops_count=len(self._lazy_ops)):
+                # Import LazyGroupByAgg for GROUP BY SQL pushdown
+                from .lazy_ops import LazyGroupByAgg
+
                 # Find the first non-SQL operation
+                # LazyGroupByAgg can also be pushed to SQL if it immediately follows relational ops
                 first_df_op_idx = None
+                groupby_agg_op = None  # Track GroupBy aggregation for SQL pushdown
+
+                # Collect WHERE column names for alias conflict detection
+                where_columns = set()
+                for op in self._lazy_ops:
+                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+                        # Extract column names from condition
+                        try:
+                            cond_sql = op.condition.to_sql(quote_char='"')
+                            # Simple extraction: find quoted column names
+                            import re
+
+                            where_columns.update(re.findall(r'"(\w+)"', cond_sql))
+                        except Exception:
+                            pass
+
                 for i, op in enumerate(self._lazy_ops):
-                    if not isinstance(op, LazyRelationalOp):
-                        first_df_op_idx = i
-                        break
+                    if isinstance(op, LazyRelationalOp):
+                        continue
+                    elif isinstance(op, LazyGroupByAgg) and groupby_agg_op is None:
+                        # LazyGroupByAgg can be pushed to SQL if:
+                        # 1. It's the first non-relational op
+                        # 2. We have a SQL source
+                        # 3. For agg_dict: only single function per column (no MultiIndex)
+                        # 4. No alias conflict with WHERE columns
+                        can_push = self._table_function or self.table_name
+                        if can_push and op.agg_dict:
+                            # Check if any column has multiple functions
+                            for funcs in op.agg_dict.values():
+                                if isinstance(funcs, (list, tuple)) and len(funcs) > 1:
+                                    can_push = False
+                                    self._logger.debug("  [GroupBy] Skipping SQL pushdown: multiple funcs per column")
+                                    break
+                            # Check for alias conflict with WHERE columns
+                            if can_push:
+                                agg_columns = set(op.agg_dict.keys())
+                                conflict_cols = agg_columns & where_columns
+                                if conflict_cols:
+                                    can_push = False
+                                    self._logger.debug(
+                                        "  [GroupBy] Skipping SQL pushdown: alias conflict with WHERE columns %s",
+                                        conflict_cols,
+                                    )
+                        if can_push:
+                            groupby_agg_op = op
+                            continue  # Include in SQL, continue looking
+                    # Any other op breaks the SQL chain
+                    first_df_op_idx = i
+                    break
 
                 # Build SQL query from operations before first DataFrame op
                 early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
+                # Remove LazyGroupByAgg from early_sql_ops (it's handled separately)
+                if groupby_agg_op:
+                    early_sql_ops = [op for op in early_sql_ops if not isinstance(op, LazyGroupByAgg)]
                 has_sql_source = self._table_function or self.table_name
                 has_two_phases = has_sql_source and first_df_op_idx is not None
 
@@ -758,15 +810,73 @@ class DataStore(PandasCompatMixin):
                                 elif op.op_type == 'OFFSET':
                                     sql_offset = op.offset_value
 
+                        # Handle LazyGroupByAgg SQL pushdown
+                        groupby_fields_for_sql = self._groupby_fields
+                        select_fields_for_sql = sql_select_fields
+
+                        if groupby_agg_op:
+                            # Build GROUP BY fields
+                            groupby_fields_for_sql = [Field(col) for col in groupby_agg_op.groupby_cols]
+
+                            # Build SELECT fields with aggregations
+                            select_fields_for_sql = list(groupby_fields_for_sql)  # Include group keys
+
+                            if groupby_agg_op.agg_dict:
+                                # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
+                                from .functions import AggregateFunction
+
+                                for col, funcs in groupby_agg_op.agg_dict.items():
+                                    if isinstance(funcs, str):
+                                        funcs = [funcs]
+                                    for func in funcs:
+                                        # Map pandas func names to SQL
+                                        sql_func_map = {
+                                            'sum': 'sum',
+                                            'mean': 'avg',
+                                            'avg': 'avg',
+                                            'count': 'count',
+                                            'min': 'min',
+                                            'max': 'max',
+                                            'std': 'stddevPop',
+                                            'var': 'varPop',
+                                            'first': 'any',
+                                            'last': 'anyLast',
+                                        }
+                                        sql_func = sql_func_map.get(func, func)
+                                        # Use original column name as alias (pandas compatibility)
+                                        agg_expr = AggregateFunction(sql_func, Field(col), alias=col)
+                                        select_fields_for_sql.append(agg_expr)
+                            elif groupby_agg_op.agg_func:
+                                # Single function for all numeric columns
+                                # For now, just use COUNT(*) for 'count' and 'size'
+                                from .functions import AggregateFunction
+
+                                func = groupby_agg_op.agg_func
+                                sql_func_map = {
+                                    'sum': 'sum',
+                                    'mean': 'avg',
+                                    'avg': 'avg',
+                                    'count': 'count',
+                                    'min': 'min',
+                                    'max': 'max',
+                                    'size': 'count',
+                                }
+                                sql_func = sql_func_map.get(func, func)
+                                if func in ('count', 'size'):
+                                    # COUNT(*) for counting rows
+                                    select_fields_for_sql.append(AggregateFunction(sql_func, Star()))
+
+                            self._logger.debug("  [GroupBy SQL Pushdown] GROUP BY %s", groupby_agg_op.groupby_cols)
+
                         sql = self._build_sql_from_state(
-                            sql_select_fields,
+                            select_fields_for_sql,
                             sql_where_conditions,
                             sql_orderby_fields,
                             sql_limit,
                             sql_offset,
                             joins=self._joins,
                             distinct=self._distinct,
-                            groupby_fields=self._groupby_fields,
+                            groupby_fields=groupby_fields_for_sql,
                             having_condition=self._having_condition,
                         )
                     else:
@@ -863,6 +973,15 @@ class DataStore(PandasCompatMixin):
                     result = self._executor.execute(sql)
                 with profiler.step("Result to DataFrame"):
                     df = result.to_df()
+
+                    # For GroupBy SQL pushdown: set group keys as index (pandas compatibility)
+                    if groupby_agg_op and groupby_agg_op.groupby_cols:
+                        groupby_cols = groupby_agg_op.groupby_cols
+                        # Check if all groupby columns exist in the result
+                        if all(col in df.columns for col in groupby_cols):
+                            df = df.set_index(groupby_cols)
+                            self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+
                 self._logger.debug("  SQL query returned DataFrame with shape: %s", df.shape)
             else:
                 # No SQL source - start with empty DataFrame (will be populated by DataFrame operations)
