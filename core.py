@@ -20,8 +20,16 @@ from .executor import Executor
 from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
-from .lazy_ops import LazyOp, LazyColumnSelection, LazyRelationalOp
-from .config import get_logger, config as _global_config, DataStoreConfig, is_cache_enabled, get_cache_ttl
+from .lazy_ops import LazyOp, LazyRelationalOp
+from .config import (
+    get_logger,
+    config as _global_config,
+    DataStoreConfig,
+    is_cache_enabled,
+    get_cache_ttl,
+    new_profiler,
+    is_profiling_enabled,
+)
 
 __all__ = ['DataStore']
 
@@ -629,281 +637,303 @@ class DataStore(PandasCompatMixin):
         """
         from .lazy_ops import LazyRelationalOp
 
-        # Check cache first
-        if self._is_cache_valid():
-            self._logger.debug("Using cached result (version=%d)", self._cached_at_version)
-            return self._cached_result
+        # Create profiler for this execution
+        profiler = new_profiler()
 
-        self._logger.debug("=" * 70)
-        self._logger.debug("Starting execution (version=%d)", self._cache_version)
-        self._logger.debug("=" * 70)
+        with profiler.step("Total Execution"):
+            # Check cache first
+            with profiler.step("Cache Check"):
+                if self._is_cache_valid():
+                    self._logger.debug("Using cached result (version=%d)", self._cached_at_version)
+                    # Log profiling report even for cache hit
+                    if is_profiling_enabled():
+                        profiler.log_report()
+                    return self._cached_result
 
-        # Log all lazy operations
-        if self._lazy_ops:
-            self._logger.debug("Lazy operations chain (%d operations):", len(self._lazy_ops))
-            for i, op in enumerate(self._lazy_ops):
-                self._logger.debug("  [%d] %s", i + 1, op.describe())
-        else:
-            self._logger.debug("No lazy operations recorded")
+            self._logger.debug("=" * 70)
+            self._logger.debug("Starting execution (version=%d)", self._cache_version)
+            self._logger.debug("=" * 70)
 
-        # Find the first non-SQL operation
-        first_df_op_idx = None
-        for i, op in enumerate(self._lazy_ops):
-            if not isinstance(op, LazyRelationalOp):
-                first_df_op_idx = i
-                break
-
-        # Build SQL query from operations before first DataFrame op
-        early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
-        has_sql_source = self._table_function or self.table_name
-        has_two_phases = has_sql_source and first_df_op_idx is not None
-
-        # Only show SQL phase header if we have SQL source
-        if has_sql_source:
-            if has_two_phases:
-                self._logger.debug("-" * 70)
-                self._logger.debug("Phase 1: Executing SQL query")
-                self._logger.debug("-" * 70)
+            # Log all lazy operations
+            if self._lazy_ops:
+                self._logger.debug("Lazy operations chain (%d operations):", len(self._lazy_ops))
+                for i, op in enumerate(self._lazy_ops):
+                    self._logger.debug("  [%d] %s", i + 1, op.describe())
             else:
-                self._logger.debug("-" * 70)
-                self._logger.debug("Executing SQL query")
-                self._logger.debug("-" * 70)
+                self._logger.debug("No lazy operations recorded")
 
-        sql_select_fields = []
+            # Query planning phase
+            with profiler.step("Query Planning", ops_count=len(self._lazy_ops)):
+                # Find the first non-SQL operation
+                first_df_op_idx = None
+                for i, op in enumerate(self._lazy_ops):
+                    if not isinstance(op, LazyRelationalOp):
+                        first_df_op_idx = i
+                        break
 
-        # Collect SELECT fields from all operations
-        for op in early_sql_ops:
-            if isinstance(op, LazyRelationalOp):
-                if op.op_type == 'SELECT' and op.fields:
-                    for f in op.fields:
-                        if isinstance(f, str):
-                            if f != '*':
-                                sql_select_fields.append(Field(f))
+                # Build SQL query from operations before first DataFrame op
+                early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
+                has_sql_source = self._table_function or self.table_name
+                has_two_phases = has_sql_source and first_df_op_idx is not None
+
+                # Only show SQL phase header if we have SQL source
+                if has_sql_source:
+                    if has_two_phases:
+                        self._logger.debug("-" * 70)
+                        self._logger.debug("Phase 1: Executing SQL query")
+                        self._logger.debug("-" * 70)
+                    else:
+                        self._logger.debug("-" * 70)
+                        self._logger.debug("Executing SQL query")
+                        self._logger.debug("-" * 70)
+
+                sql_select_fields = []
+
+                # Collect SELECT fields from all operations
+                for op in early_sql_ops:
+                    if isinstance(op, LazyRelationalOp):
+                        if op.op_type == 'SELECT' and op.fields:
+                            for f in op.fields:
+                                if isinstance(f, str):
+                                    if f != '*':
+                                        sql_select_fields.append(Field(f))
+                                else:
+                                    sql_select_fields.append(f)
+
+                # Split operations into layers for nested subqueries
+                # Layer boundaries are created when:
+                # - WHERE follows LIMIT/OFFSET (pandas: slice then filter)
+                # - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
+                # This preserves pandas-like execution order semantics
+                layers = []  # List of operation lists, innermost first
+                current_layer = []
+                pending_limit_offset = False
+
+                for op in early_sql_ops:
+                    if isinstance(op, LazyRelationalOp):
+                        if op.op_type in ('WHERE', 'ORDER BY') and pending_limit_offset:
+                            # WHERE or ORDER BY after LIMIT/OFFSET - start new layer
+                            if current_layer:
+                                layers.append(current_layer)
+                            current_layer = [op]
+                            pending_limit_offset = False
                         else:
-                            sql_select_fields.append(f)
+                            current_layer.append(op)
+                            if op.op_type in ('LIMIT', 'OFFSET'):
+                                pending_limit_offset = True
 
-        # Split operations into layers for nested subqueries
-        # Layer boundaries are created when:
-        # - WHERE follows LIMIT/OFFSET (pandas: slice then filter)
-        # - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
-        # This preserves pandas-like execution order semantics
-        layers = []  # List of operation lists, innermost first
-        current_layer = []
-        pending_limit_offset = False
+                if current_layer:
+                    layers.append(current_layer)
 
-        for op in early_sql_ops:
-            if isinstance(op, LazyRelationalOp):
-                if op.op_type in ('WHERE', 'ORDER BY') and pending_limit_offset:
-                    # WHERE or ORDER BY after LIMIT/OFFSET - start new layer
-                    if current_layer:
-                        layers.append(current_layer)
-                    current_layer = [op]
-                    pending_limit_offset = False
-                else:
-                    current_layer.append(op)
-                    if op.op_type in ('LIMIT', 'OFFSET'):
-                        pending_limit_offset = True
+            # Build and execute SQL query
+            if self._table_function or self.table_name:
+                # Connect if needed
+                if self._executor is None:
+                    with profiler.step("Connection"):
+                        self._logger.debug("Connecting to data source...")
+                        self.connect()
 
-        if current_layer:
-            layers.append(current_layer)
+                with profiler.step("SQL Build", layers=len(layers)):
+                    if len(layers) <= 1:
+                        # No subqueries needed - simple case
+                        sql_where_conditions = []
+                        sql_orderby_fields = []
+                        sql_limit = None
+                        sql_offset = None
 
-        # Build and execute SQL query
-        if self._table_function or self.table_name:
-            # Connect if needed
-            if self._executor is None:
-                self._logger.debug("Connecting to data source...")
-                self.connect()
+                        for op in layers[0] if layers else []:
+                            if isinstance(op, LazyRelationalOp):
+                                if op.op_type == 'WHERE' and op.condition is not None:
+                                    sql_where_conditions.append(op.condition)
+                                elif op.op_type == 'ORDER BY' and op.fields:
+                                    # Later ORDER BY replaces earlier ones (pandas semantics)
+                                    sql_orderby_fields = []
+                                    for f in op.fields:
+                                        if isinstance(f, str):
+                                            sql_orderby_fields.append((Field(f), op.ascending))
+                                        else:
+                                            sql_orderby_fields.append((f, op.ascending))
+                                elif op.op_type == 'LIMIT':
+                                    sql_limit = op.limit_value
+                                elif op.op_type == 'OFFSET':
+                                    sql_offset = op.offset_value
 
-            if len(layers) <= 1:
-                # No subqueries needed - simple case
-                sql_where_conditions = []
-                sql_orderby_fields = []
-                sql_limit = None
-                sql_offset = None
+                        sql = self._build_sql_from_state(
+                            sql_select_fields,
+                            sql_where_conditions,
+                            sql_orderby_fields,
+                            sql_limit,
+                            sql_offset,
+                            joins=self._joins,
+                            distinct=self._distinct,
+                            groupby_fields=self._groupby_fields,
+                            having_condition=self._having_condition,
+                        )
+                    else:
+                        # Multiple layers - build nested subqueries
+                        # layers[0] is innermost (closest to data source)
+                        self._logger.debug("Building %d nested subqueries for LIMIT-before-WHERE patterns", len(layers))
 
-                for op in layers[0] if layers else []:
-                    if isinstance(op, LazyRelationalOp):
-                        if op.op_type == 'WHERE' and op.condition is not None:
-                            sql_where_conditions.append(op.condition)
-                        elif op.op_type == 'ORDER BY' and op.fields:
-                            # Later ORDER BY replaces earlier ones (pandas semantics)
-                            sql_orderby_fields = []
-                            for f in op.fields:
-                                if isinstance(f, str):
-                                    sql_orderby_fields.append((Field(f), op.ascending))
-                                else:
-                                    sql_orderby_fields.append((f, op.ascending))
-                        elif op.op_type == 'LIMIT':
-                            sql_limit = op.limit_value
-                        elif op.op_type == 'OFFSET':
-                            sql_offset = op.offset_value
+                        # Build innermost query (layer 0) with full table settings
+                        inner_where = []
+                        inner_orderby = []
+                        inner_limit = None
+                        inner_offset = None
 
-                sql = self._build_sql_from_state(
-                    sql_select_fields,
-                    sql_where_conditions,
-                    sql_orderby_fields,
-                    sql_limit,
-                    sql_offset,
-                    joins=self._joins,
-                    distinct=self._distinct,
-                    groupby_fields=self._groupby_fields,
-                    having_condition=self._having_condition,
-                )
+                        for op in layers[0]:
+                            if isinstance(op, LazyRelationalOp):
+                                if op.op_type == 'WHERE' and op.condition is not None:
+                                    inner_where.append(op.condition)
+                                elif op.op_type == 'ORDER BY' and op.fields:
+                                    # Later ORDER BY replaces earlier ones (pandas semantics)
+                                    inner_orderby = []
+                                    for f in op.fields:
+                                        if isinstance(f, str):
+                                            inner_orderby.append((Field(f), op.ascending))
+                                        else:
+                                            inner_orderby.append((f, op.ascending))
+                                elif op.op_type == 'LIMIT':
+                                    inner_limit = op.limit_value
+                                elif op.op_type == 'OFFSET':
+                                    inner_offset = op.offset_value
+
+                        sql = self._build_sql_from_state(
+                            sql_select_fields,
+                            inner_where,
+                            inner_orderby,
+                            inner_limit,
+                            inner_offset,
+                            joins=self._joins,
+                            distinct=self._distinct,
+                            groupby_fields=self._groupby_fields,
+                            having_condition=self._having_condition,
+                        )
+
+                        # Wrap with outer layers (layer 1, 2, ...)
+                        for layer_idx, layer_ops in enumerate(layers[1:], 1):
+                            layer_where = []
+                            layer_orderby = []
+                            layer_limit = None
+                            layer_offset = None
+
+                            for op in layer_ops:
+                                if isinstance(op, LazyRelationalOp):
+                                    if op.op_type == 'WHERE' and op.condition is not None:
+                                        layer_where.append(op.condition)
+                                    elif op.op_type == 'ORDER BY' and op.fields:
+                                        # Later ORDER BY replaces earlier ones (pandas semantics)
+                                        layer_orderby = []
+                                        for f in op.fields:
+                                            if isinstance(f, str):
+                                                layer_orderby.append((Field(f), op.ascending))
+                                            else:
+                                                layer_orderby.append((f, op.ascending))
+                                    elif op.op_type == 'LIMIT':
+                                        layer_limit = op.limit_value
+                                    elif op.op_type == 'OFFSET':
+                                        layer_offset = op.offset_value
+
+                            # Build outer query wrapping the current sql
+                            outer_parts = ["SELECT *"]
+                            outer_parts.append(f"FROM ({sql}) AS __subq{layer_idx}__")
+
+                            if layer_where:
+                                combined = layer_where[0]
+                                for cond in layer_where[1:]:
+                                    combined = combined & cond
+                                outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+                            if layer_orderby:
+                                order_parts = []
+                                for field, asc in layer_orderby:
+                                    direction = 'ASC' if asc else 'DESC'
+                                    order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
+                                outer_parts.append(f"ORDER BY {', '.join(order_parts)}")
+
+                            if layer_limit is not None:
+                                outer_parts.append(f"LIMIT {layer_limit}")
+
+                            if layer_offset is not None:
+                                outer_parts.append(f"OFFSET {layer_offset}")
+
+                            sql = ' '.join(outer_parts)
+
+                self._logger.debug("Executing initial SQL query...")
+                with profiler.step("SQL Execution"):
+                    result = self._executor.execute(sql)
+                with profiler.step("Result to DataFrame"):
+                    df = result.to_df()
+                self._logger.debug("  SQL query returned DataFrame with shape: %s", df.shape)
             else:
-                # Multiple layers - build nested subqueries
-                # layers[0] is innermost (closest to data source)
-                self._logger.debug("Building %d nested subqueries for LIMIT-before-WHERE patterns", len(layers))
+                # No SQL source - start with empty DataFrame (will be populated by DataFrame operations)
+                df = pd.DataFrame()
 
-                # Build innermost query (layer 0) with full table settings
-                inner_where = []
-                inner_orderby = []
-                inner_limit = None
-                inner_offset = None
-
-                for op in layers[0]:
-                    if isinstance(op, LazyRelationalOp):
-                        if op.op_type == 'WHERE' and op.condition is not None:
-                            inner_where.append(op.condition)
-                        elif op.op_type == 'ORDER BY' and op.fields:
-                            # Later ORDER BY replaces earlier ones (pandas semantics)
-                            inner_orderby = []
-                            for f in op.fields:
-                                if isinstance(f, str):
-                                    inner_orderby.append((Field(f), op.ascending))
-                                else:
-                                    inner_orderby.append((f, op.ascending))
-                        elif op.op_type == 'LIMIT':
-                            inner_limit = op.limit_value
-                        elif op.op_type == 'OFFSET':
-                            inner_offset = op.offset_value
-
-                sql = self._build_sql_from_state(
-                    sql_select_fields,
-                    inner_where,
-                    inner_orderby,
-                    inner_limit,
-                    inner_offset,
-                    joins=self._joins,
-                    distinct=self._distinct,
-                    groupby_fields=self._groupby_fields,
-                    having_condition=self._having_condition,
-                )
-
-                # Wrap with outer layers (layer 1, 2, ...)
-                for layer_idx, layer_ops in enumerate(layers[1:], 1):
-                    layer_where = []
-                    layer_orderby = []
-                    layer_limit = None
-                    layer_offset = None
-
-                    for op in layer_ops:
-                        if isinstance(op, LazyRelationalOp):
-                            if op.op_type == 'WHERE' and op.condition is not None:
-                                layer_where.append(op.condition)
-                            elif op.op_type == 'ORDER BY' and op.fields:
-                                # Later ORDER BY replaces earlier ones (pandas semantics)
-                                layer_orderby = []
-                                for f in op.fields:
-                                    if isinstance(f, str):
-                                        layer_orderby.append((Field(f), op.ascending))
-                                    else:
-                                        layer_orderby.append((f, op.ascending))
-                            elif op.op_type == 'LIMIT':
-                                layer_limit = op.limit_value
-                            elif op.op_type == 'OFFSET':
-                                layer_offset = op.offset_value
-
-                    # Build outer query wrapping the current sql
-                    outer_parts = ["SELECT *"]
-                    outer_parts.append(f"FROM ({sql}) AS __subq{layer_idx}__")
-
-                    if layer_where:
-                        combined = layer_where[0]
-                        for cond in layer_where[1:]:
-                            combined = combined & cond
-                        outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-                    if layer_orderby:
-                        order_parts = []
-                        for field, asc in layer_orderby:
-                            direction = 'ASC' if asc else 'DESC'
-                            order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-                        outer_parts.append(f"ORDER BY {', '.join(order_parts)}")
-
-                    if layer_limit is not None:
-                        outer_parts.append(f"LIMIT {layer_limit}")
-
-                    if layer_offset is not None:
-                        outer_parts.append(f"OFFSET {layer_offset}")
-
-                    sql = ' '.join(outer_parts)
-
-            self._logger.debug("Executing initial SQL query...")
-            result = self._executor.execute(sql)
-            df = result.to_df()
-            self._logger.debug("  SQL query returned DataFrame with shape: %s", df.shape)
-        else:
-            # No SQL source - start with empty DataFrame (will be populated by DataFrame operations)
-            df = pd.DataFrame()
-
-        # Execute DataFrame operations
-        if first_df_op_idx is not None:
-            num_df_ops = len(self._lazy_ops) - first_df_op_idx
-            self._logger.debug("-" * 70)
-            if has_two_phases:
-                self._logger.debug("Phase 2: Executing %d DataFrame operations", num_df_ops)
-            else:
-                self._logger.debug("Executing %d DataFrame operations", num_df_ops)
-            self._logger.debug("-" * 70)
-
-            for i, op in enumerate(self._lazy_ops[first_df_op_idx:], first_df_op_idx + 1):
-                self._logger.debug("  [%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
-                df = op.execute(df, self)
-
-        self._logger.debug("=" * 70)
-        self._logger.debug("Execution complete. Final DataFrame shape: %s", df.shape)
-        self._logger.debug("=" * 70)
-
-        # Cache the result if caching is enabled
-        if is_cache_enabled():
-            self._cached_result = df
-            self._cache_timestamp = time.time()
-
-            # Only checkpoint (replace lazy_ops with DataFrame source) if there were
-            # DataFrame operations executed. For pure SQL queries, keep the SQL state
-            # intact so that to_sql() continues to work correctly.
+            # Execute DataFrame operations
             if first_df_op_idx is not None:
-                from .lazy_ops import LazyDataFrameSource
+                num_df_ops = len(self._lazy_ops) - first_df_op_idx
+                self._logger.debug("-" * 70)
+                if has_two_phases:
+                    self._logger.debug("Phase 2: Executing %d DataFrame operations", num_df_ops)
+                else:
+                    self._logger.debug("Executing %d DataFrame operations", num_df_ops)
+                self._logger.debug("-" * 70)
 
-                # IMPORTANT: Replace lazy_ops with a single DataFrame source
-                # This is the key to incremental execution:
-                # - Old ops are "collapsed" into the cached DataFrame
-                # - New ops will be appended after this source
-                # - Next execution only executes new ops
-                self._lazy_ops = [LazyDataFrameSource(df)]
+                with profiler.step("DataFrame Operations", count=num_df_ops):
+                    for i, op in enumerate(self._lazy_ops[first_df_op_idx:], first_df_op_idx + 1):
+                        self._logger.debug("  [%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
+                        op_name = op.__class__.__name__
+                        with profiler.step(op_name):
+                            df = op.execute(df, self)
 
-                # Clear SQL state since we're now working from a DataFrame
-                # This ensures subsequent SQL operations use Python() table function
-                self._table_function = None
-                self.table_name = None
-                self._select_fields = []
-                self._where_condition = None
-                self._joins = []
-                self._groupby_fields = []
-                self._having_condition = None
-                self._orderby_fields = []
-                self._limit_value = None
-                self._offset_value = None
-                self._distinct = False
+            self._logger.debug("=" * 70)
+            self._logger.debug("Execution complete. Final DataFrame shape: %s", df.shape)
+            self._logger.debug("=" * 70)
 
-                self._logger.debug("Pipeline checkpointed: lazy_ops replaced with DataFrame source")
-            else:
-                self._logger.debug("Pure SQL execution: SQL state preserved")
+            # Cache the result if caching is enabled
+            with profiler.step("Cache Write"):
+                if is_cache_enabled():
+                    self._cached_result = df
+                    self._cache_timestamp = time.time()
 
-            # Reset cache version to 0 (fresh start)
-            # New ops will increment from here
-            self._cache_version = 0
-            self._cached_at_version = 0
+                    # Only checkpoint (replace lazy_ops with DataFrame source) if there were
+                    # DataFrame operations executed. For pure SQL queries, keep the SQL state
+                    # intact so that to_sql() continues to work correctly.
+                    if first_df_op_idx is not None:
+                        from .lazy_ops import LazyDataFrameSource
+
+                        # IMPORTANT: Replace lazy_ops with a single DataFrame source
+                        # This is the key to incremental execution:
+                        # - Old ops are "collapsed" into the cached DataFrame
+                        # - New ops will be appended after this source
+                        # - Next execution only executes new ops
+                        self._lazy_ops = [LazyDataFrameSource(df)]
+
+                        # Clear SQL state since we're now working from a DataFrame
+                        # This ensures subsequent SQL operations use Python() table function
+                        self._table_function = None
+                        self.table_name = None
+                        self._select_fields = []
+                        self._where_condition = None
+                        self._joins = []
+                        self._groupby_fields = []
+                        self._having_condition = None
+                        self._orderby_fields = []
+                        self._limit_value = None
+                        self._offset_value = None
+                        self._distinct = False
+
+                        self._logger.debug("Pipeline checkpointed: lazy_ops replaced with DataFrame source")
+                    else:
+                        self._logger.debug("Pure SQL execution: SQL state preserved")
+
+                    # Reset cache version to 0 (fresh start)
+                    # New ops will increment from here
+                    self._cache_version = 0
+                    self._cached_at_version = 0
+
+        # Log profiling report if profiling is enabled
+        if is_profiling_enabled():
+            profiler.log_report()
 
         return df
 
@@ -2076,6 +2106,40 @@ class DataStore(PandasCompatMixin):
             df = self.to_df()
         return df.columns
 
+    @columns.setter
+    def columns(self, new_columns):
+        """
+        Rename all columns by providing a new list of column names.
+
+        This is equivalent to pandas DataFrame.columns setter.
+        Internally uses rename() to create a lazy rename operation.
+
+        Args:
+            new_columns: List of new column names (must match current column count)
+
+        Example:
+            >>> ds = DataStore.from_file("data.csv")
+            >>> ds.columns = ['new_col1', 'new_col2', 'new_col3']
+
+        Raises:
+            ValueError: If number of new columns doesn't match current columns
+        """
+        from .lazy_ops import LazyRenameColumns
+
+        current_columns = list(self.columns)
+        new_columns = list(new_columns)
+
+        if len(new_columns) != len(current_columns):
+            raise ValueError(f"Length mismatch: Expected {len(current_columns)} columns, " f"got {len(new_columns)}")
+
+        # Build rename mapping
+        rename_mapping = {
+            old: new for old, new in zip(current_columns, new_columns) if old != new  # Only rename if different
+        }
+
+        if rename_mapping:
+            self._add_lazy_op(LazyRenameColumns(rename_mapping))
+
     def count(self):
         """
         Count non-null values for each column in the query result.
@@ -3200,7 +3264,7 @@ class DataStore(PandasCompatMixin):
             return ColumnExpr(Field(key), self)
 
         elif isinstance(key, (list, pd.Index)):
-            # Multi-column selection: record as lazy operation
+            # Multi-column selection: use LazyRelationalOp(SELECT) for SQL pushdown
             # Convert pandas Index to list if needed
             if isinstance(key, pd.Index):
                 key = key.tolist()
@@ -3213,7 +3277,13 @@ class DataStore(PandasCompatMixin):
                 result._cache_version = 0
                 result._cached_at_version = -1
                 result._cache_timestamp = None
-            result._add_lazy_op(LazyColumnSelection(key))
+            # Use LazyRelationalOp(SELECT) so column selection can be pushed to SQL
+            # This allows ds[['col1', 'col2']].sort_values('col1').head(10) to be
+            # fully executed as SQL: SELECT col1, col2 FROM ... ORDER BY col1 LIMIT 10
+            fields = [Field(col) for col in key]
+            result._add_lazy_op(
+                LazyRelationalOp(op_type='SELECT', description=f"Select columns: {', '.join(key)}", fields=fields)
+            )
             return result
 
         elif isinstance(key, slice):

@@ -6,7 +6,9 @@ including logging level configuration.
 """
 
 import logging
-from typing import Optional
+import time
+from typing import Optional, List, Dict
+from contextlib import contextmanager
 
 # Module-level logger for DataStore
 _logger: Optional[logging.Logger] = None
@@ -374,6 +376,264 @@ class DataStoreConfig:
         """Set cache TTL in seconds."""
         set_cache_ttl(ttl_seconds)
 
+    # ========== Profiling Configuration ==========
+
+    @property
+    def profiling_enabled(self) -> bool:
+        """Check if profiling is enabled."""
+        return is_profiling_enabled()
+
+    @profiling_enabled.setter
+    def profiling_enabled(self, enabled: bool) -> None:
+        """Enable or disable profiling."""
+        if enabled:
+            enable_profiling()
+        else:
+            disable_profiling()
+
+    def enable_profiling(self) -> None:
+        """Enable execution profiling."""
+        enable_profiling()
+
+    def disable_profiling(self) -> None:
+        """Disable execution profiling."""
+        disable_profiling()
+
 
 # Global config instance
 config = DataStoreConfig()
+
+
+# =============================================================================
+# PROFILER CONFIGURATION
+# =============================================================================
+
+
+class ProfileStep:
+    """A single profiled step with timing information."""
+
+    def __init__(self, name: str, parent: Optional['ProfileStep'] = None):
+        self.name = name
+        self.parent = parent
+        self.start_time: float = 0.0
+        self.end_time: float = 0.0
+        self.children: List['ProfileStep'] = []
+        self.metadata: Dict[str, any] = {}
+
+    @property
+    def duration_ms(self) -> float:
+        """Duration in milliseconds."""
+        return (self.end_time - self.start_time) * 1000
+
+    @property
+    def duration_s(self) -> float:
+        """Duration in seconds."""
+        return self.end_time - self.start_time
+
+    def __repr__(self) -> str:
+        return f"ProfileStep({self.name}, {self.duration_ms:.2f}ms)"
+
+
+class Profiler:
+    """
+    A profiler for tracking execution timing of various steps.
+
+    Usage:
+        profiler = Profiler()
+        with profiler.step("SQL Execution"):
+            # do SQL stuff
+        with profiler.step("DataFrame Ops"):
+            # do DataFrame stuff
+        profiler.report()
+    """
+
+    def __init__(self, enabled: bool = True):
+        self.enabled = enabled
+        self.steps: List[ProfileStep] = []
+        self._stack: List[ProfileStep] = []
+        self._logger = get_logger()
+
+    @contextmanager
+    def step(self, name: str, **metadata):
+        """
+        Context manager to profile a step.
+
+        Args:
+            name: Name of the step
+            **metadata: Additional metadata to attach to the step
+        """
+        if not self.enabled:
+            yield None
+            return
+
+        parent = self._stack[-1] if self._stack else None
+        step = ProfileStep(name, parent)
+        step.metadata = metadata
+        step.start_time = time.perf_counter()
+
+        if parent:
+            parent.children.append(step)
+        else:
+            self.steps.append(step)
+
+        self._stack.append(step)
+        try:
+            yield step
+        finally:
+            step.end_time = time.perf_counter()
+            self._stack.pop()
+
+    def clear(self):
+        """Clear all recorded steps."""
+        self.steps = []
+        self._stack = []
+
+    @property
+    def total_duration_ms(self) -> float:
+        """Total duration of all top-level steps in milliseconds."""
+        return sum(s.duration_ms for s in self.steps)
+
+    def report(self, min_duration_ms: float = 0.1) -> str:
+        """
+        Generate a human-readable report of all profiled steps.
+
+        Args:
+            min_duration_ms: Minimum duration to include in report (default: 0.1ms)
+
+        Returns:
+            Formatted string report
+        """
+        if not self.steps:
+            return "No profiling data recorded."
+
+        lines = []
+        lines.append("=" * 70)
+        lines.append("EXECUTION PROFILE")
+        lines.append("=" * 70)
+
+        def format_step(step: ProfileStep, indent: int = 0):
+            if step.duration_ms < min_duration_ms:
+                return
+            prefix = "  " * indent
+            duration_str = f"{step.duration_ms:>8.2f}ms"
+
+            # Calculate percentage of parent/total
+            if step.parent:
+                pct = (step.duration_ms / step.parent.duration_ms * 100) if step.parent.duration_ms > 0 else 0
+                pct_str = f"({pct:>5.1f}%)"
+            else:
+                pct = (step.duration_ms / self.total_duration_ms * 100) if self.total_duration_ms > 0 else 0
+                pct_str = f"({pct:>5.1f}%)"
+
+            # Add metadata if present
+            meta_str = ""
+            if step.metadata:
+                meta_parts = [f"{k}={v}" for k, v in step.metadata.items()]
+                meta_str = f" [{', '.join(meta_parts)}]"
+
+            lines.append(f"{prefix}{duration_str} {pct_str} {step.name}{meta_str}")
+
+            for child in step.children:
+                format_step(child, indent + 1)
+
+        for step in self.steps:
+            format_step(step)
+
+        lines.append("-" * 70)
+        lines.append(f"{'TOTAL:':>12} {self.total_duration_ms:>8.2f}ms")
+        lines.append("=" * 70)
+
+        return "\n".join(lines)
+
+    def log_report(self, min_duration_ms: float = 0.1):
+        """Log the profiling report at INFO level."""
+        if self.enabled and self.steps:
+            report = self.report(min_duration_ms)
+            for line in report.split("\n"):
+                self._logger.info(line)
+
+    def summary(self) -> Dict[str, float]:
+        """
+        Get a summary dict of step names to durations (ms).
+
+        Useful for programmatic access to timing data.
+        """
+        result = {}
+
+        def collect(step: ProfileStep, prefix: str = ""):
+            name = f"{prefix}{step.name}" if prefix else step.name
+            result[name] = step.duration_ms
+            for child in step.children:
+                collect(child, f"{name}.")
+
+        for step in self.steps:
+            collect(step)
+
+        return result
+
+
+# Global profiler settings
+_profiling_enabled: bool = False
+_current_profiler: Optional[Profiler] = None
+
+
+def is_profiling_enabled() -> bool:
+    """Check if profiling is enabled."""
+    return _profiling_enabled
+
+
+def enable_profiling() -> None:
+    """
+    Enable execution profiling.
+
+    When enabled, execution timing information will be collected and reported.
+
+    Example:
+        >>> from datastore import config
+        >>> config.enable_profiling()
+        >>> ds = DataStore.from_file('data.csv')
+        >>> result = ds.filter(ds['x'] > 10).to_df()  # Will show timing
+    """
+    global _profiling_enabled
+    _profiling_enabled = True
+
+
+def disable_profiling() -> None:
+    """
+    Disable execution profiling.
+
+    Example:
+        >>> from datastore import config
+        >>> config.disable_profiling()
+    """
+    global _profiling_enabled
+    _profiling_enabled = False
+
+
+def get_profiler() -> Optional[Profiler]:
+    """Get the current profiler instance (if profiling is enabled)."""
+    global _current_profiler
+    if _profiling_enabled:
+        if _current_profiler is None:
+            _current_profiler = Profiler(enabled=True)
+        return _current_profiler
+    return None
+
+
+def new_profiler() -> Profiler:
+    """
+    Create and set a new profiler instance.
+
+    This is called at the start of each execution to get fresh timing data.
+    """
+    global _current_profiler
+    if _profiling_enabled:
+        _current_profiler = Profiler(enabled=True)
+        return _current_profiler
+    return Profiler(enabled=False)
+
+
+def reset_profiler() -> None:
+    """Reset the current profiler (clear all recorded data)."""
+    global _current_profiler
+    _current_profiler = None

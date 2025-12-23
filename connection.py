@@ -14,12 +14,13 @@ All chDB execution should go through this module for:
 """
 
 from typing import Any, Optional, Dict, List, Tuple
+import time
 import chdb
 import pandas as pd
 import numpy as np
 
 from .exceptions import ConnectionError, ExecutionError
-from .config import get_logger
+from .config import get_logger, get_profiler
 
 
 def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
@@ -156,8 +157,20 @@ class Connection:
         self._log_query(sql, "Connection", output_format)
 
         try:
+            start_time = time.perf_counter()
             result = self._conn.query(sql, output_format)
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+
             self._log_result(result, output_format)
+            self._logger.debug("[chDB] Query time: %.2fms", elapsed_ms)
+
+            # Add profiling info if profiler is active
+            profiler = get_profiler()
+            if profiler:
+                sql_preview = sql[:50] + "..." if len(sql) > 50 else sql
+                with profiler.step("chDB Query", sql=sql_preview, time_ms=f"{elapsed_ms:.2f}"):
+                    pass  # Already executed, just record timing
+
             return QueryResult(data=result, output_format=output_format)
         except Exception as e:
             self._logger.error("[chDB] Query failed: %s", e)
@@ -214,14 +227,33 @@ class Connection:
         self._log_query(processed_sql, "DataFrame")
 
         try:
+            start_time = time.perf_counter()
             # Execute with DataFrame in local scope
             result = self._execute_df_query(processed_sql, df_to_use, df_name)
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             # Remove the row index column from result if it was added
             if needs_order_preservation and row_idx_col in result.columns:
                 result = result.drop(columns=[row_idx_col])
 
             self._log_result(result)
+            self._logger.debug(
+                "[chDB] DataFrame query time: %.2fms (rows_in=%d, rows_out=%d)", elapsed_ms, len(df), len(result)
+            )
+
+            # Add profiling info if profiler is active
+            profiler = get_profiler()
+            if profiler:
+                sql_preview = processed_sql[:50] + "..." if len(processed_sql) > 50 else processed_sql
+                with profiler.step(
+                    "chDB DataFrame Query",
+                    sql=sql_preview,
+                    rows_in=len(df),
+                    rows_out=len(result),
+                    time_ms=f"{elapsed_ms:.2f}",
+                ):
+                    pass  # Already executed, just record timing
+
             return result
         except Exception as e:
             self._logger.error("[chDB] DataFrame query failed: %s", e)
@@ -370,11 +402,22 @@ class Connection:
         self._log_query(query, "Expression")
 
         try:
+            start_time = time.perf_counter()
             result_df = self._conn.query(query, 'DataFrame')
+            elapsed_ms = (time.perf_counter() - start_time) * 1000
+
             result_series = result_df[result_column]
             if not is_aggregate:
                 result_series.index = df.index
-            self._logger.debug("[chDB] Expression result: %d values", len(result_series))
+            self._logger.debug("[chDB] Expression result: %d values, time: %.2fms", len(result_series), elapsed_ms)
+
+            # Add profiling info if profiler is active
+            profiler = get_profiler()
+            if profiler:
+                expr_preview = expr_sql[:40] + "..." if len(expr_sql) > 40 else expr_sql
+                with profiler.step("chDB Expression", expr=expr_preview, rows=len(df), time_ms=f"{elapsed_ms:.2f}"):
+                    pass  # Already executed, just record timing
+
             return result_series
         except Exception as e:
             self._logger.error("[chDB] Expression evaluation failed: %s", e)

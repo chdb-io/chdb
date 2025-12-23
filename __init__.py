@@ -134,6 +134,12 @@ from .config import (  # noqa: E402
     enable_debug,
     disable_debug,
     get_logger,
+    # Profiling
+    enable_profiling,
+    disable_profiling,
+    is_profiling_enabled,
+    Profiler,
+    ProfileStep,
 )
 from .table_functions import (  # noqa: E402
     TableFunction,
@@ -372,6 +378,12 @@ __all__ = [
     'enable_debug',
     'disable_debug',
     'get_logger',
+    # Profiling
+    'enable_profiling',
+    'disable_profiling',
+    'is_profiling_enabled',
+    'Profiler',
+    'ProfileStep',
     # Table Functions
     'TableFunction',
     'create_table_function',
