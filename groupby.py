@@ -340,9 +340,103 @@ class LazyGroupBy:
         result_ds = ds_copy.offset(n)
         return LazyGroupBy(result_ds, self._groupby_fields)
 
-    def filter(self, condition) -> 'LazyGroupBy':
-        """Filter after groupby (applies HAVING in SQL context)."""
-        return self.having(condition)
+    def transform(self, func, *args, **kwargs) -> 'LazySeries':
+        """
+        Apply a function to each group producing same-shaped output (pandas-style).
+
+        The result has the same index as the original DataFrame, with each value
+        transformed according to its group.
+
+        This is commonly used for operations like:
+        - Normalizing within groups: lambda x: x / x.sum()
+        - Centering: lambda x: x - x.mean()
+        - Z-score: lambda x: (x - x.mean()) / x.std()
+
+        Args:
+            func: Function to apply to each group. Can be:
+                - A callable that takes a Series and returns a Series/scalar
+                - A string function name like 'mean', 'sum', etc.
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            LazySeries: Lazy wrapper returning transformed Series when executed
+
+        Example:
+            >>> ds.groupby('category')['value'].transform(lambda x: x / x.sum())
+            >>> ds.groupby('category')['value'].transform('mean')
+        """
+        from .lazy_result import LazySeries
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Capture for closure
+        ds = self._datastore
+        cols = groupby_cols
+
+        def executor():
+            df = ds._execute()
+            # Apply transform to all numeric columns or specified columns
+            return df.groupby(cols).transform(func, *args, **kwargs)
+
+        return LazySeries(executor=executor, datastore=ds)
+
+    def filter(self, func) -> 'DataStore':
+        """
+        Filter groups based on a function (pandas-style).
+
+        This method supports two modes:
+        1. Pandas-style: callable that takes a DataFrame and returns bool
+           >>> df.groupby('category').filter(lambda x: x['value'].mean() > 35)
+
+        2. SQL-style: Condition object (delegates to having())
+           >>> df.groupby('category').filter(col('value').mean() > 35)
+
+        Args:
+            func: Either:
+                - A callable that takes a group DataFrame and returns True/False
+                - A Condition object for SQL-style filtering
+
+        Returns:
+            DataStore: Filtered DataFrame containing only groups that passed
+
+        Example:
+            >>> # Keep groups where mean value > 35
+            >>> ds.groupby('category').filter(lambda x: x['value'].mean() > 35)
+        """
+        from .lazy_result import LazySeries
+        from .conditions import Condition
+
+        # SQL-style: delegate to having()
+        if isinstance(func, Condition):
+            return self.having(func)
+
+        # Pandas-style: callable that returns bool
+        if callable(func):
+            # Get groupby column names
+            groupby_cols = []
+            for gf in self._groupby_fields:
+                if isinstance(gf, Field):
+                    groupby_cols.append(gf.name)
+                else:
+                    groupby_cols.append(str(gf))
+
+            # Execute and apply pandas filter
+            df = self._datastore._execute()
+            result = df.groupby(groupby_cols).filter(func)
+
+            # Wrap result in a new DataStore
+            from .core import DataStore
+
+            return DataStore.from_dataframe(result)
+
+        raise TypeError(f"filter() argument must be callable or Condition, got {type(func).__name__}")
 
     def execute(self):
         """

@@ -16,7 +16,7 @@ from typing import Any, Optional, TYPE_CHECKING, Iterator, List
 import pandas as pd
 
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
-from .lazy_result import LazySeries
+from .lazy_result import LazySeries, LazyCondition
 from .utils import immutable
 
 
@@ -628,6 +628,8 @@ class ColumnExpr:
         # Handle other operand
         if isinstance(other, ColumnExpr):
             other_cond = other._to_condition()
+        elif isinstance(other, LazyCondition):
+            other_cond = other.condition
         elif isinstance(other, Condition):
             other_cond = other
         else:
@@ -641,7 +643,9 @@ class ColumnExpr:
 
         self_cond = self._to_condition()
 
-        if isinstance(other, Condition):
+        if isinstance(other, LazyCondition):
+            return ColumnExpr(CompoundCondition('AND', other.condition, self_cond), self._datastore)
+        elif isinstance(other, Condition):
             return ColumnExpr(CompoundCondition('AND', other, self_cond), self._datastore)
         else:
             raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
@@ -662,6 +666,8 @@ class ColumnExpr:
         # Handle other operand
         if isinstance(other, ColumnExpr):
             other_cond = other._to_condition()
+        elif isinstance(other, LazyCondition):
+            other_cond = other.condition
         elif isinstance(other, Condition):
             other_cond = other
         else:
@@ -675,7 +681,9 @@ class ColumnExpr:
 
         self_cond = self._to_condition()
 
-        if isinstance(other, Condition):
+        if isinstance(other, LazyCondition):
+            return ColumnExpr(CompoundCondition('OR', other.condition, self_cond), self._datastore)
+        elif isinstance(other, Condition):
             return ColumnExpr(CompoundCondition('OR', other, self_cond), self._datastore)
         else:
             raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
@@ -941,17 +949,52 @@ class ColumnExpr:
         """Create IS NOT NULL condition for filtering (SQL style)."""
         return self._expr.notnull()
 
-    def isin(self, values) -> 'Condition':
-        """Create IN condition."""
-        return self._expr.isin(values)
+    def isin(self, values) -> 'LazyCondition':
+        """
+        Check if values are contained in a list.
 
-    def notin(self, values) -> 'Condition':
+        Returns a LazyCondition that can be used both for:
+        1. SQL-style filtering: ds.filter(ds['col'].isin([1, 2]))
+        2. Pandas-style boolean Series: ds['col'].isin([1, 2]).to_pandas()
+
+        Args:
+            values: List of values to check membership against
+
+        Returns:
+            LazyCondition: Condition wrapper supporting both SQL and pandas modes
+
+        Example:
+            >>> ds['category'].isin(['A', 'B'])  # Returns LazyCondition
+            >>> ds.filter(ds['category'].isin(['A', 'B']))  # SQL-style
+            >>> ds['category'].isin(['A', 'B']).to_pandas()  # Boolean Series
+        """
+        return LazyCondition(self._expr.isin(values), self._datastore)
+
+    def notin(self, values) -> 'LazyCondition':
         """Create NOT IN condition."""
-        return self._expr.notin(values)
+        return LazyCondition(self._expr.notin(values), self._datastore)
 
-    def between(self, lower, upper) -> 'Condition':
-        """Create BETWEEN condition."""
-        return self._expr.between(lower, upper)
+    def between(self, lower, upper) -> 'LazyCondition':
+        """
+        Check if values are between lower and upper bounds.
+
+        Returns a LazyCondition that can be used both for:
+        1. SQL-style filtering: ds.filter(ds['col'].between(10, 30))
+        2. Pandas-style boolean Series: ds['col'].between(10, 30).to_pandas()
+
+        Args:
+            lower: Lower bound (inclusive)
+            upper: Upper bound (inclusive)
+
+        Returns:
+            LazyCondition: Condition wrapper supporting both SQL and pandas modes
+
+        Example:
+            >>> ds['value'].between(10, 30)  # Returns LazyCondition
+            >>> ds.filter(ds['value'].between(10, 30))  # SQL-style
+            >>> ds['value'].between(10, 30).to_pandas()  # Boolean Series
+        """
+        return LazyCondition(self._expr.between(lower, upper), self._datastore)
 
     def like(self, pattern: str) -> 'Condition':
         """Create LIKE condition."""
@@ -1474,6 +1517,70 @@ class ColumnExpr:
             dtype: float64
         """
         return self.agg(func=func, axis=axis, *args, **kwargs)
+
+    def transform(self, func, *args, **kwargs):
+        """
+        Apply a function to the column, preserving the same index (lazy).
+
+        When used with groupby (i.e., when _groupby_fields is set), applies
+        the function within each group, returning a Series with the same
+        index as the original.
+
+        Args:
+            func: Function to apply. Can be:
+                - A callable that takes a Series and returns a Series/scalar
+                - A string function name like 'mean', 'sum', etc.
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            LazySeries: Lazy wrapper returning transformed Series when executed
+
+        Example:
+            >>> # Without groupby - apply to entire column
+            >>> ds['value'].transform(lambda x: x * 2)
+
+            >>> # With groupby - normalize within groups
+            >>> ds.groupby('category')['value'].transform(lambda x: x / x.sum())
+        """
+        # Check if we have groupby context
+        if hasattr(self, '_groupby_fields') and self._groupby_fields:
+            # Groupby transform
+            from .expressions import Field as ExprField
+
+            # Get groupby column names
+            groupby_cols = []
+            for gf in self._groupby_fields:
+                if isinstance(gf, ExprField):
+                    groupby_cols.append(gf.name)
+                else:
+                    groupby_cols.append(str(gf))
+
+            # Get the column name
+            col_name = None
+            if isinstance(self._expr, ExprField):
+                col_name = self._expr.name
+            else:
+                col_name = str(self._expr)
+
+            # Capture for closure
+            ds = self._datastore
+            cols = groupby_cols
+            col = col_name
+
+            def executor():
+                df = ds._execute()
+                if col and col in df.columns:
+                    return df.groupby(cols)[col].transform(func, *args, **kwargs)
+                else:
+                    # Fallback: try to evaluate expression first
+                    series = self._execute()
+                    return series.transform(func, *args, **kwargs)
+
+            return LazySeries(executor=executor, datastore=ds)
+        else:
+            # Regular transform without groupby
+            return LazySeries(self, 'transform', func, *args, **kwargs)
 
     def where(self, cond, other=pd.NA, inplace=False, axis=None, level=None):
         """

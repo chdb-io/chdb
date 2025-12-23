@@ -2597,6 +2597,13 @@ class DataStore(PandasCompatMixin):
                 "Must provide either 'condition' for row filtering or 'items'/'like'/'regex' for column selection"
             )
 
+        # Handle LazyCondition (e.g., from isin(), between()) - extract underlying Condition
+        from .lazy_result import LazyCondition
+
+        if isinstance(condition, LazyCondition):
+            # Extract the underlying Condition for SQL generation
+            condition = condition.condition
+
         # Unified handling: extract Condition from ColumnExpr._expr
         # Since comparison operators now return ColumnExpr wrapping Condition,
         # we just need to check if _expr is already a Condition.
@@ -3256,6 +3263,19 @@ class DataStore(PandasCompatMixin):
             return result.filter(key)
 
         else:
+            # Check for LazyCondition (from isin/between) - needs late import
+            from .lazy_result import LazyCondition
+
+            if isinstance(key, LazyCondition):
+                # Boolean indexing with LazyCondition
+                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                if result is not self:
+                    result._cached_result = None
+                    result._cache_version = 0
+                    result._cached_at_version = -1
+                    result._cache_timestamp = None
+                return result.filter(key)
+
             raise TypeError(
                 f"DataStore indices must be slices, strings, lists, or conditions, not {type(key).__name__}"
             )

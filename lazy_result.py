@@ -7,7 +7,7 @@ when display or explicit conversion is triggered.
 
 Key classes:
 - LazySeries: Wraps any Series method call for lazy evaluation
-- LazySeries: Wraps any Series method call for lazy evaluation (including head/tail)
+- LazyCondition: Wraps Condition for dual SQL/pandas mode
 
 Design Principle:
     All operations on ColumnExpr should return lazy objects that:
@@ -25,6 +25,188 @@ if TYPE_CHECKING:
     from .column_expr import ColumnExpr, LazyAggregate
     from .core import DataStore
     from .expressions import Field
+    from .conditions import Condition
+
+
+class LazyCondition:
+    """
+    A lazy wrapper for Condition objects that supports both SQL and pandas modes.
+
+    This class enables conditions like isin() and between() to be used both for:
+    1. SQL-style filtering (preserves SQL generation capability)
+    2. Pandas-style boolean Series (when to_pandas() is called)
+
+    Key features:
+    - Delegates to_sql() to underlying Condition (for SQL generation)
+    - Provides to_pandas() for converting to boolean Series
+    - Supports boolean operations (&, |, ~) for combining conditions
+    - Can be used with DataStore.filter() for SQL or DataFrame filtering
+
+    Example:
+        >>> cond = ds['category'].isin(['A', 'B'])  # Returns LazyCondition
+        >>> ds.filter(cond)  # Works for SQL generation
+        >>> cond.to_pandas()  # Returns boolean Series
+        >>> ds[cond.to_pandas()]  # Pandas-style boolean indexing
+    """
+
+    def __init__(self, condition: 'Condition', datastore: 'DataStore'):
+        """
+        Initialize a LazyCondition.
+
+        Args:
+            condition: The underlying Condition object
+            datastore: Reference to the DataStore for execution
+        """
+        self._condition = condition
+        self._datastore = datastore
+        self._cached_result = None
+
+    @property
+    def condition(self) -> 'Condition':
+        """Get the underlying Condition object."""
+        return self._condition
+
+    def _execute(self) -> pd.Series:
+        """Execute and return boolean Series."""
+        if self._cached_result is not None:
+            return self._cached_result
+
+        from .expression_evaluator import ExpressionEvaluator
+
+        df = self._datastore._execute()
+        evaluator = ExpressionEvaluator(df, self._datastore)
+        self._cached_result = evaluator.evaluate(self._condition)
+        return self._cached_result
+
+    # ========== SQL Delegation ==========
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        """Generate SQL for this condition (delegates to underlying Condition)."""
+        return self._condition.to_sql(quote_char=quote_char, **kwargs)
+
+    # ========== Pandas Conversion ==========
+
+    def to_pandas(self) -> pd.Series:
+        """Execute and return as boolean pandas Series."""
+        return self._execute()
+
+    # ========== Display Methods ==========
+
+    def __repr__(self) -> str:
+        """Display the result when shown in notebook/REPL."""
+        try:
+            result = self._execute()
+            return repr(result)
+        except Exception as e:
+            return f"LazyCondition({self._condition}) [Error: {e}]"
+
+    def __str__(self) -> str:
+        """String representation showing the result."""
+        try:
+            result = self._execute()
+            return str(result)
+        except Exception:
+            return f"LazyCondition({self._condition})"
+
+    def _repr_html_(self) -> str:
+        """HTML representation for Jupyter notebooks."""
+        try:
+            result = self._execute()
+            if hasattr(result, '_repr_html_'):
+                return result._repr_html_()
+            return f"<pre>{repr(result)}</pre>"
+        except Exception as e:
+            return f"<pre>LazyCondition({self._condition}) [Error: {e}]</pre>"
+
+    # ========== Boolean Operations ==========
+
+    def __and__(self, other: 'LazyCondition') -> 'LazyCondition':
+        """Combine conditions with AND."""
+        if isinstance(other, LazyCondition):
+            return LazyCondition(self._condition & other._condition, self._datastore)
+        return LazyCondition(self._condition & other, self._datastore)
+
+    def __or__(self, other: 'LazyCondition') -> 'LazyCondition':
+        """Combine conditions with OR."""
+        if isinstance(other, LazyCondition):
+            return LazyCondition(self._condition | other._condition, self._datastore)
+        return LazyCondition(self._condition | other, self._datastore)
+
+    def __invert__(self) -> 'LazyCondition':
+        """Negate condition with NOT."""
+        return LazyCondition(~self._condition, self._datastore)
+
+    # ========== Property Proxies ==========
+
+    @property
+    def values(self) -> np.ndarray:
+        """Return values as numpy array."""
+        result = self._execute()
+        if hasattr(result, 'values'):
+            return result.values
+        return np.array(result)
+
+    @property
+    def index(self):
+        """Return index of result."""
+        result = self._execute()
+        if hasattr(result, 'index'):
+            return result.index
+        return None
+
+    @property
+    def dtype(self):
+        """Return dtype of result."""
+        result = self._execute()
+        if hasattr(result, 'dtype'):
+            return result.dtype
+        return type(result)
+
+    @property
+    def name(self):
+        """Return name of result."""
+        result = self._execute()
+        if hasattr(result, 'name'):
+            return result.name
+        return None
+
+    @property
+    def shape(self):
+        """Return shape of result."""
+        result = self._execute()
+        if hasattr(result, 'shape'):
+            return result.shape
+        return (len(result),) if hasattr(result, '__len__') else ()
+
+    # ========== Array Protocol ==========
+
+    def __len__(self) -> int:
+        """Return length of result."""
+        result = self._execute()
+        return len(result)
+
+    def __iter__(self):
+        """Iterate over result."""
+        result = self._execute()
+        return iter(result)
+
+    def __getitem__(self, key):
+        """Index into result."""
+        result = self._execute()
+        return result[key]
+
+    def __array__(self, dtype=None, copy=None):
+        """Support numpy array protocol."""
+        result = self._execute()
+        if hasattr(result, 'to_numpy'):
+            arr = result.to_numpy()
+        else:
+            arr = np.array(result)
+        if dtype is not None:
+            arr = arr.astype(dtype)
+        if copy:
+            arr = np.array(arr, copy=True)
+        return arr
 
 
 class LazySeries:
