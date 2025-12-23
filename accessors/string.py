@@ -24,10 +24,37 @@ class StringAccessor(BaseAccessor):
         >>> ds['name'].str.length()          # length(name)
         >>> ds['name'].str.substring(1, 5)   # substring(name, 1, 5)
         >>> ds['name'].str.replace('a', 'b') # replace(name, 'a', 'b')
+        >>> ds['text'].str.split().str[0]    # Get first element after split
 
     ClickHouse String Functions Reference:
         https://clickhouse.com/docs/en/sql-reference/functions/string-functions
     """
+
+    def __getitem__(self, index: int):
+        """
+        Get element at index from array result (e.g., after str.split()).
+
+        Maps to arrayElement(arr, index). Note: ClickHouse uses 1-based indexing,
+        but this method accepts 0-based indexing for pandas compatibility.
+
+        Args:
+            index: 0-based index (will be converted to 1-based for ClickHouse)
+
+        Example:
+            >>> ds['text'].str.split().str[0]  # Get first word
+            >>> ds['text'].str.split().str[-1] # Get last word
+        """
+        from ..functions import Function
+        from ..expressions import Literal
+
+        # Convert 0-based to 1-based indexing for positive indices
+        # Negative indices work the same in ClickHouse (-1 is last element)
+        if index >= 0:
+            ch_index = index + 1
+        else:
+            ch_index = index
+
+        return Function('arrayElement', self._expr, Literal(ch_index))
 
     def count(self, pattern: str, alias=None):
         """Count occurrences of pattern in string. Alias for str_count."""

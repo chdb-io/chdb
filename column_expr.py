@@ -2673,6 +2673,22 @@ class ColumnExprStringAccessor:
 
         return wrapper
 
+    def __getitem__(self, index: int):
+        """
+        Get element at index from array result (e.g., after str.split()).
+
+        This delegates to the base accessor's __getitem__ and wraps the result
+        in a ColumnExpr for lazy evaluation.
+
+        Args:
+            index: 0-based index
+
+        Example:
+            >>> ds['text'].str.split().str[0]  # Get first word
+        """
+        result = self._base_accessor[index]
+        return ColumnExpr(result, self._column_expr._datastore)
+
     def _execute_series(self):
         """Execute the column as a Pandas Series."""
         ds = self._column_expr._datastore

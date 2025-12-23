@@ -154,13 +154,17 @@ def _build_concat(*args, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['replaceAll'],
-    doc='Replace occurrences. Maps to replace(s, from, to).',
+    doc='Replace occurrences. Maps to replace(s, from, to). Use regex=True for regex replacement.',
 )
-def _build_replace(expr, pattern: str, replacement: str, alias=None):
+def _build_replace(expr, pattern: str, replacement: str, regex: bool = False, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('replace', expr, Literal(pattern), Literal(replacement), alias=alias)
+    if regex:
+        # Use replaceRegexpAll for regex replacement
+        return Function('replaceRegexpAll', expr, Literal(pattern), Literal(replacement), alias=alias)
+    else:
+        return Function('replace', expr, Literal(pattern), Literal(replacement), alias=alias)
 
 
 @register_function(
@@ -379,13 +383,17 @@ def _build_repeat(expr, n: int, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['splitByString'],
-    doc='Split string by separator. Maps to splitByString(sep, s).',
+    doc='Split string by separator. Maps to splitByString(sep, s). If sep is None, splits by whitespace.',
 )
-def _build_split(expr, sep: str, alias=None):
+def _build_split(expr, sep: str = None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('splitByString', Literal(sep), expr, alias=alias)
+    if sep is None:
+        # Default: split by whitespace (pandas behavior)
+        return Function('splitByWhitespace', expr, alias=alias)
+    else:
+        return Function('splitByString', Literal(sep), expr, alias=alias)
 
 
 # ---------- Additional Pandas .str methods ----------
