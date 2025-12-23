@@ -144,7 +144,7 @@ def get_cache_ttl() -> float:
 
 def enable_cache() -> None:
     """
-    Enable automatic caching of materialized results.
+    Enable automatic caching of executed results.
 
     When enabled, repeated calls to repr/str/display will use cached results
     instead of re-executing the entire pipeline.

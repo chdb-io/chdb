@@ -2,7 +2,7 @@
 Lazy operation system for DataStore.
 
 This module implements a lazy evaluation system where operations are recorded
-and only executed when materialization is triggered (e.g., print, to_df()).
+and only executed when execution is triggered (e.g., print, to_df()).
 """
 
 from typing import Any, Dict, List, Union, TYPE_CHECKING
@@ -109,7 +109,7 @@ class LazyColumnAssignment(LazyOp):
         from .lazy_result import LazySeries
 
         if isinstance(self.expr, ColumnExpr):
-            # Use underlying expression's SQL, don't call repr (would materialize)
+            # Use underlying expression's SQL, don't call repr (would execute)
             expr_str = self.expr._expr.to_sql(quote_char='"')
         elif isinstance(self.expr, Expression):
             expr_str = self.expr.to_sql(quote_char='"')
@@ -569,7 +569,7 @@ class LazyDataFrameSource(LazyOp):
     A lazy operation that provides a DataFrame as the data source.
 
     This is used when we need to wrap an existing DataFrame into the lazy pipeline,
-    for example after executing SQL on a materialized DataFrame.
+    for example after executing SQL on a executed DataFrame.
     """
 
     def __init__(self, df: pd.DataFrame):

@@ -8988,7 +8988,7 @@ def _build_to_type_name(expr, alias=None):
     aliases=['materialize'],
     doc='Force materialization. Maps to materialize(x).',
 )
-def _build_materialize(expr, alias=None):
+def _build_execute(expr, alias=None):
     from .functions import Function
 
     return Function('materialize', expr, alias=alias)

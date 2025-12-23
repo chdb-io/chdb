@@ -101,7 +101,7 @@ class ExpressionEvaluator:
             return self.evaluate(expr._expr)
 
         # Handle LazyAggregate - evaluate using current df context
-        # to avoid recursion when inside DataStore._materialize
+        # to avoid recursion when inside DataStore._execute
         if isinstance(expr, LazyAggregate):
             # Get the underlying column expression and evaluate it
             source_series = self.evaluate(expr._column_expr)
@@ -111,14 +111,14 @@ class ExpressionEvaluator:
             return result
 
         # Handle LazySeries - evaluate the underlying column expr first
-        # to avoid circular materialization, then apply the method
+        # to avoid circular execution, then apply the method
         if isinstance(expr, LazySeries):
             # Evaluate the source ColumnExpr using this evaluator's df
-            # (avoids circular materialization when inside DataStore._materialize)
+            # (avoids circular execution when inside DataStore._execute)
             source_series = self.evaluate(expr._column_expr)
 
-            # Helper to materialize lazy arguments
-            def _materialize_arg(arg):
+            # Helper to execute lazy arguments
+            def _execute_arg(arg):
                 if isinstance(arg, (ColumnExpr, LazySeries, LazyAggregate)):
                     result = self.evaluate(arg)
                     # If it's a single-value Series, extract scalar for fillna-like operations
@@ -127,9 +127,9 @@ class ExpressionEvaluator:
                     return result
                 return arg
 
-            # Materialize any lazy objects in args or kwargs
-            args = tuple(_materialize_arg(arg) for arg in expr._args)
-            kwargs = {k: _materialize_arg(v) for k, v in expr._kwargs.items()}
+            # Execute any lazy objects in args or kwargs
+            args = tuple(_execute_arg(arg) for arg in expr._args)
+            kwargs = {k: _execute_arg(v) for k, v in expr._kwargs.items()}
 
             # Apply the method on the series
             method = getattr(source_series, expr._method_name)
@@ -305,8 +305,8 @@ class ExpressionEvaluator:
 
         # Handle subquery values
         if hasattr(cond.values, 'to_sql') and hasattr(cond.values, 'table_name'):
-            # Subquery - materialize and get values
-            values = cond.values._materialize().iloc[:, 0].tolist()
+            # Subquery - execute and get values
+            values = cond.values._execute().iloc[:, 0].tolist()
         else:
             values = cond.values
 

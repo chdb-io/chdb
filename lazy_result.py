@@ -1,7 +1,7 @@
 """
 Lazy Result Classes for DataStore.
 
-This module provides lazy wrappers for results that should not be materialized
+This module provides lazy wrappers for results that should not be executed
 immediately. These classes maintain the lazy evaluation chain and only execute
 when display or explicit conversion is triggered.
 
@@ -101,7 +101,7 @@ class LazySeries:
         if self._cached_result is not None:
             return self._cached_result
 
-        # Materialize the source - support ColumnExpr, LazyAggregate, and LazySeries
+        # Execute the source - support ColumnExpr, LazyAggregate, and LazySeries
         from .column_expr import LazyAggregate
 
         if isinstance(self._column_expr, LazyAggregate):
@@ -109,11 +109,11 @@ class LazySeries:
         elif isinstance(self._column_expr, LazySeries):
             series = self._column_expr._execute()
         else:
-            series = self._column_expr._materialize()
+            series = self._column_expr._execute()
 
-        # Materialize any ColumnExpr in args or kwargs
-        args = tuple(self._materialize_if_needed(arg) for arg in self._args)
-        kwargs = {k: self._materialize_if_needed(v) for k, v in self._kwargs.items()}
+        # Execute any ColumnExpr in args or kwargs
+        args = tuple(self._execute_if_needed(arg) for arg in self._args)
+        kwargs = {k: self._execute_if_needed(v) for k, v in self._kwargs.items()}
 
         # Execute the method - handle case where method doesn't exist (e.g., head() on scalar)
         if not hasattr(series, self._method_name):
@@ -127,8 +127,8 @@ class LazySeries:
 
         return self._cached_result
 
-    def _materialize_if_needed(self, value: Any) -> Any:
-        """Materialize ColumnExpr, LazySeries, or LazyAggregate arguments."""
+    def _execute_if_needed(self, value: Any) -> Any:
+        """Execute ColumnExpr, LazySeries, or LazyAggregate arguments if needed."""
         from .column_expr import ColumnExpr, LazyAggregate
 
         if isinstance(value, LazyAggregate):
@@ -139,11 +139,11 @@ class LazySeries:
                 return result.iloc[0]
             return result
         if isinstance(value, ColumnExpr):
-            materialized = value._materialize()
+            result = value._execute()
             # If it's a single-value Series, extract scalar for fillna-like operations
-            if isinstance(materialized, pd.Series) and len(materialized) == 1:
-                return materialized.iloc[0]
-            return materialized
+            if isinstance(result, pd.Series) and len(result) == 1:
+                return result.iloc[0]
+            return result
         if isinstance(value, LazySeries):
             return value._execute()
         return value

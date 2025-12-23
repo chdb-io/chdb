@@ -1,5 +1,5 @@
 """
-ColumnExpr - A column expression that can materialize when displayed.
+ColumnExpr - A column expression that can execute when displayed.
 
 This provides pandas-like behavior where accessing a column or performing
 operations on it shows actual values when displayed, while still supporting
@@ -39,9 +39,9 @@ if TYPE_CHECKING:
 
 class ColumnExpr:
     """
-    A column expression that wraps an underlying Expression and can materialize.
+    A column expression that wraps an underlying Expression and can execute lazily.
 
-    When displayed (via __repr__, __str__, or IPython), it materializes the
+    When displayed (via __repr__, __str__, or IPython), it executes the
     expression and shows actual values like a pandas Series.
 
     When used in operations:
@@ -81,7 +81,7 @@ class ColumnExpr:
 
         Args:
             expr: The underlying expression (Field, ArithmeticExpression, Function, etc.)
-            datastore: Reference to the DataStore for materialization
+            datastore: Reference to the DataStore for execution
             alias: Optional alias for the expression
             groupby_fields: Optional groupby fields from LazyGroupBy (to avoid polluting DataStore state)
         """
@@ -105,19 +105,19 @@ class ColumnExpr:
         """Get the alias."""
         return self._alias
 
-    # ========== Materialization ==========
+    # ========== Execution ==========
 
-    def _materialize(self) -> pd.Series:
+    def _execute(self) -> pd.Series:
         """
-        Materialize this expression and return a pandas Series.
+        Execute this expression and return a pandas Series.
 
         This executes the expression against the DataStore's data using the
         unified ExpressionEvaluator, which respects function_config settings.
         """
         from .expression_evaluator import ExpressionEvaluator
 
-        # Get the materialized DataFrame from the DataStore
-        df = self._datastore._materialize()
+        # Get the executed DataFrame from the DataStore
+        df = self._datastore._execute()
 
         # Use unified expression evaluator (respects function_config)
         evaluator = ExpressionEvaluator(df, self._datastore)
@@ -173,13 +173,13 @@ class ColumnExpr:
 
         pandas_agg_func = pandas_agg_func or agg_func_name
 
-        # Get the groupby fields from the datastore and clear them before materialization
-        # This prevents _materialize() from generating SQL with GROUP BY
+        # Get the groupby fields from the datastore and clear them before execution
+        # This prevents _execute() from generating SQL with GROUP BY
         groupby_fields = self._datastore._groupby_fields.copy()
         self._datastore._groupby_fields = []
 
-        # Get the materialized DataFrame from the DataStore (without groupby applied)
-        df = self._datastore._materialize()
+        # Get the executed DataFrame from the DataStore (without groupby applied)
+        df = self._datastore._execute()
 
         # Get groupby column names
         groupby_col_names = []
@@ -250,7 +250,7 @@ class ColumnExpr:
 
     def _compare_values(self, other, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
         """
-        Compare materialized values with another Series/array.
+        Compare executed values with another Series/array.
 
         Args:
             other: Series, list, or array-like to compare with
@@ -263,7 +263,7 @@ class ColumnExpr:
         import pandas as pd
         import numpy as np
 
-        self_series = self._materialize()
+        self_series = self._execute()
 
         # Convert other to Series if needed
         if isinstance(other, pd.DataFrame):
@@ -335,16 +335,16 @@ class ColumnExpr:
 
         # Unwrap ColumnExpr or lazy objects
         if isinstance(other, ColumnExpr):
-            other = other._materialize()
-        elif hasattr(other, '_materialize'):
-            other = other._materialize()
+            other = other._execute()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
         elif hasattr(other, '_execute'):
             other = other._execute()
 
         result = self._compare_values(other, rtol=rtol, atol=atol)
 
         if result and check_names:
-            self_series = self._materialize()
+            self_series = self._execute()
             if isinstance(other, pd.Series):
                 return self_series.name == other.name
 
@@ -355,7 +355,7 @@ class ColumnExpr:
     def __repr__(self) -> str:
         """Return a representation that shows actual values."""
         try:
-            series = self._materialize()
+            series = self._execute()
             return repr(series)
         except Exception as e:
             return f"ColumnExpr({self._expr!r}) [Error: {e}]"
@@ -363,7 +363,7 @@ class ColumnExpr:
     def __str__(self) -> str:
         """Return string representation showing actual values."""
         try:
-            series = self._materialize()
+            series = self._execute()
             return str(series)
         except Exception:
             return self._expr.to_sql()
@@ -371,7 +371,7 @@ class ColumnExpr:
     def _repr_html_(self) -> str:
         """HTML representation for Jupyter notebooks."""
         try:
-            series = self._materialize()
+            series = self._execute()
             if hasattr(series, '_repr_html_'):
                 return series._repr_html_()
             return f"<pre>{repr(series)}</pre>"
@@ -392,7 +392,7 @@ class ColumnExpr:
     #
     # Design Note: Comparison operators return ColumnExpr (not a separate BoolColumnExpr).
     # The underlying Expression is a Condition, which:
-    # 1. Can be materialized to boolean Series via ExpressionEvaluator
+    # 1. Can be executed to boolean Series via ExpressionEvaluator
     # 2. Can be used in filter() for SQL WHERE clause generation
     # 3. Supports value_counts(), sum(), mean() etc. (inherited from ColumnExpr)
     #
@@ -405,15 +405,15 @@ class ColumnExpr:
         """
         Compare ColumnExpr with another value.
 
-        If other is a pandas Series/DataFrame (already materialized data),
+        If other is a pandas Series/DataFrame (already executed data),
         performs value comparison and returns bool.
 
         Otherwise, returns a ColumnExpr wrapping a Condition that can both:
-        - Materialize to a boolean Series (for value_counts(), sum(), etc.)
+        - Execute to a boolean Series (for value_counts(), sum(), etc.)
         - Be used as a filter condition in ds.filter()
 
         Examples:
-            # Value comparison with materialized data (returns bool)
+            # Value comparison with executed data (returns bool)
             >>> ds['name'].str.upper() == pd_df['name'].str.upper()  # True/False
 
             # ColumnExpr wrapping Condition (supports both operations)
@@ -424,7 +424,7 @@ class ColumnExpr:
         import pandas as pd
         from .conditions import BinaryCondition
 
-        # Value comparison only with pandas Series/DataFrame (materialized data)
+        # Value comparison only with pandas Series/DataFrame (executed data)
         if isinstance(other, pd.Series):
             return self._compare_values(other)
         if isinstance(other, pd.DataFrame):
@@ -782,7 +782,7 @@ class ColumnExpr:
         """
         Accessor for pandas plotting functions.
 
-        Materializes the column and returns the pandas Series plot accessor.
+        Executes the column and returns the pandas Series plot accessor.
         Supports all pandas Series plotting methods like .plot(), .plot.bar(),
         .plot.hist(), etc.
 
@@ -792,16 +792,16 @@ class ColumnExpr:
             >>> ds['category'].plot(title='My Plot', figsize=(10, 6))
 
         Returns:
-            pandas.plotting.PlotAccessor: The plot accessor from the materialized Series
+            pandas.plotting.PlotAccessor: The plot accessor from the executed Series
         """
-        return self._materialize().plot
+        return self._execute().plot
 
     @property
     def cat(self):
         """
         Accessor for categorical data methods.
 
-        Materializes the column and returns the pandas Series categorical accessor.
+        Executes the column and returns the pandas Series categorical accessor.
         Only works if the underlying data is categorical.
 
         Example:
@@ -821,14 +821,14 @@ class ColumnExpr:
         Raises:
             AttributeError: If the data is not categorical
         """
-        return self._materialize().cat
+        return self._execute().cat
 
     @property
     def sparse(self):
         """
         Accessor for sparse data methods.
 
-        Materializes the column and returns the pandas Series sparse accessor.
+        Executes the column and returns the pandas Series sparse accessor.
         Only works if the underlying data is sparse.
 
         Example:
@@ -844,7 +844,7 @@ class ColumnExpr:
         Raises:
             AttributeError: If the data is not sparse
         """
-        return self._materialize().sparse
+        return self._execute().sparse
 
     # ========== Condition Methods (for filtering) ==========
 
@@ -862,7 +862,7 @@ class ColumnExpr:
 
         Example:
             >>> ds.filter(ds['email'].isnull())
-            >>> ds['value'].isnull()  # Returns boolean Series when materialized
+            >>> ds['value'].isnull()  # Returns boolean Series when executed
 
         Returns:
             ColumnExpr: Expression that evaluates to True (NULL/NaN) or False
@@ -885,7 +885,7 @@ class ColumnExpr:
 
         Example:
             >>> ds.filter(ds['email'].notnull())
-            >>> ds['value'].notnull()  # Returns boolean Series when materialized
+            >>> ds['value'].notnull()  # Returns boolean Series when executed
 
         Returns:
             ColumnExpr: Expression that evaluates to True (not NULL/NaN) or False
@@ -948,7 +948,7 @@ class ColumnExpr:
     @property
     def values(self) -> Any:
         """Return underlying numpy array (property for pandas compatibility)."""
-        return self._materialize().values
+        return self._execute().values
 
     @property
     def name(self) -> Optional[str]:
@@ -960,13 +960,13 @@ class ColumnExpr:
     @property
     def dtype(self):
         """
-        Return the dtype of the materialized column.
+        Return the dtype of the executed column.
 
         Example:
             >>> ds['age'].dtype
             dtype('int64')
         """
-        return self._materialize().dtype
+        return self._execute().dtype
 
     @property
     def dtypes(self):
@@ -980,13 +980,13 @@ class ColumnExpr:
     @property
     def shape(self) -> tuple:
         """
-        Return shape of the materialized column.
+        Return shape of the executed column.
 
         Example:
             >>> ds['age'].shape
             (5,)
         """
-        return self._materialize().shape
+        return self._execute().shape
 
     @property
     def ndim(self) -> int:
@@ -1002,13 +1002,13 @@ class ColumnExpr:
     @property
     def index(self):
         """
-        Return the index of the materialized column.
+        Return the index of the executed column.
 
         Example:
             >>> ds['age'].index
             RangeIndex(start=0, stop=5, step=1)
         """
-        return self._materialize().index
+        return self._execute().index
 
     @property
     def empty(self) -> bool:
@@ -1030,7 +1030,7 @@ class ColumnExpr:
             >>> ds['age'].T
             array([28, 31, 29, 45, 22])
         """
-        return self._materialize().T
+        return self._execute().T
 
     @property
     def axes(self) -> list:
@@ -1041,7 +1041,7 @@ class ColumnExpr:
             >>> ds['age'].axes
             [RangeIndex(start=0, stop=5, step=1)]
         """
-        return self._materialize().axes
+        return self._execute().axes
 
     @property
     def nbytes(self) -> int:
@@ -1052,7 +1052,7 @@ class ColumnExpr:
             >>> ds['age'].nbytes
             40
         """
-        return self._materialize().nbytes
+        return self._execute().nbytes
 
     @property
     def hasnans(self) -> bool:
@@ -1063,7 +1063,7 @@ class ColumnExpr:
             >>> ds['age'].hasnans
             False
         """
-        return self._materialize().hasnans
+        return self._execute().hasnans
 
     @property
     def is_unique(self) -> bool:
@@ -1074,7 +1074,7 @@ class ColumnExpr:
             >>> ds['age'].is_unique
             True
         """
-        return self._materialize().is_unique
+        return self._execute().is_unique
 
     @property
     def is_monotonic_increasing(self) -> bool:
@@ -1085,7 +1085,7 @@ class ColumnExpr:
             >>> ds['value'].is_monotonic_increasing
             True
         """
-        return self._materialize().is_monotonic_increasing
+        return self._execute().is_monotonic_increasing
 
     @property
     def is_monotonic_decreasing(self) -> bool:
@@ -1096,7 +1096,7 @@ class ColumnExpr:
             >>> ds['value'].is_monotonic_decreasing
             False
         """
-        return self._materialize().is_monotonic_decreasing
+        return self._execute().is_monotonic_decreasing
 
     @property
     def array(self):
@@ -1109,15 +1109,15 @@ class ColumnExpr:
             [28, 31, 29, 45, 22]
             Length: 5, dtype: Int64
         """
-        return self._materialize().array
+        return self._execute().array
 
     def __len__(self) -> int:
-        """Return length of the materialized series."""
-        return len(self._materialize())
+        """Return length of the executed series."""
+        return len(self._execute())
 
     def __iter__(self):
-        """Iterate over materialized values."""
-        return iter(self._materialize())
+        """Iterate over executed values."""
+        return iter(self._execute())
 
     def __getitem__(self, key):
         """
@@ -1131,11 +1131,11 @@ class ColumnExpr:
         Returns:
             Single value or Series depending on key type
         """
-        return self._materialize()[key]
+        return self._execute()[key]
 
     def tolist(self) -> list:
         """Convert to Python list."""
-        return self._materialize().tolist()
+        return self._execute().tolist()
 
     def to_list(self) -> list:
         """
@@ -1149,7 +1149,7 @@ class ColumnExpr:
 
     def to_numpy(self):
         """Convert to numpy array."""
-        return self._materialize().to_numpy()
+        return self._execute().to_numpy()
 
     def to_dict(self, into=dict):
         """
@@ -1166,7 +1166,7 @@ class ColumnExpr:
             >>> ds['age'].to_dict()
             {0: 28, 1: 31, 2: 29, 3: 45, 4: 22}
         """
-        return self._materialize().to_dict(into=into)
+        return self._execute().to_dict(into=into)
 
     def to_frame(self, name=None):
         """
@@ -1187,7 +1187,7 @@ class ColumnExpr:
         """
         from .core import DataStore
 
-        series = self._materialize()
+        series = self._execute()
         df = series.to_frame(name=name)
         return DataStore.from_df(df)
 
@@ -1199,14 +1199,14 @@ class ColumnExpr:
             deep: Make a deep copy (default True)
 
         Returns:
-            pd.Series: A copy of the materialized data
+            pd.Series: A copy of the executed data
 
         Example:
             >>> s = ds['age'].copy()
             >>> type(s)
             <class 'pandas.core.series.Series'>
         """
-        return self._materialize().copy(deep=deep)
+        return self._execute().copy(deep=deep)
 
     def describe(self, percentiles=None, include=None, exclude=None):
         """
@@ -1259,7 +1259,7 @@ class ColumnExpr:
             dtypes: int64(1)
             memory usage: 168.0 bytes
         """
-        return self._materialize().info(
+        return self._execute().info(
             verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts
         )
 
@@ -1394,7 +1394,7 @@ class ColumnExpr:
         Example:
             >>> ds['age'].hist(bins=5)
         """
-        return self._materialize().hist(bins=bins, **kwargs)
+        return self._execute().hist(bins=bins, **kwargs)
 
     def agg(self, func=None, axis=0, *args, **kwargs):
         """
@@ -1464,10 +1464,10 @@ class ColumnExpr:
             4     0
             Name: age, dtype: int64
         """
-        series = self._materialize()
+        series = self._execute()
         # Handle condition
         if isinstance(cond, ColumnExpr):
-            cond = cond._materialize()
+            cond = cond._execute()
         elif hasattr(cond, '_execute'):
             cond = cond._execute()
         return series.where(cond, other=other, axis=axis, level=level)
@@ -1559,7 +1559,7 @@ class ColumnExpr:
         """
         import numpy as np
 
-        result = self._materialize()
+        result = self._execute()
         if isinstance(result, pd.Series):
             # Use to_numpy() instead of .values to handle categorical/extension dtypes
             arr = result.to_numpy()
@@ -1580,7 +1580,7 @@ class ColumnExpr:
 
     # ========== Aggregate Methods ==========
     # These methods return ColumnExpr for SQL when called with default args,
-    # or materialize and compute when called with pandas/numpy-style args.
+    # or execute and compute when called with pandas/numpy-style args.
 
     def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs):
         """
@@ -1895,7 +1895,7 @@ class ColumnExpr:
         """
         Provide rolling window calculations.
 
-        Materializes the column and returns a pandas Rolling object.
+        Executes the column and returns a pandas Rolling object.
 
         Args:
             window: Size of the moving window
@@ -1915,7 +1915,7 @@ class ColumnExpr:
             >>> ds['value'].rolling(5, min_periods=1).sum()
             >>> ds['value'].rolling(window=3, center=True).std()
         """
-        series = self._materialize()
+        series = self._execute()
         # Build kwargs, excluding None values and deprecated params
         kwargs = {
             'window': window,
@@ -1937,7 +1937,7 @@ class ColumnExpr:
         """
         Provide expanding window calculations.
 
-        Materializes the column and returns a pandas Expanding object.
+        Executes the column and returns a pandas Expanding object.
 
         Args:
             min_periods: Minimum observations in window required to have a value
@@ -1950,7 +1950,7 @@ class ColumnExpr:
             >>> ds['value'].expanding().mean()
             >>> ds['value'].expanding(min_periods=3).sum()
         """
-        series = self._materialize()
+        series = self._execute()
         return series.expanding(min_periods=min_periods, method=method)
 
     def ewm(
@@ -1968,7 +1968,7 @@ class ColumnExpr:
         """
         Provide exponentially weighted (EW) calculations.
 
-        Materializes the column and returns a pandas ExponentialMovingWindow object.
+        Executes the column and returns a pandas ExponentialMovingWindow object.
 
         Args:
             com: Decay in terms of center of mass
@@ -1988,7 +1988,7 @@ class ColumnExpr:
             >>> ds['value'].ewm(span=10).mean()
             >>> ds['value'].ewm(alpha=0.5).std()
         """
-        series = self._materialize()
+        series = self._execute()
         kwargs = {
             'com': com,
             'span': span,
@@ -2138,7 +2138,7 @@ class ColumnExpr:
         Returns:
             int: Index of the minimum value
         """
-        return self._materialize().argmin(axis=axis, skipna=skipna, **kwargs)
+        return self._execute().argmin(axis=axis, skipna=skipna, **kwargs)
 
     def argmax(self, axis=None, out=None, *, skipna=True, **kwargs):
         """
@@ -2153,7 +2153,7 @@ class ColumnExpr:
         Returns:
             int: Index of the maximum value
         """
-        return self._materialize().argmax(axis=axis, skipna=skipna, **kwargs)
+        return self._execute().argmax(axis=axis, skipna=skipna, **kwargs)
 
     def any(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
         """
@@ -2169,7 +2169,7 @@ class ColumnExpr:
         Returns:
             bool: True if any element is True
         """
-        return self._materialize().any(axis=axis, skipna=skipna, **kwargs)
+        return self._execute().any(axis=axis, skipna=skipna, **kwargs)
 
     def all(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
         """
@@ -2185,7 +2185,7 @@ class ColumnExpr:
         Returns:
             bool: True if all elements are True
         """
-        return self._materialize().all(axis=axis, skipna=skipna, **kwargs)
+        return self._execute().all(axis=axis, skipna=skipna, **kwargs)
 
     # ========== Pandas Series Methods ==========
 
@@ -2346,7 +2346,7 @@ class ColumnExpr:
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
 
-        # LazySeries._materialize_if_needed handles ColumnExpr/LazyAggregate values
+        # LazySeries._execute_if_needed handles ColumnExpr/LazyAggregate values
         return LazySeries(self, 'fillna', value=value, method=method, axis=axis, limit=limit)
 
     def fillna_sql(self, value):
@@ -2560,14 +2560,14 @@ class ColumnExpr:
         """
         Return the first n elements (lazy).
 
-        The result is not materialized until displayed or explicitly converted.
+        The result is not executed until displayed or explicitly converted.
         This allows for SQL LIMIT optimization and consistent lazy behavior.
 
         Args:
             n: Number of elements to return (default 5)
 
         Returns:
-            LazySeries: Lazy wrapper that materializes on display
+            LazySeries: Lazy wrapper that executes on display
 
         Example:
             >>> ds['age'].head(5)  # Lazy, no execution yet
@@ -2579,13 +2579,13 @@ class ColumnExpr:
         """
         Return the last n elements (lazy).
 
-        The result is not materialized until displayed or explicitly converted.
+        The result is not executed until displayed or explicitly converted.
 
         Args:
             n: Number of elements to return (default 5)
 
         Returns:
-            LazySeries: Lazy wrapper that materializes on display
+            LazySeries: Lazy wrapper that executes on display
 
         Example:
             >>> ds['age'].tail(5)  # Lazy, no execution yet
@@ -2645,8 +2645,8 @@ class ColumnExprStringAccessor:
 
         return wrapper
 
-    def _materialize_series(self):
-        """Materialize the column as a Pandas Series."""
+    def _execute_series(self):
+        """Execute the column as a Pandas Series."""
         ds = self._column_expr._datastore
         col_expr = self._column_expr._expr
 
@@ -2672,7 +2672,7 @@ class ColumnExprStringAccessor:
         Returns:
             Series with concatenated strings
         """
-        series = self._materialize_series()
+        series = self._execute_series()
         return series.str.cat(others=others, sep=sep, na_rep=na_rep, join=join)
 
     def extractall(self, pat, flags=0):
@@ -2684,7 +2684,7 @@ class ColumnExprStringAccessor:
         """
         from .core import DataStore
 
-        series = self._materialize_series()
+        series = self._execute_series()
         result = series.str.extractall(pat, flags=flags)
         # Reset index to make it a regular DataFrame
         result = result.reset_index()
@@ -2699,7 +2699,7 @@ class ColumnExprStringAccessor:
         """
         from .core import DataStore
 
-        series = self._materialize_series()
+        series = self._execute_series()
         result = series.str.get_dummies(sep=sep)
         return DataStore.from_df(result)
 
@@ -2713,7 +2713,7 @@ class ColumnExprStringAccessor:
         """
         from .core import DataStore
 
-        series = self._materialize_series()
+        series = self._execute_series()
         result = series.str.partition(sep=sep, expand=expand)
         if expand:
             return DataStore.from_df(result)
@@ -2729,7 +2729,7 @@ class ColumnExprStringAccessor:
         """
         from .core import DataStore
 
-        series = self._materialize_series()
+        series = self._execute_series()
         result = series.str.rpartition(sep=sep, expand=expand)
         if expand:
             return DataStore.from_df(result)
@@ -2761,8 +2761,8 @@ class ColumnExprDateTimeAccessor:
         Returns:
             pandas Series with datetime dtype
         """
-        # Materialize the column
-        series = self._column_expr._materialize()
+        # Execute the column
+        series = self._column_expr._execute()
 
         # If already datetime, return as-is
         if pd.api.types.is_datetime64_any_dtype(series):
@@ -3020,14 +3020,14 @@ class LazyAggregate:
         # Check if we have groupby fields (from LazyGroupBy, stored in self._groupby_fields)
         if self._groupby_fields:
             # Set groupby fields on datastore temporarily for _aggregate_with_groupby
-            # This will be cleared by _aggregate_with_groupby after materialization
+            # This will be cleared by _aggregate_with_groupby after execution
             datastore._groupby_fields = self._groupby_fields.copy()
             result = self._column_expr._aggregate_with_groupby(
                 self._agg_func_name, self._pandas_agg_func, skipna=self._skipna
             )
         else:
             # No groupby - compute scalar value
-            series = self._column_expr._materialize()
+            series = self._column_expr._execute()
             agg_method = getattr(series, self._pandas_agg_func)
             result = agg_method(**self._kwargs)
 
@@ -3198,9 +3198,9 @@ class LazyAggregate:
 
         # Unwrap other if it's a lazy object
         if isinstance(other, (ColumnExpr, LazyAggregate)):
-            other = other._execute() if hasattr(other, '_execute') else other._materialize()
-        elif hasattr(other, '_materialize'):
-            other = other._materialize()
+            other = other._execute() if hasattr(other, '_execute') else other._execute()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
         elif hasattr(other, '_execute'):
             other = other._execute()
 
@@ -3215,9 +3215,9 @@ class LazyAggregate:
 
         # Unwrap other if it's a lazy object
         if isinstance(other, (ColumnExpr, LazyAggregate)):
-            other = other._execute() if hasattr(other, '_execute') else other._materialize()
-        elif hasattr(other, '_materialize'):
-            other = other._materialize()
+            other = other._execute() if hasattr(other, '_execute') else other._execute()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
         elif hasattr(other, '_execute'):
             other = other._execute()
 
@@ -3271,9 +3271,9 @@ class LazyAggregate:
 
         # Unwrap other
         if isinstance(other, (ColumnExpr, LazyAggregate)):
-            other = other._execute() if hasattr(other, '_execute') else other._materialize()
-        elif hasattr(other, '_materialize'):
-            other = other._materialize()
+            other = other._execute() if hasattr(other, '_execute') else other._execute()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
         elif hasattr(other, '_execute'):
             other = other._execute()
 

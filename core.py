@@ -192,7 +192,7 @@ class DataStore(PandasCompatMixin):
         # Logger instance
         self._logger = get_logger()
 
-        # Cache state for materialized results
+        # Cache state for executed results
         # This implements intelligent automatic caching to avoid re-execution
         # when repr/__str__ are called multiple times
         self._cached_result: Optional[pd.DataFrame] = None
@@ -291,7 +291,7 @@ class DataStore(PandasCompatMixin):
         Track an operation for explain() output.
 
         Args:
-            op_type: Type of operation ('sql', 'pandas', 'materialize')
+            op_type: Type of operation ('sql', 'pandas', 'execute')
             description: Human-readable description
             details: Additional details about the operation
         """
@@ -300,7 +300,7 @@ class DataStore(PandasCompatMixin):
             'description': description,
             'details': details or {},
             'is_on_dataframe': op_type == 'pandas',
-            'materialized_at_call': False,
+            'executed_at_call': False,
         }
         self._operation_history.append(operation)
 
@@ -322,7 +322,7 @@ class DataStore(PandasCompatMixin):
             # Show table name
             desc = f"Data Source: Table '{self.table_name}'"
 
-        # Cache for future use (survives materialization)
+        # Cache for future use (survives execution)
         if desc and (not hasattr(self, '_original_source_desc') or not self._original_source_desc):
             self._original_source_desc = desc
 
@@ -333,36 +333,36 @@ class DataStore(PandasCompatMixin):
         if not self._operation_history:
             return [], None, []
 
-        # Find the materialization point
-        mat_idx = next((i for i, op in enumerate(self._operation_history) if op['type'] == 'materialize'), None)
+        # Find the execution point
+        mat_idx = next((i for i, op in enumerate(self._operation_history) if op['type'] == 'execute'), None)
 
         if mat_idx is not None:
-            # Explicit materialization operation present
+            # Explicit execution operation present
             return (
                 self._operation_history[:mat_idx],
                 self._operation_history[mat_idx],
                 self._operation_history[mat_idx + 1 :],
             )
 
-        # No explicit materialization - split by is_on_dataframe flag
+        # No explicit execution - split by is_on_dataframe flag
         lazy = [op for op in self._operation_history if not op.get('is_on_dataframe', False)]
-        materialized = [op for op in self._operation_history if op.get('is_on_dataframe', False)]
+        executed = [op for op in self._operation_history if op.get('is_on_dataframe', False)]
 
-        # If there are only materialized ops, the first one becomes the implicit materialization point
-        if materialized and not lazy and materialized[0]['type'] in ['pandas', 'materialize']:
-            return [], materialized[0], materialized[1:]
+        # If there are only executed ops, the first one becomes the implicit execution point
+        if executed and not lazy and executed[0]['type'] in ['pandas', 'execute']:
+            return [], executed[0], executed[1:]
 
-        # If both exist, the first materialized operation is the implicit materialization point
-        if lazy and materialized:
-            return lazy, materialized[0], materialized[1:]
+        # If both exist, the first executed operation is the implicit execution point
+        if lazy and executed:
+            return lazy, executed[0], executed[1:]
 
-        return lazy, None, materialized
+        return lazy, None, executed
 
     def _render_operations(self, operations, start_num=1, verbose=False):
         """Render a list of operations."""
         lines = []
         for i, op in enumerate(operations, start_num):
-            icon = {'sql': '🔍', 'pandas': '🐼', 'materialize': '🔄'}.get(op['type'], '📝')
+            icon = {'sql': '🔍', 'pandas': '🐼', 'execute': '🔄'}.get(op['type'], '📝')
             desc = (
                 f"SQL on DataFrame: {op['description']}"
                 if op['type'] == 'sql' and op.get('is_on_dataframe')
@@ -414,7 +414,7 @@ class DataStore(PandasCompatMixin):
         # ========== Operations in Original Order ==========
         # _lazy_ops contains ALL operations (SQL snapshots + lazy ops) in order
         if self._lazy_ops:
-            # Find the first non-SQL operation (same logic as _materialize)
+            # Find the first non-SQL operation (same logic as _execute)
             first_df_op_idx = None
             for i, op in enumerate(self._lazy_ops):
                 if not isinstance(op, LazyRelationalOp):
@@ -458,10 +458,10 @@ class DataStore(PandasCompatMixin):
                         lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
 
         # ========== Legacy operation history (for pandas compat operations) ==========
-        history_lazy_ops, mat_op, history_materialized_ops = self._analyze_execution_phases()
+        history_lazy_ops, mat_op, history_executed_ops = self._analyze_execution_phases()
 
         if mat_op:
-            lines.append("\nMaterialization Point:")
+            lines.append("\nExecution Point:")
             lines.append("─" * 80)
             counter += 1
             lines.append(f" [{counter}] 🔄 {mat_op['description']}")
@@ -470,11 +470,11 @@ class DataStore(PandasCompatMixin):
                 for k, v in mat_op['details'].items():
                     lines.append(f"         • {k}: {v}")
 
-        if history_materialized_ops:
-            lines.append("\nPost-Materialization Operations:")
+        if history_executed_ops:
+            lines.append("\nPost-Execution Operations:")
             lines.append("─" * 80)
-            lines.extend(self._render_operations(history_materialized_ops, counter + 1, verbose))
-            counter += len(history_materialized_ops)
+            lines.extend(self._render_operations(history_executed_ops, counter + 1, verbose))
+            counter += len(history_executed_ops)
 
         # ========== Final State ==========
         lines.append("\n" + "─" * 80)
@@ -607,9 +607,9 @@ class DataStore(PandasCompatMixin):
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
-    def _materialize(self):
+    def _execute(self):
         """
-        Materialize all lazy operations into a DataFrame.
+        Execute all lazy operations into a DataFrame.
 
         Execute all pending operations and return a DataFrame.
 
@@ -635,7 +635,7 @@ class DataStore(PandasCompatMixin):
             return self._cached_result
 
         self._logger.debug("=" * 70)
-        self._logger.debug("Starting materialization (version=%d)", self._cache_version)
+        self._logger.debug("Starting execution (version=%d)", self._cache_version)
         self._logger.debug("=" * 70)
 
         # Log all lazy operations
@@ -861,7 +861,7 @@ class DataStore(PandasCompatMixin):
                 df = op.execute(df, self)
 
         self._logger.debug("=" * 70)
-        self._logger.debug("Materialization complete. Final DataFrame shape: %s", df.shape)
+        self._logger.debug("Execution complete. Final DataFrame shape: %s", df.shape)
         self._logger.debug("=" * 70)
 
         # Cache the result if caching is enabled
@@ -879,7 +879,7 @@ class DataStore(PandasCompatMixin):
                 # This is the key to incremental execution:
                 # - Old ops are "collapsed" into the cached DataFrame
                 # - New ops will be appended after this source
-                # - Next materialization only executes new ops
+                # - Next execution only executes new ops
                 self._lazy_ops = [LazyDataFrameSource(df)]
 
                 # Clear SQL state since we're now working from a DataFrame
@@ -1804,9 +1804,9 @@ class DataStore(PandasCompatMixin):
         """
         Execute all operations and return pandas DataFrame.
 
-        This triggers materialization of all lazy operations.
+        This triggers execution of all lazy operations.
 
-        If the DataStore has been materialized (pandas operations applied), returns
+        If the DataStore has been executed (pandas operations applied), returns
         the cached DataFrame. Otherwise, executes the SQL query and lazy operations.
 
         Returns:
@@ -1820,15 +1820,15 @@ class DataStore(PandasCompatMixin):
             >>> ds["new_col"] = ds["age"] * 2
             >>> df2 = ds.to_df()  # Executes SQL + lazy ops
         """
-        self._logger.debug("to_df() called - triggering materialization")
-        return self._materialize()
+        self._logger.debug("to_df() called - triggering execution")
+        return self._execute()
 
     def to_dict(self) -> List[Dict[str, Any]]:
         """
         Execute the query and return results as a list of dictionaries.
         Convenience method that combines execute() and to_dict().
 
-        If the DataStore has been materialized (pandas operations applied), converts
+        If the DataStore has been executed (pandas operations applied), converts
         the cached DataFrame to dict. Otherwise, executes the SQL query.
 
         Returns:
@@ -1839,7 +1839,7 @@ class DataStore(PandasCompatMixin):
             >>> records = ds.select("*").filter(ds.age > 18).to_dict()
         """
         # Execute and convert to dict
-        return self._materialize().to_dict('records')
+        return self._execute().to_dict('records')
 
     def _wrap_result_fallback(self, result_df):
         """
@@ -1882,7 +1882,7 @@ class DataStore(PandasCompatMixin):
         Generate descriptive statistics of the data.
         Convenience method that combines execute(), to_df(), and describe().
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        Works correctly with both SQL queries and executed DataFrames.
 
         Args:
             percentiles: List of percentiles to include (default: [.25, .5, .75])
@@ -1936,7 +1936,7 @@ class DataStore(PandasCompatMixin):
         Convenience method that applies limit and returns as DataStore.
 
         This method uses lazy execution - the LIMIT is added to the SQL query
-        and only executed when the result is materialized (e.g., via to_df() or print).
+        and only executed when the result is executed (e.g., via to_df() or print).
 
         Args:
             n: Number of rows to return (default: 5)
@@ -1959,7 +1959,7 @@ class DataStore(PandasCompatMixin):
         Return the last n rows of the query result.
         Convenience method that returns as DataStore with reversed order.
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        Works correctly with both SQL queries and executed DataFrames.
 
         Args:
             n: Number of rows to return (default: 5)
@@ -1989,7 +1989,7 @@ class DataStore(PandasCompatMixin):
         """
         Return a random sample of rows from the query result.
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        Works correctly with both SQL queries and executed DataFrames.
 
         Args:
             n: Number of rows to return (mutually exclusive with frac)
@@ -2023,7 +2023,7 @@ class DataStore(PandasCompatMixin):
         """
         Return the shape (rows, columns) of the query result.
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        Works correctly with both SQL queries and executed DataFrames.
 
         Returns:
             Tuple of (rows, columns)
@@ -2044,7 +2044,7 @@ class DataStore(PandasCompatMixin):
         """
         Return the column names of the query result.
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        Works correctly with both SQL queries and executed DataFrames.
 
         Returns:
             pandas Index of column names
@@ -2065,7 +2065,7 @@ class DataStore(PandasCompatMixin):
         Count non-null values for each column in the query result.
 
         This method uses SQL COUNT(column) to efficiently count non-null values
-        without materializing the entire DataFrame, making it suitable for large
+        without executing the entire DataFrame, making it suitable for large
         datasets. The COUNT is pushed down to chDB for optimal performance.
 
         Returns:
@@ -2078,7 +2078,7 @@ class DataStore(PandasCompatMixin):
 
         Note:
             For total row count (like SQL COUNT(*)), use count_rows() instead.
-            Falls back to DataFrame materialization if non-SQL operations are pending.
+            Falls back to DataFrame execution if non-SQL operations are pending.
         """
         import pandas as pd
 
@@ -2093,8 +2093,8 @@ class DataStore(PandasCompatMixin):
                     break
 
         if has_non_sql_ops:
-            # Fall back to materialization for non-SQL operations
-            self._logger.debug("count() falling back to materialization due to non-SQL operations")
+            # Fall back to execution for non-SQL operations
+            self._logger.debug("count() falling back to execution due to non-SQL operations")
             if hasattr(self, '_get_df'):
                 df = self._get_df()
             else:
@@ -2153,8 +2153,8 @@ class DataStore(PandasCompatMixin):
                 return pd.Series({col: 0 for col in column_names})
 
         except Exception as e:
-            # Fall back to materialization on any error
-            self._logger.debug("count() falling back to materialization due to error: %s", e)
+            # Fall back to execution on any error
+            self._logger.debug("count() falling back to execution due to error: %s", e)
             if hasattr(self, '_get_df'):
                 df = self._get_df()
             else:
@@ -2165,11 +2165,11 @@ class DataStore(PandasCompatMixin):
         """
         Count total number of rows using SQL COUNT(*).
 
-        This method efficiently executes COUNT(*) without materializing the DataFrame,
+        This method efficiently executes COUNT(*) without executing the DataFrame,
         making it suitable for large datasets. Unlike count() which returns per-column
         non-null counts, this returns the total row count.
 
-        If LIMIT is applied (e.g., via head() or limit()), materializes the query
+        If LIMIT is applied (e.g., via head() or limit()), executes the query
         with LIMIT and returns the actual row count.
 
         Returns:
@@ -2179,15 +2179,15 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> total = ds.select("*").filter(ds.age > 18).count_rows()
             >>> print(f"Found {total} rows")
-            >>> limited = ds.head(10).count_rows()  # Materializes with LIMIT, returns actual count
+            >>> limited = ds.head(10).count_rows()  # Executes with LIMIT, returns actual count
 
         Note:
             This is more efficient than len() for large datasets as it uses SQL COUNT(*)
-            instead of materializing the entire DataFrame.
+            instead of executing the entire DataFrame.
         """
         from .functions import Count
 
-        # If we have lazy operations that can't be expressed in SQL, fall back to materialization
+        # If we have lazy operations that can't be expressed in SQL, fall back to execution
         # Check if there are any non-SQL operations in the lazy ops
         has_non_sql_ops = False
         if self._lazy_ops:
@@ -2199,15 +2199,15 @@ class DataStore(PandasCompatMixin):
                     break
 
         if has_non_sql_ops:
-            # Fall back to materialization for non-SQL operations
-            self._logger.debug("count_rows() falling back to materialization due to non-SQL operations")
-            return len(self._materialize())
+            # Fall back to execution for non-SQL operations
+            self._logger.debug("count_rows() falling back to execution due to non-SQL operations")
+            return len(self._execute())
 
-        # If LIMIT is applied, materialize with LIMIT and return actual count
+        # If LIMIT is applied, execute with LIMIT and return actual count
         # This is more accurate than COUNT(*) without LIMIT
         if self._limit_value is not None:
-            self._logger.debug("count_rows() materializing due to LIMIT")
-            return len(self._materialize())
+            self._logger.debug("count_rows() executing due to LIMIT")
+            return len(self._execute())
 
         # Build a COUNT(*) query
         # Create a copy of the current DataStore to modify for counting
@@ -2245,7 +2245,7 @@ class DataStore(PandasCompatMixin):
         """
         Print concise summary of the query result.
 
-        Works correctly with both SQL queries and materialized DataFrames.
+        Works correctly with both SQL queries and executed DataFrames.
 
         Args:
             verbose: Whether to print full summary
@@ -2479,7 +2479,7 @@ class DataStore(PandasCompatMixin):
         """
         Select specific columns.
 
-        If DataStore is materialized (pandas operations applied), selects columns
+        If DataStore is executed (pandas operations applied), selects columns
         from cached DataFrame. Otherwise, builds SQL SELECT clause.
 
         Args:
@@ -2556,7 +2556,7 @@ class DataStore(PandasCompatMixin):
         # Check if pandas-style column filtering is requested
         if items is not None or like is not None or regex is not None:
             # Pandas-style: select columns by name
-            df = self._materialize()
+            df = self._execute()
             cols = df.columns.tolist()
 
             if items is not None:
@@ -2704,7 +2704,7 @@ class DataStore(PandasCompatMixin):
 
         Note:
             - The query is executed via chDB's Python() table function
-            - This forces materialization of all pending operations before executing the SQL
+            - This forces execution of all pending operations before executing the SQL
             - The result is a new DataFrame that can be used for subsequent operations
         """
         from .lazy_ops import LazySQLQuery
@@ -2789,7 +2789,7 @@ class DataStore(PandasCompatMixin):
         This matches pandas semantics where groupby() returns a GroupBy object,
         not a copy of the DataFrame.
 
-        When aggregation methods are called on the GroupBy object, they materialize
+        When aggregation methods are called on the GroupBy object, they execute
         and checkpoint the ORIGINAL DataStore. This ensures that subsequent calls
         to df.to_df() use the cached result without re-execution.
 
@@ -2805,7 +2805,7 @@ class DataStore(PandasCompatMixin):
             >>> ds.groupby("category")  # Returns LazyGroupBy
             >>> ds.groupby(["a", "b"])  # pandas-style list argument
             >>> ds.groupby("a", "b")    # Also supported
-            >>> ds.groupby("category")["sales"].mean()  # Materializes ds, returns Series
+            >>> ds.groupby("category")["sales"].mean()  # Executes ds, returns Series
             >>> ds.to_df()  # Uses cached result (no re-computation!)
         """
         from .groupby import LazyGroupBy
@@ -2841,7 +2841,7 @@ class DataStore(PandasCompatMixin):
            ...     order_count=col("order_id").count()
            ... )
 
-        2. Pandas-style aggregation with dict (materializes DataFrame first):
+        2. Pandas-style aggregation with dict (executes DataFrame first):
            >>> ds.agg({'amount': 'sum', 'count': 'count'})
            >>> ds.agg({'amount': ['sum', 'mean', 'max']})
 
@@ -3171,7 +3171,7 @@ class DataStore(PandasCompatMixin):
         from copy import copy
 
         if isinstance(key, str):
-            # Return ColumnExpr that wraps a Field and can materialize
+            # Return ColumnExpr that wraps a Field and can execute
             # This allows pandas-like behavior: ds['col'] shows actual values
             # but ds['col'] > 18 still returns Condition for filtering
             return ColumnExpr(Field(key), self)
@@ -3547,7 +3547,7 @@ class DataStore(PandasCompatMixin):
         if name in self._RESERVED_ATTRS:
             raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
-        # Return ColumnExpr that wraps a Field and can materialize
+        # Return ColumnExpr that wraps a Field and can execute
         return ColumnExpr(Field(name), self)
 
     # ========== Copy Support ==========
@@ -3583,7 +3583,7 @@ class DataStore(PandasCompatMixin):
         Return the number of rows in the DataStore.
 
         This method efficiently uses SQL COUNT(*) when possible, falling back to
-        materialization only when necessary (e.g., after pandas operations).
+        execution only when necessary (e.g., after pandas operations).
 
         This enables using len(ds) on DataStore objects.
 
@@ -3617,7 +3617,7 @@ class DataStore(PandasCompatMixin):
         """
         import numpy as np
 
-        df = self._materialize()
+        df = self._execute()
         if isinstance(df, pd.DataFrame):
             # Use to_numpy() to handle categorical/extension dtypes
             arr = df.to_numpy()
@@ -3660,7 +3660,7 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> sns.countplot(x="Survived", hue="Sex", data=ds)  # Works directly!
         """
-        df = self._materialize()
+        df = self._execute()
         return df.__dataframe__(nan_as_null=nan_as_null, allow_copy=allow_copy)
 
     # ========== String Representation ==========
@@ -3670,12 +3670,12 @@ class DataStore(PandasCompatMixin):
         Return string representation - triggers execution.
 
         This is called by print().
-        If we have any operations (SQL or lazy), materializes and shows the DataFrame.
+        If we have any operations (SQL or lazy), executes and shows the DataFrame.
         """
-        # If we have operations, materialize and show the DataFrame
+        # If we have operations, execute and show the DataFrame
         if self._has_sql_state() or self._lazy_ops:
             try:
-                df = self._materialize()
+                df = self._execute()
                 return str(df)
             except Exception as e:
                 return f"DataStore (execution failed: {e})"
@@ -3688,12 +3688,12 @@ class DataStore(PandasCompatMixin):
         Return repr representation - triggers execution.
 
         This is called in Jupyter/REPL when displaying the object.
-        If we have operations, materializes and shows the DataFrame.
+        If we have operations, executes and shows the DataFrame.
         """
-        # If we have operations, materialize and show the DataFrame
+        # If we have operations, execute and show the DataFrame
         if self._has_sql_state() or self._lazy_ops:
             try:
-                df = self._materialize()
+                df = self._execute()
                 return repr(df)
             except Exception as e:
                 # If execution fails, show error info
@@ -3714,10 +3714,10 @@ class DataStore(PandasCompatMixin):
 
         This method is automatically called by Jupyter when displaying the object.
         """
-        # If we have operations, materialize and show the DataFrame
+        # If we have operations, execute and show the DataFrame
         if self._has_sql_state() or self._lazy_ops:
             try:
-                df = self._materialize()
+                df = self._execute()
                 return df._repr_html_()
             except Exception as e:
                 # If execution fails, show error in HTML

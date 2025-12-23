@@ -4,10 +4,10 @@ LazyGroupBy - Lazy GroupBy wrapper for DataStore.
 This implements pandas-like groupby semantics where:
 - df.groupby('col') returns a GroupBy object (not a copy of DataFrame)
 - The GroupBy object references the original DataFrame
-- Aggregation operations materialize and checkpoint the ORIGINAL DataFrame
+- Aggregation operations execute and checkpoint the ORIGINAL DataFrame
 
 This design ensures that:
-1. When groupby().agg() materializes, the original df is checkpointed
+1. When groupby().agg() executes, the original df is checkpointed
 2. Subsequent calls to df.to_df() use the cached result
 3. No redundant computation occurs
 """
@@ -39,7 +39,7 @@ class LazyGroupBy:
         >>> df['FamilySize'] = df['SibSp'] + df['Parch'] + 1
         >>>
         >>> grp = df.groupby('FamilySize')  # Returns LazyGroupBy
-        >>> result = grp['Survived'].mean()  # Materializes ORIGINAL df
+        >>> result = grp['Survived'].mean()  # Executes ORIGINAL df
         >>>
         >>> df.to_df()  # Uses cached result (no re-execution!)
     """
@@ -154,8 +154,8 @@ class LazyGroupBy:
             return self._datastore.agg(func, **kwargs)
         else:
             # Pandas-style aggregation: agg({'col': 'func'})
-            # Materialize the DataFrame and apply groupby().agg() directly
-            df = self._datastore._materialize()
+            # Execute the DataFrame and apply groupby().agg() directly
+            df = self._datastore._execute()
 
             # Get groupby column names
             groupby_cols = []
@@ -198,8 +198,8 @@ class LazyGroupBy:
             Marketing       3
             dtype: int64
         """
-        # Materialize the ORIGINAL datastore (this checkpoints it!)
-        df = self._datastore._materialize()
+        # Execute the ORIGINAL datastore (this checkpoints it!)
+        df = self._datastore._execute()
 
         # Get groupby column names
         groupby_cols = []
@@ -240,11 +240,11 @@ class LazyGroupBy:
         """
         Apply aggregation function to all columns.
 
-        This materializes the ORIGINAL DataStore and performs
+        This executes the ORIGINAL DataStore and performs
         pandas groupby aggregation.
         """
-        # Materialize the ORIGINAL datastore (this checkpoints it!)
-        df = self._datastore._materialize()
+        # Execute the ORIGINAL datastore (this checkpoints it!)
+        df = self._datastore._execute()
 
         # Get groupby column names
         groupby_cols = []
@@ -345,7 +345,7 @@ class LazyGroupBy:
 
     def to_df(self) -> pd.DataFrame:
         """
-        Materialize the grouped data.
+        Execute the grouped data.
 
         For execution, we set groupby fields on the ORIGINAL datastore
         so that the checkpoint is properly applied.

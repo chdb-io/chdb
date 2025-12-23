@@ -10,14 +10,14 @@ Key Design Principles:
 2. Internal DataFrame is cached to avoid redundant queries
 3. Function signatures match pandas as closely as possible
 4. Lightweight wrapper - delegate to pandas for actual implementation
-5. Materialized DataStores (post-pandas operations) only use cached DataFrame
+5. Executed DataStores (post-pandas operations) only use cached DataFrame
 
 Execution Model:
 - SQL operations: Build query state, don't execute
-- First pandas operation: Execute SQL query, cache DataFrame, mark as materialized
-- SQL operations after materialization: Use chDB's Python() table function to run SQL on DataFrame
+- First pandas operation: Execute SQL query, cache DataFrame, mark as executed
+- SQL operations after execution: Use chDB's Python() table function to run SQL on DataFrame
 - Subsequent operations: Work on cached DataFrame
-- to_df(): Return cached DataFrame if materialized, otherwise execute SQL
+- to_df(): Return cached DataFrame if executed, otherwise execute SQL
 """
 
 from copy import copy
@@ -49,7 +49,7 @@ class PandasCompatMixin:
         """
         Get the internal DataFrame - triggers execution.
 
-        This method is now a simple wrapper around _materialize() from core.py.
+        This method is now a simple wrapper around _execute() from core.py.
 
         Args:
             force_refresh: Ignored (no caching)
@@ -57,8 +57,8 @@ class PandasCompatMixin:
         Returns:
             pandas DataFrame
         """
-        # Use _materialize() from core.py - always executes fresh
-        return self._materialize()
+        # Use _execute() from core.py - always executes fresh
+        return self._execute()
 
     def _wrap_result(self, result, operation_name: str = None):
         """
@@ -204,7 +204,7 @@ class PandasCompatMixin:
         Lazy column assignment - does NOT execute immediately.
 
         This method records the operation and marks the cache as invalid.
-        Actual execution happens when the DataStore is materialized via to_df(),
+        Actual execution happens when the DataStore is executed via to_df(),
         execute(), or property access (shape, columns, etc.).
 
         Args:
@@ -225,7 +225,7 @@ class PandasCompatMixin:
 
         Note:
             - This operation modifies the DataStore in-place (NOT immutable)
-            - The operation is recorded and will be executed during materialization
+            - The operation is recorded and will be executed during execution
             - For immutable column creation, use assign() instead:
               ds2 = ds.assign(new_col=lambda x: x['old_col'] * 2)
 
@@ -312,10 +312,10 @@ class PandasCompatMixin:
         """
         from .lazy_ops import LazyDropColumns
 
-        # Materialize the column BEFORE adding the drop operation
+        # Execute the column BEFORE adding the drop operation
         # This ensures we get the column values before it's removed
         col_expr = self[item]
-        result = col_expr._materialize() if hasattr(col_expr, '_materialize') else col_expr
+        result = col_expr._execute() if hasattr(col_expr, '_execute') else col_expr
 
         # Record the lazy drop operation (modifies self in-place)
         self._add_lazy_op(LazyDropColumns([item]))
@@ -694,8 +694,8 @@ class PandasCompatMixin:
             inplace: Not supported (DataStore is immutable)
             kind: Sort algorithm (ignored for SQL execution)
             na_position: Position of NaN values (only 'last' supported for SQL)
-            ignore_index: Whether to relabel axis (requires materialization)
-            key: Function to transform values before sorting (requires materialization)
+            ignore_index: Whether to relabel axis (requires execution)
+            key: Function to transform values before sorting (requires execution)
 
         Returns:
             Sorted DataStore
@@ -1901,7 +1901,7 @@ class PandasCompatMixin:
         """
         from .lazy_ops import LazyDataFrameSource
 
-        # Materialize both DataFrames
+        # Execute both DataFrames
         df = self._get_df().copy()
         if hasattr(other, '_get_df'):
             other = other._get_df()
@@ -2108,7 +2108,7 @@ class PandasCompatMixin:
 
         Supports comparison with:
         - Another DataStore: compares underlying DataFrames
-        - pandas DataFrame: compares with materialized DataFrame
+        - pandas DataFrame: compares with executed DataFrame
         - pandas Series: element-wise comparison (returns DataFrame of booleans)
         - Scalar: element-wise comparison (returns DataFrame of booleans)
 

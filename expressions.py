@@ -558,7 +558,7 @@ class Literal(Expression):
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for literal."""
         # Handle ColumnExpr - delegate to its to_sql() to avoid infinite recursion
-        # (ColumnExpr.__str__ materializes, which could call to_sql again)
+        # (ColumnExpr.__str__ executes, which could call to_sql again)
         from .column_expr import ColumnExpr
 
         if isinstance(self.value, ColumnExpr):
