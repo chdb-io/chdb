@@ -460,8 +460,20 @@ class ExpressionEvaluator:
             result = result.rename(original_name)
 
         # Convert dtype to match pandas (int32 for year/month/day/hour/minute/second)
-        if expr.property_name in ('year', 'month', 'day', 'hour', 'minute', 'second',
-                                   'dayofweek', 'weekday', 'dayofyear', 'quarter', 'week', 'weekofyear'):
+        if expr.property_name in (
+            'year',
+            'month',
+            'day',
+            'hour',
+            'minute',
+            'second',
+            'dayofweek',
+            'weekday',
+            'dayofyear',
+            'quarter',
+            'week',
+            'weekofyear',
+        ):
             result = result.astype('int32')
 
         return result
