@@ -3074,6 +3074,26 @@ class LazyAggregate:
             return result.tolist()
         return [result]
 
+    def to_pandas(self) -> pd.Series:
+        """
+        Convert to pandas Series (executes the aggregation).
+
+        This provides pandas API compatibility for users who need
+        a true pd.Series object for type checking or interoperability.
+
+        Returns:
+            pd.Series: The aggregated result as a pandas Series
+        """
+        result = self._execute()
+        if isinstance(result, pd.Series):
+            return result
+        # For scalar results, wrap in a Series
+        return pd.Series([result], name=self._column_expr._get_column_name())
+
+    def to_series(self) -> pd.Series:
+        """Alias for to_pandas(). Returns the result as a pandas Series."""
+        return self.to_pandas()
+
     def __len__(self):
         """Get length of the result."""
         result = self._execute()

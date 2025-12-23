@@ -12,7 +12,7 @@ Key Features:
 - Centralized chDB execution via Executor
 """
 
-from typing import Any, Union, TYPE_CHECKING
+from typing import Any, Optional, Union, TYPE_CHECKING
 import pandas as pd
 import numpy as np
 
@@ -370,6 +370,20 @@ class ExpressionEvaluator:
         result = expr_val.astype(str).str.match(pattern, case=cond.case_sensitive)
         return ~result if cond.negate else result
 
+    def _get_source_column_name(self, source_expr, source_series: pd.Series) -> Optional[str]:
+        """Get column name from source expression or series."""
+        from .expressions import Field
+
+        # Try to get name from Field expression
+        if isinstance(source_expr, Field):
+            return source_expr.name
+
+        # Fall back to series name
+        if hasattr(source_series, 'name') and source_series.name:
+            return source_series.name
+
+        return None
+
     def _evaluate_datetime_property(self, expr) -> pd.Series:
         """
         Evaluate a DateTimePropertyExpr using function_config to select engine.
@@ -393,6 +407,9 @@ class ExpressionEvaluator:
         """Evaluate datetime property using pandas .dt accessor."""
         source_series = self.evaluate(expr.source_expr)
 
+        # Get original column name for result Series
+        original_name = self._get_source_column_name(expr.source_expr, source_series)
+
         # Convert to datetime if needed
         if not pd.api.types.is_datetime64_any_dtype(source_series):
             if source_series.dtype == 'object' or pd.api.types.is_string_dtype(source_series):
@@ -405,16 +422,20 @@ class ExpressionEvaluator:
         dt_accessor = source_series.dt
         result = getattr(dt_accessor, expr.property_name)
 
-        # Handle dayofweek/weekday already returning 0-indexed Monday in pandas
+        # Preserve original column name (pandas behavior)
+        if original_name and result.name != original_name:
+            result = result.rename(original_name)
+
         return result
 
     def _evaluate_datetime_property_chdb(self, expr) -> pd.Series:
         """Evaluate datetime property using chDB SQL function."""
         from .expressions import DateTimePropertyExpr
-        from .functions import Function
 
-        # For chDB, we need to construct a Function expression and evaluate via chDB
-        # First convert source to datetime, then apply function
+        # Get original column name for result Series
+        source_series = self.evaluate(expr.source_expr)
+        original_name = self._get_source_column_name(expr.source_expr, source_series)
+
         source_sql = expr.source_expr.to_sql(quote_char='"')
 
         ch_func = DateTimePropertyExpr.CHDB_FUNCTION_MAP.get(expr.property_name)
@@ -432,7 +453,18 @@ class ExpressionEvaluator:
             sql_expr = f"({sql_expr} - 1)"
 
         # Execute via chDB
-        return self._execute_sql_expression(sql_expr)
+        result = self._execute_sql_expression(sql_expr)
+
+        # Align with pandas: preserve column name and convert dtype to int32
+        if original_name:
+            result = result.rename(original_name)
+
+        # Convert dtype to match pandas (int32 for year/month/day/hour/minute/second)
+        if expr.property_name in ('year', 'month', 'day', 'hour', 'minute', 'second',
+                                   'dayofweek', 'weekday', 'dayofyear', 'quarter', 'week', 'weekofyear'):
+            result = result.astype('int32')
+
+        return result
 
     def _evaluate_datetime_method(self, expr) -> pd.Series:
         """
