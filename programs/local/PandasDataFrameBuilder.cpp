@@ -77,9 +77,10 @@ PandasDataFrameBuilder::PandasDataFrameBuilder(const ChunkQueryResult & chunk_re
             column_types.push_back(column.type);
 
             /// Record timezone for timezone-aware types
-            if (const auto * dt = typeid_cast<const DataTypeDateTime *>(column.type.get()))
+            auto actual_type = removeNullable(column.type);
+            if (const auto * dt = typeid_cast<const DataTypeDateTime *>(actual_type.get()))
                 column_timezones[final_name] = dt->getTimeZone().getTimeZone();
-            else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(column.type.get()))
+            else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(actual_type.get()))
                 column_timezones[final_name] = dt64->getTimeZone().getTimeZone();
         }
     }

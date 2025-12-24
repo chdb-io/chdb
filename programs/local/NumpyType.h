@@ -34,7 +34,7 @@ enum class NumpyNullableType : uint8_t {
 
 struct NumpyType {
 	NumpyNullableType type;
-	bool has_timezone = false;
+	String timezone;
 
 	String toString() const;
 };
