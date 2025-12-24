@@ -244,6 +244,7 @@ class QueryPlan:
         has_sql_source: Whether there's a SQL-compatible data source
         first_df_op_idx: Index of first DataFrame-only operation in original chain
         where_columns: Column names referenced in WHERE conditions (for conflict detection)
+        alias_renames: Dict mapping temp alias -> original alias (for conflict resolution)
     """
 
     sql_ops: List[LazyOp] = field(default_factory=list)
@@ -254,6 +255,7 @@ class QueryPlan:
     has_sql_source: bool = False
     first_df_op_idx: Optional[int] = None
     where_columns: Set[str] = field(default_factory=set)
+    alias_renames: Dict[str, str] = field(default_factory=dict)  # temp_alias -> original_alias
 
     def has_two_phases(self) -> bool:
         """Check if execution requires both SQL and DataFrame phases."""
@@ -317,7 +319,7 @@ class QueryPlanner:
         plan.where_columns = self._collect_where_columns(lazy_ops)
 
         # Find the SQL/DataFrame boundary
-        plan.first_df_op_idx, plan.groupby_agg, plan.where_ops = self._find_sql_boundary(
+        plan.first_df_op_idx, plan.groupby_agg, plan.where_ops, plan.alias_renames = self._find_sql_boundary(
             lazy_ops, has_sql_source, plan.where_columns, schema
         )
 
@@ -377,7 +379,7 @@ class QueryPlanner:
 
     def _find_sql_boundary(
         self, ops: List[LazyOp], has_sql_source: bool, where_columns: Set[str], schema: Dict[str, str] = None
-    ) -> Tuple[Optional[int], Optional[LazyGroupByAgg], List[LazyOp]]:
+    ) -> Tuple[Optional[int], Optional[LazyGroupByAgg], List[LazyOp], Dict[str, str]]:
         """
         Find the first operation that cannot be pushed to SQL.
 
@@ -390,11 +392,12 @@ class QueryPlanner:
             schema: Optional dict mapping column names to types (for type-aware SQL pushdown)
 
         Returns:
-            Tuple of (first_df_op_idx, groupby_agg_op, where_ops)
+            Tuple of (first_df_op_idx, groupby_agg_op, where_ops, alias_renames)
         """
         first_df_op_idx = None
         groupby_agg_op = None
         where_ops = []  # LazyWhere/LazyMask that can be pushed to SQL
+        alias_renames = {}  # temp_alias -> original_alias for conflict resolution
 
         for i, op in enumerate(ops):
             if isinstance(op, LazyRelationalOp):
@@ -406,18 +409,33 @@ class QueryPlanner:
                 can_push = has_sql_source
                 if can_push and op.agg_dict:
                     # Check for alias conflict with WHERE columns
+                    # ClickHouse has a quirk: if SELECT has `agg(col) AS col` where `col` is
+                    # also referenced in WHERE, ClickHouse will incorrectly try to use the
+                    # aggregate function in the WHERE clause, causing ILLEGAL_AGGREGATION error.
+                    # Example that fails:
+                    #   SELECT category, sum(int_col) AS int_col FROM t WHERE int_col > 200 GROUP BY category
+                    #
+                    # OPTIMIZATION: Instead of falling back to pandas, we use temporary aliases
+                    # for conflicting columns and rename them back after SQL execution.
                     agg_aliases = self._get_agg_aliases(op)
                     conflict_aliases = agg_aliases & where_columns
                     if conflict_aliases:
-                        can_push = False
+                        # Record the aliases that need renaming
+                        for alias in conflict_aliases:
+                            temp_alias = f"__agg_{alias}__"
+                            alias_renames[temp_alias] = alias
                         self._logger.debug(
-                            "  [GroupBy] Skipping SQL pushdown: alias conflict with WHERE columns %s",
-                            conflict_aliases,
+                            "  [GroupBy] Using temp aliases for conflict resolution: %s",
+                            alias_renames,
                         )
 
                 if can_push:
                     groupby_agg_op = op
                     continue  # Include in SQL, continue looking
+                else:
+                    # Cannot push to SQL - this operation breaks the SQL chain
+                    first_df_op_idx = i
+                    break
 
             elif isinstance(op, (LazyWhere, LazyMask)):
                 # Check if LazyWhere/LazyMask can be pushed to SQL
@@ -444,7 +462,7 @@ class QueryPlanner:
             first_df_op_idx = i
             break
 
-        return first_df_op_idx, groupby_agg_op, where_ops
+        return first_df_op_idx, groupby_agg_op, where_ops, alias_renames
 
     def _get_agg_aliases(self, op: LazyGroupByAgg) -> Set[str]:
         """

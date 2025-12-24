@@ -692,6 +692,7 @@ class DataStore(PandasCompatMixin):
                 early_sql_ops = plan.sql_ops
                 layers = plan.layers
                 has_two_phases = plan.has_two_phases()
+                alias_renames = plan.alias_renames  # temp_alias -> original_alias for conflict resolution
 
                 # Only show SQL phase header if we have SQL source
                 if has_sql_source:
@@ -748,6 +749,22 @@ class DataStore(PandasCompatMixin):
                                     sql_limit = op.limit_value
                                 elif op.op_type == 'OFFSET':
                                     sql_offset = op.offset_value
+
+                        # Handle ORDER BY with alias conflicts:
+                        # If ORDER BY references a column that has a temp alias (due to GroupBy conflict),
+                        # we need to use the temp alias in ORDER BY
+                        if alias_renames and sql_orderby_fields:
+                            # Build reverse mapping: original_alias -> temp_alias
+                            reverse_renames = {orig: temp for temp, orig in alias_renames.items()}
+                            new_orderby = []
+                            for field, asc in sql_orderby_fields:
+                                field_name = field.name if isinstance(field, Field) else str(field)
+                                if field_name in reverse_renames:
+                                    # Replace with temp alias
+                                    new_orderby.append((Field(reverse_renames[field_name]), asc))
+                                else:
+                                    new_orderby.append((field, asc))
+                            sql_orderby_fields = new_orderby
 
                         # Handle LazyWhere/LazyMask SQL pushdown (CASE WHEN)
                         # This must be done BEFORE GroupBy pushdown
@@ -869,6 +886,11 @@ class DataStore(PandasCompatMixin):
                                             alias = func
                                         else:
                                             alias = col
+                                        # Check if this alias conflicts with WHERE columns
+                                        # If so, use the temp alias from alias_renames
+                                        temp_alias = f"__agg_{alias}__"
+                                        if temp_alias in alias_renames:
+                                            alias = temp_alias
                                         agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
                                         select_fields_for_sql.append(agg_expr)
                             elif groupby_agg_op.agg_func:
@@ -1095,6 +1117,13 @@ class DataStore(PandasCompatMixin):
                 with profiler.step("Result to DataFrame"):
                     df = result.to_df()
 
+                    # Rename temp aliases back to original names (for alias conflict resolution)
+                    if alias_renames:
+                        rename_back = {temp: orig for temp, orig in alias_renames.items() if temp in df.columns}
+                        if rename_back:
+                            df = df.rename(columns=rename_back)
+                            self._logger.debug("  Renamed temp aliases: %s", rename_back)
+
                     # For GroupBy SQL pushdown: set group keys as index (pandas compatibility)
                     if groupby_agg_op and groupby_agg_op.groupby_cols:
                         groupby_cols = groupby_agg_op.groupby_cols
@@ -1102,6 +1131,31 @@ class DataStore(PandasCompatMixin):
                         if all(col in df.columns for col in groupby_cols):
                             df = df.set_index(groupby_cols)
                             self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+
+                        # Convert flat column names to MultiIndex for pandas compatibility
+                        # e.g., 'int_col_sum' -> ('int_col', 'sum')
+                        if groupby_agg_op.agg_dict:
+                            # Build mapping from flat name to MultiIndex tuple
+                            col_rename_map = {}
+                            for col, funcs in groupby_agg_op.agg_dict.items():
+                                if isinstance(funcs, str):
+                                    funcs = [funcs]
+                                for func in funcs:
+                                    flat_name = f"{col}_{func}"
+                                    if flat_name in df.columns:
+                                        col_rename_map[flat_name] = (col, func)
+
+                            if col_rename_map:
+                                # Create MultiIndex columns
+                                new_columns = []
+                                for c in df.columns:
+                                    if c in col_rename_map:
+                                        new_columns.append(col_rename_map[c])
+                                    else:
+                                        # Keep as single-level (for non-agg columns)
+                                        new_columns.append((c, ''))
+                                df.columns = pd.MultiIndex.from_tuples(new_columns)
+                                self._logger.debug("  Converted flat columns to MultiIndex")
 
                 self._logger.debug("  SQL query returned DataFrame with shape: %s", df.shape)
             else:

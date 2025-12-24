@@ -539,6 +539,29 @@ class LazySeries:
             return result.shape
         return (len(result),) if hasattr(result, '__len__') else ()
 
+    @property
+    def columns(self):
+        """Return columns of result (if DataFrame)."""
+        result = self._execute()
+        if hasattr(result, 'columns'):
+            return result.columns
+        raise AttributeError(f"'{type(result).__name__}' has no 'columns' attribute")
+
+    def to_df(self) -> pd.DataFrame:
+        """
+        Convert to DataFrame.
+
+        If the result is a Series, converts to single-column DataFrame.
+        If the result is already a DataFrame, returns it directly.
+        """
+        result = self._execute()
+        if isinstance(result, pd.DataFrame):
+            return result
+        elif isinstance(result, pd.Series):
+            return result.to_frame()
+        else:
+            return pd.DataFrame({'value': [result]})
+
     # ========== Plotting Support ==========
 
     @property
