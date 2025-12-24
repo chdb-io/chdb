@@ -38,14 +38,15 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
     """
     Read a comma-separated values (CSV) file into DataStore.
 
-    This function provides full pandas.read_csv() compatibility by using pandas
-    internally. For high-performance reading of simple CSV files, consider
-    using DataStore.from_file() directly.
+    This function automatically chooses the optimal execution engine:
+    - Uses chDB SQL engine when possible (enables full SQL compilation for
+      subsequent operations like filter, groupby, sort, etc.)
+    - Falls back to pandas when advanced pandas-only features are used
 
     Args:
         filepath_or_buffer: Path to the CSV file, URL, or file-like object
         sep: Delimiter to use (default ',')
-        **kwargs: All pandas.read_csv() arguments are supported, including:
+        **kwargs: All pandas.read_csv() arguments are supported:
             - header: Row number to use as column names (default 'infer')
             - names: List of column names to use
             - index_col: Column(s) to use as row labels
@@ -68,24 +69,118 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
 
     Example:
         >>> from datastore import read_csv
-        >>> df = read_csv("data.csv")
+        >>> df = read_csv("data.csv")  # Uses SQL engine automatically
         >>> df.head()
 
-        >>> # With options (full pandas compatibility)
-        >>> df = read_csv("data.csv", sep=";", skiprows=1, encoding='latin-1')
-        >>> df = read_csv("data.csv", usecols=['name', 'age'], dtype={'age': int})
+        >>> # These use SQL engine (chDB supports these options)
+        >>> df = read_csv("data.csv", sep=";")
+        >>> df = read_csv("data.csv", compression='gzip')
+
+        >>> # These automatically fall back to pandas
         >>> df = read_csv("data.csv", parse_dates=['date_col'])
+        >>> df = read_csv("data.csv", usecols=['name', 'age'])
+        >>> df = read_csv("data.csv", dtype={'age': int})
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_csv(filepath_or_buffer, sep=sep, **kwargs)
-    return DataStore.from_df(pandas_df)
+
+    # Parameters that require pandas (chDB doesn't support these well)
+    pandas_only_params = {
+        'names',  # Custom column names
+        'index_col',  # Set index column
+        'usecols',  # Select specific columns (different from SQL SELECT)
+        'dtype',  # Force type conversion
+        'parse_dates',  # Date parsing
+        'date_parser',  # Custom date parser
+        'date_format',  # Date format
+        'dayfirst',  # Date format preference
+        'na_values',  # Custom NA values
+        'keep_default_na',  # NA handling
+        'na_filter',  # NA filtering
+        'converters',  # Custom converters
+        'true_values',  # Boolean mapping
+        'false_values',  # Boolean mapping
+        'skipinitialspace',  # Skip spaces
+        'skipfooter',  # Skip footer rows
+        'skip_blank_lines',  # Skip blank lines
+        'thousands',  # Thousands separator
+        'decimal',  # Decimal separator
+        'quotechar',  # Quote character
+        'escapechar',  # Escape character
+        'comment',  # Comment character
+        'encoding',  # File encoding (limited chDB support)
+        'on_bad_lines',  # Error handling
+        'iterator',  # Chunked reading
+        'chunksize',  # Chunk size
+        'low_memory',  # Memory optimization
+        'memory_map',  # Memory mapping
+        'float_precision',  # Float precision
+    }
+
+    # Check if any pandas-only parameter is provided
+    needs_pandas = any(param in kwargs for param in pandas_only_params)
+
+    # Also check for non-default header value (chDB expects CSVWithNames format)
+    header = kwargs.get('header', 'infer')
+    if header is not None and header != 'infer' and header != 0:
+        needs_pandas = True
+
+    # Check for file-like objects (chDB needs file path)
+    if hasattr(filepath_or_buffer, 'read'):
+        needs_pandas = True
+
+    # Check for URL (might need special handling)
+    if isinstance(filepath_or_buffer, str) and (
+        filepath_or_buffer.startswith('http://') or filepath_or_buffer.startswith('https://')
+    ):
+        # URLs can be handled by chDB's url() function, but for simplicity
+        # we use pandas for HTTP URLs in read_csv
+        needs_pandas = True
+
+    if needs_pandas:
+        # Use pandas for full compatibility
+        pandas_df = pd.read_csv(filepath_or_buffer, sep=sep, **kwargs)
+        return DataStore.from_df(pandas_df)
+    else:
+        # Use chDB SQL engine for better performance and SQL compilation
+        compression = kwargs.pop('compression', None)
+        skiprows = kwargs.pop('skiprows', None)
+        nrows = kwargs.pop('nrows', None)
+
+        # Determine format based on header setting
+        csv_format = 'CSVWithNames'  # Default: first row is header
+        if header is None:
+            csv_format = 'CSV'  # No header row
+
+        ds = DataStore.from_file(
+            filepath_or_buffer,
+            format=csv_format,
+            compression=compression,
+        )
+
+        # Apply format settings
+        settings = {}
+        if sep != ',':
+            settings['format_csv_delimiter'] = sep
+        if skiprows:
+            settings['input_format_csv_skip_first_lines'] = skiprows
+
+        if settings:
+            ds = ds.with_format_settings(**settings)
+
+        # Apply LIMIT for nrows
+        if nrows is not None:
+            ds = ds.limit(nrows)
+
+        return ds
 
 
 def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
     """
     Read a Parquet file into DataStore.
 
-    This function provides pandas.read_parquet() compatibility.
+    This function automatically chooses the optimal execution engine:
+    - Uses chDB SQL engine when possible (enables full SQL compilation)
+    - Falls back to pandas when advanced pandas-only features are used
 
     Args:
         path: Path to the Parquet file, URL, or file-like object
@@ -100,19 +195,50 @@ def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
 
     Example:
         >>> from datastore import read_parquet
-        >>> df = read_parquet("data.parquet")
-        >>> df = read_parquet("data.parquet", columns=['name', 'age'])
+        >>> df = read_parquet("data.parquet")  # Uses SQL engine
+        >>> df = read_parquet("data.parquet", columns=['name', 'age'])  # Uses pandas
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_parquet(path, columns=columns, **kwargs)
-    return DataStore.from_df(pandas_df)
+
+    # Parameters that require pandas
+    pandas_only_params = {
+        'engine',  # Specific parquet engine
+        'use_nullable_dtypes',  # Nullable dtypes
+        'dtype_backend',  # Dtype backend selection
+        'filesystem',  # Custom filesystem
+        'filters',  # Row group filters (pyarrow specific)
+        'storage_options',  # Storage options for remote
+    }
+
+    needs_pandas = any(param in kwargs for param in pandas_only_params)
+
+    # columns parameter requires pandas (chDB reads all columns)
+    if columns is not None:
+        needs_pandas = True
+
+    # File-like objects need pandas
+    if hasattr(path, 'read'):
+        needs_pandas = True
+
+    # HTTP URLs - use pandas for simplicity
+    if isinstance(path, str) and (path.startswith('http://') or path.startswith('https://')):
+        needs_pandas = True
+
+    if needs_pandas:
+        pandas_df = pd.read_parquet(path, columns=columns, **kwargs)
+        return DataStore.from_df(pandas_df)
+    else:
+        # Use chDB SQL engine
+        return DataStore.from_file(path, format='Parquet')
 
 
 def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> 'DataStoreType':
     """
     Read a JSON file into DataStore.
 
-    This function provides full pandas.read_json() compatibility.
+    This function automatically chooses the optimal execution engine:
+    - Uses chDB SQL engine for JSON Lines format (lines=True) when possible
+    - Falls back to pandas for complex JSON formats or pandas-only features
 
     Args:
         path_or_buf: Path to the JSON file, URL, or file-like object
@@ -140,12 +266,47 @@ def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> 'DataStoreType
         >>> df = read_json("data.json")
         >>> df = read_json("data.json", orient='records')
 
-        >>> # JSON Lines format
+        >>> # JSON Lines format - uses SQL engine
         >>> df = read_json("data.jsonl", lines=True)
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_json(path_or_buf, orient=orient, lines=lines, **kwargs)
-    return DataStore.from_df(pandas_df)
+
+    # Parameters that require pandas
+    pandas_only_params = {
+        'typ',  # Object type (frame vs series)
+        'dtype',  # Type conversion
+        'convert_axes',  # Axes conversion
+        'convert_dates',  # Date parsing
+        'precise_float',  # Float precision
+        'encoding',  # Encoding
+        'date_unit',  # Date unit
+        'encoding_errors',  # Encoding error handling
+        'chunksize',  # Chunked reading
+        'nrows',  # Row limit (pandas specific handling)
+    }
+
+    needs_pandas = any(param in kwargs for param in pandas_only_params)
+
+    # File-like objects need pandas
+    if hasattr(path_or_buf, 'read'):
+        needs_pandas = True
+
+    # HTTP URLs - use pandas for simplicity
+    if isinstance(path_or_buf, str) and (path_or_buf.startswith('http://') or path_or_buf.startswith('https://')):
+        needs_pandas = True
+
+    # chDB only supports JSONEachRow (lines=True) format well
+    # Other orient formats need pandas
+    if not lines or orient is not None:
+        needs_pandas = True
+
+    if needs_pandas:
+        pandas_df = pd.read_json(path_or_buf, orient=orient, lines=lines, **kwargs)
+        return DataStore.from_df(pandas_df)
+    else:
+        # Use chDB SQL engine for JSON Lines format
+        compression = kwargs.pop('compression', None)
+        return DataStore.from_file(path_or_buf, format='JSONEachRow', compression=compression)
 
 
 def read_excel(io, sheet_name=0, **kwargs) -> 'DataStoreType':
@@ -200,7 +361,7 @@ def read_table(filepath_or_buffer, sep='\t', **kwargs) -> 'DataStoreType':
     Read general delimited file into DataStore.
 
     This is similar to read_csv but with tab ('\\t') as the default delimiter.
-    Uses pandas.read_table internally for full compatibility.
+    Automatically chooses the optimal execution engine (chDB SQL or pandas).
 
     Args:
         filepath_or_buffer: Path to the file or file-like object
@@ -220,22 +381,26 @@ def read_table(filepath_or_buffer, sep='\t', **kwargs) -> 'DataStoreType':
 
     Example:
         >>> from datastore import read_table
-        >>> df = read_table("data.tsv")  # Tab-separated (default)
-        >>> df = read_table("data.txt", sep="|")  # Pipe-separated
+        >>> df = read_table("data.tsv")  # Tab-separated, uses SQL engine
+        >>> df = read_table("data.txt", sep="|")  # Pipe-separated, uses SQL engine
+        >>> df = read_table("data.tsv", dtype={'col': int})  # Uses pandas
     """
-    DataStore = _get_datastore_class()
-    pandas_df = pd.read_table(filepath_or_buffer, sep=sep, **kwargs)
-    return DataStore.from_df(pandas_df)
+    # Delegate to read_csv with tab as default separator
+    # read_csv handles automatic engine selection
+    return read_csv(filepath_or_buffer, sep=sep, **kwargs)
 
 
-def read_feather(path, **kwargs) -> 'DataStoreType':
+def read_feather(path, columns=None, **kwargs) -> 'DataStoreType':
     """
     Read a Feather file into DataStore.
 
-    Note: This reads via pandas and wraps in DataStore.
+    This function automatically chooses the optimal execution engine:
+    - Uses chDB SQL engine when possible (enables full SQL compilation)
+    - Falls back to pandas when advanced pandas-only features are used
 
     Args:
         path: Path to the Feather file
+        columns: List of column names to read (None reads all columns)
         **kwargs: Additional arguments passed to pandas.read_feather()
 
     Returns:
@@ -243,18 +408,43 @@ def read_feather(path, **kwargs) -> 'DataStoreType':
 
     Example:
         >>> from datastore import read_feather
-        >>> df = read_feather("data.feather")
+        >>> df = read_feather("data.feather")  # Uses SQL engine
+        >>> df = read_feather("data.feather", columns=['a', 'b'])  # Uses pandas
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_feather(path, **kwargs)
-    return DataStore.from_df(pandas_df)
+
+    # Parameters that require pandas
+    pandas_only_params = {
+        'use_threads',  # Threading control
+        'storage_options',  # Storage options
+        'dtype_backend',  # Dtype backend selection
+    }
+
+    needs_pandas = any(param in kwargs for param in pandas_only_params)
+
+    # columns parameter requires pandas (chDB reads all columns)
+    if columns is not None:
+        needs_pandas = True
+
+    # File-like objects need pandas
+    if hasattr(path, 'read'):
+        needs_pandas = True
+
+    if needs_pandas:
+        pandas_df = pd.read_feather(path, columns=columns, **kwargs)
+        return DataStore.from_df(pandas_df)
+    else:
+        # Use chDB SQL engine (Arrow format)
+        return DataStore.from_file(path, format='Arrow')
 
 
 def read_orc(path, columns=None, **kwargs) -> 'DataStoreType':
     """
     Read an ORC file into DataStore.
 
-    This function provides pandas.read_orc() compatibility.
+    This function automatically chooses the optimal execution engine:
+    - Uses chDB SQL engine when possible (enables full SQL compilation)
+    - Falls back to pandas when advanced pandas-only features are used
 
     Args:
         path: Path to the ORC file
@@ -266,12 +456,33 @@ def read_orc(path, columns=None, **kwargs) -> 'DataStoreType':
 
     Example:
         >>> from datastore import read_orc
-        >>> df = read_orc("data.orc")
-        >>> df = read_orc("data.orc", columns=['name', 'age'])
+        >>> df = read_orc("data.orc")  # Uses SQL engine
+        >>> df = read_orc("data.orc", columns=['name', 'age'])  # Uses pandas
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_orc(path, columns=columns, **kwargs)
-    return DataStore.from_df(pandas_df)
+
+    # Parameters that require pandas
+    pandas_only_params = {
+        'dtype_backend',  # Dtype backend selection
+        'filesystem',  # Custom filesystem
+    }
+
+    needs_pandas = any(param in kwargs for param in pandas_only_params)
+
+    # columns parameter requires pandas (chDB reads all columns)
+    if columns is not None:
+        needs_pandas = True
+
+    # File-like objects need pandas
+    if hasattr(path, 'read'):
+        needs_pandas = True
+
+    if needs_pandas:
+        pandas_df = pd.read_orc(path, columns=columns, **kwargs)
+        return DataStore.from_df(pandas_df)
+    else:
+        # Use chDB SQL engine
+        return DataStore.from_file(path, format='ORC')
 
 
 def read_pickle(filepath_or_buffer, **kwargs) -> 'DataStoreType':

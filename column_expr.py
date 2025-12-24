@@ -1477,6 +1477,9 @@ class ColumnExpr:
         """
         Aggregate using one or more operations (lazy).
 
+        When called on a ColumnExpr with groupby context (e.g., df.groupby('city')['salary'].agg(...)),
+        returns a DataStore to preserve SQL semantics and enable chaining with sort_values(), head(), etc.
+
         Args:
             func: Function to use for aggregating (str, list, or dict).
             axis: Axis to aggregate (0 for index).
@@ -1484,7 +1487,8 @@ class ColumnExpr:
             **kwargs: Keyword arguments to pass to func.
 
         Returns:
-            LazySeries: Lazy wrapper returning scalar, Series or DataFrame depending on func
+            DataStore: When called with groupby context - preserves SQL semantics
+            LazySeries: When called without groupby context - lazy wrapper
 
         Example:
             >>> ds['age'].agg('mean')
@@ -1494,7 +1498,52 @@ class ColumnExpr:
             mean     31.000000
             std       8.602325
             dtype: float64
+            >>> # With groupby - returns DataStore for SQL compilation
+            >>> ds.groupby('city')['salary'].agg(['mean', 'sum', 'count'])
         """
+        # When called with groupby context, return DataStore to preserve SQL semantics
+        if hasattr(self, '_groupby_fields') and self._groupby_fields:
+            from .lazy_ops import LazyGroupByAgg
+            from copy import copy
+            from .expressions import Field as ExprField
+
+            # Get the column name being aggregated
+            col_name = None
+            if isinstance(self._expr, ExprField):
+                col_name = self._expr.name
+            else:
+                col_name = str(self._expr)
+
+            # Get groupby column names
+            groupby_cols = []
+            for gf in self._groupby_fields:
+                if isinstance(gf, ExprField):
+                    groupby_cols.append(gf.name)
+                else:
+                    groupby_cols.append(str(gf))
+
+            # Build agg_dict: map column to function(s)
+            # func can be str, list, or dict
+            if isinstance(func, str):
+                agg_dict = {col_name: func}
+            elif isinstance(func, (list, tuple)):
+                agg_dict = {col_name: list(func)}
+            elif isinstance(func, dict):
+                # Already a dict, use as-is
+                agg_dict = func
+            else:
+                # Fallback to LazySeries for unknown func types
+                return LazySeries(self, 'agg', func, axis=axis, *args, **kwargs)
+
+            # Create a shallow copy of the datastore
+            new_ds = copy(self._datastore)
+
+            # Add the lazy groupby aggregation operation
+            new_ds._add_lazy_op(LazyGroupByAgg(groupby_cols=groupby_cols, agg_dict=agg_dict, **kwargs))
+
+            return new_ds
+
+        # No groupby context - return LazySeries for lazy execution
         return LazySeries(self, 'agg', func, axis=axis, *args, **kwargs)
 
     def aggregate(self, func=None, axis=0, *args, **kwargs):

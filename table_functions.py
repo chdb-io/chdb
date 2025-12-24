@@ -911,6 +911,105 @@ class GenerateRandomTableFunction(TableFunction):
         return f"generateRandom({', '.join(sql_params)})"
 
 
+# Global registry for Python DataFrames used with Python() table function
+# Keys are unique identifiers, values are pandas DataFrames
+_PYTHON_DATAFRAME_REGISTRY: Dict[str, Any] = {}
+_PYTHON_DATAFRAME_COUNTER = 0
+
+
+def _register_dataframe(df) -> str:
+    """
+    Register a DataFrame in the global registry for use with Python() table function.
+
+    Args:
+        df: pandas DataFrame to register
+
+    Returns:
+        Unique identifier for the DataFrame
+    """
+    global _PYTHON_DATAFRAME_COUNTER
+    _PYTHON_DATAFRAME_COUNTER += 1
+    df_id = f"__datastore_df_{_PYTHON_DATAFRAME_COUNTER:06d}"
+
+    # Store in the registry
+    _PYTHON_DATAFRAME_REGISTRY[df_id] = df
+
+    # Store in __main__ module so chDB's Python() can find it
+    import __main__
+
+    setattr(__main__, df_id, df)
+
+    return df_id
+
+
+def _unregister_dataframe(df_id: str):
+    """Remove a DataFrame from the registry."""
+    if df_id in _PYTHON_DATAFRAME_REGISTRY:
+        del _PYTHON_DATAFRAME_REGISTRY[df_id]
+
+    try:
+        import __main__
+
+        if hasattr(__main__, df_id):
+            delattr(__main__, df_id)
+    except Exception:
+        # Ignore errors during cleanup (e.g., interpreter shutdown)
+        pass
+
+
+class PythonTableFunction(TableFunction):
+    """
+    Wrapper for Python() table function.
+
+    Allows querying pandas DataFrames directly using chDB's SQL engine.
+    This enables using ClickHouse functions (like JSON extraction, URL parsing)
+    on in-memory DataFrames.
+
+    Parameters:
+        df: pandas DataFrame to query
+        name: Optional name for the data source (for display purposes)
+
+    Example:
+        >>> import pandas as pd
+        >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+        >>> tf = PythonTableFunction(df=df)
+        >>> tf.to_sql()
+        'Python(__datastore_df_000001)'
+
+        >>> # Use with SQL functions
+        >>> ds = DataStore.from_df(df)
+        >>> ds.select(ds['name'].str.upper().as_('name_upper')).to_df()
+    """
+
+    def __init__(self, df, name: str = None, **kwargs):
+        super().__init__(**kwargs)
+        self._df = df
+        self._name = name
+        # Register the DataFrame and get its unique ID
+        self._df_id = _register_dataframe(df)
+
+    @property
+    def can_read(self) -> bool:
+        return True
+
+    @property
+    def can_write(self) -> bool:
+        return False
+
+    @property
+    def df_id(self) -> str:
+        """Get the unique identifier for the registered DataFrame."""
+        return self._df_id
+
+    def to_sql(self, quote_char: str = '"') -> str:
+        return f"Python({self._df_id})"
+
+    def __del__(self):
+        """Cleanup: unregister the DataFrame when this table function is deleted."""
+        if hasattr(self, '_df_id'):
+            _unregister_dataframe(self._df_id)
+
+
 # Map source_type to TableFunction class
 TABLE_FUNCTION_MAP = {
     'file': FileTableFunction,
@@ -938,6 +1037,7 @@ TABLE_FUNCTION_MAP = {
     'hudi': HudiTableFunction,
     'numbers': NumbersTableFunction,
     'generaterandom': GenerateRandomTableFunction,
+    'python': PythonTableFunction,
 }
 
 

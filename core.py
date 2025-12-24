@@ -123,6 +123,10 @@ class DataStore(PandasCompatMixin):
         self._table_function: Optional[TableFunction] = None
         self._format_settings: Dict[str, Any] = {}
 
+        # Source DataFrame (for from_df() - enables on-demand PythonTableFunction creation)
+        self._source_df = None
+        self._source_df_name: Optional[str] = None
+
         # Create table function if source is specified
         if source and source.lower() != 'chdb':
             try:
@@ -156,6 +160,7 @@ class DataStore(PandasCompatMixin):
 
         # Query state
         self._select_fields: List[Expression] = []
+        self._select_star: bool = False  # True when SELECT * is used (possibly with additional computed columns)
         self._where_condition: Optional[Condition] = None
         self._joins: List[tuple] = []  # [(table/datastore, join_type, on_condition), ...]
         self._groupby_fields: List[Expression] = []
@@ -235,8 +240,13 @@ class DataStore(PandasCompatMixin):
         self._table_function: Optional[TableFunction] = None
         self._format_settings: Dict[str, Any] = {}
 
+        # Source DataFrame (for from_df() - enables on-demand PythonTableFunction creation)
+        self._source_df = None
+        self._source_df_name: Optional[str] = None
+
         # Query state - all cleared for DataFrame source
         self._select_fields: List[Expression] = []
+        self._select_star: bool = False
         self._where_condition: Optional[Condition] = None
         self._joins: List[tuple] = []
         self._groupby_fields: List[Expression] = []
@@ -693,26 +703,24 @@ class DataStore(PandasCompatMixin):
                         # LazyGroupByAgg can be pushed to SQL if:
                         # 1. It's the first non-relational op
                         # 2. We have a SQL source
-                        # 3. For agg_dict: only single function per column (no MultiIndex)
-                        # 4. No alias conflict with WHERE columns
+                        # 3. No alias conflict with WHERE columns (for aggregated column names)
                         can_push = self._table_function or self.table_name
                         if can_push and op.agg_dict:
-                            # Check if any column has multiple functions
-                            for funcs in op.agg_dict.values():
-                                if isinstance(funcs, (list, tuple)) and len(funcs) > 1:
-                                    can_push = False
-                                    self._logger.debug("  [GroupBy] Skipping SQL pushdown: multiple funcs per column")
-                                    break
                             # Check for alias conflict with WHERE columns
-                            if can_push:
-                                agg_columns = set(op.agg_dict.keys())
-                                conflict_cols = agg_columns & where_columns
-                                if conflict_cols:
-                                    can_push = False
-                                    self._logger.debug(
-                                        "  [GroupBy] Skipping SQL pushdown: alias conflict with WHERE columns %s",
-                                        conflict_cols,
-                                    )
+                            # For multi-func agg, aliases are func names; for single func, aliases are col names
+                            agg_aliases = set()
+                            for col, funcs in op.agg_dict.items():
+                                if isinstance(funcs, (list, tuple)):
+                                    agg_aliases.update(funcs)  # Function names as aliases
+                                else:
+                                    agg_aliases.add(col)  # Column name as alias for single func
+                            conflict_aliases = agg_aliases & where_columns
+                            if conflict_aliases:
+                                can_push = False
+                                self._logger.debug(
+                                    "  [GroupBy] Skipping SQL pushdown: alias conflict with WHERE columns %s",
+                                    conflict_aliases,
+                                )
                         if can_push:
                             groupby_agg_op = op
                             continue  # Include in SQL, continue looking
@@ -826,6 +834,7 @@ class DataStore(PandasCompatMixin):
                                 from .functions import AggregateFunction
 
                                 for col, funcs in groupby_agg_op.agg_dict.items():
+                                    is_multi_func = isinstance(funcs, (list, tuple))
                                     if isinstance(funcs, str):
                                         funcs = [funcs]
                                     for func in funcs:
@@ -843,8 +852,10 @@ class DataStore(PandasCompatMixin):
                                             'last': 'anyLast',
                                         }
                                         sql_func = sql_func_map.get(func, func)
-                                        # Use original column name as alias (pandas compatibility)
-                                        agg_expr = AggregateFunction(sql_func, Field(col), alias=col)
+                                        # For multi-func agg: use func name as alias
+                                        # For single-func agg: use column name as alias (pandas compatibility)
+                                        alias = func if is_multi_func else col
+                                        agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
                                         select_fields_for_sql.append(agg_expr)
                             elif groupby_agg_op.agg_func:
                                 # Single function for all numeric columns
@@ -1075,7 +1086,11 @@ class DataStore(PandasCompatMixin):
         distinct_keyword = 'DISTINCT ' if distinct else ''
         if select_fields:
             fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
-            parts.append(f"SELECT {distinct_keyword}{fields_sql}")
+            # Check if we need to prepend '*' (SELECT *, computed_col)
+            if self._select_star:
+                parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
+            else:
+                parts.append(f"SELECT {distinct_keyword}{fields_sql}")
         else:
             parts.append(f"SELECT {distinct_keyword}*")
 
@@ -1592,13 +1607,23 @@ class DataStore(PandasCompatMixin):
         if not isinstance(df, pd.DataFrame):
             raise TypeError(f"Expected pandas DataFrame, got {type(df).__name__}")
 
-        # Create a new DataStore with no external data source
+        from .lazy_ops import LazyDataFrameSource
+
+        # Create a new DataStore with DataFrame source
         new_ds = cls()
 
-        # Clear any default state
+        # Cache the DataFrame for later SQL access if needed
+        # PythonTableFunction will be created on-demand when SQL functions are used
+        new_ds._source_df = df
+        new_ds._source_df_name = name
+
+        # No table function yet - will be created on-demand
         new_ds._table_function = None
         new_ds.table_name = None
+
+        # Clear other state
         new_ds._select_fields = []
+        new_ds._select_star = False
         new_ds._where_condition = None
         new_ds._joins = []
         new_ds._groupby_fields = []
@@ -1608,7 +1633,7 @@ class DataStore(PandasCompatMixin):
         new_ds._offset_value = None
         new_ds._distinct = False
 
-        # Add the DataFrame as a lazy source
+        # Add the DataFrame as a lazy source for pandas-style operations
         new_ds._lazy_ops = [LazyDataFrameSource(df)]
 
         # Set source description for explain()
@@ -1723,12 +1748,18 @@ class DataStore(PandasCompatMixin):
             ... )
 
         Returns:
-            self for chaining
+            New DataStore with settings applied (immutable)
         """
-        self._format_settings.update(settings)
-        if self._table_function:
-            self._table_function.with_settings(**settings)
-        return self
+        from copy import copy, deepcopy
+
+        # Create a copy (immutable pattern)
+        new_ds = copy(self)
+        new_ds._format_settings.update(settings)
+        if new_ds._table_function:
+            # Deep copy table_function to avoid modifying shared state
+            new_ds._table_function = deepcopy(self._table_function)
+            new_ds._table_function.with_settings(**settings)
+        return new_ds
 
     def connect(self, test_connection: bool = True) -> 'DataStore':
         """
@@ -1890,6 +1921,34 @@ class DataStore(PandasCompatMixin):
 
         # Fallback to table name or generic
         return self.table_name if self.table_name else 'tbl'
+
+    def _ensure_sql_source(self) -> bool:
+        """
+        Ensure we have a SQL source (table function or table name) for SQL operations.
+
+        If this DataStore was created from a DataFrame via from_df() and doesn't
+        have a table function yet, creates a PythonTableFunction on-demand.
+
+        Returns:
+            True if SQL source is available, False otherwise
+        """
+        # Already have SQL source
+        if self._table_function or self.table_name:
+            return True
+
+        # Check if we have a cached DataFrame from from_df()
+        if self._source_df is not None:
+            from .table_functions import PythonTableFunction
+            from .lazy_ops import LazyDataFrameSource
+
+            # Create PythonTableFunction on-demand
+            self._table_function = PythonTableFunction(df=self._source_df, name=self._source_df_name)
+            # Remove LazyDataFrameSource from lazy_ops (will use SQL instead)
+            # but keep other ops like WHERE, ORDER BY, etc.
+            self._lazy_ops = [op for op in self._lazy_ops if not isinstance(op, LazyDataFrameSource)]
+            return True
+
+        return False
 
     def _discover_schema(self):
         """Discover table schema from chdb."""
@@ -2416,6 +2475,7 @@ class DataStore(PandasCompatMixin):
 
         # Replace SELECT fields with COUNT(*)
         count_ds._select_fields = [Count('*')]
+        count_ds._select_star = False  # Must clear _select_star to avoid "SELECT *, COUNT(*)"
 
         # Clear ORDER BY (not needed for COUNT)
         count_ds._orderby_fields = []
@@ -2687,8 +2747,22 @@ class DataStore(PandasCompatMixin):
         Example:
             >>> ds.select("name", "age")
             >>> ds.select(ds.name, ds.age + 1)
+            >>> ds.select("*", ds.name.str.upper().as_("name_upper"))  # All columns + computed
         """
         from .column_expr import ColumnExpr
+        from .functions import Function
+
+        # Check if any field is a SQL expression (Function, Expression, ColumnExpr with expression)
+        has_sql_expr = any(
+            isinstance(f, (Function, Expression))
+            or (isinstance(f, ColumnExpr) and isinstance(f._expr, (Function, Expression)))
+            for f in fields
+            if not isinstance(f, str)
+        )
+
+        if has_sql_expr:
+            # Ensure we have a SQL source (create PythonTableFunction if needed)
+            self._ensure_sql_source()
 
         # Track operation
         field_names = ', '.join([str(f) for f in fields]) if fields else '*'
@@ -2702,16 +2776,18 @@ class DataStore(PandasCompatMixin):
 
         for field in fields:
             if isinstance(field, str):
-                # Special case: "*" means SELECT *
+                # Special case: "*" means SELECT * (all existing columns)
                 if field == "*":
-                    # Clear existing fields and set to empty (will render as *)
+                    self._select_star = True
+                    # Clear existing fields - will render as * in SQL
                     self._select_fields = []
-                    return self
+                    continue  # Continue processing other fields (e.g., computed columns)
                 # Don't add table prefix for string fields - user's explicit choice
                 field = Field(field)
             # Handle ColumnExpr - unwrap to get the underlying expression
             elif isinstance(field, ColumnExpr):
                 field = field._expr
+
             self._select_fields.append(field)
 
         return self
@@ -2855,7 +2931,37 @@ class DataStore(PandasCompatMixin):
         # Otherwise, SQL-style filter
         return self.filter(condition)
 
-    @immutable
+    @classmethod
+    def run_sql(cls, query: str) -> 'DataStore':
+        """
+        Execute a raw SQL query directly against chDB.
+
+        This is a convenience class method for running SQL queries without
+        needing an existing DataStore instance.
+
+        Args:
+            query: Full SQL query string
+
+        Returns:
+            DataStore with the query result
+
+        Example:
+            >>> result = DataStore.run_sql('''
+            ...     SELECT city, AVG(salary) as avg_salary
+            ...     FROM file('employees.csv', 'CSVWithNames')
+            ...     GROUP BY city
+            ...     ORDER BY avg_salary DESC
+            ... ''')
+            >>> print(result.to_df())
+        """
+        from .lazy_ops import LazySQLQuery
+
+        new_ds = cls()
+        # Add the SQL query as a lazy operation
+        lazy_op = LazySQLQuery(query, df_alias=None, is_raw_query=True)
+        new_ds._lazy_ops = [lazy_op]
+        return new_ds
+
     def sql(self, query: str) -> 'DataStore':
         """
         Execute a SQL query on the current DataFrame using chDB's SQL engine.
@@ -2913,13 +3019,18 @@ class DataStore(PandasCompatMixin):
             - This forces execution of all pending operations before executing the SQL
             - The result is a new DataFrame that can be used for subsequent operations
         """
+        from copy import copy
+
         from .lazy_ops import LazySQLQuery
 
-        # Record the SQL query operation
-        lazy_op = LazySQLQuery(query, df_alias='__df__')
-        self._add_lazy_op(lazy_op)
+        # Create a copy of this DataStore (immutable pattern)
+        new_ds = copy(self)
 
-        return self
+        # Record the SQL query operation on the copy
+        lazy_op = LazySQLQuery(query, df_alias='__df__')
+        new_ds._add_lazy_op(lazy_op)
+
+        return new_ds
 
     @immutable
     def join(
@@ -3156,7 +3267,7 @@ class DataStore(PandasCompatMixin):
         """
         Assign new columns to a DataStore.
 
-        Supports two modes:
+        Supports three modes:
         1. SQL-style aggregation when used with groupby (aggregate expressions):
            >>> ds.groupby("region").assign(
            ...     total_revenue=col("revenue").sum(),
@@ -3164,7 +3275,11 @@ class DataStore(PandasCompatMixin):
            ...     order_count=col("order_id").count()
            ... )
 
-        2. Standard pandas-style assignment (non-aggregate expressions or no groupby):
+        2. SQL expressions (Function, Expression, ColumnExpr):
+           >>> ds.assign(domain=ds['url'].url.domain())
+           >>> ds.assign(upper_name=ds['name'].str.upper())
+
+        3. Standard pandas-style assignment (non-aggregate expressions or no groupby):
            >>> ds.assign(new_col=lambda x: x['old_col'] * 2)
            >>> ds.assign(doubled=ds['amount'] * 2)
 
@@ -3180,7 +3295,7 @@ class DataStore(PandasCompatMixin):
             DataStore with new columns assigned
         """
         from .column_expr import ColumnExpr
-        from .functions import AggregateFunction
+        from .functions import AggregateFunction, Function
 
         # Check if we have groupby and aggregate expressions
         has_groupby = len(self._groupby_fields) > 0
@@ -3193,6 +3308,33 @@ class DataStore(PandasCompatMixin):
         if has_groupby and has_agg_expr:
             # Delegate to agg() for groupby + aggregate expressions
             return self.agg(**kwargs)
+
+        # Check if any value is a SQL expression (Function, Expression, ColumnExpr)
+        # These need to be executed via SQL, not pandas
+        has_sql_expr = any(isinstance(v, (Function, Expression, ColumnExpr)) for v in kwargs.values())
+
+        if has_sql_expr:
+            # Ensure we have a SQL source (create PythonTableFunction if needed)
+            self._ensure_sql_source()
+
+            # Use select() to add computed columns via SQL
+            # First, get all existing columns
+            select_items = ['*']
+
+            # Add new computed columns with aliases
+            for alias, expr in kwargs.items():
+                if isinstance(expr, ColumnExpr):
+                    expr = expr._expr
+                if isinstance(expr, Expression):
+                    # Set alias on the expression
+                    expr_with_alias = expr.as_(alias)
+                    select_items.append(expr_with_alias)
+                else:
+                    # Non-expression value, fall back to pandas
+                    # This shouldn't happen often, but handle it
+                    select_items.append(expr)
+
+            return self.select(*select_items)
         else:
             # Standard pandas-style assignment
             return super().assign(**kwargs)
@@ -3524,6 +3666,9 @@ class DataStore(PandasCompatMixin):
             fields_sql = ', '.join(
                 field.to_sql(quote_char=quote_char, with_alias=True) for field in self._select_fields
             )
+            # If _select_star is True, prepend '*' to include all existing columns
+            if self._select_star:
+                fields_sql = f"*, {fields_sql}"
         else:
             fields_sql = '*'
 

@@ -662,13 +662,17 @@ class LazySQLQuery(LazyOp):
 
     This enables true SQL-Pandas-SQL interleaving within the lazy pipeline.
 
-    Supports two syntaxes:
-    1. Short form (auto-adds SELECT * FROM __df__):
+    Supports three modes:
+    1. Raw SQL (is_raw_query=True):
+       - DataStore.run_sql("SELECT * FROM file('data.csv', 'CSVWithNames')")
+       - Executes directly against chDB without a DataFrame
+
+    2. Short form (auto-adds SELECT * FROM __df__):
        - ds.sql("doubled > 100")  -> SELECT * FROM __df__ WHERE doubled > 100
        - ds.sql("doubled > 100 ORDER BY id")  -> SELECT * FROM __df__ WHERE doubled > 100 ORDER BY id
        - ds.sql("ORDER BY id LIMIT 5")  -> SELECT * FROM __df__ ORDER BY id LIMIT 5
 
-    2. Full SQL form (when query contains SELECT/FROM/GROUP BY):
+    3. Full SQL form (when query contains SELECT/FROM/GROUP BY):
        - ds.sql("SELECT id, SUM(value) FROM __df__ GROUP BY id")
 
     Example:
@@ -679,21 +683,27 @@ class LazySQLQuery(LazyOp):
         ds = ds.add_prefix('result_')
     """
 
-    def __init__(self, query: str, df_alias: str = '__df__'):
+    def __init__(self, query: str, df_alias: str = '__df__', is_raw_query: bool = False):
         """
         Args:
             query: SQL query or condition. Can be:
                    - Full SQL: "SELECT * FROM __df__ WHERE x > 10"
                    - Short form: "x > 10" (auto-adds SELECT * FROM __df__ WHERE)
                    - Clauses only: "ORDER BY id LIMIT 5" (auto-adds SELECT * FROM __df__)
+                   - Raw SQL: "SELECT * FROM file('data.csv', 'CSVWithNames')" (when is_raw_query=True)
             df_alias: Alias for the DataFrame in the query (default: '__df__')
+            is_raw_query: If True, execute the query directly without a DataFrame
         """
         super().__init__()
         self.original_query = query.strip()
         self.df_alias = df_alias
+        self.is_raw_query = is_raw_query
 
-        # Process the query to determine if it needs boilerplate
-        self.query = self._process_query(self.original_query)
+        # Process the query to determine if it needs boilerplate (only for non-raw queries)
+        if is_raw_query:
+            self.query = self.original_query
+        else:
+            self.query = self._process_query(self.original_query)
 
     def _process_query(self, query: str) -> str:
         """
@@ -720,18 +730,34 @@ class LazySQLQuery(LazyOp):
         return f"SELECT * FROM __df__ WHERE {query}"
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
-        """Execute the SQL query on the input DataFrame using chDB via centralized Executor."""
+        """Execute the SQL query using chDB via centralized Executor."""
         from .executor import get_executor
 
-        self._log_execute("SQL Query", f"rows={len(df)}", prefix="chDB")
+        if self.is_raw_query:
+            # Raw query: execute directly without a DataFrame
+            self._log_execute("Raw SQL Query", "", prefix="chDB")
+            self._logger.debug("    [chDB] Raw query: %s", self.query)
 
-        self._logger.debug("    [chDB] Original input: %s", self.original_query)
-        self._logger.debug("    [chDB] Expanded query: %s", self.query)
+            executor = get_executor()
+            # Execute raw SQL directly
+            result = executor.execute(self.query)
+            # Convert QueryResult to DataFrame
+            if hasattr(result, 'to_df'):
+                return result.to_df()
+            if isinstance(result, pd.DataFrame):
+                return result
+            return pd.DataFrame(result) if result is not None else pd.DataFrame()
+        else:
+            # Query on existing DataFrame
+            self._log_execute("SQL Query", f"rows={len(df)}", prefix="chDB")
 
-        # Use centralized executor
-        executor = get_executor()
-        result = executor.query_dataframe(self.query, df, '__df__')
-        return result
+            self._logger.debug("    [chDB] Original input: %s", self.original_query)
+            self._logger.debug("    [chDB] Expanded query: %s", self.query)
+
+            # Use centralized executor
+            executor = get_executor()
+            result = executor.query_dataframe(self.query, df, '__df__')
+            return result
 
     def describe(self) -> str:
         # Show original query for brevity, but indicate if it was expanded

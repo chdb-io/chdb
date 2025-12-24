@@ -2910,19 +2910,39 @@ def _build_array_length(expr, alias=None):
 # =============================================================================
 
 
+def _build_json_path_args(path: str):
+    """
+    Convert a dot-separated JSON path into separate arguments for ClickHouse JSON functions.
+
+    ClickHouse JSONExtract* functions use separate arguments for nested paths:
+    - 'name' -> Literal('name')
+    - 'user.name' -> Literal('user'), Literal('name')
+
+    Args:
+        path: Dot-separated JSON path
+
+    Returns:
+        List of Literal expressions
+    """
+    from .expressions import Literal
+
+    parts = path.split('.')
+    return [Literal(part) for part in parts]
+
+
 @register_function(
     name='json_extract_string',
     clickhouse_name='JSONExtractString',
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.JSON,
     aliases=['JSONExtractString'],
-    doc='Extract string from JSON. Maps to JSONExtractString(json, path).',
+    doc='Extract string from JSON. Supports nested paths like "user.name".',
 )
 def _build_json_extract_string(json, path: str, alias=None):
     from .functions import Function
-    from .expressions import Literal
 
-    return Function('JSONExtractString', json, Literal(path), alias=alias)
+    path_args = _build_json_path_args(path)
+    return Function('JSONExtractString', json, *path_args, alias=alias)
 
 
 @register_function(
@@ -2931,13 +2951,13 @@ def _build_json_extract_string(json, path: str, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.JSON,
     aliases=['JSONExtractInt'],
-    doc='Extract integer from JSON. Maps to JSONExtractInt(json, path).',
+    doc='Extract integer from JSON. Supports nested paths like "user.id".',
 )
 def _build_json_extract_int(json, path: str, alias=None):
     from .functions import Function
-    from .expressions import Literal
 
-    return Function('JSONExtractInt', json, Literal(path), alias=alias)
+    path_args = _build_json_path_args(path)
+    return Function('JSONExtractInt', json, *path_args, alias=alias)
 
 
 @register_function(
@@ -2946,13 +2966,13 @@ def _build_json_extract_int(json, path: str, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.JSON,
     aliases=['JSONExtractFloat'],
-    doc='Extract float from JSON. Maps to JSONExtractFloat(json, path).',
+    doc='Extract float from JSON. Supports nested paths like "data.price".',
 )
 def _build_json_extract_float(json, path: str, alias=None):
     from .functions import Function
-    from .expressions import Literal
 
-    return Function('JSONExtractFloat', json, Literal(path), alias=alias)
+    path_args = _build_json_path_args(path)
+    return Function('JSONExtractFloat', json, *path_args, alias=alias)
 
 
 @register_function(
@@ -2961,13 +2981,13 @@ def _build_json_extract_float(json, path: str, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.JSON,
     aliases=['JSONExtractBool'],
-    doc='Extract boolean from JSON. Maps to JSONExtractBool(json, path).',
+    doc='Extract boolean from JSON. Supports nested paths like "user.active".',
 )
 def _build_json_extract_bool(json, path: str, alias=None):
     from .functions import Function
-    from .expressions import Literal
 
-    return Function('JSONExtractBool', json, Literal(path), alias=alias)
+    path_args = _build_json_path_args(path)
+    return Function('JSONExtractBool', json, *path_args, alias=alias)
 
 
 # =============================================================================

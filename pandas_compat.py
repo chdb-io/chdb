@@ -338,15 +338,57 @@ class PandasCompatMixin:
         return self._wrap_result(self._get_df().isin(values))
 
     def where(self, cond, other=None, *, inplace=False, axis=None, level=None):
-        """Replace values where condition is False."""
+        """Replace values where condition is False.
+
+        Args:
+            cond: Boolean condition. Can be:
+                - pandas Series/DataFrame (standard pandas usage)
+                - ColumnExpr (DataStore lazy expression - will be auto-executed)
+            other: Value to replace where condition is False
+            inplace: Must be False (DataStore is immutable)
+            axis: Axis to align condition
+            level: Alignment level
+
+        Example:
+            >>> ds.where(ds['age'] > 30, 0)  # ColumnExpr auto-executed
+            >>> ds.where(ds.to_df()['age'] > 30, 0)  # pandas Series
+        """
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
+
+        # Auto-execute ColumnExpr conditions to pandas Series
+        from .column_expr import ColumnExpr
+
+        if isinstance(cond, ColumnExpr):
+            cond = cond._execute()
+
         return self._wrap_result(self._get_df().where(cond, other=other, axis=axis, level=level))
 
     def mask(self, cond, other=None, *, inplace=False, axis=None, level=None):
-        """Replace values where condition is True."""
+        """Replace values where condition is True.
+
+        Args:
+            cond: Boolean condition. Can be:
+                - pandas Series/DataFrame (standard pandas usage)
+                - ColumnExpr (DataStore lazy expression - will be auto-executed)
+            other: Value to replace where condition is True
+            inplace: Must be False (DataStore is immutable)
+            axis: Axis to align condition
+            level: Alignment level
+
+        Example:
+            >>> ds.mask(ds['age'] > 30, 0)  # ColumnExpr auto-executed
+            >>> ds.mask(ds.to_df()['age'] > 30, 0)  # pandas Series
+        """
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
+
+        # Auto-execute ColumnExpr conditions to pandas Series
+        from .column_expr import ColumnExpr
+
+        if isinstance(cond, ColumnExpr):
+            cond = cond._execute()
+
         return self._wrap_result(self._get_df().mask(cond, other=other, axis=axis, level=level))
 
     def query(self, expr, *, inplace=False, **kwargs):
@@ -1689,17 +1731,25 @@ class PandasCompatMixin:
 
     def add_prefix(self, prefix, axis=None):
         """Prefix labels with string prefix (lazy operation)."""
+        from copy import copy
+
         from .lazy_ops import LazyAddPrefix
 
-        self._add_lazy_op(LazyAddPrefix(prefix))
-        return self
+        # Create a copy (immutable pattern)
+        new_ds = copy(self)
+        new_ds._add_lazy_op(LazyAddPrefix(prefix))
+        return new_ds
 
     def add_suffix(self, suffix, axis=None):
         """Suffix labels with string suffix (lazy operation)."""
+        from copy import copy
+
         from .lazy_ops import LazyAddSuffix
 
-        self._add_lazy_op(LazyAddSuffix(suffix))
-        return self
+        # Create a copy (immutable pattern)
+        new_ds = copy(self)
+        new_ds._add_lazy_op(LazyAddSuffix(suffix))
+        return new_ds
 
     def align(self, other, **kwargs):
         """Align two objects on their axes."""
