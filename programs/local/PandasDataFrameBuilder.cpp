@@ -40,49 +40,46 @@ PandasDataFrameBuilder::PandasDataFrameBuilder(const ChunkQueryResult & chunk_re
     for (const auto & chunk : chunks)
         total_rows += chunk.getNumRows();
 
-    if (total_rows)
+    if (!chunk_result.header)
+        throw Exception(ErrorCodes::LOGICAL_ERROR, "ChunkQueryResult header is empty");
+
+    const auto & sample = *chunk_result.header;
+    column_names.reserve(sample.columns());
+    column_types.reserve(sample.columns());
+
+    std::unordered_map<String, size_t> name_map;
+
+    for (const auto & column : sample)
     {
-        if (!chunk_result.header)
-            throw Exception(ErrorCodes::LOGICAL_ERROR, "ChunkQueryResult header is empty");
+        const auto & col_name = column.name;
+        String final_name = col_name;
 
-        const auto & sample = *chunk_result.header;
-        column_names.reserve(sample.columns());
-        column_types.reserve(sample.columns());
-
-        std::unordered_map<String, size_t> name_map;
-
-        for (const auto & column : sample)
+        if (name_map.contains(col_name))
         {
-            const auto & col_name = column.name;
-            String final_name = col_name;
-
-            if (name_map.contains(col_name))
+            auto idx = name_map[col_name];
+            final_name = col_name + "_" + std::to_string(idx);
+            while (name_map.contains(final_name))
             {
-                auto idx = name_map[col_name];
-                final_name = col_name + "_" + std::to_string(idx);
-                while (name_map.contains(final_name))
-                {
-                    ++name_map[col_name];
-                    final_name = col_name + "_" + std::to_string(name_map[col_name]);
-                }
-
-                ++name_map[final_name];
-            }
-            else
-            {
-                name_map[col_name] = 1;
+                ++name_map[col_name];
+                final_name = col_name + "_" + std::to_string(name_map[col_name]);
             }
 
-            column_names.push_back(final_name);
-            column_types.push_back(column.type);
-
-            /// Record timezone for timezone-aware types
-            auto actual_type = removeNullable(column.type);
-            if (const auto * dt = typeid_cast<const DataTypeDateTime *>(actual_type.get()))
-                column_timezones[final_name] = dt->getTimeZone().getTimeZone();
-            else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(actual_type.get()))
-                column_timezones[final_name] = dt64->getTimeZone().getTimeZone();
+            ++name_map[final_name];
         }
+        else
+        {
+            name_map[col_name] = 1;
+        }
+
+        column_names.push_back(final_name);
+        column_types.push_back(column.type);
+
+        /// Record timezone for timezone-aware types
+        auto actual_type = removeNullable(column.type);
+        if (const auto * dt = typeid_cast<const DataTypeDateTime *>(actual_type.get()))
+            column_timezones[final_name] = dt->getTimeZone().getTimeZone();
+        else if (const auto * dt64 = typeid_cast<const DataTypeDateTime64 *>(actual_type.get()))
+            column_timezones[final_name] = dt64->getTimeZone().getTimeZone();
     }
 
     finalize();
