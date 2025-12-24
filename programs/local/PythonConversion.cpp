@@ -2,15 +2,15 @@
 #include "PythonImporter.h"
 
 #include <pybind11/detail/non_limited_api.h>
-
+#include <Columns/ColumnNullable.h>
 #include <Common/Exception.h>
-#if USE_JEMALLOC
-#    include <Common/memory.h>
-#endif
 #include <IO/ReadBuffer.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 namespace DB
 {
@@ -18,6 +18,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int BAD_ARGUMENTS;
+    extern const int NOT_IMPLEMENTED;
 }
 
 }
@@ -62,6 +63,9 @@ PythonObjectType GetPythonObjectType(const py::handle & obj)
 
 	if (py::isinstance(obj, import_cache.datetime.timedelta()))
 		return PythonObjectType::Timedelta;
+
+	if (py::isinstance(obj, import_cache.numpy.datetime64()))
+		return PythonObjectType::NdDatetime;
 
 	if (py::isinstance(obj, import_cache.decimal.Decimal()))
 		return PythonObjectType::Decimal;
@@ -373,6 +377,34 @@ bool tryInsertJsonResult(
     }
 
     return false;
+}
+
+void transformPythonObject(
+	py::handle obj,
+    DB::MutableColumnPtr & column,
+	const ObjectCallback & object_callback)
+{
+    auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+    auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+    auto & null_map = nullable_column.getNullMapData();
+    auto object_type = GetPythonObjectType(obj);
+
+    if (object_type == PythonObjectType::None)
+    {
+        null_map.push_back(1);
+        data_column->insertDefault();
+        return;
+    }
+
+    if (object_type == PythonObjectType::Float && std::isnan(PyFloat_AsDouble(obj.ptr())))
+    {
+        null_map.push_back(1);
+        data_column->insertDefault();
+        return;
+    }
+
+    null_map.push_back(0);
+    object_callback(obj, data_column, object_type);
 }
 
 } // namespace CHDB

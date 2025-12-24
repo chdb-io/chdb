@@ -1,7 +1,9 @@
 #include "ListScan.h"
 #include "PythonConversion.h"
 
+#include <Columns/ColumnNullable.h>
 #include <Columns/ColumnObject.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/IDataType.h>
 #include <DataTypes/Serializations/SerializationJSON.h>
 #include <IO/WriteHelpers.h>
@@ -29,9 +31,10 @@ ColumnPtr ListScan::scanObject(
 {
     innerCheck(col_wrap);
 
-    auto & data_type = col_wrap.dest_type;
+    const auto & data_type = col_wrap.dest_type;
     auto column = data_type->createColumn();
-    auto serialization = data_type->getDefaultSerialization();
+    auto nested_type = removeNullable(data_type);
+    auto serialization = nested_type->getDefaultSerialization();
 
     innerScanObject(cursor, count, format_settings, serialization, col_wrap.data, column);
 
@@ -66,9 +69,13 @@ void ListScan::innerScanObject(
     for (size_t i = cursor; i < cursor + count; ++i)
     {
         auto item = list.attr("__getitem__")(i);
-        if (!tryInsertJsonResult(item, format_settings, column, serialization))
-            column->insertDefault();
-	}
+
+        transformPythonObject(item, column, [&](py::handle h, MutableColumnPtr & col, PythonObjectType /* object_type */)
+        {
+            if (!tryInsertJsonResult(h, format_settings, col, serialization))
+                col->insertDefault();
+        });
+    }
 }
 
 void ListScan::innerCheck(const ColumnWrapper & col_wrap)

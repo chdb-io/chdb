@@ -1,4 +1,5 @@
 #include "NumpyType.h"
+#include <memory>
 #include "PythonImporter.h"
 
 #include <DataTypes/DataTypeDateTime64.h>
@@ -28,7 +29,8 @@ namespace CHDB
 
 static bool IsDateTime(NumpyNullableType type)
 {
-	switch (type) {
+	switch (type)
+    {
 	case NumpyNullableType::DATETIME_NS:
 	case NumpyNullableType::DATETIME_S:
 	case NumpyNullableType::DATETIME_MS:
@@ -105,7 +107,7 @@ String NumpyType::toString() const
 		break;
     }
 
-    if (has_timezone && IsDateTime(type)) {
+    if (!timezone.empty() && IsDateTime(type)) {
         type_str += " WITH TIMEZONE";
     }
     return type_str;
@@ -182,8 +184,9 @@ NumpyType ConvertNumpyType(const py::handle & col_type)
     {
 		if (hasattr(col_type, "tz"))
         {
-			/// The datetime has timezone information.
-			numpy_type.has_timezone = true;
+			auto tz = col_type.attr("tz");
+			if (!tz.is_none())
+				numpy_type.timezone = py::str(tz).cast<String>();
 		}
 	}
 	return numpy_type;
@@ -216,24 +219,27 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 	case NumpyNullableType::FLOAT_32:
 		return std::make_shared<DataTypeFloat32>();
 	case NumpyNullableType::FLOAT_64:
-		return std::make_shared<DataTypeFloat64>();
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
 	case NumpyNullableType::STRING:
-		return std::make_shared<DataTypeString>();
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
 	case NumpyNullableType::OBJECT:
-		return std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+		{
+			auto data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+			return std::make_shared<DataTypeNullable>(std::move(data_type));
+		}
 	case NumpyNullableType::DATETIME_MS:
-		return std::make_shared<DataTypeDateTime64>(3);
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime64>(3, col_type.timezone));
 	case NumpyNullableType::DATETIME_NS:
-		return std::make_shared<DataTypeDateTime64>(9);
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime64>(9, col_type.timezone));
 	case NumpyNullableType::DATETIME_S:
-		return std::make_shared<DataTypeDateTime64>(0);
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime64>(0, col_type.timezone));
 	case NumpyNullableType::DATETIME_US:
-		std::make_shared<DataTypeDateTime64>(6);
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime64>(6, col_type.timezone));
 	case NumpyNullableType::TIMEDELTA:
 		/// return std::make_shared<DataTypeInterval>();
 	case NumpyNullableType::CATEGORY:
 	default:
-		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unkonow numpy column type: {}", col_type.toString());
+		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unknown numpy column type: {}", col_type.toString());
 	}
 }
 

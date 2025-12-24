@@ -25,6 +25,7 @@ public:
     PythonSource(
         py::object & data_source_,
         bool isInheritsFromPyReader_,
+        bool isPandasDataFrame_,
         const Block & sample_block_,
         PyColumnVecPtr column_cache,
         size_t data_source_row_count,
@@ -44,6 +45,7 @@ public:
 private:
     py::object & data_source; // Do not own the reference
     bool isInheritsFromPyReader; // If the data_source is a PyReader object
+    bool isPandasDataFrame;
 
     Block sample_block;
     PyColumnVecPtr column_cache;
@@ -72,8 +74,6 @@ private:
     void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, size_t offset, size_t row_count);
 
     void convert_string_array_to_block(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
-
-    void insert_obj_to_string_column(PyObject * obj, ColumnString * string_column);
 
     template <typename T>
     void insert_from_list(const py::list & obj, const MutableColumnPtr & column);
