@@ -669,6 +669,7 @@ class SQLBuilder:
         # Build innermost query (layer 0)
         inner_where = []
         inner_orderby = []
+        inner_orderby_kind = 'quicksort'
         inner_limit = None
         inner_offset = None
 
@@ -678,6 +679,7 @@ class SQLBuilder:
                     inner_where.append(op.condition)
                 elif op.op_type == 'ORDER BY' and op.fields:
                     inner_orderby = []
+                    inner_orderby_kind = getattr(op, 'kind', 'quicksort')
                     for f in op.fields:
                         if isinstance(f, str):
                             inner_orderby.append((Field(f), op.ascending))
@@ -704,6 +706,7 @@ class SQLBuilder:
             distinct,
             groupby_fields,
             having_condition,
+            inner_orderby_kind,
         )
 
         # Wrap with outer layers
@@ -716,6 +719,7 @@ class SQLBuilder:
         """Wrap an inner SQL query with an outer layer."""
         layer_where = []
         layer_orderby = []
+        layer_orderby_kind = 'quicksort'
         layer_limit = None
         layer_offset = None
 
@@ -725,6 +729,7 @@ class SQLBuilder:
                     layer_where.append(op.condition)
                 elif op.op_type == 'ORDER BY' and op.fields:
                     layer_orderby = []
+                    layer_orderby_kind = getattr(op, 'kind', 'quicksort')
                     for f in op.fields:
                         if isinstance(f, str):
                             layer_orderby.append((Field(f), op.ascending))
@@ -746,11 +751,10 @@ class SQLBuilder:
             outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
         if layer_orderby:
-            order_parts = []
-            for field, asc in layer_orderby:
-                direction = 'ASC' if asc else 'DESC'
-                order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-            outer_parts.append(f"ORDER BY {', '.join(order_parts)}")
+            from .utils import build_orderby_clause, is_stable_sort
+
+            orderby_sql = build_orderby_clause(layer_orderby, self.quote_char, stable=is_stable_sort(layer_orderby_kind))
+            outer_parts.append(f"ORDER BY {orderby_sql}")
 
         if layer_limit is not None:
             outer_parts.append(f"LIMIT {layer_limit}")
@@ -881,6 +885,7 @@ class SQLBuilder:
         distinct: bool,
         groupby_fields: List[Expression],
         having_condition: Any,
+        orderby_kind: str = 'quicksort',
     ) -> str:
         """
         Assemble SQL string from components.
@@ -923,13 +928,12 @@ class SQLBuilder:
         if having_condition:
             parts.append(f"HAVING {having_condition.to_sql(quote_char=self.quote_char)}")
 
-        # ORDER BY clause
+        # ORDER BY clause (stable sort if kind='stable' or 'mergesort', matching pandas)
         if orderby_fields:
-            order_parts = []
-            for field, asc in orderby_fields:
-                direction = 'ASC' if asc else 'DESC'
-                order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-            parts.append(f"ORDER BY {', '.join(order_parts)}")
+            from .utils import build_orderby_clause, is_stable_sort
+
+            orderby_sql = build_orderby_clause(orderby_fields, self.quote_char, stable=is_stable_sort(orderby_kind))
+            parts.append(f"ORDER BY {orderby_sql}")
 
         # LIMIT clause
         if limit_value is not None:

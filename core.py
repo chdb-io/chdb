@@ -169,6 +169,7 @@ class DataStore(PandasCompatMixin):
         self._groupby_fields: List[Expression] = []
         self._having_condition: Optional[Condition] = None
         self._orderby_fields: List[tuple] = []  # [(field, ascending), ...]
+        self._orderby_kind: str = 'quicksort'  # Sort algorithm (matches pandas default)
         self._limit_value: Optional[int] = None
         self._offset_value: Optional[int] = None
         self._distinct: bool = False
@@ -255,6 +256,7 @@ class DataStore(PandasCompatMixin):
         self._groupby_fields: List[Expression] = []
         self._having_condition: Optional[Condition] = None
         self._orderby_fields: List[tuple] = []
+        self._orderby_kind: str = 'quicksort'
         self._limit_value: Optional[int] = None
         self._offset_value: Optional[int] = None
         self._distinct: bool = False
@@ -949,11 +951,10 @@ class DataStore(PandasCompatMixin):
 
                             # Add ORDER BY, LIMIT, OFFSET to outer query
                             if sql_orderby_fields:
-                                order_parts = []
-                                for field, asc in sql_orderby_fields:
-                                    direction = 'ASC' if asc else 'DESC'
-                                    order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-                                sql_parts.append(f"ORDER BY {', '.join(order_parts)}")
+                                from .utils import build_orderby_clause, is_stable_sort
+
+                                orderby_sql = build_orderby_clause(sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+                                sql_parts.append(f"ORDER BY {orderby_sql}")
 
                             if sql_limit is not None:
                                 sql_parts.append(f"LIMIT {sql_limit}")
@@ -997,11 +998,10 @@ class DataStore(PandasCompatMixin):
 
                             # Add ORDER BY, LIMIT, OFFSET
                             if sql_orderby_fields:
-                                order_parts = []
-                                for field, asc in sql_orderby_fields:
-                                    direction = 'ASC' if asc else 'DESC'
-                                    order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-                                sql_parts.append(f"ORDER BY {', '.join(order_parts)}")
+                                from .utils import build_orderby_clause, is_stable_sort
+
+                                orderby_sql = build_orderby_clause(sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+                                sql_parts.append(f"ORDER BY {orderby_sql}")
 
                             if sql_limit is not None:
                                 sql_parts.append(f"LIMIT {sql_limit}")
@@ -1097,11 +1097,10 @@ class DataStore(PandasCompatMixin):
                                 outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
                             if layer_orderby:
-                                order_parts = []
-                                for field, asc in layer_orderby:
-                                    direction = 'ASC' if asc else 'DESC'
-                                    order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-                                outer_parts.append(f"ORDER BY {', '.join(order_parts)}")
+                                from .utils import build_orderby_clause, is_stable_sort
+
+                                orderby_sql = build_orderby_clause(layer_orderby, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+                                outer_parts.append(f"ORDER BY {orderby_sql}")
 
                             if layer_limit is not None:
                                 outer_parts.append(f"LIMIT {layer_limit}")
@@ -1323,13 +1322,12 @@ class DataStore(PandasCompatMixin):
             having_sql = having_condition.to_sql(quote_char=self.quote_char)
             parts.append(f"HAVING {having_sql}")
 
-        # ORDER BY
+        # ORDER BY (stable sort if kind='stable' or 'mergesort', matching pandas behavior)
         if orderby_fields:
-            order_parts = []
-            for field, asc in orderby_fields:
-                direction = 'ASC' if asc else 'DESC'
-                order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
-            parts.append(f"ORDER BY {', '.join(order_parts)}")
+            from .utils import build_orderby_clause, is_stable_sort
+
+            orderby_sql = build_orderby_clause(orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+            parts.append(f"ORDER BY {orderby_sql}")
 
         # LIMIT
         if limit_value is not None:
@@ -3609,17 +3607,20 @@ class DataStore(PandasCompatMixin):
         return False
 
     @immutable
-    def sort(self, *fields: Union[str, Expression], ascending: bool = True) -> 'DataStore':
+    def sort(self, *fields: Union[str, Expression], ascending: bool = True, kind: str = 'quicksort') -> 'DataStore':
         """
         Sort results (ORDER BY clause).
 
         Args:
             *fields: Column names (strings) or Expression objects
             ascending: Sort direction (default: True)
+            kind: Sort algorithm - 'quicksort' (default, unstable), 'stable', or 'mergesort' (stable)
+                  Matches pandas sort_values kind parameter behavior.
 
         Example:
             >>> ds.sort("name")
             >>> ds.sort("price", ascending=False)
+            >>> ds.sort("name", kind='stable')  # Stable sort
             >>> ds.sort(ds.date, ds.amount, ascending=False)
         """
         from .column_expr import ColumnExpr
@@ -3638,9 +3639,9 @@ class DataStore(PandasCompatMixin):
         direction = 'ASC' if ascending else 'DESC'
 
         # Record in lazy ops for correct execution order in explain()
-        # Store fields and ascending for DataFrame execution
+        # Store fields, ascending, and kind for DataFrame execution
         self._add_lazy_op(
-            LazyRelationalOp('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending)
+            LazyRelationalOp('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending, kind=kind)
         )
 
         for field in fields:
@@ -3655,23 +3656,28 @@ class DataStore(PandasCompatMixin):
                 field = Field(str(field))
             self._orderby_fields.append((field, ascending))
 
+        # Store kind for SQL building
+        self._orderby_kind = kind
+
         return self
 
     @immutable
-    def orderby(self, *fields: Union[str, Expression], ascending: bool = True) -> 'DataStore':
+    def orderby(self, *fields: Union[str, Expression], ascending: bool = True, kind: str = 'quicksort') -> 'DataStore':
         """
         Sort results (ORDER BY clause). Alias for sort().
 
         Args:
             *fields: Column names (strings) or Expression objects
             ascending: Sort direction (default: True)
+            kind: Sort algorithm - 'quicksort' (default, unstable), 'stable', or 'mergesort' (stable)
 
         Example:
             >>> ds.orderby("name")
             >>> ds.orderby("price", ascending=False)
+            >>> ds.orderby("name", kind='stable')  # Stable sort
             >>> ds.orderby(ds.date, ds.amount, ascending=False)
         """
-        return self.sort(*fields, ascending=ascending)
+        return self.sort(*fields, ascending=ascending, kind=kind)
 
     # Alias: order_by -> orderby
     order_by = orderby

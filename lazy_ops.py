@@ -389,6 +389,7 @@ class LazyRelationalOp(LazyOp):
         ascending=True,
         limit_value=None,
         offset_value=None,
+        kind='quicksort',
     ):
         """
         Args:
@@ -399,6 +400,7 @@ class LazyRelationalOp(LazyOp):
             ascending: Sort direction for ORDER BY
             limit_value: Value for LIMIT
             offset_value: Value for OFFSET
+            kind: Sort algorithm for ORDER BY ('quicksort', 'stable', 'mergesort', etc.)
         """
         super().__init__()
         self.op_type = op_type
@@ -408,6 +410,7 @@ class LazyRelationalOp(LazyOp):
         self.ascending = ascending
         self.limit_value = limit_value
         self.offset_value = offset_value
+        self.kind = kind
 
     # Map SQL op_type to pandas terminology for logging
     _PANDAS_OP_NAMES = {
@@ -453,12 +456,12 @@ class LazyRelationalOp(LazyOp):
             # Log sort info
             try:
                 direction = 'ascending' if self.ascending else 'descending'
-                self._logger.debug("      -> df.sort_values(by=%s, ascending=%s)", existing_cols, self.ascending)
+                self._logger.debug("      -> df.sort_values(by=%s, ascending=%s, kind=%s)", existing_cols, self.ascending, self.kind)
             except Exception:
                 pass
             if existing_cols:
-                result = df.sort_values(by=existing_cols, ascending=self.ascending)
-                self._logger.debug("      -> Sorted by: %s (%s)", existing_cols, direction)
+                result = df.sort_values(by=existing_cols, ascending=self.ascending, kind=self.kind)
+                self._logger.debug("      -> Sorted by: %s (%s, kind=%s)", existing_cols, direction, self.kind)
                 return result
             return df
         elif self.op_type == 'LIMIT' and self.limit_value is not None:

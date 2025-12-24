@@ -801,8 +801,8 @@ class PandasCompatMixin:
             # Handle ascending as list or scalar
             if isinstance(ascending, bool):
                 # All columns have the same sort direction
-                # Use the SQL-style sort() method
-                return self.sort(*by_list, ascending=ascending)
+                # Use the SQL-style sort() method with kind parameter
+                return self.sort(*by_list, ascending=ascending, kind=kind)
             else:
                 # Multiple columns with different sort directions
                 # Need to call sort() multiple times in reverse order
@@ -815,7 +815,7 @@ class PandasCompatMixin:
                     result = self
                     # Apply sorts in reverse order so that the first column is primary
                     for col, asc in reversed(list(zip(by_list, ascending_list))):
-                        result = result.sort(col, ascending=asc)
+                        result = result.sort(col, ascending=asc, kind=kind)
                     return result
 
         # Fall back to pandas sort_values for complex cases
