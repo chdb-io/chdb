@@ -40,6 +40,12 @@ PandasDataFrameBuilder::PandasDataFrameBuilder(const ChunkQueryResult & chunk_re
     for (const auto & chunk : chunks)
         total_rows += chunk.getNumRows();
 
+    if (!total_rows && !chunk_result.header)
+    {
+        finalize();
+        return;
+    }
+
     if (!chunk_result.header)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "ChunkQueryResult header is empty");
 
