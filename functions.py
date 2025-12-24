@@ -63,6 +63,39 @@ class Function(Expression):
         """
         return ""
 
+    # Functions that return UInt64 in chDB but should be Int64 to match pandas
+    # Note: Hash functions (cityHash64, sipHash64, etc.) are excluded as they have no pandas equivalent
+    # All names must be lowercase since we compare with self.name.lower()
+    _UINT64_FUNCTIONS = frozenset(
+        {
+            # String length functions
+            'length',
+            'char_length',
+            'octet_length',
+            'lengthutf8',
+            # String position functions (pandas str.find returns int64)
+            'position',
+            'locate',
+            'positionutf8',
+            'positioncaseinsensitive',
+            'positioncaseinsensitiveutf8',
+            # String count functions (pandas str.count returns int64)
+            'countsubstrings',
+            'countsubstringscaseinsensitive',
+            'countsubstringscaseinsensitiveutf8',
+            'countmatches',
+            'countmatchescaseinsensitive',
+            # Count/aggregation functions
+            'count',
+            'countif',
+            'countdistinct',
+            'uniq',
+            'uniqexact',
+            'uniqcombined',
+            'uniqhll12',
+        }
+    )
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for function call."""
         # Generate arguments SQL
@@ -76,6 +109,10 @@ class Function(Expression):
             sql = f"{self.name}({args_sql} {special_params})"
         else:
             sql = f"{self.name}({args_sql})"
+
+        # Wrap UInt64-returning functions in toInt64() to match pandas dtype
+        if self.name.lower() in self._UINT64_FUNCTIONS:
+            sql = f"toInt64({sql})"
 
         # Add alias if present and requested
         if kwargs.get('with_alias', False) and self.alias:
@@ -341,7 +378,8 @@ class Count(AggregateFunction):
             from .expressions import Literal
 
             if isinstance(self.args[0], Literal) and self.args[0].value == '*':
-                sql = "COUNT(*)"
+                # Wrap in toInt64() to match pandas int64 dtype
+                sql = "toInt64(COUNT(*))"
                 if kwargs.get('with_alias', False) and self.alias:
                     return format_alias(sql, self.alias, quote_char)
                 return sql

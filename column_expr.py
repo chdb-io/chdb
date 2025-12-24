@@ -39,7 +39,16 @@ if TYPE_CHECKING:
 
 class ColumnExpr:
     """
-    A column expression that wraps an underlying Expression and can execute lazily.
+    A unified column expression that supports lazy evaluation in multiple modes.
+
+    This is the single type for all column-level operations in DataStore,
+    providing a pandas Series-like interface with lazy execution.
+
+    Execution Modes:
+    1. Expression mode: Wraps an Expression (Field, ArithmeticExpression, Function)
+    2. Method mode: Wraps a method call on another ColumnExpr (e.g., value_counts)
+    3. Aggregation mode: Wraps an aggregation operation (e.g., mean, sum)
+    4. Executor mode: Uses a custom callable for complex operations
 
     When displayed (via __repr__, __str__, or IPython), it executes the
     expression and shows actual values like a pandas Series.
@@ -65,30 +74,108 @@ class ColumnExpr:
         2    19
         Name: age, dtype: int64
 
+        >>> ds['age'].value_counts()  # Returns ColumnExpr (method mode)
+        28    1
+        31    1
+        29    1
+        Name: age, dtype: int64
+
+        >>> ds['age'].mean()  # Returns ColumnExpr (aggregation mode)
+        29.333...
+
         >>> ds['age'] > 25  # Returns Condition (for filtering)
         BinaryCondition('"age" > 25')
     """
 
     def __init__(
         self,
-        expr: Expression,
-        datastore: 'DataStore',
+        expr: Expression = None,
+        datastore: 'DataStore' = None,
         alias: Optional[str] = None,
         groupby_fields: Optional[List] = None,
+        # Method mode parameters
+        source: 'ColumnExpr' = None,
+        method_name: str = None,
+        method_args: tuple = None,
+        method_kwargs: dict = None,
+        # Aggregation mode parameters
+        agg_func_name: str = None,
+        pandas_agg_func: str = None,
+        skipna: bool = True,
+        # Executor mode parameters
+        executor: Any = None,
     ):
         """
         Initialize ColumnExpr with expression and DataStore reference.
+
+        Supports multiple modes:
+        1. Expression mode: expr + datastore
+        2. Method mode: source + method_name (+ args/kwargs)
+        3. Aggregation mode: source + agg_func_name
+        4. Executor mode: executor + datastore
 
         Args:
             expr: The underlying expression (Field, ArithmeticExpression, Function, etc.)
             datastore: Reference to the DataStore for execution
             alias: Optional alias for the expression
-            groupby_fields: Optional groupby fields from LazyGroupBy (to avoid polluting DataStore state)
+            groupby_fields: Optional groupby fields from LazyGroupBy
+            source: Source ColumnExpr for method/aggregation mode
+            method_name: Method name to call on source (method mode)
+            method_args: Positional arguments for method call
+            method_kwargs: Keyword arguments for method call
+            agg_func_name: SQL aggregate function name (aggregation mode)
+            pandas_agg_func: Pandas aggregation method name
+            skipna: Whether to skip NaN values in aggregation
+            executor: Custom callable for complex operations
         """
+        # Expression mode fields
         self._expr = expr
-        self._datastore = datastore
         self._alias = alias
         self._groupby_fields = groupby_fields or []
+
+        # Method/Aggregation mode fields
+        self._source = source
+        self._method_name = method_name
+        self._method_args = method_args or ()
+        self._method_kwargs = method_kwargs or {}
+
+        # Aggregation mode fields
+        self._agg_func_name = agg_func_name
+        self._pandas_agg_func = pandas_agg_func or agg_func_name
+        self._skipna = skipna
+
+        # Executor mode
+        self._executor = executor
+
+        # DataStore reference (from different sources)
+        if datastore is not None:
+            self._datastore = datastore
+        elif source is not None:
+            self._datastore = source._datastore
+        else:
+            self._datastore = None
+
+        # Inherit groupby_fields from source if not provided
+        if not self._groupby_fields and source is not None and hasattr(source, '_groupby_fields'):
+            self._groupby_fields = source._groupby_fields.copy() if source._groupby_fields else []
+
+        # Cache for executed result
+        self._cached_result = None
+
+        # Determine execution mode
+        if executor is not None:
+            self._exec_mode = 'executor'
+        elif agg_func_name is not None:
+            self._exec_mode = 'agg'
+            # Create AggregateFunction for SQL building (needed by agg() method)
+            if source is not None and source._expr is not None:
+                from .functions import AggregateFunction
+
+                self._expr = AggregateFunction(agg_func_name, source._expr)
+        elif method_name is not None:
+            self._exec_mode = 'method'
+        else:
+            self._exec_mode = 'expr'
 
     @property
     def expr(self) -> Expression:
@@ -107,13 +194,36 @@ class ColumnExpr:
 
     # ========== Execution ==========
 
-    def _execute(self) -> pd.Series:
+    def _execute(self):
         """
-        Execute this expression and return a pandas Series.
+        Execute this expression and return the result.
 
-        This executes the expression against the DataStore's data using the
-        unified ExpressionEvaluator, which respects function_config settings.
+        Handles different execution modes:
+        - expr: Execute expression tree
+        - method: Call method on source result
+        - agg: Execute aggregation (scalar or Series with groupby)
+        - executor: Call custom executor
+
+        Returns:
+            pd.Series, scalar, or other result depending on operation
         """
+        # Return cached result if available
+        if self._cached_result is not None:
+            return self._cached_result
+
+        if self._exec_mode == 'executor':
+            self._cached_result = self._execute_executor()
+        elif self._exec_mode == 'agg':
+            self._cached_result = self._execute_aggregation()
+        elif self._exec_mode == 'method':
+            self._cached_result = self._execute_method()
+        else:
+            self._cached_result = self._execute_expression()
+
+        return self._cached_result
+
+    def _execute_expression(self) -> pd.Series:
+        """Execute expression mode - evaluate the expression tree."""
         from .expression_evaluator import ExpressionEvaluator
 
         # Get the executed DataFrame from the DataStore
@@ -132,6 +242,171 @@ class ColumnExpr:
         else:
             # Scalar result - return as is (will be wrapped if needed)
             return result
+
+    def _execute_method(self):
+        """Execute method mode - call method on source result."""
+        from .expressions import Field
+
+        # Execute any ColumnExpr in args or kwargs
+        args = tuple(self._execute_if_needed(arg) for arg in self._method_args)
+        kwargs = {k: self._execute_if_needed(v) for k, v in self._method_kwargs.items()}
+
+        # Handle groupby + agg scenario: df.groupby('col')['value'].agg(['sum', 'mean'])
+        if (
+            self._source is not None
+            and hasattr(self._source, '_groupby_fields')
+            and self._source._groupby_fields
+            and self._method_name in ('agg', 'aggregate')
+        ):
+            groupby_col_names = []
+            for gf in self._source._groupby_fields:
+                if isinstance(gf, Field):
+                    groupby_col_names.append(gf.name)
+                else:
+                    groupby_col_names.append(str(gf))
+
+            col_name = None
+            if self._source._expr is not None and isinstance(self._source._expr, Field):
+                col_name = self._source._expr.name
+            elif self._source._expr is not None:
+                col_name = str(self._source._expr)
+
+            df = self._datastore._execute()
+            agg_kwargs = {k: v for k, v in kwargs.items() if k != 'axis'}
+
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_col_names)[col_name]
+                return grouped.agg(*args, **agg_kwargs)
+            else:
+                series = self._source._execute()
+                method = getattr(series, self._method_name)
+                return method(*args, **agg_kwargs)
+
+        # Execute source
+        if self._source is not None:
+            series = self._source._execute()
+        else:
+            series = None
+
+        # Handle special _dt_* methods for datetime operations
+        if self._method_name and self._method_name.startswith('_dt_'):
+            dt_attr = self._method_name[4:]
+            if not pd.api.types.is_datetime64_any_dtype(series):
+                if series.dtype == 'object' or pd.api.types.is_string_dtype(series):
+                    try:
+                        series = pd.to_datetime(series, errors='coerce')
+                    except Exception:
+                        pass
+            dt_accessor = series.dt
+            attr = getattr(dt_accessor, dt_attr)
+            if callable(attr):
+                return attr(*args, **kwargs)
+            return attr
+
+        # Execute the method
+        if series is None:
+            return None
+
+        if not hasattr(series, self._method_name):
+            return series
+
+        method = getattr(series, self._method_name)
+        return method(*args, **kwargs)
+
+    def _execute_aggregation(self):
+        """Execute aggregation mode - compute aggregate with optional groupby."""
+        from .config import get_execution_engine, ExecutionEngine
+        from .expressions import Field
+
+        # Check if we have groupby fields
+        if self._groupby_fields:
+            return self._execute_groupby_aggregation()
+        else:
+            # No groupby - compute scalar value
+            series = self._source._execute() if self._source else self._execute_expression()
+            agg_method = getattr(series, self._pandas_agg_func)
+            return agg_method(**{k: v for k, v in self._method_kwargs.items() if k not in ('axis', 'numeric_only')})
+
+    def _execute_groupby_aggregation(self):
+        """Execute aggregation with GROUP BY."""
+        from .config import get_execution_engine, ExecutionEngine
+        from .expressions import Field
+        from .executor import get_executor
+
+        # Get groupby column names
+        groupby_col_names = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_col_names.append(gf.name)
+            else:
+                groupby_col_names.append(str(gf))
+
+        # Temporarily clear groupby fields on datastore to prevent SQL generation issues
+        datastore = self._datastore
+        original_groupby = datastore._groupby_fields.copy() if datastore._groupby_fields else []
+        datastore._groupby_fields = []
+
+        try:
+            df = datastore._execute()
+
+            # Check execution engine configuration
+            engine = get_execution_engine()
+
+            if engine == ExecutionEngine.PANDAS:
+                # Use pure pandas groupby
+                col_name = self._get_column_name()
+                grouped = df.groupby(groupby_col_names, sort=True)
+                agg_method = getattr(grouped[col_name], self._pandas_agg_func)
+                result_series = agg_method()
+                result_series.name = col_name
+                return result_series
+            else:
+                # Use chDB for CHDB or AUTO
+                col_expr_sql = (
+                    self._source._expr.to_sql(quote_char='"')
+                    if self._source and self._source._expr
+                    else '"' + self._get_column_name() + '"'
+                )
+                groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
+
+                if self._skipna:
+                    agg_sql = f'{self._agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
+                else:
+                    agg_sql = f'{self._agg_func_name}({col_expr_sql})'
+
+                # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
+                if self._agg_func_name == 'count':
+                    agg_sql = f'toInt64({agg_sql})'
+
+                # Add ORDER BY to match pandas groupby behavior (sort=True)
+                sql = f'SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql} ORDER BY {groupby_sql}'
+
+                executor = get_executor()
+                result_df = executor.query_dataframe(sql, df)
+
+                if len(groupby_col_names) == 1:
+                    result_series = result_df.set_index(groupby_col_names[0])['__agg_result__']
+                else:
+                    result_series = result_df.set_index(groupby_col_names)['__agg_result__']
+
+                result_series.name = self._get_column_name()
+                return result_series
+        finally:
+            # Restore original groupby fields
+            datastore._groupby_fields = original_groupby
+
+    def _execute_executor(self):
+        """Execute executor mode - call the custom executor."""
+        return self._executor()
+
+    def _execute_if_needed(self, value: Any) -> Any:
+        """Execute ColumnExpr arguments if needed."""
+        if isinstance(value, ColumnExpr):
+            result = value._execute()
+            if isinstance(result, pd.Series) and len(result) == 1:
+                return result.iloc[0]
+            return result
+        return value
 
     def to_pandas(self) -> pd.Series:
         """
@@ -242,6 +517,10 @@ class ColumnExpr:
             else:
                 agg_sql = f'{agg_func_name}({col_expr_sql})'
 
+            # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
+            if agg_func_name == 'count':
+                agg_sql = f'toInt64({agg_sql})'
+
             sql = f'SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}'
 
             # Execute via chDB
@@ -261,19 +540,19 @@ class ColumnExpr:
             # Sort by index to match pandas default behavior (sort=True)
             result_series = result_series.sort_index()
 
-            # Convert count result to int64 to match pandas behavior
-            # (chDB count returns uint64, but pandas returns int64)
-            if agg_func_name == 'count' and result_series.dtype == 'uint64':
-                result_series = result_series.astype('int64')
-
         return result_series
 
     def _get_column_name(self) -> str:
         """Get the column name for this expression."""
         if self._alias:
             return self._alias
+        # For method/agg mode, try to get from source first
+        if self._source is not None:
+            return self._source._get_column_name()
         if isinstance(self._expr, Field):
             return self._expr.name
+        if self._expr is None:
+            return 'unknown'
         return self._expr.to_sql(quote_char='"')
 
     # ========== Value Comparison Methods ==========
@@ -408,6 +687,35 @@ class ColumnExpr:
         except Exception as e:
             return f"<pre>ColumnExpr({self._expr.to_sql()}) [Error: {e}]</pre>"
 
+    # ========== Numeric Conversion Methods ==========
+
+    def __float__(self) -> float:
+        """Convert to float (executes the expression)."""
+        result = self._execute()
+        if isinstance(result, pd.Series):
+            if len(result) == 1:
+                return float(result.iloc[0])
+            raise TypeError(f"Cannot convert Series of length {len(result)} to float")
+        return float(result)
+
+    def __int__(self) -> int:
+        """Convert to int (executes the expression)."""
+        result = self._execute()
+        if isinstance(result, pd.Series):
+            if len(result) == 1:
+                return int(result.iloc[0])
+            raise TypeError(f"Cannot convert Series of length {len(result)} to int")
+        return int(result)
+
+    def __round__(self, ndigits: int = None):
+        """Round the result (executes the expression)."""
+        result = self._execute()
+        if isinstance(result, pd.Series):
+            if len(result) == 1:
+                return round(result.iloc[0], ndigits)
+            return result.round(ndigits)
+        return round(result, ndigits)
+
     # ========== Expression Interface (delegation) ==========
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
@@ -438,6 +746,8 @@ class ColumnExpr:
         If other is a pandas Series/DataFrame (already executed data),
         performs value comparison and returns bool.
 
+        For aggregation mode (scalar result), directly execute and compare.
+
         Otherwise, returns a ColumnExpr wrapping a Condition that can both:
         - Execute to a boolean Series (for value_counts(), sum(), etc.)
         - Be used as a filter condition in ds.filter()
@@ -445,6 +755,9 @@ class ColumnExpr:
         Examples:
             # Value comparison with executed data (returns bool)
             >>> ds['name'].str.upper() == pd_df['name'].str.upper()  # True/False
+
+            # Aggregation comparison (returns bool)
+            >>> ds['col'].nunique() == 2  # True/False
 
             # ColumnExpr wrapping Condition (supports both operations)
             >>> bool_col = ds['age'] == 30  # Returns ColumnExpr
@@ -459,6 +772,23 @@ class ColumnExpr:
             return self._compare_values(other)
         if isinstance(other, pd.DataFrame):
             return self._compare_values(other)
+
+        # For aggregation mode or method mode with scalar result, execute and compare directly
+        if self._exec_mode in ('agg', 'method'):
+            result = self._execute()
+            # If result is scalar, return boolean comparison
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result == other
+            # If result is a single-element Series, compare the scalar
+            if isinstance(result, pd.Series) and len(result) == 1:
+                return result.iloc[0] == other
+
+        # For expression mode, check if _expr exists
+        if self._exec_mode == 'expr' and self._expr is None:
+            # Fallback: execute and compare
+            result = self._execute()
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result == other
 
         # Return ColumnExpr wrapping Condition for lazy boolean column
         condition = BinaryCondition('=', self._expr, Expression.wrap(other))
@@ -496,7 +826,7 @@ class ColumnExpr:
 
     # ========== Pandas-style Comparison Methods ==========
 
-    def eq(self, other: Any) -> 'LazySeries':
+    def eq(self, other: Any) -> 'ColumnExpr':
         """
         Element-wise equality comparison, returns boolean Series (lazy).
 
@@ -507,7 +837,7 @@ class ColumnExpr:
             other: Value or Series to compare with
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series indicating equality
+            ColumnExpr: Lazy wrapper returning boolean Series indicating equality
 
         Example:
             >>> ds['value'].eq(5)
@@ -516,9 +846,9 @@ class ColumnExpr:
             2    False
             dtype: bool
         """
-        return LazySeries(self, 'eq', other)
+        return ColumnExpr(source=self, method_name='eq', method_args=(other,))
 
-    def ne(self, other: Any) -> 'LazySeries':
+    def ne(self, other: Any) -> 'ColumnExpr':
         """
         Element-wise not-equal comparison, returns boolean Series (lazy).
 
@@ -526,14 +856,14 @@ class ColumnExpr:
             other: Value or Series to compare with
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series indicating inequality
+            ColumnExpr: Lazy wrapper returning boolean Series indicating inequality
 
         Example:
             >>> ds['value'].ne(5)
         """
-        return LazySeries(self, 'ne', other)
+        return ColumnExpr(source=self, method_name='ne', method_args=(other,))
 
-    def lt(self, other: Any) -> 'LazySeries':
+    def lt(self, other: Any) -> 'ColumnExpr':
         """
         Element-wise less-than comparison, returns boolean Series (lazy).
 
@@ -541,14 +871,14 @@ class ColumnExpr:
             other: Value or Series to compare with
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series
+            ColumnExpr: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].lt(5)
         """
-        return LazySeries(self, 'lt', other)
+        return ColumnExpr(source=self, method_name='lt', method_args=(other,))
 
-    def le(self, other: Any) -> 'LazySeries':
+    def le(self, other: Any) -> 'ColumnExpr':
         """
         Element-wise less-than-or-equal comparison, returns boolean Series (lazy).
 
@@ -556,14 +886,14 @@ class ColumnExpr:
             other: Value or Series to compare with
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series
+            ColumnExpr: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].le(5)
         """
-        return LazySeries(self, 'le', other)
+        return ColumnExpr(source=self, method_name='le', method_args=(other,))
 
-    def gt(self, other: Any) -> 'LazySeries':
+    def gt(self, other: Any) -> 'ColumnExpr':
         """
         Element-wise greater-than comparison, returns boolean Series (lazy).
 
@@ -571,14 +901,14 @@ class ColumnExpr:
             other: Value or Series to compare with
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series
+            ColumnExpr: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].gt(5)
         """
-        return LazySeries(self, 'gt', other)
+        return ColumnExpr(source=self, method_name='gt', method_args=(other,))
 
-    def ge(self, other: Any) -> 'LazySeries':
+    def ge(self, other: Any) -> 'ColumnExpr':
         """
         Element-wise greater-than-or-equal comparison, returns boolean Series (lazy).
 
@@ -586,12 +916,12 @@ class ColumnExpr:
             other: Value or Series to compare with
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series
+            ColumnExpr: Lazy wrapper returning boolean Series
 
         Example:
             >>> ds['value'].ge(5)
         """
-        return LazySeries(self, 'ge', other)
+        return ColumnExpr(source=self, method_name='ge', method_args=(other,))
 
     # ========== Logical Operators (Return ColumnExpr wrapping Condition) ==========
     #
@@ -725,62 +1055,93 @@ class ColumnExpr:
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
     def __add__(self, other: Any) -> 'ColumnExpr':
+        # For non-expression modes, use method call mode
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__add__', method_args=(other,))
         new_expr = ArithmeticExpression('+', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __radd__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__radd__', method_args=(other,))
         new_expr = ArithmeticExpression('+', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __sub__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__sub__', method_args=(other,))
         new_expr = ArithmeticExpression('-', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rsub__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__rsub__', method_args=(other,))
         new_expr = ArithmeticExpression('-', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __mul__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__mul__', method_args=(other,))
         new_expr = ArithmeticExpression('*', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rmul__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__rmul__', method_args=(other,))
         new_expr = ArithmeticExpression('*', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __truediv__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__truediv__', method_args=(other,))
         new_expr = ArithmeticExpression('/', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rtruediv__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__rtruediv__', method_args=(other,))
         new_expr = ArithmeticExpression('/', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __floordiv__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__floordiv__', method_args=(other,))
         new_expr = ArithmeticExpression('//', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rfloordiv__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__rfloordiv__', method_args=(other,))
         new_expr = ArithmeticExpression('//', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __mod__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__mod__', method_args=(other,))
         new_expr = ArithmeticExpression('%', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rmod__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__rmod__', method_args=(other,))
         new_expr = ArithmeticExpression('%', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __pow__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__pow__', method_args=(other,))
         new_expr = ArithmeticExpression('**', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rpow__(self, other: Any) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__rpow__', method_args=(other,))
         new_expr = ArithmeticExpression('**', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __neg__(self) -> 'ColumnExpr':
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__neg__')
         new_expr = ArithmeticExpression('-', Literal(0), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
@@ -1268,7 +1629,7 @@ class ColumnExpr:
         df = series.to_frame(name=name)
         return DataStore.from_df(df)
 
-    def copy(self, deep=True):
+    def copy(self, deep=True) -> 'ColumnExpr':
         """
         Make a copy of this ColumnExpr's data (lazy).
 
@@ -1276,16 +1637,16 @@ class ColumnExpr:
             deep: Make a deep copy (default True)
 
         Returns:
-            LazySeries: Lazy wrapper returning a copy of the data
+            ColumnExpr: Lazy wrapper returning a copy of the data
 
         Example:
             >>> s = ds['age'].copy()
             >>> s.values  # Triggers execution
             array([28, 31, 29, 45, 22])
         """
-        return LazySeries(self, 'copy', deep=deep)
+        return ColumnExpr(source=self, method_name='copy', method_kwargs=dict(deep=deep))
 
-    def describe(self, percentiles=None, include=None, exclude=None):
+    def describe(self, percentiles=None, include=None, exclude=None) -> 'ColumnExpr':
         """
         Generate descriptive statistics.
 
@@ -1295,7 +1656,7 @@ class ColumnExpr:
             exclude: A black list of data types to exclude.
 
         Returns:
-            LazySeries: Lazy wrapper returning summary statistics Series
+            ColumnExpr: Lazy wrapper returning summary statistics Series
 
         Example:
             >>> ds['age'].describe()
@@ -1309,7 +1670,11 @@ class ColumnExpr:
             max      45.000000
             Name: age, dtype: float64
         """
-        return LazySeries(self, 'describe', percentiles=percentiles, include=include, exclude=exclude)
+        return ColumnExpr(
+            source=self,
+            method_name='describe',
+            method_kwargs=dict(percentiles=percentiles, include=include, exclude=exclude),
+        )
 
     def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
         """
@@ -1340,7 +1705,9 @@ class ColumnExpr:
             verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts
         )
 
-    def sample(self, n=None, frac=None, replace=False, weights=None, random_state=None, axis=None, ignore_index=False):
+    def sample(
+        self, n=None, frac=None, replace=False, weights=None, random_state=None, axis=None, ignore_index=False
+    ) -> 'ColumnExpr':
         """
         Return a random sample of items (lazy).
 
@@ -1354,7 +1721,7 @@ class ColumnExpr:
             ignore_index: If True, reset index in result.
 
         Returns:
-            LazySeries: Lazy wrapper returning random sample Series
+            ColumnExpr: Lazy wrapper returning random sample Series
 
         Example:
             >>> ds['age'].sample(3, random_state=42)
@@ -1363,19 +1730,21 @@ class ColumnExpr:
             0    28
             Name: age, dtype: int64
         """
-        return LazySeries(
-            self,
-            'sample',
-            n=n,
-            frac=frac,
-            replace=replace,
-            weights=weights,
-            random_state=random_state,
-            axis=axis,
-            ignore_index=ignore_index,
+        return ColumnExpr(
+            source=self,
+            method_name='sample',
+            method_kwargs=dict(
+                n=n,
+                frac=frac,
+                replace=replace,
+                weights=weights,
+                random_state=random_state,
+                axis=axis,
+                ignore_index=ignore_index,
+            ),
         )
 
-    def nlargest(self, n=5, keep='first'):
+    def nlargest(self, n=5, keep='first') -> 'ColumnExpr':
         """
         Return the largest n elements (lazy).
 
@@ -1384,7 +1753,7 @@ class ColumnExpr:
             keep: How to handle duplicate values ('first', 'last', 'all').
 
         Returns:
-            LazySeries: Lazy wrapper returning n largest values Series
+            ColumnExpr: Lazy wrapper returning n largest values Series
 
         Example:
             >>> ds['salary'].nlargest(3)
@@ -1393,9 +1762,9 @@ class ColumnExpr:
             2     60000.0
             Name: salary, dtype: float64
         """
-        return LazySeries(self, 'nlargest', n=n, keep=keep)
+        return ColumnExpr(source=self, method_name='nlargest', method_kwargs=dict(n=n, keep=keep))
 
-    def nsmallest(self, n=5, keep='first'):
+    def nsmallest(self, n=5, keep='first') -> 'ColumnExpr':
         """
         Return the smallest n elements (lazy).
 
@@ -1404,7 +1773,7 @@ class ColumnExpr:
             keep: How to handle duplicate values ('first', 'last', 'all').
 
         Returns:
-            LazySeries: Lazy wrapper returning n smallest values Series
+            ColumnExpr: Lazy wrapper returning n smallest values Series
 
         Example:
             >>> ds['salary'].nsmallest(3)
@@ -1413,9 +1782,9 @@ class ColumnExpr:
             2    60000.0
             Name: salary, dtype: float64
         """
-        return LazySeries(self, 'nsmallest', n=n, keep=keep)
+        return ColumnExpr(source=self, method_name='nsmallest', method_kwargs=dict(n=n, keep=keep))
 
-    def drop_duplicates(self, keep='first', inplace=False, ignore_index=False):
+    def drop_duplicates(self, keep='first', inplace=False, ignore_index=False) -> 'ColumnExpr':
         """
         Return Series with duplicate values removed (lazy).
 
@@ -1425,7 +1794,7 @@ class ColumnExpr:
             ignore_index: If True, reset index in result.
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with duplicates removed
+            ColumnExpr: Lazy wrapper returning Series with duplicates removed
 
         Example:
             >>> ds['department'].drop_duplicates()
@@ -1434,9 +1803,11 @@ class ColumnExpr:
             3     Management
             Name: department, dtype: object
         """
-        return LazySeries(self, 'drop_duplicates', keep=keep, ignore_index=ignore_index)
+        return ColumnExpr(
+            source=self, method_name='drop_duplicates', method_kwargs=dict(keep=keep, ignore_index=ignore_index)
+        )
 
-    def duplicated(self, keep='first'):
+    def duplicated(self, keep='first') -> 'ColumnExpr':
         """
         Indicate duplicate values (lazy).
 
@@ -1444,7 +1815,7 @@ class ColumnExpr:
             keep: How to mark duplicates ('first', 'last', False).
 
         Returns:
-            LazySeries: Lazy wrapper returning boolean Series indicating duplicates
+            ColumnExpr: Lazy wrapper returning boolean Series indicating duplicates
 
         Example:
             >>> ds['department'].duplicated()
@@ -1455,7 +1826,7 @@ class ColumnExpr:
             4     True
             Name: department, dtype: bool
         """
-        return LazySeries(self, 'duplicated', keep=keep)
+        return ColumnExpr(source=self, method_name='duplicated', method_kwargs=dict(keep=keep))
 
     def hist(self, bins=10, **kwargs):
         """
@@ -1532,8 +1903,10 @@ class ColumnExpr:
                 # Already a dict, use as-is
                 agg_dict = func
             else:
-                # Fallback to LazySeries for unknown func types
-                return LazySeries(self, 'agg', func, axis=axis, *args, **kwargs)
+                # Fallback to ColumnExpr for unknown func types
+                return ColumnExpr(
+                    source=self, method_name='agg', method_args=(func,), method_kwargs=dict(axis=axis, **kwargs)
+                )
 
             # Create a shallow copy of the datastore
             new_ds = copy(self._datastore)
@@ -1543,8 +1916,8 @@ class ColumnExpr:
 
             return new_ds
 
-        # No groupby context - return LazySeries for lazy execution
-        return LazySeries(self, 'agg', func, axis=axis, *args, **kwargs)
+        # No groupby context - return ColumnExpr for lazy execution
+        return ColumnExpr(source=self, method_name='agg', method_args=(func,), method_kwargs=dict(axis=axis, **kwargs))
 
     def aggregate(self, func=None, axis=0, *args, **kwargs):
         """
@@ -1626,12 +1999,12 @@ class ColumnExpr:
                     series = self._execute()
                     return series.transform(func, *args, **kwargs)
 
-            return LazySeries(executor=executor, datastore=ds)
+            return ColumnExpr(executor=executor, datastore=ds)
         else:
             # Regular transform without groupby
-            return LazySeries(self, 'transform', func, *args, **kwargs)
+            return ColumnExpr(source=self, method_name='transform', method_args=(func,) + args, method_kwargs=kwargs)
 
-    def where(self, cond, other=pd.NA, inplace=False, axis=None, level=None):
+    def where(self, cond, other=pd.NA, inplace=False, axis=None, level=None) -> 'ColumnExpr':
         """
         Replace values where the condition is False (lazy).
 
@@ -1643,7 +2016,7 @@ class ColumnExpr:
             level: Alignment level.
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with replaced values
+            ColumnExpr: Lazy wrapper returning Series with replaced values
 
         Example:
             >>> ds['age'].where(ds['age'] > 25, 0)
@@ -1654,9 +2027,14 @@ class ColumnExpr:
             4     0
             Name: age, dtype: int64
         """
-        return LazySeries(self, 'where', cond, other=other, axis=axis, level=level)
+        return ColumnExpr(
+            source=self,
+            method_name='where',
+            method_args=(cond,),
+            method_kwargs=dict(other=other, axis=axis, level=level),
+        )
 
-    def argsort(self, axis=0, kind='quicksort', order=None, stable=None):
+    def argsort(self, axis=0, kind='quicksort', order=None, stable=None) -> 'ColumnExpr':
         """
         Return the indices that would sort the Series (lazy).
 
@@ -1667,7 +2045,7 @@ class ColumnExpr:
             stable: If True, use stable sorting.
 
         Returns:
-            LazySeries: Lazy wrapper returning integer indices Series
+            ColumnExpr: Lazy wrapper returning integer indices Series
 
         Example:
             >>> ds['age'].argsort()
@@ -1678,7 +2056,7 @@ class ColumnExpr:
             4    3
             dtype: int64
         """
-        return LazySeries(self, 'argsort', axis=axis, kind=kind, order=order)
+        return ColumnExpr(source=self, method_name='argsort', method_kwargs=dict(axis=axis, kind=kind, order=order))
 
     def sort_index(
         self,
@@ -1691,7 +2069,7 @@ class ColumnExpr:
         sort_remaining=True,
         ignore_index=False,
         key=None,
-    ):
+    ) -> 'ColumnExpr':
         """
         Sort Series by index labels (lazy).
 
@@ -1707,22 +2085,24 @@ class ColumnExpr:
             key: Function to transform index before sorting.
 
         Returns:
-            LazySeries: Lazy wrapper returning sorted Series
+            ColumnExpr: Lazy wrapper returning sorted Series
 
         Example:
             >>> ds['age'].sort_index(ascending=False)
         """
-        return LazySeries(
-            self,
-            'sort_index',
-            axis=axis,
-            level=level,
-            ascending=ascending,
-            kind=kind,
-            na_position=na_position,
-            sort_remaining=sort_remaining,
-            ignore_index=ignore_index,
-            key=key,
+        return ColumnExpr(
+            source=self,
+            method_name='sort_index',
+            method_kwargs=dict(
+                axis=axis,
+                level=level,
+                ascending=ascending,
+                kind=kind,
+                na_position=na_position,
+                sort_remaining=sort_remaining,
+                ignore_index=ignore_index,
+                key=key,
+            ),
         )
 
     def __array__(self, dtype=None, copy=None):
@@ -1766,11 +2146,11 @@ class ColumnExpr:
     # These methods return ColumnExpr for SQL when called with default args,
     # or execute and compute when called with pandas/numpy-style args.
 
-    def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+    def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
         Compute mean of the column.
 
-        Returns a LazyAggregate that:
+        Returns a ColumnExpr (aggregation mode) that:
         - Displays the result when shown in notebook/REPL
         - Can be used in agg() for SQL building
         - Returns Series with groupby, scalar without
@@ -1782,7 +2162,7 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
 
         Example:
             >>> ds['value'].mean()  # Displays scalar when shown
@@ -1794,7 +2174,13 @@ class ColumnExpr:
             Name: value, dtype: float64
             >>> ds.groupby('x').agg(avg=ds['value'].mean())  # Uses in SQL
         """
-        return LazyAggregate(self, 'avg', 'mean', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
+        return ColumnExpr(
+            source=self,
+            agg_func_name='avg',
+            pandas_agg_func='mean',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
+        )
 
     def mean_sql(self):
         """
@@ -1813,11 +2199,11 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('avg', self._expr), self._datastore)
 
-    def sum(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
+    def sum(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs) -> 'ColumnExpr':
         """
         Compute sum of the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation (pandas/numpy compatibility)
@@ -1827,10 +2213,14 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
-        return LazyAggregate(
-            self, 'sum', 'sum', skipna=skipna, axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs
+        return ColumnExpr(
+            source=self,
+            agg_func_name='sum',
+            pandas_agg_func='sum',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs),
         )
 
     def sum_sql(self):
@@ -1839,11 +2229,11 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('sum', self._expr), self._datastore)
 
-    def std(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs):
+    def std(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
         Compute standard deviation of the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1853,12 +2243,16 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
         # Use sample std by default (ddof=1)
         func_name = 'stddevSamp' if ddof == 1 else 'stddevPop'
-        return LazyAggregate(
-            self, func_name, 'std', skipna=skipna, axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs
+        return ColumnExpr(
+            source=self,
+            agg_func_name=func_name,
+            pandas_agg_func='std',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs),
         )
 
     def std_sql(self, sample=True):
@@ -1868,11 +2262,11 @@ class ColumnExpr:
         func_name = 'stddevSamp' if sample else 'stddevPop'
         return ColumnExpr(AggregateFunction(func_name, self._expr), self._datastore)
 
-    def var(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs):
+    def var(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
         Compute variance of the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1882,12 +2276,16 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
         # Use sample var by default (ddof=1)
         func_name = 'varSamp' if ddof == 1 else 'varPop'
-        return LazyAggregate(
-            self, func_name, 'var', skipna=skipna, axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs
+        return ColumnExpr(
+            source=self,
+            agg_func_name=func_name,
+            pandas_agg_func='var',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs),
         )
 
     def var_sql(self, sample=True):
@@ -1897,11 +2295,11 @@ class ColumnExpr:
         func_name = 'varSamp' if sample else 'varPop'
         return ColumnExpr(AggregateFunction(func_name, self._expr), self._datastore)
 
-    def min(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+    def min(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
         Compute minimum of the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1910,9 +2308,15 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
-        return LazyAggregate(self, 'min', 'min', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
+        return ColumnExpr(
+            source=self,
+            agg_func_name='min',
+            pandas_agg_func='min',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
+        )
 
     def min_sql(self):
         """Return MIN() SQL expression for use in select()."""
@@ -1920,11 +2324,11 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('min', self._expr), self._datastore)
 
-    def max(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+    def max(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
         Compute maximum of the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1933,9 +2337,15 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
-        return LazyAggregate(self, 'max', 'max', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
+        return ColumnExpr(
+            source=self,
+            agg_func_name='max',
+            pandas_agg_func='max',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
+        )
 
     def max_sql(self):
         """Return MAX() SQL expression for use in select()."""
@@ -1943,16 +2353,16 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('max', self._expr), self._datastore)
 
-    def count(self):
+    def count(self) -> 'ColumnExpr':
         """
         Count non-NA values in the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
-        return LazyAggregate(self, 'count', 'count', skipna=True)
+        return ColumnExpr(source=self, agg_func_name='count', pandas_agg_func='count', skipna=True)
 
     def count_sql(self):
         """Return COUNT() SQL expression for use in select()."""
@@ -1960,11 +2370,11 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('count', self._expr), self._datastore)
 
-    def median(self, axis=None, skipna=True, numeric_only=False, **kwargs):
+    def median(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
         Compute median of the column.
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1973,9 +2383,15 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy aggregate that executes on display
+            ColumnExpr: Lazy aggregate that executes on display
         """
-        return LazyAggregate(self, 'median', 'median', skipna=skipna, axis=axis, numeric_only=numeric_only, **kwargs)
+        return ColumnExpr(
+            source=self,
+            agg_func_name='median',
+            pandas_agg_func='median',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
+        )
 
     def median_sql(self):
         """Return median() SQL expression for use in select()."""
@@ -1983,11 +2399,11 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('median', self._expr), self._datastore)
 
-    def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs):
+    def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs) -> 'ColumnExpr':
         """
         Compute product of values (lazy).
 
-        Returns a LazyAggregate that executes on display.
+        Returns a ColumnExpr (aggregation mode) that executes on display.
 
         Args:
             axis: Axis for computation
@@ -1997,13 +2413,17 @@ class ColumnExpr:
             **kwargs: Additional pandas arguments
 
         Returns:
-            LazyAggregate: Lazy wrapper returning product of values
+            ColumnExpr: Lazy wrapper returning product of values
         """
-        return LazyAggregate(
-            self, 'prod', axis=axis, skipna=skipna, numeric_only=numeric_only, min_count=min_count, **kwargs
+        return ColumnExpr(
+            source=self,
+            agg_func_name='prod',
+            pandas_agg_func='prod',
+            skipna=skipna,
+            method_kwargs=dict(axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs),
         )
 
-    def cumsum(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
+    def cumsum(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative sum of the column (lazy).
 
@@ -2015,11 +2435,11 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            LazySeries: Lazy wrapper returning cumulative sum Series
+            ColumnExpr: Lazy wrapper returning cumulative sum Series
         """
-        return LazySeries(self, 'cumsum', axis=axis, skipna=skipna, **kwargs)
+        return ColumnExpr(source=self, method_name='cumsum', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
 
-    def cumprod(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs):
+    def cumprod(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative product of the column (lazy).
 
@@ -2031,11 +2451,11 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            LazySeries: Lazy wrapper returning cumulative product Series
+            ColumnExpr: Lazy wrapper returning cumulative product Series
         """
-        return LazySeries(self, 'cumprod', axis=axis, skipna=skipna, **kwargs)
+        return ColumnExpr(source=self, method_name='cumprod', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
 
-    def cummax(self, axis=None, skipna=True, **kwargs):
+    def cummax(self, axis=None, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative maximum of the column (lazy).
 
@@ -2045,11 +2465,11 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            LazySeries: Lazy wrapper returning cumulative maximum Series
+            ColumnExpr: Lazy wrapper returning cumulative maximum Series
         """
-        return LazySeries(self, 'cummax', axis=axis, skipna=skipna, **kwargs)
+        return ColumnExpr(source=self, method_name='cummax', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
 
-    def cummin(self, axis=None, skipna=True, **kwargs):
+    def cummin(self, axis=None, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative minimum of the column (lazy).
 
@@ -2059,9 +2479,9 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            LazySeries: Lazy wrapper returning cumulative minimum Series
+            ColumnExpr: Lazy wrapper returning cumulative minimum Series
         """
-        return LazySeries(self, 'cummin', axis=axis, skipna=skipna, **kwargs)
+        return ColumnExpr(source=self, method_name='cummin', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
 
     # ========== Window / Rolling Methods ==========
 
@@ -2188,7 +2608,7 @@ class ColumnExpr:
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         return series.ewm(**kwargs)
 
-    def shift(self, periods=1, freq=None, axis=0, fill_value=None):
+    def shift(self, periods=1, freq=None, axis=0, fill_value=None) -> 'ColumnExpr':
         """
         Shift values by desired number of periods (lazy).
 
@@ -2199,16 +2619,20 @@ class ColumnExpr:
             fill_value: Value to use for filling new missing values
 
         Returns:
-            LazySeries: Lazy wrapper returning shifted Series
+            ColumnExpr: Lazy wrapper returning shifted Series
 
         Example:
             >>> ds['value'].shift(1)  # Previous value
             >>> ds['value'].shift(-1)  # Next value
             >>> ds['value'].shift(1, fill_value=0)
         """
-        return LazySeries(self, 'shift', periods=periods, freq=freq, axis=axis, fill_value=fill_value)
+        return ColumnExpr(
+            source=self,
+            method_name='shift',
+            method_kwargs=dict(periods=periods, freq=freq, axis=axis, fill_value=fill_value),
+        )
 
-    def diff(self, periods=1):
+    def diff(self, periods=1) -> 'ColumnExpr':
         """
         First discrete difference of element (lazy).
 
@@ -2216,15 +2640,15 @@ class ColumnExpr:
             periods: Periods to shift for calculating difference
 
         Returns:
-            LazySeries: Lazy wrapper returning first differences Series
+            ColumnExpr: Lazy wrapper returning first differences Series
 
         Example:
             >>> ds['value'].diff()  # Difference from previous
             >>> ds['value'].diff(2)  # Difference from 2 periods ago
         """
-        return LazySeries(self, 'diff', periods=periods)
+        return ColumnExpr(source=self, method_name='diff', method_kwargs=dict(periods=periods))
 
-    def pct_change(self, periods=1, fill_method=None, limit=None, freq=None, **kwargs):
+    def pct_change(self, periods=1, fill_method=None, limit=None, freq=None, **kwargs) -> 'ColumnExpr':
         """
         Percentage change between current and prior element (lazy).
 
@@ -2236,7 +2660,7 @@ class ColumnExpr:
             **kwargs: Additional arguments
 
         Returns:
-            LazySeries: Lazy wrapper returning percentage change Series
+            ColumnExpr: Lazy wrapper returning percentage change Series
 
         Example:
             >>> ds['value'].pct_change()  # % change from previous
@@ -2247,7 +2671,7 @@ class ColumnExpr:
         if freq is not None:
             pct_kwargs['freq'] = freq
         pct_kwargs.update(kwargs)
-        return LazySeries(self, 'pct_change', **pct_kwargs)
+        return ColumnExpr(source=self, method_name='pct_change', method_kwargs=pct_kwargs)
 
     def rank(
         self,
@@ -2257,7 +2681,7 @@ class ColumnExpr:
         na_option='keep',
         ascending=True,
         pct=False,
-    ):
+    ) -> 'ColumnExpr':
         """
         Compute numerical data ranks along axis (lazy).
 
@@ -2270,24 +2694,26 @@ class ColumnExpr:
             pct: Return ranks as percentile
 
         Returns:
-            LazySeries: Lazy wrapper returning ranks Series
+            ColumnExpr: Lazy wrapper returning ranks Series
 
         Example:
             >>> ds['score'].rank()
             >>> ds['score'].rank(method='dense', ascending=False)
         """
-        return LazySeries(
-            self,
-            'rank',
-            axis=axis,
-            method=method,
-            numeric_only=numeric_only,
-            na_option=na_option,
-            ascending=ascending,
-            pct=pct,
+        return ColumnExpr(
+            source=self,
+            method_name='rank',
+            method_kwargs=dict(
+                axis=axis,
+                method=method,
+                numeric_only=numeric_only,
+                na_option=na_option,
+                ascending=ascending,
+                pct=pct,
+            ),
         )
 
-    def mode(self, dropna: bool = True):
+    def mode(self, dropna: bool = True) -> 'ColumnExpr':
         """
         Return the mode(s) of the column.
 
@@ -2297,7 +2723,7 @@ class ColumnExpr:
             dropna: Don't consider NaN/NaT values (default True)
 
         Returns:
-            LazySeries: Lazy wrapper returning Series containing the mode value(s)
+            ColumnExpr: Lazy wrapper returning Series containing the mode value(s)
 
         Example:
             >>> ds['category'].mode()
@@ -2307,7 +2733,7 @@ class ColumnExpr:
             >>> ds['category'].mode()[0]  # Get first mode value
             'A'
         """
-        return LazySeries(self, 'mode', dropna=dropna)
+        return ColumnExpr(source=self, method_name='mode', method_kwargs=dict(dropna=dropna))
 
     def argmin(self, axis=None, out=None, *, skipna=True, **kwargs):
         """
@@ -2373,7 +2799,7 @@ class ColumnExpr:
 
     # ========== Pandas Series Methods ==========
 
-    def apply(self, func, convert_dtype=True, args=(), **kwargs):
+    def apply(self, func, convert_dtype=True, args=(), **kwargs) -> 'ColumnExpr':
         """
         Apply a function to each element of the column (lazy).
 
@@ -2386,7 +2812,7 @@ class ColumnExpr:
             **kwargs: Additional keyword arguments to pass to func
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with the function applied
+            ColumnExpr: Lazy wrapper returning Series with the function applied
 
         Example:
             >>> ds = DataStore.from_file('data.csv')
@@ -2402,7 +2828,12 @@ class ColumnExpr:
             2    58
             Name: age, dtype: int64
         """
-        return LazySeries(self, 'apply', func, convert_dtype=convert_dtype, args=args, **kwargs)
+        return ColumnExpr(
+            source=self,
+            method_name='apply',
+            method_args=(func,),
+            method_kwargs=dict(convert_dtype=convert_dtype, args=args, **kwargs),
+        )
 
     def value_counts(
         self,
@@ -2411,11 +2842,11 @@ class ColumnExpr:
         ascending: bool = False,
         bins=None,
         dropna: bool = True,
-    ):
+    ) -> 'ColumnExpr':
         """
         Return a Series containing counts of unique values (lazy).
 
-        Returns a LazySeries that executes only when displayed
+        Returns a ColumnExpr that executes only when displayed
         or explicitly converted. This enables:
         - Delayed execution until result is needed
         - Chaining with other operations (e.g., .head(), .plot.pie())
@@ -2429,7 +2860,7 @@ class ColumnExpr:
             dropna: Don't include counts of NaN (default True)
 
         Returns:
-            LazySeries: Lazy wrapper that executes on display
+            ColumnExpr: Lazy wrapper that executes on display
 
         Example:
             >>> ds = DataStore.from_file('data.csv')
@@ -2446,50 +2877,52 @@ class ColumnExpr:
 
             >>> (ds['col'] > 0.5).value_counts().plot.pie()  # Works!
         """
-        return LazySeries(
-            self,
-            'value_counts',
-            normalize=normalize,
-            sort=sort,
-            ascending=ascending,
-            bins=bins,
-            dropna=dropna,
+        return ColumnExpr(
+            source=self,
+            method_name='value_counts',
+            method_kwargs=dict(
+                normalize=normalize,
+                sort=sort,
+                ascending=ascending,
+                bins=bins,
+                dropna=dropna,
+            ),
         )
 
-    def unique(self):
+    def unique(self) -> 'ColumnExpr':
         """
         Return unique values of the column (lazy).
 
-        Returns a LazySeries that executes only when displayed.
+        Returns a ColumnExpr that executes only when displayed.
 
         Returns:
-            LazySeries: Lazy wrapper returning unique values
+            ColumnExpr: Lazy wrapper returning unique values
 
         Example:
             >>> ds['category'].unique()  # Lazy
             array(['A', 'B', 'C'], dtype=object)
         """
-        return LazySeries(self, 'unique')
+        return ColumnExpr(source=self, method_name='unique')
 
-    def nunique(self, dropna: bool = True):
+    def nunique(self, dropna: bool = True) -> 'ColumnExpr':
         """
         Return number of unique values (lazy).
 
-        Returns a LazySeries that executes only when displayed.
+        Returns a ColumnExpr that executes only when displayed.
 
         Args:
             dropna: Don't include NaN in the count (default True)
 
         Returns:
-            LazySeries: Lazy wrapper returning count of unique values
+            ColumnExpr: Lazy wrapper returning count of unique values
 
         Example:
             >>> ds['category'].nunique()  # Lazy
             3
         """
-        return LazySeries(self, 'nunique', dropna=dropna)
+        return ColumnExpr(source=self, method_name='nunique', method_kwargs=dict(dropna=dropna))
 
-    def map(self, arg, na_action=None):
+    def map(self, arg, na_action=None) -> 'ColumnExpr':
         """
         Map values of Series according to input mapping or function (lazy).
 
@@ -2498,7 +2931,7 @@ class ColumnExpr:
             na_action: If 'ignore', propagate NaN values without passing to mapping
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with mapped values
+            ColumnExpr: Lazy wrapper returning Series with mapped values
 
         Example:
             >>> ds['grade'].map({'A': 4.0, 'B': 3.0, 'C': 2.0})
@@ -2507,21 +2940,21 @@ class ColumnExpr:
             2    2.0
             Name: grade, dtype: float64
         """
-        return LazySeries(self, 'map', arg, na_action=na_action)
+        return ColumnExpr(source=self, method_name='map', method_args=(arg,), method_kwargs=dict(na_action=na_action))
 
-    def fillna(self, value=None, method=None, axis=None, inplace=False, limit=None):
+    def fillna(self, value=None, method=None, axis=None, inplace=False, limit=None) -> 'ColumnExpr':
         """
         Fill NA/NaN values using pandas (lazy).
 
         Args:
-            value: Value to use to fill holes (can be ColumnExpr, LazyAggregate, or scalar)
+            value: Value to use to fill holes (can be ColumnExpr or scalar)
             method: Method to use for filling holes ('ffill', 'bfill')
             axis: Axis along which to fill (0 or 'index')
             inplace: Not supported, always returns new Series
             limit: Maximum number of consecutive NaN values to fill
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with NA values filled
+            ColumnExpr: Lazy wrapper returning Series with NA values filled
 
         Example:
             >>> ds['value'].fillna(0)
@@ -2530,8 +2963,9 @@ class ColumnExpr:
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
 
-        # LazySeries._execute_if_needed handles ColumnExpr/LazyAggregate values
-        return LazySeries(self, 'fillna', value=value, method=method, axis=axis, limit=limit)
+        return ColumnExpr(
+            source=self, method_name='fillna', method_kwargs=dict(value=value, method=method, axis=axis, limit=limit)
+        )
 
     def fillna_sql(self, value):
         """
@@ -2598,19 +3032,19 @@ class ColumnExpr:
 
         return False
 
-    def dropna(self):
+    def dropna(self) -> 'ColumnExpr':
         """
         Return Series with missing values removed (lazy).
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with NA values removed
+            ColumnExpr: Lazy wrapper returning Series with NA values removed
 
         Example:
             >>> ds['value'].dropna()
         """
-        return LazySeries(self, 'dropna')
+        return ColumnExpr(source=self, method_name='dropna')
 
-    def ffill(self, axis=None, inplace=False, limit=None, limit_area=None):
+    def ffill(self, axis=None, inplace=False, limit=None, limit_area=None) -> 'ColumnExpr':
         """
         Fill NA/NaN values by propagating the last valid observation forward (lazy).
 
@@ -2621,7 +3055,7 @@ class ColumnExpr:
             limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
 
         Returns:
-            LazySeries: Lazy wrapper returning forward-filled Series
+            ColumnExpr: Lazy wrapper returning forward-filled Series
 
         Example:
             >>> ds['value'].ffill()
@@ -2633,9 +3067,9 @@ class ColumnExpr:
         ffill_kwargs = {'axis': axis, 'limit': limit}
         if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
             ffill_kwargs['limit_area'] = limit_area
-        return LazySeries(self, 'ffill', **ffill_kwargs)
+        return ColumnExpr(source=self, method_name='ffill', method_kwargs=ffill_kwargs)
 
-    def bfill(self, axis=None, inplace=False, limit=None, limit_area=None):
+    def bfill(self, axis=None, inplace=False, limit=None, limit_area=None) -> 'ColumnExpr':
         """
         Fill NA/NaN values by propagating the next valid observation backward (lazy).
 
@@ -2646,7 +3080,7 @@ class ColumnExpr:
             limit_area: Restrict filling to 'inside' or 'outside' values (pandas >= 2.1.0)
 
         Returns:
-            LazySeries: Lazy wrapper returning backward-filled Series
+            ColumnExpr: Lazy wrapper returning backward-filled Series
 
         Example:
             >>> ds['value'].bfill()
@@ -2658,11 +3092,11 @@ class ColumnExpr:
         bfill_kwargs = {'axis': axis, 'limit': limit}
         if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
             bfill_kwargs['limit_area'] = limit_area
-        return LazySeries(self, 'bfill', **bfill_kwargs)
+        return ColumnExpr(source=self, method_name='bfill', method_kwargs=bfill_kwargs)
 
     def interpolate(
         self, method='linear', axis=0, limit=None, inplace=False, limit_direction=None, limit_area=None, **kwargs
-    ):
+    ) -> 'ColumnExpr':
         """
         Fill NaN values using an interpolation method (lazy).
 
@@ -2676,7 +3110,7 @@ class ColumnExpr:
             **kwargs: Additional arguments passed to pandas interpolate
 
         Returns:
-            LazySeries: Lazy wrapper returning interpolated Series
+            ColumnExpr: Lazy wrapper returning interpolated Series
 
         Example:
             >>> ds['value'].interpolate()
@@ -2690,9 +3124,9 @@ class ColumnExpr:
         if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
             interp_kwargs['limit_area'] = limit_area
         interp_kwargs.update(kwargs)
-        return LazySeries(self, 'interpolate', **interp_kwargs)
+        return ColumnExpr(source=self, method_name='interpolate', method_kwargs=interp_kwargs)
 
-    def astype(self, dtype, copy=True, errors='raise'):
+    def astype(self, dtype, copy=True, errors='raise') -> 'ColumnExpr':
         """
         Cast to a specified dtype (lazy).
 
@@ -2702,16 +3136,18 @@ class ColumnExpr:
             errors: Control raising of exceptions ('raise' or 'ignore')
 
         Returns:
-            LazySeries: Lazy wrapper returning Series with new dtype
+            ColumnExpr: Lazy wrapper returning Series with new dtype
 
         Example:
             >>> ds['age'].astype(float)
         """
-        return LazySeries(self, 'astype', dtype, copy=copy, errors=errors)
+        return ColumnExpr(
+            source=self, method_name='astype', method_args=(dtype,), method_kwargs=dict(copy=copy, errors=errors)
+        )
 
     def sort_values(
         self, axis=0, ascending=True, inplace=False, kind='quicksort', na_position='last', ignore_index=False, key=None
-    ):
+    ) -> 'ColumnExpr':
         """
         Sort by the values (lazy).
 
@@ -2725,22 +3161,24 @@ class ColumnExpr:
             key: Apply the key function to values before sorting
 
         Returns:
-            LazySeries: Lazy wrapper returning sorted Series
+            ColumnExpr: Lazy wrapper returning sorted Series
         """
         if inplace:
             raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
-        return LazySeries(
-            self,
-            'sort_values',
-            axis=axis,
-            ascending=ascending,
-            kind=kind,
-            na_position=na_position,
-            ignore_index=ignore_index,
-            key=key,
+        return ColumnExpr(
+            source=self,
+            method_name='sort_values',
+            method_kwargs=dict(
+                axis=axis,
+                ascending=ascending,
+                kind=kind,
+                na_position=na_position,
+                ignore_index=ignore_index,
+                key=key,
+            ),
         )
 
-    def head(self, n: int = 5) -> 'LazySeries':
+    def head(self, n: int = 5) -> 'ColumnExpr':
         """
         Return the first n elements (lazy).
 
@@ -2751,15 +3189,15 @@ class ColumnExpr:
             n: Number of elements to return (default 5)
 
         Returns:
-            LazySeries: Lazy wrapper that executes on display
+            ColumnExpr: Lazy wrapper that executes on display
 
         Example:
             >>> ds['age'].head(5)  # Lazy, no execution yet
             >>> print(ds['age'].head(5))  # Triggers execution
         """
-        return LazySeries(self, 'head', n)
+        return ColumnExpr(source=self, method_name='head', method_args=(n,))
 
-    def tail(self, n: int = 5) -> 'LazySeries':
+    def tail(self, n: int = 5) -> 'ColumnExpr':
         """
         Return the last n elements (lazy).
 
@@ -2769,13 +3207,13 @@ class ColumnExpr:
             n: Number of elements to return (default 5)
 
         Returns:
-            LazySeries: Lazy wrapper that executes on display
+            ColumnExpr: Lazy wrapper that executes on display
 
         Example:
             >>> ds['age'].tail(5)  # Lazy, no execution yet
             >>> print(ds['age'].tail(5))  # Triggers execution
         """
-        return LazySeries(self, 'tail', n)
+        return ColumnExpr(source=self, method_name='tail', method_args=(n,))
 
     # ========== Dynamic Method Delegation ==========
 
@@ -2847,6 +3285,9 @@ class ColumnExprStringAccessor:
 
     def _execute_series(self):
         """Execute the column as a Pandas Series."""
+        from .expressions import Field
+        from .executor import get_executor
+
         ds = self._column_expr._datastore
         col_expr = self._column_expr._expr
 
@@ -2854,16 +3295,24 @@ class ColumnExprStringAccessor:
         df = ds.to_df()
 
         # Get column name from expression
-        col_name = str(col_expr)
+        # For Field expressions, use .name directly to get unquoted column name
+        # str(col_expr) returns SQL representation with quotes (e.g., '"name"')
+        # which won't match df.columns (e.g., 'name')
+        if isinstance(col_expr, Field):
+            col_name = col_expr.name
+        else:
+            col_name = str(col_expr)
 
         # Try to find the column in the DataFrame
         if col_name in df.columns:
             return df[col_name]
 
         # If not found directly, the expression might be complex
-        # In that case, execute a select with this column
-        result = ds.select(col_expr).to_df()
-        return result.iloc[:, 0]
+        # Use executor.execute_expression which preserves row order
+        # by adding __row_idx__ column and ORDER BY clause
+        executor = get_executor()
+        sql_expr = col_expr.to_sql(quote_char='"')
+        return executor.execute_expression(sql_expr, df)
 
     def cat(self, others=None, sep=None, na_rep=None, join='left'):
         """
@@ -3136,601 +3585,6 @@ class ColumnExprDateTimeAccessor:
 # - (ds['a'] > 0) & (ds['b'] < 10)  # Works
 # See ARCHITECTURE_PROPOSAL.md for design rationale.
 
-
-class LazyAggregate:
-    """
-    A lazy aggregate expression that executes only when displayed.
-
-    This class allows aggregate methods like mean(), sum() to return an object
-    that:
-    1. In notebooks/REPL: Displays the computed result when __repr__ is called
-    2. In agg(): Can be recognized as an Expression and used for SQL building
-    3. With groupby: Returns a Series with group keys as index
-    4. Without groupby: Returns a scalar value
-
-    This design allows both:
-    - ds.groupby('x')['col'].mean()  -> displays Series
-    - ds.groupby('x').agg(avg=ds['col'].mean())  -> uses Expression for SQL
-    """
-
-    def __init__(
-        self, column_expr: ColumnExpr, agg_func_name: str, pandas_agg_func: str = None, skipna: bool = True, **kwargs
-    ):
-        """
-        Initialize a lazy aggregate.
-
-        Args:
-            column_expr: The ColumnExpr being aggregated
-            agg_func_name: SQL aggregate function name (e.g., 'avg', 'sum')
-            pandas_agg_func: Pandas aggregation method name (e.g., 'mean', 'sum')
-            skipna: Whether to skip NaN values
-            **kwargs: Additional arguments for the aggregation
-        """
-        self._column_expr = column_expr
-        self._agg_func_name = agg_func_name
-        self._pandas_agg_func = pandas_agg_func or agg_func_name
-        self._skipna = skipna
-        self._kwargs = kwargs
-
-        # Capture groupby fields from ColumnExpr (if any) to avoid polluting DataStore state
-        self._groupby_fields = column_expr._groupby_fields.copy() if column_expr._groupby_fields else []
-
-        # Create the underlying AggregateFunction expression for SQL building
-        from .functions import AggregateFunction
-
-        self._expr = AggregateFunction(agg_func_name, column_expr._expr)
-
-    @property
-    def _datastore(self):
-        """Get the DataStore reference."""
-        return self._column_expr._datastore
-
-    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
-        """Generate SQL for the aggregate expression."""
-        return self._expr.to_sql(quote_char=quote_char, **kwargs)
-
-    def as_(self, alias: str) -> 'LazyAggregate':
-        """Set an alias for this aggregate expression."""
-        self._expr.alias = alias
-        return self
-
-    @property
-    def alias(self):
-        """Get the alias."""
-        return self._expr.alias
-
-    @alias.setter
-    def alias(self, value):
-        """Set the alias."""
-        self._expr.alias = value
-
-    def _execute(self):
-        """
-        Execute the aggregation and return the result.
-
-        Returns:
-            pd.Series if groupby is present, scalar otherwise
-        """
-        # Cache the result to avoid re-execution
-        if hasattr(self, '_cached_result'):
-            return self._cached_result
-
-        datastore = self._column_expr._datastore
-
-        # Check if we have groupby fields (from LazyGroupBy, stored in self._groupby_fields)
-        if self._groupby_fields:
-            # Set groupby fields on datastore temporarily for _aggregate_with_groupby
-            # This will be cleared by _aggregate_with_groupby after execution
-            datastore._groupby_fields = self._groupby_fields.copy()
-            result = self._column_expr._aggregate_with_groupby(
-                self._agg_func_name, self._pandas_agg_func, skipna=self._skipna
-            )
-        else:
-            # No groupby - compute scalar value
-            series = self._column_expr._execute()
-            agg_method = getattr(series, self._pandas_agg_func)
-            result = agg_method(**self._kwargs)
-
-        self._cached_result = result
-        return result
-
-    # Proxy attributes to the executed result (for Series-like behavior)
-    @property
-    def index(self):
-        """Get the index of the result (for Series)."""
-        result = self._execute()
-        if hasattr(result, 'index'):
-            return result.index
-        raise AttributeError("Scalar result has no 'index' attribute")
-
-    @property
-    def values(self):
-        """Get the values of the result."""
-        result = self._execute()
-        if hasattr(result, 'values'):
-            return result.values
-        return result
-
-    @property
-    def name(self):
-        """Get the name of the result Series."""
-        result = self._execute()
-        if hasattr(result, 'name'):
-            return result.name
-        return None
-
-    @property
-    def dtype(self):
-        """Get the dtype of the result."""
-        result = self._execute()
-        if hasattr(result, 'dtype'):
-            return result.dtype
-        import numpy as np
-
-        return np.dtype(type(result))
-
-    def tolist(self):
-        """Convert to list."""
-        result = self._execute()
-        if hasattr(result, 'tolist'):
-            return result.tolist()
-        return [result]
-
-    def to_pandas(self) -> pd.Series:
-        """
-        Convert to pandas Series (executes the aggregation).
-
-        This provides pandas API compatibility for users who need
-        a true pd.Series object for type checking or interoperability.
-
-        Returns:
-            pd.Series: The aggregated result as a pandas Series
-        """
-        result = self._execute()
-        if isinstance(result, pd.Series):
-            return result
-        # For scalar results, wrap in a Series
-        return pd.Series([result], name=self._column_expr._get_column_name())
-
-    def to_series(self) -> pd.Series:
-        """Alias for to_pandas(). Returns the result as a pandas Series."""
-        return self.to_pandas()
-
-    def __len__(self):
-        """Get length of the result."""
-        result = self._execute()
-        if hasattr(result, '__len__'):
-            return len(result)
-        return 1
-
-    def __iter__(self):
-        """Iterate over the result."""
-        result = self._execute()
-        if hasattr(result, '__iter__'):
-            return iter(result)
-        return iter([result])
-
-    def __getitem__(self, key):
-        """Support indexing/subscripting like pandas Series."""
-        result = self._execute()
-        if hasattr(result, '__getitem__'):
-            return result[key]
-        raise TypeError(f"'{type(result).__name__}' object is not subscriptable")
-
-    def __repr__(self) -> str:
-        """Display the computed result when shown in notebook/REPL."""
-        try:
-            result = self._execute()
-            return repr(result)
-        except Exception as e:
-            return f"LazyAggregate({self._agg_func_name}({self._column_expr._expr!r})) [Error: {e}]"
-
-    def __str__(self) -> str:
-        """String representation showing the result."""
-        try:
-            result = self._execute()
-            return str(result)
-        except Exception:
-            return f"{self._agg_func_name}({self._column_expr._expr.to_sql()})"
-
-    def _repr_html_(self) -> str:
-        """HTML representation for Jupyter notebooks."""
-        try:
-            result = self._execute()
-            if hasattr(result, '_repr_html_'):
-                return result._repr_html_()
-            return f"<pre>{repr(result)}</pre>"
-        except Exception as e:
-            return f"<pre>LazyAggregate({self._agg_func_name}(...)) [Error: {e}]</pre>"
-
-    # Support numeric operations on the result
-    def __float__(self):
-        """Convert to float (executes the aggregation)."""
-        result = self._execute()
-        return float(result) if not isinstance(result, pd.Series) else float(result.iloc[0])
-
-    def __int__(self):
-        """Convert to int (executes the aggregation)."""
-        result = self._execute()
-        return int(result) if not isinstance(result, pd.Series) else int(result.iloc[0])
-
-    def __array__(self, dtype=None, copy=None):
-        """
-        Support numpy array protocol.
-
-        This allows numpy ufuncs to work with LazyAggregate.
-
-        Args:
-            dtype: Optional dtype for the resulting array
-            copy: If True, ensure the returned array is a copy (numpy 2.0+)
-        """
-        import numpy as np
-
-        result = self._execute()
-        if isinstance(result, pd.Series):
-            # Use to_numpy() to handle categorical/extension dtypes
-            arr = result.to_numpy()
-        elif result is None:
-            arr = np.array([])
-        else:
-            arr = np.array([result])
-        if dtype is not None:
-            arr = arr.astype(dtype)
-        # Handle copy parameter for numpy 2.0+ compatibility
-        if copy:
-            arr = np.array(arr, copy=True)
-        return arr
-
-    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
-        """
-        Support numpy ufuncs on LazyAggregate.
-
-        Converts to scalar before applying the ufunc.
-        """
-        import numpy as np
-
-        # Convert LazyAggregate inputs to actual values
-        converted_inputs = []
-        for inp in inputs:
-            if isinstance(inp, LazyAggregate):
-                result = inp._execute()
-                if isinstance(result, pd.Series):
-                    converted_inputs.append(result.values)
-                else:
-                    converted_inputs.append(result)
-            else:
-                converted_inputs.append(inp)
-        return getattr(ufunc, method)(*converted_inputs, **kwargs)
-
-    # Comparison operators (execute and compare)
-    def __eq__(self, other):
-        """
-        Compare LazyAggregate with another value.
-
-        If other is a pandas Series or another lazy object, performs
-        value comparison and returns bool.
-
-        Otherwise, performs element-wise comparison.
-        """
-        import numpy as np
-
-        result = self._execute()
-
-        # Unwrap other if it's a lazy object
-        if isinstance(other, (ColumnExpr, LazyAggregate)):
-            other = other._execute() if hasattr(other, '_execute') else other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
-
-        # Value comparison with pandas Series
-        if isinstance(result, pd.Series) and isinstance(other, pd.Series):
-            return self._compare_series(result, other)
-
-        return result == other
-
-    def __ne__(self, other):
-        result = self._execute()
-
-        # Unwrap other if it's a lazy object
-        if isinstance(other, (ColumnExpr, LazyAggregate)):
-            other = other._execute() if hasattr(other, '_execute') else other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
-
-        # Value comparison with pandas Series
-        if isinstance(result, pd.Series) and isinstance(other, pd.Series):
-            return not self._compare_series(result, other)
-
-        return result != other
-
-    def _compare_series(self, s1, s2, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
-        """Compare two Series for equality."""
-        import numpy as np
-
-        if len(s1) != len(s2):
-            return False
-
-        s1 = s1.reset_index(drop=True)
-        s2 = s2.reset_index(drop=True)
-
-        # Check null positions
-        null1 = s1.isna()
-        null2 = s2.isna()
-        if not null1.equals(null2):
-            return False
-
-        if null1.all():
-            return True
-
-        vals1 = s1[~null1]
-        vals2 = s2[~null2]
-
-        # Numeric comparison with tolerance
-        if np.issubdtype(s1.dtype, np.number) and np.issubdtype(s2.dtype, np.number):
-            return np.allclose(vals1.values, vals2.values, rtol=rtol, atol=atol, equal_nan=True)
-
-        return list(vals1) == list(vals2)
-
-    def equals(self, other, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
-        """
-        Test whether LazyAggregate contains the same elements as another object.
-
-        Args:
-            other: Series, scalar, or lazy object to compare with
-            rtol: Relative tolerance for float comparison
-            atol: Absolute tolerance for float comparison
-
-        Returns:
-            bool: True if values are equivalent
-        """
-        result = self._execute()
-
-        # Unwrap other
-        if isinstance(other, (ColumnExpr, LazyAggregate)):
-            other = other._execute() if hasattr(other, '_execute') else other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
-
-        if isinstance(result, pd.Series) and isinstance(other, pd.Series):
-            return self._compare_series(result, other, rtol, atol)
-
-        return result == other
-
-    def __lt__(self, other):
-        """Element-wise less-than (lazy)."""
-        return LazySeries(self, '__lt__', other)
-
-    def __le__(self, other):
-        """Element-wise less-than-or-equal (lazy)."""
-        return LazySeries(self, '__le__', other)
-
-    def __gt__(self, other):
-        """Element-wise greater-than (lazy)."""
-        return LazySeries(self, '__gt__', other)
-
-    def __ge__(self, other):
-        """Element-wise greater-than-or-equal (lazy)."""
-        return LazySeries(self, '__ge__', other)
-
-    # ========== Pandas-compatible comparison methods ==========
-
-    def equals(self, other) -> bool:
-        """
-        Test whether two objects contain the same elements.
-
-        This method allows you to compare a LazyAggregate with a pd.Series
-        or another LazyAggregate and returns a single boolean.
-
-        Args:
-            other: The other object to compare with (Series, LazyAggregate, etc.)
-
-        Returns:
-            bool: True if objects are equal, False otherwise
-
-        Example:
-            >>> ds_result = ds.groupby('col')['val'].mean()
-            >>> pd_result = df.groupby('col')['val'].mean()
-            >>> ds_result.equals(pd_result)  # True if equal
-        """
-        result = self._execute()
-        if hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_get_result'):
-            other = other._get_result()
-
-        if hasattr(result, 'equals'):
-            return result.equals(other)
-        return result == other
-
-    def eq(self, other):
-        """
-        Element-wise equality comparison.
-
-        Returns a boolean Series showing element-wise equality.
-        """
-        result = self._execute()
-        if hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_get_result'):
-            other = other._get_result()
-
-        if hasattr(result, 'eq'):
-            return result.eq(other)
-        return result == other
-
-    def compare(self, other, **kwargs):
-        """
-        Compare to another Series and show differences.
-
-        Returns a DataFrame with differences between the two objects.
-        """
-        result = self._execute()
-        if hasattr(other, '_execute'):
-            other = other._execute()
-        elif hasattr(other, '_get_result'):
-            other = other._get_result()
-
-        if hasattr(result, 'compare'):
-            return result.compare(other, **kwargs)
-        raise TypeError(f"Cannot compare {type(result)} with compare()")
-
-    def to_series(self) -> pd.Series:
-        """
-        Execute and return the result as a pandas Series.
-
-        This is useful when you need an actual pd.Series for compatibility
-        with pandas testing functions or other pandas-specific operations.
-
-        Returns:
-            pd.Series: The executed result
-
-        Example:
-            >>> ds_result = ds.groupby('col')['val'].mean()
-            >>> pd.testing.assert_series_equal(ds_result.to_series(), expected)
-        """
-        result = self._execute()
-        if isinstance(result, pd.Series):
-            return result
-        # Scalar - wrap in Series
-        return pd.Series([result])
-
-    # ========== Chaining Methods (return LazySeries) ==========
-    def sort_values(
-        self, ascending=True, inplace=False, kind='quicksort', na_position='last', ignore_index=False, key=None
-    ):
-        """Sort by the values (lazy)."""
-        return LazySeries(
-            self,
-            'sort_values',
-            ascending=ascending,
-            kind=kind,
-            na_position=na_position,
-            ignore_index=ignore_index,
-            key=key,
-        )
-
-    def reset_index(self, level=None, drop=False, name=None, inplace=False, allow_duplicates=False):
-        """Reset the index (lazy)."""
-        return LazySeries(self, 'reset_index', level=level, drop=drop, name=name, allow_duplicates=allow_duplicates)
-
-    def head(self, n: int = 5):
-        """Return the first n elements (lazy)."""
-        return LazySeries(self, 'head', n)
-
-    def tail(self, n: int = 5):
-        """Return the last n elements (lazy)."""
-        return LazySeries(self, 'tail', n)
-
-    def nlargest(self, n: int = 5, keep: str = 'first'):
-        """Return the largest n elements (lazy)."""
-        return LazySeries(self, 'nlargest', n=n, keep=keep)
-
-    def nsmallest(self, n: int = 5, keep: str = 'first'):
-        """Return the smallest n elements (lazy)."""
-        return LazySeries(self, 'nsmallest', n=n, keep=keep)
-
-    def sort_index(self, ascending: bool = True, na_position: str = 'last'):
-        """Sort by the index (lazy)."""
-        return LazySeries(self, 'sort_index', ascending=ascending, na_position=na_position)
-
-    def fillna(self, value=None, method=None, axis=None, limit=None):
-        """Fill NA/NaN values (lazy)."""
-        return LazySeries(self, 'fillna', value=value, method=method, axis=axis, limit=limit)
-
-    def dropna(self):
-        """Remove NA/NaN values (lazy)."""
-        return LazySeries(self, 'dropna')
-
-    def apply(self, func, convert_dtype=True, args=(), **kwargs):
-        """Apply a function to each element (lazy)."""
-        return LazySeries(self, 'apply', func, convert_dtype=convert_dtype, args=args, **kwargs)
-
-    def map(self, arg, na_action=None):
-        """Map values according to input mapping (lazy)."""
-        return LazySeries(self, 'map', arg, na_action=na_action)
-
-    def astype(self, dtype, copy=True, errors='raise'):
-        """Cast to a specified dtype (lazy)."""
-        return LazySeries(self, 'astype', dtype, copy=copy, errors=errors)
-
-    def drop_duplicates(self, keep='first'):
-        """Remove duplicate values (lazy)."""
-        return LazySeries(self, 'drop_duplicates', keep=keep)
-
-    def value_counts(self, normalize=False, sort=True, ascending=False, bins=None, dropna=True):
-        """Return a Series containing counts of unique values (lazy)."""
-        return LazySeries(
-            self, 'value_counts', normalize=normalize, sort=sort, ascending=ascending, bins=bins, dropna=dropna
-        )
-
-    # Arithmetic operators (lazy - return LazySeries)
-    def __add__(self, other):
-        return LazySeries(self, '__add__', other)
-
-    def __radd__(self, other):
-        return LazySeries(self, '__radd__', other)
-
-    def __sub__(self, other):
-        return LazySeries(self, '__sub__', other)
-
-    def __rsub__(self, other):
-        return LazySeries(self, '__rsub__', other)
-
-    def __mul__(self, other):
-        return LazySeries(self, '__mul__', other)
-
-    def __rmul__(self, other):
-        return LazySeries(self, '__rmul__', other)
-
-    def __truediv__(self, other):
-        return LazySeries(self, '__truediv__', other)
-
-    def __rtruediv__(self, other):
-        return LazySeries(self, '__rtruediv__', other)
-
-    def __floordiv__(self, other):
-        return LazySeries(self, '__floordiv__', other)
-
-    def __rfloordiv__(self, other):
-        return LazySeries(self, '__rfloordiv__', other)
-
-    def __mod__(self, other):
-        return LazySeries(self, '__mod__', other)
-
-    def __rmod__(self, other):
-        return LazySeries(self, '__rmod__', other)
-
-    def __pow__(self, other):
-        return LazySeries(self, '__pow__', other)
-
-    def __rpow__(self, other):
-        return LazySeries(self, '__rpow__', other)
-
-    def __round__(self, ndigits: int = None) -> 'ColumnExpr':
-        """
-        Support Python's built-in round() function.
-
-        Returns a ColumnExpr wrapping round(agg_func(...), ndigits) for SQL.
-
-        Args:
-            ndigits: Number of decimal places to round to (default 0)
-
-        Returns:
-            ColumnExpr: Expression for round(aggregate, ndigits)
-        """
-        from .functions import Function
-
-        if ndigits is None:
-            round_expr = Function('round', self._expr)
-        else:
-            from .expressions import Literal
-
-            round_expr = Function('round', self._expr, Literal(ndigits))
-
-        return ColumnExpr(round_expr, self._column_expr._datastore)
+# NOTE: LazyAggregate has been removed and merged into ColumnExpr.
+# Aggregation methods (mean, sum, etc.) now return ColumnExpr in 'agg' mode.
+# This simplifies the type system: users always get ColumnExpr from column operations.

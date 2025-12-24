@@ -140,13 +140,11 @@ class LazyGroupBy:
         Returns:
             pd.DataFrame for pandas-style, DataStore for SQL-style
         """
-        from .column_expr import ColumnExpr, LazyAggregate
+        from .column_expr import ColumnExpr
         from .functions import AggregateFunction
 
         # Check if we have SQL-style keyword arguments with expressions
-        has_sql_agg = any(
-            isinstance(v, (Expression, ColumnExpr, AggregateFunction, LazyAggregate)) for v in kwargs.values()
-        )
+        has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())
 
         if has_sql_agg:
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)

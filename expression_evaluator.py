@@ -93,22 +93,44 @@ class ExpressionEvaluator:
         """
         from .functions import Function, CastFunction
         from .function_executor import function_config
-        from .column_expr import ColumnExpr, LazyAggregate
+        from .column_expr import ColumnExpr
         from .lazy_result import LazySeries
 
-        # Handle ColumnExpr - unwrap to get the underlying expression
-        if isinstance(expr, ColumnExpr):
-            return self.evaluate(expr._expr)
+        # Helper to check if something is a lazy object
+        def _is_lazy(obj):
+            return isinstance(obj, ColumnExpr) or isinstance(obj, LazySeries) or hasattr(obj, '_execute')
 
-        # Handle LazyAggregate - evaluate using current df context
-        # to avoid recursion when inside DataStore._execute
-        if isinstance(expr, LazyAggregate):
-            # Get the underlying column expression and evaluate it
-            source_series = self.evaluate(expr._column_expr)
-            # Apply the aggregate method
-            agg_method = getattr(source_series, expr._pandas_agg_func)
-            result = agg_method(**expr._kwargs)
-            return result
+        # Handle ColumnExpr - check execution mode
+        if isinstance(expr, ColumnExpr):
+            if expr._exec_mode == 'expr' and expr._expr is not None:
+                # Expression mode - unwrap and evaluate
+                return self.evaluate(expr._expr)
+            elif expr._exec_mode == 'method' and expr._source is not None:
+                # Method mode - evaluate source and call method
+                source_series = self.evaluate(expr._source)
+                if source_series is None:
+                    return None
+                # Execute arguments
+                args = tuple(self.evaluate(arg) if _is_lazy(arg) else arg for arg in expr._method_args)
+                kwargs = {k: self.evaluate(v) if _is_lazy(v) else v for k, v in expr._method_kwargs.items()}
+                # Call the method
+                if hasattr(source_series, expr._method_name):
+                    method = getattr(source_series, expr._method_name)
+                    return method(*args, **kwargs)
+                return source_series
+            elif expr._exec_mode == 'agg' and expr._source is not None:
+                # Aggregation mode - evaluate source and apply aggregation
+                source_series = self.evaluate(expr._source)
+                if source_series is None:
+                    return None
+                agg_method = getattr(source_series, expr._pandas_agg_func)
+                return agg_method()
+            elif expr._exec_mode == 'executor' and expr._executor is not None:
+                # Executor mode - call the executor
+                return expr._executor()
+            else:
+                # Fallback - try to execute directly
+                return expr._execute()
 
         # Handle LazySeries - evaluate the underlying column expr first
         # to avoid circular execution, then apply the method
@@ -119,7 +141,7 @@ class ExpressionEvaluator:
 
             # Helper to execute lazy arguments
             def _execute_arg(arg):
-                if isinstance(arg, (ColumnExpr, LazySeries, LazyAggregate)):
+                if _is_lazy(arg):
                     result = self.evaluate(arg)
                     # If it's a single-value Series, extract scalar for fillna-like operations
                     if isinstance(result, pd.Series) and len(result) == 1:
@@ -728,11 +750,6 @@ class ExpressionEvaluator:
         # For functions like upper(name), the series name should be 'name', not '__result__'
         if original_name and hasattr(result, 'name'):
             result = result.rename(original_name)
-
-        # Convert uint64 to int64 to match pandas behavior
-        # (chDB returns uint64 for count, length etc., but pandas uses int64)
-        if hasattr(result, 'dtype') and result.dtype == 'uint64':
-            result = result.astype('int64')
 
         return result
 

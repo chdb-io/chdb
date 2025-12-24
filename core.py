@@ -833,6 +833,26 @@ class DataStore(PandasCompatMixin):
                                 # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
                                 from .functions import AggregateFunction
 
+                                # Determine if we need compound aliases (col_func) to avoid duplicates
+                                # This happens when:
+                                # 1. Multiple columns have multi-func (list) aggregations, OR
+                                # 2. Any function name appears for more than one column
+                                has_multi_col = len(groupby_agg_op.agg_dict) > 1
+                                has_any_multi_func = any(
+                                    isinstance(f, (list, tuple)) for f in groupby_agg_op.agg_dict.values()
+                                )
+                                # Check for function name conflicts across columns
+                                all_funcs = []
+                                for col, funcs in groupby_agg_op.agg_dict.items():
+                                    if isinstance(funcs, str):
+                                        all_funcs.append(funcs)
+                                    else:
+                                        all_funcs.extend(funcs)
+                                has_func_conflict = len(all_funcs) != len(set(all_funcs))
+
+                                # Use compound alias when there's potential for duplicate aliases
+                                use_compound_alias = has_multi_col and (has_any_multi_func or has_func_conflict)
+
                                 for col, funcs in groupby_agg_op.agg_dict.items():
                                     is_multi_func = isinstance(funcs, (list, tuple))
                                     if isinstance(funcs, str):
@@ -852,9 +872,16 @@ class DataStore(PandasCompatMixin):
                                             'last': 'anyLast',
                                         }
                                         sql_func = sql_func_map.get(func, func)
-                                        # For multi-func agg: use func name as alias
-                                        # For single-func agg: use column name as alias (pandas compatibility)
-                                        alias = func if is_multi_func else col
+                                        # Alias strategy:
+                                        # - Compound alias (col_func): when multiple columns with potential conflicts
+                                        # - Function name only: single column with multi-func
+                                        # - Column name only: single function per column, no conflicts
+                                        if use_compound_alias:
+                                            alias = f"{col}_{func}"
+                                        elif is_multi_func:
+                                            alias = func
+                                        else:
+                                            alias = col
                                         agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
                                         select_fields_for_sql.append(agg_expr)
                             elif groupby_agg_op.agg_func:
@@ -3175,14 +3202,12 @@ class DataStore(PandasCompatMixin):
         Returns:
             DataStore with aggregation applied
         """
-        from .column_expr import ColumnExpr, LazyAggregate
+        from .column_expr import ColumnExpr
         from .functions import AggregateFunction
         from .lazy_ops import LazySQLQuery
 
         # Check if we have SQL-style keyword arguments with expressions
-        has_sql_agg = any(
-            isinstance(v, (Expression, ColumnExpr, AggregateFunction, LazyAggregate)) for v in kwargs.values()
-        )
+        has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())
 
         if has_sql_agg or (func is None and kwargs and not args):
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)
@@ -3197,10 +3222,7 @@ class DataStore(PandasCompatMixin):
 
             # Add aggregate expressions with aliases
             for alias, expr in kwargs.items():
-                if isinstance(expr, LazyAggregate):
-                    # Unwrap LazyAggregate to get underlying AggregateFunction
-                    expr = expr._expr
-                elif isinstance(expr, ColumnExpr):
+                if isinstance(expr, ColumnExpr):
                     # Unwrap ColumnExpr to get underlying expression
                     expr = expr._expr
                 if isinstance(expr, Expression):

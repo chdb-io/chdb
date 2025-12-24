@@ -22,7 +22,7 @@ import pandas as pd
 import numpy as np
 
 if TYPE_CHECKING:
-    from .column_expr import ColumnExpr, LazyAggregate
+    from .column_expr import ColumnExpr
     from .core import DataStore
     from .expressions import Field
     from .conditions import Condition
@@ -307,7 +307,7 @@ class LazySeries:
             return self._cached_result
 
         # Method mode: execute column_expr and call method
-        from .column_expr import ColumnExpr, LazyAggregate
+        from .column_expr import ColumnExpr
         from .expressions import Field
 
         # Execute any ColumnExpr in args or kwargs
@@ -355,12 +355,8 @@ class LazySeries:
 
             return self._cached_result
 
-        if isinstance(self._column_expr, LazyAggregate):
-            series = self._column_expr._execute()
-        elif isinstance(self._column_expr, LazySeries):
-            series = self._column_expr._execute()
-        else:
-            series = self._column_expr._execute()
+        # Execute the column expression - handles ColumnExpr, LazySeries, and any object with _execute
+        series = self._column_expr._execute()
 
         # Handle special _dt_* methods for datetime operations (pandas fallback)
         if self._method_name.startswith('_dt_'):
@@ -394,16 +390,9 @@ class LazySeries:
         return self._cached_result
 
     def _execute_if_needed(self, value: Any) -> Any:
-        """Execute ColumnExpr, LazySeries, or LazyAggregate arguments if needed."""
-        from .column_expr import ColumnExpr, LazyAggregate
+        """Execute ColumnExpr, LazySeries arguments if needed."""
+        from .column_expr import ColumnExpr
 
-        if isinstance(value, LazyAggregate):
-            # Execute LazyAggregate to get the result
-            result = value._execute()
-            # If it's a single-value Series, extract scalar for fillna-like operations
-            if isinstance(result, pd.Series) and len(result) == 1:
-                return result.iloc[0]
-            return result
         if isinstance(value, ColumnExpr):
             result = value._execute()
             # If it's a single-value Series, extract scalar for fillna-like operations

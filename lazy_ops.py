@@ -109,8 +109,21 @@ class LazyColumnAssignment(LazyOp):
         from .lazy_result import LazySeries
 
         if isinstance(self.expr, ColumnExpr):
-            # Use underlying expression's SQL, don't call repr (would execute)
-            expr_str = self.expr._expr.to_sql(quote_char='"')
+            # Handle different ColumnExpr modes
+            if self.expr._expr is not None:
+                # Expression mode - use SQL representation
+                expr_str = self.expr._expr.to_sql(quote_char='"')
+            elif self.expr._method_name is not None:
+                # Method mode - show method name
+                expr_str = f"<ColumnExpr: {self.expr._method_name}()>"
+            elif self.expr._agg_func_name is not None:
+                # Aggregation mode - show aggregation function
+                expr_str = f"<ColumnExpr: {self.expr._agg_func_name}()>"
+            elif self.expr._executor is not None:
+                # Executor mode
+                expr_str = "<ColumnExpr: executor>"
+            else:
+                expr_str = "<ColumnExpr>"
         elif isinstance(self.expr, Expression):
             expr_str = self.expr.to_sql(quote_char='"')
         elif isinstance(self.expr, LazySeries):
