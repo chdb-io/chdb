@@ -373,6 +373,17 @@ class TestQueryPy(unittest.TestCase):
         self.assertEqual(result_utc[1], pd.Timestamp('2024-06-15', tz='UTC'))
         self.assertEqual(result_utc[2], pd.Timestamp('2024-12-31', tz='UTC'))
 
+    def test_query_empty_df(self):
+        df = pd.DataFrame({'str_col': pd.Series([], dtype=object)})
+        ret = chdb.query("SELECT * FROM Python(df)", 'DataFrame')
+        self.assertEqual(len(ret), 0)
+        self.assertIn('str_col', ret.columns)
+
+        df = pd.DataFrame({'int_col': pd.Series([], dtype='int64')})
+        ret = chdb.query("SELECT * FROM Python(df)", 'DataFrame')
+        self.assertEqual(len(ret), 0)
+        self.assertIn('int_col', ret.columns)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=3)
