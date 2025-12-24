@@ -22,7 +22,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         })
         print('str_col dtype:', df['str_col'].dtype)
 
-        result = self.conn.query('SELECT str_col, isNull(str_col) as is_null FROM Python(df)', 'DataFrame')
+        result = self.conn.query('SELECT str_col, isNull(str_col) as is_null FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -51,7 +51,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         print('float_col2 dtype:', df['float_col2'].dtype)
 
 
-        result = self.conn.query('SELECT float_col1, float_col2, isNull(float_col1) as is_null1, isNull(float_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        result = self.conn.query('SELECT float_col1, float_col2, isNull(float_col1) as is_null1, isNull(float_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -97,7 +97,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         print('int_col1 dtype:', df['int_col1'].dtype)
         print('int_col2 dtype:', df['int_col2'].dtype)
 
-        result = self.conn.query('SELECT int_col1, int_col2, isNull(int_col1) as is_null1, isNull(int_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        result = self.conn.query('SELECT int_col1, int_col2, isNull(int_col1) as is_null1, isNull(int_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -139,7 +139,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         print('mixed_col1 dtype:', df['mixed_col1'].dtype)
         print('mixed_col2 dtype:', df['mixed_col2'].dtype)
 
-        result = self.conn.query('SELECT mixed_col1, mixed_col2, isNull(mixed_col1) as is_null1, isNull(mixed_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        result = self.conn.query('SELECT mixed_col1, mixed_col2, isNull(mixed_col1) as is_null1, isNull(mixed_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -174,13 +174,14 @@ class TestDataFrameNullHandling(unittest.TestCase):
     def test_datetime_nan_is_null(self):
         """Test that Null in datetime column is recognized as NULL"""
         df = pd.DataFrame({
+            'int_col': [1, 2, 3, 4, 5, 6],
             'dt_col1': [pd.Timestamp('2024-01-01'), pd.NaT, pd.NaT, None, None, pd.Timestamp('2024-01-06')],  # datetime64[ns]
             'dt_col2': [np.datetime64('2024-01-02'), np.datetime64('NaT'), np.datetime64('NaT'), np.datetime64('NaT'), np.datetime64('NaT'), np.datetime64('2024-01-07')],  # datetime64[ns]
         })
         print('dt_col1 dtype:', df['dt_col1'].dtype)
         print('dt_col2 dtype:', df['dt_col2'].dtype)
 
-        result = self.conn.query('SELECT dt_col1, dt_col2, isNull(dt_col1) as is_null1, isNull(dt_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        result = self.conn.query('SELECT dt_col1, dt_col2, isNull(dt_col1) as is_null1, isNull(dt_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -215,12 +216,13 @@ class TestDataFrameNullHandling(unittest.TestCase):
     def test_json_nan_is_null(self):
         """Test that Null in JSON column is recognized as NULL"""
         df = pd.DataFrame({
+            'int_col': [1, 2, 3, 4, 5, 6],
             'json_col1': [{'a': 1}, np.nan, pd.NaT, None, pd.NA, {'b': 2}],
         })
 
         print('json_col1 dtype:', df['json_col1'].dtype)
 
-        result = self.conn.query('SELECT json_col1.a as a, isNull(json_col1) as is_null1 FROM Python(df)', 'DataFrame')
+        result = self.conn.query('SELECT json_col1.a as a, isNull(json_col1) as is_null1 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
