@@ -790,4 +790,429 @@ class LazySQLQuery(LazyOp):
         return 'chDB'
 
 
+class LazyFilter(LazyOp):
+    """
+    Lazy groupby filter operation.
+
+    Filters groups based on a callable that takes a group DataFrame and returns bool.
+    This operation requires groupby_cols and cannot be pushed to SQL.
+
+    Note: This is different from pandas DataFrame.filter() which is for column selection.
+    For row filtering, use boolean indexing via DataStore.filter(condition).
+
+    Example:
+        ds.groupby('category').filter(lambda x: x['value'].mean() > 35)
+    """
+
+    def __init__(self, func, groupby_cols: List[str]):
+        """
+        Args:
+            func: Callable that takes a group DataFrame and returns True/False
+            groupby_cols: Column names to group by (required)
+        """
+        super().__init__()
+        self.func = func
+        self.groupby_cols = groupby_cols
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute groupby filter on DataFrame."""
+        self._log_execute("Filter", f"groupby={self.groupby_cols}")
+        rows_before = len(df)
+        result = df.groupby(self.groupby_cols).filter(self.func)
+        self._logger.debug("      -> Filtered: %d -> %d rows", rows_before, len(result))
+        return result
+
+    def describe(self) -> str:
+        func_name = getattr(self.func, '__name__', '<lambda>')
+        return f"GroupBy({self.groupby_cols}).filter({func_name})"
+
+    def can_push_to_sql(self) -> bool:
+        # Python callable cannot be pushed to SQL
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
+
+
+class LazyTransform(LazyOp):
+    """
+    Lazy transform operation with optional groupby support.
+
+    When groupby_cols is provided, applies transform within each group.
+    When groupby_cols is None, applies transform to entire DataFrame.
+
+    Example:
+        # With groupby
+        ds.groupby('category').transform(lambda x: x / x.sum())
+
+        # Without groupby
+        ds.transform(lambda x: x * 2)  # Future use
+    """
+
+    def __init__(self, func, *args, groupby_cols: List[str] = None, columns: List[str] = None, **kwargs):
+        """
+        Args:
+            func: Function to apply (callable or string like 'mean', 'sum')
+            groupby_cols: Optional column names to group by
+            columns: Specific columns to transform (None = all applicable)
+            *args: Positional arguments for func
+            **kwargs: Keyword arguments for func
+        """
+        super().__init__()
+        self.func = func
+        self.groupby_cols = groupby_cols
+        self.columns = columns
+        self.args = args
+        self.kwargs = kwargs
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute transform on DataFrame."""
+        func_desc = self.func if isinstance(self.func, str) else getattr(self.func, '__name__', '<callable>')
+
+        if self.groupby_cols:
+            self._log_execute("Transform", f"groupby={self.groupby_cols}, func={func_desc}")
+            grouped = df.groupby(self.groupby_cols)
+
+            if self.columns:
+                result = df.copy()
+                for col in self.columns:
+                    if col in df.columns:
+                        result[col] = grouped[col].transform(self.func, *self.args, **self.kwargs)
+            else:
+                result = grouped.transform(self.func, *self.args, **self.kwargs)
+        else:
+            self._log_execute("Transform", f"func={func_desc}")
+            if self.columns:
+                result = df.copy()
+                for col in self.columns:
+                    if col in df.columns:
+                        result[col] = df[col].transform(self.func, *self.args, **self.kwargs)
+            else:
+                result = df.transform(self.func, *self.args, **self.kwargs)
+
+        self._logger.debug("      -> Transform result shape: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        func_name = self.func if isinstance(self.func, str) else getattr(self.func, '__name__', '<callable>')
+        cols_desc = f"[{', '.join(self.columns)}]" if self.columns else "all"
+        if self.groupby_cols:
+            return f"GroupBy({self.groupby_cols}).transform({func_name}, columns={cols_desc})"
+        return f"transform({func_name}, columns={cols_desc})"
+
+    def can_push_to_sql(self) -> bool:
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
+
+
+class LazyApply(LazyOp):
+    """
+    Lazy apply operation with optional groupby support.
+
+    When groupby_cols is provided, applies function to each group.
+    When groupby_cols is None, applies function to entire DataFrame.
+
+    Example:
+        # With groupby
+        ds.groupby('category').apply(lambda x: x.nlargest(3, 'value'))
+
+        # Without groupby
+        ds.apply(lambda df: df.describe())  # Future use
+    """
+
+    def __init__(self, func, *args, groupby_cols: List[str] = None, **kwargs):
+        """
+        Args:
+            func: Function to apply
+            groupby_cols: Optional column names to group by
+            *args: Positional arguments for func
+            **kwargs: Keyword arguments for func
+        """
+        super().__init__()
+        self.func = func
+        self.groupby_cols = groupby_cols
+        self.args = args
+        self.kwargs = kwargs
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute apply on DataFrame."""
+        func_name = getattr(self.func, '__name__', '<callable>')
+
+        if self.groupby_cols:
+            self._log_execute("Apply", f"groupby={self.groupby_cols}, func={func_name}")
+            result = df.groupby(self.groupby_cols).apply(self.func, *self.args, include_groups=False, **self.kwargs)
+            # Reset index if result has MultiIndex from groupby
+            if isinstance(result.index, pd.MultiIndex):
+                result = result.reset_index(drop=True)
+        else:
+            self._log_execute("Apply", f"func={func_name}")
+            result = df.apply(self.func, *self.args, **self.kwargs)
+            if isinstance(result, pd.Series):
+                result = result.to_frame()
+
+        self._logger.debug("      -> Apply result shape: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        func_name = getattr(self.func, '__name__', '<callable>')
+        if self.groupby_cols:
+            return f"GroupBy({self.groupby_cols}).apply({func_name})"
+        return f"apply({func_name})"
+
+    def can_push_to_sql(self) -> bool:
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
+
+
+# Aliases for backward compatibility
+LazyGroupByFilter = LazyFilter
+LazyGroupByTransform = LazyTransform
+LazyGroupByApply = LazyApply
+
+
+class LazyWhere(LazyOp):
+    """
+    Lazy where operation: keep values where condition is True, replace with other where False.
+
+    This is the pandas-style where (element-wise conditional replacement),
+    NOT SQL WHERE (row filtering).
+
+    SQL pushdown is possible when:
+    1. Condition is SQL-compatible (Condition object)
+    2. other is a scalar value
+    3. All column names are known
+
+    SQL equivalent:
+        SELECT CASE WHEN cond THEN col ELSE other END AS col, ... FROM table
+
+    Example:
+        ds.where(ds['value'] > 100, 0)  # Keep where value > 100, else 0
+    """
+
+    def __init__(self, condition, other, columns: List[str] = None):
+        """
+        Args:
+            condition: Condition object or ColumnExpr containing condition
+            other: Value to use where condition is False
+            columns: Column names for SQL pushdown (optional, inferred at execution)
+        """
+        super().__init__()
+        self.condition = condition
+        self.other = other
+        self.columns = columns
+        self._is_mask = False  # Subclass sets this to True
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute where operation on DataFrame."""
+        from .expression_evaluator import ExpressionEvaluator
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+
+        op_name = "Mask" if self._is_mask else "Where"
+        self._log_execute(op_name, f"other={self.other}")
+
+        # Evaluate condition to boolean Series
+        cond = self.condition
+        if isinstance(cond, ColumnExpr):
+            cond_expr = cond._expr
+            evaluator = ExpressionEvaluator(df, context)
+            bool_series = evaluator.evaluate(cond_expr)
+        elif isinstance(cond, Condition):
+            evaluator = ExpressionEvaluator(df, context)
+            bool_series = evaluator.evaluate(cond)
+        elif isinstance(cond, pd.Series):
+            bool_series = cond
+        else:
+            # Try to use as-is (numpy array, etc.)
+            bool_series = cond
+
+        # Apply where or mask
+        if self._is_mask:
+            result = df.mask(bool_series, self.other)
+        else:
+            result = df.where(bool_series, self.other)
+
+        self._logger.debug("      -> %s result shape: %s", op_name, result.shape)
+        return result
+
+    def describe(self) -> str:
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+
+        op_name = "mask" if self._is_mask else "where"
+
+        # Describe condition
+        cond = self.condition
+        if isinstance(cond, ColumnExpr):
+            cond_str = str(cond._expr) if hasattr(cond, '_expr') else str(cond)
+        elif isinstance(cond, Condition):
+            try:
+                cond_str = cond.to_sql(quote_char='"')
+            except Exception:
+                cond_str = str(cond)
+        else:
+            cond_str = str(type(cond).__name__)
+
+        return f"{op_name}({cond_str}, other={self.other})"
+
+    def can_push_to_sql(self, schema: Dict[str, str] = None) -> bool:
+        """
+        Check if this where can be pushed to SQL.
+
+        SQL pushdown requires:
+        1. function_config allows chDB for 'where'/'mask'
+        2. Condition must be SQL-compatible
+        3. other must be a scalar
+        4. Type compatibility between other and columns (no NO_COMMON_TYPE errors)
+
+        Args:
+            schema: Optional dict mapping column names to types for type-aware checking
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .function_executor import function_config
+
+        # Check function_config - respect user's engine preference
+        func_name = 'mask' if self._is_mask else 'where'
+        if not function_config.should_use_chdb(func_name):
+            return False
+
+        # Check if condition is SQL-compatible
+        cond = self.condition
+        if isinstance(cond, ColumnExpr):
+            cond = cond._expr if hasattr(cond, '_expr') else None
+
+        if not isinstance(cond, Condition):
+            return False
+
+        # Check if other is a scalar (not DataFrame/Series)
+        if isinstance(self.other, (pd.DataFrame, pd.Series)):
+            return False
+
+        # Type compatibility check when schema is available
+        if schema and not self._is_type_compatible_with_schema(schema):
+            return False
+
+        # Scalar other - can push to SQL
+        return True
+
+    def _is_type_compatible_with_schema(self, schema: Dict[str, str]) -> bool:
+        """
+        Check if 'other' type is compatible with all columns in the schema.
+
+        ClickHouse SQL has strict type requirements. These combinations cause NO_COMMON_TYPE errors:
+        1. String 'other' + numeric column (Int64/Float64)
+        2. Float 'other' + Int column (without explicit cast)
+        3. Int 'other' + String column (handled by Variant type - OK)
+
+        Args:
+            schema: Dict mapping column names to types
+
+        Returns:
+            True if type combination is SQL-compatible, False if should fall back to Pandas
+        """
+        other = self.other
+
+        # None/NaN are always compatible (become NULL)
+        if other is None or (isinstance(other, float) and pd.isna(other)):
+            return True
+
+        # Detect column types
+        has_string_col = False
+        has_int_col = False
+        has_float_col = False
+
+        for col_type in schema.values():
+            col_type_lower = col_type.lower()
+            if any(t in col_type_lower for t in ('string', 'fixedstring', 'enum', 'uuid')):
+                has_string_col = True
+            elif any(t in col_type_lower for t in ('float', 'double', 'decimal')):
+                has_float_col = True
+            elif any(t in col_type_lower for t in ('int', 'uint')):
+                has_int_col = True
+
+        # Case 1: String 'other' - incompatible with numeric columns
+        if isinstance(other, str):
+            if has_int_col or has_float_col:
+                return False  # Would cause NO_COMMON_TYPE
+
+        # Case 2: Float 'other' + Int column - ClickHouse doesn't auto-convert
+        if isinstance(other, float) and has_int_col:
+            return False  # Would cause NO_COMMON_TYPE
+
+        # Case 3: Int 'other' + String column - handled by Variant type (OK)
+        # This is the case we already handle with Variant(String, Int64)
+
+        return True
+
+    def get_sql_case_when(self, columns: List[str], quote_char: str = '"') -> Dict[str, str]:
+        """
+        Generate SQL CASE WHEN expressions for each column.
+
+        Args:
+            columns: List of column names to transform
+            quote_char: Quote character for identifiers
+
+        Returns:
+            Dict mapping column names to CASE WHEN expressions
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+
+        # Get condition SQL
+        cond = self.condition
+        if isinstance(cond, ColumnExpr):
+            cond = cond._expr if hasattr(cond, '_expr') else cond
+
+        if isinstance(cond, Condition):
+            cond_sql = cond.to_sql(quote_char=quote_char)
+        else:
+            raise ValueError("Cannot convert condition to SQL")
+
+        # For mask, invert the condition
+        if self._is_mask:
+            cond_sql = f"NOT ({cond_sql})"
+
+        # Format other value
+        if isinstance(self.other, str):
+            other_sql = f"'{self.other}'"
+        elif self.other is None or (isinstance(self.other, float) and pd.isna(self.other)):
+            other_sql = "NULL"
+        else:
+            other_sql = str(self.other)
+
+        # Generate CASE WHEN for each column
+        result = {}
+        for col in columns:
+            col_quoted = f"{quote_char}{col}{quote_char}"
+            result[col] = f"CASE WHEN {cond_sql} THEN {col_quoted} ELSE {other_sql} END"
+
+        return result
+
+    def execution_engine(self) -> str:
+        """Return execution engine based on pushdown capability."""
+        return 'chDB' if self.can_push_to_sql() else 'Pandas'
+
+
+class LazyMask(LazyWhere):
+    """
+    Lazy mask operation: replace values where condition is True with other.
+
+    This is the opposite of where:
+    - where: keep where True, replace where False
+    - mask: replace where True, keep where False
+
+    Example:
+        ds.mask(ds['value'] > 100, -1)  # Replace where value > 100 with -1
+    """
+
+    def __init__(self, condition, other, columns: List[str] = None):
+        super().__init__(condition, other, columns)
+        self._is_mask = True
+
+
 # Add more operations as needed...

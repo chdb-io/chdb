@@ -119,6 +119,7 @@ from .accessors import (  # noqa: E402
 from .conditions import Condition, BinaryCondition  # noqa: E402
 from .connection import Connection, QueryResult  # noqa: E402
 from .executor import Executor, get_executor, reset_executor  # noqa: E402
+from .query_planner import QueryPlanner, QueryPlan, SQLBuilder  # noqa: E402
 from .exceptions import (  # noqa: E402
     DataStoreError,
     ConnectionError,
@@ -365,6 +366,10 @@ __all__ = [
     'Executor',
     'get_executor',
     'reset_executor',
+    # Query Planning
+    'QueryPlanner',
+    'QueryPlan',
+    'SQLBuilder',
     # Exceptions
     'DataStoreError',
     'ConnectionError',

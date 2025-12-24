@@ -145,6 +145,9 @@ class FunctionExecutorConfig:
         'todate',
         'todatetime',
         'astype',
+        # Conditional value replacement (CASE WHEN in SQL)
+        'where',
+        'mask',
     }
 
     # Pandas-only functions (no ClickHouse equivalent or chDB has issues)

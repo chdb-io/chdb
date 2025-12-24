@@ -33,6 +33,9 @@ from .config import (
 
 __all__ = ['DataStore']
 
+# Sentinel value to distinguish "no argument passed" from "None passed explicitly"
+_MISSING = object()
+
 
 class DataStore(PandasCompatMixin):
     """
@@ -637,15 +640,15 @@ class DataStore(PandasCompatMixin):
 
         Execution strategy:
         1. Check if valid cache exists (return cached result if so)
-        2. Find the first non-SQL operation (e.g., add_prefix, column assignment)
-        3. Build and execute SQL query for operations before that point
-        4. Execute remaining operations (including SQL) on the DataFrame in order
+        2. Use QueryPlanner to analyze the lazy operation chain
+        3. Build and execute SQL query for SQL-pushable operations
+        4. Execute remaining operations (Pandas-only) on the DataFrame in order
         5. Cache the result if caching is enabled
 
         Returns:
             pandas DataFrame with all operations applied
         """
-        from .lazy_ops import LazyRelationalOp
+        from .query_planner import QueryPlanner
 
         # Create profiler for this execution
         profiler = get_profiler()
@@ -672,69 +675,23 @@ class DataStore(PandasCompatMixin):
             else:
                 self._logger.debug("No lazy operations recorded")
 
-            # Query planning phase
+            # Query planning phase - use QueryPlanner
             with profiler.step("Query Planning", ops_count=len(self._lazy_ops)):
-                # Import LazyGroupByAgg for GROUP BY SQL pushdown
-                from .lazy_ops import LazyGroupByAgg
+                from .lazy_ops import LazyRelationalOp
 
-                # Find the first non-SQL operation
-                # LazyGroupByAgg can also be pushed to SQL if it immediately follows relational ops
-                first_df_op_idx = None
-                groupby_agg_op = None  # Track GroupBy aggregation for SQL pushdown
+                planner = QueryPlanner()
+                has_sql_source = bool(self._table_function or self.table_name)
+                # Get schema for type-aware SQL pushdown (auto fallback for incompatible types)
+                schema = self.schema() if has_sql_source else self._schema
+                plan = planner.plan(self._lazy_ops, has_sql_source, schema=schema)
 
-                # Collect WHERE column names for alias conflict detection
-                where_columns = set()
-                for op in self._lazy_ops:
-                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
-                        # Extract column names from condition
-                        try:
-                            cond_sql = op.condition.to_sql(quote_char='"')
-                            # Simple extraction: find quoted column names
-                            import re
-
-                            where_columns.update(re.findall(r'"(\w+)"', cond_sql))
-                        except Exception:
-                            pass
-
-                for i, op in enumerate(self._lazy_ops):
-                    if isinstance(op, LazyRelationalOp):
-                        continue
-                    elif isinstance(op, LazyGroupByAgg) and groupby_agg_op is None:
-                        # LazyGroupByAgg can be pushed to SQL if:
-                        # 1. It's the first non-relational op
-                        # 2. We have a SQL source
-                        # 3. No alias conflict with WHERE columns (for aggregated column names)
-                        can_push = self._table_function or self.table_name
-                        if can_push and op.agg_dict:
-                            # Check for alias conflict with WHERE columns
-                            # For multi-func agg, aliases are func names; for single func, aliases are col names
-                            agg_aliases = set()
-                            for col, funcs in op.agg_dict.items():
-                                if isinstance(funcs, (list, tuple)):
-                                    agg_aliases.update(funcs)  # Function names as aliases
-                                else:
-                                    agg_aliases.add(col)  # Column name as alias for single func
-                            conflict_aliases = agg_aliases & where_columns
-                            if conflict_aliases:
-                                can_push = False
-                                self._logger.debug(
-                                    "  [GroupBy] Skipping SQL pushdown: alias conflict with WHERE columns %s",
-                                    conflict_aliases,
-                                )
-                        if can_push:
-                            groupby_agg_op = op
-                            continue  # Include in SQL, continue looking
-                    # Any other op breaks the SQL chain
-                    first_df_op_idx = i
-                    break
-
-                # Build SQL query from operations before first DataFrame op
-                early_sql_ops = self._lazy_ops[:first_df_op_idx] if first_df_op_idx is not None else self._lazy_ops
-                # Remove LazyGroupByAgg from early_sql_ops (it's handled separately)
-                if groupby_agg_op:
-                    early_sql_ops = [op for op in early_sql_ops if not isinstance(op, LazyGroupByAgg)]
-                has_sql_source = self._table_function or self.table_name
-                has_two_phases = has_sql_source and first_df_op_idx is not None
+                # Extract plan results for compatibility with existing code
+                first_df_op_idx = plan.first_df_op_idx
+                groupby_agg_op = plan.groupby_agg
+                where_ops = plan.where_ops  # LazyWhere/LazyMask for SQL CASE WHEN
+                early_sql_ops = plan.sql_ops
+                layers = plan.layers
+                has_two_phases = plan.has_two_phases()
 
                 # Only show SQL phase header if we have SQL source
                 if has_sql_source:
@@ -747,9 +704,8 @@ class DataStore(PandasCompatMixin):
                         self._logger.debug("Executing SQL query")
                         self._logger.debug("-" * 70)
 
+                # Collect SELECT fields from all SQL operations
                 sql_select_fields = []
-
-                # Collect SELECT fields from all operations
                 for op in early_sql_ops:
                     if isinstance(op, LazyRelationalOp):
                         if op.op_type == 'SELECT' and op.fields:
@@ -759,31 +715,6 @@ class DataStore(PandasCompatMixin):
                                         sql_select_fields.append(Field(f))
                                 else:
                                     sql_select_fields.append(f)
-
-                # Split operations into layers for nested subqueries
-                # Layer boundaries are created when:
-                # - WHERE follows LIMIT/OFFSET (pandas: slice then filter)
-                # - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
-                # This preserves pandas-like execution order semantics
-                layers = []  # List of operation lists, innermost first
-                current_layer = []
-                pending_limit_offset = False
-
-                for op in early_sql_ops:
-                    if isinstance(op, LazyRelationalOp):
-                        if op.op_type in ('WHERE', 'ORDER BY') and pending_limit_offset:
-                            # WHERE or ORDER BY after LIMIT/OFFSET - start new layer
-                            if current_layer:
-                                layers.append(current_layer)
-                            current_layer = [op]
-                            pending_limit_offset = False
-                        else:
-                            current_layer.append(op)
-                            if op.op_type in ('LIMIT', 'OFFSET'):
-                                pending_limit_offset = True
-
-                if current_layer:
-                    layers.append(current_layer)
 
             # Build and execute SQL query
             if self._table_function or self.table_name:
@@ -817,6 +748,62 @@ class DataStore(PandasCompatMixin):
                                     sql_limit = op.limit_value
                                 elif op.op_type == 'OFFSET':
                                     sql_offset = op.offset_value
+
+                        # Handle LazyWhere/LazyMask SQL pushdown (CASE WHEN)
+                        # This must be done BEFORE GroupBy pushdown
+                        #
+                        # IMPORTANT: ClickHouse has TWO alias conflict quirks:
+                        # 1. WHERE vs SELECT alias: WHERE uses computed value if alias matches column
+                        # 2. SELECT internal: CASE WHEN on column B might use computed value of A if
+                        #    A's alias matches a column name referenced in B's CASE WHEN
+                        #
+                        # Solution: Use TWO-LAYER subquery with temporary aliases:
+                        # SELECT __tmp_a__ AS a, __tmp_b__ AS b
+                        # FROM (
+                        #   SELECT CASE WHEN ... END AS __tmp_a__, CASE WHEN ... END AS __tmp_b__
+                        #   FROM (SELECT * FROM table WHERE <conditions>) AS __filter_subq__
+                        # )
+                        #
+                        where_needs_subquery = False
+                        where_needs_temp_alias = False  # New: for alias conflict fix
+                        where_temp_alias_columns = []  # List of (temp_alias, original_col)
+                        if where_ops:
+                            from .query_planner import CaseWhenExpr
+
+                            # Get column names and types - need schema discovery
+                            all_columns = self._get_all_column_names()
+                            if all_columns:
+                                schema = self._schema or {}
+                                self._logger.debug(
+                                    "  [Where/Mask SQL Pushdown] Generating CASE WHEN for %d columns", len(all_columns)
+                                )
+
+                                # Always use temporary aliases to avoid ClickHouse alias conflicts
+                                where_needs_temp_alias = True
+                                for col in all_columns:
+                                    temp_alias = f"__tmp_{col}__"
+                                    where_temp_alias_columns.append((temp_alias, col))
+
+                                sql_select_fields = [
+                                    CaseWhenExpr(
+                                        col,
+                                        where_ops,
+                                        self.quote_char,
+                                        schema.get(col, 'Unknown'),
+                                        alias=f"__tmp_{col}__",
+                                    )
+                                    for col in all_columns
+                                ]
+                                # Check if we need a subquery to isolate WHERE from CASE WHEN
+                                if sql_where_conditions:
+                                    where_needs_subquery = True
+                                    self._logger.debug(
+                                        "  [Where/Mask SQL Pushdown] Using subquery to isolate WHERE from CASE WHEN"
+                                    )
+                            else:
+                                # Cannot push to SQL without column names
+                                # This shouldn't happen if QueryPlanner did its job
+                                self._logger.debug("  [Where/Mask] No column names, falling back to Pandas")
 
                         # Handle LazyGroupByAgg SQL pushdown
                         groupby_fields_for_sql = self._groupby_fields
@@ -906,17 +893,113 @@ class DataStore(PandasCompatMixin):
 
                             self._logger.debug("  [GroupBy SQL Pushdown] GROUP BY %s", groupby_agg_op.groupby_cols)
 
-                        sql = self._build_sql_from_state(
-                            select_fields_for_sql,
-                            sql_where_conditions,
-                            sql_orderby_fields,
-                            sql_limit,
-                            sql_offset,
-                            joins=self._joins,
-                            distinct=self._distinct,
-                            groupby_fields=groupby_fields_for_sql,
-                            having_condition=self._having_condition,
-                        )
+                        # Build SQL - with subquery if needed for WHERE/CASE WHEN isolation
+                        if where_needs_subquery:
+                            # Step 1: Build inner query with WHERE (no CASE WHEN)
+                            inner_sql = self._build_sql_from_state(
+                                [],  # SELECT * in inner query
+                                sql_where_conditions,
+                                [],  # No ORDER BY in inner query
+                                None,  # No LIMIT in inner query
+                                None,  # No OFFSET in inner query
+                                joins=self._joins,
+                                distinct=False,
+                                groupby_fields=[],
+                                having_condition=None,
+                            )
+
+                            # Step 2: Build middle query with CASE WHEN using temp aliases
+                            middle_select = ', '.join(
+                                f.to_sql(quote_char=self.quote_char) for f in select_fields_for_sql
+                            )
+                            middle_sql = f"SELECT {middle_select} FROM ({inner_sql}) AS __filter_subq__"
+
+                            # Step 3: Build outer query to rename temp aliases back to original names
+                            if where_needs_temp_alias and where_temp_alias_columns:
+                                outer_select = ', '.join(
+                                    f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
+                                    for temp, orig in where_temp_alias_columns
+                                )
+                                sql_parts = [f"SELECT {outer_select}"]
+                                sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
+                            else:
+                                sql_parts = [middle_sql]
+
+                            # Add ORDER BY, LIMIT, OFFSET to outer query
+                            if sql_orderby_fields:
+                                order_parts = []
+                                for field, asc in sql_orderby_fields:
+                                    direction = 'ASC' if asc else 'DESC'
+                                    order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
+                                sql_parts.append(f"ORDER BY {', '.join(order_parts)}")
+
+                            if sql_limit is not None:
+                                sql_parts.append(f"LIMIT {sql_limit}")
+
+                            if sql_offset is not None:
+                                sql_parts.append(f"OFFSET {sql_offset}")
+
+                            sql = '\n'.join(sql_parts)
+                        elif where_needs_temp_alias and where_temp_alias_columns:
+                            # No WHERE conditions but still need temp alias wrapping
+                            # Step 1: Build inner query with CASE WHEN using temp aliases
+                            inner_select = ', '.join(
+                                f.to_sql(quote_char=self.quote_char) for f in select_fields_for_sql
+                            )
+                            inner_sql = self._build_sql_from_state(
+                                [],  # Will be replaced
+                                sql_where_conditions,
+                                [],  # No ORDER BY in inner query
+                                None,
+                                None,
+                                joins=self._joins,
+                                distinct=False,
+                                groupby_fields=[],
+                                having_condition=None,
+                            )
+                            # Replace SELECT * with our CASE WHEN expressions
+                            if "SELECT *" in inner_sql:
+                                inner_sql = inner_sql.replace("SELECT *", f"SELECT {inner_select}", 1)
+                            else:
+                                # Build manually
+                                table_source = self._get_table_source()
+                                inner_sql = f"SELECT {inner_select} FROM {table_source}"
+
+                            # Step 2: Build outer query to rename temp aliases back
+                            outer_select = ', '.join(
+                                f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
+                                for temp, orig in where_temp_alias_columns
+                            )
+                            sql_parts = [f"SELECT {outer_select}"]
+                            sql_parts.append(f"FROM ({inner_sql}) AS __case_subq__")
+
+                            # Add ORDER BY, LIMIT, OFFSET
+                            if sql_orderby_fields:
+                                order_parts = []
+                                for field, asc in sql_orderby_fields:
+                                    direction = 'ASC' if asc else 'DESC'
+                                    order_parts.append(f"{field.to_sql(quote_char=self.quote_char)} {direction}")
+                                sql_parts.append(f"ORDER BY {', '.join(order_parts)}")
+
+                            if sql_limit is not None:
+                                sql_parts.append(f"LIMIT {sql_limit}")
+
+                            if sql_offset is not None:
+                                sql_parts.append(f"OFFSET {sql_offset}")
+
+                            sql = '\n'.join(sql_parts)
+                        else:
+                            sql = self._build_sql_from_state(
+                                select_fields_for_sql,
+                                sql_where_conditions,
+                                sql_orderby_fields,
+                                sql_limit,
+                                sql_offset,
+                                joins=self._joins,
+                                distinct=self._distinct,
+                                groupby_fields=groupby_fields_for_sql,
+                                having_condition=self._having_condition,
+                            )
                     else:
                         # Multiple layers - build nested subqueries
                         # layers[0] is innermost (closest to data source)
@@ -1998,6 +2081,82 @@ class DataStore(PandasCompatMixin):
             # Table might not exist yet, that's ok
             self._schema = {}
 
+    def _get_all_column_names(self) -> List[str]:
+        """
+        Get all column names for the current data source.
+
+        Used for LazyWhere/LazyMask SQL pushdown (CASE WHEN generation).
+        Tries multiple sources:
+        1. Cached schema (_schema with real types)
+        2. DESCRIBE query on table function
+        3. LIMIT 0 query to get column names (without types)
+
+        Returns:
+            List of column names, or empty list if unavailable
+        """
+        # Try cached schema first (only if it has real types)
+        if self._schema and not all(v == 'Unknown' for v in self._schema.values()):
+            return list(self._schema.keys())
+
+        # Try to discover schema
+        if self._executor is None:
+            self.connect()
+
+        # For table functions - use DESCRIBE to get types
+        if self._table_function:
+            try:
+                table_source = self._table_function.to_sql()
+                describe_sql = f"DESCRIBE {table_source}"
+                result = self._executor.execute(describe_sql)
+                # DESCRIBE returns: (name, type, default_type, default_expression, ...)
+                self._schema = {}
+                columns = []
+                for row in result.rows:
+                    col_name = row[0]
+                    col_type = row[1] if len(row) > 1 else 'Unknown'
+                    columns.append(col_name)
+                    self._schema[col_name] = col_type
+                self._logger.debug("Schema discovered via DESCRIBE: %s", self._schema)
+                return columns
+            except Exception as e:
+                self._logger.debug("DESCRIBE failed: %s, trying LIMIT 0", e)
+
+        # For regular tables - use DESCRIBE TABLE
+        elif self.table_name:
+            try:
+                describe_sql = f"DESCRIBE TABLE {format_identifier(self.table_name, self.quote_char)}"
+                result = self._executor.execute(describe_sql)
+                self._schema = {}
+                columns = []
+                for row in result.rows:
+                    col_name = row[0]
+                    col_type = row[1] if len(row) > 1 else 'Unknown'
+                    columns.append(col_name)
+                    self._schema[col_name] = col_type
+                return columns
+            except Exception as e:
+                self._logger.debug("DESCRIBE TABLE failed: %s", e)
+
+        # Fallback: LIMIT 0 query (no type info)
+        try:
+            if self._table_function:
+                table_source = self._table_function.to_sql()
+            elif self.table_name:
+                table_source = format_identifier(self.table_name, self.quote_char)
+            else:
+                return []
+
+            sql = f"SELECT * FROM {table_source} LIMIT 0"
+            result = self._executor.execute(sql)
+            df = result.to_df()
+            columns = list(df.columns)
+            # Cache for future use (without type info)
+            self._schema = {col: 'Unknown' for col in columns}
+            return columns
+        except Exception as e:
+            self._logger.debug("LIMIT 0 query failed: %s", e)
+            return []
+
     def execute(self) -> QueryResult:
         """
         Execute the query and return results.
@@ -2927,35 +3086,46 @@ class DataStore(PandasCompatMixin):
 
         return self
 
-    def where(self, condition: Union[Condition, str], other=None, **kwargs) -> 'DataStore':
+    def where(self, condition: Union[Condition, str], other=_MISSING, **kwargs) -> 'DataStore':
         """
         Filter rows or replace values conditionally.
 
         This method handles both:
-        1. SQL-style WHERE clause (1 argument): Alias for filter()
-        2. Pandas-style where (2+ arguments): Conditional replacement
+        1. SQL-style WHERE clause: When condition is a simple Condition/str AND no other args
+        2. Pandas-style where: Conditional replacement (default behavior for ColumnExpr)
 
         Args:
             condition: Condition object, SQL string, or pandas condition
             other: Value to replace where condition is False (pandas-style)
+                   Default is NaN (pandas behavior), use _MISSING sentinel to detect
             **kwargs: Additional pandas where() arguments
 
         Example:
-            >>> # SQL-style (1 argument)
-            >>> ds.where(ds.age > 18)
+            >>> # SQL-style (simple Condition, no other args)
+            >>> ds.filter(ds.age > 18)  # Prefer explicit filter() for clarity
             >>>
-            >>> # Pandas-style (2+ arguments)
+            >>> # Pandas-style (value replacement)
             >>> ds.where(ds['age'] > 18, 0)  # Replace False values with 0
+            >>> ds.where(ds['age'] > 18)     # Replace False values with NaN
         """
-        # If multiple arguments or kwargs, delegate to pandas where()
-        if other is not None or kwargs:
+        from .column_expr import ColumnExpr
+
+        # Pandas-style where:
+        # - ColumnExpr condition (always pandas-style)
+        # - Explicit other value provided
+        # - Any kwargs provided
+        is_pandas_style = isinstance(condition, ColumnExpr) or other is not _MISSING or kwargs
+
+        if is_pandas_style:
+            # Convert _MISSING to None for pandas compatibility
+            actual_other = None if other is _MISSING else other
             # Pandas-style where() - delegate to mixin
             if hasattr(super(), 'where'):
-                return super().where(condition, other=other, **kwargs)
+                return super().where(condition, other=actual_other, **kwargs)
             # Fallback if no mixin
             raise NotImplementedError("Pandas-style where() requires pandas compatibility layer")
 
-        # Otherwise, SQL-style filter
+        # SQL-style filter (simple Condition or string, no other args)
         return self.filter(condition)
 
     @classmethod

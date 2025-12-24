@@ -387,7 +387,7 @@ class LazyGroupBy:
         result_ds = ds_copy.offset(n)
         return LazyGroupBy(result_ds, self._groupby_fields)
 
-    def transform(self, func, *args, **kwargs) -> 'LazySeries':
+    def transform(self, func, *args, **kwargs) -> 'DataStore':
         """
         Apply a function to each group producing same-shaped output (pandas-style).
 
@@ -407,13 +407,14 @@ class LazyGroupBy:
             **kwargs: Keyword arguments to pass to func
 
         Returns:
-            LazySeries: Lazy wrapper returning transformed Series when executed
+            DataStore: Lazy DataStore with transform operation added to chain
 
         Example:
             >>> ds.groupby('category')['value'].transform(lambda x: x / x.sum())
             >>> ds.groupby('category')['value'].transform('mean')
         """
-        from .lazy_result import LazySeries
+        from .lazy_ops import LazyTransform
+        from copy import copy
 
         # Get groupby column names
         groupby_cols = []
@@ -423,16 +424,13 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Capture for closure
-        ds = self._datastore
-        cols = groupby_cols
+        # Create a shallow copy of the datastore
+        new_ds = copy(self._datastore)
 
-        def executor():
-            df = ds._execute()
-            # Apply transform to all numeric columns or specified columns
-            return df.groupby(cols).transform(func, *args, **kwargs)
+        # Add the lazy transform operation (func first, groupby_cols optional)
+        new_ds._add_lazy_op(LazyTransform(func, *args, groupby_cols=groupby_cols, **kwargs))
 
-        return LazySeries(executor=executor, datastore=ds)
+        return new_ds
 
     def filter(self, func) -> 'DataStore':
         """
@@ -451,20 +449,21 @@ class LazyGroupBy:
                 - A Condition object for SQL-style filtering
 
         Returns:
-            DataStore: Filtered DataFrame containing only groups that passed
+            DataStore: Lazy DataStore with filter operation added to chain
 
         Example:
             >>> # Keep groups where mean value > 35
             >>> ds.groupby('category').filter(lambda x: x['value'].mean() > 35)
         """
-        from .lazy_result import LazySeries
+        from .lazy_ops import LazyFilter
         from .conditions import Condition
+        from copy import copy
 
         # SQL-style: delegate to having()
         if isinstance(func, Condition):
             return self.having(func)
 
-        # Pandas-style: callable that returns bool
+        # Pandas-style: callable that returns bool - add to lazy chain
         if callable(func):
             # Get groupby column names
             groupby_cols = []
@@ -474,16 +473,52 @@ class LazyGroupBy:
                 else:
                     groupby_cols.append(str(gf))
 
-            # Execute and apply pandas filter
-            df = self._datastore._execute()
-            result = df.groupby(groupby_cols).filter(func)
+            # Create a shallow copy of the datastore
+            new_ds = copy(self._datastore)
 
-            # Wrap result in a new DataStore
-            from .core import DataStore
+            # Add the lazy filter operation
+            new_ds._add_lazy_op(LazyFilter(func, groupby_cols))
 
-            return DataStore.from_dataframe(result)
+            return new_ds
 
         raise TypeError(f"filter() argument must be callable or Condition, got {type(func).__name__}")
+
+    def apply(self, func, *args, **kwargs) -> 'DataStore':
+        """
+        Apply a function to each group and combine results (pandas-style).
+
+        This method applies an arbitrary function to each group. The function
+        should take a DataFrame (the group) and return a DataFrame, Series, or scalar.
+
+        Args:
+            func: Function to apply to each group
+            *args: Positional arguments to pass to func
+            **kwargs: Keyword arguments to pass to func
+
+        Returns:
+            DataStore: Lazy DataStore with apply operation added to chain
+
+        Example:
+            >>> ds.groupby('category').apply(lambda x: x.nlargest(3, 'value'))
+        """
+        from .lazy_ops import LazyApply
+        from copy import copy
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Create a shallow copy of the datastore
+        new_ds = copy(self._datastore)
+
+        # Add the lazy apply operation (func first, groupby_cols optional)
+        new_ds._add_lazy_op(LazyApply(func, *args, groupby_cols=groupby_cols, **kwargs))
+
+        return new_ds
 
     def execute(self):
         """

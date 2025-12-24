@@ -1177,6 +1177,43 @@ class ColumnExpr:
         return ColumnExprDateTimeAccessor(self)
 
     @property
+    def iloc(self) -> 'ColumnExprILocIndexer':
+        """
+        Integer-location based indexing for selection by position.
+
+        Executes the column and returns an indexer that supports integer-based
+        selection like pandas Series.iloc.
+
+        Examples:
+            >>> ds['col'].iloc[0]      # Get first element
+            >>> ds['col'].iloc[-1]     # Get last element
+            >>> ds['col'].iloc[1:5]    # Get elements 1-4
+            >>> ds['col'].iloc[[0, 2]] # Get elements at positions 0 and 2
+
+        Returns:
+            ColumnExprILocIndexer: Indexer for integer-location based selection
+        """
+        return ColumnExprILocIndexer(self)
+
+    @property
+    def loc(self) -> 'ColumnExprLocIndexer':
+        """
+        Label-based indexing for selection by label.
+
+        Executes the column and returns an indexer that supports label-based
+        selection like pandas Series.loc.
+
+        Examples:
+            >>> ds['col'].loc[0]           # Get element with label 0
+            >>> ds['col'].loc['key']       # Get element with label 'key'
+            >>> ds['col'].loc[0:5]         # Get elements with labels 0-5
+
+        Returns:
+            ColumnExprLocIndexer: Indexer for label-based selection
+        """
+        return ColumnExprLocIndexer(self)
+
+    @property
     def plot(self):
         """
         Accessor for pandas plotting functions.
@@ -3575,6 +3612,89 @@ class ColumnExprDateTimeAccessor:
 
     def __repr__(self) -> str:
         return f"ColumnExprDateTimeAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprILocIndexer:
+    """
+    Integer-location based indexer for ColumnExpr.
+
+    Executes the underlying ColumnExpr and provides integer-location based
+    selection like pandas Series.iloc. Supports:
+    - Single integer: iloc[0] → scalar
+    - Negative integer: iloc[-1] → scalar (last element)
+    - Slice: iloc[0:3] → Series
+    - List of integers: iloc[[0, 2]] → Series
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+
+    def __getitem__(self, key):
+        """
+        Get elements by integer position.
+
+        Args:
+            key: Integer, slice, or list of integers
+
+        Returns:
+            Scalar value or pandas Series depending on key type
+        """
+        # Execute the column to get the actual Series
+        series = self._column_expr._execute()
+
+        # If result is a scalar, can only access index 0 or -1
+        if not isinstance(series, (pd.Series, pd.DataFrame)):
+            if isinstance(key, int) and key in (0, -1):
+                return series
+            raise IndexError(f"Cannot use iloc[{key}] on scalar result")
+
+        # Delegate to pandas iloc
+        return series.iloc[key]
+
+    def __repr__(self) -> str:
+        return f"ColumnExprILocIndexer({self._column_expr._expr!r})"
+
+
+class ColumnExprLocIndexer:
+    """
+    Label-based indexer for ColumnExpr.
+
+    Executes the underlying ColumnExpr and provides label-based selection
+    like pandas Series.loc. Supports:
+    - Single label: loc[0] → scalar (if 0 is in index)
+    - Slice: loc['a':'c'] → Series
+    - List of labels: loc[['a', 'b']] → Series
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+
+    def __getitem__(self, key):
+        """
+        Get elements by label.
+
+        Args:
+            key: Label, slice, or list of labels
+
+        Returns:
+            Scalar value or pandas Series depending on key type
+        """
+        # Execute the column to get the actual Series
+        series = self._column_expr._execute()
+
+        # If result is a scalar, can only access if key matches
+        if not isinstance(series, (pd.Series, pd.DataFrame)):
+            # For scalar results, we can't really do label-based access
+            # but we can return the value for key=0 for compatibility
+            if key == 0:
+                return series
+            raise KeyError(f"Cannot use loc[{key}] on scalar result")
+
+        # Delegate to pandas loc
+        return series.loc[key]
+
+    def __repr__(self) -> str:
+        return f"ColumnExprLocIndexer({self._column_expr._expr!r})"
 
 
 # NOTE: BoolColumnExpr has been removed in favor of unified ColumnExpr.

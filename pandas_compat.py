@@ -340,56 +340,91 @@ class PandasCompatMixin:
     def where(self, cond, other=None, *, inplace=False, axis=None, level=None):
         """Replace values where condition is False.
 
+        This method now uses lazy execution:
+        1. Creates a LazyWhere operation instead of immediate execution
+        2. Can be pushed to SQL as CASE WHEN when condition is SQL-compatible
+        3. Properly integrated with profiler
+
         Args:
             cond: Boolean condition. Can be:
-                - pandas Series/DataFrame (standard pandas usage)
-                - ColumnExpr (DataStore lazy expression - will be auto-executed)
+                - ColumnExpr (DataStore lazy expression - recommended)
+                - Condition object
+                - pandas Series/DataFrame (immediate execution fallback)
             other: Value to replace where condition is False
             inplace: Must be False (DataStore is immutable)
-            axis: Axis to align condition
-            level: Alignment level
+            axis: Axis to align condition (ignored in lazy mode)
+            level: Alignment level (ignored in lazy mode)
 
         Example:
-            >>> ds.where(ds['age'] > 30, 0)  # ColumnExpr auto-executed
-            >>> ds.where(ds.to_df()['age'] > 30, 0)  # pandas Series
+            >>> ds.where(ds['age'] > 30, 0)  # Lazy - can SQL pushdown
+            >>> ds.where(ds.to_df()['age'] > 30, 0)  # Immediate - pandas Series
         """
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
 
-        # Auto-execute ColumnExpr conditions to pandas Series
         from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .lazy_ops import LazyWhere
+        from copy import copy
 
-        if isinstance(cond, ColumnExpr):
-            cond = cond._execute()
+        # Check if we can use lazy execution
+        # Lazy mode: ColumnExpr or Condition with scalar other
+        can_lazy = isinstance(cond, (ColumnExpr, Condition)) and not isinstance(other, (pd.DataFrame, pd.Series))
 
-        return self._wrap_result(self._get_df().where(cond, other=other, axis=axis, level=level))
+        if can_lazy:
+            # Lazy execution: create LazyWhere operation
+            new_ds = copy(self)
+            new_ds._lazy_ops = list(self._lazy_ops) + [LazyWhere(cond, other)]
+            return new_ds
+        else:
+            # Immediate execution: pandas Series/DataFrame condition
+            if isinstance(cond, ColumnExpr):
+                cond = cond._execute()
+            return self._wrap_result(self._get_df().where(cond, other=other, axis=axis, level=level))
 
     def mask(self, cond, other=None, *, inplace=False, axis=None, level=None):
         """Replace values where condition is True.
 
+        This method now uses lazy execution:
+        1. Creates a LazyMask operation instead of immediate execution
+        2. Can be pushed to SQL as CASE WHEN NOT(...) when condition is SQL-compatible
+        3. Properly integrated with profiler
+
         Args:
             cond: Boolean condition. Can be:
-                - pandas Series/DataFrame (standard pandas usage)
-                - ColumnExpr (DataStore lazy expression - will be auto-executed)
+                - ColumnExpr (DataStore lazy expression - recommended)
+                - Condition object
+                - pandas Series/DataFrame (immediate execution fallback)
             other: Value to replace where condition is True
             inplace: Must be False (DataStore is immutable)
-            axis: Axis to align condition
-            level: Alignment level
+            axis: Axis to align condition (ignored in lazy mode)
+            level: Alignment level (ignored in lazy mode)
 
         Example:
-            >>> ds.mask(ds['age'] > 30, 0)  # ColumnExpr auto-executed
-            >>> ds.mask(ds.to_df()['age'] > 30, 0)  # pandas Series
+            >>> ds.mask(ds['age'] > 30, -1)  # Lazy - can SQL pushdown
+            >>> ds.mask(ds.to_df()['age'] > 30, -1)  # Immediate - pandas Series
         """
         if inplace:
             raise ValueError("DataStore is immutable, inplace=True is not supported")
 
-        # Auto-execute ColumnExpr conditions to pandas Series
         from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .lazy_ops import LazyMask
+        from copy import copy
 
-        if isinstance(cond, ColumnExpr):
-            cond = cond._execute()
+        # Check if we can use lazy execution
+        can_lazy = isinstance(cond, (ColumnExpr, Condition)) and not isinstance(other, (pd.DataFrame, pd.Series))
 
-        return self._wrap_result(self._get_df().mask(cond, other=other, axis=axis, level=level))
+        if can_lazy:
+            # Lazy execution: create LazyMask operation
+            new_ds = copy(self)
+            new_ds._lazy_ops = list(self._lazy_ops) + [LazyMask(cond, other)]
+            return new_ds
+        else:
+            # Immediate execution: pandas Series/DataFrame condition
+            if isinstance(cond, ColumnExpr):
+                cond = cond._execute()
+            return self._wrap_result(self._get_df().mask(cond, other=other, axis=axis, level=level))
 
     def query(self, expr, *, inplace=False, **kwargs):
         """Query the DataFrame with a boolean expression."""
