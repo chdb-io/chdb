@@ -20,8 +20,11 @@ class TestDataFrameNullHandling(unittest.TestCase):
             'int_col': [1, 2, 3, 4, 5, 6],
             'str_col': ['A', np.nan, pd.NaT, None, pd.NA, 'B'],
         })
+        print('str_col dtype:', df['str_col'].dtype)
 
         result = self.conn.query('SELECT str_col, isNull(str_col) as is_null FROM Python(df)', 'DataFrame')
+        print("Result DataFrame:")
+        print(result)
 
         self.assertEqual(result['str_col'].iloc[0], 'A')
         self.assertTrue(pd.isna(result['str_col'].iloc[1]))
@@ -44,9 +47,13 @@ class TestDataFrameNullHandling(unittest.TestCase):
             'float_col1': [3.5, np.nan, pd.NaT, None, pd.NA, 6.7], # object
             'float_col2': [3.6, np.nan, np.nan, np.nan, np.nan, 6.8], # float
         })
-        # print('float_col1 dtype:', df['float_col1'].dtype)
+        print('float_col1 dtype:', df['float_col1'].dtype)
+        print('float_col2 dtype:', df['float_col2'].dtype)
+
 
         result = self.conn.query('SELECT float_col1, float_col2, isNull(float_col1) as is_null1, isNull(float_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        print("Result DataFrame:")
+        print(result)
 
         self.assertEqual(result['float_col1'].iloc[0], 3.5)
         self.assertTrue(pd.isna(result['float_col1'].iloc[1]))
@@ -87,8 +94,12 @@ class TestDataFrameNullHandling(unittest.TestCase):
             'int_col1': [3, np.nan, pd.NaT, None, pd.NA, 6], # object
             'int_col2': [4, np.nan, np.nan, np.nan, np.nan, 7], # float
         })
+        print('int_col1 dtype:', df['int_col1'].dtype)
+        print('int_col2 dtype:', df['int_col2'].dtype)
 
         result = self.conn.query('SELECT int_col1, int_col2, isNull(int_col1) as is_null1, isNull(int_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        print("Result DataFrame:")
+        print(result)
 
         self.assertEqual(result['int_col1'].iloc[0], 3)
         self.assertTrue(pd.isna(result['int_col1'].iloc[1]))
@@ -125,8 +136,12 @@ class TestDataFrameNullHandling(unittest.TestCase):
             'mixed_col1': [1, np.nan, pd.NaT, None, pd.NA, 6.7], # object
             'mixed_col2': [2, np.nan, np.nan, np.nan, np.nan, 6.8], # float
         })
+        print('mixed_col1 dtype:', df['mixed_col1'].dtype)
+        print('mixed_col2 dtype:', df['mixed_col2'].dtype)
 
         result = self.conn.query('SELECT mixed_col1, mixed_col2, isNull(mixed_col1) as is_null1, isNull(mixed_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        print("Result DataFrame:")
+        print(result)
 
         self.assertEqual(result['mixed_col1'].iloc[0], 1)
         self.assertTrue(pd.isna(result['mixed_col1'].iloc[1]))
@@ -162,8 +177,12 @@ class TestDataFrameNullHandling(unittest.TestCase):
             'dt_col1': [pd.Timestamp('2024-01-01'), pd.NaT, pd.NaT, None, None, pd.Timestamp('2024-01-06')],  # datetime64[ns]
             'dt_col2': [np.datetime64('2024-01-02'), np.datetime64('NaT'), np.datetime64('NaT'), np.datetime64('NaT'), np.datetime64('NaT'), np.datetime64('2024-01-07')],  # datetime64[ns]
         })
+        print('dt_col1 dtype:', df['dt_col1'].dtype)
+        print('dt_col2 dtype:', df['dt_col2'].dtype)
 
         result = self.conn.query('SELECT dt_col1, dt_col2, isNull(dt_col1) as is_null1, isNull(dt_col2) as is_null2 FROM Python(df)', 'DataFrame')
+        print("Result DataFrame:")
+        print(result)
 
         self.assertEqual(result['dt_col1'].iloc[0].date(), pd.Timestamp('2024-01-01').date())
         self.assertTrue(pd.isna(result['dt_col1'].iloc[1]))
@@ -199,7 +218,11 @@ class TestDataFrameNullHandling(unittest.TestCase):
             'json_col1': [{'a': 1}, np.nan, pd.NaT, None, pd.NA, {'b': 2}],
         })
 
+        print('json_col1 dtype:', df['json_col1'].dtype)
+
         result = self.conn.query('SELECT json_col1.a as a, isNull(json_col1) as is_null1 FROM Python(df)', 'DataFrame')
+        print("Result DataFrame:")
+        print(result)
 
         self.assertEqual(result['a'].iloc[0], 1)
         self.assertTrue(pd.isna(result['a'].iloc[1]))
