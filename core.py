@@ -27,7 +27,7 @@ from .config import (
     DataStoreConfig,
     is_cache_enabled,
     get_cache_ttl,
-    new_profiler,
+    get_profiler,
     is_profiling_enabled,
 )
 
@@ -638,7 +638,7 @@ class DataStore(PandasCompatMixin):
         from .lazy_ops import LazyRelationalOp
 
         # Create profiler for this execution
-        profiler = new_profiler()
+        profiler = get_profiler()
 
         with profiler.step("Total Execution"):
             # Check cache first

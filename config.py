@@ -610,26 +610,20 @@ def disable_profiling() -> None:
     _profiling_enabled = False
 
 
-def get_profiler() -> Optional[Profiler]:
-    """Get the current profiler instance (if profiling is enabled)."""
+def get_profiler() -> Profiler:
+    """
+    Get or create a profiler instance.
+
+    When profiling is enabled, returns the shared profiler that accumulates
+    all execution data. When disabled, returns a no-op profiler that won't
+    record any data but allows the same API to be used.
+    """
     global _current_profiler
     if _profiling_enabled:
         if _current_profiler is None:
             _current_profiler = Profiler(enabled=True)
         return _current_profiler
-    return None
-
-
-def new_profiler() -> Profiler:
-    """
-    Create and set a new profiler instance.
-
-    This is called at the start of each execution to get fresh timing data.
-    """
-    global _current_profiler
-    if _profiling_enabled:
-        _current_profiler = Profiler(enabled=True)
-        return _current_profiler
+    # Return a disabled profiler for no-op usage
     return Profiler(enabled=False)
 
 
