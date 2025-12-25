@@ -7,7 +7,7 @@ set -e
 
 # Parse arguments
 TARGET_ARCH=${1:-x86_64}
-build_type=${2:-Release}
+build_type=${2:-RelWithDebInfo}
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 . ${DIR}/vars.sh cross-compile
 
@@ -245,13 +245,13 @@ LIBCHDB_DIR=${BUILD_DIR}/
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
-else
-    echo -e "\nStrip the binary:"
-    ${STRIP} -x ${PYCHDB}
-    ${STRIP} -x ${LIBCHDB}
-fi
+# if [ ${build_type} == "Debug" ]; then
+#     echo -e "\nDebug build, skip strip"
+# else
+#     echo -e "\nStrip the binary:"
+#     ${STRIP} -x ${PYCHDB}
+#     ${STRIP} -x ${LIBCHDB}
+# fi
 
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}
@@ -265,6 +265,31 @@ file ${LIBCHDB}
 rm -f ${CHDB_DIR}/*.so
 cp -a ${PYCHDB} ${CHDB_DIR}/${CHDB_PY_MODULE}
 cp -a ${LIBCHDB} ${PROJ_DIR}/${LIBCHDB_SO}
+
+# Generate dSYM for macOS debugging using llvm-dsymutil
+echo -e "\nGenerating dSYM debug symbols..."
+DSYM_DIR=${PROJ_DIR}/dsym
+mkdir -p ${DSYM_DIR}
+if command -v llvm-dsymutil-19 &> /dev/null; then
+    DSYMUTIL="llvm-dsymutil-19"
+elif command -v llvm-dsymutil &> /dev/null; then
+    DSYMUTIL="llvm-dsymutil"
+elif command -v dsymutil &> /dev/null; then
+    DSYMUTIL="dsymutil"
+else
+    echo "Error: dsymutil not found (tried llvm-dsymutil-19, llvm-dsymutil, dsymutil)"
+    exit 1
+fi
+
+${DSYMUTIL} ${CHDB_DIR}/${CHDB_PY_MODULE} -o ${DSYM_DIR}/${CHDB_PY_MODULE}.dSYM
+echo -e "dSYM files generated in ${DSYM_DIR}:"
+ls -lh ${DSYM_DIR}/
+
+# Compress dSYM directory
+echo -e "\nCompressing dSYM..."
+cd ${PROJ_DIR}
+tar -czvf dsym.tar.gz -C dsym .
+ls -lh dsym.tar.gz
 
 echo -e "\nSymbols:"
 echo -e "\nPyInit in PYCHDB: ${PYCHDB}"
