@@ -37,6 +37,9 @@ if [ -z "$STRIP" ]; then
     STRIP=$(which strip)
 fi
 
+echo "STRIP command: $STRIP"
+echo "STRIP location: $(which $STRIP 2>/dev/null || echo 'not found')"
+
 # check current os type, and make ldd command
 if [ "$(uname)" == "Darwin" ]; then
     LDD="otool -L"
