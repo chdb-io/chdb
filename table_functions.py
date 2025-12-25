@@ -129,8 +129,14 @@ class FileTableFunction(TableFunction):
         if format_name:
             sql_params.append(self._format_param(format_name))
 
+            # Structure is optional - ClickHouse can infer from data
             if structure:
                 sql_params.append(self._format_param(structure))
+            elif compression:
+                # If compression is specified but not structure, we need a placeholder
+                # ClickHouse file() signature: file(path, format, structure, compression)
+                # Use 'auto' to let ClickHouse infer structure
+                sql_params.append(self._format_param('auto'))
 
             if compression:
                 sql_params.append(self._format_param(compression))

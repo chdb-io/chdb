@@ -51,19 +51,28 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
       subsequent operations like filter, groupby, sort, etc.)
     - Falls back to pandas when advanced pandas-only features are used
 
+    The function strives to match pandas.read_csv() behavior as closely as
+    possible. For CSV files, the first row is treated as column names by default
+    (header=0 or 'infer'), matching pandas' default behavior.
+
     Args:
         filepath_or_buffer: Path to the CSV file, URL, or file-like object
         sep: Delimiter to use (default ',')
         **kwargs: All pandas.read_csv() arguments are supported:
-            - header: Row number to use as column names (default 'infer')
-            - names: List of column names to use
-            - index_col: Column(s) to use as row labels
-            - usecols: Return a subset of columns
-            - dtype: Data type for columns
+            - header: Row number to use as column names
+                - 0 or 'infer' (default): first row is column names
+                - None: no header row, auto-generate column names
+                - int > 0: use row N as header (falls back to pandas)
+            - names: List of column names to use (falls back to pandas)
+            - index_col: Column(s) to use as row labels (falls back to pandas)
+            - usecols: Return a subset of columns (falls back to pandas)
+            - dtype: Data type for columns (falls back to pandas)
             - skiprows: Number of rows to skip at the beginning
             - nrows: Number of rows to read
             - na_values: Additional strings to recognize as NA/NaN
-            - parse_dates: Columns to parse as dates
+            - parse_dates: Columns to parse as dates (falls back to pandas)
+            - true_values: Values to consider as True (chDB/pandas supported)
+            - false_values: Values to consider as False (chDB/pandas supported)
             - encoding: Encoding to use for reading (default 'utf-8')
             - compression: Compression type ('infer', 'gzip', 'bz2', etc.)
             - quotechar: Character used to denote quoted strings
@@ -71,6 +80,8 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
             - comment: Character indicating comment lines
             - thousands: Thousands separator
             - decimal: Character for decimal point
+            - skip_blank_lines: Skip over blank lines (default True)
+            - on_bad_lines: How to handle bad lines ('error', 'warn', 'skip')
 
     Returns:
         DataStore: A DataStore object containing the CSV data
@@ -82,104 +93,262 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
 
         >>> # These use SQL engine (chDB supports these options)
         >>> df = read_csv("data.csv", sep=";")
+        >>> df = read_csv("data.csv", header=None)  # No header row
         >>> df = read_csv("data.csv", compression='gzip')
+        >>> df = read_csv("data.csv", skiprows=1)
+        >>> df = read_csv("data.csv", nrows=100)
+        >>> df = read_csv("data.csv", true_values=['yes', 'Yes'], false_values=['no', 'No'])
 
         >>> # These automatically fall back to pandas
         >>> df = read_csv("data.csv", parse_dates=['date_col'])
         >>> df = read_csv("data.csv", usecols=['name', 'age'])
         >>> df = read_csv("data.csv", dtype={'age': int})
+
+    Notes:
+        - Boolean values: By default, ClickHouse recognizes 'true'/'false' (case-insensitive).
+          Use true_values/false_values for custom boolean strings like 'yes'/'no', 'True'/'False'.
+        - Date/DateTime: chDB auto-infers date/datetime columns when possible.
+          Use parse_dates for explicit control (falls back to pandas).
+        - NULL values: Empty strings and '\\N' are treated as NULL by default.
+          Use na_values for custom null strings (falls back to pandas).
     """
     DataStore = _get_datastore_class()
 
-    # Parameters that require pandas (chDB doesn't support these well)
-    pandas_only_params = {
-        'names',  # Custom column names
-        'index_col',  # Set index column
-        'usecols',  # Select specific columns (different from SQL SELECT)
-        'dtype',  # Force type conversion
-        'parse_dates',  # Date parsing
-        'date_parser',  # Custom date parser
-        'date_format',  # Date format
+    # Extract header parameter
+    header = kwargs.get('header', 'infer')
+
+    # Check for unsupported iterator parameters FIRST
+    # These return TextFileReader instead of DataFrame and are not supported
+    if 'chunksize' in kwargs or 'iterator' in kwargs:
+        raise NotImplementedError(
+            "DataStore does not support chunked reading (chunksize/iterator parameters). "
+            "Use pandas.read_csv() directly for chunked reading, or remove these parameters."
+        )
+
+    # Parameters that MUST fall back to pandas (chDB cannot handle)
+    pandas_required_params = {
+        'names',  # Custom column names (chDB doesn't support renaming on read)
+        'index_col',  # Set index column (pandas concept)
+        'usecols',  # Select specific columns (could use SQL SELECT but behavior differs)
+        'dtype',  # Force type conversion (chDB has different type system)
+        'parse_dates',  # Date parsing with specific format
+        'date_parser',  # Custom date parser function
+        'date_format',  # Date format string
         'dayfirst',  # Date format preference
-        'na_values',  # Custom NA values
-        'keep_default_na',  # NA handling
-        'na_filter',  # NA filtering
-        'converters',  # Custom converters
-        'true_values',  # Boolean mapping
-        'false_values',  # Boolean mapping
-        'skipinitialspace',  # Skip spaces
-        'skipfooter',  # Skip footer rows
-        'skip_blank_lines',  # Skip blank lines
-        'thousands',  # Thousands separator
-        'decimal',  # Decimal separator
-        'quotechar',  # Quote character
-        'escapechar',  # Escape character
-        'comment',  # Comment character
-        'encoding',  # File encoding (limited chDB support)
-        'on_bad_lines',  # Error handling
-        'iterator',  # Chunked reading
-        'chunksize',  # Chunk size
-        'low_memory',  # Memory optimization
-        'memory_map',  # Memory mapping
-        'float_precision',  # Float precision
+        'converters',  # Custom converter functions
     }
 
-    # Check if any pandas-only parameter is provided
-    needs_pandas = any(param in kwargs for param in pandas_only_params)
+    # Check if we must use pandas
+    needs_pandas = any(param in kwargs for param in pandas_required_params)
 
-    # Also check for non-default header value (chDB expects CSVWithNames format)
-    header = kwargs.get('header', 'infer')
-    if header is not None and header != 'infer' and header != 0:
+    # Header values > 0 require pandas (e.g., header=2 means row 2 is header)
+    if isinstance(header, int) and header > 0:
+        needs_pandas = True
+    # List of header rows requires pandas (MultiIndex columns)
+    if isinstance(header, list):
         needs_pandas = True
 
     # Check for file-like objects (chDB needs file path)
     if hasattr(filepath_or_buffer, 'read'):
         needs_pandas = True
 
-    # Check for URL (might need special handling)
+    # Check for URL (use pandas for HTTP URLs for simplicity)
     if isinstance(filepath_or_buffer, str) and (
         filepath_or_buffer.startswith('http://') or filepath_or_buffer.startswith('https://')
     ):
-        # URLs can be handled by chDB's url() function, but for simplicity
-        # we use pandas for HTTP URLs in read_csv
+        needs_pandas = True
+
+    # Parameters that can be mapped to chDB settings OR fall back to pandas
+    # We try to handle as many as possible with chDB
+    true_values = kwargs.get('true_values')
+    false_values = kwargs.get('false_values')
+    na_values = kwargs.get('na_values')
+    keep_default_na = kwargs.get('keep_default_na', True)
+    na_filter = kwargs.get('na_filter', True)
+
+    # These parameters require pandas if na_values is complex
+    if na_values is not None and not isinstance(na_values, (str, list)):
+        # Dict mapping columns to different na_values requires pandas
         needs_pandas = True
 
     if needs_pandas:
         # Use pandas for full compatibility
-        pandas_df = pd.read_csv(filepath_or_buffer, sep=sep, **kwargs)
+        pandas_df = _pd.read_csv(filepath_or_buffer, sep=sep, **kwargs)
         return DataStore.from_df(pandas_df)
-    else:
-        # Use chDB SQL engine for better performance and SQL compilation
-        compression = kwargs.pop('compression', None)
-        skiprows = kwargs.pop('skiprows', None)
-        nrows = kwargs.pop('nrows', None)
 
-        # Determine format based on header setting
+    # ===== Use chDB SQL engine =====
+    # Extract and pop parameters we handle specially
+    compression = kwargs.pop('compression', None)
+    skiprows = kwargs.pop('skiprows', None)
+    nrows = kwargs.pop('nrows', None)
+    skip_blank_lines = kwargs.pop('skip_blank_lines', True)
+    on_bad_lines = kwargs.pop('on_bad_lines', 'error')
+    quotechar = kwargs.pop('quotechar', '"')
+    escapechar = kwargs.pop('escapechar', None)
+    comment = kwargs.pop('comment', None)
+    thousands = kwargs.pop('thousands', None)
+    decimal = kwargs.pop('decimal', '.')
+    encoding = kwargs.pop('encoding', None)
+    skipinitialspace = kwargs.pop('skipinitialspace', False)
+    skipfooter = kwargs.pop('skipfooter', 0)
+    low_memory = kwargs.pop('low_memory', True)
+    memory_map = kwargs.pop('memory_map', False)
+    float_precision = kwargs.pop('float_precision', None)
+
+    # Remove handled params from kwargs
+    kwargs.pop('header', None)
+    kwargs.pop('true_values', None)
+    kwargs.pop('false_values', None)
+    kwargs.pop('na_values', None)
+    kwargs.pop('keep_default_na', None)
+    kwargs.pop('na_filter', None)
+
+    # Some params require pandas but we haven't checked yet
+    if skipfooter > 0 or comment is not None or thousands is not None:
+        # These require pandas
+        pandas_df = _pd.read_csv(
+            filepath_or_buffer,
+            sep=sep,
+            header=header,
+            skiprows=skiprows,
+            nrows=nrows,
+            skip_blank_lines=skip_blank_lines,
+            on_bad_lines=on_bad_lines,
+            quotechar=quotechar,
+            escapechar=escapechar,
+            comment=comment,
+            thousands=thousands,
+            decimal=decimal,
+            encoding=encoding,
+            skipinitialspace=skipinitialspace,
+            skipfooter=skipfooter,
+            low_memory=low_memory,
+            memory_map=memory_map,
+            float_precision=float_precision,
+            true_values=true_values,
+            false_values=false_values,
+            na_values=na_values,
+            keep_default_na=keep_default_na,
+            na_filter=na_filter,
+            **kwargs,
+        )
+        return DataStore.from_df(pandas_df)
+
+    # For custom delimiters other than tab, fall back to pandas
+    # ClickHouse's CSV format with custom delimiter has schema inference issues
+    if sep != ',' and sep != '\t':
+        pandas_df = _pd.read_csv(
+            filepath_or_buffer,
+            sep=sep,
+            header=header,
+            skiprows=skiprows,
+            nrows=nrows,
+            skip_blank_lines=skip_blank_lines,
+            on_bad_lines=on_bad_lines,
+            quotechar=quotechar,
+            escapechar=escapechar,
+            decimal=decimal,
+            encoding=encoding,
+            skipinitialspace=skipinitialspace,
+            low_memory=low_memory,
+            memory_map=memory_map,
+            float_precision=float_precision,
+            true_values=true_values,
+            false_values=false_values,
+            na_values=na_values,
+            keep_default_na=keep_default_na,
+            na_filter=na_filter,
+            **kwargs,
+        )
+        return DataStore.from_df(pandas_df)
+
+    # Determine format based on header and delimiter
+    # For tab delimiter, use TSV format which natively supports tabs
+    if sep == '\t':
+        csv_format = 'TSVWithNames' if header != None else 'TSV'
+    else:
+        # header=0 or 'infer': first row is column names (CSVWithNames)
+        # header=None: no header row, generate column names (CSV)
         csv_format = 'CSVWithNames'  # Default: first row is header
         if header is None:
             csv_format = 'CSV'  # No header row
 
-        ds = DataStore.from_file(
-            filepath_or_buffer,
-            format=csv_format,
-            compression=compression,
-        )
+    ds = DataStore.from_file(
+        filepath_or_buffer,
+        format=csv_format,
+        compression=compression,
+    )
 
-        # Apply format settings
-        settings = {}
-        if sep != ',':
-            settings['format_csv_delimiter'] = sep
-        if skiprows:
+    # Build chDB format settings
+    settings = {}
+
+    # Delimiter
+    if sep != ',':
+        settings['format_csv_delimiter'] = sep
+
+    # Skip rows (after header)
+    if skiprows:
+        if isinstance(skiprows, int):
             settings['input_format_csv_skip_first_lines'] = skiprows
+        else:
+            # Complex skiprows (callable, list) requires pandas
+            pandas_df = _pd.read_csv(filepath_or_buffer, sep=sep, skiprows=skiprows, **kwargs)
+            return DataStore.from_df(pandas_df)
 
-        if settings:
-            ds = ds.with_format_settings(**settings)
+    # Boolean representation (for proper True/False parsing)
+    # ClickHouse settings: bool_true_representation, bool_false_representation
+    if true_values:
+        if isinstance(true_values, list) and len(true_values) > 0:
+            # Use the first value as the representation
+            # Note: chDB only supports one true/false representation
+            settings['bool_true_representation'] = str(true_values[0])
+    if false_values:
+        if isinstance(false_values, list) and len(false_values) > 0:
+            settings['bool_false_representation'] = str(false_values[0])
 
-        # Apply LIMIT for nrows
-        if nrows is not None:
-            ds = ds.limit(nrows)
+    # NA/NULL handling
+    if na_values is not None:
+        if isinstance(na_values, str):
+            settings['format_csv_null_representation'] = na_values
+        elif isinstance(na_values, list) and len(na_values) > 0:
+            # Use the first value (chDB supports only one null representation)
+            settings['format_csv_null_representation'] = str(na_values[0])
 
-        return ds
+    # Whitespace handling
+    if skipinitialspace:
+        settings['input_format_csv_trim_whitespaces'] = 1
+
+    # Quote handling
+    if quotechar == '"':
+        settings['format_csv_allow_double_quotes'] = 1
+    elif quotechar == "'":
+        settings['format_csv_allow_single_quotes'] = 1
+
+    # Skip blank lines (default True in pandas)
+    if skip_blank_lines:
+        settings['input_format_csv_skip_trailing_empty_lines'] = 1
+
+    # Error handling
+    if on_bad_lines == 'skip' or on_bad_lines == 'warn':
+        settings['input_format_csv_use_default_on_bad_values'] = 1
+        settings['input_format_allow_errors_num'] = 10000  # Allow many errors
+        settings['input_format_allow_errors_ratio'] = 0.1  # Up to 10% errors
+
+    # Schema inference settings for better type detection
+    settings['input_format_csv_use_best_effort_in_schema_inference'] = 1
+    settings['input_format_try_infer_integers'] = 1
+    settings['input_format_try_infer_dates'] = 1
+    settings['input_format_try_infer_datetimes'] = 1
+
+    # Apply settings
+    if settings:
+        ds = ds.with_format_settings(**settings)
+
+    # Apply LIMIT for nrows
+    if nrows is not None:
+        ds = ds.limit(nrows)
+
+    return ds
 
 
 def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
@@ -1925,21 +2094,16 @@ def array(data, dtype=None, copy=True):
 
 
 # ========== DataFrame/Series Classes ==========
-# Re-export pandas DataFrame and Series classes directly to ensure full compatibility
-# when users do: sys.modules['pandas'] = datastore
-# This allows pandas internal code to still work correctly (e.g., DataFrame._get_axis_number())
-
-# Export the actual pandas classes for type checking and internal pandas compatibility
-DataFrame = _pd.DataFrame
-Series = _pd.Series
+# These factory functions create DataStore objects, providing a pandas-like API.
+# For monkey-patching compatibility (sys.modules['pandas'] = datastore), use PandasDataFrame below.
 
 
-def make_datastore(data=None, index=None, columns=None, dtype=None, copy=None):
+def DataFrame(data=None, index=None, columns=None, dtype=None, copy=None):
     """
-    Create a DataStore from data (explicit factory function).
+    Create a DataStore from data (pandas DataFrame-like factory).
 
-    Use this when you specifically want a DataStore object instead of a pandas DataFrame.
-    For pandas-compatible code that may be monkey-patched, use pd.DataFrame() directly.
+    This is the primary way to create a DataStore with a pandas-like API.
+    Returns a DataStore object that supports both pandas-style and SQL-style operations.
 
     Args:
         data: Dict, list, ndarray, Iterable, or DataFrame
@@ -1952,17 +2116,44 @@ def make_datastore(data=None, index=None, columns=None, dtype=None, copy=None):
         DataStore: A DataStore object
 
     Example:
-        >>> from datastore import make_datastore
-        >>> ds = make_datastore({'A': [1, 2, 3], 'B': [4, 5, 6]})
+        >>> import datastore as ds
+        >>> df = ds.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
+        >>> df['A'].sum()  # Returns lazy result
     """
     DataStore = _get_datastore_class()
     pandas_df = _pd.DataFrame(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
     return DataStore.from_df(pandas_df)
 
 
-# ========== Pandas Core Types (Re-exported for monkey-patch compatibility) ==========
-# These are re-exported from the real pandas to support full pandas API compatibility
-# when users do: import datastore as pd; sys.modules['pandas'] = datastore
+# Alias for backward compatibility
+make_datastore = DataFrame
+
+
+def Series(data=None, index=None, dtype=None, name=None, copy=None):
+    """
+    Create a pandas Series.
+
+    This is a pass-through to pandas Series for compatibility.
+    For column operations, use DataStore column access (e.g., ds['column']).
+
+    Args:
+        data: Array-like, Iterable, dict, or scalar value
+        index: Values must be hashable and have the same length as data
+        dtype: Data type for the output Series
+        name: The name to give to the Series
+        copy: Copy input data
+
+    Returns:
+        pandas Series
+
+    Example:
+        >>> import datastore as ds
+        >>> s = ds.Series([1, 2, 3], name='values')
+    """
+    return _pd.Series(data=data, index=index, dtype=dtype, name=name, copy=copy)
+
+
+# ========== Pandas Core Types (Re-exported for convenience) ==========
 
 # Index types
 Index = _pd.Index

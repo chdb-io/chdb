@@ -1265,17 +1265,17 @@ class LazyJoin(LazyOp):
         ds1.join(ds2, on='user_id', how='inner')
     """
 
-    def __init__(self, right_df: pd.DataFrame, on=None, how='inner', left_on=None, right_on=None):
+    def __init__(self, right, on=None, how='inner', left_on=None, right_on=None):
         """
         Args:
-            right_df: Right DataFrame to join with
+            right: Right DataFrame or DataStore to join with (lazy - executed when needed)
             on: Column name(s) to join on
             how: Join type ('inner', 'left', 'right', 'outer')
             left_on: Column name in left DataFrame
             right_on: Column name in right DataFrame
         """
         super().__init__()
-        self.right_df = right_df
+        self.right = right  # Can be DataFrame or DataStore
         self.on = on
         self.how = how
         self.left_on = left_on
@@ -1285,20 +1285,25 @@ class LazyJoin(LazyOp):
         """Execute pandas merge."""
         self._log_execute("Join", f"how='{self.how}', on={self.on}")
         left_rows = len(df)
-        right_rows = len(self.right_df)
+
+        # Lazily execute the right side if it's a DataStore
+        if hasattr(self.right, '_execute'):
+            right_df = self.right._execute()
+        else:
+            right_df = self.right
+
+        right_rows = len(right_df)
 
         result = pd.merge(
             df,
-            self.right_df,
+            right_df,
             on=self.on,
             how=self.how,
             left_on=self.left_on,
             right_on=self.right_on,
         )
 
-        self._logger.debug(
-            "    [Pandas] -> Joined: left(%d) x right(%d) = %d rows", left_rows, right_rows, len(result)
-        )
+        self._logger.debug("    [Pandas] -> Joined: left(%d) x right(%d) = %d rows", left_rows, right_rows, len(result))
         return result
 
     def describe(self) -> str:
@@ -1323,23 +1328,30 @@ class LazyUnion(LazyOp):
         ds1.union(ds2)
     """
 
-    def __init__(self, other_df: pd.DataFrame, all: bool = False):
+    def __init__(self, other, all: bool = False):
         """
         Args:
-            other_df: DataFrame to union with
+            other: DataFrame or DataStore to union with (lazy - executed when needed)
             all: If True, keep all rows (UNION ALL). If False, remove duplicates (UNION).
         """
         super().__init__()
-        self.other_df = other_df
+        self.other = other  # Can be DataFrame or DataStore
         self.all = all
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute pandas concat."""
         self._log_execute("Union", f"all={self.all}")
         left_rows = len(df)
-        right_rows = len(self.other_df)
 
-        result = pd.concat([df, self.other_df], ignore_index=True)
+        # Lazily execute the other side if it's a DataStore
+        if hasattr(self.other, '_execute'):
+            other_df = self.other._execute()
+        else:
+            other_df = self.other
+
+        right_rows = len(other_df)
+
+        result = pd.concat([df, other_df], ignore_index=True)
 
         if not self.all:
             # UNION (without ALL) removes duplicates

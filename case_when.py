@@ -359,4 +359,3 @@ class CaseWhenBuilder:
     def __repr__(self) -> str:
         cases_repr = ", ".join(f"({c}, {v})" for c, v in self._cases)
         return f"CaseWhenBuilder(cases=[{cases_repr}])"
-

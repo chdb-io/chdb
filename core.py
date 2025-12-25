@@ -10,6 +10,7 @@ from copy import copy
 if TYPE_CHECKING:
     from .column_expr import ColumnExpr
     from .groupby import LazyGroupBy
+    from .case_when import CaseWhenBuilder
 
 from .expressions import Field, Expression, Literal, Star
 from .conditions import Condition
@@ -1358,15 +1359,24 @@ class DataStore(PandasCompatMixin):
 
         Args:
             path: File path (supports glob patterns)
-            format: File format (optional, auto-detected from extension)
+            format: File format (optional, auto-detected from extension).
+                    For CSV files, defaults to 'CSVWithNames' (first row is header),
+                    matching pandas' default behavior.
             structure: Optional table structure
             compression: Optional compression method
             **kwargs: Additional connection parameters
 
         Example:
             >>> ds = DataStore.from_file("data.parquet")
-            >>> ds = DataStore.from_file("data.csv", format="CSV")
+            >>> ds = DataStore.from_file("data.csv")  # Uses CSVWithNames (header row)
+            >>> ds = DataStore.from_file("data.csv", format="CSV")  # No header row
         """
+        # Auto-infer format from file extension if not specified
+        if format is None:
+            from .uri_parser import _infer_format_from_path
+
+            format = _infer_format_from_path(path)
+
         return cls("file", path=path, format=format, structure=structure, compression=compression, **kwargs)
 
     @classmethod
@@ -2044,6 +2054,18 @@ class DataStore(PandasCompatMixin):
             # Use DESCRIBE to both test connectivity and get schema
             table_source = self._table_function.to_sql()
             describe_sql = f"DESCRIBE {table_source}"
+
+            # Apply format settings if present (important for custom delimiters, etc.)
+            if self._format_settings:
+                settings_parts = []
+                for key, value in self._format_settings.items():
+                    if isinstance(value, str):
+                        settings_parts.append(f"{key}='{value}'")
+                    else:
+                        settings_parts.append(f"{key}={value}")
+                if settings_parts:
+                    describe_sql += " SETTINGS " + ", ".join(settings_parts)
+
             self._logger.debug("Discovering schema for table function: %s", describe_sql)
             result = self._executor.execute(describe_sql)
 
@@ -3410,21 +3432,24 @@ class DataStore(PandasCompatMixin):
         else:
             raise QueryError("Either 'on' or both 'left_on' and 'right_on' must be specified")
 
-        # For SQL execution path, store the join in _joins
-        self._joins.append((other, join_type, join_condition))
+        # Determine execution path based on source type
+        has_sql_source = bool(self._table_function or self.table_name)
+        other_has_sql_source = bool(other._table_function or other.table_name)
 
-        # For DataFrame execution path, add LazyJoin operation
-        # Execute the other DataStore to get its DataFrame
-        other_df = other._execute() if hasattr(other, '_execute') else other
-        self._add_lazy_op(
-            LazyJoin(
-                right_df=other_df,
-                on=pandas_on,
-                how=how.lower(),
-                left_on=pandas_left_on,
-                right_on=pandas_right_on,
+        if has_sql_source and other_has_sql_source:
+            # Both sides have SQL sources - use SQL JOIN only
+            self._joins.append((other, join_type, join_condition))
+        else:
+            # At least one side is DataFrame-only - use LazyJoin for pandas merge
+            self._add_lazy_op(
+                LazyJoin(
+                    right=other,
+                    on=pandas_on,
+                    how=how.lower(),
+                    left_on=pandas_left_on,
+                    right_on=pandas_right_on,
+                )
             )
-        )
         # Note: Don't return self - @immutable decorator will return the copy
 
     @immutable
@@ -3444,11 +3469,9 @@ class DataStore(PandasCompatMixin):
         """
         from .lazy_ops import LazyUnion
 
-        # Execute the other DataStore to get its DataFrame
-        other_df = other._execute() if hasattr(other, '_execute') else other
-
-        # Add LazyUnion operation
-        self._add_lazy_op(LazyUnion(other_df=other_df, all=all))
+        # Add LazyUnion operation - pass the DataStore/DataFrame directly
+        # Execution is deferred until needed
+        self._add_lazy_op(LazyUnion(other=other, all=all))
         # Note: Don't return self - @immutable decorator will return the copy
 
     @immutable

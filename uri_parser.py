@@ -95,13 +95,19 @@ def parse_uri(uri: str) -> Tuple[str, Dict[str, Any]]:
 
 
 def _infer_format_from_path(path: str) -> Optional[str]:
-    """Infer file format from file extension."""
+    """
+    Infer file format from file extension.
+
+    Note: For CSV files, we use 'CSVWithNames' which expects the first row
+    to be column headers. This matches pandas' default behavior and is more
+    user-friendly than 'CSV' which uses auto-generated column names (c1, c2, ...).
+    """
     if not path:
         return None
 
     ext_map = {
-        '.csv': 'CSV',
-        '.tsv': 'TSV',
+        '.csv': 'CSVWithNames',  # First row is header (pandas-compatible)
+        '.tsv': 'TSVWithNames',  # First row is header (pandas-compatible)
         '.parquet': 'Parquet',
         '.pq': 'Parquet',
         '.json': 'JSON',
