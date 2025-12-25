@@ -18,6 +18,13 @@ endif()
 
 include (cmake/arch.cmake)
 include (cmake/target.cmake)
+
+if (NOT OS_DARWIN)
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(CMAKE_C_VISIBILITY_PRESET hidden)
+    set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+endif()
+
 include (cmake/tools.cmake)
 include (cmake/ccache.cmake)
 include (cmake/clang_tidy.cmake)
