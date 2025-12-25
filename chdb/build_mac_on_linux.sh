@@ -7,7 +7,7 @@ set -e
 
 # Parse arguments
 TARGET_ARCH=${1:-x86_64}
-build_type=${2:-Release}
+build_type=${2:-RelWithDebInfo}
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 . ${DIR}/vars.sh cross-compile
 
@@ -245,13 +245,13 @@ LIBCHDB_DIR=${BUILD_DIR}/
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
-else
-    echo -e "\nStrip the binary:"
-    ${STRIP} -x ${PYCHDB}
-    ${STRIP} -x ${LIBCHDB}
-fi
+# if [ ${build_type} == "Debug" ]; then
+#     echo -e "\nDebug build, skip strip"
+# else
+#     echo -e "\nStrip the binary:"
+#     ${STRIP} -x ${PYCHDB}
+#     ${STRIP} -x ${LIBCHDB}
+# fi
 
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}

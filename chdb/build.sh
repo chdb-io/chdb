@@ -2,8 +2,8 @@
 
 set -e
 
-# default to build Release
-build_type=${1:-Release}
+# default to build RelWithDebInfo
+build_type=${1:-RelWithDebInfo}
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
@@ -257,14 +257,14 @@ LIBCHDB_DIR=${BUILD_DIR}/
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
-else
-    echo -e "\nStrip the binary:"
-    ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
-fi
-echo -e "\nStripe the binary:"
+# if [ ${build_type} == "Debug" ]; then
+#     echo -e "\nDebug build, skip strip"
+# else
+#     echo -e "\nStrip the binary:"
+#     ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
+#     ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
+# fi
+# echo -e "\nStripe the binary:"
 
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}

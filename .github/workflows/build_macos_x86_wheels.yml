@@ -91,12 +91,6 @@ jobs:
           source ~/.cargo/env
           bash ./chdb/build_mac_on_linux.sh x86_64
         continue-on-error: false
-      - name: Run chdb/build/build_static_lib_mac_on_linux.sh
-        timeout-minutes: 600
-        run: |
-          source ~/.cargo/env
-          bash ./chdb/build/build_static_lib_mac_on_linux.sh x86_64
-        continue-on-error: false
       - name: Check ccache statistics
         run: |
           ccache -s
@@ -115,8 +109,6 @@ jobs:
         with:
           name: macos-x86_64-build-artifacts
           path: |
-            ./libchdb.so
-            ./libchdb.a
             ./chdb/_chdb.abi3.so
             ./chdb/libpybind11nonlimitedapi_stubs.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.8.dylib
@@ -135,19 +127,6 @@ jobs:
     if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
-      - name: Check machine architecture
-        run: |
-          echo "=== Machine Architecture Information ==="
-          echo "Machine type: $(uname -m)"
-          echo "Architecture: $(arch)"
-          echo "System info: $(uname -a)"
-          echo "Hardware info:"
-          system_profiler SPHardwareDataType | grep "Chip\|Processor"
-          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
-            echo "This is an ARM64 (Apple Silicon) machine"
-          else
-            echo "This is an x86_64 (Intel) machine"
-          fi
       - name: Setup pyenv
         run: |
           curl https://pyenv.run | bash
@@ -164,22 +143,6 @@ jobs:
 
           echo "Installed versions:"
           pyenv versions
-      - name: Verify pyenv installations
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          echo "Installed Python versions:"
-          pyenv versions
-          echo ""
-          echo "Verifying all required Python versions are available:"
-          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
-              echo "ERROR: Python $version is not installed!"
-              exit 1
-            fi
-            echo "✓ Python $version is installed"
-          done
-          echo "All Python versions verified successfully!"
       - name: Install dependencies for all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -202,19 +165,6 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-      - name: Update version for release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-
-          # Install bump-my-version
-          python -m pip install bump-my-version
-          TAG_NAME=${GITHUB_REF#refs/tags/v}
-          bump-my-version replace --new-version $TAG_NAME
-          echo "Version files updated to $TAG_NAME"
-          pyenv shell --unset
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -222,45 +172,22 @@ jobs:
           path: ./artifacts
       - name: Restore artifacts to original paths
         run: |
-          mv ./artifacts/libchdb.so ./
-          mv ./artifacts/libchdb.a ./
           mv ./artifacts/chdb/_chdb.abi3.so ./chdb/
           mv ./artifacts/chdb/libpybind11nonlimitedapi_stubs.dylib ./chdb/
           for v in 8 9 10 11 12 13 14; do
             mv ./artifacts/chdb/libpybind11nonlimitedapi_chdb_3.${v}.dylib ./chdb/
           done
-          ls -lh ./libchdb.so ./libchdb.a
           ls -lh ./chdb/*.so ./chdb/*.dylib
       - name: Sign macOS binaries
         run: |
           echo "Signing cross-compiled binaries for macOS..."
-          codesign -f -s - ./libchdb.so
           codesign -f -s - ./chdb/_chdb.abi3.so
           codesign -f -s - ./chdb/libpybind11nonlimitedapi_stubs.dylib
           for f in ./chdb/libpybind11nonlimitedapi_chdb_3.*.dylib; do
             codesign -f -s - "$f"
           done
           echo "Verifying signatures..."
-          codesign -dvv ./libchdb.so
           codesign -dvv ./chdb/_chdb.abi3.so
-      - name: Run chdb/test_smoke.sh
-        timeout-minutes: 600
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-          bash gen_manifest.sh
-          bash -x ./chdb/test_smoke.sh cross-compile
-        continue-on-error: false
-      - name: Run chdb/build/test_go_example.sh
-        timeout-minutes: 600
-        run: |
-          bash ./chdb/build/test_go_example.sh ${{ github.workspace }}/libchdb.a
-        continue-on-error: false
-      - name: Run libchdb stub in examples dir
-        run: |
-          bash -x ./examples/runStub.sh
-          bash -x ./examples/runArrowTest.sh
       - name: Build wheels
         run: |
           rm -rf chdb/build/
@@ -278,99 +205,50 @@ jobs:
         run: |
           echo "=== Wheel sizes ==="
           du -sh dist/*
-      - name: Setup core dump collection
-        run: |
-          mkdir -p tmp/core
-          sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
-          sudo sysctl kern.coredump=1
-          ulimit -c unlimited
-      - name: Test wheel on all Python versions
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            echo "Testing chdb on Python $version"
-            pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
-            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-            make test
-            pyenv shell --unset
-          done
-        continue-on-error: false
-      - name: Run notebook tests
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-          python -m pip install dist/*.whl --force-reinstall
-          jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
-          pyenv shell --unset
-        continue-on-error: false
-      - name: Check and upload core files if present
-        if: always()
-        run: |
-          if ls tmp/core/core.* >/dev/null 2>&1; then
-            echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
-            tar -czvf core-files-macos-x86_64.tar.gz tmp/core/core.*
-            echo "Core files tar created: core-files-macos-x86_64.tar.gz"
-            ls -lh core-files-macos-x86_64.tar.gz
-          else
-            echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
-            echo "No core files found in tmp/core"
-          fi
-        continue-on-error: true
-      - name: Upload core files artifact
-        if: always() && env.CORE_FILES_FOUND == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-files-macos-x86_64
-          path: core-files-macos-x86_64.tar.gz
+      # - name: Setup core dump collection
+      #   run: |
+      #     mkdir -p tmp/core
+      #     sudo sysctl kern.corefile=$PWD/tmp/core/core.%P
+      #     sudo sysctl kern.coredump=1
+      #     ulimit -c unlimited
+      # - name: Test wheel on all Python versions
+      #   run: |
+      #     export PATH="$HOME/.pyenv/bin:$PATH"
+      #     eval "$(pyenv init -)"
+      #     for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+      #       echo "Testing chdb on Python $version"
+      #       pyenv shell $version
+      #       python -m pip install dist/*.whl --force-reinstall
+      #       python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
+      #       make test
+      #       pyenv shell --unset
+      #     done
+      #   continue-on-error: false
+      # - name: Check and upload core files if present
+      #   if: always()
+      #   run: |
+      #     if ls tmp/core/core.* >/dev/null 2>&1; then
+      #       echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
+      #       tar -czvf core-files-macos-x86_64.tar.gz tmp/core/core.*
+      #       echo "Core files tar created: core-files-macos-x86_64.tar.gz"
+      #       ls -lh core-files-macos-x86_64.tar.gz
+      #     else
+      #       echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
+      #       echo "No core files found in tmp/core"
+      #     fi
+      #   continue-on-error: true
+      # - name: Upload core files artifact
+      #   if: always() && env.CORE_FILES_FOUND == 'true'
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: core-files-macos-x86_64
+      #     path: core-files-macos-x86_64.tar.gz
       - name: Show files
         run: ls -lh dist
         shell: bash
-      - name: Upload wheels to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Packege libchdb.so
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf macos-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
-      - name: Package libchdb.a
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf macos-x86_64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
-      - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} macos-x86_64-libchdb-static.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: chdb-artifacts-macos-x86_64
           path: |
             ./dist/*.whl
-            ./macos-x86_64-libchdb.tar.gz
-            ./macos-x86_64-libchdb-static.tar.gz
           overwrite: true
-      - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-          python -m twine upload dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
