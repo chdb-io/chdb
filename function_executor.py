@@ -148,6 +148,9 @@ class FunctionExecutorConfig:
         # Conditional value replacement (CASE WHEN in SQL)
         'where',
         'mask',
+        # CASE WHEN expression (ds.when().otherwise())
+        'when',
+        'case_when',
     }
 
     # Pandas-only functions (no ClickHouse equivalent or chDB has issues)

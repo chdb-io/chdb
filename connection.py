@@ -565,8 +565,6 @@ class QueryResult:
         if self._rows is None and self._data is not None:
             # Convert DataFrame to rows
             try:
-                import pandas as pd
-
                 if isinstance(self._data, pd.DataFrame):
                     self._rows = [tuple(row) for row in self._data.itertuples(index=False, name=None)]
                 else:
@@ -581,8 +579,6 @@ class QueryResult:
         """Get column names (lazy extraction from DataFrame)."""
         if self._column_names is None and self._data is not None:
             try:
-                import pandas as pd
-
                 if isinstance(self._data, pd.DataFrame):
                     self._column_names = list(self._data.columns)
                 else:
@@ -596,8 +592,6 @@ class QueryResult:
         """Get column types (lazy extraction from DataFrame)."""
         if self._column_types is None and self._data is not None:
             try:
-                import pandas as pd
-
                 if isinstance(self._data, pd.DataFrame):
                     self._column_types = [str(dtype) for dtype in self._data.dtypes]
                 else:
@@ -611,8 +605,6 @@ class QueryResult:
         """Get number of rows (lazy calculation from DataFrame)."""
         if self._row_count is None and self._data is not None:
             try:
-                import pandas as pd
-
                 if isinstance(self._data, pd.DataFrame):
                     self._row_count = len(self._data)
                 else:
@@ -642,8 +634,6 @@ class QueryResult:
             List of dicts where keys are column names
         """
         try:
-            import pandas as pd
-
             if isinstance(self._data, pd.DataFrame):
                 return self._data.to_dict('records')
         except Exception:
@@ -662,19 +652,14 @@ class QueryResult:
         Returns:
             pandas DataFrame
         """
-        try:
-            import pandas as pd
-
-            if isinstance(self._data, pd.DataFrame):
-                return self._data
+        if isinstance(self._data, pd.DataFrame):
+            return self._data
+        else:
+            # Convert rows to DataFrame
+            if self.rows:
+                return pd.DataFrame(self.rows, columns=self.column_names)
             else:
-                # Convert rows to DataFrame
-                if self.rows:
-                    return pd.DataFrame(self.rows, columns=self.column_names)
-                else:
-                    return pd.DataFrame()
-        except ImportError:
-            raise ImportError("pandas is required for to_df(). Install it with: pip install pandas")
+                return pd.DataFrame()
 
     def __iter__(self):
         """Iterate over rows."""

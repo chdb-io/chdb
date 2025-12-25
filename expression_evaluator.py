@@ -258,6 +258,21 @@ class ExpressionEvaluator:
             # LIKE condition -> boolean Series
             return self._evaluate_like_condition(expr)
 
+        # Handle LazyCondition (from isin, between, etc.)
+        from .lazy_result import LazyCondition
+
+        if isinstance(expr, LazyCondition):
+            # Evaluate the underlying condition using current df
+            # Don't call _execute() as it would trigger DataStore._execute() recursively
+            return self.evaluate(expr._condition)
+
+        # Handle CaseWhenExpr - CASE WHEN expression
+        from .case_when import CaseWhenExpr
+
+        if isinstance(expr, CaseWhenExpr):
+            # Evaluate via np.select
+            return expr.evaluate(self.df)
+
         elif isinstance(expr, pd.Series):
             # Direct pandas Series - pass through
             return expr

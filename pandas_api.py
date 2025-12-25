@@ -18,7 +18,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pandas as pd
+# IMPORTANT: Save a reference to the real pandas module at import time.
+# This allows DataStore to work correctly even when users do monkey-patching like:
+#   sys.modules['pandas'] = datastore
+# Without this, any `import pandas` inside functions would get datastore instead,
+# causing infinite recursion.
+import pandas as _pd
+
+# For backward compatibility with code that uses `pd` directly
+pd = _pd
 
 if TYPE_CHECKING:
     from .core import DataStore as DataStoreType
@@ -774,7 +782,7 @@ def read_sql_table(
 # ========== Data Manipulation Functions ==========
 
 
-def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs) -> 'DataStoreType':
+def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs):
     """
     Concatenate DataStore/DataFrame objects along a particular axis.
 
@@ -787,7 +795,8 @@ def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs) 
         **kwargs: Additional arguments passed to pandas.concat()
 
     Returns:
-        DataStore: A DataStore object containing the concatenated data
+        DataStore if any input is a DataStore, otherwise pandas DataFrame.
+        This ensures compatibility when pandas internal code calls concat.
 
     Example:
         >>> from datastore import concat
@@ -795,16 +804,27 @@ def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs) 
         >>> result = concat([df1, df2], axis=1)
     """
     DataStore = _get_datastore_class()
-    # Convert DataStore objects to DataFrames
+
+    # Check if any input is a DataStore (vs plain pandas DataFrame)
+    has_datastore = False
     dfs = []
     for obj in objs:
-        if hasattr(obj, 'to_df'):
+        if isinstance(obj, DataStore):
+            has_datastore = True
+            dfs.append(obj.to_df())
+        elif hasattr(obj, 'to_df') and not isinstance(obj, _pd.DataFrame):
+            has_datastore = True
             dfs.append(obj.to_df())
         else:
             dfs.append(obj)
 
-    result = pd.concat(dfs, axis=axis, join=join, ignore_index=ignore_index, keys=keys, **kwargs)
-    return DataStore.from_df(result)
+    result = _pd.concat(dfs, axis=axis, join=join, ignore_index=ignore_index, keys=keys, **kwargs)
+
+    # Only wrap in DataStore if the user passed DataStore objects
+    # This allows pandas internal code to work correctly
+    if has_datastore:
+        return DataStore.from_df(result)
+    return result
 
 
 def merge(
@@ -818,7 +838,7 @@ def merge(
     right_index=False,
     suffixes=('_x', '_y'),
     **kwargs,
-) -> 'DataStoreType':
+):
     """
     Merge DataStore/DataFrame objects with a database-style join.
 
@@ -835,7 +855,8 @@ def merge(
         **kwargs: Additional arguments passed to pandas.merge()
 
     Returns:
-        DataStore: A DataStore object containing the merged data
+        DataStore if any input is a DataStore, otherwise pandas DataFrame.
+        This ensures compatibility when pandas internal code calls merge.
 
     Example:
         >>> from datastore import merge
@@ -843,11 +864,28 @@ def merge(
         >>> result = merge(df1, df2, left_on='user_id', right_on='id')
     """
     DataStore = _get_datastore_class()
-    # Convert to DataFrames
-    left_df = left.to_df() if hasattr(left, 'to_df') else left
-    right_df = right.to_df() if hasattr(right, 'to_df') else right
 
-    result = pd.merge(
+    # Check if any input is a DataStore
+    has_datastore = isinstance(left, DataStore) or isinstance(right, DataStore)
+
+    # Convert to DataFrames
+    if isinstance(left, DataStore):
+        left_df = left.to_df()
+    elif hasattr(left, 'to_df') and not isinstance(left, _pd.DataFrame):
+        has_datastore = True
+        left_df = left.to_df()
+    else:
+        left_df = left
+
+    if isinstance(right, DataStore):
+        right_df = right.to_df()
+    elif hasattr(right, 'to_df') and not isinstance(right, _pd.DataFrame):
+        has_datastore = True
+        right_df = right.to_df()
+    else:
+        right_df = right
+
+    result = _pd.merge(
         left_df,
         right_df,
         how=how,
@@ -859,7 +897,11 @@ def merge(
         suffixes=suffixes,
         **kwargs,
     )
-    return DataStore.from_df(result)
+
+    # Only wrap in DataStore if the user passed DataStore objects
+    if has_datastore:
+        return DataStore.from_df(result)
+    return result
 
 
 def merge_asof(
@@ -1882,15 +1924,22 @@ def array(data, dtype=None, copy=True):
     return pd.array(data, dtype=dtype, copy=copy)
 
 
-# ========== DataFrame Creation ==========
+# ========== DataFrame/Series Classes ==========
+# Re-export pandas DataFrame and Series classes directly to ensure full compatibility
+# when users do: sys.modules['pandas'] = datastore
+# This allows pandas internal code to still work correctly (e.g., DataFrame._get_axis_number())
+
+# Export the actual pandas classes for type checking and internal pandas compatibility
+DataFrame = _pd.DataFrame
+Series = _pd.Series
 
 
-def DataFrame(data=None, index=None, columns=None, dtype=None, copy=None):
+def make_datastore(data=None, index=None, columns=None, dtype=None, copy=None):
     """
-    Create a DataStore from data.
+    Create a DataStore from data (explicit factory function).
 
-    This is a pandas-compatible constructor that creates a DataStore
-    object instead of a pandas DataFrame.
+    Use this when you specifically want a DataStore object instead of a pandas DataFrame.
+    For pandas-compatible code that may be monkey-patched, use pd.DataFrame() directly.
 
     Args:
         data: Dict, list, ndarray, Iterable, or DataFrame
@@ -1903,43 +1952,63 @@ def DataFrame(data=None, index=None, columns=None, dtype=None, copy=None):
         DataStore: A DataStore object
 
     Example:
-        >>> import datastore as pd
-        >>> df = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
-        >>> df = pd.DataFrame([[1, 2], [3, 4]], columns=['A', 'B'])
+        >>> from datastore import make_datastore
+        >>> ds = make_datastore({'A': [1, 2, 3], 'B': [4, 5, 6]})
     """
     DataStore = _get_datastore_class()
-    import pandas as _pd
-
     pandas_df = _pd.DataFrame(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
     return DataStore.from_df(pandas_df)
 
 
-def Series(data=None, index=None, dtype=None, name=None, copy=None):
-    """
-    Create a pandas Series.
+# ========== Pandas Core Types (Re-exported for monkey-patch compatibility) ==========
+# These are re-exported from the real pandas to support full pandas API compatibility
+# when users do: import datastore as pd; sys.modules['pandas'] = datastore
 
-    This function returns a pandas Series directly (not wrapped in DataStore),
-    as Series is typically used for single-column operations.
+# Index types
+Index = _pd.Index
+MultiIndex = _pd.MultiIndex
+RangeIndex = _pd.RangeIndex
+DatetimeIndex = _pd.DatetimeIndex
+TimedeltaIndex = _pd.TimedeltaIndex
+PeriodIndex = _pd.PeriodIndex
+IntervalIndex = _pd.IntervalIndex
+CategoricalIndex = _pd.CategoricalIndex
 
-    Args:
-        data: Array-like, Iterable, dict, or scalar value
-        index: Values for the index
-        dtype: Data type for the output Series
-        name: Name to give the Series
-        copy: Copy input data
+# Scalar types
+Timestamp = _pd.Timestamp
+Timedelta = _pd.Timedelta
+Period = _pd.Period
+Interval = _pd.Interval
 
-    Returns:
-        pandas.Series: A pandas Series object
+# Data types
+Categorical = _pd.Categorical
+CategoricalDtype = _pd.CategoricalDtype
+DatetimeTZDtype = _pd.DatetimeTZDtype
+IntervalDtype = _pd.IntervalDtype
+PeriodDtype = _pd.PeriodDtype
+SparseDtype = _pd.SparseDtype
+StringDtype = _pd.StringDtype
+BooleanDtype = _pd.BooleanDtype
+Int8Dtype = _pd.Int8Dtype
+Int16Dtype = _pd.Int16Dtype
+Int32Dtype = _pd.Int32Dtype
+Int64Dtype = _pd.Int64Dtype
+UInt8Dtype = _pd.UInt8Dtype
+UInt16Dtype = _pd.UInt16Dtype
+UInt32Dtype = _pd.UInt32Dtype
+UInt64Dtype = _pd.UInt64Dtype
+Float32Dtype = _pd.Float32Dtype
+Float64Dtype = _pd.Float64Dtype
 
-    Example:
-        >>> import datastore as pd
-        >>> s = pd.Series([1, 2, 3], name='values')
-        >>> s = pd.Series({'a': 1, 'b': 2, 'c': 3})
-    """
-    import pandas as _pd
+# NA handling
+NA = _pd.NA
+NaT = _pd.NaT
 
-    return _pd.Series(data=data, index=index, dtype=dtype, name=name, copy=copy)
+# Grouper
+Grouper = _pd.Grouper
 
+# NamedAgg for named aggregation
+NamedAgg = _pd.NamedAgg
 
 # ========== Module exports ==========
 
@@ -1947,6 +2016,42 @@ __all__ = [
     # DataFrame/Series Creation
     'DataFrame',
     'Series',
+    'make_datastore',  # Explicit factory for creating DataStore objects
+    # Pandas Core Types (re-exported)
+    'Index',
+    'MultiIndex',
+    'RangeIndex',
+    'DatetimeIndex',
+    'TimedeltaIndex',
+    'PeriodIndex',
+    'IntervalIndex',
+    'CategoricalIndex',
+    'Timestamp',
+    'Timedelta',
+    'Period',
+    'Interval',
+    'Categorical',
+    'CategoricalDtype',
+    'DatetimeTZDtype',
+    'IntervalDtype',
+    'PeriodDtype',
+    'SparseDtype',
+    'StringDtype',
+    'BooleanDtype',
+    'Int8Dtype',
+    'Int16Dtype',
+    'Int32Dtype',
+    'Int64Dtype',
+    'UInt8Dtype',
+    'UInt16Dtype',
+    'UInt32Dtype',
+    'UInt64Dtype',
+    'Float32Dtype',
+    'Float64Dtype',
+    'NA',
+    'NaT',
+    'Grouper',
+    'NamedAgg',
     # IO Functions
     'read_csv',
     'read_parquet',

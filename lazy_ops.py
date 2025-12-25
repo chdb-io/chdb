@@ -159,6 +159,7 @@ class LazyColumnAssignment(LazyOp):
         from .function_executor import function_config
         from .column_expr import ColumnExpr
         from .expressions import DateTimePropertyExpr, DateTimeMethodExpr
+        from .case_when import CaseWhenExpr
 
         # Handle ColumnExpr - unwrap
         if isinstance(expr, ColumnExpr):
@@ -167,6 +168,10 @@ class LazyColumnAssignment(LazyOp):
         if isinstance(expr, CastFunction):
             # CastFunction always uses chDB
             return 'chDB'
+
+        elif isinstance(expr, CaseWhenExpr):
+            # CaseWhenExpr - delegate to its own execution_engine method
+            return expr.execution_engine()
 
         elif isinstance(expr, DateTimePropertyExpr):
             # DateTime property - check function_config for engine selection
@@ -343,6 +348,36 @@ class LazyDropNA(LazyOp):
         if self.subset:
             desc += f" on columns: {', '.join(self.subset)}"
         return desc
+
+
+class LazyDistinct(LazyOp):
+    """Drop duplicate rows: df.drop_duplicates()"""
+
+    def __init__(self, subset=None, keep='first'):
+        super().__init__()
+        self.subset = subset
+        self.keep = keep
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        self._log_execute("Distinct", f"subset={self.subset}, keep='{self.keep}'")
+        rows_before = len(df)
+        result = df.drop_duplicates(subset=self.subset, keep=self.keep)
+        self._logger.debug(
+            "    [Pandas] -> Dropped %d duplicate rows (from %d to %d)",
+            rows_before - len(result),
+            rows_before,
+            len(result),
+        )
+        return result
+
+    def describe(self) -> str:
+        if self.subset:
+            return f"Distinct on columns: {', '.join(self.subset)}"
+        return "Distinct (all columns)"
+
+    def can_push_to_sql(self) -> bool:
+        # DISTINCT can be pushed to SQL
+        return True
 
 
 class LazyAsType(LazyOp):
@@ -1218,6 +1253,109 @@ class LazyMask(LazyWhere):
     def __init__(self, condition, other, columns: List[str] = None):
         super().__init__(condition, other, columns)
         self._is_mask = True
+
+
+class LazyJoin(LazyOp):
+    """
+    Lazy join operation for DataFrame execution.
+
+    Performs pandas merge on two DataFrames.
+
+    Example:
+        ds1.join(ds2, on='user_id', how='inner')
+    """
+
+    def __init__(self, right_df: pd.DataFrame, on=None, how='inner', left_on=None, right_on=None):
+        """
+        Args:
+            right_df: Right DataFrame to join with
+            on: Column name(s) to join on
+            how: Join type ('inner', 'left', 'right', 'outer')
+            left_on: Column name in left DataFrame
+            right_on: Column name in right DataFrame
+        """
+        super().__init__()
+        self.right_df = right_df
+        self.on = on
+        self.how = how
+        self.left_on = left_on
+        self.right_on = right_on
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute pandas merge."""
+        self._log_execute("Join", f"how='{self.how}', on={self.on}")
+        left_rows = len(df)
+        right_rows = len(self.right_df)
+
+        result = pd.merge(
+            df,
+            self.right_df,
+            on=self.on,
+            how=self.how,
+            left_on=self.left_on,
+            right_on=self.right_on,
+        )
+
+        self._logger.debug(
+            "    [Pandas] -> Joined: left(%d) x right(%d) = %d rows", left_rows, right_rows, len(result)
+        )
+        return result
+
+    def describe(self) -> str:
+        on_desc = self.on if self.on else f"left_on={self.left_on}, right_on={self.right_on}"
+        return f"Join (how='{self.how}', on={on_desc})"
+
+    def can_push_to_sql(self) -> bool:
+        # Join can be pushed to SQL when both sides have SQL sources
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
+
+
+class LazyUnion(LazyOp):
+    """
+    Lazy union operation (vertical concatenation).
+
+    Concatenates two DataFrames vertically.
+
+    Example:
+        ds1.union(ds2)
+    """
+
+    def __init__(self, other_df: pd.DataFrame, all: bool = False):
+        """
+        Args:
+            other_df: DataFrame to union with
+            all: If True, keep all rows (UNION ALL). If False, remove duplicates (UNION).
+        """
+        super().__init__()
+        self.other_df = other_df
+        self.all = all
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute pandas concat."""
+        self._log_execute("Union", f"all={self.all}")
+        left_rows = len(df)
+        right_rows = len(self.other_df)
+
+        result = pd.concat([df, self.other_df], ignore_index=True)
+
+        if not self.all:
+            # UNION (without ALL) removes duplicates
+            result = result.drop_duplicates()
+
+        self._logger.debug("    [Pandas] -> Union: %d + %d = %d rows", left_rows, right_rows, len(result))
+        return result
+
+    def describe(self) -> str:
+        return f"Union (all={self.all})"
+
+    def can_push_to_sql(self) -> bool:
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
 
 
 # Add more operations as needed...

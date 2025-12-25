@@ -569,7 +569,6 @@ class ColumnExpr:
         Returns:
             bool: True if values are equivalent
         """
-        import pandas as pd
         import numpy as np
 
         self_series = self._execute()
@@ -640,8 +639,6 @@ class ColumnExpr:
             >>> ds['name'].str.upper().equals(pd_df['name'].str.upper())
             True
         """
-        import pandas as pd
-
         # Unwrap ColumnExpr or lazy objects
         if isinstance(other, ColumnExpr):
             other = other._execute()
@@ -764,7 +761,6 @@ class ColumnExpr:
             >>> bool_col.value_counts()  # Counts True/False
             >>> ds.filter(bool_col)  # Filters rows
         """
-        import pandas as pd
         from .conditions import BinaryCondition
 
         # Value comparison only with pandas Series/DataFrame (executed data)

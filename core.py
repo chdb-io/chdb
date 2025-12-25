@@ -1771,7 +1771,6 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_df(df, name='users')
             >>> ds.sql("SELECT * FROM __df__ WHERE age > 26").to_df()
         """
-        import pandas as pd
         from .lazy_ops import LazyDataFrameSource
 
         if not isinstance(df, pd.DataFrame):
@@ -2584,8 +2583,6 @@ class DataStore(PandasCompatMixin):
             For total row count (like SQL COUNT(*)), use count_rows() instead.
             Falls back to DataFrame execution if non-SQL operations are pending.
         """
-        import pandas as pd
-
         # Check if there are any non-SQL operations in the lazy ops
         has_non_sql_ops = False
         if self._lazy_ops:
@@ -3188,6 +3185,58 @@ class DataStore(PandasCompatMixin):
         # SQL-style filter (simple Condition or string, no other args)
         return self.filter(condition)
 
+    def when(self, condition: Any, value: Any) -> 'CaseWhenBuilder':
+        """
+        Start building a CASE WHEN expression.
+
+        This method provides a fluent API for creating conditional expressions
+        similar to SQL CASE WHEN:
+
+            ds['grade'] = ds.when(ds['score'] >= 90, 'A') \\
+                            .when(ds['score'] >= 80, 'B') \\
+                            .when(ds['score'] >= 60, 'C') \\
+                            .otherwise('F')
+
+        This generates SQL:
+            CASE WHEN score >= 90 THEN 'A'
+                 WHEN score >= 80 THEN 'B'
+                 WHEN score >= 60 THEN 'C'
+                 ELSE 'F'
+            END
+
+        And can also execute via pandas using np.select().
+
+        Args:
+            condition: Boolean condition (e.g., ds['score'] >= 90)
+            value: Value to use when condition is True
+
+        Returns:
+            CaseWhenBuilder for chaining .when() and .otherwise()
+
+        Note:
+            You MUST call .otherwise() to complete the expression.
+
+        Example:
+            >>> # Simple grade classification
+            >>> ds['grade'] = ds.when(ds['score'] >= 90, 'A') \\
+            ...                 .when(ds['score'] >= 80, 'B') \\
+            ...                 .otherwise('C')
+
+            >>> # Numeric transformation
+            >>> ds['adjusted'] = ds.when(ds['value'] < 0, 0) \\
+            ...                    .when(ds['value'] > 100, 100) \\
+            ...                    .otherwise(ds['value'])
+
+            >>> # Multiple conditions with expressions
+            >>> ds['category'] = ds.when(ds['age'] < 18, 'minor') \\
+            ...                    .when(ds['age'] < 65, 'adult') \\
+            ...                    .otherwise('senior')
+        """
+        from .case_when import CaseWhenBuilder
+
+        builder = CaseWhenBuilder(self)
+        return builder.when(condition, value)
+
     @classmethod
     def run_sql(cls, query: str) -> 'DataStore':
         """
@@ -3313,6 +3362,7 @@ class DataStore(PandasCompatMixin):
             >>> ds1.join(ds2, left_on='id', right_on='user_id', how='left')
         """
         from .enums import JoinType
+        from .lazy_ops import LazyJoin
 
         # Convert how string to JoinType
         join_type_map = {
@@ -3329,17 +3379,25 @@ class DataStore(PandasCompatMixin):
 
         join_type = join_type_map[how.lower()]
 
+        # Determine join column(s) for pandas merge
+        pandas_on = None
+        pandas_left_on = left_on
+        pandas_right_on = right_on
+
         # Build join condition
         if on is not None:
             if isinstance(on, str):
-                # String -> USING (column) syntax
+                # String -> USING (column) syntax for SQL, on= for pandas
                 join_condition = ('USING', [on])
+                pandas_on = on
             elif isinstance(on, (list, tuple)) and all(isinstance(c, str) for c in on):
                 # List of strings -> USING (col1, col2, ...) syntax
                 join_condition = ('USING', list(on))
+                pandas_on = list(on)
             else:
-                # Condition object -> ON clause
+                # Condition object -> ON clause (SQL only, need to extract columns for pandas)
                 join_condition = on
+                # For Condition objects, we can't easily extract columns, so use SQL path
         elif left_on and right_on:
             # Create condition from column names
             # Use table alias for table functions
@@ -3352,8 +3410,66 @@ class DataStore(PandasCompatMixin):
         else:
             raise QueryError("Either 'on' or both 'left_on' and 'right_on' must be specified")
 
+        # For SQL execution path, store the join in _joins
         self._joins.append((other, join_type, join_condition))
-        return self
+
+        # For DataFrame execution path, add LazyJoin operation
+        # Execute the other DataStore to get its DataFrame
+        other_df = other._execute() if hasattr(other, '_execute') else other
+        self._add_lazy_op(
+            LazyJoin(
+                right_df=other_df,
+                on=pandas_on,
+                how=how.lower(),
+                left_on=pandas_left_on,
+                right_on=pandas_right_on,
+            )
+        )
+        # Note: Don't return self - @immutable decorator will return the copy
+
+    @immutable
+    def union(self, other: 'DataStore', all: bool = False) -> 'DataStore':
+        """
+        Union with another DataStore (vertical concatenation).
+
+        This is equivalent to SQL UNION (or UNION ALL if all=True).
+
+        Args:
+            other: Another DataStore to union with
+            all: If True, keep all rows (UNION ALL). If False, remove duplicates (UNION).
+
+        Example:
+            >>> ds1.union(ds2)  # Removes duplicates (like SQL UNION)
+            >>> ds1.union(ds2, all=True)  # Keeps all rows (like SQL UNION ALL)
+        """
+        from .lazy_ops import LazyUnion
+
+        # Execute the other DataStore to get its DataFrame
+        other_df = other._execute() if hasattr(other, '_execute') else other
+
+        # Add LazyUnion operation
+        self._add_lazy_op(LazyUnion(other_df=other_df, all=all))
+        # Note: Don't return self - @immutable decorator will return the copy
+
+    @immutable
+    def with_column(self, name: str, expr: Union[Expression, Any]) -> 'DataStore':
+        """
+        Add a new column with the given name and expression.
+
+        This is similar to polars' with_column() and pandas' assign().
+
+        Args:
+            name: Name of the new column
+            expr: Expression for computing the column values
+
+        Example:
+            >>> ds.with_column('total', ds['price'] * ds['quantity'])
+            >>> ds.with_column('doubled', ds['value'] * 2)
+        """
+        from .lazy_ops import LazyColumnAssignment
+
+        self._add_lazy_op(LazyColumnAssignment(name, expr))
+        # Note: Don't return self - @immutable decorator will return the copy
 
     def groupby(self, *fields: Union[str, Expression, List]) -> 'LazyGroupBy':
         """
@@ -3464,7 +3580,6 @@ class DataStore(PandasCompatMixin):
                 else:
                     # Provide helpful error message for common mistakes
                     import numpy as np
-                    import pandas as pd
 
                     if isinstance(expr, (int, float, np.integer, np.floating)):
                         raise QueryError(
@@ -3710,14 +3825,28 @@ class DataStore(PandasCompatMixin):
         self._offset_value = n
 
     @immutable
-    def distinct(self) -> 'DataStore':
+    def distinct(self, subset=None, keep='first') -> 'DataStore':
         """
-        Add DISTINCT to query.
+        Remove duplicate rows from the DataStore.
+
+        For SQL sources, this adds DISTINCT to the query.
+        For DataFrame sources, this uses drop_duplicates().
+
+        Args:
+            subset: Column label or sequence of labels to consider for duplicates.
+                    If None, use all columns.
+            keep: Which duplicates to keep ('first', 'last', False to drop all).
 
         Example:
             >>> ds.select("city").distinct()
+            >>> ds.distinct(subset=['name', 'age'])
         """
+        from .lazy_ops import LazyDistinct
+
+        # Set SQL flag for SQL execution path
         self._distinct = True
+        # Add lazy op for DataFrame execution path
+        self._add_lazy_op(LazyDistinct(subset=subset, keep=keep))
 
     @immutable
     def having(self, condition: Union[Condition, str]) -> 'DataStore':
