@@ -13,6 +13,11 @@
 namespace DB
 {
 
+namespace ErrorCodes
+{
+    extern const int BAD_TYPE_OF_FIELD;
+}
+
 /// Helper function to convert Python 1,2,4 bytes unicode string to utf8 with icu4c
 /// kind: 1 for 1-byte characters (Latin1/ASCII equivalent in ICU)
 ///       2 for 2-byte characters (UTF-16 equivalent)
@@ -199,4 +204,48 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
 
     return nullptr;
 }
+
+void insertObjToStringColumn(PyObject * obj, ColumnString * string_column)
+{
+    /// check if the object is NaN
+    if (obj == Py_None || (PyFloat_Check(obj) && std::isnan(PyFloat_AsDouble(obj))))
+    {
+        // insert default value for string column, which is empty string
+        string_column->insertDefault();
+        return;
+    }
+    /// if object is list, tuple, or dict, convert it to json string
+    if (PyList_Check(obj) || PyTuple_Check(obj) || PyDict_Check(obj))
+    {
+        py::gil_scoped_acquire acquire;
+        std::string str = py::module::import("json").attr("dumps")(py::reinterpret_borrow<py::object>(obj)).cast<std::string>();
+        string_column->insertData(str.data(), str.size());
+        return;
+    }
+    /// try convert the object to string
+    try
+    {
+        py::gil_scoped_acquire acquire;
+        std::string str = py::str(obj);
+        string_column->insertData(str.data(), str.size());
+        return;
+    }
+    catch (const py::error_already_set & e)
+    {
+        /// Get type name using stable API
+        py::gil_scoped_acquire acquire;
+        std::string type_name;
+        try
+        {
+            type_name = py::str(py::handle(obj).attr("__class__").attr("__name__")).cast<std::string>();
+        }
+        catch (...)
+        {
+            type_name = "unknown";
+        }
+
+        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", type_name, e.what());
+    }
+}
+
 }

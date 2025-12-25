@@ -35,8 +35,8 @@ class TestComplexPyObj(unittest.TestCase):
             """,
             "dataframe",
         )
-        self.assertEqual(ret.dtypes["A"], "object")
-        self.assertEqual(ret.dtypes["B"], "object")
+        self.assertEqual(ret.dtypes["A"], "Int32")
+        self.assertEqual(ret.dtypes["B"], "Float64")
         self.assertEqual(ret.dtypes["C"], "object")
         self.assertEqual(ret.dtypes["D"], "object")
         self.assertEqual(ret.dtypes["E"], "object")
@@ -45,40 +45,40 @@ class TestComplexPyObj(unittest.TestCase):
         self.assertEqual(ret.shape, (4, 7))
 
         # Row 0
-        self.assertEqual(ret.iloc[0]["A"], '1')
-        self.assertEqual(ret.iloc[0]["B"], '4.0')
+        self.assertEqual(ret.iloc[0]["A"], 1)
+        self.assertEqual(ret.iloc[0]["B"], 4.0)
         self.assertEqual(ret.iloc[0]["C"], 'True')
         self.assertEqual(ret.iloc[0]["D"], 'a')
-        self.assertEqual(ret.iloc[0]["E"], '<NA>')
+        self.assertTrue(pd.isna(ret.iloc[0]["E"]))
         self.assertEqual(ret.iloc[0]["F"], '[1, 2]')
-        self.assertEqual(ret.iloc[0]["G"], '{"a": 1, "b": 2}')
+        self.assertEqual(ret.iloc[0]["G"], {"a": 1, "b": 2})
 
         # Row 1
-        self.assertEqual(ret.iloc[1]["A"], '2')
-        self.assertEqual(ret.iloc[1]["B"], '5.0')
+        self.assertEqual(ret.iloc[1]["A"], 2)
+        self.assertEqual(ret.iloc[1]["B"], 5.0)
         self.assertEqual(ret.iloc[1]["C"], 'False')
         self.assertEqual(ret.iloc[1]["D"], 'b')
-        self.assertEqual(ret.iloc[1]["E"], '<NA>')
+        self.assertTrue(pd.isna(ret.iloc[1]["E"]))
         self.assertEqual(ret.iloc[1]["F"], '[3, 4]')
-        self.assertEqual(ret.iloc[1]["G"], '{"c": 3, "d": 4}')
+        self.assertEqual(ret.iloc[1]["G"], {"c": 3, "d": 4})
 
         # Row 2
-        self.assertEqual(ret.iloc[2]["A"], '3')
-        self.assertEqual(ret.iloc[2]["B"], '6.0')
+        self.assertEqual(ret.iloc[2]["A"], 3)
+        self.assertEqual(ret.iloc[2]["B"], 6.0)
         self.assertEqual(ret.iloc[2]["C"], 'True')
         self.assertEqual(ret.iloc[2]["D"], 'c')
-        self.assertEqual(ret.iloc[2]["E"], '<NA>')
+        self.assertTrue(pd.isna(ret.iloc[2]["E"]))
         self.assertEqual(ret.iloc[2]["F"], '[5, 6]')
-        self.assertEqual(ret.iloc[2]["G"], '{"e": 5, "f": 6}')
+        self.assertEqual(ret.iloc[2]["G"], {"e": 5, "f": 6})
 
         # Row 3
-        self.assertEqual(ret.iloc[3]["A"], '<NA>')
-        self.assertEqual(ret.iloc[3]["B"], '<NA>')
-        self.assertEqual(ret.iloc[3]["C"], '<NA>')
-        self.assertEqual(ret.iloc[3]["D"], '<NA>')
-        self.assertEqual(ret.iloc[3]["E"], '<NA>')
-        self.assertEqual(ret.iloc[3]["F"], '<NA>')
-        self.assertEqual(ret.iloc[3]["G"], '<NA>')
+        self.assertTrue(pd.isna(ret.iloc[3]["A"]))
+        self.assertTrue(pd.isna(ret.iloc[3]["B"]))
+        self.assertTrue(pd.isna(ret.iloc[3]["C"]))
+        self.assertTrue(pd.isna(ret.iloc[3]["D"]))
+        self.assertTrue(pd.isna(ret.iloc[3]["E"]))
+        self.assertTrue(pd.isna(ret.iloc[3]["F"]))
+        self.assertTrue(pd.isna(ret.iloc[3]["G"]))
 
     def test_df_without_na(self):
         ret = chdb.query(

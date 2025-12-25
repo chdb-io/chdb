@@ -19,9 +19,6 @@
 #include <Common/COW.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
-#if USE_JEMALLOC
-#    include <Common/memory.h>
-#endif
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
 #include <Columns/IColumn.h>
@@ -31,12 +28,16 @@
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
 #include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <Interpreters/ExpressionActions.h>
 #include <base/Decimal.h>
 #include <base/Decimal_fwd.h>
 #include <base/scope_guard.h>
 #include <base/types.h>
 #include <Common/typeid_cast.h>
+#if USE_JEMALLOC
+#    include <Common/memory.h>
+#endif
 
 using namespace CHDB;
 
@@ -55,6 +56,7 @@ namespace ErrorCodes
 PythonSource::PythonSource(
     py::object & data_source_,
     bool isInheritsFromPyReader_,
+    bool isPandasDataFrame_,
     const Block & sample_block_,
     PyColumnVecPtr column_cache,
     size_t data_source_row_count,
@@ -66,6 +68,7 @@ PythonSource::PythonSource(
     : ISource(std::make_shared<Block>(sample_block_.cloneEmpty()))
     , data_source(data_source_)
     , isInheritsFromPyReader(isInheritsFromPyReader_)
+    , isPandasDataFrame(isPandasDataFrame_)
     , sample_block(sample_block_)
     , column_cache(column_cache)
     , data_source_row_count(data_source_row_count)
@@ -133,7 +136,7 @@ void PythonSource::convert_string_array_to_block(
         auto * obj = buf[i];
         if (!PyUnicode_Check(obj))
         {
-            insert_obj_to_string_column(obj, string_column);
+            insertObjToStringColumn(obj, string_column);
             continue;
         }
         FillColumnString(obj, string_column);
@@ -155,55 +158,6 @@ void PythonSource::convert_string_array_to_block(
     }
 }
 
-void PythonSource::insert_obj_to_string_column(PyObject * obj, ColumnString * string_column)
-{
-    // check if the object is NaN
-    if (obj == Py_None || (PyFloat_Check(obj) && Py_IS_NAN(PyFloat_AsDouble(obj))))
-    {
-        // insert default value for string column, which is empty string
-        string_column->insertDefault();
-        return;
-    }
-    // if object is list, tuple, or dict, convert it to json string
-    if (PyList_Check(obj) || PyTuple_Check(obj) || PyDict_Check(obj))
-    {
-        py::gil_scoped_acquire acquire;
-        std::string str = py::module::import("json").attr("dumps")(py::reinterpret_borrow<py::object>(obj)).cast<std::string>();
-        string_column->insertData(str.data(), str.size());
-        return;
-    }
-    // try convert the object to string
-    try
-    {
-        py::gil_scoped_acquire acquire;
-        std::string str = py::str(obj);
-        string_column->insertData(str.data(), str.size());
-        return;
-    }
-    catch (const py::error_already_set & e)
-    {
-        // Get type name using stable API
-        py::gil_scoped_acquire acquire;
-        std::string type_name;
-        try
-        {
-            type_name = py::str(py::handle(obj).attr("__class__").attr("__name__")).cast<std::string>();
-        }
-        catch (...)
-        {
-            type_name = "unknown";
-        }
-
-        LOG_ERROR(
-            logger,
-            "Error converting Python object {} to string: {}, Unicode string expected here. Try convert column type to str with "
-            "`astype(str)`",
-            type_name,
-            e.what());
-        throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Error converting Python object {} to string: {}", type_name, e.what());
-    }
-}
-
 template <typename T>
 void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
 {
@@ -214,14 +168,14 @@ void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & co
     helper->appendRawData<sizeof(T)>(start, row_count);
 }
 
-
 template <typename T>
 ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale, bool is_json)
 {
     MutableColumnPtr column;
     if (is_json)
     {
-        auto data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+        auto nested_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+        auto data_type = std::make_shared<DataTypeNullable>(std::move(nested_type));
         column = data_type->createColumn();
     }
     else if constexpr (std::is_same_v<T, DateTime64> || std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal256>)
@@ -314,7 +268,8 @@ Chunk PythonSource::genChunk(size_t & num_rows, PyObjectVecPtr data)
             num_rows = getObjectLength((*data)[i]);
         const auto & column = (*data)[i];
         const auto & type = sample_block.getByPosition(i).type;
-        WhichDataType which(type);
+        auto data_type = removeNullable(type);
+        WhichDataType which(data_type);
 
         try
         {
@@ -459,9 +414,18 @@ Chunk PythonSource::scanDataToChunk()
         const auto & col = (*column_cache)[i];
         const auto & type = sample_block.getByPosition(i).type;
 
-        WhichDataType which(type);
+        bool is_nullable = type->isNullable();
+        auto data_type = removeNullable(type);
+        WhichDataType which(data_type);
+
         try
         {
+            if (isPandasDataFrame && is_nullable)
+            {
+                columns[i] = PandasScan::scanColumn(col, cursor, count, format_settings);
+                continue;
+            }
+
             // Dispatch to the appropriate conversion function based on data type
             if (which.isUInt8())
                 columns[i] = convert_and_insert_array<UInt8>(col, cursor, count);
@@ -525,20 +489,6 @@ Chunk PythonSource::scanDataToChunk()
             }
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);
-
-            if (logger->debug())
-            {
-                // log first 10 rows of the column
-                std::stringstream ss;
-                // LOG_DEBUG(logger, "Column {} structure: {}", col.name, columns[i]->dumpStructure());
-                for (size_t j = 0; j < std::min(count, static_cast<size_t>(10)); ++j)
-                {
-                    Field value;
-                    columns[i]->get(j, value);
-                    ss << toString(value) << ", ";
-                }
-                // LOG_DEBUG(logger, "Column {} data: {}", col.name, ss.str());
-            }
         }
         catch (Exception & e)
         {
