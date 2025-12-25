@@ -22,7 +22,6 @@ if [ "$(uname)" == "Darwin" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
     JEMALLOC="-DENABLE_JEMALLOC=0"
-    PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
     HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
     MYSQL="-DENABLE_MYSQL=0"
     ICU="-DENABLE_ICU=0"
@@ -39,7 +38,7 @@ if [ "$(uname)" == "Darwin" ]; then
         else
             # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
             CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-            # # If target macos version is 12, we need to test if support AVX2, 
+            # # If target macos version is 12, we need to test if support AVX2,
             # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
             # # just test it on the github action, hope you don't using Mac Pro Late 2013.
             # # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
@@ -54,7 +53,6 @@ elif [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
     UNWIND="-DUSE_UNWIND=1"
     JEMALLOC="-DENABLE_JEMALLOC=1"
-    PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     ICU="-DENABLE_ICU=1"
     SED_INPLACE="sed -i"
     # only x86_64, enable AVX, enable embedded compiler
@@ -154,16 +152,13 @@ if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
     ${SED_INPLACE} 's/ '${CHDB_PY_MODULE}'/ '${LIBCHDB_SO}'/g' CMakeFiles/libchdb.rsp
 fi
 
-if [ "$(uname)" == "Linux" ]; then
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ /g')
-    if [ ! "${USING_RESPONSE_FILE}" == "" ]; then
-        ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ /g' CMakeFiles/libchdb.rsp
-    fi
-fi
-
+# Control exported symbols for libchdb.so
 if [ "$(uname)" == "Darwin" ]; then
-    LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g')
-    # ${SED_INPLACE} 's/ '${PYINIT_ENTRY}'/ -Wl,-exported_symbol,_query_stable -Wl,-exported_symbol,_free_result -Wl,-exported_symbol,_query_stable_v2 -Wl,-exported_symbol,_free_result_v2/g' CMakeFiles/libchdb.rsp
+    # macOS: use exported_symbols_list file
+    LIBCHDB_CMD="${LIBCHDB_CMD} -Wl,-exported_symbols_list,${CHDB_DIR}/libchdb_export_macos.txt"
+else
+    # Linux: use version script
+    LIBCHDB_CMD="${LIBCHDB_CMD} -Wl,--version-script=${CHDB_DIR}/libchdb_export.map"
 fi
 
 LIBCHDB_CMD=$(echo ${LIBCHDB_CMD} | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/libchdb.rsp/g')
@@ -213,19 +208,12 @@ fi
 
 # extract the command to generate CHDB_PY_MODULE
 PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
+    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
     | sed 's/ -Xlinker --no-undefined//g' \
     | sed 's/@CMakeFiles\/clickhouse.rsp/@CMakeFiles\/pychdb.rsp/g' \
      )
-
-
-# # inplace modify the CMakeFiles/pychdb.rsp
-# ${SED_INPLACE} 's/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/' CMakeFiles/pychdb.rsp
-# ${SED_INPLACE} 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' CMakeFiles/pychdb.rsp
-# ${SED_INPLACE} 's/ -Xlinker --no-undefined//g' CMakeFiles/pychdb.rsp
-
 
 if [ "$(uname)" == "Linux" ]; then
     # remove src/CMakeFiles/clickhouse_malloc.dir/Common/stubFree.c.o
@@ -240,8 +228,10 @@ fi
 
 if [ "$(uname)" == "Darwin" ]; then
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,@loader_path|g')
+    PYCHDB_CMD="${PYCHDB_CMD} -Wl,-exported_symbols_list,${CHDB_DIR}/pychdb_export_macos.txt"
 else
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,\$ORIGIN|g')
+    PYCHDB_CMD="${PYCHDB_CMD} -Wl,--undefined=PyInit__chdb -Wl,--version-script=${CHDB_DIR}/pychdb_export.map"
 fi
 
 # save the command to a file for debug
@@ -261,8 +251,8 @@ LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 #     echo -e "\nDebug build, skip strip"
 # else
 #     echo -e "\nStrip the binary:"
-#     ${STRIP} --remove-section=.comment --remove-section=.note ${PYCHDB}
-#     ${STRIP} --remove-section=.comment --remove-section=.note ${LIBCHDB}
+#     ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${PYCHDB}
+#     ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${LIBCHDB}
 # fi
 # echo -e "\nStripe the binary:"
 
@@ -295,20 +285,7 @@ ${NM} ${LIBCHDB} | grep query_stable || true
 
 echo -e "\nAfter copy:"
 cd ${PROJ_DIR} && pwd
-# ls -lh ${PROJ_DIR}
-
-# strip the binary (no debug info at all)
-# strip ${CHDB_DIR}/${CHDB_PY_MODULE} || true
-
-# echo -e "\nAfter strip:"
-# echo -e "\nLIBCHDB: ${PYCHDB}"
-# ls -lh ${CHDB_DIR}
-# echo -e "\nfile info of ${PYCHDB}"
-# file ${CHDB_DIR}/${CHDB_PY_MODULE}
 
 ccache -s || true
-
-# bash ${DIR}/build_bind.sh
-# bash ${DIR}/test_smoke.sh
 
 CMAKE_ARGS="${CMAKE_ARGS}" bash ${DIR}/build_pybind11.sh --all
