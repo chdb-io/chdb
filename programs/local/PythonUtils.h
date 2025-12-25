@@ -34,6 +34,7 @@ struct ColumnWrapper
     std::string row_format;
     std::string encoding; // utf8, utf16, utf32, etc.
     std::string name;
+    bool is_object_type = false;
 
     ~ColumnWrapper()
     {
@@ -195,5 +196,7 @@ inline std::vector<py::object> readData(const py::object & data_source, const st
 }
 
 const void * tryGetPyArray(const py::object & obj, py::handle & result, py::handle & tmp, std::string & type_name, size_t & row_count);
+
+void insertObjToStringColumn(PyObject * obj, ColumnString * string_column);
 
 } // namespace DB

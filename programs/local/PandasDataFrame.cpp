@@ -5,10 +5,11 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
+#include <DataTypes/DataTypeObject.h>
+#include <Interpreters/Context.h>
 #if USE_JEMALLOC
 #    include <Common/memory.h>
 #endif
-#include <Interpreters/Context.h>
 
 namespace DB
 {
@@ -24,42 +25,6 @@ using namespace DB;
 
 namespace CHDB {
 
-struct PandasBindColumn {
-public:
-    PandasBindColumn(py::handle name, py::handle type, py::object column)
-        : name(name), type(type), handle(std::move(column))
-    {}
-
-public:
-    py::handle name;
-    py::handle type;
-    py::object handle;
-};
-
-struct PandasDataFrameBind {
-public:
-    explicit PandasDataFrameBind(const py::handle & df)
-    {
-        names = py::list(df.attr("columns"));
-        types = py::list(df.attr("dtypes"));
-        getter = df.attr("__getitem__");
-    }
-
-    PandasBindColumn operator[](size_t index) const {
-        auto column = py::reinterpret_borrow<py::object>(getter(names[index]));
-        auto type = types[index];
-        auto name = names[index];
-        return PandasBindColumn(name, type, column);
-     }
-
-public:
-     py::list names;
-     py::list types;
-
-private:
-    py::object getter;
-};
-
 static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, ContextPtr & context)
 {
     auto numpy_type = ConvertNumpyType(column.type);
@@ -68,15 +33,15 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
 
     if (numpy_type.type == NumpyNullableType::OBJECT)
     {
-        if (!context->getQueryContext() || !context->getQueryContext()->isJSONSupported())
-        {
-            numpy_type.type = NumpyNullableType::STRING;
-            return NumpyToDataType(numpy_type);
-        }
-
 		PandasAnalyzer analyzer(context->getSettingsRef());
-		if (analyzer.Analyze(column.handle)) {
-			return analyzer.analyzedType();
+		if (analyzer.Analyze(column.handle))
+        {
+            const auto & analyzed_type = analyzer.analyzedType();
+            const bool use_string_fallback = !context->getQueryContext() || !context->getQueryContext()->isJSONSupported();
+            const bool is_json_type = typeid_cast<const DataTypeObject *>(analyzed_type.get()) != nullptr;
+
+            if (!is_json_type || !use_string_fallback)
+                return analyzed_type;
 		}
 
         numpy_type.type = NumpyNullableType::STRING;
@@ -131,7 +96,8 @@ bool PandasDataFrame::isPandasDataframe(const py::object & object)
 
 	auto arrow_dtype = importer_cache.pandas.ArrowDtype();
 	py::list dtypes = object.attr("dtypes");
-	for (auto & dtype : dtypes) {
+	for (auto & dtype : dtypes)
+    {
 		if (py::isinstance(dtype, arrow_dtype))
 			return false;
 	}
@@ -139,7 +105,7 @@ bool PandasDataFrame::isPandasDataframe(const py::object & object)
 	return true;
 }
 
-bool PandasDataFrame::IsPyArrowBacked(const py::handle & object)
+bool PandasDataFrame::isPyArrowBacked(const py::handle & /*object*/)
 {
     /// TODO: check if object is pyarrow backed
     return false;

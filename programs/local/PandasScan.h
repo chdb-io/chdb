@@ -2,11 +2,19 @@
 
 #include "PybindWrapper.h"
 #include "PythonUtils.h"
+#include <DataTypes/IDataType.h>
 
 namespace CHDB {
 
-class PandasScan {
+class PandasScan
+{
 public:
+    static DB::ColumnPtr scanColumn(
+        const DB::ColumnWrapper & col_wrap,
+        const size_t cursor,
+        const size_t count,
+        const DB::FormatSettings & format_settings);
+
     static DB::ColumnPtr scanObject(
         const DB::ColumnWrapper & col_wrap,
         const size_t cursor,
@@ -29,6 +37,19 @@ private:
         const DB::FormatSettings & format_settings,
         DB::SerializationPtr & serialization,
         PyObject ** objects,
+        DB::MutableColumnPtr & column,
+        DB::WhichDataType which = DB::WhichDataType(DB::TypeIndex::Object));
+
+    static void innerScanFloat64(
+        const size_t cursor,
+        const size_t count,
+        const Float64 * ptr,
+        DB::MutableColumnPtr & column);
+
+    static void innerScanDateTime64(
+        const size_t cursor,
+        const size_t count,
+        const Int64 * ptr,
         DB::MutableColumnPtr & column);
 };
 

@@ -8,7 +8,8 @@
 
 namespace CHDB {
 
-enum class PythonObjectType {
+enum class PythonObjectType
+{
 	Other,
 	None,
 	Integer,
@@ -56,5 +57,12 @@ bool tryInsertJsonResult(
     const DB::FormatSettings & format_settings,
     DB::MutableColumnPtr & column,
     DB::SerializationPtr & serialization);
+
+using ObjectCallback = std::function<void(py::handle, DB::MutableColumnPtr &, PythonObjectType)>;
+
+void transformPythonObject(
+	py::handle obj,
+	DB::MutableColumnPtr & column,
+	const ObjectCallback & object_callback);
 
 } // namespace CHDB
