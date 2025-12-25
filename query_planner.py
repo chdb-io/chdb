@@ -753,7 +753,9 @@ class SQLBuilder:
         if layer_orderby:
             from .utils import build_orderby_clause, is_stable_sort
 
-            orderby_sql = build_orderby_clause(layer_orderby, self.quote_char, stable=is_stable_sort(layer_orderby_kind))
+            orderby_sql = build_orderby_clause(
+                layer_orderby, self.quote_char, stable=is_stable_sort(layer_orderby_kind)
+            )
             outer_parts.append(f"ORDER BY {orderby_sql}")
 
         if layer_limit is not None:

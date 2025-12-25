@@ -456,7 +456,9 @@ class LazyRelationalOp(LazyOp):
             # Log sort info
             try:
                 direction = 'ascending' if self.ascending else 'descending'
-                self._logger.debug("      -> df.sort_values(by=%s, ascending=%s, kind=%s)", existing_cols, self.ascending, self.kind)
+                self._logger.debug(
+                    "      -> df.sort_values(by=%s, ascending=%s, kind=%s)", existing_cols, self.ascending, self.kind
+                )
             except Exception:
                 pass
             if existing_cols:

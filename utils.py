@@ -5,7 +5,14 @@ Utility functions and decorators for DataStore
 from typing import TypeVar, Callable
 from copy import copy
 
-__all__ = ['immutable', 'ignore_copy', 'build_orderby_clause', 'STABLE_SORT_TIEBREAKER', 'STABLE_SORT_KINDS', 'is_stable_sort']
+__all__ = [
+    'immutable',
+    'ignore_copy',
+    'build_orderby_clause',
+    'STABLE_SORT_TIEBREAKER',
+    'STABLE_SORT_KINDS',
+    'is_stable_sort',
+]
 
 T = TypeVar('T')
 

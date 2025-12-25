@@ -953,7 +953,9 @@ class DataStore(PandasCompatMixin):
                             if sql_orderby_fields:
                                 from .utils import build_orderby_clause, is_stable_sort
 
-                                orderby_sql = build_orderby_clause(sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+                                orderby_sql = build_orderby_clause(
+                                    sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
+                                )
                                 sql_parts.append(f"ORDER BY {orderby_sql}")
 
                             if sql_limit is not None:
@@ -1000,7 +1002,9 @@ class DataStore(PandasCompatMixin):
                             if sql_orderby_fields:
                                 from .utils import build_orderby_clause, is_stable_sort
 
-                                orderby_sql = build_orderby_clause(sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+                                orderby_sql = build_orderby_clause(
+                                    sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
+                                )
                                 sql_parts.append(f"ORDER BY {orderby_sql}")
 
                             if sql_limit is not None:
@@ -1099,7 +1103,9 @@ class DataStore(PandasCompatMixin):
                             if layer_orderby:
                                 from .utils import build_orderby_clause, is_stable_sort
 
-                                orderby_sql = build_orderby_clause(layer_orderby, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+                                orderby_sql = build_orderby_clause(
+                                    layer_orderby, self.quote_char, stable=is_stable_sort(self._orderby_kind)
+                                )
                                 outer_parts.append(f"ORDER BY {orderby_sql}")
 
                             if layer_limit is not None:
@@ -1326,7 +1332,9 @@ class DataStore(PandasCompatMixin):
         if orderby_fields:
             from .utils import build_orderby_clause, is_stable_sort
 
-            orderby_sql = build_orderby_clause(orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind))
+            orderby_sql = build_orderby_clause(
+                orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
+            )
             parts.append(f"ORDER BY {orderby_sql}")
 
         # LIMIT
@@ -3641,7 +3649,9 @@ class DataStore(PandasCompatMixin):
         # Record in lazy ops for correct execution order in explain()
         # Store fields, ascending, and kind for DataFrame execution
         self._add_lazy_op(
-            LazyRelationalOp('ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending, kind=kind)
+            LazyRelationalOp(
+                'ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending, kind=kind
+            )
         )
 
         for field in fields:
