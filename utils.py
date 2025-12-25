@@ -2,8 +2,12 @@
 Utility functions and decorators for DataStore
 """
 
-from typing import TypeVar, Callable
+from typing import TypeVar, Callable, List, Tuple, Any, Optional, Dict, TYPE_CHECKING
 from copy import copy
+from dataclasses import dataclass, field
+
+if TYPE_CHECKING:
+    from .lazy_ops import LazyGroupByAgg
 
 __all__ = [
     'immutable',
@@ -12,6 +16,9 @@ __all__ = [
     'STABLE_SORT_TIEBREAKER',
     'STABLE_SORT_KINDS',
     'is_stable_sort',
+    'ClauseExtractorResult',
+    'extract_clauses_from_ops',
+    'SQLBuildContext',
 ]
 
 T = TypeVar('T')
@@ -215,3 +222,162 @@ def format_alias(sql: str, alias: str = None, quote_char: str = '"', use_as: boo
     as_keyword = ' AS ' if use_as else ' '
     quoted_alias = format_identifier(alias, quote_char)
     return f"{sql}{as_keyword}{quoted_alias}"
+
+
+def normalize_ascending(ascending, field_count: int) -> list:
+    """
+    Normalize ascending parameter to a list matching field count.
+
+    Args:
+        ascending: bool or list of bools
+        field_count: Number of fields
+
+    Returns:
+        List of bools with length matching field_count
+
+    Example:
+        >>> normalize_ascending(True, 3)
+        [True, True, True]
+        >>> normalize_ascending([True, False], 2)
+        [True, False]
+    """
+    if isinstance(ascending, bool):
+        return [ascending] * field_count
+    return list(ascending)
+
+
+# SQL aggregation function mapping (pandas -> SQL)
+SQL_AGG_FUNC_MAP = {
+    'sum': 'sum',
+    'mean': 'avg',
+    'avg': 'avg',
+    'count': 'count',
+    'min': 'min',
+    'max': 'max',
+    'std': 'stddevPop',
+    'var': 'varPop',
+    'first': 'any',
+    'last': 'anyLast',
+    'size': 'count',
+}
+
+
+def map_agg_func(func: str) -> str:
+    """
+    Map pandas aggregation function name to SQL equivalent.
+
+    Args:
+        func: Pandas function name (e.g., 'mean', 'sum')
+
+    Returns:
+        SQL function name (e.g., 'avg', 'sum')
+
+    Example:
+        >>> map_agg_func('mean')
+        'avg'
+        >>> map_agg_func('std')
+        'stddevPop'
+    """
+    return SQL_AGG_FUNC_MAP.get(func, func)
+
+
+# ========== SQL Build Context ==========
+
+
+@dataclass
+class ClauseExtractorResult:
+    """Result of extracting SQL clauses from LazyOp list."""
+
+    where_conditions: List[Any] = field(default_factory=list)
+    orderby_fields: List[Tuple[Any, bool]] = field(default_factory=list)
+    orderby_kind: str = 'quicksort'
+    limit_value: Optional[int] = None
+    offset_value: Optional[int] = None
+
+
+def extract_clauses_from_ops(ops: List[Any], quote_char: str) -> ClauseExtractorResult:
+    """
+    Extract WHERE, ORDER BY, LIMIT, OFFSET clauses from a list of LazyRelationalOp.
+
+    This centralizes the clause extraction logic that was duplicated in
+    _execute() and _build_execution_sql().
+
+    Args:
+        ops: List of lazy operations to extract clauses from
+        quote_char: Quote character for identifiers
+
+    Returns:
+        ClauseExtractorResult with extracted clauses
+    """
+    from .lazy_ops import LazyRelationalOp
+    from .expressions import Field
+
+    result = ClauseExtractorResult()
+    for op in ops:
+        if isinstance(op, LazyRelationalOp):
+            if op.op_type == 'WHERE' and op.condition is not None:
+                result.where_conditions.append(op.condition)
+            elif op.op_type == 'ORDER BY' and op.fields:
+                # Later ORDER BY replaces earlier ones (pandas semantics)
+                result.orderby_fields = []
+                result.orderby_kind = getattr(op, 'kind', 'quicksort')
+                ascending_list = normalize_ascending(op.ascending, len(op.fields))
+                for i, f in enumerate(op.fields):
+                    asc = ascending_list[i] if i < len(ascending_list) else True
+                    if isinstance(f, str):
+                        result.orderby_fields.append((Field(f), asc))
+                    else:
+                        result.orderby_fields.append((f, asc))
+            elif op.op_type == 'LIMIT':
+                result.limit_value = op.limit_value
+            elif op.op_type == 'OFFSET':
+                result.offset_value = op.offset_value
+    return result
+
+
+@dataclass
+class SQLBuildContext:
+    """
+    Context object containing all state needed for SQL query building.
+
+    This encapsulates the intermediate state during SQL construction,
+    eliminating the need for multiple local variables and reducing
+    code duplication between _execute() and _build_execution_sql().
+    """
+
+    # Core SQL components
+    select_fields: List[Any] = field(default_factory=list)
+    where_conditions: List[Any] = field(default_factory=list)
+    orderby_fields: List[Tuple[Any, bool]] = field(default_factory=list)
+    orderby_kind: str = 'quicksort'
+    limit_value: Optional[int] = None
+    offset_value: Optional[int] = None
+
+    # GROUP BY components
+    groupby_fields: List[Any] = field(default_factory=list)
+    groupby_agg: Optional['LazyGroupByAgg'] = None
+
+    # WHERE/CASE WHEN special handling
+    where_needs_subquery: bool = False
+    where_needs_temp_alias: bool = False
+    where_temp_alias_columns: List[Tuple[str, str]] = field(default_factory=list)
+
+    # Alias renames for conflict resolution
+    alias_renames: Dict[str, str] = field(default_factory=dict)
+
+    # Row order preservation
+    needs_row_order: bool = False
+
+    # Multi-layer query state
+    layers: List[List[Any]] = field(default_factory=list)
+
+    # Table metadata (for SQL building)
+    quote_char: str = '"'
+
+    def is_simple_query(self) -> bool:
+        """Check if this is a simple (non-nested) query."""
+        return len(self.layers) <= 1
+
+    def has_where_ops(self) -> bool:
+        """Check if there are WHERE/CASE WHEN operations requiring special handling."""
+        return self.where_needs_subquery or self.where_needs_temp_alias

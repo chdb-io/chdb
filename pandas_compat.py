@@ -108,6 +108,11 @@ class PandasCompatMixin:
             new_ds._table_function = None
             new_ds.table_name = None
 
+            # Set _source_df to the result DataFrame for on-demand PythonTableFunction creation
+            # This enables SQL pushdown via _ensure_sql_source() for operations after this point
+            new_ds._source_df = result
+            new_ds._source_df_name = None
+
             # Set the DataFrame as the data source via lazy op
             new_ds._lazy_ops = [LazyDataFrameSource(result)]
 
@@ -807,18 +812,15 @@ class PandasCompatMixin:
                 return self.sort(*by_list, ascending=ascending, kind=kind)
             else:
                 # Multiple columns with different sort directions
-                # Need to call sort() multiple times in reverse order
-                # (last sort is primary, first sort is secondary)
+                # Pass as a single sort() call with ascending list
                 ascending_list = list(ascending)
                 if len(ascending_list) != len(by_list):
                     # Fall back to pandas if lengths don't match
                     pass
                 else:
-                    result = self
-                    # Apply sorts in reverse order so that the first column is primary
-                    for col, asc in reversed(list(zip(by_list, ascending_list))):
-                        result = result.sort(col, ascending=asc, kind=kind)
-                    return result
+                    # Use sort() with ascending as list to generate proper
+                    # ORDER BY col1 ASC, col2 DESC, ... in a single SQL clause
+                    return self.sort(*by_list, ascending=ascending_list, kind=kind)
 
         # Fall back to pandas sort_values for complex cases
         return self._wrap_result(

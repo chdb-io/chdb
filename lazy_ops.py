@@ -1152,10 +1152,11 @@ class LazyWhere(LazyOp):
         """
         Check if 'other' type is compatible with all columns in the schema.
 
-        ClickHouse SQL has strict type requirements. These combinations cause NO_COMMON_TYPE errors:
-        1. String 'other' + numeric column (Int64/Float64)
-        2. Float 'other' + Int column (without explicit cast)
-        3. Int 'other' + String column (handled by Variant type - OK)
+        ClickHouse SQL has strict type requirements. These combinations cause issues:
+        1. String 'other' + numeric column (Int64/Float64) -> NO_COMMON_TYPE error
+        2. Float 'other' + Int column (without explicit cast) -> NO_COMMON_TYPE error
+        3. Int 'other' + String column -> handled by Variant type (OK)
+        4. Numeric 'other' + Bool column -> Pandas converts to object, SQL keeps bool type
 
         Args:
             schema: Dict mapping column names to types
@@ -1173,6 +1174,7 @@ class LazyWhere(LazyOp):
         has_string_col = False
         has_int_col = False
         has_float_col = False
+        has_bool_col = False
 
         for col_type in schema.values():
             col_type_lower = col_type.lower()
@@ -1182,6 +1184,8 @@ class LazyWhere(LazyOp):
                 has_float_col = True
             elif any(t in col_type_lower for t in ('int', 'uint')):
                 has_int_col = True
+            elif 'bool' in col_type_lower:
+                has_bool_col = True
 
         # Case 1: String 'other' - incompatible with numeric columns
         if isinstance(other, str):
@@ -1195,6 +1199,13 @@ class LazyWhere(LazyOp):
         # Case 3: Int 'other' + String column - handled by Variant type
         # The SQL query MUST include ORDER BY rowNumberInAllBlocks() to preserve row order
         # when using Variant type. This is handled in _build_sql_from_state.
+
+        # Case 4: Numeric 'other' + Bool column - Pandas alignment issue
+        # Pandas converts bool column to object dtype when replacing with numeric values,
+        # but SQL CASE WHEN preserves bool type (0 becomes False, non-0 becomes True).
+        # To align with Pandas behavior, fall back to Pandas execution.
+        if has_bool_col and isinstance(other, (int, float)) and not isinstance(other, bool):
+            return False  # Fall back to Pandas to preserve object dtype with mixed values
 
         return True
 

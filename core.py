@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 from .expressions import Field, Expression, Literal, Star
 from .conditions import Condition
-from .utils import immutable, ignore_copy, format_identifier
+from .utils import immutable, ignore_copy, format_identifier, normalize_ascending, map_agg_func
 from .exceptions import QueryError, ConnectionError, ExecutionError
 from .connection import Connection, QueryResult
 from .executor import Executor
@@ -22,6 +22,14 @@ from .table_functions import create_table_function, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
 from .lazy_ops import LazyOp, LazyRelationalOp
+from .sql_executor import (
+    ExtractedClauses,
+    extract_clauses_from_ops,
+    apply_alias_renames_to_orderby,
+    build_groupby_select_fields,
+    SQLExecutionEngine,
+    SQLBuildResult,
+)
 from .config import (
     get_logger,
     config as _global_config,
@@ -515,7 +523,8 @@ class DataStore(PandasCompatMixin):
             lines.append("Generated SQL Query:")
             lines.append("─" * 80)
             try:
-                sql = self.to_sql()
+                # Use execution_format=True to show the actual SQL that will be executed
+                sql = self.to_sql(execution_format=True)
                 if verbose or len(sql) < 500:
                     lines.append(f"\n{sql}\n")
                 else:
@@ -708,18 +717,6 @@ class DataStore(PandasCompatMixin):
                         self._logger.debug("Executing SQL query")
                         self._logger.debug("-" * 70)
 
-                # Collect SELECT fields from all SQL operations
-                sql_select_fields = []
-                for op in early_sql_ops:
-                    if isinstance(op, LazyRelationalOp):
-                        if op.op_type == 'SELECT' and op.fields:
-                            for f in op.fields:
-                                if isinstance(f, str):
-                                    if f != '*':
-                                        sql_select_fields.append(Field(f))
-                                else:
-                                    sql_select_fields.append(f)
-
             # Build and execute SQL query
             if self._table_function or self.table_name:
                 # Connect if needed
@@ -729,477 +726,18 @@ class DataStore(PandasCompatMixin):
                         self.connect()
 
                 with profiler.step("SQL Build", layers=len(layers)):
-                    if len(layers) <= 1:
-                        # No subqueries needed - simple case
-                        sql_where_conditions = []
-                        sql_orderby_fields = []
-                        sql_limit = None
-                        sql_offset = None
+                    # Use SQLExecutionEngine for unified SQL building
+                    sql_engine = SQLExecutionEngine(self)
+                    build_result = sql_engine.build_sql_from_plan(plan, schema)
+                    sql = build_result.sql
 
-                        for op in layers[0] if layers else []:
-                            if isinstance(op, LazyRelationalOp):
-                                if op.op_type == 'WHERE' and op.condition is not None:
-                                    sql_where_conditions.append(op.condition)
-                                elif op.op_type == 'ORDER BY' and op.fields:
-                                    # Later ORDER BY replaces earlier ones (pandas semantics)
-                                    sql_orderby_fields = []
-                                    for f in op.fields:
-                                        if isinstance(f, str):
-                                            sql_orderby_fields.append((Field(f), op.ascending))
-                                        else:
-                                            sql_orderby_fields.append((f, op.ascending))
-                                elif op.op_type == 'LIMIT':
-                                    sql_limit = op.limit_value
-                                elif op.op_type == 'OFFSET':
-                                    sql_offset = op.offset_value
-
-                        # Handle ORDER BY with alias conflicts:
-                        # If ORDER BY references a column that has a temp alias (due to GroupBy conflict),
-                        # we need to use the temp alias in ORDER BY
-                        if alias_renames and sql_orderby_fields:
-                            # Build reverse mapping: original_alias -> temp_alias
-                            reverse_renames = {orig: temp for temp, orig in alias_renames.items()}
-                            new_orderby = []
-                            for field, asc in sql_orderby_fields:
-                                field_name = field.name if isinstance(field, Field) else str(field)
-                                if field_name in reverse_renames:
-                                    # Replace with temp alias
-                                    new_orderby.append((Field(reverse_renames[field_name]), asc))
-                                else:
-                                    new_orderby.append((field, asc))
-                            sql_orderby_fields = new_orderby
-
-                        # Handle LazyWhere/LazyMask SQL pushdown (CASE WHEN)
-                        # This must be done BEFORE GroupBy pushdown
-                        #
-                        # IMPORTANT: ClickHouse has TWO alias conflict quirks:
-                        # 1. WHERE vs SELECT alias: WHERE uses computed value if alias matches column
-                        # 2. SELECT internal: CASE WHEN on column B might use computed value of A if
-                        #    A's alias matches a column name referenced in B's CASE WHEN
-                        #
-                        # Solution: Use TWO-LAYER subquery with temporary aliases:
-                        # SELECT __tmp_a__ AS a, __tmp_b__ AS b
-                        # FROM (
-                        #   SELECT CASE WHEN ... END AS __tmp_a__, CASE WHEN ... END AS __tmp_b__
-                        #   FROM (SELECT * FROM table WHERE <conditions>) AS __filter_subq__
-                        # )
-                        #
-                        where_needs_subquery = False
-                        where_needs_temp_alias = False  # New: for alias conflict fix
-                        where_temp_alias_columns = []  # List of (temp_alias, original_col)
-                        if where_ops:
-                            from .query_planner import CaseWhenExpr
-
-                            # Get column names and types - need schema discovery
-                            all_columns = self._get_all_column_names()
-                            if all_columns:
-                                schema = self._schema or {}
-                                self._logger.debug(
-                                    "  [Where/Mask SQL Pushdown] Generating CASE WHEN for %d columns", len(all_columns)
-                                )
-
-                                # Always use temporary aliases to avoid ClickHouse alias conflicts
-                                where_needs_temp_alias = True
-                                for col in all_columns:
-                                    temp_alias = f"__tmp_{col}__"
-                                    where_temp_alias_columns.append((temp_alias, col))
-
-                                sql_select_fields = [
-                                    CaseWhenExpr(
-                                        col,
-                                        where_ops,
-                                        self.quote_char,
-                                        schema.get(col, 'Unknown'),
-                                        alias=f"__tmp_{col}__",
-                                    )
-                                    for col in all_columns
-                                ]
-                                # Check if we need a subquery to isolate WHERE from CASE WHEN
-                                if sql_where_conditions:
-                                    where_needs_subquery = True
-                                    self._logger.debug(
-                                        "  [Where/Mask SQL Pushdown] Using subquery to isolate WHERE from CASE WHEN"
-                                    )
-                            else:
-                                # Cannot push to SQL without column names
-                                # This shouldn't happen if QueryPlanner did its job
-                                self._logger.debug("  [Where/Mask] No column names, falling back to Pandas")
-
-                        # Handle LazyGroupByAgg SQL pushdown
-                        groupby_fields_for_sql = self._groupby_fields
-                        select_fields_for_sql = sql_select_fields
-
-                        if groupby_agg_op:
-                            # Build GROUP BY fields
-                            groupby_fields_for_sql = [Field(col) for col in groupby_agg_op.groupby_cols]
-
-                            # Build SELECT fields with aggregations
-                            select_fields_for_sql = list(groupby_fields_for_sql)  # Include group keys
-
-                            if groupby_agg_op.agg_dict:
-                                # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
-                                from .functions import AggregateFunction
-
-                                # Determine if we need compound aliases (col_func) to avoid duplicates
-                                # This happens when:
-                                # 1. Multiple columns have multi-func (list) aggregations, OR
-                                # 2. Any function name appears for more than one column
-                                has_multi_col = len(groupby_agg_op.agg_dict) > 1
-                                has_any_multi_func = any(
-                                    isinstance(f, (list, tuple)) for f in groupby_agg_op.agg_dict.values()
-                                )
-                                # Check for function name conflicts across columns
-                                all_funcs = []
-                                for col, funcs in groupby_agg_op.agg_dict.items():
-                                    if isinstance(funcs, str):
-                                        all_funcs.append(funcs)
-                                    else:
-                                        all_funcs.extend(funcs)
-                                has_func_conflict = len(all_funcs) != len(set(all_funcs))
-
-                                # Use compound alias when there's potential for duplicate aliases
-                                use_compound_alias = has_multi_col and (has_any_multi_func or has_func_conflict)
-
-                                for col, funcs in groupby_agg_op.agg_dict.items():
-                                    is_multi_func = isinstance(funcs, (list, tuple))
-                                    if isinstance(funcs, str):
-                                        funcs = [funcs]
-                                    for func in funcs:
-                                        # Map pandas func names to SQL
-                                        sql_func_map = {
-                                            'sum': 'sum',
-                                            'mean': 'avg',
-                                            'avg': 'avg',
-                                            'count': 'count',
-                                            'min': 'min',
-                                            'max': 'max',
-                                            'std': 'stddevPop',
-                                            'var': 'varPop',
-                                            'first': 'any',
-                                            'last': 'anyLast',
-                                        }
-                                        sql_func = sql_func_map.get(func, func)
-                                        # Alias strategy:
-                                        # - Compound alias (col_func): when multiple columns with potential conflicts
-                                        # - Function name only: single column with multi-func
-                                        # - Column name only: single function per column, no conflicts
-                                        if use_compound_alias:
-                                            alias = f"{col}_{func}"
-                                        elif is_multi_func:
-                                            alias = func
-                                        else:
-                                            alias = col
-                                        # Check if this alias conflicts with WHERE columns
-                                        # If so, use the temp alias from alias_renames
-                                        temp_alias = f"__agg_{alias}__"
-                                        if temp_alias in alias_renames:
-                                            alias = temp_alias
-                                        agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
-                                        select_fields_for_sql.append(agg_expr)
-                            elif groupby_agg_op.agg_func:
-                                # Single function for all numeric columns
-                                # For now, just use COUNT(*) for 'count' and 'size'
-                                from .functions import AggregateFunction
-
-                                func = groupby_agg_op.agg_func
-                                sql_func_map = {
-                                    'sum': 'sum',
-                                    'mean': 'avg',
-                                    'avg': 'avg',
-                                    'count': 'count',
-                                    'min': 'min',
-                                    'max': 'max',
-                                    'size': 'count',
-                                }
-                                sql_func = sql_func_map.get(func, func)
-                                if func in ('count', 'size'):
-                                    # COUNT(*) for counting rows
-                                    select_fields_for_sql.append(AggregateFunction(sql_func, Star()))
-
-                            self._logger.debug("  [GroupBy SQL Pushdown] GROUP BY %s", groupby_agg_op.groupby_cols)
-
-                            # Add ORDER BY for sorted groupby (pandas default: sort=True)
-                            # This ensures results are sorted by group keys when sort=True
-                            if groupby_agg_op.sort and not sql_orderby_fields:
-                                # Only add ORDER BY if not already specified by explicit sort_values
-                                sql_orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
-                                self._logger.debug(
-                                    "  [GroupBy SQL Pushdown] ORDER BY %s (sort=True)", groupby_agg_op.groupby_cols
-                                )
-
-                        # chDB may return rows in different order due to parallel processing of row groups
-                        # Add ORDER BY rowNumberInAllBlocks() if no explicit ORDER BY is specified
-                        # This is needed for any query (not just where/mask) to match pandas row order
-                        needs_row_order = False
-                        if not sql_orderby_fields and not groupby_agg_op:
-                            needs_row_order = True
-                            self._logger.debug("  [SQL] Adding ORDER BY rowNumberInAllBlocks() to preserve row order")
-
-                        # Build SQL - with subquery if needed for WHERE/CASE WHEN isolation
-                        if where_needs_subquery:
-                            # Step 1: Build inner query with WHERE (no CASE WHEN)
-                            inner_sql = self._build_sql_from_state(
-                                [],  # SELECT * in inner query
-                                sql_where_conditions,
-                                [],  # No ORDER BY in inner query
-                                None,  # No LIMIT in inner query
-                                None,  # No OFFSET in inner query
-                                joins=self._joins,
-                                distinct=False,
-                                groupby_fields=[],
-                                having_condition=None,
-                            )
-
-                            # Step 2: Build middle query with CASE WHEN using temp aliases
-                            middle_select = ', '.join(
-                                f.to_sql(quote_char=self.quote_char) for f in select_fields_for_sql
-                            )
-                            middle_sql = f"SELECT {middle_select} FROM ({inner_sql}) AS __filter_subq__"
-
-                            # Step 3: Build outer query to rename temp aliases back to original names
-                            if where_needs_temp_alias and where_temp_alias_columns:
-                                outer_select = ', '.join(
-                                    f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
-                                    for temp, orig in where_temp_alias_columns
-                                )
-                                sql_parts = [f"SELECT {outer_select}"]
-                                sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
-                            else:
-                                sql_parts = [middle_sql]
-
-                            # Add ORDER BY, LIMIT, OFFSET to outer query
-                            if sql_orderby_fields:
-                                from .utils import build_orderby_clause, is_stable_sort
-
-                                orderby_sql = build_orderby_clause(
-                                    sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
-                                )
-                                sql_parts.append(f"ORDER BY {orderby_sql}")
-                            elif needs_row_order:
-                                # Preserve row order to match pandas
-                                sql_parts.append("ORDER BY rowNumberInAllBlocks()")
-
-                            if sql_limit is not None:
-                                sql_parts.append(f"LIMIT {sql_limit}")
-
-                            if sql_offset is not None:
-                                sql_parts.append(f"OFFSET {sql_offset}")
-
-                            sql = '\n'.join(sql_parts)
-                        elif where_needs_temp_alias and where_temp_alias_columns:
-                            # No WHERE conditions but still need temp alias wrapping
-                            # Step 1: Build inner query with CASE WHEN using temp aliases
-                            inner_select = ', '.join(
-                                f.to_sql(quote_char=self.quote_char) for f in select_fields_for_sql
-                            )
-                            inner_sql = self._build_sql_from_state(
-                                [],  # Will be replaced
-                                sql_where_conditions,
-                                [],  # No ORDER BY in inner query
-                                None,
-                                None,
-                                joins=self._joins,
-                                distinct=False,
-                                groupby_fields=[],
-                                having_condition=None,
-                            )
-                            # Replace SELECT * with our CASE WHEN expressions
-                            if "SELECT *" in inner_sql:
-                                inner_sql = inner_sql.replace("SELECT *", f"SELECT {inner_select}", 1)
-                            else:
-                                # Build manually
-                                table_source = self._get_table_source()
-                                inner_sql = f"SELECT {inner_select} FROM {table_source}"
-
-                            # Step 2: Build outer query to rename temp aliases back
-                            outer_select = ', '.join(
-                                f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
-                                for temp, orig in where_temp_alias_columns
-                            )
-                            sql_parts = [f"SELECT {outer_select}"]
-                            sql_parts.append(f"FROM ({inner_sql}) AS __case_subq__")
-
-                            # Add ORDER BY, LIMIT, OFFSET
-                            if sql_orderby_fields:
-                                from .utils import build_orderby_clause, is_stable_sort
-
-                                orderby_sql = build_orderby_clause(
-                                    sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
-                                )
-                                sql_parts.append(f"ORDER BY {orderby_sql}")
-                            elif needs_row_order:
-                                # Preserve row order to match pandas
-                                sql_parts.append("ORDER BY rowNumberInAllBlocks()")
-
-                            if sql_limit is not None:
-                                sql_parts.append(f"LIMIT {sql_limit}")
-
-                            if sql_offset is not None:
-                                sql_parts.append(f"OFFSET {sql_offset}")
-
-                            sql = '\n'.join(sql_parts)
-                        else:
-                            # When needs_row_order is True and there are WHERE conditions,
-                            # we need a subquery to compute rowNumberInAllBlocks() BEFORE filtering
-                            # Otherwise rowNumberInAllBlocks() computes row numbers after filtering,
-                            # which doesn't preserve original row order
-                            if needs_row_order and sql_where_conditions:
-                                # Build inner query: SELECT *, rowNumberInAllBlocks() as __orig_row_num__
-                                if self._table_function:
-                                    table_source = self._table_function.to_sql()
-                                elif self.table_name:
-                                    table_source = format_identifier(self.table_name, self.quote_char)
-                                else:
-                                    raise ValueError("No table source available")
-                                inner_select = '*, rowNumberInAllBlocks() AS __orig_row_num__'
-                                inner_sql = f"SELECT {inner_select} FROM {table_source}"
-
-                                # Build outer query with WHERE and ORDER BY __orig_row_num__
-                                sql_parts = []
-                                if select_fields_for_sql:
-                                    fields_sql = ', '.join(
-                                        f.to_sql(quote_char=self.quote_char, with_alias=True)
-                                        for f in select_fields_for_sql
-                                    )
-                                    sql_parts.append(f"SELECT {fields_sql}")
-                                else:
-                                    # Need to select all columns except __orig_row_num__
-                                    sql_parts.append("SELECT * EXCEPT(__orig_row_num__)")
-
-                                sql_parts.append(f"FROM ({inner_sql}) AS __row_num_subq__")
-
-                                # Add WHERE
-                                if sql_where_conditions:
-                                    combined = sql_where_conditions[0]
-                                    for cond in sql_where_conditions[1:]:
-                                        combined = combined & cond
-                                    sql_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-                                # Add GROUP BY if present
-                                if groupby_fields_for_sql:
-                                    groupby_sql = ', '.join(
-                                        f.to_sql(quote_char=self.quote_char) for f in groupby_fields_for_sql
-                                    )
-                                    sql_parts.append(f"GROUP BY {groupby_sql}")
-
-                                # Add ORDER BY __orig_row_num__ to preserve original order
-                                sql_parts.append("ORDER BY __orig_row_num__")
-
-                                # Add LIMIT/OFFSET
-                                if sql_limit is not None:
-                                    sql_parts.append(f"LIMIT {sql_limit}")
-                                if sql_offset is not None:
-                                    sql_parts.append(f"OFFSET {sql_offset}")
-
-                                sql = ' '.join(sql_parts)
-                                self._logger.debug(
-                                    "  [Row Order] Using subquery with __orig_row_num__ for row order preservation"
-                                )
-                            else:
-                                sql = self._build_sql_from_state(
-                                    select_fields_for_sql,
-                                    sql_where_conditions,
-                                    sql_orderby_fields,
-                                    sql_limit,
-                                    sql_offset,
-                                    joins=self._joins,
-                                    distinct=self._distinct,
-                                    groupby_fields=groupby_fields_for_sql,
-                                    having_condition=self._having_condition,
-                                )
-                                # For queries without WHERE (like SELECT * FROM table),
-                                # rowNumberInAllBlocks() in ORDER BY is sufficient
-                                if needs_row_order:
-                                    sql = sql + ' ORDER BY rowNumberInAllBlocks()'
-                    else:
-                        # Multiple layers - build nested subqueries
-                        # layers[0] is innermost (closest to data source)
-                        self._logger.debug("Building %d nested subqueries for LIMIT-before-WHERE patterns", len(layers))
-
-                        # Build innermost query (layer 0) with full table settings
-                        inner_where = []
-                        inner_orderby = []
-                        inner_limit = None
-                        inner_offset = None
-
-                        for op in layers[0]:
-                            if isinstance(op, LazyRelationalOp):
-                                if op.op_type == 'WHERE' and op.condition is not None:
-                                    inner_where.append(op.condition)
-                                elif op.op_type == 'ORDER BY' and op.fields:
-                                    # Later ORDER BY replaces earlier ones (pandas semantics)
-                                    inner_orderby = []
-                                    for f in op.fields:
-                                        if isinstance(f, str):
-                                            inner_orderby.append((Field(f), op.ascending))
-                                        else:
-                                            inner_orderby.append((f, op.ascending))
-                                elif op.op_type == 'LIMIT':
-                                    inner_limit = op.limit_value
-                                elif op.op_type == 'OFFSET':
-                                    inner_offset = op.offset_value
-
-                        sql = self._build_sql_from_state(
-                            sql_select_fields,
-                            inner_where,
-                            inner_orderby,
-                            inner_limit,
-                            inner_offset,
-                            joins=self._joins,
-                            distinct=self._distinct,
-                            groupby_fields=self._groupby_fields,
-                            having_condition=self._having_condition,
-                        )
-
-                        # Wrap with outer layers (layer 1, 2, ...)
-                        for layer_idx, layer_ops in enumerate(layers[1:], 1):
-                            layer_where = []
-                            layer_orderby = []
-                            layer_limit = None
-                            layer_offset = None
-
-                            for op in layer_ops:
-                                if isinstance(op, LazyRelationalOp):
-                                    if op.op_type == 'WHERE' and op.condition is not None:
-                                        layer_where.append(op.condition)
-                                    elif op.op_type == 'ORDER BY' and op.fields:
-                                        # Later ORDER BY replaces earlier ones (pandas semantics)
-                                        layer_orderby = []
-                                        for f in op.fields:
-                                            if isinstance(f, str):
-                                                layer_orderby.append((Field(f), op.ascending))
-                                            else:
-                                                layer_orderby.append((f, op.ascending))
-                                    elif op.op_type == 'LIMIT':
-                                        layer_limit = op.limit_value
-                                    elif op.op_type == 'OFFSET':
-                                        layer_offset = op.offset_value
-
-                            # Build outer query wrapping the current sql
-                            outer_parts = ["SELECT *"]
-                            outer_parts.append(f"FROM ({sql}) AS __subq{layer_idx}__")
-
-                            if layer_where:
-                                combined = layer_where[0]
-                                for cond in layer_where[1:]:
-                                    combined = combined & cond
-                                outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-                            if layer_orderby:
-                                from .utils import build_orderby_clause, is_stable_sort
-
-                                orderby_sql = build_orderby_clause(
-                                    layer_orderby, self.quote_char, stable=is_stable_sort(self._orderby_kind)
-                                )
-                                outer_parts.append(f"ORDER BY {orderby_sql}")
-
-                            if layer_limit is not None:
-                                outer_parts.append(f"LIMIT {layer_limit}")
-
-                            if layer_offset is not None:
-                                outer_parts.append(f"OFFSET {layer_offset}")
-
-                            sql = ' '.join(outer_parts)
+                    # Log debug info
+                    if where_ops:
+                        self._logger.debug("  [Where/Mask SQL Pushdown] Applied CASE WHEN")
+                    if groupby_agg_op:
+                        self._logger.debug("  [GroupBy SQL Pushdown] GROUP BY %s", groupby_agg_op.groupby_cols)
+                    if len(layers) > 1:
+                        self._logger.debug("  Building %d nested subqueries", len(layers))
 
                 self._logger.debug("Executing initial SQL query...")
                 with profiler.step("SQL Execution"):
@@ -1321,6 +859,45 @@ class DataStore(PandasCompatMixin):
 
         return df
 
+    def _build_execution_sql(self) -> Optional[str]:
+        """
+        Build SQL query that will be executed for lazy operations.
+
+        This method generates the exact SQL that _execute() would run,
+        ensuring that explain() and to_sql() show consistent SQL with actual execution.
+
+        Returns:
+            SQL query string if there's a SQL source and lazy operations,
+            None if no SQL source or no operations.
+        """
+        # Only generate SQL if we have a SQL source
+        if not (self._table_function or self.table_name):
+            return None
+
+        # No lazy ops means use traditional SQL generation
+        if not self._lazy_ops:
+            return self._generate_select_sql(self.quote_char)
+
+        from .query_planner import QueryPlanner
+
+        # Use QueryPlanner to analyze lazy operations (same logic as _execute)
+        planner = QueryPlanner()
+        schema = self._schema or {}
+        plan = planner.plan(self._lazy_ops, has_sql_source=True, schema=schema)
+
+        # Use SQLExecutionEngine to build SQL from plan
+        sql_engine = SQLExecutionEngine(self)
+        result = sql_engine.build_sql_from_plan(plan, schema)
+        return result.sql
+
+    def _get_table_source(self) -> str:
+        """Get the table source for SQL generation."""
+        if self._table_function:
+            return self._table_function.to_sql()
+        elif self.table_name:
+            return format_identifier(self.table_name, self.quote_char)
+        return ""
+
     def _build_sql_from_state(
         self,
         select_fields,
@@ -1334,6 +911,25 @@ class DataStore(PandasCompatMixin):
         having_condition=None,
     ):
         """Build SQL query from given state (not from instance variables)."""
+        from .utils import build_orderby_clause, is_stable_sort
+
+        # Check if we need a subquery for stable sort with WHERE
+        # When both WHERE and stable ORDER BY exist, rowNumberInAllBlocks() would give
+        # post-filter row numbers, not original row numbers. We need a subquery to preserve
+        # the original row order.
+        needs_stable_sort = orderby_fields and is_stable_sort(self._orderby_kind)
+        needs_subquery_for_stable = needs_stable_sort and where_conditions and not groupby_fields and not joins
+
+        if needs_subquery_for_stable:
+            return self._build_sql_with_stable_sort_subquery(
+                select_fields,
+                where_conditions,
+                orderby_fields,
+                limit_value,
+                offset_value,
+                distinct,
+            )
+
         parts = []
 
         # SELECT (with optional DISTINCT)
@@ -1415,12 +1011,16 @@ class DataStore(PandasCompatMixin):
 
         # ORDER BY (stable sort if kind='stable' or 'mergesort', matching pandas behavior)
         if orderby_fields:
-            from .utils import build_orderby_clause, is_stable_sort
-
-            orderby_sql = build_orderby_clause(
-                orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
-            )
-            parts.append(f"ORDER BY {orderby_sql}")
+            # Check for special row order marker (must be a string, not a Field object)
+            first_field = orderby_fields[0][0]
+            if len(orderby_fields) == 1 and isinstance(first_field, str) and first_field == '__rowNumberInAllBlocks__':
+                # Special case: use rowNumberInAllBlocks() for row order preservation
+                parts.append("ORDER BY rowNumberInAllBlocks()")
+            else:
+                orderby_sql = build_orderby_clause(
+                    orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
+                )
+                parts.append(f"ORDER BY {orderby_sql}")
 
         # LIMIT
         if limit_value is not None:
@@ -1431,6 +1031,91 @@ class DataStore(PandasCompatMixin):
             parts.append(f"OFFSET {offset_value}")
 
         return ' '.join(parts)
+
+    def _build_sql_with_stable_sort_subquery(
+        self,
+        select_fields,
+        where_conditions,
+        orderby_fields,
+        limit_value,
+        offset_value,
+        distinct=False,
+    ):
+        """
+        Build SQL with subquery for stable sort when WHERE is present.
+
+        When we have both WHERE and stable ORDER BY, rowNumberInAllBlocks() would give
+        post-filter row numbers. To preserve original row order as tie-breaker, we use:
+
+        SELECT * EXCEPT(__orig_row_num__) FROM (
+            SELECT *, rowNumberInAllBlocks() AS __orig_row_num__
+            FROM source
+            WHERE conditions
+        ) ORDER BY col1 ASC/DESC, __orig_row_num__ ASC
+        LIMIT N
+
+        This ensures __orig_row_num__ is calculated from the source data before filtering.
+        """
+        from .utils import build_orderby_clause
+
+        # Build the inner query: SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM source
+        if self._table_function:
+            if hasattr(self._table_function, 'to_sql'):
+                table_sql = self._table_function.to_sql()
+            else:
+                table_sql = str(self._table_function)
+        elif self.table_name:
+            table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
+        else:
+            table_sql = "source"
+
+        inner_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_sql}"
+
+        # Build middle query: SELECT columns FROM (inner) WHERE conditions
+        middle_parts = []
+        distinct_keyword = 'DISTINCT ' if distinct else ''
+
+        if select_fields:
+            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            if self._select_star:
+                middle_parts.append(f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__")
+            else:
+                middle_parts.append(f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__")
+        else:
+            middle_parts.append(f"SELECT {distinct_keyword}*, __orig_row_num__")
+
+        middle_parts.append(f"FROM ({inner_sql}) AS __subq_with_rownum__")
+
+        # WHERE
+        if where_conditions:
+            combined = where_conditions[0]
+            for cond in where_conditions[1:]:
+                combined = combined & cond
+            middle_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+        middle_sql = ' '.join(middle_parts)
+
+        # Build outer query: SELECT * EXCEPT(__orig_row_num__) FROM (middle) ORDER BY ... LIMIT
+        outer_parts = []
+        outer_parts.append("SELECT * EXCEPT(__orig_row_num__)")
+        outer_parts.append(f"FROM ({middle_sql}) AS __subq_for_stable_sort__")
+
+        # ORDER BY with __orig_row_num__ as tie-breaker instead of rowNumberInAllBlocks()
+        if orderby_fields:
+            orderby_sql = build_orderby_clause(
+                orderby_fields, self.quote_char, stable=False  # Don't add rowNumberInAllBlocks()
+            )
+            outer_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+
+        # LIMIT
+        if limit_value is not None:
+            outer_parts.append(f"LIMIT {limit_value}")
+
+        # OFFSET
+        if offset_value is not None:
+            outer_parts.append(f"OFFSET {offset_value}")
+
+        return ' '.join(outer_parts)
 
     # ========== Static Factory Methods for Data Sources ==========
 
@@ -3841,13 +3526,16 @@ class DataStore(PandasCompatMixin):
         return False
 
     @immutable
-    def sort(self, *fields: Union[str, Expression], ascending: bool = True, kind: str = 'quicksort') -> 'DataStore':
+    def sort(
+        self, *fields: Union[str, Expression], ascending: Union[bool, List[bool]] = True, kind: str = 'quicksort'
+    ) -> 'DataStore':
         """
         Sort results (ORDER BY clause).
 
         Args:
             *fields: Column names (strings) or Expression objects
-            ascending: Sort direction (default: True)
+            ascending: Sort direction (default: True). Can be a single bool for all columns,
+                      or a list of bools matching the number of fields.
             kind: Sort algorithm - 'quicksort' (default, unstable), 'stable', or 'mergesort' (stable)
                   Matches pandas sort_values kind parameter behavior.
 
@@ -3856,6 +3544,7 @@ class DataStore(PandasCompatMixin):
             >>> ds.sort("price", ascending=False)
             >>> ds.sort("name", kind='stable')  # Stable sort
             >>> ds.sort(ds.date, ds.amount, ascending=False)
+            >>> ds.sort("category", "price", ascending=[True, False])  # Multi-column different directions
         """
         from .column_expr import ColumnExpr
 
@@ -3869,18 +3558,28 @@ class DataStore(PandasCompatMixin):
                 return f.to_sql()
             return str(f)
 
-        field_names = ', '.join([field_to_sql(f) for f in fields])
-        direction = 'ASC' if ascending else 'DESC'
+        # Normalize ascending to a list
+        if isinstance(ascending, bool):
+            ascending_list = [ascending] * len(fields)
+        else:
+            ascending_list = list(ascending)
+            if len(ascending_list) != len(fields):
+                raise ValueError(f"Length of ascending ({len(ascending_list)}) != length of fields ({len(fields)})")
+
+        # Build description for explain()
+        parts = []
+        for f, asc in zip(fields, ascending_list):
+            direction = 'ASC' if asc else 'DESC'
+            parts.append(f"{field_to_sql(f)} {direction}")
+        description = ', '.join(parts)
 
         # Record in lazy ops for correct execution order in explain()
-        # Store fields, ascending, and kind for DataFrame execution
+        # Store fields, ascending (as list), and kind for DataFrame execution
         self._add_lazy_op(
-            LazyRelationalOp(
-                'ORDER BY', f"{field_names} {direction}", fields=list(fields), ascending=ascending, kind=kind
-            )
+            LazyRelationalOp('ORDER BY', description, fields=list(fields), ascending=ascending_list, kind=kind)
         )
 
-        for field in fields:
+        for field, asc in zip(fields, ascending_list):
             if isinstance(field, str):
                 # Don't add table prefix for string fields
                 field = Field(field)
@@ -3890,7 +3589,7 @@ class DataStore(PandasCompatMixin):
             elif not isinstance(field, Expression):
                 # Convert other types to Field
                 field = Field(str(field))
-            self._orderby_fields.append((field, ascending))
+            self._orderby_fields.append((field, asc))
 
         # Store kind for SQL building
         self._orderby_kind = kind
@@ -4127,13 +3826,16 @@ class DataStore(PandasCompatMixin):
 
     # ========== SQL Generation ==========
 
-    def to_sql(self, quote_char: str = None, as_subquery: bool = False) -> str:
+    def to_sql(self, quote_char: str = None, as_subquery: bool = False, execution_format: bool = False) -> str:
         """
         Generate SQL query.
 
         Args:
             quote_char: Quote character for identifiers
             as_subquery: Whether to format as subquery with parentheses
+            execution_format: If True, returns the exact SQL that _execute() runs
+                             (including row order preservation logic).
+                             If False (default), returns clean semantic SQL.
 
         Returns:
             SQL query string
@@ -4148,6 +3850,12 @@ class DataStore(PandasCompatMixin):
             sql = self._generate_update_sql(quote_char)
         elif self._insert_columns:
             sql = self._generate_insert_sql(quote_char)
+        elif execution_format and self._lazy_ops and (self._table_function or self.table_name):
+            # Use unified SQL generation for lazy operations
+            # This returns the exact SQL that _execute() would run
+            sql = self._build_execution_sql()
+            if sql is None:
+                sql = self._generate_select_sql(quote_char)
         else:
             sql = self._generate_select_sql(quote_char)
 

@@ -106,7 +106,7 @@ class CaseWhenExpr(Expression):
 
         Without Variant, ClickHouse would convert numeric to string,
         but pandas keeps mixed types in object dtype.
-        
+
         NOTE: When using Variant type, the query MUST include ORDER BY rowNumberInAllBlocks()
         to preserve original row order. Without this, chDB may return rows in wrong order.
         """

@@ -71,8 +71,8 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
             - nrows: Number of rows to read
             - na_values: Additional strings to recognize as NA/NaN
             - parse_dates: Columns to parse as dates (falls back to pandas)
-            - true_values: Values to consider as True (chDB/pandas supported)
-            - false_values: Values to consider as False (chDB/pandas supported)
+            - true_values: Values to consider as True (falls back to pandas)
+            - false_values: Values to consider as False (falls back to pandas)
             - encoding: Encoding to use for reading (default 'utf-8')
             - compression: Compression type ('infer', 'gzip', 'bz2', etc.)
             - quotechar: Character used to denote quoted strings
@@ -92,21 +92,21 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
         >>> df.head()
 
         >>> # These use SQL engine (chDB supports these options)
-        >>> df = read_csv("data.csv", sep=";")
         >>> df = read_csv("data.csv", header=None)  # No header row
         >>> df = read_csv("data.csv", compression='gzip')
         >>> df = read_csv("data.csv", skiprows=1)
         >>> df = read_csv("data.csv", nrows=100)
-        >>> df = read_csv("data.csv", true_values=['yes', 'Yes'], false_values=['no', 'No'])
 
         >>> # These automatically fall back to pandas
         >>> df = read_csv("data.csv", parse_dates=['date_col'])
         >>> df = read_csv("data.csv", usecols=['name', 'age'])
         >>> df = read_csv("data.csv", dtype={'age': int})
+        >>> df = read_csv("data.csv", true_values=['yes'], false_values=['no'])
 
     Notes:
         - Boolean values: By default, ClickHouse recognizes 'true'/'false' (case-insensitive).
-          Use true_values/false_values for custom boolean strings like 'yes'/'no', 'True'/'False'.
+          For custom boolean strings like 'yes'/'no', use true_values/false_values (falls back
+          to pandas because chDB's bool settings only control OUTPUT format, not INPUT parsing).
         - Date/DateTime: chDB auto-infers date/datetime columns when possible.
           Use parse_dates for explicit control (falls back to pandas).
         - NULL values: Empty strings and '\\N' are treated as NULL by default.
@@ -136,6 +136,8 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
         'date_format',  # Date format string
         'dayfirst',  # Date format preference
         'converters',  # Custom converter functions
+        'true_values',  # Custom boolean true values (chDB bool_true_representation is for OUTPUT only)
+        'false_values',  # Custom boolean false values (chDB bool_false_representation is for OUTPUT only)
     }
 
     # Check if we must use pandas
@@ -295,16 +297,9 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
             pandas_df = _pd.read_csv(filepath_or_buffer, sep=sep, skiprows=skiprows, **kwargs)
             return DataStore.from_df(pandas_df)
 
-    # Boolean representation (for proper True/False parsing)
-    # ClickHouse settings: bool_true_representation, bool_false_representation
-    if true_values:
-        if isinstance(true_values, list) and len(true_values) > 0:
-            # Use the first value as the representation
-            # Note: chDB only supports one true/false representation
-            settings['bool_true_representation'] = str(true_values[0])
-    if false_values:
-        if isinstance(false_values, list) and len(false_values) > 0:
-            settings['bool_false_representation'] = str(false_values[0])
+    # Note: true_values/false_values now fall back to pandas
+    # ClickHouse's bool_true_representation/bool_false_representation settings
+    # are for OUTPUT format only, not for parsing input values.
 
     # NA/NULL handling
     if na_values is not None:

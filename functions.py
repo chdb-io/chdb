@@ -120,6 +120,121 @@ class Function(Expression):
 
         return sql
 
+    def is_sql_compatible(self) -> bool:
+        """
+        Check if this function can be pushed to SQL.
+
+        Returns True if self.name is a valid ClickHouse function name.
+        This is different from checking if the function is registered -
+        we need to verify that the actual SQL function name we'll use exists.
+
+        For example, 'slice' is registered (maps to 'substring'), but
+        Function('slice', ...) will generate SQL with 'slice' which doesn't
+        exist in ClickHouse.
+        """
+        from .function_registry import FunctionRegistry
+
+        func_name = self.name.lower()
+
+        # Check if this exact function name is a known ClickHouse function
+        spec = FunctionRegistry.get(func_name)
+        if spec is not None:
+            # The function is registered - check if self.name matches clickhouse_name
+            # If they match, it's safe to push to SQL
+            # If they don't match, self.name is a pandas alias that doesn't exist in CH
+            if spec.clickhouse_name.lower() == func_name:
+                return True
+            # Also check if clickhouse_name itself is valid (in case function
+            # was created with the clickhouse name directly)
+            if spec.name.lower() == func_name:
+                return spec.clickhouse_name.lower() == func_name
+
+        # Common ClickHouse built-in functions that may not be registered
+        common_sql_functions = {
+            'if',
+            'multiif',
+            'case',
+            'coalesce',
+            'nullif',
+            'cast',
+            'tostring',
+            'toint64',
+            'tofloat64',
+            'greatest',
+            'least',
+            'abs',
+            'sign',
+            'round',
+            'floor',
+            'ceil',
+            'exp',
+            'log',
+            'log2',
+            'log10',
+            'sqrt',
+            'pow',
+            'power',
+            'sin',
+            'cos',
+            'tan',
+            'asin',
+            'acos',
+            'atan',
+            'atan2',
+            'concat',
+            'substring',
+            'replace',
+            'replaceall',
+            'replaceone',
+            'lower',
+            'upper',
+            'trim',
+            'trimleft',
+            'trimright',
+            'ltrim',
+            'rtrim',
+            'length',
+            'char_length',
+            'lengthutf8',
+            'position',
+            'locate',
+            'like',
+            'notlike',
+            'match',
+            'now',
+            'today',
+            'yesterday',
+            'todatetime',
+            'todate',
+            'datename',
+            'datepart',
+            'datediff',
+            'dateadd',
+            'tostring',
+            'tostringuuid',
+            'cityhash64',
+            'siphash64',
+            'md5',
+            'sha1',
+            'sha256',
+            'rownumberinallblocks',
+            'rownumber',
+            'rank',
+            'denserank',
+            'plus',
+            'minus',
+            'multiply',
+            'divide',
+            'intdiv',
+            'modulo',
+        }
+
+        if func_name in common_sql_functions:
+            return True
+
+        # Unknown functions cannot be pushed to SQL
+        return False
+
     def __copy__(self):
         return Function(
             self.name,
