@@ -119,6 +119,12 @@ jobs:
             ./chdb/libpybind11nonlimitedapi_chdb_3.13.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.14.dylib
           retention-days: 1
+      - name: Upload dSYM debug symbols from cross-compile
+        uses: actions/upload-artifact@v4
+        with:
+          name: chdb-dsym-macos-arm64
+          path: ./dsym.tar.gz
+          retention-days: 10
 
   test_on_macos:
     name: Test on macOS arm64
