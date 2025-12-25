@@ -5,6 +5,7 @@ This module encapsulates the SQL building and execution logic, extracting common
 patterns from core.py to reduce code duplication and improve maintainability.
 
 Key Classes:
+- WhereMaskCaseExpr: SQL CASE WHEN expression for LazyWhere/LazyMask pushdown
 - ExtractedClauses: Dataclass holding SQL clauses extracted from LazyOps
 - SQLExecutionEngine: Main class for executing lazy operations via SQL
 
@@ -32,6 +33,174 @@ from .config import get_logger
 if TYPE_CHECKING:
     from .core import DataStore
     from .query_planner import QueryPlan
+
+
+class WhereMaskCaseExpr(Expression):
+    """
+    SQL CASE WHEN expression for LazyWhere/LazyMask pushdown.
+
+    This is different from case_when.CaseWhenExpr which is for the general
+    CASE WHEN API (ds.when(...).otherwise(...)). This class specifically
+    handles the SQL pushdown for pandas-style df.where() and df.mask().
+
+    Generates: CASE WHEN cond THEN col ELSE other END AS col
+
+    For mask (opposite of where):
+    CASE WHEN NOT(cond) THEN col ELSE other END AS col
+
+    Type handling:
+    - For numeric columns: uses the literal other value
+    - For string columns with numeric other: uses Variant type to preserve mixed types
+    - NULL is used as a safe fallback for type mismatches
+    """
+
+    def __init__(self, column: str, where_ops: List, quote_char: str = '"', col_type: str = None, alias: str = None):
+        """
+        Args:
+            column: Column name to transform
+            where_ops: List of LazyWhere/LazyMask operations
+            quote_char: Quote character for identifiers
+            col_type: Column type (for type-aware other value formatting)
+            alias: Optional output alias (defaults to column name)
+        """
+        self.column = column
+        self.where_ops = where_ops
+        self.quote_char = quote_char
+        self.col_type = col_type or 'Unknown'
+        self.alias = alias or column
+
+    def _is_numeric_type(self) -> bool:
+        """Check if column is a numeric type."""
+        col_type_lower = self.col_type.lower()
+        numeric_types = ('int', 'float', 'double', 'decimal', 'uint', 'number')
+        return any(t in col_type_lower for t in numeric_types)
+
+    def _is_string_type(self) -> bool:
+        """Check if column is a string type."""
+        col_type_lower = self.col_type.lower()
+        string_types = ('string', 'fixedstring', 'enum', 'uuid')
+        return any(t in col_type_lower for t in string_types)
+
+    def _is_date_type(self) -> bool:
+        """Check if column is a date/datetime type."""
+        col_type_lower = self.col_type.lower()
+        date_types = ('date', 'datetime', 'datetime64')
+        return any(t in col_type_lower for t in date_types)
+
+    def _is_bool_type(self) -> bool:
+        """Check if column is a boolean type."""
+        col_type_lower = self.col_type.lower()
+        return 'bool' in col_type_lower
+
+    def _needs_variant_type(self, other) -> bool:
+        """Check if we need to use Variant type to preserve mixed types."""
+        if other is None or (isinstance(other, float) and pd.isna(other)):
+            return False
+        return self._is_string_type() and isinstance(other, (int, float))
+
+    def _get_variant_type(self, other) -> str:
+        """Get the Variant type string for mixed type scenarios."""
+        if isinstance(other, float):
+            return "Variant(String, Float64)"
+        else:
+            return "Variant(String, Int64)"
+
+    def _format_other_value(self, other, use_variant: bool = False) -> str:
+        """Format the 'other' value for SQL, considering column type."""
+        # None or NaN -> NULL
+        if other is None or (isinstance(other, float) and pd.isna(other)):
+            return "NULL"
+
+        # Date/DateTime columns: numeric 'other' is incompatible, use NULL
+        if self._is_date_type() and isinstance(other, (int, float)):
+            return "NULL"
+
+        # Boolean columns: preserve boolean semantics
+        if self._is_bool_type() and isinstance(other, (int, float)):
+            if other == 0:
+                return "false"
+            elif other == 1:
+                return "true"
+            else:
+                return "NULL"
+
+        # String value
+        if isinstance(other, str):
+            base_val = f"'{other}'"
+            if use_variant:
+                return f"{base_val}::{self._get_variant_type(other)}"
+            return base_val
+
+        # Numeric value
+        if isinstance(other, (int, float)):
+            base_val = str(other)
+            if use_variant:
+                return f"{base_val}::{self._get_variant_type(other)}"
+            elif self._is_string_type():
+                return f"'{other}'"
+            else:
+                return base_val
+
+        # Boolean
+        if isinstance(other, bool):
+            return "1" if other else "0"
+
+        # Default: try string conversion
+        return f"'{other}'"
+
+    def to_sql(self, quote_char: str = None, **kwargs) -> str:
+        """Generate SQL CASE WHEN expression."""
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+
+        qc = quote_char or self.quote_char
+        col_quoted = f"{qc}{self.column}{qc}"
+
+        # Check if any operation needs Variant type
+        use_variant = any(self._needs_variant_type(op.other) for op in self.where_ops)
+
+        # Start with the column itself, optionally cast to Variant
+        if use_variant:
+            variant_type = None
+            for op in self.where_ops:
+                if self._needs_variant_type(op.other):
+                    variant_type = self._get_variant_type(op.other)
+                    break
+            current_expr = f"{col_quoted}::{variant_type}"
+        else:
+            current_expr = col_quoted
+
+        # Apply each where/mask operation in order
+        for op in self.where_ops:
+            cond = op.condition
+            if isinstance(cond, ColumnExpr):
+                cond = cond._expr if hasattr(cond, '_expr') else cond
+
+            if isinstance(cond, Condition):
+                cond_sql = cond.to_sql(quote_char=qc)
+            else:
+                raise ValueError(f"Cannot convert condition to SQL: {type(cond)}")
+
+            # For mask, invert the condition
+            if op._is_mask:
+                cond_sql = f"NOT ({cond_sql})"
+
+            # Format other value with type awareness
+            other_sql = self._format_other_value(op.other, use_variant=use_variant)
+
+            # Build CASE WHEN
+            current_expr = f"CASE WHEN {cond_sql} THEN {current_expr} ELSE {other_sql} END"
+
+        # Use alias
+        alias_quoted = f"{qc}{self.alias}{qc}"
+        return f"{current_expr} AS {alias_quoted}"
+
+    def __repr__(self) -> str:
+        return f"WhereMaskCaseExpr({self.column}, {len(self.where_ops)} ops, type={self.col_type})"
+
+
+# Backward compatibility alias
+CaseWhenExpr = WhereMaskCaseExpr
 
 
 @dataclass
@@ -515,10 +684,14 @@ class SQLExecutionEngine:
         """
         Build SQL with CASE WHEN subquery for LazyWhere/LazyMask.
 
-        ClickHouse has alias conflict quirks, so we use TWO-LAYER subquery:
-        1. Inner: WHERE conditions (filters data)
-        2. Middle: CASE WHEN with temp aliases
-        3. Outer: Rename temp aliases back to original
+        ClickHouse has alias conflict quirks, so we use multi-layer subquery:
+        1. Innermost: Capture original row order BEFORE filtering
+        2. Inner: WHERE conditions (filters data)
+        3. Middle: CASE WHEN with temp aliases
+        4. Outer: Rename temp aliases back to original, ORDER BY original row number
+
+        This ensures row order is preserved even when WHERE filters rows,
+        because rowNumberInAllBlocks() is captured before filtering.
 
         Args:
             clauses: Extracted SQL clauses
@@ -529,24 +702,46 @@ class SQLExecutionEngine:
             SQL query string
         """
         table_source = self.get_table_source()
+        needs_row_order = clauses.needs_row_order()
 
         # Build SQL based on whether we need WHERE subquery
         if clauses.where_conditions:
-            # Step 1: Build inner query with WHERE (no CASE WHEN)
-            inner_sql = f"SELECT * FROM {table_source}"
+            if needs_row_order:
+                # Step 0: Capture original row number BEFORE filtering
+                # This is critical for stable row order - rowNumberInAllBlocks() must be
+                # called on the source table, not after WHERE filtering
+                innermost_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
 
-            combined = clauses.where_conditions[0]
-            for cond in clauses.where_conditions[1:]:
-                combined = combined & cond
-            inner_sql += f" WHERE {combined.to_sql(quote_char=self.quote_char)}"
+                # Step 1: Build query with WHERE (no CASE WHEN yet)
+                combined = clauses.where_conditions[0]
+                for cond in clauses.where_conditions[1:]:
+                    combined = combined & cond
+                inner_sql = f"SELECT * FROM ({innermost_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
 
-            # Step 2: Build middle query with CASE WHEN using temp aliases
-            middle_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
-            middle_sql = f"SELECT {middle_select} FROM ({inner_sql}) AS __filter_subq__"
+                # Step 2: Build middle query with CASE WHEN using temp aliases
+                # Need to include __orig_row_num__ in the select
+                middle_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                middle_sql = f"SELECT {middle_select}, __orig_row_num__ FROM ({inner_sql}) AS __filter_subq__"
+            else:
+                # No row order needed - simpler structure
+                inner_sql = f"SELECT * FROM {table_source}"
+                combined = clauses.where_conditions[0]
+                for cond in clauses.where_conditions[1:]:
+                    combined = combined & cond
+                inner_sql += f" WHERE {combined.to_sql(quote_char=self.quote_char)}"
+
+                middle_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                middle_sql = f"SELECT {middle_select} FROM ({inner_sql}) AS __filter_subq__"
         else:
             # No WHERE - just CASE WHEN on source table
-            inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
-            middle_sql = f"SELECT {inner_select} FROM {table_source}"
+            if needs_row_order:
+                # Still need to capture row order
+                innermost_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+                inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                middle_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({innermost_sql}) AS __rownum_subq__"
+            else:
+                inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                middle_sql = f"SELECT {inner_select} FROM {table_source}"
 
         # Step 3: Build outer query to rename temp aliases back
         outer_select = ', '.join(
@@ -554,17 +749,26 @@ class SQLExecutionEngine:
             for temp, orig in temp_alias_columns
         )
 
-        sql_parts = [f"SELECT {outer_select}"]
-        sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
+        if needs_row_order:
+            # Use SELECT ... EXCEPT to exclude __orig_row_num__ from final output
+            sql_parts = [f"SELECT {outer_select}"]
+            sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
 
-        # Add ORDER BY, LIMIT, OFFSET
-        if clauses.orderby_fields:
-            orderby_sql = build_orderby_clause(
-                clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
-            )
-            sql_parts.append(f"ORDER BY {orderby_sql}")
-        elif clauses.needs_row_order():
-            sql_parts.append("ORDER BY rowNumberInAllBlocks()")
+            # Order by original row number (captured before WHERE)
+            if clauses.orderby_fields:
+                orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+                sql_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+            else:
+                sql_parts.append("ORDER BY __orig_row_num__ ASC")
+        else:
+            sql_parts = [f"SELECT {outer_select}"]
+            sql_parts.append(f"FROM ({middle_sql}) AS __case_subq__")
+
+            if clauses.orderby_fields:
+                orderby_sql = build_orderby_clause(
+                    clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+                )
+                sql_parts.append(f"ORDER BY {orderby_sql}")
 
         if clauses.limit_value is not None:
             sql_parts.append(f"LIMIT {clauses.limit_value}")
@@ -662,8 +866,6 @@ class SQLExecutionEngine:
         Returns:
             SQLBuildResult containing the SQL string and metadata
         """
-        from .query_planner import CaseWhenExpr
-
         schema = schema or {}
         layers = plan.layers
         groupby_agg_op = plan.groupby_agg
@@ -713,8 +915,6 @@ class SQLExecutionEngine:
         """
         Build a simple (non-nested) SQL query from plan components.
         """
-        from .query_planner import CaseWhenExpr
-
         # Extract clauses
         clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
 
@@ -772,12 +972,12 @@ class SQLExecutionEngine:
             # JOINs require the full _build_sql_from_state path
             return self.build_sql_with_row_order_subquery(clauses, select_fields_for_sql, groupby_fields_for_sql)
         else:
-            # Simple case - use _build_sql_from_state
+            # Simple case - use assemble_sql
             effective_orderby = clauses.orderby_fields
             if needs_row_order and not clauses.orderby_fields:
                 effective_orderby = [('__rowNumberInAllBlocks__', True)]
 
-            return self.ds._build_sql_from_state(
+            return self.assemble_sql(
                 select_fields_for_sql,
                 clauses.where_conditions,
                 effective_orderby,
@@ -796,26 +996,47 @@ class SQLExecutionEngine:
         temp_alias_columns: List[Tuple[str, str]],
         needs_row_order: bool,
     ) -> str:
-        """Build SQL with temp alias wrapping (no WHERE subquery needed)."""
-        # Build inner query with CASE WHEN using temp aliases
-        inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
-        inner_sql = self.ds._build_sql_from_state(
-            [],
-            clauses.where_conditions,
-            [],
-            None,
-            None,
-            joins=self.ds._joins,
-            distinct=False,
-            groupby_fields=[],
-            having_condition=None,
-        )
+        """Build SQL with temp alias wrapping (no WHERE subquery needed).
 
-        if "SELECT *" in inner_sql:
-            inner_sql = inner_sql.replace("SELECT *", f"SELECT {inner_select}", 1)
+        When row order preservation is needed, we must capture rowNumberInAllBlocks()
+        at the source level, even if there are no WHERE conditions.
+        """
+        table_source = self.get_table_source()
+        inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
+
+        if needs_row_order:
+            if clauses.where_conditions:
+                # Capture row number before WHERE filtering
+                rownum_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+
+                # Build WHERE on top of row number subquery
+                combined = clauses.where_conditions[0]
+                for cond in clauses.where_conditions[1:]:
+                    combined = combined & cond
+
+                inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
+            else:
+                # No WHERE but still need row order - simpler structure
+                rownum_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+                inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__"
         else:
-            table_source = self.get_table_source()
-            inner_sql = f"SELECT {inner_select} FROM {table_source}"
+            # No row order needed - use original simple structure
+            inner_sql = self.assemble_sql(
+                [],
+                clauses.where_conditions,
+                [],
+                None,
+                None,
+                joins=self.ds._joins,
+                distinct=False,
+                groupby_fields=[],
+                having_condition=None,
+            )
+
+            if "SELECT *" in inner_sql:
+                inner_sql = inner_sql.replace("SELECT *", f"SELECT {inner_select}", 1)
+            else:
+                inner_sql = f"SELECT {inner_select} FROM {table_source}"
 
         # Build outer query to rename temp aliases back
         outer_select = ', '.join(
@@ -827,12 +1048,18 @@ class SQLExecutionEngine:
         sql_parts.append(f"FROM ({inner_sql}) AS __case_subq__")
 
         if clauses.orderby_fields:
-            orderby_sql = build_orderby_clause(
-                clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
-            )
-            sql_parts.append(f"ORDER BY {orderby_sql}")
+            if needs_row_order:
+                # Use __orig_row_num__ as tie-breaker (no need for rowNumberInAllBlocks())
+                orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+                sql_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
+            else:
+                # Respect user's stable sort setting
+                orderby_sql = build_orderby_clause(
+                    clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+                )
+                sql_parts.append(f"ORDER BY {orderby_sql}")
         elif needs_row_order:
-            sql_parts.append("ORDER BY rowNumberInAllBlocks()")
+            sql_parts.append("ORDER BY __orig_row_num__ ASC")
 
         if clauses.limit_value is not None:
             sql_parts.append(f"LIMIT {clauses.limit_value}")
@@ -847,7 +1074,7 @@ class SQLExecutionEngine:
         # Build innermost query (layer 0)
         inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
 
-        sql = self.ds._build_sql_from_state(
+        sql = self.assemble_sql(
             sql_select_fields,
             inner_clauses.where_conditions,
             inner_clauses.orderby_fields,
@@ -865,3 +1092,257 @@ class SQLExecutionEngine:
             sql = self._wrap_with_layer(sql, layer_clauses, layer_idx)
 
         return sql
+
+    def assemble_sql(
+        self,
+        select_fields,
+        where_conditions,
+        orderby_fields,
+        limit_value,
+        offset_value,
+        joins=None,
+        distinct=False,
+        groupby_fields=None,
+        having_condition=None,
+    ) -> str:
+        """
+        Assemble SQL query from given components.
+
+        This is the core SQL assembly method, moved from DataStore._build_sql_from_state
+        to centralize SQL building logic.
+
+        Args:
+            select_fields: Fields to select
+            where_conditions: List of WHERE conditions
+            orderby_fields: List of (field, ascending) tuples
+            limit_value: LIMIT value
+            offset_value: OFFSET value
+            joins: List of JOIN tuples
+            distinct: Whether to use DISTINCT
+            groupby_fields: GROUP BY fields
+            having_condition: HAVING condition
+
+        Returns:
+            SQL query string
+        """
+        # Check if we need a subquery for stable sort with WHERE
+        # When both WHERE and stable ORDER BY exist, rowNumberInAllBlocks() would give
+        # post-filter row numbers, not original row numbers. We need a subquery to preserve
+        # the original row order.
+        needs_stable_sort = orderby_fields and is_stable_sort(self.ds._orderby_kind)
+        needs_subquery_for_stable = needs_stable_sort and where_conditions and not groupby_fields and not joins
+
+        if needs_subquery_for_stable:
+            # Use stable sort subquery
+            clauses = ExtractedClauses(
+                where_conditions=where_conditions,
+                orderby_fields=orderby_fields,
+                orderby_kind=self.ds._orderby_kind,
+                limit_value=limit_value,
+                offset_value=offset_value,
+            )
+            return self.build_sql_with_stable_sort_subquery(clauses, select_fields, distinct)
+
+        parts = []
+
+        # SELECT (with optional DISTINCT)
+        distinct_keyword = 'DISTINCT ' if distinct else ''
+        if select_fields:
+            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            # Check if we need to prepend '*' (SELECT *, computed_col)
+            if self.ds._select_star:
+                parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
+            else:
+                parts.append(f"SELECT {distinct_keyword}{fields_sql}")
+        else:
+            parts.append(f"SELECT {distinct_keyword}*")
+
+        # FROM (with alias if joins present)
+        if self.ds._table_function:
+            # Handle table function objects
+            if hasattr(self.ds._table_function, 'to_sql'):
+                table_sql = self.ds._table_function.to_sql()
+            else:
+                table_sql = str(self.ds._table_function)
+            # Add alias when joins are present (required by ClickHouse for disambiguation)
+            if joins:
+                alias = self.ds._get_table_alias()
+                parts.append(f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}")
+            else:
+                parts.append(f"FROM {table_sql}")
+        elif self.ds.table_name:
+            parts.append(f"FROM {self.quote_char}{self.ds.table_name}{self.quote_char}")
+
+        # JOIN clauses
+        if joins:
+            for other_ds, join_type, join_condition in joins:
+                parts.append(self._build_join_clause(other_ds, join_type, join_condition))
+
+        # WHERE
+        if where_conditions:
+            combined = where_conditions[0]
+            for cond in where_conditions[1:]:
+                combined = combined & cond
+            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+        # GROUP BY
+        if groupby_fields:
+            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            parts.append(f"GROUP BY {groupby_sql}")
+
+        # HAVING
+        if having_condition:
+            having_sql = having_condition.to_sql(quote_char=self.quote_char)
+            parts.append(f"HAVING {having_sql}")
+
+        # ORDER BY (stable sort if kind='stable' or 'mergesort', matching pandas behavior)
+        if orderby_fields:
+            # Check for special row order marker (must be a string, not a Field object)
+            first_field = orderby_fields[0][0]
+            if len(orderby_fields) == 1 and isinstance(first_field, str) and first_field == '__rowNumberInAllBlocks__':
+                # Special case: use rowNumberInAllBlocks() for row order preservation
+                parts.append("ORDER BY rowNumberInAllBlocks()")
+            else:
+                orderby_sql = build_orderby_clause(
+                    orderby_fields, self.quote_char, stable=is_stable_sort(self.ds._orderby_kind)
+                )
+                parts.append(f"ORDER BY {orderby_sql}")
+
+        # LIMIT
+        if limit_value is not None:
+            parts.append(f"LIMIT {limit_value}")
+
+        # OFFSET
+        if offset_value is not None:
+            parts.append(f"OFFSET {offset_value}")
+
+        return ' '.join(parts)
+
+    def execute_sql_on_dataframe(
+        self,
+        df: pd.DataFrame,
+        plan: 'QueryPlan',
+        schema: Dict[str, str] = None,
+    ) -> pd.DataFrame:
+        """
+        Execute a SQL segment on an existing DataFrame using chDB's Python() table function.
+
+        This enables SQL execution on intermediate DataFrames in the pipeline,
+        supporting true SQL-Pandas-SQL interleaving.
+
+        Args:
+            df: Input DataFrame to query
+            plan: QueryPlan for this SQL segment
+            schema: Column schema for type-aware SQL generation
+
+        Returns:
+            Result DataFrame after SQL execution
+        """
+        from .executor import get_executor
+
+        schema = schema or {}
+
+        # Build SQL query using Python() table function
+        sql = self._build_sql_for_dataframe(df, plan, schema)
+
+        self._logger.debug("  [SQL on DataFrame] Executing: %s", sql[:200] + "..." if len(sql) > 200 else sql)
+
+        # Execute via chDB using Python() table function
+        executor = get_executor()
+        result_df = executor.query_dataframe(sql, df, '__df__')
+
+        # Handle GroupBy SQL pushdown: set group keys as index
+        if plan.groupby_agg and plan.groupby_agg.groupby_cols:
+            groupby_cols = plan.groupby_agg.groupby_cols
+            if all(col in result_df.columns for col in groupby_cols):
+                result_df = result_df.set_index(groupby_cols)
+                self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+
+        # Handle alias renames
+        if plan.alias_renames:
+            rename_back = {temp: orig for temp, orig in plan.alias_renames.items() if temp in result_df.columns}
+            if rename_back:
+                result_df = result_df.rename(columns=rename_back)
+                self._logger.debug("  Renamed temp aliases: %s", rename_back)
+
+        return result_df
+
+    def _build_sql_for_dataframe(
+        self,
+        df: pd.DataFrame,
+        plan: 'QueryPlan',
+        schema: Dict[str, str] = None,
+    ) -> str:
+        """
+        Build SQL query for executing on a DataFrame via Python() table function.
+
+        Args:
+            df: Input DataFrame (used for schema info)
+            plan: QueryPlan for this SQL segment
+            schema: Column schema
+
+        Returns:
+            SQL query string using Python() table function
+        """
+        schema = schema or {}
+
+        # Extract clauses from SQL ops
+        clauses = extract_clauses_from_ops(plan.sql_ops, self.quote_char)
+
+        # Handle LazyWhere/LazyMask (CASE WHEN)
+        select_fields = []
+        if plan.where_ops:
+            all_columns = list(df.columns)
+            for col in all_columns:
+                col_type = schema.get(col, str(df[col].dtype))
+                case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type)
+                select_fields.append(case_expr)
+
+        # Handle GroupBy aggregation
+        groupby_fields = []
+        if plan.groupby_agg:
+            groupby_fields, select_fields = build_groupby_select_fields(
+                plan.groupby_agg, self.quote_char, plan.alias_renames
+            )
+
+        # Build SELECT clause
+        if select_fields:
+            select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+        else:
+            select_sql = '*'
+
+        # Build FROM clause using table reference
+        # The executor will wrap this with Python() table function
+        from_sql = "__df__"
+
+        # Start building SQL
+        parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
+
+        # WHERE clause
+        if clauses.where_conditions:
+            combined = clauses.where_conditions[0]
+            for cond in clauses.where_conditions[1:]:
+                combined = combined & cond
+            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+        # GROUP BY clause
+        if groupby_fields:
+            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            parts.append(f"GROUP BY {groupby_sql}")
+
+        # ORDER BY clause
+        if clauses.orderby_fields:
+            orderby_sql = build_orderby_clause(
+                clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+            )
+            parts.append(f"ORDER BY {orderby_sql}")
+
+        # LIMIT clause
+        if clauses.limit_value is not None:
+            parts.append(f"LIMIT {clauses.limit_value}")
+
+        # OFFSET clause
+        if clauses.offset_value is not None:
+            parts.append(f"OFFSET {clauses.offset_value}")
+
+        return ' '.join(parts)
