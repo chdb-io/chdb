@@ -643,25 +643,33 @@ class LazyGroupByAgg(LazyOp):
         ds.groupby('category').agg({'value': 'sum'})
     """
 
-    def __init__(self, groupby_cols: List[str], agg_func: str = None, agg_dict: dict = None, **kwargs):
+    def __init__(
+        self, groupby_cols: List[str], agg_func: str = None, agg_dict: dict = None, sort: bool = True, **kwargs
+    ):
         """
         Args:
             groupby_cols: Column names to group by
             agg_func: Aggregation function name ('mean', 'sum', etc.) for all columns
             agg_dict: Dict mapping columns to aggregation functions (for pandas-style agg)
+            sort: Sort group keys (default: True, matching pandas behavior).
+                  When True, the result is sorted by group keys in ascending order.
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
         self.groupby_cols = groupby_cols
         self.agg_func = agg_func
         self.agg_dict = agg_dict
+        self.sort = sort
         self.kwargs = kwargs
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute groupby aggregation on DataFrame."""
-        self._log_execute("GroupByAgg", f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict}")
+        self._log_execute(
+            "GroupByAgg", f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict}, sort={self.sort}"
+        )
 
-        grouped = df.groupby(self.groupby_cols)
+        # Pass sort parameter to pandas groupby (default: True)
+        grouped = df.groupby(self.groupby_cols, sort=self.sort)
 
         if self.agg_dict is not None:
             # Pandas-style: agg({'col': 'func'})
@@ -1184,8 +1192,9 @@ class LazyWhere(LazyOp):
         if isinstance(other, float) and has_int_col:
             return False  # Would cause NO_COMMON_TYPE
 
-        # Case 3: Int 'other' + String column - handled by Variant type (OK)
-        # This is the case we already handle with Variant(String, Int64)
+        # Case 3: Int 'other' + String column - handled by Variant type
+        # The SQL query MUST include ORDER BY rowNumberInAllBlocks() to preserve row order
+        # when using Variant type. This is handled in _build_sql_from_state.
 
         return True
 

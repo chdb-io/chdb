@@ -918,6 +918,23 @@ class DataStore(PandasCompatMixin):
 
                             self._logger.debug("  [GroupBy SQL Pushdown] GROUP BY %s", groupby_agg_op.groupby_cols)
 
+                            # Add ORDER BY for sorted groupby (pandas default: sort=True)
+                            # This ensures results are sorted by group keys when sort=True
+                            if groupby_agg_op.sort and not sql_orderby_fields:
+                                # Only add ORDER BY if not already specified by explicit sort_values
+                                sql_orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
+                                self._logger.debug(
+                                    "  [GroupBy SQL Pushdown] ORDER BY %s (sort=True)", groupby_agg_op.groupby_cols
+                                )
+
+                        # chDB may return rows in different order due to parallel processing of row groups
+                        # Add ORDER BY rowNumberInAllBlocks() if no explicit ORDER BY is specified
+                        # This is needed for any query (not just where/mask) to match pandas row order
+                        needs_row_order = False
+                        if not sql_orderby_fields and not groupby_agg_op:
+                            needs_row_order = True
+                            self._logger.debug("  [SQL] Adding ORDER BY rowNumberInAllBlocks() to preserve row order")
+
                         # Build SQL - with subquery if needed for WHERE/CASE WHEN isolation
                         if where_needs_subquery:
                             # Step 1: Build inner query with WHERE (no CASE WHEN)
@@ -958,6 +975,9 @@ class DataStore(PandasCompatMixin):
                                     sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
                                 )
                                 sql_parts.append(f"ORDER BY {orderby_sql}")
+                            elif needs_row_order:
+                                # Preserve row order to match pandas
+                                sql_parts.append("ORDER BY rowNumberInAllBlocks()")
 
                             if sql_limit is not None:
                                 sql_parts.append(f"LIMIT {sql_limit}")
@@ -1007,6 +1027,9 @@ class DataStore(PandasCompatMixin):
                                     sql_orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
                                 )
                                 sql_parts.append(f"ORDER BY {orderby_sql}")
+                            elif needs_row_order:
+                                # Preserve row order to match pandas
+                                sql_parts.append("ORDER BY rowNumberInAllBlocks()")
 
                             if sql_limit is not None:
                                 sql_parts.append(f"LIMIT {sql_limit}")
@@ -1016,17 +1039,78 @@ class DataStore(PandasCompatMixin):
 
                             sql = '\n'.join(sql_parts)
                         else:
-                            sql = self._build_sql_from_state(
-                                select_fields_for_sql,
-                                sql_where_conditions,
-                                sql_orderby_fields,
-                                sql_limit,
-                                sql_offset,
-                                joins=self._joins,
-                                distinct=self._distinct,
-                                groupby_fields=groupby_fields_for_sql,
-                                having_condition=self._having_condition,
-                            )
+                            # When needs_row_order is True and there are WHERE conditions,
+                            # we need a subquery to compute rowNumberInAllBlocks() BEFORE filtering
+                            # Otherwise rowNumberInAllBlocks() computes row numbers after filtering,
+                            # which doesn't preserve original row order
+                            if needs_row_order and sql_where_conditions:
+                                # Build inner query: SELECT *, rowNumberInAllBlocks() as __orig_row_num__
+                                if self._table_function:
+                                    table_source = self._table_function.to_sql()
+                                elif self.table_name:
+                                    table_source = format_identifier(self.table_name, self.quote_char)
+                                else:
+                                    raise ValueError("No table source available")
+                                inner_select = '*, rowNumberInAllBlocks() AS __orig_row_num__'
+                                inner_sql = f"SELECT {inner_select} FROM {table_source}"
+
+                                # Build outer query with WHERE and ORDER BY __orig_row_num__
+                                sql_parts = []
+                                if select_fields_for_sql:
+                                    fields_sql = ', '.join(
+                                        f.to_sql(quote_char=self.quote_char, with_alias=True)
+                                        for f in select_fields_for_sql
+                                    )
+                                    sql_parts.append(f"SELECT {fields_sql}")
+                                else:
+                                    # Need to select all columns except __orig_row_num__
+                                    sql_parts.append("SELECT * EXCEPT(__orig_row_num__)")
+
+                                sql_parts.append(f"FROM ({inner_sql}) AS __row_num_subq__")
+
+                                # Add WHERE
+                                if sql_where_conditions:
+                                    combined = sql_where_conditions[0]
+                                    for cond in sql_where_conditions[1:]:
+                                        combined = combined & cond
+                                    sql_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+                                # Add GROUP BY if present
+                                if groupby_fields_for_sql:
+                                    groupby_sql = ', '.join(
+                                        f.to_sql(quote_char=self.quote_char) for f in groupby_fields_for_sql
+                                    )
+                                    sql_parts.append(f"GROUP BY {groupby_sql}")
+
+                                # Add ORDER BY __orig_row_num__ to preserve original order
+                                sql_parts.append("ORDER BY __orig_row_num__")
+
+                                # Add LIMIT/OFFSET
+                                if sql_limit is not None:
+                                    sql_parts.append(f"LIMIT {sql_limit}")
+                                if sql_offset is not None:
+                                    sql_parts.append(f"OFFSET {sql_offset}")
+
+                                sql = ' '.join(sql_parts)
+                                self._logger.debug(
+                                    "  [Row Order] Using subquery with __orig_row_num__ for row order preservation"
+                                )
+                            else:
+                                sql = self._build_sql_from_state(
+                                    select_fields_for_sql,
+                                    sql_where_conditions,
+                                    sql_orderby_fields,
+                                    sql_limit,
+                                    sql_offset,
+                                    joins=self._joins,
+                                    distinct=self._distinct,
+                                    groupby_fields=groupby_fields_for_sql,
+                                    having_condition=self._having_condition,
+                                )
+                                # For queries without WHERE (like SELECT * FROM table),
+                                # rowNumberInAllBlocks() in ORDER BY is sufficient
+                                if needs_row_order:
+                                    sql = sql + ' ORDER BY rowNumberInAllBlocks()'
                     else:
                         # Multiple layers - build nested subqueries
                         # layers[0] is innermost (closest to data source)
@@ -3494,7 +3578,7 @@ class DataStore(PandasCompatMixin):
         self._add_lazy_op(LazyColumnAssignment(name, expr))
         # Note: Don't return self - @immutable decorator will return the copy
 
-    def groupby(self, *fields: Union[str, Expression, List]) -> 'LazyGroupBy':
+    def groupby(self, *fields: Union[str, Expression, List], sort: bool = True, **kwargs) -> 'LazyGroupBy':
         """
         Group by columns.
 
@@ -3510,12 +3594,16 @@ class DataStore(PandasCompatMixin):
             *fields: Column names (strings), Expression objects, or a list of column names.
                      Supports both pandas-style `groupby(["a", "b"])` and
                      `groupby("a", "b")` syntax.
+            sort: Sort group keys (default: True, matching pandas behavior).
+                  When True, the result is sorted by group keys in ascending order.
+            **kwargs: Additional arguments (for pandas compatibility, currently ignored).
 
         Returns:
             LazyGroupBy: GroupBy wrapper referencing this DataStore
 
         Example:
-            >>> ds.groupby("category")  # Returns LazyGroupBy
+            >>> ds.groupby("category")  # Returns LazyGroupBy, sorted by category
+            >>> ds.groupby("category", sort=False)  # Unsorted (order not guaranteed)
             >>> ds.groupby(["a", "b"])  # pandas-style list argument
             >>> ds.groupby("a", "b")    # Also supported
             >>> ds.groupby("category")["sales"].mean()  # Executes ds, returns Series
@@ -3539,7 +3627,7 @@ class DataStore(PandasCompatMixin):
                 groupby_fields.append(field)
 
         # Return a GroupBy wrapper that references self (not a copy!)
-        return LazyGroupBy(self, groupby_fields)
+        return LazyGroupBy(self, groupby_fields, sort=sort)
 
     @immutable
     def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':

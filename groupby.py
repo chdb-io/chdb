@@ -45,16 +45,19 @@ class LazyGroupBy:
         >>> df.to_df()  # Uses cached result (no re-execution!)
     """
 
-    def __init__(self, datastore: 'DataStore', groupby_fields: List[Expression]):
+    def __init__(self, datastore: 'DataStore', groupby_fields: List[Expression], sort: bool = True):
         """
         Initialize LazyGroupBy.
 
         Args:
             datastore: Reference to the ORIGINAL DataStore (not a copy)
             groupby_fields: List of Field expressions to group by
+            sort: Sort group keys (default: True, matching pandas behavior).
+                  When True, the result is sorted by group keys in ascending order.
         """
         self._datastore = datastore
         self._groupby_fields = groupby_fields.copy()  # Copy the list, not the DataStore
+        self._sort = sort
 
     @property
     def datastore(self) -> 'DataStore':
@@ -199,9 +202,10 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Capture datastore and cols for closure
+        # Capture datastore, cols, and sort for closure
         ds = self._datastore
         cols = groupby_cols
+        sort = self._sort
 
         def executor():
             # Check if we can use SQL pushdown
@@ -240,7 +244,12 @@ class LazyGroupBy:
                 if where_conditions:
                     where_sql = ' WHERE ' + ' AND '.join(where_conditions)
 
-                sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}'
+                # Add ORDER BY for sorted groupby (pandas default: sort=True)
+                orderby_sql = ''
+                if sort:
+                    orderby_sql = ' ORDER BY ' + ', '.join(f'"{col}"' for col in cols)
+
+                sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}'
                 result_df = ds._executor.execute(sql).to_df()
 
                 # Convert to Series with groupby col as index
@@ -314,7 +323,10 @@ class LazyGroupBy:
         new_ds = copy(self._datastore)
 
         # Add the lazy groupby aggregation operation
-        new_ds._add_lazy_op(LazyGroupByAgg(groupby_cols=groupby_cols, agg_func=agg_func, agg_dict=agg_dict, **kwargs))
+        # Pass sort parameter from LazyGroupBy to LazyGroupByAgg
+        new_ds._add_lazy_op(
+            LazyGroupByAgg(groupby_cols=groupby_cols, agg_func=agg_func, agg_dict=agg_dict, sort=self._sort, **kwargs)
+        )
 
         return new_ds
 

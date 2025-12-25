@@ -753,7 +753,7 @@ class PandasCompatMixin:
         axis=0,
         ascending=True,
         inplace=False,
-        kind='quicksort',
+        kind='stable',
         na_position='last',
         ignore_index=False,
         key=None,
@@ -769,7 +769,9 @@ class PandasCompatMixin:
             axis: Axis to sort along (only 0 supported for lazy execution)
             ascending: Sort ascending (True) or descending (False)
             inplace: Not supported (DataStore is immutable)
-            kind: Sort algorithm (ignored for SQL execution)
+            kind: Sort algorithm - 'stable' (default, uses rowNumberInAllBlocks() as tie-breaker),
+                  'quicksort', or 'mergesort'. Default is 'stable' to ensure predictable results
+                  when sort keys have duplicate values.
             na_position: Position of NaN values (only 'last' supported for SQL)
             ignore_index: Whether to relabel axis (requires execution)
             key: Function to transform values before sorting (requires execution)
