@@ -173,10 +173,13 @@ jobs:
           path: ./artifacts
       - name: Restore artifacts to original paths
         run: |
-          mv ./artifacts/chdb/_chdb.abi3.so ./chdb/
-          mv ./artifacts/chdb/libpybind11nonlimitedapi_stubs.dylib ./chdb/
+          echo "=== Artifact contents ==="
+          find ./artifacts -type f -ls
+          echo "==========================="
+          mv ./artifacts/_chdb.abi3.so ./chdb/
+          mv ./artifacts/libpybind11nonlimitedapi_stubs.dylib ./chdb/
           for v in 8 9 10 11 12 13 14; do
-            mv ./artifacts/chdb/libpybind11nonlimitedapi_chdb_3.${v}.dylib ./chdb/
+            mv ./artifacts/libpybind11nonlimitedapi_chdb_3.${v}.dylib ./chdb/
           done
           ls -lh ./chdb/*.so ./chdb/*.dylib
       - name: Sign macOS binaries
