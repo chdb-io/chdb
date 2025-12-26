@@ -2,6 +2,7 @@
 
 import io
 import json
+import os
 import random
 import unittest
 import numpy as np
@@ -383,6 +384,21 @@ class TestQueryPy(unittest.TestCase):
         ret = chdb.query("SELECT * FROM Python(df)", 'DataFrame')
         self.assertEqual(len(ret), 0)
         self.assertIn('int_col', ret.columns)
+
+    def test_parquet_row_number_order(self):
+        np.random.seed(42)
+        n = 100000
+        df = pd.DataFrame({'id': range(n), 'val': np.random.randint(0, 1000, n)})
+        path = 'test_row_number.parquet'
+        df.to_parquet(path, row_group_size=20000)
+
+        try:
+            pd_f = df[df['val'] > 500]
+            sql = f"SELECT id FROM file('{path}', 'Parquet') WHERE val > 500 ORDER BY _row_number LIMIT 5"
+            r = chdb.query(sql, output_format='DataFrame')
+            self.assertEqual(pd_f['id'].head(5).tolist(), r['id'].tolist())
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":
