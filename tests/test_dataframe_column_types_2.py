@@ -1356,6 +1356,16 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
             actual_type = str(ret.dtypes[col])
             self.assertEqual(actual_type, expected_type, f"{col} dtype should be {expected_type}, got {actual_type}")
 
+    def test_datetime_timezone_naive(self):
+        """Test that timezone-naive datetime matches pandas behavior"""
+        df = pd.DataFrame({
+            'id': [1, 2, 3],
+            'dt': pd.to_datetime(['2020-01-01 00:00:00', '2020-01-01 00:00:01', '2020-01-01 00:00:02'])
+        })
+        result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
+        self.assertEqual(df['dt'].tolist(), result['dt'].tolist())
+        self.assertEqual(df['dt'].dtype, result['dt'].dtype)
+
 
 if __name__ == '__main__':
     unittest.main()
