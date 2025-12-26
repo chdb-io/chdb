@@ -484,6 +484,27 @@ class LazyRelationalOp(LazyOp):
             result = self._apply_condition(df, self.condition, context)
             self._logger.debug("      -> df[mask]: %d -> %d rows", rows_before, len(result))
             return result
+        elif self.op_type == 'PANDAS_FILTER' and self.condition is not None:
+            # Method-mode ColumnExpr condition (e.g., cumsum() > 6, rank() > 3)
+            # Execute the condition to get boolean Series
+            from .column_expr import ColumnExpr
+
+            if isinstance(self.condition, ColumnExpr):
+                # Set datastore for proper execution context
+                if self.condition._datastore is None:
+                    self.condition._datastore = context
+                # Execute to get boolean mask
+                bool_series = self.condition._execute()
+                # Filter DataFrame using the boolean mask
+                # Align index if necessary
+                if len(bool_series) == len(df):
+                    result = df[bool_series.values]
+                else:
+                    # Try to align by index
+                    result = df.loc[bool_series.index[bool_series]]
+                self._logger.debug("      -> Pandas filter (method-mode): %d -> %d rows", rows_before, len(result))
+                return result
+            return df
         elif self.op_type == 'ORDER BY' and self.fields:
             # Sort DataFrame
             cols = [f if isinstance(f, str) else f.name for f in self.fields]

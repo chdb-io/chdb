@@ -3034,6 +3034,15 @@ class DataStore(PandasCompatMixin):
         # Since comparison operators now return ColumnExpr wrapping Condition,
         # we just need to check if _expr is already a Condition.
         if isinstance(condition, ColumnExpr):
+            # Check if this is a method-mode ColumnExpr (e.g., cumsum() > 6, rank() > 3)
+            # These cannot be converted to SQL and need pandas-based filtering
+            if condition._exec_mode == 'method' or condition._expr is None:
+                # For method-mode ColumnExpr, we need to execute it and use pandas filtering
+                # Add as a pandas filter operation
+                self._track_operation('pandas', f"filter(method_mode_condition)", {'lazy': True})
+                self._add_lazy_op(LazyRelationalOp('PANDAS_FILTER', 'method_mode', condition=condition))
+                return self
+
             if isinstance(condition._expr, Condition):
                 # ColumnExpr wrapping Condition (e.g., ds['col'] > 5)
                 condition = condition._expr

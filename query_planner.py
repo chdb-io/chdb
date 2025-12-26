@@ -586,7 +586,10 @@ class QueryPlanner:
             True if the operation can be executed via SQL
         """
         if isinstance(op, LazyRelationalOp):
-            # Relational ops (WHERE, SELECT, ORDER BY, LIMIT, OFFSET) can be pushed
+            # Most relational ops (WHERE, SELECT, ORDER BY, LIMIT, OFFSET) can be pushed
+            # But PANDAS_FILTER is for method-mode ColumnExpr that cannot be converted to SQL
+            if op.op_type == 'PANDAS_FILTER':
+                return False
             return True
 
         if isinstance(op, LazyGroupByAgg):

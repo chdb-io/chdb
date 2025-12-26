@@ -788,15 +788,18 @@ class ColumnExpr:
         if isinstance(other, pd.DataFrame):
             return self._compare_values(other)
 
-        # For aggregation mode or method mode with scalar result, execute and compare directly
-        if self._exec_mode in ('agg', 'method'):
+        # For aggregation mode or method mode, use pandas comparison on executed result
+        # This handles cases like: groupby_result == 20, cumsum_result == 10
+        if self._exec_mode in ('agg', 'method', 'executor'):
             result = self._execute()
-            # If result is scalar, return boolean comparison
+            # If result is scalar, return boolean comparison directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
                 return result == other
             # If result is a single-element Series, compare the scalar
             if isinstance(result, pd.Series) and len(result) == 1:
                 return result.iloc[0] == other
+            # For multi-element Series, return method-mode ColumnExpr for boolean indexing
+            return ColumnExpr(source=self, method_name='__eq__', method_args=(other,))
 
         # For expression mode, check if _expr exists
         if self._exec_mode == 'expr' and self._expr is None:
@@ -810,6 +813,18 @@ class ColumnExpr:
         return ColumnExpr(condition, self._datastore)
 
     def __ne__(self, other: Any) -> 'ColumnExpr':
+        # For aggregation/method mode, use pandas comparison on executed result
+        if self._exec_mode in ('agg', 'method', 'executor'):
+            result = self._execute()
+            # If result is scalar, return boolean comparison directly
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result != other
+            # If result is a single-element Series, compare the scalar
+            if isinstance(result, pd.Series) and len(result) == 1:
+                return result.iloc[0] != other
+            # For multi-element Series, return method-mode ColumnExpr
+            return ColumnExpr(source=self, method_name='__ne__', method_args=(other,))
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('!=', self._expr, Expression.wrap(other))
@@ -818,6 +833,11 @@ class ColumnExpr:
     def __gt__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ('agg', 'method', 'executor'):
+            result = self._execute()
+            # For scalar results, return bool directly
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result > other
+            # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__gt__', method_args=(other,))
 
         from .conditions import BinaryCondition
@@ -828,6 +848,11 @@ class ColumnExpr:
     def __ge__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ('agg', 'method', 'executor'):
+            result = self._execute()
+            # For scalar results, return bool directly
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result >= other
+            # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__ge__', method_args=(other,))
 
         from .conditions import BinaryCondition
@@ -838,6 +863,11 @@ class ColumnExpr:
     def __lt__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ('agg', 'method', 'executor'):
+            result = self._execute()
+            # For scalar results, return bool directly
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result < other
+            # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__lt__', method_args=(other,))
 
         from .conditions import BinaryCondition
@@ -848,6 +878,11 @@ class ColumnExpr:
     def __le__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
         if self._exec_mode in ('agg', 'method', 'executor'):
+            result = self._execute()
+            # For scalar results, return bool directly
+            if not isinstance(result, (pd.Series, pd.DataFrame)):
+                return result <= other
+            # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__le__', method_args=(other,))
 
         from .conditions import BinaryCondition
@@ -984,6 +1019,10 @@ class ColumnExpr:
         """
         from .conditions import CompoundCondition, Condition
 
+        # For method mode (e.g., from groupby comparison), use pandas & on executed results
+        if self._exec_mode == 'method' or (isinstance(other, ColumnExpr) and other._exec_mode == 'method'):
+            return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
+
         self_cond = self._to_condition()
 
         # Handle other operand
@@ -1021,6 +1060,10 @@ class ColumnExpr:
             >>> ds.filter((ds['age'] < 18) | (ds['age'] > 65))
         """
         from .conditions import CompoundCondition, Condition
+
+        # For method mode (e.g., from groupby comparison), use pandas | on executed results
+        if self._exec_mode == 'method' or (isinstance(other, ColumnExpr) and other._exec_mode == 'method'):
+            return ColumnExpr(source=self, method_name='__or__', method_args=(other,))
 
         self_cond = self._to_condition()
 
@@ -1098,56 +1141,61 @@ class ColumnExpr:
         new_expr = ArithmeticExpression('+', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
+    def _is_method_mode_columnexpr(self, value: Any) -> bool:
+        """Check if value is a ColumnExpr in method mode (with _expr=None)."""
+        return isinstance(value, ColumnExpr) and (value._exec_mode != 'expr' or value._expr is None)
+
     def __sub__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        # If self or other is method mode, use pandas arithmetic
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__sub__', method_args=(other,))
         new_expr = ArithmeticExpression('-', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rsub__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rsub__', method_args=(other,))
         new_expr = ArithmeticExpression('-', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __mul__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__mul__', method_args=(other,))
         new_expr = ArithmeticExpression('*', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rmul__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rmul__', method_args=(other,))
         new_expr = ArithmeticExpression('*', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __truediv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__truediv__', method_args=(other,))
         new_expr = ArithmeticExpression('/', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rtruediv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rtruediv__', method_args=(other,))
         new_expr = ArithmeticExpression('/', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __floordiv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__floordiv__', method_args=(other,))
         new_expr = ArithmeticExpression('//', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
 
     def __rfloordiv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rfloordiv__', method_args=(other,))
         new_expr = ArithmeticExpression('//', Expression.wrap(other), self._expr)
         return ColumnExpr(new_expr, self._datastore)
 
     def __mod__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
+        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__mod__', method_args=(other,))
         new_expr = ArithmeticExpression('%', self._expr, Expression.wrap(other))
         return ColumnExpr(new_expr, self._datastore)
@@ -1641,18 +1689,24 @@ class ColumnExpr:
             key: Index, slice, array of indices, or ColumnExpr for boolean indexing
 
         Returns:
-            Single value or Series depending on key type
+            Single value, Series, or ColumnExpr depending on key type and context
         """
         from .conditions import Condition
 
-        # If key is a ColumnExpr or Condition, execute it to get boolean Series
+        # For ColumnExpr keys (boolean indexing), return method-mode ColumnExpr
+        # to preserve index alignment for chained operations
         if isinstance(key, ColumnExpr):
-            key = key._execute()
-        elif isinstance(key, Condition):
-            # Execute condition against our result
+            # Return method-mode ColumnExpr so chained indexing works correctly
+            # e.g., ds_grouped[cond1][cond2] where cond2 has different length
+            return ColumnExpr(source=self, method_name='__getitem__', method_args=(key,))
+
+        # For Condition keys, execute condition and use as boolean mask
+        if isinstance(key, Condition):
             series = self._execute()
             key = key.evaluate(pd.DataFrame({series.name or '_': series}))
+            return series[key]
 
+        # For scalar/slice keys, directly execute and index
         return self._execute()[key]
 
     def tolist(self) -> list:

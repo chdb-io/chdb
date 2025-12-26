@@ -56,6 +56,25 @@ class StringAccessor(BaseAccessor):
 
         return Function('arrayElement', self._expr, Literal(ch_index))
 
+    def get(self, i: int, alias=None):
+        """
+        Get character at index position.
+
+        Maps to substring(s, i+1, 1) in ClickHouse.
+
+        Args:
+            i: 0-based character index (negative indices work from the end)
+            alias: Optional alias for the result
+
+        Example:
+            >>> ds['name'].str.get(0)   # Get first character
+            >>> ds['name'].str.get(-1)  # Get last character
+        """
+        from ..function_registry import FunctionRegistry
+
+        spec = FunctionRegistry.get('str_get')
+        return spec.sql_builder(self._expr, i, alias=alias)
+
     def count(self, pattern: str, alias=None):
         """Count occurrences of pattern in string. Alias for str_count."""
         from ..function_registry import FunctionRegistry
