@@ -1331,8 +1331,8 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
             "nullable_int64": "Int64",
             "nullable_uint16": "UInt16",
             "nullable_uint64": "UInt64",
-            "nullable_float32": "Float32",
-            "nullable_float64": "Float64",
+            "nullable_float32": "float32",
+            "nullable_float64": "float64",
             "nullable_decimal32": "Float64",
             "nullable_decimal64": "Float64",
             "nullable_string": "object",
@@ -1365,6 +1365,20 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
         self.assertEqual(df['dt'].tolist(), result['dt'].tolist())
         self.assertEqual(df['dt'].dtype, result['dt'].dtype)
+
+    def test_float_with_nan(self):
+        """Test that float64 with NaN preserves dtype and values"""
+        df = pd.DataFrame({"a": [1.0, 2.0, np.nan, 4.0]})
+        result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
+        self.assertEqual(df['a'].dtype, result['a'].dtype)
+        self.assertEqual(df['a'].isna().tolist(), result['a'].isna().tolist())
+
+    def test_integer_with_none(self):
+        """Test that integer-like column with None preserves dtype and values"""
+        df = pd.DataFrame({"a": [1, 2, None, 4]})
+        result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
+        self.assertEqual(df['a'].dtype, result['a'].dtype)
+        self.assertEqual(df['a'].isna().tolist(), result['a'].isna().tolist())
 
 
 if __name__ == '__main__':

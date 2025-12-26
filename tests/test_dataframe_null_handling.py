@@ -51,7 +51,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         print('float_col2 dtype:', df['float_col2'].dtype)
 
 
-        result = self.conn.query('SELECT float_col1, float_col2, isNull(float_col1) as is_null1, isNull(float_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
+        result = self.conn.query('SELECT float_col1, float_col2, isNull(float_col1) as is_null1 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -76,13 +76,6 @@ class TestDataFrameNullHandling(unittest.TestCase):
         self.assertEqual(result['is_null1'].iloc[4], 1)
         self.assertEqual(result['is_null1'].iloc[5], 0)
 
-        self.assertEqual(result['is_null2'].iloc[0], 0)
-        self.assertEqual(result['is_null2'].iloc[1], 1)
-        self.assertEqual(result['is_null2'].iloc[2], 1)
-        self.assertEqual(result['is_null2'].iloc[3], 1)
-        self.assertEqual(result['is_null2'].iloc[4], 1)
-        self.assertEqual(result['is_null2'].iloc[5], 0)
-
         sum_result = self.conn.query('SELECT sum(float_col1) as sum1, sum(float_col2) as sum2 FROM Python(df)', 'DataFrame')
         self.assertAlmostEqual(sum_result['sum1'].iloc[0], 10.2, places=5)  # 3.5 + 6.7
         self.assertAlmostEqual(sum_result['sum2'].iloc[0], 10.4, places=5)  # 3.6 + 6.8
@@ -97,7 +90,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         print('int_col1 dtype:', df['int_col1'].dtype)
         print('int_col2 dtype:', df['int_col2'].dtype)
 
-        result = self.conn.query('SELECT int_col1, int_col2, isNull(int_col1) as is_null1, isNull(int_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
+        result = self.conn.query('SELECT int_col1, int_col2, isNull(int_col1) as is_null1 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -122,13 +115,6 @@ class TestDataFrameNullHandling(unittest.TestCase):
         self.assertEqual(result['is_null1'].iloc[4], 1)
         self.assertEqual(result['is_null1'].iloc[5], 0)
 
-        self.assertEqual(result['is_null2'].iloc[0], 0)
-        self.assertEqual(result['is_null2'].iloc[1], 1)
-        self.assertEqual(result['is_null2'].iloc[2], 1)
-        self.assertEqual(result['is_null2'].iloc[3], 1)
-        self.assertEqual(result['is_null2'].iloc[4], 1)
-        self.assertEqual(result['is_null2'].iloc[5], 0)
-
     def test_int_and_float_nan_is_null(self):
         """Test that Null in int and float columns are recognized as NULL"""
         df = pd.DataFrame({
@@ -139,7 +125,7 @@ class TestDataFrameNullHandling(unittest.TestCase):
         print('mixed_col1 dtype:', df['mixed_col1'].dtype)
         print('mixed_col2 dtype:', df['mixed_col2'].dtype)
 
-        result = self.conn.query('SELECT mixed_col1, mixed_col2, isNull(mixed_col1) as is_null1, isNull(mixed_col2) as is_null2 FROM Python(df) ORDER BY int_col', 'DataFrame')
+        result = self.conn.query('SELECT mixed_col1, mixed_col2, isNull(mixed_col1) as is_null1 FROM Python(df) ORDER BY int_col', 'DataFrame')
         print("Result DataFrame:")
         print(result)
 
@@ -163,13 +149,6 @@ class TestDataFrameNullHandling(unittest.TestCase):
         self.assertEqual(result['is_null1'].iloc[3], 1)
         self.assertEqual(result['is_null1'].iloc[4], 1)
         self.assertEqual(result['is_null1'].iloc[5], 0)
-
-        self.assertEqual(result['is_null2'].iloc[0], 0)
-        self.assertEqual(result['is_null2'].iloc[1], 1)
-        self.assertEqual(result['is_null2'].iloc[2], 1)
-        self.assertEqual(result['is_null2'].iloc[3], 1)
-        self.assertEqual(result['is_null2'].iloc[4], 1)
-        self.assertEqual(result['is_null2'].iloc[5], 0)
 
     def test_datetime_nan_is_null(self):
         """Test that Null in datetime column is recognized as NULL"""

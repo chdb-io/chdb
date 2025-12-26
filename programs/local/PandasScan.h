@@ -40,10 +40,11 @@ private:
         DB::MutableColumnPtr & column,
         DB::WhichDataType which = DB::WhichDataType(DB::TypeIndex::Object));
 
-    static void innerScanFloat64(
+    template <typename T>
+    static void innerScanFloat(
         const size_t cursor,
         const size_t count,
-        const Float64 * ptr,
+        const T * ptr,
         DB::MutableColumnPtr & column);
 
     static void innerScanDateTime64(
