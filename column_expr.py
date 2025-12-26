@@ -816,24 +816,40 @@ class ColumnExpr:
         return ColumnExpr(condition, self._datastore)
 
     def __gt__(self, other: Any) -> 'ColumnExpr':
+        # For aggregation/method mode, use pandas comparison on executed result
+        if self._exec_mode in ('agg', 'method', 'executor'):
+            return ColumnExpr(source=self, method_name='__gt__', method_args=(other,))
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('>', self._expr, Expression.wrap(other))
         return ColumnExpr(condition, self._datastore)
 
     def __ge__(self, other: Any) -> 'ColumnExpr':
+        # For aggregation/method mode, use pandas comparison on executed result
+        if self._exec_mode in ('agg', 'method', 'executor'):
+            return ColumnExpr(source=self, method_name='__ge__', method_args=(other,))
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('>=', self._expr, Expression.wrap(other))
         return ColumnExpr(condition, self._datastore)
 
     def __lt__(self, other: Any) -> 'ColumnExpr':
+        # For aggregation/method mode, use pandas comparison on executed result
+        if self._exec_mode in ('agg', 'method', 'executor'):
+            return ColumnExpr(source=self, method_name='__lt__', method_args=(other,))
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('<', self._expr, Expression.wrap(other))
         return ColumnExpr(condition, self._datastore)
 
     def __le__(self, other: Any) -> 'ColumnExpr':
+        # For aggregation/method mode, use pandas comparison on executed result
+        if self._exec_mode in ('agg', 'method', 'executor'):
+            return ColumnExpr(source=self, method_name='__le__', method_args=(other,))
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('<=', self._expr, Expression.wrap(other))
@@ -1617,14 +1633,26 @@ class ColumnExpr:
         """
         Support indexing/subscripting like pandas Series.
 
-        This allows patterns like: df['col'].mode()[0]
+        This allows patterns like:
+        - df['col'].mode()[0]  # Integer index
+        - result[result > 50]  # Boolean indexing with ColumnExpr
 
         Args:
-            key: Index, slice, or array of indices
+            key: Index, slice, array of indices, or ColumnExpr for boolean indexing
 
         Returns:
             Single value or Series depending on key type
         """
+        from .conditions import Condition
+
+        # If key is a ColumnExpr or Condition, execute it to get boolean Series
+        if isinstance(key, ColumnExpr):
+            key = key._execute()
+        elif isinstance(key, Condition):
+            # Execute condition against our result
+            series = self._execute()
+            key = key.evaluate(pd.DataFrame({series.name or '_': series}))
+
         return self._execute()[key]
 
     def tolist(self) -> list:
