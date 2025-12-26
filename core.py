@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from .column_expr import ColumnExpr
     from .groupby import LazyGroupBy
     from .case_when import CaseWhenBuilder
+    from .query_planner import ExecutionSegment, QueryPlan
 
 from .expressions import Field, Expression, Literal, Star
 from .conditions import Condition
@@ -650,12 +651,13 @@ class DataStore(PandasCompatMixin):
         results are cached and reused for repeated accesses (e.g., multiple repr calls).
         Cache is automatically invalidated when new operations are added.
 
-        Execution strategy:
+        Execution strategy (segmented execution):
         1. Check if valid cache exists (return cached result if so)
-        2. Use QueryPlanner to analyze the lazy operation chain
-        3. Build and execute SQL query for SQL-pushable operations
-        4. Execute remaining operations (Pandas-only) on the DataFrame in order
-        5. Cache the result if caching is enabled
+        2. Use QueryPlanner.plan_segments() to create a segmented execution plan
+        3. Execute each segment:
+           - SQL segments: via chDB (from source or Python() table function)
+           - Pandas segments: execute operations on DataFrame in order
+        4. Cache the result if caching is enabled
 
         Returns:
             pandas DataFrame with all operations applied
@@ -670,7 +672,6 @@ class DataStore(PandasCompatMixin):
             with profiler.step("Cache Check"):
                 if self._is_cache_valid():
                     self._logger.debug("Using cached result (version=%d)", self._cached_at_version)
-                    # Log profiling report even for cache hit
                     if is_profiling_enabled():
                         profiler.log_report()
                     return self._cached_result
@@ -687,125 +688,70 @@ class DataStore(PandasCompatMixin):
             else:
                 self._logger.debug("No lazy operations recorded")
 
-            # Query planning phase - use QueryPlanner
+            # Segmented planning phase
             with profiler.step("Query Planning", ops_count=len(self._lazy_ops)):
-                from .lazy_ops import LazyRelationalOp
-
                 planner = QueryPlanner()
                 has_sql_source = bool(self._table_function or self.table_name)
-                # Get schema for type-aware SQL pushdown (auto fallback for incompatible types)
                 schema = self.schema() if has_sql_source else self._schema
-                plan = planner.plan(self._lazy_ops, has_sql_source, schema=schema)
+                exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
 
-                # Extract plan results for compatibility with existing code
-                first_df_op_idx = plan.first_df_op_idx
-                groupby_agg_op = plan.groupby_agg
-                where_ops = plan.where_ops  # LazyWhere/LazyMask for SQL CASE WHEN
-                early_sql_ops = plan.sql_ops
-                layers = plan.layers
-                has_two_phases = plan.has_two_phases()
-                alias_renames = plan.alias_renames  # temp_alias -> original_alias for conflict resolution
+                # If first segment is Pandas and we have multiple segments,
+                # consolidate all into Pandas to maintain original behavior
+                # (SQL on DataFrame can have non-deterministic row order with chDB)
+                if (
+                    len(exec_plan.segments) > 1
+                    and exec_plan.segments[0].is_pandas()
+                    and exec_plan.segments[0].is_first_segment
+                ):
+                    # Merge all into a single Pandas segment
+                    all_ops = []
+                    for seg in exec_plan.segments:
+                        all_ops.extend(seg.ops)
+                    from .query_planner import ExecutionSegment, ExecutionPlan
 
-                # Only show SQL phase header if we have SQL source
-                if has_sql_source:
-                    if has_two_phases:
-                        self._logger.debug("-" * 70)
-                        self._logger.debug("Phase 1: Executing SQL query")
-                        self._logger.debug("-" * 70)
-                    else:
-                        self._logger.debug("-" * 70)
-                        self._logger.debug("Executing SQL query")
-                        self._logger.debug("-" * 70)
+                    single_segment = ExecutionSegment(segment_type='pandas', ops=all_ops, is_first_segment=True)
+                    exec_plan = ExecutionPlan(segments=[single_segment], has_sql_source=has_sql_source)
+                    self._logger.debug("Consolidated to single Pandas segment for consistency")
 
-            # Build and execute SQL query
-            if self._table_function or self.table_name:
-                # Connect if needed
-                if self._executor is None:
-                    with profiler.step("Connection"):
-                        self._logger.debug("Connecting to data source...")
-                        self.connect()
+                self._logger.debug(exec_plan.describe())
 
-                with profiler.step("SQL Build", layers=len(layers)):
-                    # Use SQLExecutionEngine for unified SQL building
-                    sql_engine = SQLExecutionEngine(self)
-                    build_result = sql_engine.build_sql_from_plan(plan, schema)
-                    sql = build_result.sql
+            # Execute segments
+            df = pd.DataFrame()
+            has_executed_pandas = False
 
-                    # Log debug info
-                    if where_ops:
-                        self._logger.debug("  [Where/Mask SQL Pushdown] Applied CASE WHEN")
-                    if groupby_agg_op:
-                        self._logger.debug("  [GroupBy SQL Pushdown] GROUP BY %s", groupby_agg_op.groupby_cols)
-                    if len(layers) > 1:
-                        self._logger.debug("  Building %d nested subqueries", len(layers))
-
-                self._logger.debug("Executing initial SQL query...")
-                with profiler.step("SQL Execution"):
-                    result = self._executor.execute(sql)
-                with profiler.step("Result to DataFrame"):
-                    df = result.to_df()
-
-                    # Rename temp aliases back to original names (for alias conflict resolution)
-                    if alias_renames:
-                        rename_back = {temp: orig for temp, orig in alias_renames.items() if temp in df.columns}
-                        if rename_back:
-                            df = df.rename(columns=rename_back)
-                            self._logger.debug("  Renamed temp aliases: %s", rename_back)
-
-                    # For GroupBy SQL pushdown: set group keys as index (pandas compatibility)
-                    if groupby_agg_op and groupby_agg_op.groupby_cols:
-                        groupby_cols = groupby_agg_op.groupby_cols
-                        # Check if all groupby columns exist in the result
-                        if all(col in df.columns for col in groupby_cols):
-                            df = df.set_index(groupby_cols)
-                            self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
-
-                        # Convert flat column names to MultiIndex for pandas compatibility
-                        # e.g., 'int_col_sum' -> ('int_col', 'sum')
-                        if groupby_agg_op.agg_dict:
-                            # Build mapping from flat name to MultiIndex tuple
-                            col_rename_map = {}
-                            for col, funcs in groupby_agg_op.agg_dict.items():
-                                if isinstance(funcs, str):
-                                    funcs = [funcs]
-                                for func in funcs:
-                                    flat_name = f"{col}_{func}"
-                                    if flat_name in df.columns:
-                                        col_rename_map[flat_name] = (col, func)
-
-                            if col_rename_map:
-                                # Create MultiIndex columns
-                                new_columns = []
-                                for c in df.columns:
-                                    if c in col_rename_map:
-                                        new_columns.append(col_rename_map[c])
-                                    else:
-                                        # Keep as single-level (for non-agg columns)
-                                        new_columns.append((c, ''))
-                                df.columns = pd.MultiIndex.from_tuples(new_columns)
-                                self._logger.debug("  Converted flat columns to MultiIndex")
-
-                self._logger.debug("  SQL query returned DataFrame with shape: %s", df.shape)
-            else:
-                # No SQL source - start with empty DataFrame (will be populated by DataFrame operations)
-                df = pd.DataFrame()
-
-            # Execute DataFrame operations
-            if first_df_op_idx is not None:
-                num_df_ops = len(self._lazy_ops) - first_df_op_idx
-                self._logger.debug("-" * 70)
-                if has_two_phases:
-                    self._logger.debug("Phase 2: Executing %d DataFrame operations", num_df_ops)
+            # Handle empty segments case: load raw data from source
+            if not exec_plan.segments:
+                if self._table_function or self.table_name:
+                    # Load data from SQL source
+                    self._logger.debug("No operations: loading raw data from SQL source")
+                    if self._executor is None:
+                        with profiler.step("Connection"):
+                            self.connect()
+                    sql = self._generate_select_sql(quote_char='"')
+                    with profiler.step("SQL Execution"):
+                        result = self._executor.execute(sql)
+                    with profiler.step("Result to DataFrame"):
+                        df = result.to_df()
+                elif hasattr(self, '_df') and self._df is not None:
+                    # Use existing DataFrame
+                    self._logger.debug("No operations: using existing DataFrame")
+                    df = self._df.copy()
                 else:
-                    self._logger.debug("Executing %d DataFrame operations", num_df_ops)
+                    self._logger.debug("No operations and no data source")
+
+            for seg_idx, segment in enumerate(exec_plan.segments):
+                seg_num = seg_idx + 1
+                self._logger.debug("-" * 70)
+                self._logger.debug("Segment %d/%d: %s", seg_num, len(exec_plan.segments), segment.describe())
                 self._logger.debug("-" * 70)
 
-                with profiler.step("DataFrame Operations", count=num_df_ops):
-                    for i, op in enumerate(self._lazy_ops[first_df_op_idx:], first_df_op_idx + 1):
-                        self._logger.debug("  [%d/%d] Executing: %s", i, len(self._lazy_ops), op.describe())
-                        op_name = op.__class__.__name__
-                        with profiler.step(op_name):
-                            df = op.execute(df, self)
+                if segment.is_sql():
+                    with profiler.step(f"SQL Segment {seg_num}", ops=len(segment.ops)):
+                        df = self._execute_sql_segment(segment, df, schema, profiler)
+                else:
+                    with profiler.step(f"Pandas Segment {seg_num}", ops=len(segment.ops)):
+                        df = self._execute_pandas_segment(segment, df, profiler)
+                        has_executed_pandas = True
 
             self._logger.debug("=" * 70)
             self._logger.debug("Execution complete. Final DataFrame shape: %s", df.shape)
@@ -817,21 +763,17 @@ class DataStore(PandasCompatMixin):
                     self._cached_result = df
                     self._cache_timestamp = time.time()
 
-                    # Only checkpoint (replace lazy_ops with DataFrame source) if there were
-                    # DataFrame operations executed. For pure SQL queries, keep the SQL state
-                    # intact so that to_sql() continues to work correctly.
-                    if first_df_op_idx is not None:
+                    # Checkpoint if we executed any Pandas operations or multiple SQL segments
+                    # This enables incremental execution for future operations
+                    needs_checkpoint = has_executed_pandas or exec_plan.sql_segment_count() > 1
+
+                    if needs_checkpoint:
                         from .lazy_ops import LazyDataFrameSource
 
-                        # IMPORTANT: Replace lazy_ops with a single DataFrame source
-                        # This is the key to incremental execution:
-                        # - Old ops are "collapsed" into the cached DataFrame
-                        # - New ops will be appended after this source
-                        # - Next execution only executes new ops
+                        # Replace lazy_ops with a single DataFrame source
                         self._lazy_ops = [LazyDataFrameSource(df)]
 
                         # Clear SQL state since we're now working from a DataFrame
-                        # This ensures subsequent SQL operations use Python() table function
                         self._table_function = None
                         self.table_name = None
                         self._select_fields = []
@@ -848,14 +790,184 @@ class DataStore(PandasCompatMixin):
                     else:
                         self._logger.debug("Pure SQL execution: SQL state preserved")
 
-                    # Reset cache version to 0 (fresh start)
-                    # New ops will increment from here
                     self._cache_version = 0
                     self._cached_at_version = 0
 
-        # Log profiling report if profiling is enabled
         if is_profiling_enabled():
             profiler.log_report()
+
+        return df
+
+    def _execute_sql_segment(
+        self,
+        segment: 'ExecutionSegment',
+        df: pd.DataFrame,
+        schema: Dict[str, str],
+        profiler,
+    ) -> pd.DataFrame:
+        """
+        Execute a SQL segment.
+
+        For the first segment (from original data source), uses direct SQL execution.
+        For subsequent segments, uses Python() table function to query the DataFrame.
+
+        Args:
+            segment: The SQL segment to execute
+            df: Current DataFrame (used for subsequent segments)
+            schema: Column schema
+            profiler: Profiler for timing
+
+        Returns:
+            Result DataFrame
+        """
+        from .query_planner import ExecutionSegment
+
+        if segment.is_first_segment and (self._table_function or self.table_name):
+            # First segment: execute from original data source
+            if self._executor is None:
+                with profiler.step("Connection"):
+                    self._logger.debug("Connecting to data source...")
+                    self.connect()
+
+            # Build SQL from segment's plan
+            plan = segment.plan
+            if plan is None:
+                # Fallback: create a plan from segment ops
+                from .query_planner import QueryPlan
+
+                plan = QueryPlan(has_sql_source=True)
+                plan.sql_ops = segment.ops.copy()
+
+            sql_engine = SQLExecutionEngine(self)
+            build_result = sql_engine.build_sql_from_plan(plan, schema)
+            sql = build_result.sql
+
+            self._logger.debug("  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql)
+
+            with profiler.step("SQL Execution"):
+                result = self._executor.execute(sql)
+
+            with profiler.step("Result to DataFrame"):
+                df = result.to_df()
+                df = self._postprocess_sql_result(df, plan)
+
+            self._logger.debug("  SQL returned DataFrame with shape: %s", df.shape)
+
+        else:
+            # Subsequent segment: execute on DataFrame via Python() table function
+            if df.empty and not (self._table_function or self.table_name):
+                self._logger.debug("  No data to execute SQL on")
+                return df
+
+            # If we have a source but no DataFrame yet, load raw data first
+            if df.empty and (self._table_function or self.table_name):
+                if self._executor is None:
+                    self.connect()
+                # Load raw data without any filters
+                if self._table_function:
+                    table_sql = self._table_function.to_sql()
+                else:
+                    table_sql = f'{self.quote_char}{self.table_name}{self.quote_char}'
+                load_sql = f"SELECT * FROM {table_sql}"
+                result = self._executor.execute(load_sql)
+                df = result.to_df()
+                self._logger.debug("  Loaded raw data from source: %s rows", len(df))
+
+            plan = segment.plan
+            if plan is None:
+                from .query_planner import QueryPlan
+
+                plan = QueryPlan(has_sql_source=True)
+                plan.sql_ops = segment.ops.copy()
+
+            sql_engine = SQLExecutionEngine(self)
+            df = sql_engine.execute_sql_on_dataframe(df, plan, schema)
+
+            self._logger.debug("  SQL on DataFrame returned shape: %s", df.shape)
+
+        return df
+
+    def _execute_pandas_segment(
+        self,
+        segment: 'ExecutionSegment',
+        df: pd.DataFrame,
+        profiler,
+    ) -> pd.DataFrame:
+        """
+        Execute a Pandas segment.
+
+        Args:
+            segment: The Pandas segment to execute
+            df: Current DataFrame
+            profiler: Profiler for timing
+
+        Returns:
+            Result DataFrame
+        """
+        # If first operation and we have SQL source but no DataFrame, load raw data
+        if df.empty and (self._table_function or self.table_name):
+            if self._executor is None:
+                self.connect()
+            # Build SQL with only SELECT * and JOINs (no WHERE, ORDER BY, LIMIT, etc.)
+            # These conditions might reference computed columns from lazy_ops
+            load_sql = self._generate_raw_data_sql(quote_char='"')
+            result = self._executor.execute(load_sql)
+            df = result.to_df()
+            self._logger.debug("  Loaded raw data from source for Pandas: %s rows", len(df))
+
+        for i, op in enumerate(segment.ops, 1):
+            self._logger.debug("  [%d/%d] Executing: %s", i, len(segment.ops), op.describe())
+            op_name = op.__class__.__name__
+            with profiler.step(op_name):
+                df = op.execute(df, self)
+
+        return df
+
+    def _postprocess_sql_result(self, df: pd.DataFrame, plan: 'QueryPlan') -> pd.DataFrame:
+        """
+        Post-process SQL result: handle alias renames, groupby index, etc.
+
+        Args:
+            df: Result DataFrame from SQL execution
+            plan: QueryPlan with metadata
+
+        Returns:
+            Post-processed DataFrame
+        """
+        # Rename temp aliases back to original names
+        if plan.alias_renames:
+            rename_back = {temp: orig for temp, orig in plan.alias_renames.items() if temp in df.columns}
+            if rename_back:
+                df = df.rename(columns=rename_back)
+                self._logger.debug("  Renamed temp aliases: %s", rename_back)
+
+        # For GroupBy SQL pushdown: set group keys as index
+        if plan.groupby_agg and plan.groupby_agg.groupby_cols:
+            groupby_cols = plan.groupby_agg.groupby_cols
+            if all(col in df.columns for col in groupby_cols):
+                df = df.set_index(groupby_cols)
+                self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+
+            # Convert flat column names to MultiIndex for pandas compatibility
+            if plan.groupby_agg.agg_dict:
+                col_rename_map = {}
+                for col, funcs in plan.groupby_agg.agg_dict.items():
+                    if isinstance(funcs, str):
+                        funcs = [funcs]
+                    for func in funcs:
+                        flat_name = f"{col}_{func}"
+                        if flat_name in df.columns:
+                            col_rename_map[flat_name] = (col, func)
+
+                if col_rename_map:
+                    new_columns = []
+                    for c in df.columns:
+                        if c in col_rename_map:
+                            new_columns.append(col_rename_map[c])
+                        else:
+                            new_columns.append((c, ''))
+                    df.columns = pd.MultiIndex.from_tuples(new_columns)
+                    self._logger.debug("  Converted flat columns to MultiIndex")
 
         return df
 
@@ -3968,6 +4080,67 @@ class DataStore(PandasCompatMixin):
                 else:
                     settings_parts.append(f"{key}={value}")
             parts.append(f"SETTINGS {', '.join(settings_parts)}")
+
+        return ' '.join(parts)
+
+    def _generate_raw_data_sql(self, quote_char: str) -> str:
+        """
+        Generate SQL to load raw data from source with JOINs, but without filters.
+
+        This is used when the first execution segment is Pandas and we need to
+        load data from SQL source. We include JOINs because they define the
+        data structure, but exclude WHERE, ORDER BY, LIMIT etc. because they
+        might reference computed columns created by lazy operations.
+
+        Args:
+            quote_char: Quote character for identifiers
+
+        Returns:
+            SQL query string with SELECT * FROM source JOIN ...
+        """
+        parts = []
+
+        # Always SELECT *
+        parts.append("SELECT *")
+
+        # FROM clause
+        if self._table_function:
+            table_func_sql = self._table_function.to_sql(quote_char=quote_char)
+            alias = self._get_table_alias()
+            parts.append(f"FROM {table_func_sql} AS {format_identifier(alias, quote_char)}")
+        elif self.table_name:
+            parts.append(f"FROM {format_identifier(self.table_name, quote_char)}")
+        else:
+            raise QueryError("No data source available")
+
+        # JOIN clauses - include these because they define the data structure
+        if self._joins:
+            for other_ds, join_type, join_condition in self._joins:
+                join_keyword = join_type.value if join_type.value else ''
+                if join_keyword:
+                    join_clause = f"{join_keyword} JOIN"
+                else:
+                    join_clause = "JOIN"
+
+                if isinstance(other_ds, DataStore) and other_ds._is_subquery:
+                    other_table = other_ds.to_sql(quote_char=quote_char, as_subquery=True)
+                elif isinstance(other_ds, DataStore) and other_ds._table_function:
+                    table_func_sql = other_ds._table_function.to_sql(quote_char=quote_char)
+                    alias = other_ds._get_table_alias()
+                    other_table = f"{table_func_sql} AS {format_identifier(alias, quote_char)}"
+                else:
+                    other_table = format_identifier(other_ds.table_name, quote_char)
+
+                if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
+                    columns = join_condition[1]
+                    using_cols = ', '.join(format_identifier(c, quote_char) for c in columns)
+                    parts.append(f"{join_clause} {other_table} USING ({using_cols})")
+                else:
+                    condition_sql = join_condition.to_sql(quote_char=quote_char)
+                    parts.append(f"{join_clause} {other_table} ON {condition_sql}")
+
+        # Exclude WHERE, ORDER BY, LIMIT, OFFSET, GROUP BY, HAVING
+        # These might reference computed columns from lazy operations
 
         return ' '.join(parts)
 

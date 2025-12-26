@@ -61,7 +61,13 @@ class Executor:
         self._ensure_connected()
         return self.connection.execute(sql)
 
-    def query_dataframe(self, sql: str, df: pd.DataFrame, df_name: str = '__df__') -> pd.DataFrame:
+    def query_dataframe(
+        self,
+        sql: str,
+        df: pd.DataFrame,
+        df_name: str = '__df__',
+        preserve_order: bool = True,
+    ) -> pd.DataFrame:
         """
         Execute a SQL query on a DataFrame using chDB's Python() table function.
 
@@ -69,12 +75,13 @@ class Executor:
             sql: SQL query string. Reference DataFrame using Python(df_name) or df_name.
             df: The DataFrame to query
             df_name: Name for the DataFrame in the query (default: '__df__')
+            preserve_order: If True, preserve original row order (default: True)
 
         Returns:
             Result DataFrame
         """
         self._ensure_connected()
-        return self.connection.query_df(sql, df, df_name)
+        return self.connection.query_df(sql, df, df_name, preserve_order=preserve_order)
 
     def execute_expression(self, expr_sql: str, df: pd.DataFrame, result_column: str = '__result__') -> pd.Series:
         """

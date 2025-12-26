@@ -1276,6 +1276,12 @@ class SQLExecutionEngine:
         """
         Build SQL query for executing on a DataFrame via Python() table function.
 
+        Row order preservation is handled by connection.query_df with preserve_order=True,
+        so this method builds simple SQL without explicit row ordering logic.
+
+        Handles LIMIT-before-WHERE case: When LIMIT appears before WHERE in the ops list,
+        we need to use a subquery to maintain Pandas semantics (LIMIT first, then filter).
+
         Args:
             df: Input DataFrame (used for schema info)
             plan: QueryPlan for this SQL segment
@@ -1286,6 +1292,9 @@ class SQLExecutionEngine:
         """
         schema = schema or {}
 
+        # Check if LIMIT appears before WHERE in the ops list (Pandas semantics)
+        limit_before_where = self._check_limit_before_where(plan.sql_ops)
+
         # Extract clauses from SQL ops
         clauses = extract_clauses_from_ops(plan.sql_ops, self.quote_char)
 
@@ -1294,6 +1303,9 @@ class SQLExecutionEngine:
         if plan.where_ops:
             all_columns = list(df.columns)
             for col in all_columns:
+                # Skip internal row index column - it will be added separately
+                if col == '__row_idx__':
+                    continue
                 col_type = schema.get(col, str(df[col].dtype))
                 case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type)
                 select_fields.append(case_expr)
@@ -1306,16 +1318,48 @@ class SQLExecutionEngine:
             )
 
         # Build SELECT clause
+        # Priority: where_ops/groupby -> explicit select_fields from clauses -> *
         if select_fields:
+            # We have CASE WHEN or GroupBy select fields
             select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            # Add __row_idx__ passthrough for order preservation (query_df will add this column)
+            select_sql += ', "__row_idx__"'
+        elif clauses.select_fields:
+            # We have explicit column selection from LazyColumnSelection
+            select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
         else:
             select_sql = '*'
 
-        # Build FROM clause using table reference
-        # The executor will wrap this with Python() table function
-        from_sql = "__df__"
+        # Handle LIMIT-before-WHERE case with subquery
+        if limit_before_where and clauses.limit_value is not None and clauses.where_conditions:
+            # Build inner query with LIMIT
+            inner_sql = f"SELECT * FROM __df__ LIMIT {clauses.limit_value}"
+            if clauses.offset_value is not None:
+                inner_sql += f" OFFSET {clauses.offset_value}"
 
-        # Start building SQL
+            # Build outer query with WHERE
+            combined = clauses.where_conditions[0]
+            for cond in clauses.where_conditions[1:]:
+                combined = combined & cond
+
+            parts = [f"SELECT {select_sql}"]
+            parts.append(f"FROM ({inner_sql}) AS __limit_subq__")
+            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+            # GROUP BY (if any) comes after WHERE
+            if groupby_fields:
+                groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+                parts.append(f"GROUP BY {groupby_sql}")
+
+            # ORDER BY
+            if clauses.orderby_fields:
+                orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+                parts.append(f"ORDER BY {orderby_sql}")
+
+            return ' '.join(parts)
+
+        # Standard case: Build simple SQL - row order is preserved by executor
+        from_sql = "__df__"
         parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
 
         # WHERE clause
@@ -1331,10 +1375,12 @@ class SQLExecutionEngine:
             parts.append(f"GROUP BY {groupby_sql}")
 
         # ORDER BY clause
+        # For SQL on DataFrame, we need a different approach for stable sort:
+        # 1. Add __row_idx__ column (handled by query_df)
+        # 2. Use __row_idx__ as tie-breaker instead of rowNumberInAllBlocks()
         if clauses.orderby_fields:
-            orderby_sql = build_orderby_clause(
-                clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
-            )
+            # Build ORDER BY without stable sort modifier
+            orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
 
         # LIMIT clause
@@ -1346,3 +1392,35 @@ class SQLExecutionEngine:
             parts.append(f"OFFSET {clauses.offset_value}")
 
         return ' '.join(parts)
+
+    def _check_limit_before_where(self, ops: List[LazyOp]) -> bool:
+        """
+        Check if LIMIT appears before WHERE in the ops list.
+
+        This is important for Pandas semantics: df[:n][cond] means
+        "take first n rows, then filter" which differs from SQL's
+        "filter, then take first n rows".
+
+        Args:
+            ops: List of lazy operations
+
+        Returns:
+            True if LIMIT appears before any WHERE in the list
+        """
+        from .lazy_ops import LazyRelationalOp
+
+        limit_idx = None
+        where_idx = None
+
+        for i, op in enumerate(ops):
+            if isinstance(op, LazyRelationalOp):
+                if op.op_type == 'LIMIT' and limit_idx is None:
+                    limit_idx = i
+                elif op.op_type == 'WHERE' and where_idx is None:
+                    where_idx = i
+
+        # LIMIT before WHERE if both exist and LIMIT comes first
+        if limit_idx is not None and where_idx is not None:
+            return limit_idx < where_idx
+
+        return False

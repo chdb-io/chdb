@@ -585,10 +585,24 @@ class QueryPlanner:
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = ops.copy()
 
+                # Collect WHERE columns first for alias conflict detection
+                plan.where_columns = self._collect_where_columns(ops)
+
                 # Handle special ops
                 for op in ops:
                     if isinstance(op, LazyGroupByAgg):
                         plan.groupby_agg = op
+                        # Check for alias conflicts with WHERE columns
+                        agg_aliases = self._get_agg_aliases(op)
+                        conflict_aliases = agg_aliases & plan.where_columns
+                        if conflict_aliases:
+                            for alias in conflict_aliases:
+                                temp_alias = f"__agg_{alias}__"
+                                plan.alias_renames[temp_alias] = alias
+                            self._logger.debug(
+                                "  [GroupBy] Using temp aliases for conflict resolution: %s",
+                                plan.alias_renames,
+                            )
                     elif isinstance(op, (LazyWhere, LazyMask)):
                         plan.where_ops.append(op)
 
@@ -597,9 +611,6 @@ class QueryPlanner:
 
                 # Build layers for nested subqueries
                 plan.layers = self._build_layers(plan.sql_ops)
-
-                # Collect WHERE columns for alias conflict detection
-                plan.where_columns = self._collect_where_columns(ops)
 
                 segment.plan = plan
 

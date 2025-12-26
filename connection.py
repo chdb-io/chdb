@@ -206,9 +206,30 @@ class Connection:
             raise ConnectionError("Not connected. Call connect() first.")
 
         # Prepare DataFrame with row index if order preservation is needed
+        # When preserve_order is explicitly True, always preserve order
+        # (only skip for GROUP BY or explicit ORDER BY where order semantics change)
         row_idx_col = '__row_idx__'
         df_to_use = df
-        needs_order_preservation = preserve_order and self._should_preserve_order(sql)
+        sql_upper = sql.upper().strip()
+
+        # Determine if order preservation is needed
+        # Skip if explicitly False, has ORDER BY, GROUP BY, or is an aggregate query
+        if not preserve_order:
+            needs_order_preservation = False
+        elif self._has_outer_order_by(sql_upper) or 'GROUP BY' in sql_upper:
+            needs_order_preservation = False
+        elif self._is_aggregate_query(sql_upper):
+            # Aggregate queries don't have row-to-row correspondence
+            needs_order_preservation = False
+        elif self._is_select_star_query(sql_upper):
+            # SELECT * queries should preserve order
+            needs_order_preservation = True
+        elif '__ROW_IDX__' in sql_upper:
+            # Query already includes row index column (from _build_sql_for_dataframe)
+            needs_order_preservation = True
+        else:
+            # Other queries (e.g., CASE WHEN without __row_idx__) - no order preservation
+            needs_order_preservation = False
 
         if needs_order_preservation:
             # Add row index column to preserve order
@@ -336,6 +357,46 @@ class Connection:
 
         # If balanced or more opens than closes, ORDER BY is at outer level
         return open_count >= close_count
+
+    def _is_aggregate_query(self, sql_upper: str) -> bool:
+        """
+        Check if the query is an aggregate query (has aggregate functions but no GROUP BY).
+
+        Aggregate queries return a single row or reduced result set,
+        so row order preservation doesn't make sense.
+        """
+        # Common aggregate functions
+        aggregate_functions = [
+            'COUNT(',
+            'SUM(',
+            'AVG(',
+            'MIN(',
+            'MAX(',
+            'STDDEV(',
+            'STDDEVPOP(',
+            'STDDEVSAMP(',
+            'VAR(',
+            'VARPOP(',
+            'VARSAMP(',
+            'CORR(',
+            'COVAR_POP(',
+            'COVAR_SAMP(',
+            'ANY(',
+            'ANYIF(',
+            'UNIQ(',
+            'UNIQEXACT(',
+            'QUANTILE(',
+            'QUANTILES(',
+            'MEDIAN(',
+            'MEDIANEXACT(',
+        ]
+
+        # Check if any aggregate function is present
+        has_aggregate = any(func in sql_upper for func in aggregate_functions)
+
+        # It's an aggregate query if it has aggregate functions but no GROUP BY
+        # (GROUP BY is already handled separately)
+        return has_aggregate
 
     def _add_order_by(self, sql: str, order_col: str) -> str:
         """
