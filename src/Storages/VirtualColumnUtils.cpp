@@ -23,6 +23,7 @@
 #include <Parsers/ASTSubquery.h>
 
 #include <Columns/ColumnConst.h>
+#include <Columns/ColumnNullable.h>
 #include <Columns/ColumnsNumber.h>
 #include <Columns/ColumnsCommon.h>
 #include <Columns/FilterDescription.h>
@@ -304,7 +305,8 @@ void addRequestedFileLikeStorageVirtualsToChunk(
                 auto column = ColumnInt64::create();
                 for (size_t i = 0; i < chunk.getNumRows(); ++i)
                     column->insertValue(i + row_num_offset);
-                chunk.addColumn(std::move(column));
+                auto null_map = ColumnUInt8::create(chunk.getNumRows(), 0);
+                chunk.addColumn(ColumnNullable::create(std::move(column), std::move(null_map)));
                 return;
             }
 #endif
