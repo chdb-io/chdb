@@ -593,9 +593,9 @@ class QueryPlanner:
             return True
 
         if isinstance(op, LazyGroupByAgg):
-            # GroupBy aggregation can be pushed
-            # Note: alias conflict handling is done at segment planning time
-            return True
+            # GroupBy aggregation can be pushed if it doesn't use named_agg
+            # named_agg (pandas named aggregation syntax) requires Pandas execution
+            return op.can_push_to_sql()
 
         if isinstance(op, (LazyWhere, LazyMask)):
             # Check type compatibility for SQL pushdown

@@ -128,20 +128,23 @@ class LazyGroupBy:
         """
         Aggregate using one or more operations.
 
-        Supports two modes:
+        Supports three modes:
         1. Pandas-style aggregation with dict:
            >>> df.groupby('dept').agg({'salary': 'mean', 'age': 'max'})
 
-        2. SQL-style aggregation with keyword arguments:
+        2. Pandas named aggregation (tuple syntax):
+           >>> df.groupby('dept').agg(avg_salary=('salary', 'mean'), max_age=('age', 'max'))
+
+        3. SQL-style aggregation with keyword arguments:
            >>> from datastore import col
            >>> df.groupby('dept').agg(avg_salary=col('salary').mean())
 
         Args:
             func: Aggregation function(s) - dict or string
-            **kwargs: Named aggregate expressions
+            **kwargs: Named aggregate expressions or named tuples
 
         Returns:
-            pd.DataFrame for pandas-style, DataStore for SQL-style
+            DataStore with lazy aggregation
         """
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction
@@ -154,6 +157,18 @@ class LazyGroupBy:
             # Set groupby fields on original datastore and delegate
             self._datastore._groupby_fields = self._groupby_fields.copy()
             return self._datastore.agg(func, **kwargs)
+
+        # Check for pandas named aggregation: agg(alias=('col', 'func'))
+        # This is when kwargs contains tuples of (column, aggfunc)
+        has_named_agg = kwargs and all(
+            isinstance(v, tuple) and len(v) == 2 and isinstance(v[0], str) and isinstance(v[1], str)
+            for v in kwargs.values()
+        )
+
+        if has_named_agg:
+            # Convert named aggregation to pandas format
+            # pandas expects: agg(**kwargs) where kwargs={'alias': ('col', 'func')}
+            return self._create_lazy_agg_datastore(agg_dict=None, named_agg=kwargs)
         else:
             # Pandas-style aggregation: agg({'col': 'func'})
             # Return lazy DataStore with LazyGroupByAgg operation
@@ -296,13 +311,16 @@ class LazyGroupBy:
         """
         return self._create_lazy_agg_datastore(agg_func=func_name, **kwargs)
 
-    def _create_lazy_agg_datastore(self, agg_func: str = None, agg_dict: dict = None, **kwargs) -> 'DataStore':
+    def _create_lazy_agg_datastore(
+        self, agg_func: str = None, agg_dict: dict = None, named_agg: dict = None, **kwargs
+    ) -> 'DataStore':
         """
         Create a new DataStore with lazy groupby aggregation.
 
         Args:
             agg_func: Aggregation function name ('mean', 'sum', etc.)
             agg_dict: Dict mapping columns to aggregation functions
+            named_agg: Dict of named aggregations {alias: (col, func)}
             **kwargs: Additional arguments for the aggregation function
 
         Returns:
@@ -325,7 +343,14 @@ class LazyGroupBy:
         # Add the lazy groupby aggregation operation
         # Pass sort parameter from LazyGroupBy to LazyGroupByAgg
         new_ds._add_lazy_op(
-            LazyGroupByAgg(groupby_cols=groupby_cols, agg_func=agg_func, agg_dict=agg_dict, sort=self._sort, **kwargs)
+            LazyGroupByAgg(
+                groupby_cols=groupby_cols,
+                agg_func=agg_func,
+                agg_dict=agg_dict,
+                named_agg=named_agg,
+                sort=self._sort,
+                **kwargs,
+            )
         )
 
         return new_ds

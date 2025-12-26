@@ -364,7 +364,23 @@ def build_groupby_select_fields(
     # Build SELECT fields with aggregations
     select_fields = list(groupby_fields)  # Include group keys
 
-    if groupby_agg.agg_dict:
+    if groupby_agg.named_agg:
+        # Pandas named aggregation: agg(alias=('col', 'func'))
+        # Convert to SQL: SELECT func(col) AS alias ...
+        for alias, (col, func) in groupby_agg.named_agg.items():
+            sql_func = map_agg_func(func)
+
+            # Check if this alias conflicts with WHERE columns
+            temp_alias = f"__agg_{alias}__"
+            if temp_alias in alias_renames:
+                final_alias = temp_alias
+            else:
+                final_alias = alias
+
+            agg_expr = AggregateFunction(sql_func, Field(col), alias=final_alias)
+            select_fields.append(agg_expr)
+
+    elif groupby_agg.agg_dict:
         # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
         # Determine if we need compound aliases (col_func) to avoid duplicates
         has_multi_col = len(groupby_agg.agg_dict) > 1
@@ -1279,11 +1295,15 @@ class SQLExecutionEngine:
         result_df = executor.query_dataframe(sql, df, '__df__')
 
         # Handle GroupBy SQL pushdown: set group keys as index
+        # Exception: when using named_agg, keep columns as regular columns
+        # (matching Pandas behavior where reset_index() was called)
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
-            if all(col in result_df.columns for col in groupby_cols):
-                result_df = result_df.set_index(groupby_cols)
-                self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+            # Don't set index for named_agg - it keeps columns as regular columns
+            if plan.groupby_agg.named_agg is None:
+                if all(col in result_df.columns for col in groupby_cols):
+                    result_df = result_df.set_index(groupby_cols)
+                    self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
 
         # Handle alias renames
         if plan.alias_renames:

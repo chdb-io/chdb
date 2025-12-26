@@ -662,16 +662,24 @@ class LazyGroupByAgg(LazyOp):
     Example:
         ds.groupby('category').mean()  # Returns DataStore with LazyGroupByAgg
         ds.groupby('category').agg({'value': 'sum'})
+        ds.groupby('category').agg(total=('value', 'sum'))  # Named aggregation
     """
 
     def __init__(
-        self, groupby_cols: List[str], agg_func: str = None, agg_dict: dict = None, sort: bool = True, **kwargs
+        self,
+        groupby_cols: List[str],
+        agg_func: str = None,
+        agg_dict: dict = None,
+        named_agg: dict = None,
+        sort: bool = True,
+        **kwargs,
     ):
         """
         Args:
             groupby_cols: Column names to group by
             agg_func: Aggregation function name ('mean', 'sum', etc.) for all columns
             agg_dict: Dict mapping columns to aggregation functions (for pandas-style agg)
+            named_agg: Dict of named aggregations {alias: (col, func)} (pandas named agg syntax)
             sort: Sort group keys (default: True, matching pandas behavior).
                   When True, the result is sorted by group keys in ascending order.
             **kwargs: Additional arguments passed to aggregation function
@@ -680,19 +688,27 @@ class LazyGroupByAgg(LazyOp):
         self.groupby_cols = groupby_cols
         self.agg_func = agg_func
         self.agg_dict = agg_dict
+        self.named_agg = named_agg
         self.sort = sort
         self.kwargs = kwargs
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute groupby aggregation on DataFrame."""
         self._log_execute(
-            "GroupByAgg", f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict}, sort={self.sort}"
+            "GroupByAgg",
+            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}",
         )
 
         # Pass sort parameter to pandas groupby (default: True)
         grouped = df.groupby(self.groupby_cols, sort=self.sort)
 
-        if self.agg_dict is not None:
+        if self.named_agg is not None:
+            # Pandas named aggregation: agg(alias=('col', 'func'))
+            # Pass the named_agg dict as **kwargs to grouped.agg()
+            result = grouped.agg(**self.named_agg)
+            # Reset index to make groupby columns regular columns (matching pandas behavior with reset_index)
+            result = result.reset_index()
+        elif self.agg_dict is not None:
             # Pandas-style: agg({'col': 'func'})
             result = grouped.agg(self.agg_dict, **self.kwargs)
         elif self.agg_func == 'size':
@@ -710,11 +726,26 @@ class LazyGroupByAgg(LazyOp):
         return result
 
     def describe(self) -> str:
-        if self.agg_dict:
+        if self.named_agg:
+            func_str = str(self.named_agg)
+        elif self.agg_dict:
             func_str = str(self.agg_dict)
         else:
             func_str = self.agg_func
         return f"GroupBy({self.groupby_cols}).{func_str}()"
+
+    def can_push_to_sql(self) -> bool:
+        """
+        Check if this GroupByAgg can be pushed to SQL.
+
+        All aggregation modes (named_agg, agg_dict, agg_func) can be pushed to SQL.
+        The SQL execution engine converts them to appropriate SQL syntax.
+        """
+        return True
+
+    def execution_engine(self) -> str:
+        """Return which engine this operation should use."""
+        return 'SQL'
 
 
 class LazyDataFrameSource(LazyOp):
