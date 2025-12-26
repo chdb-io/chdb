@@ -29,6 +29,7 @@ from .lazy_ops import (
     LazyTransform,
     LazyApply,
     LazyColumnAssignment,
+    LazyColumnSelection,
     LazySQLQuery,
     LazyWhere,
     LazyMask,
@@ -318,7 +319,7 @@ class QueryPlanner:
                     #
                     # OPTIMIZATION: Instead of falling back to pandas, we use temporary aliases
                     # for conflicting columns and rename them back after SQL execution.
-                    agg_aliases = self._get_agg_aliases(op)
+                    agg_aliases = self._get_agg_aliases(op, schema)
                     conflict_aliases = agg_aliases & where_columns
                     if conflict_aliases:
                         # Record the aliases that need renaming
@@ -365,26 +366,29 @@ class QueryPlanner:
 
         return first_df_op_idx, groupby_agg_op, where_ops, alias_renames
 
-    def _get_agg_aliases(self, op: LazyGroupByAgg) -> Set[str]:
+    def _get_agg_aliases(self, op: LazyGroupByAgg, schema: Dict[str, str] = None) -> Set[str]:
         """
         Get alias names that would be created by a GroupByAgg operation.
 
         Args:
             op: LazyGroupByAgg operation
+            schema: Column schema (used for count() to get non-groupby columns)
 
         Returns:
             Set of alias names
         """
         agg_aliases = set()
 
-        if not op.agg_dict:
-            return agg_aliases
-
-        for col, funcs in op.agg_dict.items():
-            if isinstance(funcs, (list, tuple)):
-                agg_aliases.update(funcs)  # Function names as aliases
-            else:
-                agg_aliases.add(col)  # Column name as alias for single func
+        if op.agg_dict:
+            for col, funcs in op.agg_dict.items():
+                if isinstance(funcs, (list, tuple)):
+                    agg_aliases.update(funcs)  # Function names as aliases
+                else:
+                    agg_aliases.add(col)  # Column name as alias for single func
+        elif op.agg_func == 'count' and schema:
+            # count() creates aliases for all non-groupby columns
+            non_groupby_cols = [c for c in schema.keys() if c not in op.groupby_cols]
+            agg_aliases.update(non_groupby_cols)
 
         return agg_aliases
 
@@ -468,12 +472,51 @@ class QueryPlanner:
         exec_plan = ExecutionPlan(has_sql_source=has_sql_source)
 
         if not lazy_ops:
+            # Even with no operations, if there's a SQL source we need a segment
+            # to read the data (SELECT *)
+            if has_sql_source:
+                segment = ExecutionSegment(
+                    segment_type='sql',
+                    ops=[],
+                    is_first_segment=True,
+                )
+                # Create an empty QueryPlan for SELECT *
+                plan = QueryPlan(has_sql_source=True)
+                segment.plan = plan
+                exec_plan.segments.append(segment)
             return exec_plan
+
+        # Track effective schema through operations (column selections reduce schema)
+        effective_schema = dict(schema) if schema else {}
 
         # Classify each operation as SQL-pushable or Pandas-only
         op_types = []  # List of ('sql', op) or ('pandas', op)
         for op in lazy_ops:
-            if self._can_push_op_to_sql(op, schema):
+            # Update effective schema based on column selection
+            # LazyColumnSelection: df[["col1", "col2"]]
+            # LazyRelationalOp SELECT: also used for column selection
+            if isinstance(op, LazyColumnSelection) and effective_schema:
+                effective_schema = {col: effective_schema[col] for col in op.columns if col in effective_schema}
+                self._logger.debug("  [Schema] After LazyColumnSelection: %s", list(effective_schema.keys()))
+            elif isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and effective_schema:
+                # LazyRelationalOp SELECT stores columns in fields (as Field objects or strings)
+                if hasattr(op, 'fields') and op.fields:
+                    # Extract column names from fields
+                    selected_cols = []
+                    for f in op.fields:
+                        if isinstance(f, str):
+                            selected_cols.append(f)
+                        elif isinstance(f, Field):
+                            # Field.name is the column name (may have quotes)
+                            col_name = f.name.strip('"\'')
+                            selected_cols.append(col_name)
+                    if selected_cols:
+                        effective_schema = {
+                            col: effective_schema[col] for col in selected_cols if col in effective_schema
+                        }
+                        self._logger.debug("  [Schema] After SELECT: %s", list(effective_schema.keys()))
+
+            if self._can_push_op_to_sql(op, effective_schema):
                 op_types.append(('sql', op))
             else:
                 op_types.append(('pandas', op))
@@ -593,7 +636,7 @@ class QueryPlanner:
                     if isinstance(op, LazyGroupByAgg):
                         plan.groupby_agg = op
                         # Check for alias conflicts with WHERE columns
-                        agg_aliases = self._get_agg_aliases(op)
+                        agg_aliases = self._get_agg_aliases(op, schema)
                         conflict_aliases = agg_aliases & plan.where_columns
                         if conflict_aliases:
                             for alias in conflict_aliases:

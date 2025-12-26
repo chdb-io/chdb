@@ -389,11 +389,15 @@ def _build_split(expr, sep: str = None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
+    # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
+    # This converts NULL to empty string, which produces empty array []
+    safe_expr = Function('ifNull', expr, Literal(''))
+
     if sep is None:
         # Default: split by whitespace (pandas behavior)
-        return Function('splitByWhitespace', expr, alias=alias)
+        return Function('splitByWhitespace', safe_expr, alias=alias)
     else:
-        return Function('splitByString', Literal(sep), expr, alias=alias)
+        return Function('splitByString', Literal(sep), safe_expr, alias=alias)
 
 
 # ---------- Additional Pandas .str methods ----------
@@ -12344,7 +12348,9 @@ def _build_split_by_string(sep: str, s, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('splitByString', Literal(sep), s, alias=alias)
+    # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
+    safe_s = Function('ifNull', s, Literal(''))
+    return Function('splitByString', Literal(sep), safe_s, alias=alias)
 
 
 @register_function(
@@ -12359,7 +12365,9 @@ def _build_split_by_regexp(pattern: str, s, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('splitByRegexp', Literal(pattern), s, alias=alias)
+    # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
+    safe_s = Function('ifNull', s, Literal(''))
+    return Function('splitByRegexp', Literal(pattern), safe_s, alias=alias)
 
 
 @register_function(
@@ -12372,8 +12380,11 @@ def _build_split_by_regexp(pattern: str, s, alias=None):
 )
 def _build_split_by_whitespace(s, alias=None):
     from .functions import Function
+    from .expressions import Literal
 
-    return Function('splitByWhitespace', s, alias=alias)
+    # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
+    safe_s = Function('ifNull', s, Literal(''))
+    return Function('splitByWhitespace', safe_s, alias=alias)
 
 
 @register_function(
@@ -12386,8 +12397,11 @@ def _build_split_by_whitespace(s, alias=None):
 )
 def _build_split_by_non_alpha(s, alias=None):
     from .functions import Function
+    from .expressions import Literal
 
-    return Function('splitByNonAlpha', s, alias=alias)
+    # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
+    safe_s = Function('ifNull', s, Literal(''))
+    return Function('splitByNonAlpha', safe_s, alias=alias)
 
 
 @register_function(

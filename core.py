@@ -695,49 +695,11 @@ class DataStore(PandasCompatMixin):
                 schema = self.schema() if has_sql_source else self._schema
                 exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
 
-                # If first segment is Pandas and we have multiple segments,
-                # consolidate all into Pandas to maintain original behavior
-                # (SQL on DataFrame can have non-deterministic row order with chDB)
-                if (
-                    len(exec_plan.segments) > 1
-                    and exec_plan.segments[0].is_pandas()
-                    and exec_plan.segments[0].is_first_segment
-                ):
-                    # Merge all into a single Pandas segment
-                    all_ops = []
-                    for seg in exec_plan.segments:
-                        all_ops.extend(seg.ops)
-                    from .query_planner import ExecutionSegment, ExecutionPlan
-
-                    single_segment = ExecutionSegment(segment_type='pandas', ops=all_ops, is_first_segment=True)
-                    exec_plan = ExecutionPlan(segments=[single_segment], has_sql_source=has_sql_source)
-                    self._logger.debug("Consolidated to single Pandas segment for consistency")
-
                 self._logger.debug(exec_plan.describe())
 
             # Execute segments
             df = pd.DataFrame()
             has_executed_pandas = False
-
-            # Handle empty segments case: load raw data from source
-            if not exec_plan.segments:
-                if self._table_function or self.table_name:
-                    # Load data from SQL source
-                    self._logger.debug("No operations: loading raw data from SQL source")
-                    if self._executor is None:
-                        with profiler.step("Connection"):
-                            self.connect()
-                    sql = self._generate_select_sql(quote_char='"')
-                    with profiler.step("SQL Execution"):
-                        result = self._executor.execute(sql)
-                    with profiler.step("Result to DataFrame"):
-                        df = result.to_df()
-                elif hasattr(self, '_df') and self._df is not None:
-                    # Use existing DataFrame
-                    self._logger.debug("No operations: using existing DataFrame")
-                    df = self._df.copy()
-                else:
-                    self._logger.debug("No operations and no data source")
 
             for seg_idx, segment in enumerate(exec_plan.segments):
                 seg_num = seg_idx + 1
@@ -842,6 +804,16 @@ class DataStore(PandasCompatMixin):
             build_result = sql_engine.build_sql_from_plan(plan, schema)
             sql = build_result.sql
 
+            # Append format settings if present (e.g., input_format_parquet_preserve_order)
+            if self._format_settings:
+                settings_parts = []
+                for key, value in self._format_settings.items():
+                    if isinstance(value, str):
+                        settings_parts.append(f"{key}='{value}'")
+                    else:
+                        settings_parts.append(f"{key}={value}")
+                sql = f"{sql} SETTINGS {', '.join(settings_parts)}"
+
             self._logger.debug("  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql)
 
             with profiler.step("SQL Execution"):
@@ -869,6 +841,15 @@ class DataStore(PandasCompatMixin):
                 else:
                     table_sql = f'{self.quote_char}{self.table_name}{self.quote_char}'
                 load_sql = f"SELECT * FROM {table_sql}"
+                # Append format settings if present
+                if self._format_settings:
+                    settings_parts = []
+                    for key, value in self._format_settings.items():
+                        if isinstance(value, str):
+                            settings_parts.append(f"{key}='{value}'")
+                        else:
+                            settings_parts.append(f"{key}={value}")
+                    load_sql = f"{load_sql} SETTINGS {', '.join(settings_parts)}"
                 result = self._executor.execute(load_sql)
                 df = result.to_df()
                 self._logger.debug("  Loaded raw data from source: %s rows", len(df))
@@ -908,9 +889,38 @@ class DataStore(PandasCompatMixin):
         if df.empty and (self._table_function or self.table_name):
             if self._executor is None:
                 self.connect()
-            # Build SQL with only SELECT * and JOINs (no WHERE, ORDER BY, LIMIT, etc.)
-            # These conditions might reference computed columns from lazy_ops
-            load_sql = self._generate_raw_data_sql(quote_char='"')
+            # Load raw data - include JOINs if present
+            if self._table_function:
+                table_sql = self._table_function.to_sql()
+            else:
+                table_sql = f'{self.quote_char}{self.table_name}{self.quote_char}'
+
+            # Build FROM clause with optional alias for joins
+            if self._joins:
+                alias = self._get_table_alias()
+                from_clause = f"{table_sql} AS {self.quote_char}{alias}{self.quote_char}"
+            else:
+                from_clause = table_sql
+
+            load_sql = f"SELECT * FROM {from_clause}"
+
+            # Add JOIN clauses if present
+            if self._joins:
+                sql_engine = SQLExecutionEngine(self)
+                for other_ds, join_type, join_condition in self._joins:
+                    join_clause = sql_engine._build_join_clause(other_ds, join_type, join_condition)
+                    load_sql = f"{load_sql} {join_clause}"
+
+            # Append format settings if present
+            if self._format_settings:
+                settings_parts = []
+                for key, value in self._format_settings.items():
+                    if isinstance(value, str):
+                        settings_parts.append(f"{key}='{value}'")
+                    else:
+                        settings_parts.append(f"{key}={value}")
+                load_sql = f"{load_sql} SETTINGS {', '.join(settings_parts)}"
+            self._logger.debug("  Load SQL for Pandas: %s", load_sql)
             result = self._executor.execute(load_sql)
             df = result.to_df()
             self._logger.debug("  Loaded raw data from source for Pandas: %s rows", len(df))
@@ -1258,7 +1268,18 @@ class DataStore(PandasCompatMixin):
 
             format = _infer_format_from_path(path)
 
-        return cls("file", path=path, format=format, structure=structure, compression=compression, **kwargs)
+        ds = cls("file", path=path, format=format, structure=structure, compression=compression, **kwargs)
+
+        # Use UTC timezone to ensure datetime values match pandas (which uses naive UTC)
+        # New versions of chDB may apply system timezone, causing value shifts
+        ds._format_settings['session_timezone'] = 'UTC'
+
+        # For Parquet files, enable row order preservation to match pandas behavior
+        # chDB may read row groups in parallel which can reorder rows
+        if format and format.lower() == 'parquet':
+            ds._format_settings['input_format_parquet_preserve_order'] = 1
+
+        return ds
 
     @classmethod
     def from_s3(
@@ -4080,67 +4101,6 @@ class DataStore(PandasCompatMixin):
                 else:
                     settings_parts.append(f"{key}={value}")
             parts.append(f"SETTINGS {', '.join(settings_parts)}")
-
-        return ' '.join(parts)
-
-    def _generate_raw_data_sql(self, quote_char: str) -> str:
-        """
-        Generate SQL to load raw data from source with JOINs, but without filters.
-
-        This is used when the first execution segment is Pandas and we need to
-        load data from SQL source. We include JOINs because they define the
-        data structure, but exclude WHERE, ORDER BY, LIMIT etc. because they
-        might reference computed columns created by lazy operations.
-
-        Args:
-            quote_char: Quote character for identifiers
-
-        Returns:
-            SQL query string with SELECT * FROM source JOIN ...
-        """
-        parts = []
-
-        # Always SELECT *
-        parts.append("SELECT *")
-
-        # FROM clause
-        if self._table_function:
-            table_func_sql = self._table_function.to_sql(quote_char=quote_char)
-            alias = self._get_table_alias()
-            parts.append(f"FROM {table_func_sql} AS {format_identifier(alias, quote_char)}")
-        elif self.table_name:
-            parts.append(f"FROM {format_identifier(self.table_name, quote_char)}")
-        else:
-            raise QueryError("No data source available")
-
-        # JOIN clauses - include these because they define the data structure
-        if self._joins:
-            for other_ds, join_type, join_condition in self._joins:
-                join_keyword = join_type.value if join_type.value else ''
-                if join_keyword:
-                    join_clause = f"{join_keyword} JOIN"
-                else:
-                    join_clause = "JOIN"
-
-                if isinstance(other_ds, DataStore) and other_ds._is_subquery:
-                    other_table = other_ds.to_sql(quote_char=quote_char, as_subquery=True)
-                elif isinstance(other_ds, DataStore) and other_ds._table_function:
-                    table_func_sql = other_ds._table_function.to_sql(quote_char=quote_char)
-                    alias = other_ds._get_table_alias()
-                    other_table = f"{table_func_sql} AS {format_identifier(alias, quote_char)}"
-                else:
-                    other_table = format_identifier(other_ds.table_name, quote_char)
-
-                if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
-                    columns = join_condition[1]
-                    using_cols = ', '.join(format_identifier(c, quote_char) for c in columns)
-                    parts.append(f"{join_clause} {other_table} USING ({using_cols})")
-                else:
-                    condition_sql = join_condition.to_sql(quote_char=quote_char)
-                    parts.append(f"{join_clause} {other_table} ON {condition_sql}")
-
-        # Exclude WHERE, ORDER BY, LIMIT, OFFSET, GROUP BY, HAVING
-        # These might reference computed columns from lazy operations
 
         return ' '.join(parts)
 

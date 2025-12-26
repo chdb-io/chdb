@@ -78,7 +78,8 @@ class WhereMaskCaseExpr(Expression):
     def _is_string_type(self) -> bool:
         """Check if column is a string type."""
         col_type_lower = self.col_type.lower()
-        string_types = ('string', 'fixedstring', 'enum', 'uuid')
+        # Include pandas 'object' dtype which is typically used for strings
+        string_types = ('string', 'fixedstring', 'enum', 'uuid', 'object')
         return any(t in col_type_lower for t in string_types)
 
     def _is_date_type(self) -> bool:
@@ -336,7 +337,9 @@ def apply_alias_renames_to_orderby(
 
 
 def build_groupby_select_fields(
-    groupby_agg: LazyGroupByAgg, alias_renames: Dict[str, str] = None
+    groupby_agg: LazyGroupByAgg,
+    alias_renames: Dict[str, str] = None,
+    all_columns: List[str] = None,
 ) -> Tuple[List[Field], List[Expression]]:
     """
     Build GROUP BY and SELECT fields from a LazyGroupByAgg operation.
@@ -346,6 +349,7 @@ def build_groupby_select_fields(
     Args:
         groupby_agg: LazyGroupByAgg operation
         alias_renames: Dict for alias conflict resolution
+        all_columns: All column names (needed for count() to generate COUNT(col) per column)
 
     Returns:
         Tuple of (groupby_fields, select_fields)
@@ -406,9 +410,28 @@ def build_groupby_select_fields(
         func = groupby_agg.agg_func
         sql_func = map_agg_func(func)
 
-        if func in ('count', 'size'):
-            # COUNT(*) for counting rows
+        if func == 'size':
+            # size() counts ALL rows including NULL -> COUNT(*)
             select_fields.append(AggregateFunction(sql_func, Star()))
+        elif func == 'count':
+            # count() counts NON-NULL values per column -> COUNT(column)
+            # This matches pandas behavior: df.groupby('x').count() excludes NaN
+            if all_columns:
+                # Get non-groupby columns
+                non_groupby_cols = [c for c in all_columns if c not in groupby_agg.groupby_cols]
+                for col in non_groupby_cols:
+                    # Check if this alias conflicts with WHERE columns
+                    # If so, use a temp alias to avoid "Aggregate function found in WHERE" error
+                    temp_alias = f"__agg_{col}__"
+                    if temp_alias in alias_renames:
+                        alias = temp_alias
+                    else:
+                        alias = col
+                    agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
+                    select_fields.append(agg_expr)
+            else:
+                # Fallback: use COUNT(*) if we don't know the columns
+                select_fields.append(AggregateFunction(sql_func, Star()))
 
     return groupby_fields, select_fields
 
@@ -953,7 +976,11 @@ class SQLExecutionEngine:
         select_fields_for_sql = sql_select_fields
 
         if groupby_agg_op:
-            groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(groupby_agg_op, alias_renames)
+            # Get all columns for count() to generate COUNT(col) per column
+            all_cols = self.ds._get_all_column_names() if hasattr(self.ds, '_get_all_column_names') else None
+            groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(
+                groupby_agg_op, alias_renames, all_columns=all_cols
+            )
             if groupby_agg_op.sort and not clauses.orderby_fields:
                 clauses.orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
 
@@ -1279,8 +1306,8 @@ class SQLExecutionEngine:
         Row order preservation is handled by connection.query_df with preserve_order=True,
         so this method builds simple SQL without explicit row ordering logic.
 
-        Handles LIMIT-before-WHERE case: When LIMIT appears before WHERE in the ops list,
-        we need to use a subquery to maintain Pandas semantics (LIMIT first, then filter).
+        Handles nested LIMIT-WHERE patterns: When we have patterns like
+        [:50][>60][:10][>75], we need nested subqueries to maintain Pandas semantics.
 
         Args:
             df: Input DataFrame (used for schema info)
@@ -1292,71 +1319,48 @@ class SQLExecutionEngine:
         """
         schema = schema or {}
 
-        # Check if LIMIT appears before WHERE in the ops list (Pandas semantics)
-        limit_before_where = self._check_limit_before_where(plan.sql_ops)
+        # Check if we have multiple layers (nested LIMIT-WHERE patterns)
+        if plan.layers and len(plan.layers) > 1:
+            # Build nested subqueries from layers
+            return self._build_nested_sql_for_dataframe(plan.layers)
 
-        # Extract clauses from SQL ops
+        # Extract clauses for simple/single layer case
         clauses = extract_clauses_from_ops(plan.sql_ops, self.quote_char)
 
-        # Handle LazyWhere/LazyMask (CASE WHEN)
+        # Apply alias renames to ORDER BY
+        if plan.alias_renames and clauses.orderby_fields:
+            clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, plan.alias_renames)
+
+        # Handle GroupBy and CASE WHEN ops (these apply to final result)
+        groupby_fields = []
         select_fields = []
+
+        if plan.groupby_agg:
+            # Pass all_columns for count() to generate COUNT(col) per column
+            df_columns = [c for c in df.columns if c != '__row_idx__']
+            groupby_fields, select_fields = build_groupby_select_fields(
+                plan.groupby_agg, plan.alias_renames, all_columns=df_columns
+            )
+
         if plan.where_ops:
             all_columns = list(df.columns)
             for col in all_columns:
-                # Skip internal row index column - it will be added separately
                 if col == '__row_idx__':
                     continue
                 col_type = schema.get(col, str(df[col].dtype))
                 case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type)
                 select_fields.append(case_expr)
 
-        # Handle GroupBy aggregation
-        groupby_fields = []
-        if plan.groupby_agg:
-            groupby_fields, select_fields = build_groupby_select_fields(
-                plan.groupby_agg, self.quote_char, plan.alias_renames
-            )
-
-        # Build SELECT clause
-        # Priority: where_ops/groupby -> explicit select_fields from clauses -> *
+        # Determine SELECT clause
+        # Priority: CASE WHEN/GroupBy fields -> explicit column selection -> *
         if select_fields:
-            # We have CASE WHEN or GroupBy select fields
             select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
-            # Add __row_idx__ passthrough for order preservation (query_df will add this column)
-            select_sql += ', "__row_idx__"'
+            if not groupby_fields:
+                select_sql += ', "__row_idx__"'
         elif clauses.select_fields:
-            # We have explicit column selection from LazyColumnSelection
             select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
         else:
             select_sql = '*'
-
-        # Handle LIMIT-before-WHERE case with subquery
-        if limit_before_where and clauses.limit_value is not None and clauses.where_conditions:
-            # Build inner query with LIMIT
-            inner_sql = f"SELECT * FROM __df__ LIMIT {clauses.limit_value}"
-            if clauses.offset_value is not None:
-                inner_sql += f" OFFSET {clauses.offset_value}"
-
-            # Build outer query with WHERE
-            combined = clauses.where_conditions[0]
-            for cond in clauses.where_conditions[1:]:
-                combined = combined & cond
-
-            parts = [f"SELECT {select_sql}"]
-            parts.append(f"FROM ({inner_sql}) AS __limit_subq__")
-            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-            # GROUP BY (if any) comes after WHERE
-            if groupby_fields:
-                groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
-                parts.append(f"GROUP BY {groupby_sql}")
-
-            # ORDER BY
-            if clauses.orderby_fields:
-                orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
-                parts.append(f"ORDER BY {orderby_sql}")
-
-            return ' '.join(parts)
 
         # Standard case: Build simple SQL - row order is preserved by executor
         from_sql = "__df__"
@@ -1381,6 +1385,11 @@ class SQLExecutionEngine:
         if clauses.orderby_fields:
             # Build ORDER BY without stable sort modifier
             orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+            parts.append(f"ORDER BY {orderby_sql}")
+        elif plan.groupby_agg and plan.groupby_agg.sort:
+            # GroupBy with sort=True (default): order by group keys
+            orderby_cols = [(Field(col), True) for col in plan.groupby_agg.groupby_cols]
+            orderby_sql = build_orderby_clause(orderby_cols, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
 
         # LIMIT clause
@@ -1424,3 +1433,62 @@ class SQLExecutionEngine:
             return limit_idx < where_idx
 
         return False
+
+    def _build_nested_sql_for_dataframe(self, layers: List[List[LazyOp]]) -> str:
+        """
+        Build nested subquery SQL for DataFrame execution with multiple layers.
+
+        Each layer becomes a subquery wrapping the previous one:
+        Layer 0: SELECT * FROM __df__ LIMIT 50
+        Layer 1: SELECT * FROM (layer0) WHERE value > 60 LIMIT 10
+        Layer 2: SELECT * FROM (layer1) WHERE value > 75
+
+        Args:
+            layers: List of operation layers from QueryPlan
+
+        Returns:
+            Nested SQL query string
+        """
+        # Build innermost query from layer 0
+        inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
+        sql = self._assemble_simple_sql("__df__", inner_clauses)
+
+        # Wrap with outer layers
+        for layer_idx, layer_ops in enumerate(layers[1:], 1):
+            layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+            subq_alias = f"__subq{layer_idx}__"
+            sql = self._assemble_simple_sql(f"({sql}) AS {subq_alias}", layer_clauses)
+
+        return sql
+
+    def _assemble_simple_sql(self, from_source: str, clauses: ExtractedClauses) -> str:
+        """
+        Assemble a simple SQL query from a source and clauses.
+
+        Args:
+            from_source: The FROM clause source (table name or subquery)
+            clauses: Extracted SQL clauses
+
+        Returns:
+            SQL query string
+        """
+        parts = ["SELECT *"]
+        parts.append(f"FROM {from_source}")
+
+        if clauses.where_conditions:
+            combined = clauses.where_conditions[0]
+            for cond in clauses.where_conditions[1:]:
+                combined = combined & cond
+            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+        if clauses.orderby_fields:
+            orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+            parts.append(f"ORDER BY {orderby_sql}")
+
+        if clauses.limit_value is not None:
+            parts.append(f"LIMIT {clauses.limit_value}")
+
+        if clauses.offset_value is not None:
+            parts.append(f"OFFSET {clauses.offset_value}")
+
+        return ' '.join(parts)

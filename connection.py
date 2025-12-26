@@ -212,27 +212,37 @@ class Connection:
         df_to_use = df
         sql_upper = sql.upper().strip()
 
-        # Determine if order preservation is needed
-        # Skip if explicitly False, has ORDER BY, GROUP BY, or is an aggregate query
-        if not preserve_order:
-            needs_order_preservation = False
-        elif self._has_outer_order_by(sql_upper) or 'GROUP BY' in sql_upper:
-            needs_order_preservation = False
-        elif self._is_aggregate_query(sql_upper):
-            # Aggregate queries don't have row-to-row correspondence
-            needs_order_preservation = False
-        elif self._is_select_star_query(sql_upper):
-            # SELECT * queries should preserve order
-            needs_order_preservation = True
-        elif '__ROW_IDX__' in sql_upper:
-            # Query already includes row index column (from _build_sql_for_dataframe)
-            needs_order_preservation = True
-        else:
-            # Other queries (e.g., CASE WHEN without __row_idx__) - no order preservation
-            needs_order_preservation = False
+        # Determine how to handle row order preservation
+        # __row_idx__ is used to prevent chDB from shuffling original row order
+        has_order_by = self._has_outer_order_by(sql_upper)
+        has_group_by = 'GROUP BY' in sql_upper
+        is_aggregate = self._is_aggregate_query(sql_upper)
 
-        if needs_order_preservation:
-            # Add row index column to preserve order
+        # Determine row index handling strategy
+        needs_row_idx = False  # Whether to add __row_idx__ column
+        add_order_by_row_idx = False  # Whether to add ORDER BY __row_idx__ (no existing ORDER BY)
+        add_row_idx_as_tiebreaker = False  # Whether to append __row_idx__ to existing ORDER BY
+
+        if not preserve_order:
+            pass  # All False
+        elif has_group_by or is_aggregate:
+            # GROUP BY/aggregate: rows don't correspond to original rows
+            # __row_idx__ is meaningless after aggregation
+            pass  # All False
+        elif has_order_by:
+            # Has explicit ORDER BY: add __row_idx__ as tie-breaker for stable sort
+            # This ensures rows with equal sort keys maintain original relative order
+            needs_row_idx = True
+            add_row_idx_as_tiebreaker = True
+        elif self._is_select_star_query(sql_upper) or '__ROW_IDX__' in sql_upper:
+            # SELECT * or query already has __row_idx__: preserve original order
+            needs_row_idx = True
+            add_order_by_row_idx = True
+        # else: other queries without ORDER BY - no preservation needed
+
+        if needs_row_idx:
+            # Add row position column (0, 1, 2, ...) to preserve original row order
+            # This is independent of DataFrame's index - it's purely for chDB row ordering
             df_to_use = df.copy()
             df_to_use[row_idx_col] = range(len(df))
 
@@ -241,9 +251,13 @@ class Connection:
         if f'Python({df_name})' not in sql:
             processed_sql = sql.replace(df_name, f'Python({df_name})')
 
-        # Add ORDER BY for order preservation if needed
-        if needs_order_preservation:
+        # Handle ORDER BY modifications
+        if add_order_by_row_idx:
+            # No existing ORDER BY: wrap query and add ORDER BY __row_idx__
             processed_sql = self._add_order_by(processed_sql, row_idx_col)
+        elif add_row_idx_as_tiebreaker:
+            # Has existing ORDER BY: append __row_idx__ as tie-breaker for stable sort
+            processed_sql = self._append_tiebreaker_to_orderby(processed_sql, row_idx_col)
 
         self._log_query(processed_sql, "DataFrame")
 
@@ -253,9 +267,15 @@ class Connection:
             result = self._execute_df_query(processed_sql, df_to_use, df_name)
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-            # Remove the row index column from result if it was added
-            if needs_order_preservation and row_idx_col in result.columns:
+            # Restore original pandas index from __row_idx__ (row positions)
+            # Map row positions back to original index values
+            if needs_row_idx and row_idx_col in result.columns:
+                # __row_idx__ contains row positions (0, 1, 2, ...)
+                # Look up original index values from these positions
+                row_positions = result[row_idx_col].values
                 result = result.drop(columns=[row_idx_col])
+                result.index = df.index[row_positions]
+                result.index.name = df.index.name  # Preserve original index name
 
             self._log_result(result)
             self._logger.debug(
@@ -402,11 +422,91 @@ class Connection:
         """
         Add ORDER BY clause to preserve row order.
 
-        Wraps the query in a subquery to ensure ORDER BY is applied last.
+        For queries with LIMIT/OFFSET at the outer level, ORDER BY must be applied
+        BEFORE them. For nested subqueries with LIMIT/OFFSET inside, we wrap the
+        whole query and add ORDER BY outside.
         """
-        # Wrap in subquery and add ORDER BY
-        # This ensures order is applied regardless of query complexity
-        return f"SELECT * FROM ({sql}) ORDER BY {order_col}"
+        sql_upper = sql.upper()
+
+        # Check if LIMIT/OFFSET exists at the OUTER level (not inside a subquery)
+        limit_pos = self._find_outer_clause_position(sql_upper, 'LIMIT')
+        offset_pos = self._find_outer_clause_position(sql_upper, 'OFFSET')
+
+        if limit_pos != -1 or offset_pos != -1:
+            # LIMIT/OFFSET at outer level - insert ORDER BY before it
+            clause_start = len(sql)
+            if limit_pos != -1:
+                clause_start = min(clause_start, limit_pos)
+            if offset_pos != -1:
+                clause_start = min(clause_start, offset_pos)
+
+            base_query = sql[:clause_start].strip()
+            limit_offset_clause = sql[clause_start:].strip()
+            return f"{base_query} ORDER BY \"{order_col}\" {limit_offset_clause}"
+        else:
+            # No LIMIT/OFFSET at outer level: wrap in subquery
+            return f"SELECT * FROM ({sql}) ORDER BY \"{order_col}\""
+
+    def _find_outer_clause_position(self, sql_upper: str, clause: str) -> int:
+        """
+        Find the position of a clause (LIMIT/OFFSET) that is at the outer query level.
+
+        Returns -1 if the clause doesn't exist or is only inside subqueries.
+        """
+        # Find all occurrences of the clause
+        search_term = f' {clause} '
+        pos = 0
+        while True:
+            found = sql_upper.find(search_term, pos)
+            if found == -1:
+                # Also check for clause at end without trailing space
+                if sql_upper.endswith(f' {clause}'):
+                    found = len(sql_upper) - len(clause) - 1
+                else:
+                    return -1
+            else:
+                pos = found + 1
+
+            # Check if this occurrence is at outer level by counting parens before it
+            prefix = sql_upper[:found]
+            open_parens = prefix.count('(')
+            close_parens = prefix.count(')')
+
+            # If balanced, clause is at outer level
+            if open_parens == close_parens:
+                return found
+
+        return -1
+
+    def _append_tiebreaker_to_orderby(self, sql: str, tiebreaker_col: str) -> str:
+        """
+        Append a tie-breaker column to existing ORDER BY clause for stable sort.
+
+        When there's an explicit ORDER BY, we append __row_idx__ as a secondary
+        sort key to maintain original relative order for rows with equal sort keys.
+        This implements stable sort behavior like pandas sort_values(kind='stable').
+
+        Example:
+            Input:  SELECT * FROM t ORDER BY name DESC
+            Output: SELECT * FROM t ORDER BY name DESC, __row_idx__ ASC
+        """
+        sql_upper = sql.upper()
+
+        # Find the last ORDER BY position (to handle subqueries)
+        order_by_pos = sql_upper.rfind('ORDER BY')
+        if order_by_pos == -1:
+            # No ORDER BY found, shouldn't happen but handle gracefully
+            return sql
+
+        # Find where ORDER BY clause ends (LIMIT, OFFSET, or end of string)
+        order_by_end = len(sql)
+        for keyword in [' LIMIT ', ' OFFSET ', ';']:
+            pos = sql_upper.find(keyword, order_by_pos)
+            if pos != -1 and pos < order_by_end:
+                order_by_end = pos
+
+        # Insert tie-breaker before the end of ORDER BY clause
+        return sql[:order_by_end] + f', "{tiebreaker_col}" ASC' + sql[order_by_end:]
 
     def _execute_df_query(self, sql: str, df: pd.DataFrame, df_name: str) -> pd.DataFrame:
         """
