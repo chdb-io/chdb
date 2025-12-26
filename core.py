@@ -414,6 +414,8 @@ class DataStore(PandasCompatMixin):
         This method shows operations in the exact order they were defined,
         which is critical because order affects execution results.
 
+        Uses plan_segments() for accurate SQL-Pandas-SQL interleaving analysis.
+
         Args:
             verbose: If True, show additional details like full SQL queries
 
@@ -427,6 +429,8 @@ class DataStore(PandasCompatMixin):
             >>> ds = ds.filter(ds['age'] < 50)  # Order matters!
             >>> print(ds.explain())
         """
+        from .query_planner import QueryPlanner
+
         # Ensure data source description is cached before analysis
         if not hasattr(self, '_original_source_desc') or not self._original_source_desc:
             self._get_data_source_description()
@@ -445,50 +449,74 @@ class DataStore(PandasCompatMixin):
             lines.append(f"\n [{counter}] 📊 {data_source_desc}")
 
         # ========== Operations in Original Order ==========
-        # _lazy_ops contains ALL operations (SQL snapshots + lazy ops) in order
+        # Use plan_segments() for accurate SQL-Pandas-SQL interleaving analysis
         if self._lazy_ops:
-            # Find the first non-SQL operation (same logic as _execute)
-            first_df_op_idx = None
-            for i, op in enumerate(self._lazy_ops):
-                if not isinstance(op, LazyRelationalOp):
-                    first_df_op_idx = i
-                    break
+            planner = QueryPlanner()
+            has_sql_source = bool(self._table_function or self.table_name)
+            schema = self.schema() if has_sql_source else self._schema
+            exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
 
             lines.append("\nOperations:")
             lines.append("─" * 80)
 
-            # Show execution engine info
-            if first_df_op_idx is not None:
-                lines.append(f"    ️  Phase 1 (Initial SQL): Operations 1-{first_df_op_idx}")
-                lines.append(
-                    f"    ️  Phase 2 (DataFrame Operations): Operations {first_df_op_idx + 1}-{len(self._lazy_ops)}"
-                )
-                lines.append("    ️  Note: Each operation shows its execution engine [chDB] or [Pandas]")
+            # Build segment info for display
+            num_segments = len(exec_plan.segments)
+            if num_segments > 0:
+                # Show segment summary
+                # Note: Operation numbering starts at 2 because [1] is the data source
+                segment_summaries = []
+                op_idx = 0
+                for seg_idx, segment in enumerate(exec_plan.segments):
+                    # +2 because: +1 for 1-based indexing, +1 for data source being [1]
+                    start_op = op_idx + 2
+                    end_op = op_idx + len(segment.ops) + 1
+                    engine = "chDB" if segment.is_sql() else "Pandas"
+                    source_info = "(from source)" if segment.is_first_segment else "(on DataFrame)"
+                    if segment.ops:
+                        segment_summaries.append(
+                            f"    ️  Segment {seg_idx + 1} [{engine}] {source_info}: Operations {start_op}-{end_op}"
+                        )
+                    op_idx += len(segment.ops)
+
+                for summary in segment_summaries:
+                    lines.append(summary)
+                lines.append("    ️  Note: SQL operations after Pandas ops use Python() table function")
                 lines.append("")
-            else:
-                lines.append("    ️  All operations will execute via SQL Engine")
-                lines.append("")
+
+            # Build op -> segment mapping for accurate engine display
+            op_to_segment = {}  # op index -> (segment_idx, is_sql)
+            op_idx = 0
+            for seg_idx, segment in enumerate(exec_plan.segments):
+                for _ in segment.ops:
+                    op_to_segment[op_idx] = (seg_idx, segment.is_sql(), segment.is_first_segment)
+                    op_idx += 1
 
             for i, op in enumerate(self._lazy_ops):
                 counter += 1
-                # Determine which engine will execute this operation
-                is_sql_phase = (first_df_op_idx is None) or (i < first_df_op_idx)
+                # Determine which engine will execute this operation based on segment
+                seg_idx, is_sql, is_first = op_to_segment.get(i, (0, False, False))
 
-                if isinstance(op, LazyRelationalOp):
-                    # LazyRelationalOp engine depends on which phase it's in
-                    if is_sql_phase:
-                        # SQL engine will execute this
+                if is_sql:
+                    # SQL engine will execute this
+                    if isinstance(op, LazyRelationalOp):
                         lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
                     else:
-                        # Pandas engine will execute this - use pandas terminology
-                        lines.append(f" [{counter}] 🐼 [Pandas] {op.describe_pandas()}")
+                        engine = op.execution_engine()
+                        if engine == 'chDB':
+                            lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                        else:
+                            # Even in SQL segment, some ops use Pandas
+                            lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
                 else:
-                    # For other ops, ask the op itself which engine it will use
-                    engine = op.execution_engine()
-                    if engine == 'chDB':
-                        lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                    # Pandas segment
+                    if isinstance(op, LazyRelationalOp):
+                        lines.append(f" [{counter}] 🐼 [Pandas] {op.describe_pandas()}")
                     else:
-                        lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
+                        engine = op.execution_engine()
+                        if engine == 'chDB':
+                            lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                        else:
+                            lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
 
         # ========== Legacy operation history (for pandas compat operations) ==========
         history_lazy_ops, mat_op, history_executed_ops = self._analyze_execution_phases()
