@@ -234,11 +234,12 @@ class Connection:
             # This ensures rows with equal sort keys maintain original relative order
             needs_row_idx = True
             add_row_idx_as_tiebreaker = True
-        elif self._is_select_star_query(sql_upper) or '__ROW_IDX__' in sql_upper:
-            # SELECT * or query already has __row_idx__: preserve original order
+        else:
+            # No explicit ORDER BY and no GROUP BY/aggregate: preserve original row order
+            # This applies to all queries including column selection (SELECT col1, col2)
+            # chDB doesn't guarantee row order, so we must add __row_idx__ ordering
             needs_row_idx = True
             add_order_by_row_idx = True
-        # else: other queries without ORDER BY - no preservation needed
 
         if needs_row_idx:
             # Add row position column (0, 1, 2, ...) to preserve original row order
@@ -385,7 +386,7 @@ class Connection:
         Aggregate queries return a single row or reduced result set,
         so row order preservation doesn't make sense.
         """
-        # Common aggregate functions
+        # Common aggregate functions (standard SQL and ClickHouse-specific)
         aggregate_functions = [
             'COUNT(',
             'SUM(',
@@ -409,6 +410,22 @@ class Connection:
             'QUANTILES(',
             'MEDIAN(',
             'MEDIANEXACT(',
+            # ClickHouse-specific aggregate functions
+            'TOPK(',
+            'TOPKWEIGHTED(',
+            'GROUPARRAY(',
+            'GROUPARRAYINSERTAT(',
+            'GROUPUNIQARRAY(',
+            'GROUPBITAND(',
+            'GROUPBITOR(',
+            'GROUPBITXOR(',
+            'ARGMIN(',
+            'ARGMAX(',
+            'FIRST_VALUE(',
+            'LAST_VALUE(',
+            'ENTROPY(',
+            'SIMPLELINEARREGRESSION(',
+            'STOCHASTICLINEARREGRESSION(',
         ]
 
         # Check if any aggregate function is present
@@ -422,11 +439,31 @@ class Connection:
         """
         Add ORDER BY clause to preserve row order.
 
+        This method modifies the SQL to:
+        1. Add the order column to the SELECT clause (if not already present)
+        2. Add ORDER BY clause at the appropriate position
+
         For queries with LIMIT/OFFSET at the outer level, ORDER BY must be applied
-        BEFORE them. For nested subqueries with LIMIT/OFFSET inside, we wrap the
-        whole query and add ORDER BY outside.
+        BEFORE them.
         """
         sql_upper = sql.upper()
+
+        # Check if the order column is already in the SELECT clause
+        # or if it's a SELECT * query (which includes all columns)
+        is_select_star = self._is_select_star_query(sql_upper)
+        has_order_col = (
+            f'"{order_col.upper()}"' in sql_upper or f'"{order_col}"' in sql or order_col.upper() in sql_upper
+        )
+
+        # If not SELECT * and order_col not in select, we need to add it
+        modified_sql = sql
+        if not is_select_star and not has_order_col:
+            # Find the outer FROM clause (not inside quotes or subqueries)
+            from_pos = self._find_outer_from_clause(sql)
+            if from_pos != -1:
+                # Insert order_col before FROM
+                modified_sql = sql[:from_pos] + f', "{order_col}" ' + sql[from_pos:]
+                sql_upper = modified_sql.upper()
 
         # Check if LIMIT/OFFSET exists at the OUTER level (not inside a subquery)
         limit_pos = self._find_outer_clause_position(sql_upper, 'LIMIT')
@@ -434,18 +471,18 @@ class Connection:
 
         if limit_pos != -1 or offset_pos != -1:
             # LIMIT/OFFSET at outer level - insert ORDER BY before it
-            clause_start = len(sql)
+            clause_start = len(modified_sql)
             if limit_pos != -1:
                 clause_start = min(clause_start, limit_pos)
             if offset_pos != -1:
                 clause_start = min(clause_start, offset_pos)
 
-            base_query = sql[:clause_start].strip()
-            limit_offset_clause = sql[clause_start:].strip()
-            return f"{base_query} ORDER BY \"{order_col}\" {limit_offset_clause}"
+            base_query = modified_sql[:clause_start].strip()
+            limit_offset_clause = modified_sql[clause_start:].strip()
+            return f"{base_query} ORDER BY \"{order_col}\" ASC {limit_offset_clause}"
         else:
-            # No LIMIT/OFFSET at outer level: wrap in subquery
-            return f"SELECT * FROM ({sql}) ORDER BY \"{order_col}\""
+            # No LIMIT/OFFSET at outer level: add ORDER BY at the end
+            return f"{modified_sql} ORDER BY \"{order_col}\" ASC"
 
     def _find_outer_clause_position(self, sql_upper: str, clause: str) -> int:
         """
@@ -475,6 +512,68 @@ class Connection:
             # If balanced, clause is at outer level
             if open_parens == close_parens:
                 return found
+
+        return -1
+
+    def _find_outer_from_clause(self, sql: str) -> int:
+        """
+        Find the position of the outer FROM clause in a SQL query.
+
+        This method correctly handles:
+        - Column names that contain SQL keywords (e.g., "from", "select")
+        - Quoted identifiers
+        - Subqueries
+
+        Returns:
+            Position of FROM in the SQL string, or -1 if not found.
+        """
+        sql_upper = sql.upper()
+        pos = 0
+
+        while pos < len(sql_upper):
+            # Find the next occurrence of FROM
+            from_pos = sql_upper.find('FROM', pos)
+            if from_pos == -1:
+                return -1
+
+            # Check if FROM is at the start (no character before it)
+            # or preceded by a space/newline/tab (not inside a quoted identifier)
+            if from_pos > 0:
+                char_before = sql[from_pos - 1]
+                if char_before not in ' \t\n\r,(':
+                    # FROM is part of a word/identifier, skip it
+                    pos = from_pos + 4
+                    continue
+
+            # Check if FROM is followed by a space or is at the end
+            if from_pos + 4 < len(sql):
+                char_after = sql[from_pos + 4]
+                if char_after not in ' \t\n\r':
+                    # FROM is part of a word/identifier, skip it
+                    pos = from_pos + 4
+                    continue
+
+            # Check if we're inside quotes by counting quotes before this position
+            prefix = sql[:from_pos]
+            # Count unescaped double quotes
+            double_quotes = prefix.count('"')
+            single_quotes = prefix.count("'")
+
+            # If odd number of quotes, we're inside a quoted string
+            if double_quotes % 2 == 1 or single_quotes % 2 == 1:
+                pos = from_pos + 4
+                continue
+
+            # Check if we're inside a subquery by counting parentheses
+            open_parens = prefix.count('(')
+            close_parens = prefix.count(')')
+
+            # If parentheses are balanced, FROM is at the outer level
+            if open_parens == close_parens:
+                return from_pos
+
+            # FROM is inside a subquery, continue searching
+            pos = from_pos + 4
 
         return -1
 
