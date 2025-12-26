@@ -1439,9 +1439,12 @@ class SQLExecutionEngine:
         Build nested subquery SQL for DataFrame execution with multiple layers.
 
         Each layer becomes a subquery wrapping the previous one:
-        Layer 0: SELECT * FROM __df__ LIMIT 50
-        Layer 1: SELECT * FROM (layer0) WHERE value > 60 LIMIT 10
+        Layer 0: SELECT * FROM __df__ WHERE value > 20 ORDER BY __row_idx__ LIMIT 30
+        Layer 1: SELECT * FROM (layer0) WHERE value > 60 ORDER BY __row_idx__ LIMIT 10
         Layer 2: SELECT * FROM (layer1) WHERE value > 75
+
+        ORDER BY __row_idx__ is automatically added when LIMIT/OFFSET is present
+        without explicit ORDER BY to ensure deterministic results matching pandas semantics.
 
         Args:
             layers: List of operation layers from QueryPlan
@@ -1451,23 +1454,27 @@ class SQLExecutionEngine:
         """
         # Build innermost query from layer 0
         inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
-        sql = self._assemble_simple_sql("__df__", inner_clauses)
+        # add_row_order=True ensures LIMIT/OFFSET with no explicit ORDER BY gets ORDER BY __row_idx__
+        sql = self._assemble_simple_sql("__df__", inner_clauses, add_row_order=True)
 
         # Wrap with outer layers
         for layer_idx, layer_ops in enumerate(layers[1:], 1):
             layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
             subq_alias = f"__subq{layer_idx}__"
-            sql = self._assemble_simple_sql(f"({sql}) AS {subq_alias}", layer_clauses)
+            # Each layer also needs deterministic ordering for LIMIT/OFFSET
+            sql = self._assemble_simple_sql(f"({sql}) AS {subq_alias}", layer_clauses, add_row_order=True)
 
         return sql
 
-    def _assemble_simple_sql(self, from_source: str, clauses: ExtractedClauses) -> str:
+    def _assemble_simple_sql(self, from_source: str, clauses: ExtractedClauses, add_row_order: bool = False) -> str:
         """
         Assemble a simple SQL query from a source and clauses.
 
         Args:
             from_source: The FROM clause source (table name or subquery)
             clauses: Extracted SQL clauses
+            add_row_order: If True and there's LIMIT/OFFSET without explicit ORDER BY,
+                           add ORDER BY __row_idx__ to preserve pandas-like row order
 
         Returns:
             SQL query string
@@ -1481,9 +1488,14 @@ class SQLExecutionEngine:
                 combined = combined & cond
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
+        # Add ORDER BY - either explicit or for LIMIT/OFFSET determinism
         if clauses.orderby_fields:
             orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
+        elif add_row_order and (clauses.limit_value is not None or clauses.offset_value is not None):
+            # Add ORDER BY __row_idx__ for LIMIT/OFFSET without explicit ORDER BY
+            # This preserves pandas-like row order (original DataFrame row positions)
+            parts.append("ORDER BY __row_idx__")
 
         if clauses.limit_value is not None:
             parts.append(f"LIMIT {clauses.limit_value}")

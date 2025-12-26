@@ -122,23 +122,31 @@ def ignore_copy(func: Callable) -> Callable:
 
 def format_identifier(name: str, quote_char: str = '"') -> str:
     """
-    Format an identifier (table/column name) with quotes.
+    Format an identifier (table/column name) with quotes, properly escaping special characters.
 
     Args:
         name: The identifier name
         quote_char: Quote character to use (default: ")
 
     Returns:
-        Quoted identifier
+        Quoted identifier with special characters escaped
 
     Example:
         >>> format_identifier("my_table")
         '"my_table"'
         >>> format_identifier("table", "`")
         '`table`'
+        >>> format_identifier('col"quote')
+        '"col""quote"'
+        >>> format_identifier('col\\\\backslash')
+        '"col\\\\backslash"'
     """
     if quote_char:
-        return f"{quote_char}{name}{quote_char}"
+        # Escape backslashes first (must be done before other escapes)
+        escaped_name = name.replace('\\', '\\\\')
+        # Escape the quote character by doubling it (SQL standard)
+        escaped_name = escaped_name.replace(quote_char, quote_char + quote_char)
+        return f"{quote_char}{escaped_name}{quote_char}"
     return name
 
 

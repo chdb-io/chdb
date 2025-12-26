@@ -399,6 +399,8 @@ class QueryPlanner:
         Layer boundaries are created when:
         - WHERE follows LIMIT/OFFSET (pandas: slice then filter)
         - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
+        - OFFSET follows LIMIT (pandas: chained slices like [10:50][5:20])
+        - LIMIT follows LIMIT (pandas: chained limits like [:50][:20])
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -410,20 +412,39 @@ class QueryPlanner:
         """
         layers = []
         current_layer = []
-        pending_limit_offset = False
+        seen_limit = False  # Have we seen a LIMIT in current layer?
+        seen_offset = False  # Have we seen an OFFSET in current layer?
 
         for op in ops:
             if isinstance(op, LazyRelationalOp):
-                if op.op_type in ('WHERE', 'ORDER BY') and pending_limit_offset:
-                    # WHERE or ORDER BY after LIMIT/OFFSET - start new layer
-                    if current_layer:
-                        layers.append(current_layer)
+                needs_new_layer = False
+
+                if op.op_type == 'WHERE' and (seen_limit or seen_offset):
+                    # WHERE after LIMIT/OFFSET - start new layer
+                    needs_new_layer = True
+                elif op.op_type == 'ORDER BY' and (seen_limit or seen_offset):
+                    # ORDER BY after LIMIT/OFFSET - start new layer
+                    needs_new_layer = True
+                elif op.op_type == 'OFFSET' and seen_limit:
+                    # OFFSET after LIMIT means chained slices like [10:50][5:20]
+                    # The second slice operates on the result of the first
+                    needs_new_layer = True
+                elif op.op_type == 'LIMIT' and seen_limit:
+                    # Second LIMIT means chained limits like [:50][:20]
+                    # The second limit operates on the result of the first
+                    needs_new_layer = True
+
+                if needs_new_layer and current_layer:
+                    layers.append(current_layer)
                     current_layer = [op]
-                    pending_limit_offset = False
+                    seen_limit = op.op_type == 'LIMIT'
+                    seen_offset = op.op_type == 'OFFSET'
                 else:
                     current_layer.append(op)
-                    if op.op_type in ('LIMIT', 'OFFSET'):
-                        pending_limit_offset = True
+                    if op.op_type == 'LIMIT':
+                        seen_limit = True
+                    elif op.op_type == 'OFFSET':
+                        seen_offset = True
 
         if current_layer:
             layers.append(current_layer)

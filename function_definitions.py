@@ -2566,12 +2566,14 @@ def _build_fillna(expr, value, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.CONDITIONAL,
     aliases=['isnull'],
-    doc='Check if NULL. Maps to isNull(x).',
+    doc='Check if NULL. Maps to toBool(isNull(x)) for pandas bool compatibility.',
 )
 def _build_isna(expr, alias=None):
     from .functions import Function
 
-    return Function('isNull', expr, alias=alias)
+    # Wrap with toBool() to return bool dtype instead of uint8
+    # This ensures pandas compatibility (pandas isna() returns bool)
+    return Function('toBool', Function('isNull', expr), alias=alias)
 
 
 @register_function(
@@ -2580,12 +2582,14 @@ def _build_isna(expr, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.CONDITIONAL,
     aliases=['notnull'],
-    doc='Check if not NULL. Maps to isNotNull(x).',
+    doc='Check if not NULL. Maps to toBool(isNotNull(x)) for pandas bool compatibility.',
 )
 def _build_notna(expr, alias=None):
     from .functions import Function
 
-    return Function('isNotNull', expr, alias=alias)
+    # Wrap with toBool() to return bool dtype instead of uint8
+    # This ensures pandas compatibility (pandas notna() returns bool)
+    return Function('toBool', Function('isNotNull', expr), alias=alias)
 
 
 @register_function(
@@ -3160,7 +3164,7 @@ def _build_array_last(expr, alias=None):
     clickhouse_name='arrayElement',
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.ARRAY,
-    aliases=['arrayElement', 'get'],
+    aliases=['arrayElement'],  # Removed 'get' to avoid conflict with pandas Series.get()
     doc='Get element at index. Maps to arrayElement(arr, index).',
 )
 def _build_array_element(expr, index: int, alias=None):
@@ -5534,7 +5538,7 @@ def _build_rsplit(expr, sep: str = ' ', maxsplit: int = -1, alias=None):
     clickhouse_name='substring',
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
-    aliases=['get'],
+    aliases=[],  # Removed 'get' to avoid conflict with pandas Series.get()
     doc='Get character at index. Maps to substring(s, i+1, 1).',
 )
 def _build_str_get(expr, i: int, alias=None):

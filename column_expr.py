@@ -303,6 +303,25 @@ class ColumnExpr:
                 return attr(*args, **kwargs)
             return attr
 
+        # Handle chained function calls from method-mode ColumnExpr
+        # These are created when calling e.g., ds['a'].fillna(0).abs()
+        # where fillna returns method-mode ColumnExpr and abs() chains on it
+        if self._method_name and self._method_name.startswith('_chain_'):
+            func_name = self._method_name[7:]  # Remove '_chain_' prefix
+            # Remove 'alias' from kwargs if present (SQL-specific parameter)
+            kwargs_clean = {k: v for k, v in kwargs.items() if k != 'alias'}
+            if hasattr(series, func_name):
+                method = getattr(series, func_name)
+                return method(*args, **kwargs_clean)
+            else:
+                # Try numpy function as fallback
+                import numpy as np
+
+                if hasattr(np, func_name):
+                    np_func = getattr(np, func_name)
+                    return np_func(series, *args)
+                raise AttributeError(f"'{type(series).__name__}' has no attribute '{func_name}'")
+
         # Execute the method
         if series is None:
             return None
@@ -1301,7 +1320,9 @@ class ColumnExpr:
         """
         from .functions import Function
 
-        return ColumnExpr(Function('isNull', self._expr), self._datastore)
+        # Wrap with toBool() to return bool dtype instead of uint8
+        # This ensures pandas compatibility (pandas isna() returns bool)
+        return ColumnExpr(Function('toBool', Function('isNull', self._expr)), self._datastore)
 
     def notnull(self) -> 'ColumnExpr':
         """
@@ -1324,7 +1345,9 @@ class ColumnExpr:
         """
         from .functions import Function
 
-        return ColumnExpr(Function('isNotNull', self._expr), self._datastore)
+        # Wrap with toBool() to return bool dtype instead of uint8
+        # This ensures pandas compatibility (pandas notna() returns bool)
+        return ColumnExpr(Function('toBool', Function('isNotNull', self._expr)), self._datastore)
 
     # Aliases for pandas compatibility
     def isna(self) -> 'ColumnExpr':
@@ -2955,6 +2978,35 @@ class ColumnExpr:
         """
         return ColumnExpr(source=self, method_name='nunique', method_kwargs=dict(dropna=dropna))
 
+    def get(self, key, default=None):
+        """
+        Get value at key from Series result, with optional default.
+
+        This method provides pandas Series.get() behavior for ColumnExpr,
+        enabling key-based access to aggregated results.
+
+        Args:
+            key: Label of the value to get
+            default: Default value if key is not found (default None)
+
+        Returns:
+            Value at key, or default if key not found
+
+        Example:
+            >>> result = ds.groupby('category')['value'].sum()
+            >>> result.get('A', 0)  # Get sum for category 'A', default 0
+            150
+        """
+        # Execute to get the actual Series
+        series = self._execute()
+
+        # If result is a Series, use its .get() method
+        if isinstance(series, pd.Series):
+            return series.get(key, default)
+
+        # For scalar results or other types, can't use .get()
+        return default
+
     def map(self, arg, na_action=None) -> 'ColumnExpr':
         """
         Map values of Series according to input mapping or function (lazy).
@@ -3704,3 +3756,33 @@ class ColumnExprLocIndexer:
 # NOTE: LazyAggregate has been removed and merged into ColumnExpr.
 # Aggregation methods (mean, sum, etc.) now return ColumnExpr in 'agg' mode.
 # This simplifies the type system: users always get ColumnExpr from column operations.
+
+
+# =============================================================================
+# INJECT FUNCTION METHODS FROM REGISTRY
+# =============================================================================
+# This enables methods like abs(), round(), upper(), lower() to be called
+# directly on ColumnExpr, supporting chaining even in method mode.
+#
+# Example: ds['a'].fillna(0).abs().round()
+#          ^^^^^^^^^^^^^^^
+#          Returns method-mode ColumnExpr with _expr=None
+#                          ^^^^^^^^^^^^^^
+#                          Now works! Uses injected method.
+
+
+def _inject_column_expr_methods():
+    """Inject function methods from registry into ColumnExpr class."""
+    from .function_mixin import inject_methods_to_column_expr
+
+    # Import function_definitions to ensure all functions are registered
+    from . import function_definitions  # noqa: F401
+
+    function_definitions.ensure_functions_registered()
+
+    # Inject all registered functions to ColumnExpr
+    inject_methods_to_column_expr(ColumnExpr)
+
+
+# Perform injection when module is loaded
+_inject_column_expr_methods()

@@ -151,43 +151,49 @@ class FunctionExecutorConfig:
         # CASE WHEN expression (ds.when().otherwise())
         'when',
         'case_when',
-    }
-
-    # Pandas-only functions (no ClickHouse equivalent or chDB has issues)
-    PANDAS_ONLY_FUNCTIONS: Set[str] = {
-        # String functions with NaN handling issues in chDB
-        'contains',  # chDB has issues with NaN handling, use pandas for na parameter support
-        # Cumulative functions
-        'cumsum',
-        'cummax',
-        'cummin',
-        'cumprod',
-        # Shift and diff
-        'shift',
-        'diff',
-        'pct_change',
-        # Ranking
-        'rank',
-        'nlargest',
-        'nsmallest',
-        # Value operations
-        'unique',
-        'value_counts',
-        'duplicated',
-        'drop_duplicates',
-        # Missing value handling (pandas method names)
+        # Null detection (uses toBool(isNull/isNotNull) in SQL for bool dtype)
         'isna',
         'isnull',
         'notna',
         'notnull',
-        'fillna',
+    }
+
+    # Pandas-only functions (no ClickHouse equivalent or require pandas-specific features)
+    # NOTE: As of chDB 4.0.0b3, NaN/NULL handling is fixed at the SQL level (see GitHub issue #447).
+    # Functions like isNull/isNotNull/ifNull now work correctly with NaN in SQL.
+    # HOWEVER, the DataStore lazy execution pipeline still has issues extracting
+    # function results correctly (returns original column instead of function result).
+    # Until the execution pipeline is fixed, keep these functions using pandas.
+    PANDAS_ONLY_FUNCTIONS: Set[str] = {
+        # String functions that need pandas for na parameter support
+        'contains',  # pandas str.contains has na parameter (na=True/False), SQL propagates NULL
+        # Cumulative functions (no simple SQL equivalent)
+        'cumsum',
+        'cummax',
+        'cummin',
+        'cumprod',
+        # Shift and diff (no simple SQL equivalent)
+        'shift',
+        'diff',
+        'pct_change',
+        # Ranking (pandas-specific behavior)
+        'rank',
+        'nlargest',
+        'nsmallest',
+        # Value operations (pandas-specific)
+        'unique',
+        'value_counts',
+        'duplicated',
+        'drop_duplicates',
+        # Missing value handling
+        # NOTE: chDB 4.0.0b3 fixed NaN handling in SQL (see GitHub issue #447).
+        # isNull/isNotNull/ifNull now work correctly in SQL.
+        # isna/notna now use SQL via toBool(isNull/isNotNull) for bool dtype.
+        'fillna',  # Keep pandas for method='ffill'/'bfill' support
         'dropna',
-        'ffill',
-        'bfill',
-        'interpolate',
-        # Missing value handling (SQL function names - use Pandas for NaN support)
-        'isnull',  # SQL isNull() function
-        'isnotnull',  # SQL isNotNull() function
+        'ffill',  # Forward fill - needs window functions
+        'bfill',  # Backward fill - needs window functions
+        'interpolate',  # Complex pandas-only
         # Type checking
         'isin',
         'between',

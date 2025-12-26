@@ -3666,7 +3666,8 @@ class DataStore(PandasCompatMixin):
         Sort results (ORDER BY clause).
 
         Args:
-            *fields: Column names (strings) or Expression objects
+            *fields: Column names (strings) or Expression objects.
+                     Also accepts a single list/tuple of field names for pandas compatibility.
             ascending: Sort direction (default: True). Can be a single bool for all columns,
                       or a list of bools matching the number of fields.
             kind: Sort algorithm - 'quicksort' (default, unstable), 'stable', or 'mergesort' (stable)
@@ -3678,8 +3679,13 @@ class DataStore(PandasCompatMixin):
             >>> ds.sort("name", kind='stable')  # Stable sort
             >>> ds.sort(ds.date, ds.amount, ascending=False)
             >>> ds.sort("category", "price", ascending=[True, False])  # Multi-column different directions
+            >>> ds.sort(['name', 'age'])  # Also accepts list (pandas-style)
         """
         from .column_expr import ColumnExpr
+
+        # Handle case where a single list/tuple is passed (pandas-style sort(['a', 'b']))
+        if len(fields) == 1 and isinstance(fields[0], (list, tuple)):
+            fields = tuple(fields[0])
 
         # Helper to get SQL-safe field representation
         def field_to_sql(f):

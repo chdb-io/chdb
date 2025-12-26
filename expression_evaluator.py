@@ -756,9 +756,16 @@ class ExpressionEvaluator:
         executor = get_executor()
         result = executor.execute_expression(sql_expr, self.df)
 
-        # Workaround for chDB NULL handling issue (#447)
-        # chDB converts NULL to empty string, restore NULL positions
-        if original_null_mask is not None and original_null_mask.any():
+        # Workaround for chDB NULL handling
+        # NOTE: chDB 4.0.0b3 has improved NULL handling (see GitHub issue #447),
+        # but some operations still need this workaround for pandas compatibility.
+        # Skip NULL restoration for functions that SHOULD preserve/report NULL values:
+        # - isNull/isNotNull: These functions detect NULL, so their result should not be NaN
+        # - ifNull: This function fills NULL, so its result should not have NaN at NULL positions
+        # - toBool(isNull/isNotNull/ifNull): Wrapper for bool dtype compatibility
+        should_restore_nulls = not self._is_null_handling_function(expr)
+
+        if should_restore_nulls and original_null_mask is not None and original_null_mask.any():
             result = self._restore_nulls(result, original_null_mask)
 
         # Preserve original column name for accessor operations
@@ -767,6 +774,39 @@ class ExpressionEvaluator:
             result = result.rename(original_name)
 
         return result
+
+    def _is_null_handling_function(self, expr) -> bool:
+        """
+        Check if expression is a null-handling function that should NOT have
+        its NULL values restored.
+
+        This includes:
+        - isNull/isNotNull: Detect NULL values, return boolean
+        - ifNull: Fill NULL values
+        - toBool(isNull/isNotNull/ifNull): Wrapper for bool dtype compatibility
+
+        Args:
+            expr: Expression to check
+
+        Returns:
+            True if this is a null-handling function
+        """
+        null_handling_funcs = {'isnull', 'isnotnull', 'ifnull'}
+        func_name = getattr(expr, 'name', '').lower()
+
+        # Direct null-handling function
+        if func_name in null_handling_funcs:
+            return True
+
+        # toBool wrapper around null-handling function
+        if func_name == 'tobool':
+            args = getattr(expr, 'args', [])
+            if args:
+                inner_func_name = getattr(args[0], 'name', '').lower()
+                if inner_func_name in null_handling_funcs:
+                    return True
+
+        return False
 
     def _restore_nulls(self, result: pd.Series, null_mask: pd.Series) -> pd.Series:
         """

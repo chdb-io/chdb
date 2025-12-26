@@ -162,24 +162,45 @@ def generate_column_expr_method(spec: FunctionSpec) -> Callable:
 
     The generated method wraps the result in ColumnExpr for chaining.
 
+    Supports two modes:
+    1. Expression mode (_expr is not None): Apply function to expression directly
+    2. Method mode (_expr is None): Create a chained method-mode ColumnExpr
+
     Example:
         # For spec with name='upper', generates:
         def upper(self, alias=None):
-            new_expr = self._expr.upper(alias=alias)
-            return ColumnExpr(new_expr, self._datastore)
+            if self._expr is not None:
+                new_expr = self._expr.upper(alias=alias)
+                return ColumnExpr(new_expr, self._datastore)
+            else:
+                # Method mode: chain as another method call
+                return ColumnExpr(source=self, method_name='upper', ...)
     """
     builder = spec.sql_builder
+    func_name = spec.name
     if builder is None:
-        raise ValueError(f"Function '{spec.name}' has no sql_builder")
+        raise ValueError(f"Function '{func_name}' has no sql_builder")
 
     @wraps(builder)
     def column_expr_method(self, *args, **kwargs):
         from .column_expr import ColumnExpr
 
-        result = builder(self._expr, *args, **kwargs)
-        return ColumnExpr(result, self._datastore)
+        if self._expr is not None:
+            # Expression mode: apply builder to expression
+            result = builder(self._expr, *args, **kwargs)
+            return ColumnExpr(result, self._datastore)
+        else:
+            # Method mode: chain as another method call on top of current source
+            # This enables chaining like: ds['a'].fillna(0).abs()
+            # Where fillna returns method-mode ColumnExpr, and abs() chains on it
+            return ColumnExpr(
+                source=self,
+                method_name=f'_chain_{func_name}',  # Prefix to distinguish from pandas methods
+                method_args=args,
+                method_kwargs=kwargs,
+            )
 
-    column_expr_method.__name__ = spec.name
+    column_expr_method.__name__ = func_name
     column_expr_method.__doc__ = spec.doc
     return column_expr_method
 
