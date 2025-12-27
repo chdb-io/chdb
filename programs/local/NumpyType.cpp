@@ -215,9 +215,9 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 	case NumpyNullableType::UINT_64:
 		return std::make_shared<DataTypeUInt64>();
 	case NumpyNullableType::FLOAT_16:
-		return std::make_shared<DataTypeFloat32>();
+		return std::make_shared<DataTypeBFloat16>();
 	case NumpyNullableType::FLOAT_32:
-		return std::make_shared<DataTypeFloat32>();
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat32>());
 	case NumpyNullableType::FLOAT_64:
 		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeFloat64>());
 	case NumpyNullableType::STRING:

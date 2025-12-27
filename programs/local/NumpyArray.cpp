@@ -63,6 +63,23 @@ struct RegularConvert
 	}
 };
 
+struct FloatConvert
+{
+	template <class CHTYPE, class NUMPYTYPE>
+	static NUMPYTYPE convertValue(CHTYPE val, NumpyAppendData & append_data)
+	{
+		(void)append_data;
+		return (NUMPYTYPE)val;
+	}
+
+	template <class NUMPYTYPE>
+	static NUMPYTYPE nullValue(bool & set_mask)
+	{
+		set_mask = false;
+		return std::numeric_limits<NUMPYTYPE>::quiet_NaN();
+	}
+};
+
 struct DateConvert
 {
 	template <class CHTYPE, class NUMPYTYPE>
@@ -747,11 +764,11 @@ void NumpyArray::append(
 		break;
 
 	case TypeIndex::Float32:
-		may_have_null = CHColumnToNumpyArray<Float32>(append_data);
+		may_have_null = TransformColumn<Float32, Float32, FloatConvert>(append_data);
 		break;
 
 	case TypeIndex::Float64:
-		may_have_null = CHColumnToNumpyArray<Float64>(append_data);
+		may_have_null = TransformColumn<Float64, Float64, FloatConvert>(append_data);
 		break;
 
 	case TypeIndex::Int128:
