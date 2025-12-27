@@ -1368,15 +1368,15 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
 
     def test_float_with_nan(self):
         """Test that float64 with NaN preserves dtype and values"""
-        df = pd.DataFrame({"a": [1.0, 2.0, np.nan, 4.0]})
-        result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
+        df = pd.DataFrame({"id": [1, 2, 3, 4], "a": [1.0, 2.0, np.nan, 4.0]})
+        result = self.session.query("SELECT * FROM Python(df) ORDER BY id", 'DataFrame')
         self.assertEqual(df['a'].dtype, result['a'].dtype)
         self.assertEqual(df['a'].isna().tolist(), result['a'].isna().tolist())
 
     def test_integer_with_none(self):
         """Test that integer-like column with None preserves dtype and values"""
-        df = pd.DataFrame({"a": [1, 2, None, 4]})
-        result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
+        df = pd.DataFrame({"id": [1, 2, 3, 4], "a": [1, 2, None, 4]})
+        result = self.session.query("SELECT * FROM Python(df) ORDER BY id", 'DataFrame')
         self.assertEqual(df['a'].dtype, result['a'].dtype)
         self.assertEqual(df['a'].isna().tolist(), result['a'].isna().tolist())
 
