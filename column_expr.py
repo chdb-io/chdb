@@ -1296,6 +1296,31 @@ class ColumnExpr:
         return ColumnExprDateTimeAccessor(self)
 
     @property
+    def json(self) -> 'ColumnExprJsonAccessor':
+        """Accessor for JSON functions."""
+        return ColumnExprJsonAccessor(self)
+
+    @property
+    def arr(self) -> 'ColumnExprArrayAccessor':
+        """Accessor for array functions."""
+        return ColumnExprArrayAccessor(self)
+
+    @property
+    def url(self) -> 'ColumnExprUrlAccessor':
+        """Accessor for URL functions."""
+        return ColumnExprUrlAccessor(self)
+
+    @property
+    def ip(self) -> 'ColumnExprIpAccessor':
+        """Accessor for IP address functions."""
+        return ColumnExprIpAccessor(self)
+
+    @property
+    def geo(self) -> 'ColumnExprGeoAccessor':
+        """Accessor for geo/distance functions."""
+        return ColumnExprGeoAccessor(self)
+
+    @property
     def iloc(self) -> 'ColumnExprILocIndexer':
         """
         Integer-location based indexing for selection by position.
@@ -2155,7 +2180,15 @@ class ColumnExpr:
             new_ds = copy(self._datastore)
 
             # Add the lazy groupby aggregation operation
-            new_ds._add_lazy_op(LazyGroupByAgg(groupby_cols=groupby_cols, agg_dict=agg_dict, **kwargs))
+            # Mark as single_column_agg=True when called via ColumnExpr.agg(['funcs'])
+            # This affects column naming: pandas returns flat names for single column agg
+            is_single_col_agg = isinstance(func, (list, tuple))
+            new_ds._add_lazy_op(LazyGroupByAgg(
+                groupby_cols=groupby_cols, 
+                agg_dict=agg_dict, 
+                single_column_agg=is_single_col_agg,
+                **kwargs
+            ))
 
             return new_ds
 
@@ -2655,8 +2688,6 @@ class ColumnExpr:
             skipna=True,
             method_kwargs=kwargs,
         )
-
-
 
     def nth(self, n, dropna=None) -> 'ColumnExpr':
         """
@@ -3810,6 +3841,177 @@ class ColumnExprStringAccessor:
 
     def __repr__(self) -> str:
         return f"ColumnExprStringAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprJsonAccessor:
+    """JSON accessor for ColumnExpr that returns ColumnExpr for each method.
+
+    This wraps the base JsonAccessor and ensures all results are wrapped in
+    ColumnExpr, maintaining pandas-like API compatibility (e.g., sort_values()).
+
+    Example:
+        >>> ds['data'].json.json_extract_string('name')  # Returns ColumnExpr
+        >>> ds['data'].json.json_extract_string('name').sort_values()  # Works!
+        >>> ds['data'].json.json_extract_string('name').str.upper()  # Chaining works!
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+        self._base_accessor = column_expr._expr.json
+
+    def __getattr__(self, name: str):
+        """Delegate to base accessor and wrap result in ColumnExpr."""
+        base_attr = getattr(self._base_accessor, name)
+
+        # If it's a method, wrap the result
+        if callable(base_attr):
+
+            def wrapper(*args, **kwargs):
+                result = base_attr(*args, **kwargs)
+                return ColumnExpr(result, self._column_expr._datastore)
+
+            return wrapper
+        else:
+            # It's a property (like .length on some accessors)
+            return ColumnExpr(base_attr, self._column_expr._datastore)
+
+    def __repr__(self) -> str:
+        return f"ColumnExprJsonAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprArrayAccessor:
+    """Array accessor for ColumnExpr that returns ColumnExpr for each method.
+
+    This wraps the base ArrayAccessor and ensures all results are wrapped in
+    ColumnExpr, maintaining pandas-like API compatibility (e.g., sort_values()).
+
+    Example:
+        >>> ds['nums'].arr.length  # Returns ColumnExpr
+        >>> ds['nums'].arr.length.sort_values()  # Works!
+        >>> ds['nums'].arr.has(5)  # Returns ColumnExpr
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+        self._base_accessor = column_expr._expr.arr
+
+    def __getattr__(self, name: str):
+        """Delegate to base accessor and wrap result in ColumnExpr."""
+        base_attr = getattr(self._base_accessor, name)
+
+        # If it's a method, wrap the result
+        if callable(base_attr):
+
+            def wrapper(*args, **kwargs):
+                result = base_attr(*args, **kwargs)
+                return ColumnExpr(result, self._column_expr._datastore)
+
+            return wrapper
+        else:
+            # It's a property (like .length, .size, .empty, .not_empty)
+            return ColumnExpr(base_attr, self._column_expr._datastore)
+
+    def __repr__(self) -> str:
+        return f"ColumnExprArrayAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprUrlAccessor:
+    """URL accessor for ColumnExpr that returns ColumnExpr for each method.
+
+    This wraps the base UrlAccessor and ensures all results are wrapped in
+    ColumnExpr, maintaining pandas-like API compatibility (e.g., sort_values()).
+
+    Example:
+        >>> ds['url'].url.domain()  # Returns ColumnExpr
+        >>> ds['url'].url.domain().sort_values()  # Works!
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+        self._base_accessor = column_expr._expr.url
+
+    def __getattr__(self, name: str):
+        """Delegate to base accessor and wrap result in ColumnExpr."""
+        base_attr = getattr(self._base_accessor, name)
+
+        if callable(base_attr):
+
+            def wrapper(*args, **kwargs):
+                result = base_attr(*args, **kwargs)
+                return ColumnExpr(result, self._column_expr._datastore)
+
+            return wrapper
+        else:
+            return ColumnExpr(base_attr, self._column_expr._datastore)
+
+    def __repr__(self) -> str:
+        return f"ColumnExprUrlAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprIpAccessor:
+    """IP accessor for ColumnExpr that returns ColumnExpr for each method.
+
+    This wraps the base IpAccessor and ensures all results are wrapped in
+    ColumnExpr, maintaining pandas-like API compatibility (e.g., sort_values()).
+
+    Example:
+        >>> ds['ip'].ip.to_ipv4()  # Returns ColumnExpr
+        >>> ds['ip'].ip.is_ipv4_string()  # Returns ColumnExpr
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+        self._base_accessor = column_expr._expr.ip
+
+    def __getattr__(self, name: str):
+        """Delegate to base accessor and wrap result in ColumnExpr."""
+        base_attr = getattr(self._base_accessor, name)
+
+        if callable(base_attr):
+
+            def wrapper(*args, **kwargs):
+                result = base_attr(*args, **kwargs)
+                return ColumnExpr(result, self._column_expr._datastore)
+
+            return wrapper
+        else:
+            return ColumnExpr(base_attr, self._column_expr._datastore)
+
+    def __repr__(self) -> str:
+        return f"ColumnExprIpAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprGeoAccessor:
+    """Geo accessor for ColumnExpr that returns ColumnExpr for each method.
+
+    This wraps the base GeoAccessor and ensures all results are wrapped in
+    ColumnExpr, maintaining pandas-like API compatibility (e.g., sort_values()).
+
+    Example:
+        >>> ds['vec'].geo.l2_norm()  # Returns ColumnExpr
+        >>> ds['vec'].geo.l2_normalize()  # Returns ColumnExpr
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+        self._base_accessor = column_expr._expr.geo
+
+    def __getattr__(self, name: str):
+        """Delegate to base accessor and wrap result in ColumnExpr."""
+        base_attr = getattr(self._base_accessor, name)
+
+        if callable(base_attr):
+
+            def wrapper(*args, **kwargs):
+                result = base_attr(*args, **kwargs)
+                return ColumnExpr(result, self._column_expr._datastore)
+
+            return wrapper
+        else:
+            return ColumnExpr(base_attr, self._column_expr._datastore)
+
+    def __repr__(self) -> str:
+        return f"ColumnExprGeoAccessor({self._column_expr._expr!r})"
 
 
 class ColumnExprDateTimeAccessor:

@@ -1032,25 +1032,28 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
 
             # Convert flat column names to MultiIndex for pandas compatibility
+            # Skip for single_column_agg which should return flat column names
             if plan.groupby_agg.agg_dict:
-                col_rename_map = {}
-                for col, funcs in plan.groupby_agg.agg_dict.items():
-                    if isinstance(funcs, str):
-                        funcs = [funcs]
-                    for func in funcs:
-                        flat_name = f"{col}_{func}"
-                        if flat_name in df.columns:
-                            col_rename_map[flat_name] = (col, func)
+                is_single_col_agg = getattr(plan.groupby_agg, 'single_column_agg', False)
+                if not is_single_col_agg:
+                    col_rename_map = {}
+                    for col, funcs in plan.groupby_agg.agg_dict.items():
+                        if isinstance(funcs, str):
+                            funcs = [funcs]
+                        for func in funcs:
+                            flat_name = f"{col}_{func}"
+                            if flat_name in df.columns:
+                                col_rename_map[flat_name] = (col, func)
 
-                if col_rename_map:
-                    new_columns = []
-                    for c in df.columns:
-                        if c in col_rename_map:
-                            new_columns.append(col_rename_map[c])
-                        else:
-                            new_columns.append((c, ''))
-                    df.columns = pd.MultiIndex.from_tuples(new_columns)
-                    self._logger.debug("  Converted flat columns to MultiIndex")
+                    if col_rename_map:
+                        new_columns = []
+                        for c in df.columns:
+                            if c in col_rename_map:
+                                new_columns.append(col_rename_map[c])
+                            else:
+                                new_columns.append((c, ''))
+                        df.columns = pd.MultiIndex.from_tuples(new_columns)
+                        self._logger.debug("  Converted flat columns to MultiIndex")
 
         return df
 
@@ -2803,21 +2806,48 @@ class DataStore(PandasCompatMixin):
 
         return self
 
-    def insert(self, data: List[Dict[str, Any]] = None, **columns) -> 'DataStore':
+    def insert(self, loc_or_data=None, column=None, value=None, allow_duplicates=False, **columns) -> 'DataStore':
         """
-        Insert data into the table (executes immediately).
+        Insert column or rows into the DataStore.
 
-        Args:
-            data: List of dictionaries with column_name -> value
-            **columns: Alternative way to specify columns (for single row)
+        This method supports two modes:
 
-        Example:
-            >>> ds.insert([{"id": 1, "name": "Alice", "age": 25}])
-            >>> ds.insert(id=1, name="Alice", age=25)
+        1. Pandas-compatible mode (insert column at position):
+           >>> ds.insert(loc, column, value, allow_duplicates=False)
+           Args:
+               loc: Insertion index for the new column
+               column: Label of the inserted column
+               value: Scalar, Series, or array-like
+               allow_duplicates: Allow duplicate column names
+           Returns: New DataStore with the column inserted
 
-        Returns:
-            self for chaining
+        2. SQL row insertion mode (insert rows into table):
+           >>> ds.insert([{"id": 1, "name": "Alice"}])
+           >>> ds.insert(id=1, name="Alice")
+           Args:
+               data: List of dictionaries with column_name -> value
+               **columns: Alternative way to specify columns (for single row)
+           Returns: self for chaining
+
+        The mode is auto-detected based on the first argument type:
+        - int -> pandas mode
+        - list/dict/None with kwargs -> SQL mode
         """
+        # Detect pandas mode: first arg is int (loc parameter)
+        if isinstance(loc_or_data, int):
+            # Pandas-compatible column insertion
+            loc = loc_or_data
+            if column is None:
+                raise TypeError("insert() missing required argument: 'column'")
+            if value is None:
+                raise TypeError("insert() missing required argument: 'value'")
+
+            df = self._get_df().copy()
+            df.insert(loc, column, value, allow_duplicates=allow_duplicates)
+            return self._wrap_result(df)
+
+        # SQL row insertion mode
+        data = loc_or_data
         if not self.table_name:
             raise ValueError("Table name required to insert data")
 
@@ -2832,14 +2862,14 @@ class DataStore(PandasCompatMixin):
             self.connect()
 
         # Get column names from first row
-        columns = list(data[0].keys())
-        columns_sql = ", ".join([format_identifier(col, self.quote_char) for col in columns])
+        col_names = list(data[0].keys())
+        columns_sql = ", ".join([format_identifier(col, self.quote_char) for col in col_names])
 
         # Build values
         values_list = []
         for row in data:
             values = []
-            for col in columns:
+            for col in col_names:
                 val = row.get(col)
                 if val is None:
                     values.append("NULL")
@@ -3700,7 +3730,15 @@ class DataStore(PandasCompatMixin):
         pandas_kwargs = {}
 
         for alias, expr in kwargs.items():
-            if isinstance(expr, (Function, Expression, ColumnExpr)):
+            if isinstance(expr, ColumnExpr):
+                # ColumnExpr with valid _expr can be converted to SQL
+                # ColumnExpr without _expr (executor/method mode like transform) must be executed
+                if expr._expr is not None:
+                    sql_kwargs[alias] = expr
+                else:
+                    # Execute the ColumnExpr and use the result
+                    pandas_kwargs[alias] = expr._execute()
+            elif isinstance(expr, (Function, Expression)):
                 sql_kwargs[alias] = expr
             else:
                 # Lambda functions, scalars, Series, etc. - handle via pandas

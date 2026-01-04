@@ -352,6 +352,80 @@ class LazyGroupBy:
 
         return new_ds
 
+    def head(self, n: int = 5) -> 'DataStore':
+        """
+        Return first n rows of each group.
+
+        Similar to ``.apply(lambda x: x.head(n))``, but it returns a subset of rows
+        from the original DataFrame with original index preserved rather than
+        a new DataFrame.
+
+        Args:
+            n: Number of rows to return from each group. Default is 5.
+
+        Returns:
+            DataStore: Lazy DataStore with head operation
+
+        Example:
+            >>> ds.groupby('category').head(2)  # First 2 rows from each group
+            >>> ds.groupby('category').head()   # First 5 rows from each group
+        """
+        from .lazy_ops import LazyHead
+        from copy import copy
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Create a shallow copy of the datastore
+        new_ds = copy(self._datastore)
+
+        # Add the lazy head operation
+        new_ds._add_lazy_op(LazyHead(n=n, groupby_cols=groupby_cols))
+
+        return new_ds
+
+    def tail(self, n: int = 5) -> 'DataStore':
+        """
+        Return last n rows of each group.
+
+        Similar to ``.apply(lambda x: x.tail(n))``, but it returns a subset of rows
+        from the original DataFrame with original index preserved rather than
+        a new DataFrame.
+
+        Args:
+            n: Number of rows to return from each group. Default is 5.
+
+        Returns:
+            DataStore: Lazy DataStore with tail operation
+
+        Example:
+            >>> ds.groupby('category').tail(2)  # Last 2 rows from each group
+            >>> ds.groupby('category').tail()   # Last 5 rows from each group
+        """
+        from .lazy_ops import LazyTail
+        from copy import copy
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Create a shallow copy of the datastore
+        new_ds = copy(self._datastore)
+
+        # Add the lazy tail operation
+        new_ds._add_lazy_op(LazyTail(n=n, groupby_cols=groupby_cols))
+
+        return new_ds
+
     def _apply_agg(self, func_name: str, **kwargs) -> 'DataStore':
         """
         Apply aggregation function to all columns.

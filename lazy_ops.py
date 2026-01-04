@@ -673,6 +673,7 @@ class LazyGroupByAgg(LazyOp):
         named_agg: dict = None,
         sort: bool = True,
         as_index: bool = True,
+        single_column_agg: bool = False,
         **kwargs,
     ):
         """
@@ -685,6 +686,8 @@ class LazyGroupByAgg(LazyOp):
                   When True, the result is sorted by group keys in ascending order.
             as_index: If True (default), group keys become the index.
                       If False, group keys are returned as columns.
+            single_column_agg: If True, this agg was called on a single column via
+                               ColumnExpr.agg(['funcs']), which in pandas returns flat column names
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -694,6 +697,7 @@ class LazyGroupByAgg(LazyOp):
         self.named_agg = named_agg
         self.sort = sort
         self.as_index = as_index
+        self.single_column_agg = single_column_agg
         self.kwargs = kwargs
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
@@ -1078,6 +1082,7 @@ LazyGroupByFilter = LazyFilter
 LazyGroupByTransform = LazyTransform
 LazyGroupByApply = LazyApply
 
+
 class LazyNth(LazyOp):
     """
     Lazy groupby nth operation.
@@ -1129,6 +1134,94 @@ class LazyNth(LazyOp):
 
     def can_push_to_sql(self) -> bool:
         # nth requires row ordering within groups, complex to push to SQL
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
+
+
+class LazyHead(LazyOp):
+    """
+    Lazy groupby head operation.
+
+    Returns the first n rows from each group, preserving original index.
+
+    Example:
+        ds.groupby('category').head(2)   # First 2 rows from each group
+        ds.groupby('category').head()    # First 5 rows from each group (default)
+    """
+
+    def __init__(self, n: int, groupby_cols: List[str]):
+        """
+        Args:
+            n: Number of rows to return from each group (default: 5)
+            groupby_cols: Column names to group by
+        """
+        super().__init__()
+        self.n = n
+        self.groupby_cols = groupby_cols
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute groupby head on DataFrame."""
+        self._log_execute("Head", f"groupby={self.groupby_cols}, n={self.n}")
+
+        grouped = df.groupby(self.groupby_cols, sort=False)
+
+        # pandas head() returns first n rows from each group with original index preserved
+        result = grouped.head(self.n)
+
+        self._logger.debug("      -> Head result shape: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        return f"GroupBy({self.groupby_cols}).head({self.n})"
+
+    def can_push_to_sql(self) -> bool:
+        # head requires row ordering within groups, complex to push to SQL
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
+
+
+class LazyTail(LazyOp):
+    """
+    Lazy groupby tail operation.
+
+    Returns the last n rows from each group, preserving original index.
+
+    Example:
+        ds.groupby('category').tail(2)   # Last 2 rows from each group
+        ds.groupby('category').tail()    # Last 5 rows from each group (default)
+    """
+
+    def __init__(self, n: int, groupby_cols: List[str]):
+        """
+        Args:
+            n: Number of rows to return from each group (default: 5)
+            groupby_cols: Column names to group by
+        """
+        super().__init__()
+        self.n = n
+        self.groupby_cols = groupby_cols
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute groupby tail on DataFrame."""
+        self._log_execute("Tail", f"groupby={self.groupby_cols}, n={self.n}")
+
+        grouped = df.groupby(self.groupby_cols, sort=False)
+
+        # pandas tail() returns last n rows from each group with original index preserved
+        result = grouped.tail(self.n)
+
+        self._logger.debug("      -> Tail result shape: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        return f"GroupBy({self.groupby_cols}).tail({self.n})"
+
+    def can_push_to_sql(self) -> bool:
+        # tail requires row ordering within groups, complex to push to SQL
         return False
 
     def execution_engine(self) -> str:

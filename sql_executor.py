@@ -385,6 +385,7 @@ def build_groupby_select_fields(
         # Determine if we need compound aliases (col_func) to avoid duplicates
         has_multi_col = len(groupby_agg.agg_dict) > 1
         has_any_multi_func = any(isinstance(f, (list, tuple)) for f in groupby_agg.agg_dict.values())
+        is_single_col_agg = getattr(groupby_agg, 'single_column_agg', False)
 
         # Check for function name conflicts across columns
         all_funcs = []
@@ -395,20 +396,34 @@ def build_groupby_select_fields(
                 all_funcs.extend(funcs)
         has_func_conflict = len(all_funcs) != len(set(all_funcs))
 
-        use_compound_alias = has_multi_col and (has_any_multi_func or has_func_conflict)
+        # Alias strategy:
+        # - single_column_agg (ColumnExpr.agg(['funcs'])): use function names only (pandas returns flat columns)
+        # - agg({col: [funcs]}): use compound alias col_func (pandas returns MultiIndex)
+        # - agg({col: func}): use column names only (pandas returns flat columns)
+        if is_single_col_agg:
+            # Single column agg: pandas returns flat column names with just function names
+            use_compound_alias = False
+            use_func_only_alias = True
+        elif has_any_multi_func or (has_multi_col and has_func_conflict):
+            # Multi-func or conflicts: use compound alias for MultiIndex
+            use_compound_alias = True
+            use_func_only_alias = False
+        else:
+            # Single func per column: use column names
+            use_compound_alias = False
+            use_func_only_alias = False
 
         for col, funcs in groupby_agg.agg_dict.items():
-            is_multi_func = isinstance(funcs, (list, tuple))
             if isinstance(funcs, str):
                 funcs = [funcs]
 
             for func in funcs:
                 sql_func = map_agg_func(func)
 
-                # Alias strategy
+                # Alias strategy based on context
                 if use_compound_alias:
                     alias = f"{col}_{func}"
-                elif is_multi_func:
+                elif use_func_only_alias:
                     alias = func
                 else:
                     alias = col
@@ -1293,15 +1308,12 @@ class SQLExecutionEngine:
         result_df = executor.query_dataframe(sql, df, '__df__')
 
         # Handle GroupBy SQL pushdown: set group keys as index
-        # Exception: when as_index=False or using named_agg, keep columns as regular columns
-        # (matching Pandas behavior)
+        # Exception: when as_index=False, keep columns as regular columns (matching Pandas behavior)
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
-            # Don't set index if:
-            # - as_index=False (user wants group keys as columns)
-            # - named_agg is used (keeps columns as regular columns)
+            # Don't set index if as_index=False (user wants group keys as columns)
             as_index = getattr(plan.groupby_agg, 'as_index', True)
-            if as_index and plan.groupby_agg.named_agg is None:
+            if as_index:
                 if all(col in result_df.columns for col in groupby_cols):
                     result_df = result_df.set_index(groupby_cols)
                     self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
@@ -1312,6 +1324,31 @@ class SQLExecutionEngine:
             if rename_back:
                 result_df = result_df.rename(columns=rename_back)
                 self._logger.debug("  Renamed temp aliases: %s", rename_back)
+
+        # Convert flat column names to MultiIndex for pandas compatibility
+        # (when using agg_dict with multiple functions per column)
+        # Skip for single_column_agg which should return flat column names
+        if plan.groupby_agg and plan.groupby_agg.agg_dict:
+            is_single_col_agg = getattr(plan.groupby_agg, 'single_column_agg', False)
+            if not is_single_col_agg:
+                col_rename_map = {}
+                for col, funcs in plan.groupby_agg.agg_dict.items():
+                    if isinstance(funcs, str):
+                        funcs = [funcs]
+                    for func in funcs:
+                        flat_name = f"{col}_{func}"
+                        if flat_name in result_df.columns:
+                            col_rename_map[flat_name] = (col, func)
+
+                if col_rename_map:
+                    new_columns = []
+                    for c in result_df.columns:
+                        if c in col_rename_map:
+                            new_columns.append(col_rename_map[c])
+                        else:
+                            new_columns.append((c, ''))
+                    result_df.columns = pd.MultiIndex.from_tuples(new_columns)
+                    self._logger.debug("  Converted flat columns to MultiIndex")
 
         return result_df
 

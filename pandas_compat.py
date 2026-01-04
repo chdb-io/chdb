@@ -274,29 +274,6 @@ class PandasCompatMixin:
         """Return subset of columns based on column dtypes."""
         return self._wrap_result(self._get_df().select_dtypes(include=include, exclude=exclude))
 
-    def insert(self, loc, column, value, allow_duplicates=False):
-        """
-        Insert column into DataFrame at specified location.
-
-        Note: This returns a new DataStore (immutable operation) because
-        DataStore.insert() in core.py is used for SQL row insertion.
-        For in-place column addition, use: ds['column'] = value
-
-        Args:
-            loc: Insertion index (ignored, column is appended)
-            column: Label of the inserted column
-            value: Scalar, Series, or array-like
-            allow_duplicates: Allow duplicate column names
-
-        Example:
-            >>> ds = ds.insert(0, 'new_col', [1, 2, 3])  # Returns new DataStore
-            >>> # Or use in-place assignment:
-            >>> ds['new_col'] = [1, 2, 3]
-        """
-        df = self._get_df().copy()
-        df.insert(loc, column, value, allow_duplicates=allow_duplicates)
-        return self._wrap_result(df)
-
     def pop(self, item):
         """
         Return item and drop from DataFrame (in-place modification).
