@@ -1620,6 +1620,11 @@ def get_dummies(
         2  1  0
     """
     DataStore = _get_datastore_class()
+
+    # Convert DataStore to DataFrame (pandas uses isinstance check internally)
+    if hasattr(data, 'to_df'):
+        data = data.to_df()
+
     result = pd.get_dummies(
         data,
         prefix=prefix,
@@ -1630,9 +1635,7 @@ def get_dummies(
         drop_first=drop_first,
         dtype=dtype,
     )
-    if hasattr(data, 'to_df') or hasattr(result, 'columns'):
-        return DataStore.from_df(result)
-    return result
+    return DataStore.from_df(result)
 
 
 def factorize(values, sort=False, use_na_sentinel=True, size_hint=None):
