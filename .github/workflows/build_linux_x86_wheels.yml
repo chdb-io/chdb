@@ -129,7 +129,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           source ~/.cargo/env
-          pyenv shell 3.13
+          pyenv shell 3.8
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
