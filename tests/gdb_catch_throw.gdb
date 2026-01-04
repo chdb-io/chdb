@@ -20,6 +20,7 @@ commands
   info threads
   echo \n=== FORCING CRASH (SIGABRT) ===\n
   signal SIGABRT
+  quit 1
 end
 
 run
