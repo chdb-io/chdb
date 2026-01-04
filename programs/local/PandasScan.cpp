@@ -132,10 +132,16 @@ ColumnPtr PandasScan::scanColumn(
 
     switch (which.idx)
 	{
+    case TypeIndex::Float32:
+        {
+            const auto * float32_array = static_cast<const Float32 *>(col_wrap.buf);
+            innerScanFloat<Float32>(cursor, count, float32_array, column);
+            break;
+        }
     case TypeIndex::Float64:
         {
             const auto * float64_array = static_cast<const Float64 *>(col_wrap.buf);
-            innerScanFloat64(cursor, count, float64_array, column);
+            innerScanFloat<Float64>(cursor, count, float64_array, column);
             break;
         }
     case TypeIndex::DateTime64:
@@ -293,24 +299,20 @@ void PandasScan::innerScanObject(
     }
 }
 
-void PandasScan::innerScanFloat64(
+template <typename T>
+void PandasScan::innerScanFloat(
     const size_t cursor,
     const size_t count,
-    const Float64 * ptr,
+    const T * ptr,
     DB::MutableColumnPtr & column)
 {
-    py::gil_scoped_acquire acquire;
-#if USE_JEMALLOC
-    ::Memory::MemoryCheckScope memory_check_scope;
-#endif
-
     auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
     auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
     auto & null_map = nullable_column.getNullMapData();
 
     ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
-    const Float64 * start = ptr + cursor;
-    helper->appendRawData<sizeof(Float64)>(reinterpret_cast<const char *>(start), count);
+    const T * start = ptr + cursor;
+    helper->appendRawData<sizeof(T)>(reinterpret_cast<const char *>(start), count);
 
     for (size_t i = 0; i < count; ++i)
     {
@@ -319,17 +321,15 @@ void PandasScan::innerScanFloat64(
     }
 }
 
+template void PandasScan::innerScanFloat<Float32>(const size_t, const size_t, const Float32 *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanFloat<Float64>(const size_t, const size_t, const Float64 *, DB::MutableColumnPtr &);
+
 void PandasScan::innerScanDateTime64(
     const size_t cursor,
     const size_t count,
     const Int64 * ptr,
     DB::MutableColumnPtr & column)
 {
-    py::gil_scoped_acquire acquire;
-#if USE_JEMALLOC
-    ::Memory::MemoryCheckScope memory_check_scope;
-#endif
-
     auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
     auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
     auto & null_map = nullable_column.getNullMapData();

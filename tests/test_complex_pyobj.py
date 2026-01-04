@@ -36,7 +36,7 @@ class TestComplexPyObj(unittest.TestCase):
             "dataframe",
         )
         self.assertEqual(ret.dtypes["A"], "Int32")
-        self.assertEqual(ret.dtypes["B"], "Float64")
+        self.assertEqual(ret.dtypes["B"], "float64")
         self.assertEqual(ret.dtypes["C"], "object")
         self.assertEqual(ret.dtypes["D"], "object")
         self.assertEqual(ret.dtypes["E"], "object")
