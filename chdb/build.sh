@@ -2,8 +2,8 @@
 
 set -e
 
-# default to build ReleaseWithDebugInfo
-build_type=${1:-ReleaseWithDebugInfo}
+# default to build RelWithDebInfo
+build_type=${1:-RelWithDebInfo}
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
