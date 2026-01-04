@@ -672,6 +672,7 @@ class LazyGroupByAgg(LazyOp):
         agg_dict: dict = None,
         named_agg: dict = None,
         sort: bool = True,
+        as_index: bool = True,
         **kwargs,
     ):
         """
@@ -682,6 +683,8 @@ class LazyGroupByAgg(LazyOp):
             named_agg: Dict of named aggregations {alias: (col, func)} (pandas named agg syntax)
             sort: Sort group keys (default: True, matching pandas behavior).
                   When True, the result is sorted by group keys in ascending order.
+            as_index: If True (default), group keys become the index.
+                      If False, group keys are returned as columns.
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -690,37 +693,39 @@ class LazyGroupByAgg(LazyOp):
         self.agg_dict = agg_dict
         self.named_agg = named_agg
         self.sort = sort
+        self.as_index = as_index
         self.kwargs = kwargs
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute groupby aggregation on DataFrame."""
         self._log_execute(
             "GroupByAgg",
-            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}",
+            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}",
         )
 
-        # Pass sort parameter to pandas groupby (default: True)
-        grouped = df.groupby(self.groupby_cols, sort=self.sort)
+        # Pass sort and as_index parameters to pandas groupby
+        grouped = df.groupby(self.groupby_cols, sort=self.sort, as_index=self.as_index)
 
         if self.named_agg is not None:
             # Pandas named aggregation: agg(alias=('col', 'func'))
             # Pass the named_agg dict as **kwargs to grouped.agg()
             result = grouped.agg(**self.named_agg)
-            # Reset index to make groupby columns regular columns (matching pandas behavior with reset_index)
-            result = result.reset_index()
+            # For named_agg with as_index=True, reset index to make groupby columns regular columns
+            # This matches pandas behavior where named aggregation returns flat columns
+            if self.as_index:
+                result = result.reset_index()
         elif self.agg_dict is not None:
             # Pandas-style: agg({'col': 'func'})
             result = grouped.agg(self.agg_dict, **self.kwargs)
         elif self.agg_func == 'size':
             # size() returns Series, convert to DataFrame
             result = grouped.size().to_frame('size')
+            if not self.as_index:
+                result = result.reset_index()
         else:
             # Single function for all columns
             agg_method = getattr(grouped, self.agg_func)
             result = agg_method(**self.kwargs)
-
-        # Keep group keys as index (pandas default behavior)
-        # Users can call .reset_index() if they want group keys as columns
 
         self._logger.debug("      -> GroupBy result shape: %s", result.shape)
         return result
@@ -1072,6 +1077,62 @@ class LazyApply(LazyOp):
 LazyGroupByFilter = LazyFilter
 LazyGroupByTransform = LazyTransform
 LazyGroupByApply = LazyApply
+
+class LazyNth(LazyOp):
+    """
+    Lazy groupby nth operation.
+
+    Returns the nth row from each group. Supports negative indexing.
+
+    Example:
+        ds.groupby('category').nth(0)   # First row from each group
+        ds.groupby('category').nth(1)   # Second row from each group
+        ds.groupby('category').nth(-1)  # Last row from each group
+        ds.groupby('category').nth([0, 2])  # First and third rows from each group
+    """
+
+    def __init__(self, n: Union[int, List[int]], groupby_cols: List[str], dropna: str = None):
+        """
+        Args:
+            n: Integer or list of integers indicating which row(s) to select from each group.
+               Negative values select from the end of each group.
+            groupby_cols: Column names to group by
+            dropna: Optional, how to handle NA values. Can be 'any', 'all', or None.
+        """
+        super().__init__()
+        self.n = n
+        self.groupby_cols = groupby_cols
+        self.dropna = dropna
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute groupby nth on DataFrame."""
+        n_desc = self.n if isinstance(self.n, int) else list(self.n)
+        self._log_execute("Nth", f"groupby={self.groupby_cols}, n={n_desc}")
+
+        grouped = df.groupby(self.groupby_cols, sort=False)
+
+        # pandas nth() behavior:
+        # - Returns rows with their original index preserved
+        # - Supports negative indexing
+        # - Supports list of indices
+        if self.dropna is not None:
+            result = grouped.nth(self.n, dropna=self.dropna)
+        else:
+            result = grouped.nth(self.n)
+
+        self._logger.debug("      -> Nth result shape: %s", result.shape)
+        return result
+
+    def describe(self) -> str:
+        n_desc = self.n if isinstance(self.n, int) else list(self.n)
+        return f"GroupBy({self.groupby_cols}).nth({n_desc})"
+
+    def can_push_to_sql(self) -> bool:
+        # nth requires row ordering within groups, complex to push to SQL
+        return False
+
+    def execution_engine(self) -> str:
+        return 'Pandas'
 
 
 class LazyWhere(LazyOp):

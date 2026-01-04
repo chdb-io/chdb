@@ -148,20 +148,117 @@ def _build_concat(*args, alias=None):
     return Function('concat', *[Expression.wrap(a) for a in args], alias=alias)
 
 
+# Sentinel to detect missing value argument in replace()
+_REPLACE_SENTINEL = object()
+
+
 @register_function(
     name='replace',
+    clickhouse_name='multiIf',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.CONDITIONAL,
+    aliases=['replaceAll'],
+    doc='Replace values in Series. Supports: replace(to_replace, value), replace({k: v}), replace([k], [v]).',
+)
+def _build_replace(expr, to_replace, value=_REPLACE_SENTINEL, regex: bool = False, alias=None):
+    """
+    Replace values in a Series (pandas-compatible value replacement).
+
+    Args:
+        expr: The expression to operate on
+        to_replace: Value(s) to replace. Can be:
+            - scalar: single value to replace
+            - dict: {old_value: new_value, ...}
+            - list: list of values to replace (requires value to be list)
+        value: Replacement value(s). Required if to_replace is scalar or list.
+               Can be None to replace with null.
+        regex: If True and to_replace is string, use regex substring replacement
+        alias: Optional alias for the result
+
+    Examples:
+        replace(1, 100)           -> replaces 1 with 100
+        replace({1: 100, 2: 200}) -> replaces 1 with 100 and 2 with 200
+        replace([1, 2], [100, 200]) -> same as above
+        replace(1, None)          -> replaces 1 with null
+    """
+    from .functions import Function
+    from .expressions import Literal, Expression
+
+    # Handle regex string replacement (for str.replace compatibility)
+    if regex and isinstance(to_replace, str) and value is not _REPLACE_SENTINEL and isinstance(value, str):
+        return Function('replaceRegexpAll', expr, Literal(to_replace), Literal(value), alias=alias)
+
+    # Handle dict: replace({k1: v1, k2: v2, ...})
+    if isinstance(to_replace, dict):
+        if not to_replace:
+            # Empty dict, return expr unchanged
+            return expr
+        # Build multiIf args: cond1, val1, cond2, val2, ..., default
+        args = []
+        for k, v in to_replace.items():
+            # Condition: expr = k
+            cond = Expression.wrap(expr) == Expression.wrap(k)
+            args.append(cond)
+            args.append(Expression.wrap(v))
+        # Default: original value
+        args.append(expr)
+        return Function('multiIf', *args, alias=alias)
+
+    # Handle list: replace([k1, k2], [v1, v2])
+    if isinstance(to_replace, (list, tuple)):
+        if value is _REPLACE_SENTINEL:
+            raise ValueError("value is required when to_replace is a list")
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("value must be a list when to_replace is a list")
+        if len(to_replace) != len(value):
+            raise ValueError("to_replace and value must have the same length")
+        if not to_replace:
+            # Empty list, return expr unchanged
+            return expr
+        # Build multiIf args
+        args = []
+        for k, v in zip(to_replace, value):
+            cond = Expression.wrap(expr) == Expression.wrap(k)
+            args.append(cond)
+            args.append(Expression.wrap(v))
+        args.append(expr)
+        return Function('multiIf', *args, alias=alias)
+
+    # Handle single value: replace(to_replace, value)
+    if value is _REPLACE_SENTINEL:
+        raise ValueError("value is required for single value replacement")
+    # Use if(expr = to_replace, value, expr)
+    cond = Expression.wrap(expr) == Expression.wrap(to_replace)
+    return Function('if', cond, Expression.wrap(value), expr, alias=alias)
+
+
+@register_function(
+    name='str_replace',
     clickhouse_name='replace',
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
-    aliases=['replaceAll'],
-    doc='Replace occurrences. Maps to replace(s, from, to). Use regex=True for regex replacement.',
+    aliases=['replaceAll', 'replace'],  # 'replace' alias for str accessor
+    doc='Replace substring occurrences. Maps to replace(s, from, to). Use regex=True for regex.',
 )
-def _build_replace(expr, pattern: str, replacement: str, regex: bool = False, alias=None):
+def _build_str_replace(expr, pattern: str, replacement: str, regex: bool = False, alias=None):
+    """
+    Replace substrings in a string column (pandas str.replace compatible).
+
+    Args:
+        expr: The expression to operate on
+        pattern: Substring pattern to find
+        replacement: Replacement string
+        regex: If True, use regex replacement
+        alias: Optional alias for the result
+
+    Examples:
+        str.replace('a', 'b')     -> replaces all 'a' with 'b'
+        str.replace('a+', 'b', regex=True) -> regex replacement
+    """
     from .functions import Function
     from .expressions import Literal
 
     if regex:
-        # Use replaceRegexpAll for regex replacement
         return Function('replaceRegexpAll', expr, Literal(pattern), Literal(replacement), alias=alias)
     else:
         return Function('replace', expr, Literal(pattern), Literal(replacement), alias=alias)
@@ -277,6 +374,10 @@ def _build_contains(expr, needle: str, case: bool = True, flags: int = 0, na=Non
         The `na` and `flags` parameters are primarily for pandas compatibility.
         chDB currently has issues with NaN handling, so operations with na parameter
         should be executed via pandas.
+
+    Returns:
+        A boolean expression (position > 0) for use in filtering.
+        position() returns 0 if not found, >0 if found (1-based index).
     """
     from .functions import Function
     from .expressions import Literal
@@ -292,17 +393,24 @@ def _build_contains(expr, needle: str, case: bool = True, flags: int = 0, na=Non
 
     # For case-insensitive matching, use positionCaseInsensitive
     # Set pandas_name='contains' so ExpressionEvaluator knows to use pandas execution
+    # Return (position > 0) to get boolean result for filtering
     if not case:
-        return Function(
+        position_func = Function(
             'positionCaseInsensitive',
             expr,
             Literal(needle),
-            alias=alias,
             pandas_name='contains',
             pandas_kwargs=pandas_kwargs,
         )
+    else:
+        position_func = Function('position', expr, Literal(needle), pandas_name='contains', pandas_kwargs=pandas_kwargs)
 
-    return Function('position', expr, Literal(needle), alias=alias, pandas_name='contains', pandas_kwargs=pandas_kwargs)
+    # Return boolean expression (position > 0) instead of position value
+    # This ensures correct behavior when used as a filter condition
+    result = position_func > 0
+    if alias:
+        result._alias = alias
+    return result
 
 
 @register_function(

@@ -429,24 +429,22 @@ def build_groupby_select_fields(
         if func == 'size':
             # size() counts ALL rows including NULL -> COUNT(*)
             select_fields.append(AggregateFunction(sql_func, Star()))
-        elif func == 'count':
-            # count() counts NON-NULL values per column -> COUNT(column)
-            # This matches pandas behavior: df.groupby('x').count() excludes NaN
-            if all_columns:
-                # Get non-groupby columns
-                non_groupby_cols = [c for c in all_columns if c not in groupby_agg.groupby_cols]
-                for col in non_groupby_cols:
-                    # Check if this alias conflicts with WHERE columns
-                    # If so, use a temp alias to avoid "Aggregate function found in WHERE" error
-                    temp_alias = f"__agg_{col}__"
-                    if temp_alias in alias_renames:
-                        alias = temp_alias
-                    else:
-                        alias = col
-                    agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
-                    select_fields.append(agg_expr)
-            else:
-                # Fallback: use COUNT(*) if we don't know the columns
+        elif all_columns:
+            # Apply aggregation to all non-groupby columns
+            # This handles sum, mean, count, min, max, std, var, first, last, etc.
+            non_groupby_cols = [c for c in all_columns if c not in groupby_agg.groupby_cols]
+            for col in non_groupby_cols:
+                # Check if this alias conflicts with WHERE columns
+                temp_alias = f"__agg_{col}__"
+                if temp_alias in alias_renames:
+                    alias = temp_alias
+                else:
+                    alias = col
+                agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
+                select_fields.append(agg_expr)
+        else:
+            # Fallback: if we don't know columns, use COUNT(*) for count, otherwise skip
+            if func == 'count':
                 select_fields.append(AggregateFunction(sql_func, Star()))
 
     return groupby_fields, select_fields
@@ -1295,12 +1293,15 @@ class SQLExecutionEngine:
         result_df = executor.query_dataframe(sql, df, '__df__')
 
         # Handle GroupBy SQL pushdown: set group keys as index
-        # Exception: when using named_agg, keep columns as regular columns
-        # (matching Pandas behavior where reset_index() was called)
+        # Exception: when as_index=False or using named_agg, keep columns as regular columns
+        # (matching Pandas behavior)
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
-            # Don't set index for named_agg - it keeps columns as regular columns
-            if plan.groupby_agg.named_agg is None:
+            # Don't set index if:
+            # - as_index=False (user wants group keys as columns)
+            # - named_agg is used (keeps columns as regular columns)
+            as_index = getattr(plan.groupby_agg, 'as_index', True)
+            if as_index and plan.groupby_agg.named_agg is None:
                 if all(col in result_df.columns for col in groupby_cols):
                     result_df = result_df.set_index(groupby_cols)
                     self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
@@ -1362,14 +1363,22 @@ class SQLExecutionEngine:
                 plan.groupby_agg, plan.alias_renames, all_columns=df_columns
             )
 
+        # Track temp alias mapping for where_ops (CASE WHEN)
+        # chDB has alias conflict quirks: if a CASE WHEN uses "col" as alias and
+        # later expressions reference "col", they use the aliased value instead of original.
+        # Solution: use temp aliases (__tmp_col__) then rename back with outer subquery.
+        where_temp_alias_map = {}  # temp_alias -> original_col
+
         if plan.where_ops:
             all_columns = list(df.columns)
             for col in all_columns:
                 if col == '__row_idx__':
                     continue
                 col_type = schema.get(col, str(df[col].dtype))
-                case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type)
+                temp_alias = f"__tmp_{col}__"
+                case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type, alias=temp_alias)
                 select_fields.append(case_expr)
+                where_temp_alias_map[temp_alias] = col
 
         # Determine SELECT clause
         # Priority: CASE WHEN/GroupBy fields -> explicit column selection -> *
@@ -1378,13 +1387,41 @@ class SQLExecutionEngine:
             if not groupby_fields:
                 select_sql += ', "__row_idx__"'
         elif clauses.select_fields:
-            select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
+            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
+            # Check if SELECT * was specified (need all original columns + computed columns)
+            if self.ds._select_star:
+                select_sql = '*, ' + fields_sql
+            else:
+                select_sql = fields_sql
         else:
             select_sql = '*'
 
         # Standard case: Build simple SQL - row order is preserved by executor
         from_sql = "__df__"
-        parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
+
+        # If we have temp aliases from where_ops, wrap in subquery to rename back
+        if where_temp_alias_map:
+            # Inner query with temp aliases
+            inner_parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
+
+            # WHERE clause
+            if clauses.where_conditions:
+                combined = clauses.where_conditions[0]
+                for cond in clauses.where_conditions[1:]:
+                    combined = combined & cond
+                inner_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+
+            inner_sql = ' '.join(inner_parts)
+
+            # Outer query to rename temp aliases back to original names
+            outer_select = ', '.join(
+                f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
+                for temp, orig in where_temp_alias_map.items()
+            )
+            outer_select += ', "__row_idx__"'
+            parts = [f"SELECT {outer_select}", f"FROM ({inner_sql}) AS __case_subq__"]
+        else:
+            parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
 
         # WHERE clause
         if clauses.where_conditions:

@@ -1760,10 +1760,14 @@ class PandasCompatMixin:
 
     def combine(self, other, func, fill_value=None, overwrite=True):
         """Perform column-wise combine with another DataFrame."""
+        if hasattr(other, '_get_df'):
+            other = other._get_df()
         return self._wrap_result(self._get_df().combine(other, func, fill_value=fill_value, overwrite=overwrite))
 
     def combine_first(self, other):
         """Update null elements with value from other DataFrame."""
+        if hasattr(other, '_get_df'):
+            other = other._get_df()
         return self._wrap_result(self._get_df().combine_first(other))
 
     # ========== Additional Reindexing Methods ==========

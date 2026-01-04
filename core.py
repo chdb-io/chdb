@@ -127,6 +127,51 @@ class DataStore(PandasCompatMixin):
             self._init_from_dataframe(source, database, connection, **kwargs)
             return
 
+        # Handle file path input directly (convenience feature)
+        # Detect if source looks like a file path and convert to proper format
+        import os
+
+        if isinstance(source, str) and source not in (
+            'chdb',
+            'file',
+            's3',
+            'gcs',
+            'http',
+            'https',
+            'mysql',
+            'postgresql',
+            'postgres',
+            'clickhouse',
+            'remote',
+            'mongodb',
+            'mongo',
+            'sqlite',
+            'redis',
+            'azure',
+            'azureblob',
+            'hdfs',
+            'iceberg',
+            'hudi',
+            'delta',
+            'deltalake',
+            'numbers',
+            'generaterandom',
+            'python',
+            'url',
+            'remotesecure',
+        ):
+            # Check if it looks like a file path (has extension or path separators)
+            if (
+                '/' in source
+                or '\\' in source
+                or source.endswith(
+                    ('.parquet', '.csv', '.tsv', '.json', '.jsonl', '.arrow', '.feather', '.orc', '.avro')
+                )
+            ):
+                # Auto-convert file path to proper format
+                kwargs['path'] = source
+                source = 'file'
+
         self.source_type = source or 'chdb'
         self.table_name = table
         self.database = database
@@ -3433,7 +3478,9 @@ class DataStore(PandasCompatMixin):
         self._add_lazy_op(LazyColumnAssignment(name, expr))
         # Note: Don't return self - @immutable decorator will return the copy
 
-    def groupby(self, *fields: Union[str, Expression, List], sort: bool = True, **kwargs) -> 'LazyGroupBy':
+    def groupby(
+        self, *fields: Union[str, Expression, List], sort: bool = True, as_index: bool = True, **kwargs
+    ) -> 'LazyGroupBy':
         """
         Group by columns.
 
@@ -3451,6 +3498,8 @@ class DataStore(PandasCompatMixin):
                      `groupby("a", "b")` syntax.
             sort: Sort group keys (default: True, matching pandas behavior).
                   When True, the result is sorted by group keys in ascending order.
+            as_index: If True (default), group keys become the index of the result.
+                      If False, group keys are returned as columns in the result.
             **kwargs: Additional arguments (for pandas compatibility, currently ignored).
 
         Returns:
@@ -3459,6 +3508,7 @@ class DataStore(PandasCompatMixin):
         Example:
             >>> ds.groupby("category")  # Returns LazyGroupBy, sorted by category
             >>> ds.groupby("category", sort=False)  # Unsorted (order not guaranteed)
+            >>> ds.groupby("category", as_index=False)  # Group key as column
             >>> ds.groupby(["a", "b"])  # pandas-style list argument
             >>> ds.groupby("a", "b")    # Also supported
             >>> ds.groupby("category")["sales"].mean()  # Executes ds, returns Series
@@ -3482,7 +3532,7 @@ class DataStore(PandasCompatMixin):
                 groupby_fields.append(field)
 
         # Return a GroupBy wrapper that references self (not a copy!)
-        return LazyGroupBy(self, groupby_fields, sort=sort)
+        return LazyGroupBy(self, groupby_fields, sort=sort, as_index=as_index)
 
     @immutable
     def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':
@@ -3616,6 +3666,9 @@ class DataStore(PandasCompatMixin):
            >>> ds.assign(new_col=lambda x: x['old_col'] * 2)
            >>> ds.assign(doubled=ds['amount'] * 2)
 
+        4. Mixed mode (SQL expressions + lambda/scalar values):
+           >>> ds.assign(D=ds['A'] + ds['B'], E=lambda x: x['C'] * 2)
+
         When used with groupby and aggregate expressions:
         - Acts like agg(): keyword argument names become output column aliases
         - Values should be aggregate expressions (e.g., col("x").sum())
@@ -3642,35 +3695,49 @@ class DataStore(PandasCompatMixin):
             # Delegate to agg() for groupby + aggregate expressions
             return self.agg(**kwargs)
 
-        # Check if any value is a SQL expression (Function, Expression, ColumnExpr)
-        # These need to be executed via SQL, not pandas
-        has_sql_expr = any(isinstance(v, (Function, Expression, ColumnExpr)) for v in kwargs.values())
+        # Separate SQL expressions from pandas expressions (lambda, scalar, etc.)
+        sql_kwargs = {}
+        pandas_kwargs = {}
 
-        if has_sql_expr:
+        for alias, expr in kwargs.items():
+            if isinstance(expr, (Function, Expression, ColumnExpr)):
+                sql_kwargs[alias] = expr
+            else:
+                # Lambda functions, scalars, Series, etc. - handle via pandas
+                pandas_kwargs[alias] = expr
+
+        # Start with self
+        result = self
+
+        # Process SQL expressions first (if any)
+        if sql_kwargs:
             # Ensure we have a SQL source (create PythonTableFunction if needed)
-            self._ensure_sql_source()
+            result._ensure_sql_source()
 
             # Use select() to add computed columns via SQL
-            # First, get all existing columns
             select_items = ['*']
 
-            # Add new computed columns with aliases
-            for alias, expr in kwargs.items():
+            for alias, expr in sql_kwargs.items():
                 if isinstance(expr, ColumnExpr):
                     expr = expr._expr
                 if isinstance(expr, Expression):
                     # Set alias on the expression
                     expr_with_alias = expr.as_(alias)
                     select_items.append(expr_with_alias)
-                else:
-                    # Non-expression value, fall back to pandas
-                    # This shouldn't happen often, but handle it
-                    select_items.append(expr)
 
-            return self.select(*select_items)
-        else:
-            # Standard pandas-style assignment
-            return super().assign(**kwargs)
+            result = result.select(*select_items)
+
+        # Process pandas expressions (if any)
+        if pandas_kwargs:
+            # Use pandas-style assignment for lambda/scalar values
+            # Need to execute SQL first to get DataFrame, then apply pandas assign
+            df = result._execute()
+            # Apply pandas assign
+            new_df = df.assign(**pandas_kwargs)
+            # Wrap back into DataStore
+            result = result._wrap_result(new_df)
+
+        return result
 
     def _is_aggregate_expr(self, expr) -> bool:
         """Check if an expression is an aggregate expression."""

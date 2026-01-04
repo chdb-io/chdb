@@ -45,7 +45,9 @@ class LazyGroupBy:
         >>> df.to_df()  # Uses cached result (no re-execution!)
     """
 
-    def __init__(self, datastore: 'DataStore', groupby_fields: List[Expression], sort: bool = True):
+    def __init__(
+        self, datastore: 'DataStore', groupby_fields: List[Expression], sort: bool = True, as_index: bool = True
+    ):
         """
         Initialize LazyGroupBy.
 
@@ -54,10 +56,13 @@ class LazyGroupBy:
             groupby_fields: List of Field expressions to group by
             sort: Sort group keys (default: True, matching pandas behavior).
                   When True, the result is sorted by group keys in ascending order.
+            as_index: If True (default), group keys become the index.
+                      If False, group keys are returned as columns.
         """
         self._datastore = datastore
         self._groupby_fields = groupby_fields.copy()  # Copy the list, not the DataStore
         self._sort = sort
+        self._as_index = as_index
 
     @property
     def datastore(self) -> 'DataStore':
@@ -303,6 +308,50 @@ class LazyGroupBy:
         """Return last value in each group. Returns lazy DataStore."""
         return self._apply_agg('last')
 
+    def nth(self, n: Union[int, List[int]], dropna: str = None) -> 'DataStore':
+        """
+        Return the nth row from each group.
+
+        Takes a scalar or list of scalars representing row positions.
+        Supports negative indexing.
+
+        Args:
+            n: Integer or list of integers. A single value or list of values
+               indicating which row(s) to select. Negative values count from
+               the end of each group.
+            dropna: Optional, how to handle NA values. Can be 'any', 'all', or None.
+                    - 'any': if any NA values are present, skip that row
+                    - 'all': if all values are NA, skip that row
+                    - None (default): no special NA handling
+
+        Returns:
+            DataStore: Lazy DataStore with nth operation
+
+        Example:
+            >>> ds.groupby('category').nth(0)   # First row from each group
+            >>> ds.groupby('category').nth(1)   # Second row from each group
+            >>> ds.groupby('category').nth(-1)  # Last row from each group
+            >>> ds.groupby('category').nth([0, 2])  # First and third rows
+        """
+        from .lazy_ops import LazyNth
+        from copy import copy
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Create a shallow copy of the datastore
+        new_ds = copy(self._datastore)
+
+        # Add the lazy nth operation
+        new_ds._add_lazy_op(LazyNth(n=n, groupby_cols=groupby_cols, dropna=dropna))
+
+        return new_ds
+
     def _apply_agg(self, func_name: str, **kwargs) -> 'DataStore':
         """
         Apply aggregation function to all columns.
@@ -341,7 +390,7 @@ class LazyGroupBy:
         new_ds = copy(self._datastore)
 
         # Add the lazy groupby aggregation operation
-        # Pass sort parameter from LazyGroupBy to LazyGroupByAgg
+        # Pass sort and as_index parameters from LazyGroupBy to LazyGroupByAgg
         new_ds._add_lazy_op(
             LazyGroupByAgg(
                 groupby_cols=groupby_cols,
@@ -349,6 +398,7 @@ class LazyGroupBy:
                 agg_dict=agg_dict,
                 named_agg=named_agg,
                 sort=self._sort,
+                as_index=self._as_index,
                 **kwargs,
             )
         )

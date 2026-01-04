@@ -282,6 +282,46 @@ class ColumnExpr:
                 method = getattr(series, self._method_name)
                 return method(*args, **agg_kwargs)
 
+        # Handle groupby + window function scenario: df.groupby('col')['value'].cumsum(), rank(), etc.
+        # These methods need to operate within each group, not globally
+        _GROUPBY_WINDOW_METHODS = {'cumsum', 'cummax', 'cummin', 'cumprod', 'rank', 'diff', 'shift', 'pct_change'}
+        if (
+            self._source is not None
+            and hasattr(self._source, '_groupby_fields')
+            and self._source._groupby_fields
+            and self._method_name in _GROUPBY_WINDOW_METHODS
+        ):
+            groupby_col_names = []
+            for gf in self._source._groupby_fields:
+                if isinstance(gf, Field):
+                    groupby_col_names.append(gf.name)
+                else:
+                    groupby_col_names.append(str(gf))
+
+            col_name = None
+            if self._source._expr is not None and isinstance(self._source._expr, Field):
+                col_name = self._source._expr.name
+            elif self._source._expr is not None:
+                col_name = str(self._source._expr)
+
+            df = self._datastore._execute()
+            # Different methods accept different parameters - filter appropriately
+            # rank() in groupby doesn't accept 'numeric_only'
+            if self._method_name == 'rank':
+                method_kwargs = {k: v for k, v in kwargs.items() if k not in ('axis', 'numeric_only')}
+            else:
+                method_kwargs = {k: v for k, v in kwargs.items() if k not in ('axis',)}
+
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_col_names)[col_name]
+                method = getattr(grouped, self._method_name)
+                return method(**method_kwargs)
+            else:
+                # Fallback: execute source and apply method
+                series = self._source._execute()
+                method = getattr(series, self._method_name)
+                return method(**method_kwargs)
+
         # Execute source
         if self._source is not None:
             series = self._source._execute()
@@ -1767,6 +1807,71 @@ class ColumnExpr:
         df = series.to_frame(name=name)
         return DataStore.from_df(df)
 
+    def reset_index(self, level=None, *, drop=False, name=None, inplace=False, allow_duplicates=False):
+        """
+        Generate a new DataFrame or Series with the index reset.
+
+        This is useful when the index needs to be treated as a column,
+        or when the index is meaningless and needs to be reset to the
+        default integer index.
+
+        Args:
+            level: Only remove the given levels from the index. Removes all levels by default.
+            drop: Do not try to insert index into dataframe columns.
+                  This resets the index to the default integer index.
+            name: The name to use for the column containing the original Series values.
+                  Uses the Series name by default. This parameter is ignored when drop=True.
+            inplace: Not supported (ColumnExpr is immutable)
+            allow_duplicates: Allow duplicate column labels if inserting index into columns.
+
+        Returns:
+            DataFrame or Series: When drop is False (the default), a DataFrame is returned.
+                The newly created columns will come first in the DataFrame, followed by the
+                original Series values. When drop is True, a Series is returned.
+
+        Example:
+            >>> ds = DataStore({'category': ['A', 'B', 'A', 'B'], 'value': [10, 20, 30, 40]})
+            >>> agg_result = ds.groupby('category')['value'].sum()
+            >>> agg_result.reset_index(name='total')
+              category  total
+            0        A     40
+            1        B     60
+
+            >>> agg_result.reset_index(drop=True)
+            0    40
+            1    60
+            Name: value, dtype: int64
+        """
+        if inplace:
+            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+
+        from .core import DataStore
+
+        # Execute to get the actual Series
+        series = self._execute()
+
+        # Use pandas reset_index
+        # Build kwargs carefully to match pandas signature
+        kwargs = {'drop': drop, 'allow_duplicates': allow_duplicates}
+        if level is not None:
+            kwargs['level'] = level
+        # 'name' parameter is only valid when drop=False
+        if not drop and name is not None:
+            kwargs['name'] = name
+
+        result = series.reset_index(**kwargs)
+
+        # Return appropriate type based on result
+        if isinstance(result, pd.DataFrame):
+            return DataStore.from_df(result)
+        else:
+            # drop=True returns a Series
+            return ColumnExpr(
+                source=self,
+                method_name='reset_index',
+                method_kwargs=kwargs,
+            )
+
     def copy(self, deep=True) -> 'ColumnExpr':
         """
         Make a copy of this ColumnExpr's data (lazy).
@@ -2491,6 +2596,130 @@ class ColumnExpr:
 
         return ColumnExpr(AggregateFunction('max', self._expr), self._datastore)
 
+    def first(self, **kwargs) -> 'ColumnExpr':
+        """
+        Return the first element in each group (for groupby) or the first element (for Series).
+
+        When used with groupby (i.e., when _groupby_fields is set), returns a Series
+        with the first value from each group.
+
+        Returns a ColumnExpr (aggregation mode) that executes on display.
+
+        Args:
+            **kwargs: Additional pandas arguments
+
+        Returns:
+            ColumnExpr: Lazy aggregate that executes on display
+
+        Example:
+            >>> ds.groupby('category')['value'].first()  # First value in each group
+            category
+            A    10
+            B    30
+            Name: value, dtype: int64
+        """
+        return ColumnExpr(
+            source=self,
+            agg_func_name='any',  # ClickHouse any() returns first encountered value
+            pandas_agg_func='first',
+            skipna=True,
+            method_kwargs=kwargs,
+        )
+
+    def last(self, **kwargs) -> 'ColumnExpr':
+        """
+        Return the last element in each group (for groupby) or the last element (for Series).
+
+        When used with groupby (i.e., when _groupby_fields is set), returns a Series
+        with the last value from each group.
+
+        Returns a ColumnExpr (aggregation mode) that executes on display.
+
+        Args:
+            **kwargs: Additional pandas arguments
+
+        Returns:
+            ColumnExpr: Lazy aggregate that executes on display
+
+        Example:
+            >>> ds.groupby('category')['value'].last()  # Last value in each group
+            category
+            A    20
+            B    40
+            Name: value, dtype: int64
+        """
+        return ColumnExpr(
+            source=self,
+            agg_func_name='anyLast',  # ClickHouse anyLast() returns last encountered value
+            pandas_agg_func='last',
+            skipna=True,
+            method_kwargs=kwargs,
+        )
+
+
+
+    def nth(self, n, dropna=None) -> 'ColumnExpr':
+        """
+        Return the nth value from each group.
+
+        When used with groupby (i.e., when _groupby_fields is set), returns the
+        nth value from each group. Supports negative indexing.
+
+        Args:
+            n: Integer or list of integers. Position(s) to select. Negative
+               values count from the end of each group.
+            dropna: Optional, how to handle NA values. Can be 'any', 'all', or None.
+
+        Returns:
+            ColumnExpr: Lazy result that executes on display
+
+        Example:
+            >>> ds.groupby('category')['value'].nth(0)   # First value in each group
+            >>> ds.groupby('category')['value'].nth(1)   # Second value in each group
+            >>> ds.groupby('category')['value'].nth(-1)  # Last value in each group
+        """
+        # Check if we have groupby context
+        if hasattr(self, '_groupby_fields') and self._groupby_fields:
+            from .expressions import Field as ExprField
+
+            # Get groupby column names
+            groupby_cols = []
+            for gf in self._groupby_fields:
+                if isinstance(gf, ExprField):
+                    groupby_cols.append(gf.name)
+                else:
+                    groupby_cols.append(str(gf))
+
+            # Get the column name
+            col_name = None
+            if isinstance(self._expr, ExprField):
+                col_name = self._expr.name
+            else:
+                col_name = str(self._expr)
+
+            # Capture for closure
+            ds = self._datastore
+            cols = groupby_cols
+            col = col_name
+            n_val = n
+            dropna_val = dropna
+
+            def executor():
+                df = ds._execute()
+                grouped = df.groupby(cols, sort=False)
+                if col and col in df.columns:
+                    if dropna_val is not None:
+                        return grouped[col].nth(n_val, dropna=dropna_val)
+                    else:
+                        return grouped[col].nth(n_val)
+                else:
+                    raise ValueError(f"Column '{col}' not found in DataFrame")
+
+            return ColumnExpr(executor=executor, datastore=ds)
+        else:
+            # Without groupby context, nth doesn't make sense
+            raise AttributeError("nth() requires groupby context. Use ds.groupby('col')['value'].nth(n)")
+
     def count(self) -> 'ColumnExpr':
         """
         Count non-NA values in the column.
@@ -2902,6 +3131,34 @@ class ColumnExpr:
             int: Index of the maximum value
         """
         return self._execute().argmax(axis=axis, skipna=skipna, **kwargs)
+
+    def idxmin(self, axis=0, skipna=True, numeric_only=False):
+        """
+        Return the row label of the minimum value.
+
+        Args:
+            axis: Not used for Series, kept for pandas compatibility
+            skipna: Whether to skip NA values (default True)
+            numeric_only: Not used for Series
+
+        Returns:
+            The index label of the minimum value
+        """
+        return self._execute().idxmin(skipna=skipna)
+
+    def idxmax(self, axis=0, skipna=True, numeric_only=False):
+        """
+        Return the row label of the maximum value.
+
+        Args:
+            axis: Not used for Series, kept for pandas compatibility
+            skipna: Whether to skip NA values (default True)
+            numeric_only: Not used for Series
+
+        Returns:
+            The index label of the maximum value
+        """
+        return self._execute().idxmax(skipna=skipna)
 
     def any(self, axis=None, out=None, keepdims=False, *, skipna=True, **kwargs):
         """
