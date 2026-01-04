@@ -124,6 +124,11 @@ class PandasCompatMixin:
             new_ds._cached_at_version = -1
             new_ds._cache_timestamp = None
 
+            # Clear computed columns tracking
+            # After execution, computed columns become real columns in the DataFrame,
+            # so we no longer need to track their expressions
+            new_ds._computed_columns = {}
+
             return new_ds
         return result
 

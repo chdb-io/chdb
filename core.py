@@ -127,6 +127,12 @@ class DataStore(PandasCompatMixin):
             self._init_from_dataframe(source, database, connection, **kwargs)
             return
 
+        # Handle dict input - convert to DataFrame first
+        if isinstance(source, dict):
+            df = pd.DataFrame(source)
+            self._init_from_dataframe(df, database, connection, **kwargs)
+            return
+
         # Handle file path input directly (convenience feature)
         # Detect if source looks like a file path and convert to proper format
         import os
@@ -272,6 +278,12 @@ class DataStore(PandasCompatMixin):
         self._cached_at_version: int = -1  # Version when cache was created
         self._cache_timestamp: Optional[float] = None  # For TTL support
 
+        # Computed columns tracking for chained assign support
+        # Maps column alias -> original Expression (before any aliasing)
+        # This allows ds['computed_col'] to return the full expression
+        # instead of just Field('computed_col')
+        self._computed_columns: Dict[str, Expression] = {}
+
     def _init_from_dataframe(
         self,
         df: pd.DataFrame,
@@ -361,6 +373,9 @@ class DataStore(PandasCompatMixin):
         self._cache_version: int = 0
         self._cached_at_version: int = -1
         self._cache_timestamp: Optional[float] = None
+
+        # Computed columns tracking for chained assign support
+        self._computed_columns: Dict[str, Expression] = {}
 
     # ========== Operation Tracking for explain() ==========
 
@@ -902,6 +917,27 @@ class DataStore(PandasCompatMixin):
             # Subsequent segment: execute on DataFrame via Python() table function
             if df.empty and not (self._table_function or self.table_name):
                 self._logger.debug("  No data to execute SQL on")
+                # Even for empty DataFrames, apply column selection if present
+                # This ensures df[['a', 'b']] on empty df returns correct columns
+                plan = segment.plan
+                if plan is None:
+                    from .query_planner import QueryPlan
+
+                    plan = QueryPlan(has_sql_source=True)
+                    plan.sql_ops = segment.ops.copy()
+                # Check if there's a SELECT operation for column selection
+                select_cols = None
+                for op in plan.sql_ops or []:
+                    if hasattr(op, 'op_type') and op.op_type == 'SELECT':
+                        if hasattr(op, 'fields') and op.fields:
+                            select_cols = [f.name.strip('"') for f in op.fields]
+                            break
+                if select_cols:
+                    # Apply column selection to empty DataFrame
+                    existing_cols = [c for c in select_cols if c in df.columns]
+                    if existing_cols:
+                        df = df[existing_cols]
+                        self._logger.debug("  Applied column selection to empty df: %s", existing_cols)
                 return df
 
             # If we have a source but no DataFrame yet, load raw data first
@@ -2091,6 +2127,94 @@ class DataStore(PandasCompatMixin):
         # Fallback to table name or generic
         return self.table_name if self.table_name else 'tbl'
 
+    def _resolve_expr_dependencies(self, expr: 'Expression') -> 'Expression':
+        """
+        Recursively resolve computed column references in an expression.
+
+        When a computed column (created via assign()) is referenced in another
+        expression, this method expands it to the original expression.
+
+        This enables chained assigns like:
+            ds = ds.assign(years_since_signup=2024 - ds['signup_year'])
+            ds = ds.assign(purchase_per_year=ds['amount'] / ds['years_since_signup'])
+
+        Without this resolution, the second assign would reference 'years_since_signup'
+        as a simple Field, which doesn't exist in the source data.
+
+        Args:
+            expr: Expression to resolve
+
+        Returns:
+            Expression with all computed column references expanded
+        """
+        from .expressions import Field, ArithmeticExpression, Literal
+        from .functions import Function
+        from copy import copy
+
+        if expr is None:
+            return None
+
+        # If it's a Field that references a computed column, expand it
+        if isinstance(expr, Field):
+            col_name = expr.name.strip('"\'')  # Remove quotes if present
+            if hasattr(self, '_computed_columns') and col_name in self._computed_columns:
+                # Recursively resolve the computed column's expression
+                resolved = self._resolve_expr_dependencies(self._computed_columns[col_name])
+                # Preserve any alias from the original Field
+                if expr.alias:
+                    resolved = copy(resolved)
+                    resolved.alias = expr.alias
+                return resolved
+            return expr
+
+        # For ArithmeticExpression, recursively resolve left and right
+        if isinstance(expr, ArithmeticExpression):
+            resolved_left = self._resolve_expr_dependencies(expr.left)
+            resolved_right = self._resolve_expr_dependencies(expr.right)
+            # Only create new expression if something changed
+            if resolved_left is expr.left and resolved_right is expr.right:
+                return expr
+            result = ArithmeticExpression(expr.operator, resolved_left, resolved_right, expr.alias)
+            return result
+
+        # For Function, recursively resolve all arguments
+        if isinstance(expr, Function):
+            resolved_args = [self._resolve_expr_dependencies(arg) for arg in expr.args]
+            # Only create new function if something changed
+            if all(r is o for r, o in zip(resolved_args, expr.args)):
+                return expr
+            result = Function(
+                expr.name,
+                *resolved_args,
+                alias=expr.alias,
+                pandas_name=getattr(expr, 'pandas_name', None),
+                pandas_kwargs=getattr(expr, 'pandas_kwargs', {}),
+            )
+            return result
+
+        # For BinaryCondition (e.g., x > 5, a = b), resolve both sides
+        from .conditions import BinaryCondition, CompoundCondition
+
+        if isinstance(expr, BinaryCondition):
+            resolved_left = self._resolve_expr_dependencies(expr.left)
+            resolved_right = self._resolve_expr_dependencies(expr.right)
+            if resolved_left is expr.left and resolved_right is expr.right:
+                return expr
+            result = BinaryCondition(expr.operator, resolved_left, resolved_right, expr.alias)
+            return result
+
+        # For CompoundCondition (AND, OR), resolve both sides
+        if isinstance(expr, CompoundCondition):
+            resolved_left = self._resolve_expr_dependencies(expr.left)
+            resolved_right = self._resolve_expr_dependencies(expr.right)
+            if resolved_left is expr.left and resolved_right is expr.right:
+                return expr
+            result = CompoundCondition(expr.operator, resolved_left, resolved_right)
+            return result
+
+        # For Literal and other types, return as-is
+        return expr
+
     def _ensure_sql_source(self) -> bool:
         """
         Ensure we have a SQL source (table function or table name) for SQL operations.
@@ -2402,44 +2526,62 @@ class DataStore(PandasCompatMixin):
     def head(self, n: int = 5):
         """
         Return the first n rows of the query result.
-        Convenience method that applies limit and returns as DataStore.
 
-        This method uses lazy execution - the LIMIT is added to the SQL query
-        and only executed when the result is executed (e.g., via to_df() or print).
+        If n is positive, returns the first n rows using SQL LIMIT.
+        If n is negative, returns all rows except the last |n| rows,
+        matching pandas behavior.
+
+        This method uses lazy execution - the operation is only executed
+        when the result is accessed (e.g., via to_df() or print).
 
         Args:
-            n: Number of rows to return (default: 5)
+            n: Number of rows to return (default: 5).
+               If negative, returns all rows except the last |n| rows.
 
         Returns:
-            DataStore with first n rows (lazy - not yet executed)
+            DataStore with the selected rows (lazy - not yet executed)
 
         Example:
-            >>> ds = DataStore.from_file("data.csv")
-            >>> first_rows = ds.select("*").head()  # Lazy
-            >>> first_10 = ds.head(10).to_df()      # Executes here
+            >>> ds = DataStore({'a': [1, 2, 3, 4, 5]})
+            >>> ds.head(3)   # Returns first 3 rows
+            >>> ds.head(-2)  # Returns all except last 2 rows (first 3 rows)
         """
-        # Use limit() which adds a lazy LazyRelationalOp
-        # This allows head() to be chained with other operations
-        # and merged into a single SQL query
-        return self.limit(n)
+        if n >= 0:
+            # Positive n: use SQL LIMIT (lazy)
+            return self.limit(n)
+        else:
+            # Negative n: need to exclude last |n| rows
+            # Must execute to know total count, then use pandas
+            if hasattr(self, '_get_df'):
+                df = self._get_df()
+            else:
+                df = self.to_df()
+            result_df = df.head(n)
+
+            if hasattr(self, '_wrap_result'):
+                return self._wrap_result(result_df, f'head({n})')
+            else:
+                return self._wrap_result_fallback(result_df)
 
     def tail(self, n: int = 5):
         """
         Return the last n rows of the query result.
-        Convenience method that returns as DataStore with reversed order.
 
-        Works correctly with both SQL queries and executed DataFrames.
+        If n is positive, returns the last n rows.
+        If n is negative, returns all rows except the first |n| rows,
+        matching pandas behavior.
 
         Args:
-            n: Number of rows to return (default: 5)
+            n: Number of rows to return (default: 5).
+               If negative, returns all rows except the first |n| rows.
 
         Returns:
-            DataStore with last n rows
+            DataStore with the selected rows
 
         Example:
-            >>> ds = DataStore.from_file("data.csv")
-            >>> last_rows = ds.select("*").tail()
-            >>> last_10 = ds.select("*").tail(10)
+            >>> ds = DataStore({'a': [1, 2, 3, 4, 5]})
+            >>> ds.tail(3)   # Returns last 3 rows
+            >>> ds.tail(-2)  # Returns all except first 2 rows (last 3 rows)
         """
         # Use _get_df if available (handles caching properly)
         if hasattr(self, '_get_df'):
@@ -3150,9 +3292,26 @@ class DataStore(PandasCompatMixin):
                 # ColumnExpr wrapping Condition (e.g., ds['col'] > 5)
                 condition = condition._expr
             else:
-                # Non-condition ColumnExpr (e.g., boolean function result)
-                # Convert to truthy check: expr = 1
-                condition = BinaryCondition('=', condition._expr, Literal(1))
+                # Check if this is a computed column that stores a Condition
+                # e.g., ds.assign(is_high=ds['x'] > 100) then ds[ds['is_high']]
+                if isinstance(condition._expr, Field):
+                    col_name = condition._expr.name.strip('"\'')
+                    if hasattr(self, '_computed_columns') and col_name in self._computed_columns:
+                        computed_expr = self._computed_columns[col_name]
+                        if isinstance(computed_expr, Condition):
+                            # Resolve any dependencies in the condition and use it directly
+                            condition = self._resolve_expr_dependencies(computed_expr)
+                        else:
+                            # Non-condition computed column, convert to truthy check
+                            resolved = self._resolve_expr_dependencies(computed_expr)
+                            condition = BinaryCondition('=', resolved, Literal(1))
+                    else:
+                        # Regular column, convert to truthy check: expr = 1
+                        condition = BinaryCondition('=', condition._expr, Literal(1))
+                else:
+                    # Non-condition ColumnExpr (e.g., boolean function result)
+                    # Convert to truthy check: expr = 1
+                    condition = BinaryCondition('=', condition._expr, Literal(1))
 
         # Convert condition to string for tracking
         if isinstance(condition, str):
@@ -3747,6 +3906,12 @@ class DataStore(PandasCompatMixin):
         # Start with self
         result = self
 
+        # Ensure _computed_columns is a fresh copy (not shared due to shallow copy from @immutable)
+        if not hasattr(result, '_computed_columns') or result._computed_columns is None:
+            result._computed_columns = {}
+        else:
+            result._computed_columns = result._computed_columns.copy()
+
         # Process SQL expressions first (if any)
         if sql_kwargs:
             # Ensure we have a SQL source (create PythonTableFunction if needed)
@@ -3756,11 +3921,18 @@ class DataStore(PandasCompatMixin):
             select_items = ['*']
 
             for alias, expr in sql_kwargs.items():
+                original_expr = expr
                 if isinstance(expr, ColumnExpr):
                     expr = expr._expr
                 if isinstance(expr, Expression):
+                    # Resolve any computed column dependencies in the expression
+                    # This enables chained assigns where later assigns reference earlier ones
+                    # e.g., ds.assign(a=...).assign(b=ds['a'] * 2) - 'a' needs to be expanded
+                    resolved_expr = result._resolve_expr_dependencies(expr)
+                    # Record the resolved expression (alias -> expression without alias)
+                    result._computed_columns[alias] = resolved_expr
                     # Set alias on the expression
-                    expr_with_alias = expr.as_(alias)
+                    expr_with_alias = resolved_expr.as_(alias)
                     select_items.append(expr_with_alias)
 
             result = result.select(*select_items)
@@ -4004,6 +4176,16 @@ class DataStore(PandasCompatMixin):
             # Return ColumnExpr that wraps a Field and can execute
             # This allows pandas-like behavior: ds['col'] shows actual values
             # but ds['col'] > 18 still returns Condition for filtering
+            #
+            # NOTE: We always return Field(key) here, NOT the computed expression.
+            # The computed expression is only resolved when:
+            # 1. Building new expressions that reference this column (in _resolve_expr_dependencies)
+            # 2. When generating SQL (in extract_clauses_from_ops)
+            #
+            # If we returned the computed expression here, it would break cases like:
+            #   result = ds.assign(name_upper=ds['name'].str.upper())
+            #   result['name_upper'].tolist()  # Would try to evaluate upper("name") on result
+            #   # But result's DataFrame only has 'name_upper', not 'name'!
             return ColumnExpr(Field(key), self)
 
         elif isinstance(key, (list, pd.Index)):
@@ -4020,6 +4202,8 @@ class DataStore(PandasCompatMixin):
                 result._cache_version = 0
                 result._cached_at_version = -1
                 result._cache_timestamp = None
+            # When explicitly selecting columns, reset _select_star since we no longer want all columns
+            result._select_star = False
             # Use LazyRelationalOp(SELECT) so column selection can be pushed to SQL
             # This allows ds[['col1', 'col2']].sort_values('col1').head(10) to be
             # fully executed as SQL: SELECT col1, col2 FROM ... ORDER BY col1 LIMIT 10

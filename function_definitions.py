@@ -327,7 +327,16 @@ def _build_reverse(expr, alias=None):
     aliases=['startsWith', 'startswith'],
     doc='Check if string starts with prefix. Maps to startsWith(s, prefix).',
 )
-def _build_starts_with(expr, prefix: str, alias=None):
+def _build_starts_with(expr, prefix: str, na=None, alias=None):
+    """
+    Build startswith expression.
+
+    Args:
+        expr: The expression to check
+        prefix: Prefix to check for
+        na: Fill value for missing values (ignored, for pandas compatibility)
+        alias: Optional alias for the result
+    """
     from .functions import Function
     from .expressions import Literal
 
@@ -342,7 +351,16 @@ def _build_starts_with(expr, prefix: str, alias=None):
     aliases=['endsWith', 'endswith'],
     doc='Check if string ends with suffix. Maps to endsWith(s, suffix).',
 )
-def _build_ends_with(expr, suffix: str, alias=None):
+def _build_ends_with(expr, suffix: str, na=None, alias=None):
+    """
+    Build endswith expression.
+
+    Args:
+        expr: The expression to check
+        suffix: Suffix to check for
+        na: Fill value for missing values (ignored, for pandas compatibility)
+        alias: Optional alias for the result
+    """
     from .functions import Function
     from .expressions import Literal
 
@@ -2298,7 +2316,7 @@ def _build_count_distinct(expr, alias=None):
     clickhouse_name='stddevPop',
     func_type=FunctionType.AGGREGATE,
     category=FunctionCategory.AGGREGATE,
-    aliases=['stddevPop', 'std', 'stddev_pop'],
+    aliases=['stddevPop', 'stddev_pop'],
     doc='Standard deviation (population). Maps to stddevPop(x).',
 )
 def _build_stddev(expr, alias=None):
@@ -2312,7 +2330,7 @@ def _build_stddev(expr, alias=None):
     clickhouse_name='stddevSamp',
     func_type=FunctionType.AGGREGATE,
     category=FunctionCategory.AGGREGATE,
-    aliases=['stddevSamp'],
+    aliases=['stddevSamp', 'std'],
     doc='Standard deviation (sample). Maps to stddevSamp(x).',
 )
 def _build_stddev_samp(expr, alias=None):

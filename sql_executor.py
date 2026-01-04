@@ -292,12 +292,47 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
             result.offset_value = op.offset_value
 
         elif op.op_type == 'SELECT' and op.fields:
-            for f in op.fields:
-                if isinstance(f, str):
-                    if f != '*':
-                        result.select_fields.append(Field(f))
-                else:
-                    result.select_fields.append(f)
+            # Check if this SELECT includes '*' (add computed columns mode)
+            # or is explicit column selection (replace mode)
+            has_star = any(f == '*' for f in op.fields if isinstance(f, str))
+            
+            if has_star:
+                # Add computed columns mode: append non-* fields to existing select
+                for f in op.fields:
+                    if isinstance(f, str):
+                        if f != '*':
+                            result.select_fields.append(Field(f))
+                    else:
+                        result.select_fields.append(f)
+            else:
+                # Explicit column selection: need to check if any selected column
+                # references a previously computed column (aliased expression)
+                # Build a lookup for computed columns by their alias
+                computed_by_alias = {}
+                for prev_field in result.select_fields:
+                    alias = getattr(prev_field, 'alias', None)
+                    if alias:
+                        computed_by_alias[alias] = prev_field
+                
+                # Build final select in the order specified by the new SELECT
+                new_select_fields = []
+                for f in op.fields:
+                    if isinstance(f, str):
+                        col_name = f
+                    elif isinstance(f, Field):
+                        col_name = f.name
+                    else:
+                        col_name = None
+                    
+                    if col_name and col_name in computed_by_alias:
+                        # This column references a computed column - use the expression
+                        new_select_fields.append(computed_by_alias[col_name])
+                    elif isinstance(f, str):
+                        new_select_fields.append(Field(f))
+                    else:
+                        new_select_fields.append(f)
+                
+                result.select_fields = new_select_fields
 
     return result
 

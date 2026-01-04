@@ -263,7 +263,7 @@ SQL_AGG_FUNC_MAP = {
     'count': 'count',
     'min': 'min',
     'max': 'max',
-    'std': 'stddevPop',
+    'std': 'stddevSamp',
     'var': 'varPop',
     'first': 'any',
     'last': 'anyLast',

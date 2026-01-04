@@ -787,7 +787,7 @@ class DateTimePropertyExpr(Expression):
             result = f"{ch_func}({source_sql})"
 
         if self.alias:
-            return f"{result} AS {format_alias(self.alias, quote_char)}"
+            return f"{result} AS {format_identifier(self.alias, quote_char)}"
         return result
 
     def nodes(self) -> Iterator['Node']:
@@ -836,7 +836,7 @@ class DateTimeMethodExpr(Expression):
             result = f"{ch_func}({source_sql})"
 
         if self.alias:
-            return f"{result} AS {format_alias(self.alias, quote_char)}"
+            return f"{result} AS {format_identifier(self.alias, quote_char)}"
         return result
 
     def nodes(self) -> Iterator['Node']:

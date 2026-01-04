@@ -2183,12 +2183,11 @@ class ColumnExpr:
             # Mark as single_column_agg=True when called via ColumnExpr.agg(['funcs'])
             # This affects column naming: pandas returns flat names for single column agg
             is_single_col_agg = isinstance(func, (list, tuple))
-            new_ds._add_lazy_op(LazyGroupByAgg(
-                groupby_cols=groupby_cols, 
-                agg_dict=agg_dict, 
-                single_column_agg=is_single_col_agg,
-                **kwargs
-            ))
+            new_ds._add_lazy_op(
+                LazyGroupByAgg(
+                    groupby_cols=groupby_cols, agg_dict=agg_dict, single_column_agg=is_single_col_agg, **kwargs
+                )
+            )
 
             return new_ds
 
@@ -4102,9 +4101,19 @@ class ColumnExprDateTimeAccessor:
         return self._make_property_expr('weekday')
 
     @property
+    def day_of_week(self) -> ColumnExpr:
+        """Alias for dayofweek."""
+        return self.dayofweek
+
+    @property
     def dayofyear(self) -> ColumnExpr:
         """Return day of the year (1-366). Engine selected at execution time."""
         return self._make_property_expr('dayofyear')
+
+    @property
+    def day_of_year(self) -> ColumnExpr:
+        """Alias for dayofyear."""
+        return self.dayofyear
 
     @property
     def quarter(self) -> ColumnExpr:
