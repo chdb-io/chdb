@@ -1,4 +1,4 @@
-name: Build & Test Linux x86_64
+name: Build & Test Linux arm64-2
 
 on:
   workflow_dispatch:
@@ -23,10 +23,24 @@ on:
 
 jobs:
   build_universal_wheel:
-    name: Build & Test Universal Wheel (Linux x86_64)
-    runs-on: [self-hosted, linux, x64, ubuntu-latest]
+    name: Build & Test Universal Wheel (Linux arm64)-2
+    runs-on: [self-hosted, linux, arm64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     steps:
+      - name: Check CPU capabilities and requirements
+        run: |
+          echo "=== CPU Information ==="
+          cat /proc/cpuinfo
+          echo ""
+          echo "=== Checking CPU requirements ==="
+
+          if grep -P "^(?=.*atomic)(?=.*ssbs)" /proc/cpuinfo > /dev/null; then
+            echo "CPU meets minimum requirements (atomic and ssbs flags found)"
+          else
+            echo "CPU does not meet minimum requirements"
+            echo "Missing required flags: atomic and/or ssbs"
+            echo "This may cause build failures. Consider using -DNO_ARMV81_OR_HIGHER=1"
+          fi
       - name: Install Python build dependencies
         run: |
           sudo apt-get update
@@ -112,7 +126,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: ubuntu-22.04-x86_64
+          key: ubuntu-24.04-aarch64
           max-size: 5G
           append-timestamp: true
       - name: remove old clang and link clang-19 to clang
@@ -151,7 +165,7 @@ jobs:
           make wheel
       - name: Install patchelf from github
         run: |
-          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-x86_64.tar.gz -O patchelf.tar.gz
+          wget https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-aarch64.tar.gz -O patchelf.tar.gz
           tar -xvf patchelf.tar.gz
           sudo cp bin/patchelf /usr/bin/
           sudo chmod +x /usr/bin/patchelf
@@ -162,11 +176,12 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.13
           python -m pip install auditwheel
-          auditwheel -v repair -w dist/ --plat manylinux2014_x86_64 dist/*.whl
+          auditwheel -v repair -w dist/ --plat manylinux_2_17_aarch64 dist/*.whl
         continue-on-error: false
       - name: Show files
         run: |
-          sudo rm -f dist/*-linux_x86_64.whl
+          # e.g: remove chdb-0.11.4-cp310-cp310-linux_aarch64.whl, keep chdb-0.11.4-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl
+          sudo rm -f dist/*linux_aarch64.whl
           ls -lh dist
         shell: bash
       - name: Setup core dump collection
@@ -189,28 +204,12 @@ jobs:
           PYTHON_PATH=$(pyenv which python)
 
           for i in $(seq 1 5000); do
-            # echo "Running test_parallel_dataframe_query.py..."
-            # if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
-            #   echo "FAILED at iteration $i on test_parallel_dataframe_query.py"
-            #   exit 1
-            # fi
-
-            # echo "Running test_issue60.py..."
-            # if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
-            #   echo "FAILED at iteration $i on test_issue60.py"
-            #   exit 1
-            # fi
-            if ! "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
-              echo "FAILED at iteration $i on test_parallel_dataframe_query.py"
+            if ! make test 2>&1; then
+              echo "FAILED at iteration $i on make test"
               exit 1
             fi
 
-            if ! "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
-              echo "FAILED at iteration $i on test_issue60.py"
-              exit 1
-            fi
-
-            if [ $((i % 100)) -eq 0 ]; then echo "Iteration $i passed"; fi
+            echo "Iteration $i passed"
           done
 
           echo "All 5000 iterations passed!"
@@ -221,9 +220,9 @@ jobs:
         run: |
           if ls tmp/core/core.* >/dev/null 2>&1; then
             echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
-            tar -czvf core-files-linux-x86_64.tar.gz tmp/core/core.*
-            echo "Core files tar created: core-files-linux-x86_64.tar.gz"
-            ls -lh core-files-linux-x86_64.tar.gz
+            tar -czvf core-files-linux-aarch64.tar.gz tmp/core/core.*
+            echo "Core files tar created: core-files-linux-aarch64.tar.gz"
+            ls -lh core-files-linux-aarch64.tar.gz
           else
             echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
             echo "No core files found in tmp/core"
@@ -237,15 +236,15 @@ jobs:
             killall ccache; \
             sleep 10; \
           done
-      - name: Upload core files artifact
+      - name:  Upload core files if present
         if: always() && env.CORE_FILES_FOUND == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: core-files-linux-x86_64
-          path: core-files-linux-x86_64.tar.gz
+          name: core-files-linux-aarch64
+          path: core-files-linux-aarch64.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: chdb-artifacts-linux-x86_64
+          name: chdb-artifacts-linux-aarch64
           path: |
             ./dist/*.whl
           overwrite: true

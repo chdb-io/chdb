@@ -205,13 +205,23 @@ jobs:
 
           for i in $(seq 1 5000); do
             # echo "Running test_parallel_dataframe_query.py..."
-            if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
+            # if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
+            #   echo "FAILED at iteration $i on test_parallel_dataframe_query.py"
+            #   exit 1
+            # fi
+
+            # echo "Running test_issue60.py..."
+            # if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
+            #   echo "FAILED at iteration $i on test_issue60.py"
+            #   exit 1
+            # fi
+
+            if ! "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
               echo "FAILED at iteration $i on test_parallel_dataframe_query.py"
               exit 1
             fi
 
-            # echo "Running test_issue60.py..."
-            if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
+            if ! "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
               echo "FAILED at iteration $i on test_issue60.py"
               exit 1
             fi

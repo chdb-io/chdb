@@ -1,4 +1,4 @@
-name: Build & Test Linux x86_64
+name: Build & Test Linux x86_64-2
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ on:
 
 jobs:
   build_universal_wheel:
-    name: Build & Test Universal Wheel (Linux x86_64)
+    name: Build & Test Universal Wheel (Linux x86_64)-2
     runs-on: [self-hosted, linux, x64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     steps:
@@ -189,28 +189,12 @@ jobs:
           PYTHON_PATH=$(pyenv which python)
 
           for i in $(seq 1 5000); do
-            # echo "Running test_parallel_dataframe_query.py..."
-            # if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
-            #   echo "FAILED at iteration $i on test_parallel_dataframe_query.py"
-            #   exit 1
-            # fi
-
-            # echo "Running test_issue60.py..."
-            # if ! gdb -batch -x tests/gdb_catch_throw.gdb --args "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
-            #   echo "FAILED at iteration $i on test_issue60.py"
-            #   exit 1
-            # fi
-            if ! "$PYTHON_PATH" tests/test_parallel_dataframe_query.py 2>&1; then
-              echo "FAILED at iteration $i on test_parallel_dataframe_query.py"
+            if ! make test 2>&1; then
+              echo "FAILED at iteration $i on make test"
               exit 1
             fi
 
-            if ! "$PYTHON_PATH" tests/test_issue60.py 2>&1; then
-              echo "FAILED at iteration $i on test_issue60.py"
-              exit 1
-            fi
-
-            if [ $((i % 100)) -eq 0 ]; then echo "Iteration $i passed"; fi
+            echo "Iteration $i passed"
           done
 
           echo "All 5000 iterations passed!"
