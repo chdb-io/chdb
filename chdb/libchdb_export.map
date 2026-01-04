@@ -1,0 +1,46 @@
+{
+    global:
+        /* Deprecated API */
+        query_stable;
+        free_result;
+        query_stable_v2;
+        free_result_v2;
+        connect_chdb;
+        close_conn;
+        query_conn;
+        query_conn_n;
+        query_conn_streaming;
+        query_conn_streaming_n;
+        chdb_streaming_result_error;
+        chdb_streaming_fetch_result;
+        chdb_streaming_cancel_query;
+        chdb_destroy_result;
+
+        /* New API */
+        chdb_connect;
+        chdb_close_conn;
+        chdb_query;
+        chdb_query_n;
+        chdb_query_cmdline;
+        chdb_stream_query;
+        chdb_stream_query_n;
+        chdb_stream_fetch_result;
+        chdb_stream_cancel_query;
+        chdb_destroy_query_result;
+        chdb_result_buffer;
+        chdb_result_length;
+        chdb_result_elapsed;
+        chdb_result_rows_read;
+        chdb_result_bytes_read;
+        chdb_result_storage_rows_read;
+        chdb_result_storage_bytes_read;
+        chdb_result_error;
+
+        /* Arrow Integration */
+        chdb_arrow_scan;
+        chdb_arrow_array_scan;
+        chdb_arrow_unregister_table;
+
+    local:
+        *;
+};

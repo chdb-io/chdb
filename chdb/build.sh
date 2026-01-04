@@ -22,7 +22,6 @@ if [ "$(uname)" == "Darwin" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
     JEMALLOC="-DENABLE_JEMALLOC=0"
-    PYINIT_ENTRY="-Wl,-exported_symbol,_PyInit_${CHDB_PY_MOD}"
     HDFS="-DENABLE_HDFS=0 -DENABLE_GSASL_LIBRARY=0 -DENABLE_KRB5=0"
     MYSQL="-DENABLE_MYSQL=0"
     ICU="-DENABLE_ICU=0"
@@ -39,7 +38,7 @@ if [ "$(uname)" == "Darwin" ]; then
         else
             # for M1, M2 using x86_64 emulation, we need to disable AVX and AVX2
             CPU_FEATURES="-DENABLE_AVX=0 -DENABLE_AVX2=0"
-            # # If target macos version is 12, we need to test if support AVX2, 
+            # # If target macos version is 12, we need to test if support AVX2,
             # # because some Mac Pro Late 2013 (MacPro6,1) support AVX but not AVX2
             # # just test it on the github action, hope you don't using Mac Pro Late 2013.
             # # https://everymac.com/mac-answers/macos-12-monterey-faq/macos-monterey-macos-12-compatbility-list-system-requirements.html
@@ -54,7 +53,6 @@ elif [ "$(uname)" == "Linux" ]; then
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=1"
     UNWIND="-DUSE_UNWIND=1"
     JEMALLOC="-DENABLE_JEMALLOC=1"
-    PYINIT_ENTRY="-Wl,-ePyInit_${CHDB_PY_MOD}"
     ICU="-DENABLE_ICU=1"
     SED_INPLACE="sed -i"
     # only x86_64, enable AVX, enable embedded compiler
@@ -150,7 +148,7 @@ fi
 
 # extract the command to generate CHDB_PY_MODULE
 PYCHDB_CMD=$(grep -m 1 'clang++.*-o programs/clickhouse .*' build.log \
-    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared ${PYINIT_ENTRY} -o ${CHDB_PY_MODULE}/" \
+    | sed "s/-o programs\/clickhouse/-fPIC -Wl,-undefined,dynamic_lookup -shared -o ${CHDB_PY_MODULE}/" \
     | sed 's/^[^&]*&& //' | sed 's/&&.*//' \
     | sed 's/ -Wl,-undefined,error/ -Wl,-undefined,dynamic_lookup/g' \
     | sed 's/ -Xlinker --no-undefined//g' \
@@ -170,8 +168,10 @@ fi
 
 if [ "$(uname)" == "Darwin" ]; then
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,@loader_path|g')
+    PYCHDB_CMD="${PYCHDB_CMD} -Wl,-exported_symbols_list,${CHDB_DIR}/pychdb_export_macos.txt"
 else
     PYCHDB_CMD=$(echo ${PYCHDB_CMD} | sed 's|-Wl,-rpath,/[^[:space:]]*/pybind11-cmake|-Wl,-rpath,\$ORIGIN|g')
+    PYCHDB_CMD="${PYCHDB_CMD} -Wl,--undefined=PyInit__chdb -Wl,--version-script=${CHDB_DIR}/pychdb_export.map"
 fi
 
 # save the command to a file for debug

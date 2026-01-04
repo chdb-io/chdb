@@ -1,13 +1,17 @@
 #include "StoragePython.h"
+#include "NumpyType.h"
+#include "PandasDataFrame.h"
 #include "PybindWrapper.h"
 #include "PythonSource.h"
 #include "PyArrowTable.h"
 #include "PyArrowStreamFactory.h"
+#include "PythonUtils.h"
 
 #include <Columns/IColumn.h>
 #include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypeDate32.h>
 #include <DataTypes/DataTypeDateTime.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
@@ -29,9 +33,8 @@
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
-#include "PythonUtils.h"
-
 #include <any>
+#include <PandasAnalyzer.h>
 
 using namespace CHDB;
 
@@ -79,10 +82,11 @@ Pipe StoragePython::read(
     if (isInheritsFromPyReader(data_source))
     {
         return Pipe(
-            std::make_shared<PythonSource>(data_source, true, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
+            std::make_shared<PythonSource>(data_source, true, false, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
     }
 
     ArrowTableReaderPtr arrow_table_reader;
+    bool is_pandas_df = false;
     {
         py::gil_scoped_acquire acquire;
         if (PyArrowTable::isPyArrowTable(data_source))
@@ -92,15 +96,19 @@ Pipe StoragePython::read(
                 std::move(arrow_stream), sample_block,
                 format_settings, num_streams, max_block_size);
         }
+        else
+        {
+            is_pandas_df = CHDB::PandasDataFrame::isPandasDataframe(data_source);
+        }
     }
 
     if (!arrow_table_reader)
-        prepareColumnCache(column_names, sample_block.getColumns(), sample_block);
+        prepareColumnCache(column_names, sample_block.getColumns(), sample_block, is_pandas_df);
 
     Pipes pipes;
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source, false, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
+            data_source, false, is_pandas_df, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
     return Pipe::unitePipes(std::move(pipes));
 }
 
@@ -115,7 +123,11 @@ Block StoragePython::prepareSampleBlock(const Names & column_names, const Storag
     return sample_block;
 }
 
-void StoragePython::prepareColumnCache(const Names & names, const Columns & columns, const Block & sample_block)
+void StoragePython::prepareColumnCache(
+    const Names & names,
+    const Columns & columns,
+    const Block & sample_block,
+    const bool is_pandas_df)
 {
     // check column cache with GIL holded
     py::gil_scoped_acquire acquire;
@@ -137,6 +149,13 @@ void StoragePython::prepareColumnCache(const Names & names, const Columns & colu
                         ErrorCodes::PY_EXCEPTION_OCCURED, "Convert to array failed for column {} type {}", col_name, col.py_type);
                 col.dest_type = sample_block.getByPosition(i).type;
                 data_source_row_count = col.row_count;
+
+                if (is_pandas_df)
+                {
+                    py::object dtype = data_source.attr("dtypes")[py::str(col_name)];
+                    auto numpy_type = ConvertNumpyType(dtype);
+                    col.is_object_type = (numpy_type.type == NumpyNullableType::OBJECT);
+                }
             }
             catch (const Exception & e)
             {
@@ -189,7 +208,8 @@ dtype\('S|dtype\('O|<class 'bytes'>|<class 'bytearray'>|<class 'memoryview'>|<cl
         std::string type_capture, bits, precision, scale;
         if (context->getQueryContext() && context->getQueryContext()->isJSONSupported() && RE2::PartialMatch(typeStr, pattern_json))
         {
-            data_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+            auto nested_type = std::make_shared<DataTypeObject>(DataTypeObject::SchemaFormat::JSON);
+            data_type = std::make_shared<DataTypeNullable>(std::move(nested_type));
         }
         else if (RE2::PartialMatch(typeStr, pattern_int, &bits))
         {

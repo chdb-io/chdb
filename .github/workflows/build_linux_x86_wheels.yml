@@ -1,4 +1,4 @@
-name: Build Linux x86_64
+name: Build & Test Linux x86_64
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ on:
 
 jobs:
   build_universal_wheel:
-    name: Build Universal Wheel (Linux x86_64)
+    name: Build & Test Universal Wheel (Linux x86_64)
     runs-on: [self-hosted, linux, x64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     steps:

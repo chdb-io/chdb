@@ -177,7 +177,11 @@ public:
     static ColumnsDescription getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema, const ContextPtr & context);
 
 private:
-    void prepareColumnCache(const Names & names, const Columns & columns, const Block & sample_block);
+    void prepareColumnCache(
+        const Names & names,
+        const Columns & columns,
+        const Block & sample_block,
+        const bool is_pandas_df);
     py::object data_source;
     PyColumnVecPtr column_cache;
     size_t data_source_row_count;
