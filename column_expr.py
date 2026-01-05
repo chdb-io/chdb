@@ -220,6 +220,43 @@ class ColumnExpr:
             return result.columns
         return None
 
+    # ========== Factory Methods ==========
+
+    def _derive_expr(self, expr: Expression, alias: Optional[str] = None) -> 'ColumnExpr':
+        """
+        Create a new ColumnExpr derived from this one, preserving groupby context.
+
+        This is the preferred way to create new ColumnExpr instances when
+        performing operations that produce a new expression. It ensures
+        groupby_fields, groupby_as_index, and groupby_sort are properly
+        propagated.
+
+        Use this instead of direct ColumnExpr(expr, self._datastore) calls
+        to avoid losing groupby context parameters.
+
+        Args:
+            expr: The new expression (Field, ArithmeticExpression, Function, etc.)
+            alias: Optional alias for the expression
+
+        Returns:
+            ColumnExpr with groupby context preserved from self
+
+        Example:
+            # Instead of:
+            return self._derive_expr(new_expr)
+
+            # Use:
+            return self._derive_expr(new_expr)
+        """
+        return ColumnExpr(
+            expr=expr,
+            datastore=self._datastore,
+            alias=alias,
+            groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+            groupby_as_index=self._groupby_as_index,
+            groupby_sort=self._groupby_sort,
+        )
+
     # ========== Classification Methods ==========
 
     def is_pandas_only(self) -> bool:
@@ -931,7 +968,7 @@ class ColumnExpr:
 
         # Return ColumnExpr wrapping Condition for lazy boolean column
         condition = BinaryCondition('=', self._expr, Expression.wrap(other))
-        return ColumnExpr(condition, self._datastore)
+        return self._derive_expr(condition)
 
     def __ne__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
@@ -949,7 +986,7 @@ class ColumnExpr:
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('!=', self._expr, Expression.wrap(other))
-        return ColumnExpr(condition, self._datastore)
+        return self._derive_expr(condition)
 
     def __gt__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
@@ -964,7 +1001,7 @@ class ColumnExpr:
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('>', self._expr, Expression.wrap(other))
-        return ColumnExpr(condition, self._datastore)
+        return self._derive_expr(condition)
 
     def __ge__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
@@ -979,7 +1016,7 @@ class ColumnExpr:
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('>=', self._expr, Expression.wrap(other))
-        return ColumnExpr(condition, self._datastore)
+        return self._derive_expr(condition)
 
     def __lt__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
@@ -994,7 +1031,7 @@ class ColumnExpr:
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('<', self._expr, Expression.wrap(other))
-        return ColumnExpr(condition, self._datastore)
+        return self._derive_expr(condition)
 
     def __le__(self, other: Any) -> 'ColumnExpr':
         # For aggregation/method mode, use pandas comparison on executed result
@@ -1009,7 +1046,7 @@ class ColumnExpr:
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('<=', self._expr, Expression.wrap(other))
-        return ColumnExpr(condition, self._datastore)
+        return self._derive_expr(condition)
 
     # ========== Pandas-style Comparison Methods ==========
 
@@ -1156,7 +1193,7 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot AND ColumnExpr with {type(other).__name__}")
 
-        return ColumnExpr(CompoundCondition('AND', self_cond, other_cond), self._datastore)
+        return self._derive_expr(CompoundCondition('AND', self_cond, other_cond))
 
     def __rand__(self, other: Any) -> 'ColumnExpr':
         """Right AND operator."""
@@ -1165,9 +1202,9 @@ class ColumnExpr:
         self_cond = self._to_condition()
 
         if isinstance(other, LazyCondition):
-            return ColumnExpr(CompoundCondition('AND', other.condition, self_cond), self._datastore)
+            return self._derive_expr(CompoundCondition('AND', other.condition, self_cond))
         elif isinstance(other, Condition):
-            return ColumnExpr(CompoundCondition('AND', other, self_cond), self._datastore)
+            return self._derive_expr(CompoundCondition('AND', other, self_cond))
         else:
             raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
 
@@ -1198,7 +1235,7 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot OR ColumnExpr with {type(other).__name__}")
 
-        return ColumnExpr(CompoundCondition('OR', self_cond, other_cond), self._datastore)
+        return self._derive_expr(CompoundCondition('OR', self_cond, other_cond))
 
     def __ror__(self, other: Any) -> 'ColumnExpr':
         """Right OR operator."""
@@ -1207,9 +1244,9 @@ class ColumnExpr:
         self_cond = self._to_condition()
 
         if isinstance(other, LazyCondition):
-            return ColumnExpr(CompoundCondition('OR', other.condition, self_cond), self._datastore)
+            return self._derive_expr(CompoundCondition('OR', other.condition, self_cond))
         elif isinstance(other, Condition):
-            return ColumnExpr(CompoundCondition('OR', other, self_cond), self._datastore)
+            return self._derive_expr(CompoundCondition('OR', other, self_cond))
         else:
             raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
 
@@ -1230,7 +1267,7 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot XOR ColumnExpr with {type(other).__name__}")
 
-        return ColumnExpr(CompoundCondition('XOR', self_cond, other_cond), self._datastore)
+        return self._derive_expr(CompoundCondition('XOR', self_cond, other_cond))
 
     def __invert__(self) -> 'ColumnExpr':
         """
@@ -1245,7 +1282,7 @@ class ColumnExpr:
         from .conditions import NotCondition
 
         self_cond = self._to_condition()
-        return ColumnExpr(NotCondition(self_cond), self._datastore)
+        return self._derive_expr(NotCondition(self_cond))
 
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
@@ -1254,13 +1291,13 @@ class ColumnExpr:
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__add__', method_args=(other,))
         new_expr = ArithmeticExpression('+', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __radd__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__radd__', method_args=(other,))
         new_expr = ArithmeticExpression('+', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def _is_method_mode_columnexpr(self, value: Any) -> bool:
         """Check if value is a ColumnExpr in method mode (with _expr=None)."""
@@ -1271,79 +1308,79 @@ class ColumnExpr:
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__sub__', method_args=(other,))
         new_expr = ArithmeticExpression('-', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __rsub__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rsub__', method_args=(other,))
         new_expr = ArithmeticExpression('-', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __mul__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__mul__', method_args=(other,))
         new_expr = ArithmeticExpression('*', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __rmul__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rmul__', method_args=(other,))
         new_expr = ArithmeticExpression('*', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __truediv__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__truediv__', method_args=(other,))
         new_expr = ArithmeticExpression('/', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __rtruediv__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rtruediv__', method_args=(other,))
         new_expr = ArithmeticExpression('/', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __floordiv__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__floordiv__', method_args=(other,))
         new_expr = ArithmeticExpression('//', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __rfloordiv__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__rfloordiv__', method_args=(other,))
         new_expr = ArithmeticExpression('//', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __mod__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__mod__', method_args=(other,))
         new_expr = ArithmeticExpression('%', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __rmod__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__rmod__', method_args=(other,))
         new_expr = ArithmeticExpression('%', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __pow__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__pow__', method_args=(other,))
         new_expr = ArithmeticExpression('**', self._expr, Expression.wrap(other))
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __rpow__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__rpow__', method_args=(other,))
         new_expr = ArithmeticExpression('**', Expression.wrap(other), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __neg__(self) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__neg__')
         new_expr = ArithmeticExpression('-', Literal(0), self._expr)
-        return ColumnExpr(new_expr, self._datastore)
+        return self._derive_expr(new_expr)
 
     def __round__(self, ndigits: Optional[int] = None) -> 'ColumnExpr':
         """
@@ -1361,8 +1398,8 @@ class ColumnExpr:
         from .functions import Function
 
         if ndigits is None:
-            return ColumnExpr(Function('round', self._expr), self._datastore)
-        return ColumnExpr(Function('round', self._expr, Literal(ndigits)), self._datastore)
+            return self._derive_expr(Function('round', self._expr))
+        return self._derive_expr(Function('round', self._expr, Literal(ndigits)))
 
     # ========== Accessor Properties ==========
 
@@ -1532,7 +1569,7 @@ class ColumnExpr:
 
         # Wrap with toBool() to return bool dtype instead of uint8
         # This ensures pandas compatibility (pandas isna() returns bool)
-        return ColumnExpr(Function('toBool', Function('isNull', self._expr)), self._datastore)
+        return self._derive_expr(Function('toBool', Function('isNull', self._expr)))
 
     def notnull(self) -> 'ColumnExpr':
         """
@@ -1557,7 +1594,7 @@ class ColumnExpr:
 
         # Wrap with toBool() to return bool dtype instead of uint8
         # This ensures pandas compatibility (pandas notna() returns bool)
-        return ColumnExpr(Function('toBool', Function('isNotNull', self._expr)), self._datastore)
+        return self._derive_expr(Function('toBool', Function('isNotNull', self._expr)))
 
     # Aliases for pandas compatibility
     def isna(self) -> 'ColumnExpr':
@@ -1647,7 +1684,7 @@ class ColumnExpr:
     def as_(self, alias: str) -> 'ColumnExpr':
         """Set an alias for this expression."""
         new_expr = self._expr.as_(alias)
-        return ColumnExpr(new_expr, self._datastore, alias=alias)
+        return self._derive_expr(new_expr, alias=alias)
 
     # ========== Pandas Series Methods (for compatibility) ==========
 
@@ -2613,7 +2650,7 @@ class ColumnExpr:
         """
         from .functions import AggregateFunction
 
-        return ColumnExpr(AggregateFunction('avg', self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction('avg', self._expr))
 
     def sum(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs) -> 'ColumnExpr':
         """
@@ -2642,7 +2679,7 @@ class ColumnExpr:
         """Return SUM() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return ColumnExpr(AggregateFunction('sum', self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction('sum', self._expr))
 
     def std(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
@@ -2674,7 +2711,7 @@ class ColumnExpr:
         from .functions import AggregateFunction
 
         func_name = 'stddevSamp' if sample else 'stddevPop'
-        return ColumnExpr(AggregateFunction(func_name, self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction(func_name, self._expr))
 
     def var(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
@@ -2706,7 +2743,7 @@ class ColumnExpr:
         from .functions import AggregateFunction
 
         func_name = 'varSamp' if sample else 'varPop'
-        return ColumnExpr(AggregateFunction(func_name, self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction(func_name, self._expr))
 
     def min(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
@@ -2734,7 +2771,7 @@ class ColumnExpr:
         """Return MIN() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return ColumnExpr(AggregateFunction('min', self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction('min', self._expr))
 
     def max(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
@@ -2762,7 +2799,7 @@ class ColumnExpr:
         """Return MAX() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return ColumnExpr(AggregateFunction('max', self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction('max', self._expr))
 
     def first(self, **kwargs) -> 'ColumnExpr':
         """
@@ -2903,7 +2940,7 @@ class ColumnExpr:
         """Return COUNT() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return ColumnExpr(AggregateFunction('count', self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction('count', self._expr))
 
     def median(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
         """
@@ -2931,7 +2968,7 @@ class ColumnExpr:
         """Return median() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return ColumnExpr(AggregateFunction('median', self._expr), self._datastore)
+        return self._derive_expr(AggregateFunction('median', self._expr))
 
     def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs) -> 'ColumnExpr':
         """
@@ -3708,7 +3745,7 @@ class ColumnExpr:
         else:
             fill_value = Literal(value)
 
-        return ColumnExpr(Function('ifNull', self._expr, fill_value), self._datastore)
+        return self._derive_expr(Function('ifNull', self._expr, fill_value))
 
     def _contains_aggregate(self, expr) -> bool:
         """Check if an expression contains aggregate functions."""
@@ -3957,14 +3994,14 @@ class ColumnExpr:
                 result = attr(*args, **kwargs)
                 # Wrap result in ColumnExpr if it's an Expression
                 if isinstance(result, Expression):
-                    return ColumnExpr(result, self._datastore)
+                    return self._derive_expr(result)
                 return result
 
             return wrapper
         else:
             # It's a property - wrap if Expression
             if isinstance(attr, Expression):
-                return ColumnExpr(attr, self._datastore)
+                return self._derive_expr(attr)
             return attr
 
 
