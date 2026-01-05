@@ -21,6 +21,8 @@ Execution Model:
 """
 
 from copy import copy
+
+from .exceptions import ImmutableError
 import pandas as pd
 
 
@@ -347,7 +349,7 @@ class PandasCompatMixin:
             >>> ds.where(ds.to_df()['age'] > 30, 0)  # Immediate - pandas Series
         """
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
 
         from .column_expr import ColumnExpr
         from .conditions import Condition
@@ -392,7 +394,7 @@ class PandasCompatMixin:
             >>> ds.mask(ds.to_df()['age'] > 30, -1)  # Immediate - pandas Series
         """
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
 
         from .column_expr import ColumnExpr
         from .conditions import Condition
@@ -416,7 +418,7 @@ class PandasCompatMixin:
     def query(self, expr, *, inplace=False, **kwargs):
         """Query the DataFrame with a boolean expression."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().query(expr, **kwargs))
 
     # ========== Statistical Methods ==========
@@ -436,7 +438,7 @@ class PandasCompatMixin:
     def clip(self, lower=None, upper=None, *, axis=None, inplace=False, **kwargs):
         """Trim values at input threshold(s)."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().clip(lower=lower, upper=upper, axis=axis, **kwargs))
 
     def corr(self, method='pearson', min_periods=1, numeric_only=True):
@@ -570,7 +572,7 @@ class PandasCompatMixin:
     def drop(self, labels=None, *, axis=0, index=None, columns=None, level=None, inplace=False, errors='raise'):
         """Drop specified labels from rows or columns."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(
             self._get_df().drop(labels=labels, axis=axis, index=index, columns=columns, level=level, errors=errors)
         )
@@ -578,13 +580,13 @@ class PandasCompatMixin:
     def drop_duplicates(self, subset=None, keep='first', inplace=False, ignore_index=False):
         """Return DataFrame with duplicate rows removed."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().drop_duplicates(subset=subset, keep=keep, ignore_index=ignore_index))
 
     def dropna(self, *, axis=0, how=None, thresh=None, subset=None, inplace=False):
         """Remove missing values."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         # Build kwargs to avoid passing both how and thresh
         kwargs = {'axis': axis, 'subset': subset}
         if thresh is not None:
@@ -601,7 +603,7 @@ class PandasCompatMixin:
     def fillna(self, value=None, *, method=None, axis=None, inplace=False, limit=None):
         """Fill NA/NaN values."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().fillna(value=value, method=method, axis=axis, limit=limit))
 
     def replace(self, to_replace=None, value=None, *, inplace=False, limit=None, regex=False, method=None):
@@ -616,7 +618,7 @@ class PandasCompatMixin:
         - Regex replacement: replace(r'pattern', 'new', regex=True)
         """
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
 
         # Detect nested dict format: {'A': {1: 100}, 'B': {'a': 'alpha'}}
         # In this case, value should not be passed to pandas
@@ -647,7 +649,7 @@ class PandasCompatMixin:
     ):
         """Fill NaN values using interpolation method."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         if _PANDAS_HAS_LIMIT_AREA:
             return self._wrap_result(
                 self._get_df().interpolate(
@@ -677,7 +679,7 @@ class PandasCompatMixin:
     ):
         """Rename columns or index labels."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
 
         # Build operation description
         op_desc = "rename("
@@ -699,7 +701,7 @@ class PandasCompatMixin:
     def rename_axis(self, mapper=None, *, index=None, columns=None, axis=None, copy=True, inplace=False):
         """Set the name of the axis."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         # Build kwargs, only include axis if it's not None to avoid pandas error
         kwargs = dict(mapper=mapper, index=index, columns=columns, copy=copy)
         if axis is not None:
@@ -711,7 +713,7 @@ class PandasCompatMixin:
     ):
         """Reset the index."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(
             self._get_df().reset_index(
                 level=level,
@@ -726,7 +728,7 @@ class PandasCompatMixin:
     def set_index(self, keys, *, drop=True, append=False, inplace=False, verify_integrity=False):
         """Set the DataFrame index using existing columns."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(
             self._get_df().set_index(keys, drop=drop, append=append, verify_integrity=verify_integrity)
         )
@@ -746,7 +748,7 @@ class PandasCompatMixin:
     ):
         """Sort object by labels along an axis."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(
             self._get_df().sort_index(
                 axis=axis,
@@ -794,7 +796,7 @@ class PandasCompatMixin:
             Sorted DataStore
         """
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
 
         # Check if we can use lazy SQL execution
         # Simple cases: axis=0, no key function, na_position='last', ignore_index=False
@@ -1931,25 +1933,25 @@ class PandasCompatMixin:
     def backfill(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Backward fill missing values (alias for bfill)."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().backfill(axis=axis, limit=limit, downcast=downcast))
 
     def bfill(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Backward fill missing values."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().bfill(axis=axis, limit=limit, downcast=downcast))
 
     def ffill(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Forward fill missing values."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().ffill(axis=axis, limit=limit, downcast=downcast))
 
     def pad(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Forward fill missing values (alias for ffill)."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().pad(axis=axis, limit=limit, downcast=downcast))
 
     # ========== Additional Reshaping Methods ==========
@@ -2072,7 +2074,7 @@ class PandasCompatMixin:
     def eval(self, expr, *, inplace=False, **kwargs):
         """Evaluate a string describing operations on DataFrame columns."""
         if inplace:
-            raise ValueError("DataStore is immutable, inplace=True is not supported")
+            raise ImmutableError("DataStore")
         return self._wrap_result(self._get_df().eval(expr, **kwargs))
 
     def idxmax(self, axis=0, skipna=True, numeric_only=False):

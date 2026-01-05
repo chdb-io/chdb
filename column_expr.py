@@ -18,6 +18,7 @@ import pandas as pd
 from .expressions import Expression, Field, ArithmeticExpression, Literal, Node
 from .lazy_result import LazySeries, LazyCondition
 from .utils import immutable
+from .exceptions import ImmutableError
 
 
 def _parse_pandas_version():
@@ -2008,7 +2009,7 @@ class ColumnExpr:
             Name: value, dtype: int64
         """
         if inplace:
-            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+            raise ImmutableError("ColumnExpr")
 
         from .core import DataStore
 
@@ -3722,7 +3723,7 @@ class ColumnExpr:
             >>> ds['Cabin'].fillna('Unknown')
         """
         if inplace:
-            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+            raise ImmutableError("ColumnExpr")
 
         return ColumnExpr(
             source=self, method_name='fillna', method_kwargs=dict(value=value, method=method, axis=axis, limit=limit)
@@ -3822,7 +3823,7 @@ class ColumnExpr:
             >>> ds['value'].ffill()
         """
         if inplace:
-            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+            raise ImmutableError("ColumnExpr")
 
         # Build kwargs, excluding limit_area if pandas doesn't support it
         ffill_kwargs = {'axis': axis, 'limit': limit}
@@ -3847,7 +3848,7 @@ class ColumnExpr:
             >>> ds['value'].bfill()
         """
         if inplace:
-            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+            raise ImmutableError("ColumnExpr")
 
         # Build kwargs, excluding limit_area if pandas doesn't support it
         bfill_kwargs = {'axis': axis, 'limit': limit}
@@ -3878,7 +3879,7 @@ class ColumnExpr:
             >>> ds['value'].interpolate(method='polynomial', order=2)
         """
         if inplace:
-            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+            raise ImmutableError("ColumnExpr")
 
         # Build kwargs, excluding limit_area if pandas doesn't support it
         interp_kwargs = {'method': method, 'axis': axis, 'limit': limit, 'limit_direction': limit_direction}
@@ -3925,7 +3926,7 @@ class ColumnExpr:
             ColumnExpr: Lazy wrapper returning sorted Series
         """
         if inplace:
-            raise ValueError("ColumnExpr is immutable, inplace=True is not supported")
+            raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
             method_name='sort_values',

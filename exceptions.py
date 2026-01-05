@@ -75,7 +75,7 @@ class UnsupportedOperationError(DataStoreError):
         super().__init__(msg)
 
 
-class ImmutableError(DataStoreError):
+class ImmutableError(DataStoreError, ValueError):
     """Raised when attempting to modify an immutable DataStore or ColumnExpr.
 
     DataStore and ColumnExpr are designed to be immutable. Operations that would
