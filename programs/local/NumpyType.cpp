@@ -3,6 +3,7 @@
 #include "PythonImporter.h"
 
 #include <DataTypes/DataTypeDateTime64.h>
+#include <DataTypes/DataTypeFactory.h>
 #include <DataTypes/DataTypeInterval.h>
 #include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/DataTypeNullable.h>
@@ -197,7 +198,7 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 	switch (col_type.type)
 	{
 	case NumpyNullableType::BOOL:
-		return std::make_shared<DataTypeUInt8>();
+		return std::const_pointer_cast<IDataType>(DataTypeFactory::instance().get("Bool"));
 	case NumpyNullableType::INT_8:
 		return std::make_shared<DataTypeInt8>();
 	case NumpyNullableType::UINT_8:

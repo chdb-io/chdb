@@ -219,6 +219,25 @@ class TestDataFrameNullHandling(unittest.TestCase):
                 else:
                     self.assertEqual(actual, expected, "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
 
+    def test_nullable_boolean_extension_type(self):
+        """Test pandas nullable boolean extension type"""
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5, 6, 7, 8],
+            'bool_col': pd.array([True, False, None, True, pd.NA, False, None, True], dtype='boolean'),
+        })
+
+        result = self.conn.query('SELECT * FROM Python(df) ORDER BY id', 'DataFrame')
+        # print(result)
+
+        for col in df.columns:
+            for i in range(len(df)):
+                expected = df[col].iloc[i]
+                actual = result[col].iloc[i]
+                if pd.isna(expected):
+                    self.assertTrue(pd.isna(actual), "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+                else:
+                    self.assertEqual(actual, expected, "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+
     def test_json_nan_is_null(self):
         """Test that Null in JSON column is recognized as NULL"""
         df = pd.DataFrame({
