@@ -688,6 +688,85 @@ class DataStore(PandasCompatMixin):
             or self.table_name
         )
 
+    def _get_accessible_columns(self) -> Optional[set]:
+        """
+        Get the set of columns that are accessible for column access operations.
+
+        After select() with specific columns (not *), only those columns and
+        any computed columns added afterwards should be accessible. This matches
+        pandas behavior where selecting columns restricts what can be referenced.
+
+        This method also tracks column name transformations through lazy ops
+        like add_prefix, add_suffix, and rename.
+
+        Returns:
+            Set of accessible column names, or None if all columns are accessible
+            (e.g., SELECT * or no select operation)
+        """
+        # Check if there's a SELECT operation with specific fields (not *)
+        if self._select_star:
+            return None  # All columns accessible
+
+        if not self._select_fields:
+            return None  # No restriction
+
+        # If there are joins, we can't restrict columns since joins add new columns
+        if hasattr(self, '_joins') and self._joins:
+            return None
+
+        # Build list of accessible columns from select fields (order matters for transforms)
+        accessible = []
+        for f in self._select_fields:
+            if isinstance(f, str):
+                accessible.append(f)
+            elif hasattr(f, 'alias') and f.alias:
+                # Expression with alias takes priority (e.g., computed columns, as_())
+                accessible.append(f.alias)
+            elif hasattr(f, 'name'):
+                # Field or similar with name attribute
+                name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
+                accessible.append(name)
+
+        # Apply column transformations and add computed columns from lazy ops
+        from .lazy_ops import LazyColumnAssignment, LazyJoin
+
+        for op in self._lazy_ops:
+            if isinstance(op, LazyJoin):
+                # Joins add columns from other tables - we can't restrict access
+                # since we don't know what columns the join will add
+                return None
+            elif isinstance(op, LazyColumnAssignment):
+                # Add new computed column
+                accessible.append(op.column)
+            elif hasattr(op, 'transform_columns'):
+                # Apply column name transformation (add_prefix, add_suffix, rename)
+                accessible = op.transform_columns(accessible)
+
+        # Add any columns from _computed_columns tracking
+        if hasattr(self, '_computed_columns'):
+            for col in self._computed_columns.keys():
+                if col not in accessible:
+                    accessible.append(col)
+
+        return set(accessible) if accessible else None
+
+    def _is_column_accessible(self, column_name: str) -> bool:
+        """
+        Check if a column is accessible for column operations.
+
+        This enforces pandas-like behavior where select() restricts accessible columns.
+
+        Args:
+            column_name: Name of the column to check
+
+        Returns:
+            True if the column is accessible, False otherwise
+        """
+        accessible = self._get_accessible_columns()
+        if accessible is None:
+            return True  # No restriction
+        return column_name in accessible
+
     def _is_cache_valid(self) -> bool:
         """
         Check if the cached result is still valid.
@@ -958,6 +1037,7 @@ class DataStore(PandasCompatMixin):
                     plan.sql_ops = segment.ops.copy()
                 # Check if there's a SELECT operation for column selection
                 select_cols = None
+                computed_cols = []
                 for op in plan.sql_ops or []:
                     if hasattr(op, 'op_type') and op.op_type == 'SELECT':
                         if hasattr(op, 'fields') and op.fields:
@@ -978,7 +1058,16 @@ class DataStore(PandasCompatMixin):
                             # If '*' was in fields, expand it to all existing columns
                             if has_star:
                                 select_cols = list(df.columns) + [c for c in select_cols if c not in df.columns]
-                            break
+                    # Also check LazyColumnAssignment for computed columns
+                    elif hasattr(op, 'column') and hasattr(op, 'can_push_to_sql'):
+                        # LazyColumnAssignment
+                        if op.can_push_to_sql():
+                            computed_cols.append(op.column)
+
+                # If we have computed columns but no explicit select, use all original columns + computed
+                if computed_cols and select_cols is None:
+                    select_cols = list(df.columns) + computed_cols
+
                 if select_cols:
                     # For empty DataFrames with computed columns, create the expected column structure
                     existing_cols = [c for c in select_cols if c in df.columns]
@@ -4363,6 +4452,17 @@ class DataStore(PandasCompatMixin):
         from copy import copy
 
         if isinstance(key, str):
+            # Check if column is accessible (respects select() restrictions)
+            # This matches pandas behavior: after select(['col1', 'col2']),
+            # only col1 and col2 can be accessed.
+            if not self._is_column_accessible(key):
+                accessible = self._get_accessible_columns()
+                raise KeyError(
+                    f"Column '{key}' is not accessible. "
+                    f"After select(), only these columns are available: {sorted(accessible) if accessible else '(none)'}. "
+                    f"Either include '{key}' in your select() or access it before calling select()."
+                )
+
             # Return ColumnExpr that wraps a Field and can execute
             # This allows pandas-like behavior: ds['col'] shows actual values
             # but ds['col'] > 18 still returns Condition for filtering

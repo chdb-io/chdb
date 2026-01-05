@@ -235,39 +235,151 @@ class LazyColumnAssignment(LazyOp):
             # Scalar value, Series, etc.
             return 'Pandas'
 
-    def can_push_to_sql(self, existing_columns: list = None) -> bool:
+    def can_push_to_sql(self, existing_columns: list = None, computed_columns: set = None) -> bool:
         """
         Check if this column assignment can be pushed to SQL as a SELECT expression.
 
-        Currently returns False because SQL pushdown for column assignments has
-        several edge cases that are difficult to handle correctly:
-        1. Computed columns can't be referenced in the same SELECT clause
-        2. Multiple assignments to the same column name cause conflicts
-        3. Need subqueries to properly chain computed column usage
+        The key insight is that SQL pushdown for column assignments requires
+        proper subquery wrapping when:
+        1. The expression references another computed column (requires subquery)
+        2. The column name already exists (use EXCEPT to override)
+        3. The expression has pandas-specific kwargs (e.g., na=False for str.contains)
 
-        TODO: Implement proper SQL pushdown with subqueries for computed columns
+        This method only checks if the expression ITSELF is SQL-compatible.
+        The SQLBuilder will handle subquery wrapping when needed.
+
+        Args:
+            existing_columns: Original columns from the data source (for EXCEPT detection)
+            computed_columns: Columns computed in the current SQL layer (for subquery detection)
+
+        Returns:
+            True if the expression can be converted to SQL
         """
-        # DISABLED: SQL pushdown for column assignments is complex and has edge cases
-        # that can cause incorrect results. Fall back to Pandas for now.
-        # See: tests/test_sql_vs_pandas_filter.py failures
+        from .column_expr import ColumnExpr
+        from .functions import Function
+
+        # Check for pandas-specific kwargs that can't be properly expressed in SQL
+        # (e.g., str.contains(na=False) - SQL NULL semantics differ from pandas)
+        if self._has_pandas_only_kwargs(self.expr):
+            return False
+
+        # Check if expr is a ColumnExpr
+        if isinstance(self.expr, ColumnExpr):
+            # First check if expression contains pandas-only operations
+            # (e.g., ** operator which causes dtype mismatch in SQL)
+            if self._is_pandas_only_function(self.expr):
+                return False
+            # Use canonical method to check SQL compatibility
+            return self.expr.is_sql_compatible()
+
+        # Check if expr is directly an Expression
+        if isinstance(self.expr, Expression):
+            # Check if it's a Function that's pandas-only
+            if self._is_pandas_only_function(self.expr):
+                return False
+            # CaseWhenExpr may have type mismatch issues in ClickHouse multiIf
+            # When THEN and ELSE return different types (Int vs Float), SQL fails
+            # Be conservative and don't push CaseWhenExpr to SQL
+            from .case_when import CaseWhenExpr
+
+            if isinstance(self.expr, CaseWhenExpr):
+                return False
+            return True
+
+        # Other types (scalar values, pandas Series, etc.) can't be pushed to SQL
         return False
 
-        # Original implementation preserved for future reference:
-        # from .column_expr import ColumnExpr
-        #
-        # # Cannot push if column already exists - would cause duplicate column error
-        # if existing_columns and self.column in existing_columns:
-        #     return False
-        #
-        # # Check if expr is a ColumnExpr with SQL-compatible expression
-        # if isinstance(self.expr, ColumnExpr):
-        #     return self.expr.is_sql_compatible()
-        #
-        # # Check if expr is directly an Expression
-        # if isinstance(self.expr, Expression):
-        #     return True
-        #
-        # return False
+    def _is_pandas_only_function(self, expr) -> bool:
+        """
+        Check if expression contains pandas-only functions that cannot be pushed to SQL.
+
+        Uses the global function_config to determine pandas-only functions,
+        ensuring consistency with the rest of the system.
+        """
+        from .functions import Function
+        from .function_executor import function_config
+        from .expressions import ArithmeticExpression
+        from .column_expr import ColumnExpr
+
+        # Check ColumnExpr FIRST (before checking left/right attributes)
+        if isinstance(expr, ColumnExpr):
+            if expr._expr is not None:
+                return self._is_pandas_only_function(expr._expr)
+            return False
+
+        if isinstance(expr, Function):
+            func_name = expr.name.lower()
+            # Use global config to check if function is pandas-only
+            # All pandas-only functions are centralized in function_executor.PANDAS_ONLY_FUNCTIONS
+            if function_config.is_pandas_only(func_name):
+                return True
+            # Recursively check function arguments
+            for arg in expr.args:
+                if self._is_pandas_only_function(arg):
+                    return True
+
+        elif isinstance(expr, ArithmeticExpression):
+            # Certain arithmetic operators cause dtype differences in SQL
+            # ** (power), // (floor div), % (modulo) return different types in ClickHouse
+            if expr.operator in {'**', '//', '%'}:
+                return True
+            # Recursively check operands
+            if self._is_pandas_only_function(expr.left):
+                return True
+            if self._is_pandas_only_function(expr.right):
+                return True
+
+        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+            # Other binary expressions (BinaryCondition)
+            left = expr.left
+            right = expr.right
+            if not callable(left) and self._is_pandas_only_function(left):
+                return True
+            if not callable(right) and self._is_pandas_only_function(right):
+                return True
+
+        return False
+
+    def _has_pandas_only_kwargs(self, expr) -> bool:
+        """
+        Recursively check if expression tree contains pandas-only kwargs.
+
+        These kwargs (like na=False for str.contains) have semantics that
+        can't be properly expressed in SQL, so we must fall back to pandas.
+        """
+        from .functions import Function
+        from .column_expr import ColumnExpr
+
+        # Check ColumnExpr FIRST (before checking left/right attributes)
+        # because ColumnExpr has left/right as methods, not expressions
+        if isinstance(expr, ColumnExpr):
+            if expr._expr is not None:
+                return self._has_pandas_only_kwargs(expr._expr)
+            return False
+
+        if isinstance(expr, Function):
+            # Check pandas_kwargs for special parameters
+            if expr.pandas_kwargs:
+                # 'na' parameter especially affects NULL handling
+                # SQL NULLs behave differently than pandas NA handling
+                if 'na' in expr.pandas_kwargs and expr.pandas_kwargs['na'] is not None:
+                    return True
+            # Recursively check function arguments
+            for arg in expr.args:
+                if self._has_pandas_only_kwargs(arg):
+                    return True
+
+        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+            # Binary expressions (ArithmeticExpression, BinaryCondition)
+            # Make sure left/right are not methods
+            left = expr.left
+            right = expr.right
+            if not callable(left) and self._has_pandas_only_kwargs(left):
+                return True
+            if not callable(right) and self._has_pandas_only_kwargs(right):
+                return True
+
+        return False
 
     def get_sql_expression(self) -> Expression:
         """
@@ -590,6 +702,9 @@ class LazyRelationalOp(LazyOp):
                 if isinstance(f, str):
                     if f != '*':
                         selected.append(f)
+                elif hasattr(f, 'alias') and f.alias:
+                    # Expression with alias takes priority (e.g., as_())
+                    selected.append(f.alias)
                 elif hasattr(f, 'name'):
                     # Field object - strip quotes from name
                     name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)

@@ -1291,18 +1291,73 @@ class ColumnExpr:
         # For non-expression modes, use method call mode
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__add__', method_args=(other,))
+
+        # Check if this is string concatenation
+        other_is_string = isinstance(other, str)
+        other_is_string_col = isinstance(other, ColumnExpr) and other._is_string_column()
+        self_is_string = self._is_string_column()
+
         new_expr = ArithmeticExpression('+', self._expr, Expression.wrap(other))
+
+        # Mark expression as string type if either operand is a string
+        if self_is_string or other_is_string or other_is_string_col:
+            self._mark_string_expression(new_expr)
+
         return self._derive_expr(new_expr)
 
     def __radd__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__radd__', method_args=(other,))
+
+        # Check if this is string concatenation
+        other_is_string = isinstance(other, str)
+        self_is_string = self._is_string_column()
+
         new_expr = ArithmeticExpression('+', Expression.wrap(other), self._expr)
+
+        # Mark expression as string type if either operand is a string
+        if self_is_string or other_is_string:
+            self._mark_string_expression(new_expr)
+
         return self._derive_expr(new_expr)
 
     def _is_method_mode_columnexpr(self, value: Any) -> bool:
         """Check if value is a ColumnExpr in method mode (with _expr=None)."""
         return isinstance(value, ColumnExpr) and (value._exec_mode != 'expr' or value._expr is None)
+
+    def _is_string_column(self) -> bool:
+        """
+        Check if this ColumnExpr represents a string column based on DataStore schema.
+
+        Returns True if the column type is a string type (object, string, str, etc.)
+        """
+        if self._datastore is None:
+            return False
+
+        # Get schema from DataStore
+        schema = getattr(self._datastore, '_schema', None)
+        if not schema:
+            return False
+
+        # Get column name from expression
+        if isinstance(self._expr, Field):
+            col_name = self._expr.name
+            if col_name in schema:
+                col_type = str(schema[col_name]).lower()
+                # Check for string types (pandas 'object', 'string', ClickHouse 'String', etc.)
+                string_indicators = ('object', 'string', 'str', 'fixedstring', 'enum', 'uuid')
+                return any(s in col_type for s in string_indicators)
+
+        return False
+
+    def _mark_string_expression(self, expr: Expression) -> Expression:
+        """
+        Mark an expression as involving string types.
+
+        This helps ArithmeticExpression.to_sql() detect that '+' should become concat().
+        """
+        expr._is_string_type = True
+        return expr
 
     def __sub__(self, other: Any) -> 'ColumnExpr':
         # If self or other is method mode, use pandas arithmetic

@@ -252,6 +252,30 @@ class FunctionExecutorConfig:
         'partition',
         'rpartition',
         'rsplit',
+        'removeprefix',  # Python 3.9+ string method, no SQL equivalent
+        'removesuffix',  # Python 3.9+ string method, no SQL equivalent
+        # Pandas arithmetic methods (use operators in SQL: +, -, *, /)
+        # These methods have different semantics (fill_value, axis, level params)
+        'add',
+        'sub',
+        'mul',
+        'div',
+        'truediv',
+        'floordiv',
+        'mod',  # pandas mod method (not SQL % operator)
+        'pow',  # pandas pow method (not SQL power function)
+        'radd',
+        'rsub',
+        'rmul',
+        'rdiv',
+        'rtruediv',
+        'rfloordiv',
+        'rmod',
+        'rpow',
+        # Other pandas-specific methods
+        'combine',
+        'combine_first',
+        'dot',
         # DateTime-only (no CH equivalent)
         'microsecond',
         'nanosecond',

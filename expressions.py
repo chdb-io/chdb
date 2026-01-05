@@ -691,6 +691,10 @@ class ArithmeticExpression(Expression):
             # - intDiv is truncation (rounds toward zero)
             # For negative numbers: -10 // 3 = -4 (Python), intDiv(-10,3) = -3 (ClickHouse)
             sql = f"floor({left_sql}/{right_sql})"
+        elif self.operator == '+' and self._involves_string_operand():
+            # String concatenation: chDB/ClickHouse doesn't support '+' for strings
+            # Must use concat() function instead
+            sql = f"concat({left_sql},{right_sql})"
         else:
             sql = f"({left_sql}{self.operator}{right_sql})"
 
@@ -700,8 +704,41 @@ class ArithmeticExpression(Expression):
 
         return sql
 
+    def _involves_string_operand(self) -> bool:
+        """
+        Check if this expression involves string operands.
+
+        Returns True if:
+        - This expression itself is marked as string type (set by ColumnExpr.__add__)
+        - Either operand is a string Literal
+        - Either operand is marked as a string type expression
+
+        This enables automatic conversion of '+' to concat() for string concatenation.
+        """
+        # First check if this expression itself is marked as string type
+        if getattr(self, '_is_string_type', False):
+            return True
+
+        def is_string_expr(expr) -> bool:
+            # Check if it's a string literal
+            if isinstance(expr, Literal):
+                return isinstance(expr.value, str)
+            # Check if expression has been marked as string type
+            if getattr(expr, '_is_string_type', False):
+                return True
+            # Recursively check nested ArithmeticExpression (for chained concatenation)
+            if isinstance(expr, ArithmeticExpression):
+                return expr._involves_string_operand()
+            return False
+
+        return is_string_expr(self.left) or is_string_expr(self.right)
+
     def __copy__(self):
-        return ArithmeticExpression(self.operator, copy(self.left), copy(self.right), self.alias)
+        result = ArithmeticExpression(self.operator, copy(self.left), copy(self.right), self.alias)
+        # Preserve string type marker for string concatenation support
+        if getattr(self, '_is_string_type', False):
+            result._is_string_type = True
+        return result
 
 
 def col(name: str) -> Field:

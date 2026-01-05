@@ -401,6 +401,7 @@ class QueryPlanner:
         - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
         - OFFSET follows LIMIT (pandas: chained slices like [10:50][5:20])
         - LIMIT follows LIMIT (pandas: chained limits like [:50][:20])
+        - WHERE follows computed column that came after LIMIT (dependency)
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -414,6 +415,8 @@ class QueryPlanner:
         current_layer = []
         seen_limit = False  # Have we seen a LIMIT in current layer?
         seen_offset = False  # Have we seen an OFFSET in current layer?
+        pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
+        computed_columns_after_limit = set()  # Computed columns added after LIMIT
 
         for op in ops:
             if isinstance(op, LazyRelationalOp):
@@ -435,16 +438,49 @@ class QueryPlanner:
                     needs_new_layer = True
 
                 if needs_new_layer and current_layer:
+                    # Before starting new layer, add any pending column assignments
+                    # to ensure they're computed before WHERE/ORDER BY
+                    if pending_column_assignments:
+                        current_layer.extend(pending_column_assignments)
+                        pending_column_assignments = []
+
                     layers.append(current_layer)
                     current_layer = [op]
                     seen_limit = op.op_type == 'LIMIT'
                     seen_offset = op.op_type == 'OFFSET'
+                    computed_columns_after_limit = set()  # Reset for new layer
                 else:
+                    # Add pending column assignments to current layer first
+                    if pending_column_assignments:
+                        current_layer.extend(pending_column_assignments)
+                        pending_column_assignments = []
+
                     current_layer.append(op)
                     if op.op_type == 'LIMIT':
                         seen_limit = True
                     elif op.op_type == 'OFFSET':
                         seen_offset = True
+
+            elif isinstance(op, LazyColumnAssignment):
+                # Column assignment after LIMIT/OFFSET needs special handling
+                if seen_limit or seen_offset:
+                    # Track the column for dependency checking
+                    computed_columns_after_limit.add(op.column)
+                    # Queue the assignment to be added before any dependent WHERE/ORDER BY
+                    pending_column_assignments.append(op)
+                else:
+                    # No LIMIT/OFFSET yet, add directly to current layer
+                    current_layer.append(op)
+            else:
+                # Other operations - add pending column assignments first, then this op
+                if pending_column_assignments:
+                    current_layer.extend(pending_column_assignments)
+                    pending_column_assignments = []
+                current_layer.append(op)
+
+        # Add any remaining pending column assignments
+        if pending_column_assignments:
+            current_layer.extend(pending_column_assignments)
 
         if current_layer:
             layers.append(current_layer)

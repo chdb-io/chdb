@@ -20,7 +20,8 @@ from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 import pandas as pd
 
 from .expressions import Field, Expression, Star
-from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg, LazyColumnAssignment
+from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg, LazyColumnAssignment, LazyJoin
+from .sql_builder import SQLBuilder
 from .utils import (
     normalize_ascending,
     map_agg_func,
@@ -763,7 +764,11 @@ class SQLExecutionEngine:
             return f"{join_clause} {other_table} ON {condition_sql}"
 
     def build_sql_with_row_order_subquery(
-        self, clauses: ExtractedClauses, select_fields: List[Expression] = None, groupby_fields: List[Expression] = None
+        self,
+        clauses: ExtractedClauses,
+        select_fields: List[Expression] = None,
+        groupby_fields: List[Expression] = None,
+        include_star: bool = False,
     ) -> str:
         """
         Build SQL with subquery for row order preservation.
@@ -775,6 +780,7 @@ class SQLExecutionEngine:
             clauses: Extracted SQL clauses
             select_fields: Fields to select
             groupby_fields: GROUP BY fields
+            include_star: If True and select_fields present, use SELECT *, fields
 
         Returns:
             SQL query string with row order subquery
@@ -788,7 +794,11 @@ class SQLExecutionEngine:
         sql_parts = []
         if select_fields:
             fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
-            sql_parts.append(f"SELECT {fields_sql}")
+            if include_star:
+                # For computed columns, need to include all original columns plus computed
+                sql_parts.append(f"SELECT * EXCEPT(__orig_row_num__), {fields_sql}")
+            else:
+                sql_parts.append(f"SELECT {fields_sql}")
         else:
             sql_parts.append("SELECT * EXCEPT(__orig_row_num__)")
 
@@ -1011,7 +1021,24 @@ class SQLExecutionEngine:
         where_ops = plan.where_ops
         alias_renames = plan.alias_renames
 
-        # Collect SELECT fields from SQL operations
+        # Collect LazyColumnAssignments for potential SQLBuilder handling
+        column_assignments = [
+            op for op in plan.sql_ops if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
+        ]
+
+        # Check if we need SQLBuilder for complex column assignment scenarios
+        # SQLBuilder is needed when:
+        # 1. Multiple assignments to the same column (override scenario)
+        # 2. Computed column is referenced in subsequent operations (WHERE, ORDER BY)
+        if column_assignments and self._needs_sql_builder(plan.sql_ops, column_assignments, schema):
+            sql = self._build_sql_with_builder(plan, schema)
+            return SQLBuildResult(
+                sql=sql,
+                alias_renames=alias_renames,
+                groupby_agg=groupby_agg_op,
+            )
+
+        # Collect SELECT fields from SQL operations (original logic)
         sql_select_fields = []
         has_column_assignments = False
         for op in plan.sql_ops:
@@ -1047,6 +1074,227 @@ class SQLExecutionEngine:
             alias_renames=alias_renames,
             groupby_agg=groupby_agg_op,
         )
+
+    def _needs_sql_builder(
+        self,
+        sql_ops: List[LazyOp],
+        column_assignments: List[LazyColumnAssignment],
+        schema: Dict[str, str],
+    ) -> bool:
+        """
+        Check if we need to use SQLBuilder for complex column assignment scenarios.
+
+        SQLBuilder is needed when:
+        1. Multiple assignments to the same column name (override scenario)
+        2. A WHERE/ORDER BY references a computed column
+        3. A computed column expression references another computed column
+        4. Single assignment overrides an existing column (needs EXCEPT)
+        5. Column selection with computed columns (needs subquery)
+
+        SQLBuilder is NOT used when:
+        - There are JOIN operations (SQLBuilder doesn't handle JOINs yet)
+
+        Args:
+            sql_ops: All SQL operations in the plan
+            column_assignments: LazyColumnAssignment operations
+            schema: Column schema
+
+        Returns:
+            True if SQLBuilder should be used
+        """
+        if not column_assignments:
+            return False
+
+        # Don't use SQLBuilder if there are JOIN operations (not supported yet)
+        if self.ds._joins:
+            return False
+
+        # Don't use SQLBuilder if there are GROUP BY operations (not supported yet)
+        if self.ds._groupby_fields:
+            return False
+
+        # Don't use SQLBuilder if DISTINCT is used (not supported yet)
+        if self.ds._distinct:
+            return False
+
+        # Get existing column names from schema
+        existing_columns = set(schema.keys()) if schema else set()
+
+        # Check for duplicate column names (override scenario)
+        assigned_columns = set()
+        for op in column_assignments:
+            if op.column in assigned_columns:
+                return True
+            assigned_columns.add(op.column)
+
+        # Check if any assignment overrides an existing column (needs EXCEPT)
+        if assigned_columns & existing_columns:
+            return True
+
+        # Check if any computed column is referenced in WHERE or ORDER BY
+        for op in sql_ops:
+            if isinstance(op, LazyRelationalOp):
+                if op.op_type == 'WHERE' and op.condition:
+                    referenced = self._extract_column_references(op.condition)
+                    if referenced & assigned_columns:
+                        return True
+                elif op.op_type == 'ORDER BY' and op.fields:
+                    for f in op.fields:
+                        if isinstance(f, Field):
+                            col_name = f.name.strip('"\'')
+                            if col_name in assigned_columns:
+                                return True
+                        elif isinstance(f, str):
+                            if f.strip('"\'') in assigned_columns:
+                                return True
+
+        # Check if any computed column references another computed column
+        for op in column_assignments:
+            expr_refs = self._extract_column_references(op.expr)
+            # Remove self-reference (for override detection)
+            other_computed = assigned_columns - {op.column}
+            if expr_refs & other_computed:
+                return True
+
+        # Check if there's a column selection (SELECT) with computed columns
+        # This requires a subquery to first materialize computed columns
+        for op in sql_ops:
+            if isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT':
+                if op.fields:
+                    # Has explicit column selection with computed columns - need subquery
+                    return True
+
+        return False
+
+    def _extract_column_references(self, expr) -> set:
+        """
+        Extract column names referenced in an expression.
+
+        Args:
+            expr: Expression to analyze
+
+        Returns:
+            Set of column names
+        """
+        columns = set()
+
+        if expr is None:
+            return columns
+
+        if isinstance(expr, Field):
+            name = expr.name.strip('"\'')
+            columns.add(name)
+
+        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+            columns.update(self._extract_column_references(expr.left))
+            columns.update(self._extract_column_references(expr.right))
+
+        elif hasattr(expr, 'condition'):
+            columns.update(self._extract_column_references(expr.condition))
+
+        elif hasattr(expr, 'expression'):
+            columns.update(self._extract_column_references(expr.expression))
+
+        elif hasattr(expr, 'args'):
+            for arg in expr.args:
+                columns.update(self._extract_column_references(arg))
+
+        elif hasattr(expr, '_expr'):
+            # ColumnExpr
+            columns.update(self._extract_column_references(expr._expr))
+
+        elif hasattr(expr, 'nodes'):
+            # Expression with nodes() method
+            for node in expr.nodes():
+                if isinstance(node, Field):
+                    name = node.name.strip('"\'')
+                    columns.add(name)
+
+        return columns
+
+    def _build_sql_with_builder(self, plan: 'QueryPlan', schema: Dict[str, str]) -> str:
+        """
+        Build SQL using SQLBuilder for complex column assignment scenarios.
+
+        SQLBuilder handles:
+        - Automatic subquery wrapping when computed columns are referenced
+        - Column override with EXCEPT syntax
+        - Proper ordering of operations
+
+        Args:
+            plan: QueryPlan
+            schema: Column schema
+
+        Returns:
+            SQL string
+        """
+        table_source = self.get_table_source()
+        known_columns = list(schema.keys()) if schema else None
+
+        builder = SQLBuilder(table_source, known_columns)
+
+        # Determine if row order preservation is needed
+        has_explicit_orderby = False
+
+        # Process operations in order
+        for op in plan.sql_ops:
+            if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
+                # Get the expression from ColumnAssignment
+                expr = op.get_sql_expression()
+                # Remove alias from expression (SQLBuilder will add it)
+                if hasattr(expr, 'alias'):
+                    expr.alias = None
+                builder.add_computed_column(op.column, expr)
+
+            elif isinstance(op, LazyRelationalOp):
+                if op.op_type == 'WHERE' and op.condition:
+                    builder.add_filter(op.condition)
+                elif op.op_type == 'ORDER BY' and op.fields:
+                    has_explicit_orderby = True
+                    orderby_fields = []
+                    ascending_list = normalize_ascending(
+                        op.ascending if hasattr(op, 'ascending') else True,
+                        len(op.fields),
+                    )
+                    for f, asc in zip(op.fields, ascending_list):
+                        if isinstance(f, str):
+                            orderby_fields.append((Field(f), asc))
+                        else:
+                            orderby_fields.append((f, asc))
+                    builder.add_orderby(orderby_fields)
+                elif op.op_type == 'LIMIT' and hasattr(op, 'limit_value'):
+                    builder.add_limit(op.limit_value)
+                elif op.op_type == 'OFFSET' and hasattr(op, 'offset_value'):
+                    builder.add_offset(op.offset_value)
+                elif op.op_type == 'SELECT' and op.fields:
+                    # Column selection
+                    columns = []
+                    for f in op.fields:
+                        if isinstance(f, str):
+                            if f != '*':
+                                columns.append(f)
+                        elif isinstance(f, Field):
+                            columns.append(f.name.strip('"\''))
+                    if columns:
+                        builder.select_columns(columns)
+
+        # Set row order preservation if no explicit ORDER BY
+        if not has_explicit_orderby:
+            builder.set_preserve_row_order(True)
+
+        sql = builder.build(self.quote_char)
+
+        # Add timezone settings
+        sql = self._append_settings(sql)
+
+        return sql
+
+    def _append_settings(self, sql: str) -> str:
+        """Append timezone settings to SQL if needed."""
+        # Check if SETTINGS already present
+        if 'SETTINGS' not in sql:
+            sql = f"{sql} SETTINGS session_timezone='UTC'"
+        return sql
 
     def _build_simple_query_from_plan(
         self,
@@ -1122,7 +1370,9 @@ class SQLExecutionEngine:
         elif needs_row_order and clauses.where_conditions and not self.ds._joins:
             # Only use row order subquery when there are no JOINs
             # JOINs require the full _build_sql_from_state path
-            return self.build_sql_with_row_order_subquery(clauses, select_fields_for_sql, groupby_fields_for_sql)
+            return self.build_sql_with_row_order_subquery(
+                clauses, select_fields_for_sql, groupby_fields_for_sql, include_star=has_column_assignments
+            )
         else:
             # Simple case - use assemble_sql
             effective_orderby = clauses.orderby_fields
@@ -1562,15 +1812,57 @@ class SQLExecutionEngine:
             if not groupby_fields:
                 select_sql += ', "__row_idx__"'
         elif clauses.select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
             # Check if SELECT * was specified (need all original columns + computed columns)
             # But only add '*' if clauses.select_fields doesn't already contain explicit column
             # selections (Field objects). If there are Field objects, they represent the columns
             # from a previous column selection operation and '*' should not be added.
-            has_explicit_columns = any(isinstance(f, Field) for f in clauses.select_fields)
-            if self.ds._select_star and not has_explicit_columns:
-                select_sql = '*, ' + fields_sql
+            # Note: Fields with alias (e.g., from LazyColumnAssignment) are computed columns,
+            # not explicit column selections. Only count non-aliased Fields as explicit.
+            has_explicit_columns = any(isinstance(f, Field) and not f.alias for f in clauses.select_fields)
+            # Also check if we have LazyColumnAssignment - these need * plus computed columns
+            # BUT only if there's no explicit column selection (SELECT col1, col2, ...)
+            column_assignments = [
+                op for op in plan.sql_ops if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
+            ]
+            has_column_assignments = bool(column_assignments)
+
+            # Check for column overrides (assigned column already exists in DataFrame)
+            df_columns_ordered = [c for c in df.columns if c != '__row_idx__']
+            df_columns_set = set(df_columns_ordered)
+            override_columns = {op.column for op in column_assignments if op.column in df_columns_set}
+
+            if (self.ds._select_star and not has_explicit_columns) or (
+                has_column_assignments and not has_explicit_columns
+            ):
+                if override_columns:
+                    # Build explicit column list to preserve column order when overriding
+                    # For each column: if it's being overridden, use the computed expression
+                    # Otherwise, just select the original column
+                    assignment_map = {op.column: op for op in column_assignments if op.column in override_columns}
+                    select_parts = []
+                    for col in df_columns_ordered:
+                        if col in assignment_map:
+                            # Use the computed expression for overridden column
+                            op = assignment_map[col]
+                            expr = op.get_sql_expression()
+                            select_parts.append(expr.to_sql(quote_char=self.quote_char, with_alias=True))
+                        else:
+                            select_parts.append(f'{self.quote_char}{col}{self.quote_char}')
+                    # Add new columns (not overrides)
+                    new_columns = [op for op in column_assignments if op.column not in override_columns]
+                    for op in new_columns:
+                        expr = op.get_sql_expression()
+                        select_parts.append(expr.to_sql(quote_char=self.quote_char, with_alias=True))
+                    select_sql = ', '.join(select_parts)
+                else:
+                    fields_sql = ', '.join(
+                        f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields
+                    )
+                    select_sql = '*, ' + fields_sql
             else:
+                fields_sql = ', '.join(
+                    f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields
+                )
                 select_sql = fields_sql
         else:
             select_sql = '*'
@@ -1733,7 +2025,12 @@ class SQLExecutionEngine:
         Returns:
             SQL query string
         """
-        parts = ["SELECT *"]
+        # Build SELECT clause - include computed columns if present
+        if clauses.select_fields:
+            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
+            parts = [f"SELECT *, {fields_sql}"]
+        else:
+            parts = ["SELECT *"]
         parts.append(f"FROM {from_source}")
 
         if clauses.where_conditions:
