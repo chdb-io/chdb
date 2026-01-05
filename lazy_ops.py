@@ -1632,7 +1632,9 @@ class LazyWhere(LazyOp):
         1. String 'other' + numeric column (Int64/Float64) -> NO_COMMON_TYPE error
         2. Float 'other' + Int column (without explicit cast) -> NO_COMMON_TYPE error
         3. Int 'other' + String column -> handled by Variant type (OK)
-        4. Numeric 'other' + Bool column -> Pandas converts to object, SQL keeps bool type
+        4. Numeric 'other' + Bool column:
+           - For other=0 or other=1: SQL pushdown OK (values equivalent: 0=False, 1=True)
+           - For other!=0 and other!=1: Fall back to Pandas (SQL uses NULL, Pandas uses actual value)
 
         Args:
             schema: Dict mapping column names to types
@@ -1676,12 +1678,13 @@ class LazyWhere(LazyOp):
         # The SQL query MUST include ORDER BY rowNumberInAllBlocks() to preserve row order
         # when using Variant type. This is handled in _build_sql_from_state.
 
-        # Case 4: Numeric 'other' + Bool column - Pandas alignment issue
-        # Pandas converts bool column to object dtype when replacing with numeric values,
-        # but SQL CASE WHEN preserves bool type (0 becomes False, non-0 becomes True).
-        # To align with Pandas behavior, fall back to Pandas execution.
+        # Case 4: Numeric 'other' + Bool column - Conditional support:
+        # - SQL CASE WHEN on bool column: 0 -> false, 1 -> true, else -> NULL
+        # - For other=0 or other=1: SQL pushdown works (values are equivalent)
+        # - For other not in (0, 1): Fall back to Pandas to preserve actual numeric value
         if has_bool_col and isinstance(other, (int, float)) and not isinstance(other, bool):
-            return False  # Fall back to Pandas to preserve object dtype with mixed values
+            if other not in (0, 1):
+                return False  # Fall back to Pandas for non-boolean numeric values
 
         return True
 
