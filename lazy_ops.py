@@ -1632,9 +1632,10 @@ class LazyWhere(LazyOp):
         1. String 'other' + numeric column (Int64/Float64) -> NO_COMMON_TYPE error
         2. Float 'other' + Int column (without explicit cast) -> NO_COMMON_TYPE error
         3. Int 'other' + String column -> handled by Variant type (OK)
-        4. Numeric 'other' + Bool column:
-           - For other=0 or other=1: SQL pushdown OK (values equivalent: 0=False, 1=True)
-           - For other!=0 and other!=1: Fall back to Pandas (SQL uses NULL, Pandas uses actual value)
+        4. Numeric 'other' + Bool column -> ALWAYS fall back to Pandas
+           - SQL CASE WHEN converts 0 to false, 1 to true (type change)
+           - Pandas preserves the actual int value with object dtype
+           - Type correctness is more important than performance
 
         Args:
             schema: Dict mapping column names to types
@@ -1678,13 +1679,13 @@ class LazyWhere(LazyOp):
         # The SQL query MUST include ORDER BY rowNumberInAllBlocks() to preserve row order
         # when using Variant type. This is handled in _build_sql_from_state.
 
-        # Case 4: Numeric 'other' + Bool column - Conditional support:
-        # - SQL CASE WHEN on bool column: 0 -> false, 1 -> true, else -> NULL
-        # - For other=0 or other=1: SQL pushdown works (values are equivalent)
-        # - For other not in (0, 1): Fall back to Pandas to preserve actual numeric value
+        # Case 4: Numeric 'other' + Bool column -> ALWAYS fall back to Pandas
+        # SQL CASE WHEN converts numeric values to bool (0->false, 1->true),
+        # which changes both the value and the dtype.
+        # Pandas keeps the actual int value and uses object dtype for mixed types.
+        # Type correctness is more important than performance.
         if has_bool_col and isinstance(other, (int, float)) and not isinstance(other, bool):
-            if other not in (0, 1):
-                return False  # Fall back to Pandas for non-boolean numeric values
+            return False  # Always fall back to Pandas for bool columns with numeric other
 
         return True
 
