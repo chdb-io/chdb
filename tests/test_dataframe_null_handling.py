@@ -227,7 +227,6 @@ class TestDataFrameNullHandling(unittest.TestCase):
         })
 
         result = self.conn.query('SELECT * FROM Python(df) ORDER BY id', 'DataFrame')
-        # print(result)
 
         for col in df.columns:
             for i in range(len(df)):
@@ -237,6 +236,10 @@ class TestDataFrameNullHandling(unittest.TestCase):
                     self.assertTrue(pd.isna(actual), "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
                 else:
                     self.assertEqual(actual, expected, "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+
+        result = self.conn.query('SELECT * FROM Python(df) WHERE bool_col = 1 ORDER BY id', 'DataFrame')
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result['id'].tolist(), [1, 4, 8])
 
     def test_json_nan_is_null(self):
         """Test that Null in JSON column is recognized as NULL"""
