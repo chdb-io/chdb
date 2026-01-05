@@ -165,6 +165,11 @@ class FunctionExecutorConfig:
     # function results correctly (returns original column instead of function result).
     # Until the execution pipeline is fixed, keep these functions using pandas.
     PANDAS_ONLY_FUNCTIONS: Set[str] = {
+        # DateTime strftime - ClickHouse formatDateTime uses different format codes
+        # Python %M = minute, ClickHouse %M = month name
+        # Python %H = hour 24h, ClickHouse %H = hour 24h (same)
+        # Using pandas ensures Python strftime format compatibility
+        'strftime',
         # String functions that need pandas for na parameter support
         'contains',  # pandas str.contains has na parameter (na=True/False), SQL propagates NULL
         # Cumulative functions (no simple SQL equivalent)

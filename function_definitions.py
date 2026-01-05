@@ -204,17 +204,26 @@ def _build_replace(expr, to_replace, value=_REPLACE_SENTINEL, regex: bool = Fals
         args.append(expr)
         return Function('multiIf', *args, alias=alias)
 
-    # Handle list: replace([k1, k2], [v1, v2])
+    # Handle list: replace([k1, k2], [v1, v2]) or replace([k1, k2], single_value)
     if isinstance(to_replace, (list, tuple)):
         if value is _REPLACE_SENTINEL:
             raise ValueError("value is required when to_replace is a list")
-        if not isinstance(value, (list, tuple)):
-            raise ValueError("value must be a list when to_replace is a list")
-        if len(to_replace) != len(value):
-            raise ValueError("to_replace and value must have the same length")
         if not to_replace:
             # Empty list, return expr unchanged
             return expr
+        # If value is a single scalar, broadcast it to all to_replace values
+        if not isinstance(value, (list, tuple)):
+            # Single value replacement: replace([v1, v2], new_value)
+            # Build multiIf: if(expr in [v1, v2], new_value, expr)
+            args = []
+            for k in to_replace:
+                cond = Expression.wrap(expr) == Expression.wrap(k)
+                args.append(cond)
+                args.append(Expression.wrap(value))
+            args.append(expr)
+            return Function('multiIf', *args, alias=alias)
+        if len(to_replace) != len(value):
+            raise ValueError("to_replace and value must have the same length")
         # Build multiIf args
         args = []
         for k, v in zip(to_replace, value):
@@ -270,11 +279,15 @@ def _build_str_replace(expr, pattern: str, replacement: str, regex: bool = False
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['strip'],
-    doc='Trim whitespace from both sides. Maps to trim(x).',
+    doc='Trim whitespace or specific characters from both sides. Maps to trim(x) or trimBoth(x, chars).',
 )
-def _build_trim(expr, alias=None):
+def _build_trim(expr, to_strip=None, alias=None):
     from .functions import Function
+    from .expressions import Literal
 
+    if to_strip is not None:
+        # Use trimBoth to trim specific characters
+        return Function('trimBoth', expr, Literal(to_strip), alias=alias)
     return Function('trim', expr, alias=alias)
 
 
@@ -284,11 +297,14 @@ def _build_trim(expr, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['trimLeft', 'lstrip'],
-    doc='Trim whitespace from left. Maps to trimLeft(x).',
+    doc='Trim whitespace or specific characters from left. Maps to trimLeft(x) or trimLeft(x, chars).',
 )
-def _build_ltrim(expr, alias=None):
+def _build_ltrim(expr, to_strip=None, alias=None):
     from .functions import Function
+    from .expressions import Literal
 
+    if to_strip is not None:
+        return Function('trimLeft', expr, Literal(to_strip), alias=alias)
     return Function('trimLeft', expr, alias=alias)
 
 
@@ -298,11 +314,14 @@ def _build_ltrim(expr, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['trimRight', 'rstrip'],
-    doc='Trim whitespace from right. Maps to trimRight(x).',
+    doc='Trim whitespace or specific characters from right. Maps to trimRight(x) or trimRight(x, chars).',
 )
-def _build_rtrim(expr, alias=None):
+def _build_rtrim(expr, to_strip=None, alias=None):
     from .functions import Function
+    from .expressions import Literal
 
+    if to_strip is not None:
+        return Function('trimRight', expr, Literal(to_strip), alias=alias)
     return Function('trimRight', expr, alias=alias)
 
 
@@ -394,8 +413,9 @@ def _build_contains(expr, needle: str, case: bool = True, flags: int = 0, na=Non
         should be executed via pandas.
 
     Returns:
-        A boolean expression (position > 0) for use in filtering.
-        position() returns 0 if not found, >0 if found (1-based index).
+        A boolean expression for use in filtering.
+        - For regex=True: uses match() function with .* prefix for contains semantics
+        - For regex=False: uses position() > 0 (1-based position, 0 if not found)
     """
     from .functions import Function
     from .expressions import Literal
@@ -409,23 +429,42 @@ def _build_contains(expr, needle: str, case: bool = True, flags: int = 0, na=Non
         'regex': regex,
     }
 
-    # For case-insensitive matching, use positionCaseInsensitive
-    # Set pandas_name='contains' so ExpressionEvaluator knows to use pandas execution
-    # Return (position > 0) to get boolean result for filtering
-    if not case:
-        position_func = Function(
-            'positionCaseInsensitive',
+    if regex:
+        # For regex patterns, use chDB's match() function which supports regex
+        # match(haystack, pattern) matches from the start of the string
+        # For "contains" semantics (match anywhere in string), prepend .*
+        # For case-insensitive, wrap the pattern with (?i) prefix
+        if not case:
+            pattern = f'(?i).*{needle}'
+        else:
+            pattern = f'.*{needle}'
+        match_func = Function(
+            'match',
             expr,
-            Literal(needle),
+            Literal(pattern),
             pandas_name='contains',
             pandas_kwargs=pandas_kwargs,
         )
+        # match() returns UInt8 (0 or 1), use > 0 for boolean
+        result = match_func > 0
     else:
-        position_func = Function('position', expr, Literal(needle), pandas_name='contains', pandas_kwargs=pandas_kwargs)
+        # For literal string matching, use position() which is faster
+        # For case-insensitive matching, use positionCaseInsensitive
+        if not case:
+            position_func = Function(
+                'positionCaseInsensitive',
+                expr,
+                Literal(needle),
+                pandas_name='contains',
+                pandas_kwargs=pandas_kwargs,
+            )
+        else:
+            position_func = Function(
+                'position', expr, Literal(needle), pandas_name='contains', pandas_kwargs=pandas_kwargs
+            )
+        # Return boolean expression (position > 0) instead of position value
+        result = position_func > 0
 
-    # Return boolean expression (position > 0) instead of position value
-    # This ensures correct behavior when used as a filter condition
-    result = position_func > 0
     if alias:
         result._alias = alias
     return result
@@ -467,11 +506,13 @@ def _build_right(expr, n: int, alias=None):
     aliases=['leftPad', 'lpad'],
     doc='Pad string to length with fill char. Maps to leftPad(s, length, fill).',
 )
-def _build_pad(expr, length: int, fill: str = ' ', alias=None):
+def _build_pad(expr, length: int, fill: str = ' ', fillchar: str = None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('leftPad', expr, Literal(length), Literal(fill), alias=alias)
+    # Support both 'fill' and 'fillchar' (pandas uses fillchar)
+    actual_fill = fillchar if fillchar is not None else fill
+    return Function('leftPad', expr, Literal(length), Literal(actual_fill), alias=alias)
 
 
 @register_function(
@@ -482,11 +523,13 @@ def _build_pad(expr, length: int, fill: str = ' ', alias=None):
     aliases=['rightPad'],
     doc='Pad string on right to length with fill char. Maps to rightPad(s, length, fill).',
 )
-def _build_rpad(expr, length: int, fill: str = ' ', alias=None):
+def _build_rpad(expr, length: int, fill: str = ' ', fillchar: str = None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('rightPad', expr, Literal(length), Literal(fill), alias=alias)
+    # Support both 'fill' and 'fillchar' (pandas uses fillchar)
+    actual_fill = fillchar if fillchar is not None else fill
+    return Function('rightPad', expr, Literal(length), Literal(actual_fill), alias=alias)
 
 
 @register_function(
@@ -509,11 +552,34 @@ def _build_repeat(expr, n: int, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['splitByString'],
-    doc='Split string by separator. Maps to splitByString(sep, s). If sep is None, splits by whitespace.',
+    doc='Split string by separator. Maps to splitByString(sep, s). If sep is None, splits by whitespace. When expand=True, returns DataFrame via pandas fallback.',
 )
-def _build_split(expr, sep: str = None, alias=None):
+def _build_split(expr, sep: str = None, n: int = -1, expand: bool = False, regex: bool = None, alias=None):
     from .functions import Function
     from .expressions import Literal
+    from .column_expr import ColumnExpr
+
+    # Handle expand=True case with pandas fallback
+    if expand:
+        # Need to use pandas fallback for expand=True
+        # Create a ColumnExpr with executor that uses pandas str.split
+        if isinstance(expr, ColumnExpr):
+            col_expr = expr
+        else:
+            # If expr is not ColumnExpr, we need the datastore from somewhere
+            # This case is handled in the accessor wrapper
+            col_expr = None
+
+        if col_expr is not None:
+
+            def executor():
+                series = col_expr._execute()
+                return series.str.split(pat=sep, n=n if n != -1 else None, expand=True, regex=regex)
+
+            return ColumnExpr(executor=executor, datastore=col_expr._datastore)
+        else:
+            # Fallback: wrap in a function that will fail gracefully
+            raise NotImplementedError("str.split(expand=True) requires ColumnExpr context")
 
     # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
     # This converts NULL to empty string, which produces empty array []

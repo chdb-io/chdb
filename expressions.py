@@ -180,21 +180,28 @@ class Expression(Node):
 
         return InCondition(self, values, negate=True)
 
-    def between(self, lower, upper) -> 'Condition':
+    def between(self, lower, upper, inclusive: str = 'both') -> 'Condition':
         """
         Create BETWEEN condition.
 
         Args:
             lower: Lower bound
             upper: Upper bound
+            inclusive: Include boundaries. Valid options are:
+                'both' (default): Include both boundaries
+                'neither': Exclude both boundaries
+                'left': Include left boundary only
+                'right': Include right boundary only
 
         Example:
             >>> Field('age').between(18, 65)
             >>> # Generates: "age" BETWEEN 18 AND 65
+            >>> Field('age').between(18, 65, inclusive='neither')
+            >>> # Generates: "age" > 18 AND "age" < 65
         """
         from .conditions import BetweenCondition
 
-        return BetweenCondition(self, self.wrap(lower), self.wrap(upper))
+        return BetweenCondition(self, self.wrap(lower), self.wrap(upper), inclusive=inclusive)
 
     def like(self, pattern: str) -> 'Condition':
         """

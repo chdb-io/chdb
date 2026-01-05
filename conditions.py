@@ -305,13 +305,23 @@ class BetweenCondition(Condition):
     Example:
         >>> Field('age').between(18, 65)
         >>> # Generates: "age" BETWEEN 18 AND 65
+        >>> Field('age').between(18, 65, inclusive='neither')
+        >>> # Generates: "age" > 18 AND "age" < 65
     """
 
-    def __init__(self, expression: Expression, lower: Expression, upper: Expression, alias: Optional[str] = None):
+    def __init__(
+        self,
+        expression: Expression,
+        lower: Expression,
+        upper: Expression,
+        inclusive: str = 'both',
+        alias: Optional[str] = None,
+    ):
         super().__init__(alias)
         self.expression = expression
         self.lower = lower
         self.upper = upper
+        self.inclusive = inclusive
 
     def nodes(self) -> Iterator[Node]:
         """Traverse expression tree."""
@@ -326,7 +336,19 @@ class BetweenCondition(Condition):
         lower_sql = self.lower.to_sql(quote_char=quote_char, **kwargs)
         upper_sql = self.upper.to_sql(quote_char=quote_char, **kwargs)
 
-        sql = f"{expr_sql} BETWEEN {lower_sql} AND {upper_sql}"
+        # Handle different inclusive modes
+        if self.inclusive == 'both':
+            sql = f"{expr_sql} BETWEEN {lower_sql} AND {upper_sql}"
+        elif self.inclusive == 'neither':
+            sql = f"({expr_sql} > {lower_sql} AND {expr_sql} < {upper_sql})"
+        elif self.inclusive == 'left':
+            sql = f"({expr_sql} >= {lower_sql} AND {expr_sql} < {upper_sql})"
+        elif self.inclusive == 'right':
+            sql = f"({expr_sql} > {lower_sql} AND {expr_sql} <= {upper_sql})"
+        else:
+            raise ValueError(
+                f"Invalid inclusive value: {self.inclusive}. " f"Valid options are: 'both', 'neither', 'left', 'right'"
+            )
 
         # Add alias if present and requested
         if kwargs.get('with_alias', False) and self.alias:
@@ -335,7 +357,7 @@ class BetweenCondition(Condition):
         return sql
 
     def __copy__(self):
-        return BetweenCondition(copy(self.expression), copy(self.lower), copy(self.upper), self.alias)
+        return BetweenCondition(copy(self.expression), copy(self.lower), copy(self.upper), self.inclusive, self.alias)
 
 
 class LikeCondition(Condition):

@@ -30,25 +30,67 @@ class StringAccessor(BaseAccessor):
         https://clickhouse.com/docs/en/sql-reference/functions/string-functions
     """
 
-    def __getitem__(self, index: int):
+    def __getitem__(self, index):
         """
-        Get element at index from array result (e.g., after str.split()).
+        Get element at index from array result or slice a string.
 
-        Maps to arrayElement(arr, index). Note: ClickHouse uses 1-based indexing,
-        but this method accepts 0-based indexing for pandas compatibility.
+        For integer index:
+            Maps to arrayElement(arr, index). Note: ClickHouse uses 1-based indexing,
+            but this method accepts 0-based indexing for pandas compatibility.
+
+        For slice:
+            Maps to substring(s, start+1, length) in ClickHouse.
+            Supports str[:n], str[n:], str[n:m] syntax like pandas.
 
         Args:
-            index: 0-based index (will be converted to 1-based for ClickHouse)
+            index: 0-based index or slice object
 
         Example:
             >>> ds['text'].str.split().str[0]  # Get first word
             >>> ds['text'].str.split().str[-1] # Get last word
+            >>> ds['name'].str[:3]  # Get first 3 characters
+            >>> ds['name'].str[2:]  # Skip first 2 characters
+            >>> ds['name'].str[1:4]  # Characters 1-3 (0-indexed)
         """
         from ..functions import Function
         from ..expressions import Literal
 
-        # Convert 0-based to 1-based indexing for positive indices
-        # Negative indices work the same in ClickHouse (-1 is last element)
+        # Handle slice: str[:3], str[2:], str[1:4]
+        if isinstance(index, slice):
+            start = index.start if index.start is not None else 0
+            stop = index.stop
+            step = index.step
+
+            if step is not None and step != 1:
+                # Slices with step are not directly supported in SQL
+                # Fall back to pandas execution
+                raise NotImplementedError("String slicing with step is not supported in SQL mode")
+
+            if start < 0:
+                # Negative start - need to compute from end
+                # Use substring with negative offset (ClickHouse supports this)
+                if stop is None:
+                    # str[-n:] - last n characters
+                    return Function('substring', self._expr, Literal(start))
+                else:
+                    # Complex case with negative start and positive stop
+                    raise NotImplementedError("String slicing with negative start and positive stop not supported")
+
+            # ClickHouse substring is 1-based
+            ch_start = start + 1
+
+            if stop is None:
+                # str[n:] - from position n to end
+                return Function('substring', self._expr, Literal(ch_start))
+            else:
+                # str[n:m] or str[:m] - from position n to m
+                length = stop - start
+                if length <= 0:
+                    # Empty result
+                    return Literal('')
+                return Function('substring', self._expr, Literal(ch_start), Literal(length))
+
+        # Handle integer index: array element access
         if index >= 0:
             ch_index = index + 1
         else:

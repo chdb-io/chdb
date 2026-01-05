@@ -4,6 +4,7 @@ Core DataStore class - main entry point for data operations
 
 import time
 import pandas as pd
+import numpy as np
 from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
 from copy import copy
 
@@ -121,6 +122,30 @@ class DataStore(PandasCompatMixin):
                 # If both provided, just remove from kwargs to avoid passing to connection
                 kwargs.pop('source_type')
 
+        # Extract DataFrame constructor kwargs (index, columns, dtype) before other processing
+        # These should be passed to pd.DataFrame() when creating from dict/list/etc
+        df_constructor_kwargs = {}
+        for key in ['index', 'columns', 'dtype']:
+            if key in kwargs:
+                df_constructor_kwargs[key] = kwargs.pop(key)
+
+        # Handle columns-only construction: DataStore(columns=['A', 'B', 'C'])
+        # This creates an empty DataFrame with specified columns
+        if source is None and 'columns' in df_constructor_kwargs:
+            df = pd.DataFrame(**df_constructor_kwargs)
+            self._init_from_dataframe(df, database, connection, **kwargs)
+            return
+
+        # Handle pandas Series input - convert to DataFrame
+        if isinstance(source, pd.Series):
+            df = source.to_frame()
+            if df_constructor_kwargs:
+                # Apply any index override
+                if 'index' in df_constructor_kwargs:
+                    df.index = df_constructor_kwargs['index']
+            self._init_from_dataframe(df, database, connection, **kwargs)
+            return
+
         # Handle DataFrame input directly
         if isinstance(source, pd.DataFrame):
             # Initialize with DataFrame - delegate to _init_from_dataframe
@@ -129,7 +154,13 @@ class DataStore(PandasCompatMixin):
 
         # Handle dict input - convert to DataFrame first
         if isinstance(source, dict):
-            df = pd.DataFrame(source)
+            df = pd.DataFrame(source, **df_constructor_kwargs)
+            self._init_from_dataframe(df, database, connection, **kwargs)
+            return
+
+        # Handle list/tuple input (list of lists or list of dicts)
+        if isinstance(source, (list, tuple)):
+            df = pd.DataFrame(source, **df_constructor_kwargs)
             self._init_from_dataframe(df, database, connection, **kwargs)
             return
 
@@ -930,14 +961,36 @@ class DataStore(PandasCompatMixin):
                 for op in plan.sql_ops or []:
                     if hasattr(op, 'op_type') and op.op_type == 'SELECT':
                         if hasattr(op, 'fields') and op.fields:
-                            select_cols = [f.name.strip('"') for f in op.fields]
+                            select_cols = []
+                            has_star = False
+                            for f in op.fields:
+                                if isinstance(f, str):
+                                    col = f.strip('"')
+                                    if col == '*':
+                                        has_star = True
+                                    else:
+                                        select_cols.append(col)
+                                elif hasattr(f, 'alias') and f.alias:
+                                    select_cols.append(f.alias)
+                                elif hasattr(f, 'name'):
+                                    select_cols.append(f.name.strip('"'))
+                                # Skip fields without identifiable names
+                            # If '*' was in fields, expand it to all existing columns
+                            if has_star:
+                                select_cols = list(df.columns) + [c for c in select_cols if c not in df.columns]
                             break
                 if select_cols:
-                    # Apply column selection to empty DataFrame
+                    # For empty DataFrames with computed columns, create the expected column structure
                     existing_cols = [c for c in select_cols if c in df.columns]
-                    if existing_cols:
-                        df = df[existing_cols]
-                        self._logger.debug("  Applied column selection to empty df: %s", existing_cols)
+                    new_cols = [c for c in select_cols if c not in df.columns]
+                    if existing_cols or new_cols:
+                        # Start with existing columns
+                        if existing_cols:
+                            df = df[existing_cols]
+                        # Add new computed columns (they'll be empty since df is empty)
+                        for col in new_cols:
+                            df[col] = pd.Series(dtype='float64')
+                        self._logger.debug("  Applied column selection to empty df: %s", select_cols)
                 return df
 
             # If we have a source but no DataFrame yet, load raw data first
@@ -1771,29 +1824,30 @@ class DataStore(PandasCompatMixin):
     @classmethod
     def from_df(cls, df, name: str = None) -> 'DataStore':
         """
-        Create DataStore from a pandas DataFrame.
+                Create DataStore from a pandas DataFrame.
 
-        This allows you to use DataStore's query building and lazy execution
-        features on an existing DataFrame.
+                This allows you to use DataStore's query building and lazy execution
+                features on an existing DataFrame.
 
-        Args:
-            df: pandas DataFrame to wrap
-            name: Optional name for the data source (used in explain output)
+                Args:
+                    df: pandas DataFrame to wrap
+                    name: Optional name for the data source (used in explain output)
 
-        Returns:
-            DataStore wrapping the DataFrame
+                Returns:
+                    DataStore wrapping the DataFrame
 
-        Example:
-            >>> import pandas as pd
-            >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
-            >>> ds = DataStore.from_df(df)
-            >>> ds.filter(ds.age > 26).to_df()
-               name  age
-            1   Bob   30
+                Example:
+                    >>> import pandas as pd
+        import numpy as np
+                    >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+                    >>> ds = DataStore.from_df(df)
+                    >>> ds.filter(ds.age > 26).to_df()
+                       name  age
+                    1   Bob   30
 
-            >>> # With SQL operations
-            >>> ds = DataStore.from_df(df, name='users')
-            >>> ds.sql("SELECT * FROM __df__ WHERE age > 26").to_df()
+                    >>> # With SQL operations
+                    >>> ds = DataStore.from_df(df, name='users')
+                    >>> ds.sql("SELECT * FROM __df__ WHERE age > 26").to_df()
         """
         from .lazy_ops import LazyDataFrameSource
 
@@ -1841,22 +1895,23 @@ class DataStore(PandasCompatMixin):
     @classmethod
     def from_dataframe(cls, df, name: str = None) -> 'DataStore':
         """
-        Create DataStore from a pandas DataFrame.
+                Create DataStore from a pandas DataFrame.
 
-        Alias for `from_df()`. See `from_df()` for full documentation.
+                Alias for `from_df()`. See `from_df()` for full documentation.
 
-        Args:
-            df: pandas DataFrame to wrap
-            name: Optional name for the data source (used in explain output)
+                Args:
+                    df: pandas DataFrame to wrap
+                    name: Optional name for the data source (used in explain output)
 
-        Returns:
-            DataStore wrapping the DataFrame
+                Returns:
+                    DataStore wrapping the DataFrame
 
-        Example:
-            >>> import pandas as pd
-            >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
-            >>> ds = DataStore.from_dataframe(df)
-            >>> ds.filter(ds.age > 26).to_df()
+                Example:
+                    >>> import pandas as pd
+        import numpy as np
+                    >>> df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+                    >>> ds = DataStore.from_dataframe(df)
+                    >>> ds.filter(ds.age > 26).to_df()
         """
         return cls.from_df(df, name=name)
 
@@ -2232,13 +2287,38 @@ class DataStore(PandasCompatMixin):
         # Check if we have a cached DataFrame from from_df()
         if self._source_df is not None:
             from .table_functions import PythonTableFunction
-            from .lazy_ops import LazyDataFrameSource
+            from .lazy_ops import LazyDataFrameSource, LazyRelationalOp, LazyColumnSelection
 
-            # Create PythonTableFunction on-demand
-            self._table_function = PythonTableFunction(df=self._source_df, name=self._source_df_name)
-            # Remove LazyDataFrameSource from lazy_ops (will use SQL instead)
-            # but keep other ops like WHERE, ORDER BY, etc.
-            self._lazy_ops = [op for op in self._lazy_ops if not isinstance(op, LazyDataFrameSource)]
+            # Use the unified column tracking method to get current columns
+            # This handles SELECT, drop, rename, and other column-changing operations
+            current_cols = self._get_current_columns()
+            source_cols = list(self._source_df.columns)
+
+            # Check if columns have changed from the source
+            df_to_use = self._source_df
+            columns_changed = set(current_cols) != set(source_cols) or current_cols != source_cols
+
+            if columns_changed and current_cols:
+                # Apply column selection to the DataFrame
+                existing_cols = [c for c in current_cols if c in df_to_use.columns]
+                if existing_cols:
+                    df_to_use = df_to_use[existing_cols]
+                    self._source_df = df_to_use
+
+            # Create PythonTableFunction on-demand with the (possibly filtered) DataFrame
+            self._table_function = PythonTableFunction(df=df_to_use, name=self._source_df_name)
+
+            # Remove lazy ops that have been "baked" into the DataFrame:
+            # - LazyDataFrameSource (will use SQL instead)
+            # - SELECT ops that we've already applied to the DataFrame
+            # - LazyColumnSelection that we've already applied
+            self._lazy_ops = [
+                op
+                for op in self._lazy_ops
+                if not isinstance(op, LazyDataFrameSource)
+                and not (isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and columns_changed)
+                and not (isinstance(op, LazyColumnSelection) and columns_changed)
+            ]
             return True
 
         return False
@@ -2263,6 +2343,31 @@ class DataStore(PandasCompatMixin):
         except Exception:
             # Table might not exist yet, that's ok
             self._schema = {}
+
+    def _get_current_columns(self) -> List[str]:
+        """
+        Get the current column list after applying lazy operations.
+
+        This method tracks how columns change through the lazy op chain
+        WITHOUT executing the operations. Used by _ensure_sql_source() and
+        other methods that need to know the current column state.
+
+        Returns:
+            List of column names after all lazy ops would be applied
+        """
+        # Start with source DataFrame columns
+        if self._source_df is not None:
+            columns = list(self._source_df.columns)
+        elif self._schema:
+            columns = list(self._schema.keys())
+        else:
+            columns = []
+
+        # Apply column transformations from lazy ops
+        for op in self._lazy_ops:
+            columns = op.transform_columns(columns)
+
+        return columns
 
     def _get_all_column_names(self) -> List[str]:
         """
@@ -2416,23 +2521,50 @@ class DataStore(PandasCompatMixin):
         """
         return self.to_df()
 
-    def to_dict(self) -> List[Dict[str, Any]]:
+    def to_dict(self, orient: str = 'dict', *, into=dict, index: bool = True):
         """
-        Execute the query and return results as a list of dictionaries.
-        Convenience method that combines execute() and to_dict().
+        Convert the DataFrame to a dictionary.
 
-        If the DataStore has been executed (pandas operations applied), converts
-        the cached DataFrame to dict. Otherwise, executes the SQL query.
+        The type of the key-value pairs can be customized with the parameters.
 
-        Returns:
-            List of dicts where keys are column names
+        Parameters
+        ----------
+        orient : str {'dict', 'list', 'series', 'split', 'tight', 'records', 'index'}
+            Determines the type of the values of the dictionary.
+
+            - 'dict' (default) : dict like {column -> {index -> value}}
+            - 'list' : dict like {column -> [values]}
+            - 'series' : dict like {column -> Series(values)}
+            - 'split' : dict like
+              {'index' -> [index], 'columns' -> [columns], 'data' -> [values]}
+            - 'tight' : dict like
+              {'index' -> [index], 'columns' -> [columns], 'data' -> [values],
+              'index_names' -> [index.names], 'column_names' -> [column.names]}
+            - 'records' : list like
+              [{column -> value}, ... , {column -> value}]
+            - 'index' : dict like {index -> {column -> value}}
+
+        into : class, default dict
+            The collections.abc.MutableMapping subclass used for all Mappings
+            in the return value.
+
+        index : bool, default True
+            Whether to include the index item (and index_names item if `orient`
+            is 'tight') in the returned dictionary. Can only be ``False``
+            when `orient` is 'split' or 'tight'.
+
+        Returns
+        -------
+        dict, list or collections.abc.MutableMapping
+            Return a collections.abc.MutableMapping object representing the
+            DataFrame. The resulting transformation depends on the `orient`
+            parameter.
 
         Example:
             >>> ds = DataStore.from_file("data.csv")
-            >>> records = ds.select("*").filter(ds.age > 18).to_dict()
+            >>> records = ds.select("*").filter(ds.age > 18).to_dict(orient='records')
         """
-        # Execute and convert to dict
-        return self._execute().to_dict('records')
+        return self._execute().to_dict(orient=orient, into=into, index=index)
 
     def _wrap_result_fallback(self, result_df):
         """
@@ -2596,7 +2728,16 @@ class DataStore(PandasCompatMixin):
         else:
             return self._wrap_result_fallback(result_df)
 
-    def sample(self, n: int = None, frac: float = None, random_state: int = None):
+    def sample(
+        self,
+        n: int = None,
+        frac: float = None,
+        replace: bool = False,
+        weights=None,
+        random_state: int = None,
+        axis=None,
+        ignore_index: bool = False,
+    ):
         """
         Return a random sample of rows from the query result.
 
@@ -2605,7 +2746,11 @@ class DataStore(PandasCompatMixin):
         Args:
             n: Number of rows to return (mutually exclusive with frac)
             frac: Fraction of rows to return (mutually exclusive with n)
+            replace: Allow or disallow sampling with replacement
+            weights: Weight values for sampling probability
             random_state: Random seed for reproducibility
+            axis: Axis to sample (0 or 'index')
+            ignore_index: If True, reset index in result
 
         Returns:
             DataStore with sampled rows
@@ -2614,13 +2759,22 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> sample_10 = ds.select("*").sample(n=10)
             >>> sample_20_percent = ds.select("*").sample(frac=0.2)
+            >>> sample_replace = ds.sample(n=150, replace=True)
         """
         # Use _get_df if available (handles caching properly)
         if hasattr(self, '_get_df'):
             df = self._get_df()
         else:
             df = self.to_df()
-        result_df = df.sample(n=n, frac=frac, random_state=random_state)
+        result_df = df.sample(
+            n=n,
+            frac=frac,
+            replace=replace,
+            weights=weights,
+            random_state=random_state,
+            axis=axis,
+            ignore_index=ignore_index,
+        )
 
         # Wrap result in DataStore
         sample_desc = f'sample(n={n})' if n is not None else f'sample(frac={frac})'
@@ -2704,6 +2858,9 @@ class DataStore(PandasCompatMixin):
 
         if rename_mapping:
             self._add_lazy_op(LazyRenameColumns(rename_mapping))
+            # Invalidate cache since we've added a new operation
+            self._cached_result = None
+            self._cached_at_version = -1
 
     def count(self):
         """
@@ -3890,12 +4047,15 @@ class DataStore(PandasCompatMixin):
 
         for alias, expr in kwargs.items():
             if isinstance(expr, ColumnExpr):
-                # ColumnExpr with valid _expr can be converted to SQL
-                # ColumnExpr without _expr (executor/method mode like transform) must be executed
-                if expr._expr is not None:
+                # Use canonical classification methods for clear separation
+                if expr.is_pandas_only():
+                    # Executor mode (transform), method mode without expr - must use Pandas
+                    pandas_kwargs[alias] = expr._execute()
+                elif expr.is_sql_compatible():
+                    # Has valid expression tree - can convert to SQL
                     sql_kwargs[alias] = expr
                 else:
-                    # Execute the ColumnExpr and use the result
+                    # Fallback: execute and use result
                     pandas_kwargs[alias] = expr._execute()
             elif isinstance(expr, (Function, Expression)):
                 sql_kwargs[alias] = expr
@@ -3917,8 +4077,26 @@ class DataStore(PandasCompatMixin):
             # Ensure we have a SQL source (create PythonTableFunction if needed)
             result._ensure_sql_source()
 
-            # Use select() to add computed columns via SQL
-            select_items = ['*']
+            # Check if there's an existing column selection in lazy ops
+            # If the last SELECT op has specific columns (not just '*'), preserve them
+            existing_select_fields = None
+            for op in reversed(result._lazy_ops):
+                if hasattr(op, 'op_type') and op.op_type == 'SELECT':
+                    if hasattr(op, 'fields') and op.fields:
+                        # Check if this SELECT has specific columns vs '*'
+                        # A SELECT with just '*' has no fields, or has '*' string in fields
+                        has_star = any(f == '*' or (isinstance(f, str) and f.strip() == '*') for f in op.fields)
+                        if not has_star:
+                            # We have specific columns selected, preserve them
+                            existing_select_fields = op.fields
+                    break
+
+            # Use existing column selection if available, otherwise use '*'
+            if existing_select_fields:
+                # Preserve the existing column selection and add new columns
+                select_items = list(existing_select_fields)
+            else:
+                select_items = ['*']
 
             for alias, expr in sql_kwargs.items():
                 original_expr = expr
@@ -4188,11 +4366,50 @@ class DataStore(PandasCompatMixin):
             #   # But result's DataFrame only has 'name_upper', not 'name'!
             return ColumnExpr(Field(key), self)
 
+        elif isinstance(key, tuple):
+            # Tuple indexing: support for MultiIndex columns
+            # In pandas, df[('level1', 'level2')] accesses a column with MultiIndex name
+            # For DataStore, we delegate to pandas for MultiIndex column access
+            df = self._execute()
+            if key in df.columns:
+                # Return the column as a Series wrapped in ColumnExpr-like behavior
+                return df[key]
+            else:
+                raise KeyError(f"Column {key} not found in DataFrame")
+
         elif isinstance(key, (list, pd.Index)):
-            # Multi-column selection: use LazyRelationalOp(SELECT) for SQL pushdown
+            # Multi-column selection or boolean mask indexing
             # Convert pandas Index to list if needed
             if isinstance(key, pd.Index):
                 key = key.tolist()
+
+            # Check if this is a boolean list (for row filtering, not column selection)
+            if key and all(isinstance(x, (bool, np.bool_)) for x in key):
+                # Boolean mask indexing: df[[True, False, True, ...]]
+                from .lazy_ops import LazyBooleanMask
+
+                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                if result is not self:
+                    result._cached_result = None
+                    result._cache_version = 0
+                    result._cached_at_version = -1
+                    result._cache_timestamp = None
+                result._add_lazy_op(LazyBooleanMask(key))
+                return result
+
+            # Check for empty list - return DataFrame with no columns
+            if len(key) == 0:
+                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                if result is not self:
+                    result._cached_result = None
+                    result._cache_version = 0
+                    result._cached_at_version = -1
+                    result._cache_timestamp = None
+                result._select_star = False
+                result._add_lazy_op(LazyRelationalOp(op_type='SELECT', description="Select no columns", fields=[]))
+                return result
+
+            # Multi-column selection: use LazyRelationalOp(SELECT) for SQL pushdown
             # Create a copy to avoid modifying the original DataStore's _lazy_ops
             # This fixes the bug where df[['col1', 'col2']].head() would modify df
             result = copy(self) if getattr(self, 'is_immutable', True) else self
@@ -4207,9 +4424,11 @@ class DataStore(PandasCompatMixin):
             # Use LazyRelationalOp(SELECT) so column selection can be pushed to SQL
             # This allows ds[['col1', 'col2']].sort_values('col1').head(10) to be
             # fully executed as SQL: SELECT col1, col2 FROM ... ORDER BY col1 LIMIT 10
-            fields = [Field(col) for col in key]
+            # Convert column names to strings for Field creation (handles int column names)
+            fields = [Field(str(col) if isinstance(col, int) else col) for col in key]
+            col_names = [str(col) if isinstance(col, int) else col for col in key]
             result._add_lazy_op(
-                LazyRelationalOp(op_type='SELECT', description=f"Select columns: {', '.join(key)}", fields=fields)
+                LazyRelationalOp(op_type='SELECT', description=f"Select columns: {', '.join(col_names)}", fields=fields)
             )
             return result
 
@@ -4218,9 +4437,6 @@ class DataStore(PandasCompatMixin):
             # Create a copy to avoid modifying the original DataStore (pandas-like behavior)
             start, stop, step = key.start, key.stop, key.step
 
-            if step is not None:
-                raise ValueError("Step not supported in slice notation")
-
             result = copy(self) if getattr(self, 'is_immutable', True) else self
             if result is not self:
                 # Reset cache state for the new copy
@@ -4228,6 +4444,20 @@ class DataStore(PandasCompatMixin):
                 result._cache_version = 0
                 result._cached_at_version = -1
                 result._cache_timestamp = None
+
+            # Handle step slicing (e.g., ds[::2], ds[1::2], ds[::-1])
+            if step is not None:
+                from .lazy_ops import LazySliceStep
+
+                result._add_lazy_op(LazySliceStep(start=start, stop=stop, step=step))
+                return result
+
+            # Handle negative indices - need to use pandas fallback as we don't know row count
+            if (start is not None and start < 0) or (stop is not None and stop < 0):
+                from .lazy_ops import LazySliceStep
+
+                result._add_lazy_op(LazySliceStep(start=start, stop=stop, step=None))
+                return result
 
             if stop is not None:
                 if start is not None:
@@ -4258,6 +4488,42 @@ class DataStore(PandasCompatMixin):
                 result._cached_at_version = -1
                 result._cache_timestamp = None
             return result.filter(key)
+
+        elif isinstance(key, pd.Series):
+            # Boolean Series indexing: df[pd.Series([True, False, True])]
+            if key.dtype == bool or key.dtype == 'boolean':
+                from .lazy_ops import LazyBooleanMask
+
+                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                if result is not self:
+                    result._cached_result = None
+                    result._cache_version = 0
+                    result._cached_at_version = -1
+                    result._cache_timestamp = None
+                result._add_lazy_op(LazyBooleanMask(key.tolist()))
+                return result
+            else:
+                raise TypeError(f"Boolean Series indexing requires boolean dtype, got {key.dtype}")
+
+        elif isinstance(key, np.ndarray):
+            # Boolean ndarray indexing: df[np.array([True, False, True])]
+            if key.dtype == bool or key.dtype == np.bool_:
+                from .lazy_ops import LazyBooleanMask
+
+                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                if result is not self:
+                    result._cached_result = None
+                    result._cache_version = 0
+                    result._cached_at_version = -1
+                    result._cache_timestamp = None
+                result._add_lazy_op(LazyBooleanMask(key.tolist()))
+                return result
+            else:
+                raise TypeError(f"Boolean ndarray indexing requires boolean dtype, got {key.dtype}")
+
+        elif isinstance(key, int):
+            # Integer column name access: df[0] when column name is 0
+            return ColumnExpr(Field(str(key)), self)
 
         else:
             # Check for LazyCondition (from isin/between) - needs late import

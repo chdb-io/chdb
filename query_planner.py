@@ -379,7 +379,7 @@ class QueryPlanner:
         """
         agg_aliases = set()
 
-        if op.agg_dict:
+        if op.agg_dict is not None and isinstance(op.agg_dict, dict):
             for col, funcs in op.agg_dict.items():
                 if isinstance(funcs, (list, tuple)):
                     agg_aliases.update(funcs)  # Function names as aliases

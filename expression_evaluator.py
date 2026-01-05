@@ -126,8 +126,46 @@ class ExpressionEvaluator:
                 agg_method = getattr(source_series, expr._pandas_agg_func)
                 return agg_method()
             elif expr._exec_mode == 'executor' and expr._executor is not None:
-                # Executor mode - call the executor
-                return expr._executor()
+                # Executor mode - check for circular reference to avoid recursion
+                # If the ColumnExpr's datastore is the same as our context,
+                # we're in a circular execution scenario (e.g., transform inside assign)
+                # In this case, we need to use the current df instead of calling ds._execute()
+                if expr._datastore is self.context and expr._groupby_fields:
+                    # This is a groupby transform/agg being evaluated during the same
+                    # DataStore's execution - use the current df
+                    from .expressions import Field as ExprField
+
+                    # Get groupby columns
+                    groupby_cols = []
+                    for gf in expr._groupby_fields:
+                        if isinstance(gf, ExprField):
+                            groupby_cols.append(gf.name)
+                        else:
+                            groupby_cols.append(str(gf))
+
+                    # Get the column name
+                    col_name = None
+                    if isinstance(expr._expr, ExprField):
+                        col_name = expr._expr.name
+                    elif expr._expr is not None:
+                        col_name = str(expr._expr)
+
+                    # Use the current df from the evaluator
+                    if col_name and col_name in self.df.columns:
+                        # Re-execute the transform using current df
+                        # The original executor captures the transform function
+                        # but we can't access it directly, so we need to call the executor
+                        # with a workaround - set up a temporary source df
+                        try:
+                            return self.df.groupby(groupby_cols)[col_name].transform(
+                                expr._transform_func, *expr._transform_args, **expr._transform_kwargs
+                            )
+                        except AttributeError:
+                            # If transform params not available, fall back to executor
+                            return expr._executor()
+                else:
+                    # Normal executor call
+                    return expr._executor()
             else:
                 # Fallback - try to execute directly
                 return expr._execute()
@@ -176,11 +214,17 @@ class ExpressionEvaluator:
             return method(*args, **kwargs)
 
         if isinstance(expr, Field):
-            # Column reference
-            if expr.name in self.df.columns:
-                return self.df[expr.name]
-            else:
-                raise KeyError(f"Column '{expr.name}' not found in DataFrame")
+            # Column reference - handle both string and integer column names
+            col_name = expr.name
+            if col_name in self.df.columns:
+                return self.df[col_name]
+            # Try converting to int if the column name looks like a number
+            # pandas allows integer column names: df = pd.DataFrame({0: [1, 2, 3]})
+            if isinstance(col_name, str) and col_name.isdigit():
+                int_name = int(col_name)
+                if int_name in self.df.columns:
+                    return self.df[int_name]
+            raise KeyError(f"Column '{expr.name}' not found in DataFrame")
 
         elif isinstance(expr, Literal):
             # Literal value
@@ -384,7 +428,18 @@ class ExpressionEvaluator:
         lower = self.evaluate(cond.lower)
         upper = self.evaluate(cond.upper)
 
-        return (expr_val >= lower) & (expr_val <= upper)
+        # Handle different inclusive modes
+        inclusive = getattr(cond, 'inclusive', 'both')
+        if inclusive == 'both':
+            return (expr_val >= lower) & (expr_val <= upper)
+        elif inclusive == 'neither':
+            return (expr_val > lower) & (expr_val < upper)
+        elif inclusive == 'left':
+            return (expr_val >= lower) & (expr_val < upper)
+        elif inclusive == 'right':
+            return (expr_val > lower) & (expr_val <= upper)
+        else:
+            raise ValueError(f"Invalid inclusive value: {inclusive}")
 
     def _evaluate_like_condition(self, cond: LikeCondition) -> pd.Series:
         """Evaluate a LIKE condition to a boolean Series."""
@@ -473,6 +528,12 @@ class ExpressionEvaluator:
         source_series = self.evaluate(expr.source_expr)
         original_name = self._get_source_column_name(expr.source_expr, source_series)
 
+        # Check if the source series is timezone-aware
+        # If so, use pandas to avoid complex timezone conversion issues in chDB
+        if hasattr(source_series, 'dt') and source_series.dt.tz is not None:
+            self._logger.debug("[ExprEval] Source has timezone info, using pandas for '%s'", expr.property_name)
+            return self._evaluate_datetime_property_pandas(expr)
+
         source_sql = expr.source_expr.to_sql(quote_char='"')
 
         ch_func = DateTimePropertyExpr.CHDB_FUNCTION_MAP.get(expr.property_name)
@@ -482,8 +543,11 @@ class ExpressionEvaluator:
             return self._evaluate_datetime_property_pandas(expr)
 
         # Build the SQL expression with proper datetime handling
-        # Use toString + parseDateTimeBestEffort for robust type handling
-        sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})))"
+        # Use toTimezone to convert to UTC to avoid timezone issues when chDB
+        # interprets the datetime in local timezone (e.g., Asia/Singapore)
+        # This ensures dt.year/month/day/hour etc. return values matching pandas
+        # First parse the datetime (handles both string and DateTime types), then convert to UTC
+        sql_expr = f"{ch_func}(toTimezone(parseDateTimeBestEffort(toString({source_sql})), 'UTC'))"
 
         # Handle dayofweek adjustment (chDB is 1-7 Monday, pandas is 0-6 Monday)
         if expr.property_name in ('dayofweek', 'weekday'):
@@ -497,6 +561,7 @@ class ExpressionEvaluator:
             result = result.rename(original_name)
 
         # Convert dtype to match pandas (int32 for year/month/day/hour/minute/second)
+        # Use nullable Int32 to handle NaT values (which become NA in result)
         if expr.property_name in (
             'year',
             'month',
@@ -511,7 +576,12 @@ class ExpressionEvaluator:
             'week',
             'weekofyear',
         ):
-            result = result.astype('int32')
+            # Use nullable Int32 dtype to handle NA values from NaT
+            try:
+                result = result.astype('int32')
+            except (ValueError, TypeError):
+                # If conversion fails (e.g., NA values), use nullable Int32
+                result = result.astype('Int32')
 
         return result
 

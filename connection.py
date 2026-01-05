@@ -886,20 +886,34 @@ class QueryResult:
         """Get first 'size' rows."""
         return self.rows[:size]
 
-    def to_dict(self) -> List[Dict[str, Any]]:
+    def to_dict(self, orient: str = 'dict', *, into=dict, index: bool = True):
         """
-        Convert results to list of dictionaries.
+        Convert results to a dictionary.
+
+        Parameters
+        ----------
+        orient : str {'dict', 'list', 'series', 'split', 'tight', 'records', 'index'}
+            Determines the type of the values of the dictionary.
+            See pandas DataFrame.to_dict() for details.
+
+        into : class, default dict
+            The collections.abc.MutableMapping subclass used for all Mappings.
+
+        index : bool, default True
+            Whether to include the index item.
 
         Returns:
-            List of dicts where keys are column names
+            dict, list or collections.abc.MutableMapping
         """
         try:
             if isinstance(self._data, pd.DataFrame):
-                return self._data.to_dict('records')
+                return self._data.to_dict(orient=orient, into=into, index=index)
         except Exception:
             pass
 
-        # Fallback to legacy method
+        # Fallback to legacy method - only supports records format
+        if orient != 'records':
+            raise ValueError(f"orient='{orient}' not supported in fallback mode, only 'records' is supported")
         rows = self.rows
         if not rows:
             return []

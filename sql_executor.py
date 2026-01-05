@@ -219,6 +219,7 @@ class ExtractedClauses:
     limit_value: Optional[int] = None
     offset_value: Optional[int] = None
     select_fields: List[Expression] = field(default_factory=list)
+    empty_column_select: bool = False
 
     def has_orderby(self) -> bool:
         """Check if ORDER BY is present."""
@@ -291,7 +292,15 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
         elif op.op_type == 'OFFSET':
             result.offset_value = op.offset_value
 
-        elif op.op_type == 'SELECT' and op.fields:
+        elif op.op_type == 'SELECT':
+            # Handle empty column selection (fields=[]) - return empty DataFrame
+            if op.fields is not None and len(op.fields) == 0:
+                result.select_fields = []  # Empty select
+                result.empty_column_select = True
+                continue
+
+            if not op.fields:
+                continue
             # Check if this SELECT includes '*' (add computed columns mode)
             # or is explicit column selection (replace mode)
             has_star = any(f == '*' for f in op.fields if isinstance(f, str))
@@ -375,6 +384,7 @@ def build_groupby_select_fields(
     groupby_agg: LazyGroupByAgg,
     alias_renames: Dict[str, str] = None,
     all_columns: List[str] = None,
+    computed_columns: Dict[str, Expression] = None,
 ) -> Tuple[List[Field], List[Expression]]:
     """
     Build GROUP BY and SELECT fields from a LazyGroupByAgg operation.
@@ -385,6 +395,8 @@ def build_groupby_select_fields(
         groupby_agg: LazyGroupByAgg operation
         alias_renames: Dict for alias conflict resolution
         all_columns: All column names (needed for count() to generate COUNT(col) per column)
+        computed_columns: Dict mapping computed column names to their expressions
+                          (for expanding assign() columns in aggregations)
 
     Returns:
         Tuple of (groupby_fields, select_fields)
@@ -392,6 +404,13 @@ def build_groupby_select_fields(
     from .functions import AggregateFunction
 
     alias_renames = alias_renames or {}
+    computed_columns = computed_columns or {}
+
+    def resolve_column(col_name: str) -> Expression:
+        """Resolve column name - return expression if computed column, else Field."""
+        if col_name in computed_columns:
+            return computed_columns[col_name]
+        return Field(col_name)
 
     # Build GROUP BY fields
     groupby_fields = [Field(col) for col in groupby_agg.groupby_cols]
@@ -412,10 +431,12 @@ def build_groupby_select_fields(
             else:
                 final_alias = alias
 
-            agg_expr = AggregateFunction(sql_func, Field(col), alias=final_alias)
+            # Resolve column - may be a computed column from assign()
+            col_expr = resolve_column(col)
+            agg_expr = AggregateFunction(sql_func, col_expr, alias=final_alias)
             select_fields.append(agg_expr)
 
-    elif groupby_agg.agg_dict:
+    elif groupby_agg.agg_dict is not None and isinstance(groupby_agg.agg_dict, dict):
         # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
         # Determine if we need compound aliases (col_func) to avoid duplicates
         has_multi_col = len(groupby_agg.agg_dict) > 1
@@ -468,7 +489,9 @@ def build_groupby_select_fields(
                 if temp_alias in alias_renames:
                     alias = temp_alias
 
-                agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
+                # Resolve column - may be a computed column from assign()
+                col_expr = resolve_column(col)
+                agg_expr = AggregateFunction(sql_func, col_expr, alias=alias)
                 select_fields.append(agg_expr)
 
     elif groupby_agg.agg_func:
@@ -490,7 +513,9 @@ def build_groupby_select_fields(
                     alias = temp_alias
                 else:
                     alias = col
-                agg_expr = AggregateFunction(sql_func, Field(col), alias=alias)
+                # Resolve column - may be a computed column from assign()
+                col_expr = resolve_column(col)
+                agg_expr = AggregateFunction(sql_func, col_expr, alias=alias)
                 select_fields.append(agg_expr)
         else:
             # Fallback: if we don't know columns, use COUNT(*) for count, otherwise skip
@@ -655,8 +680,23 @@ class SQLExecutionEngine:
 
         return sql
 
-    def _wrap_with_layer(self, inner_sql: str, clauses: ExtractedClauses, layer_idx: int) -> str:
-        """Wrap an inner SQL query with an outer layer."""
+    def _wrap_with_layer(
+        self,
+        inner_sql: str,
+        clauses: ExtractedClauses,
+        layer_idx: int,
+        preserved_orderby: List[Tuple[Any, bool]] = None,
+        preserved_orderby_kind: str = None,
+    ) -> str:
+        """Wrap an inner SQL query with an outer layer.
+
+        Args:
+            inner_sql: The inner SQL query to wrap
+            clauses: Clauses to apply in this layer
+            layer_idx: Index of this layer (for alias naming)
+            preserved_orderby: ORDER BY from inner layers to preserve result ordering
+            preserved_orderby_kind: Sort kind (for stable sort detection)
+        """
         outer_parts = ["SELECT *"]
         outer_parts.append(f"FROM ({inner_sql}) AS __subq{layer_idx}__")
 
@@ -666,9 +706,14 @@ class SQLExecutionEngine:
                 combined = combined & cond
             outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        if clauses.orderby_fields:
+        # Use layer's ORDER BY if present, otherwise use preserved ORDER BY from inner layers
+        # This ensures patterns like (ORDER BY + LIMIT) + WHERE maintain consistent row ordering
+        orderby_to_use = clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
+        orderby_kind_to_use = clauses.orderby_kind if clauses.orderby_fields else preserved_orderby_kind
+
+        if orderby_to_use:
             orderby_sql = build_orderby_clause(
-                clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+                orderby_to_use, self.quote_char, stable=is_stable_sort(orderby_kind_to_use)
             )
             outer_parts.append(f"ORDER BY {orderby_sql}")
 
@@ -1042,8 +1087,10 @@ class SQLExecutionEngine:
         if groupby_agg_op:
             # Get all columns for count() to generate COUNT(col) per column
             all_cols = self.ds._get_all_column_names() if hasattr(self.ds, '_get_all_column_names') else None
+            # Get computed columns for expanding assign() columns in aggregations
+            computed_cols = getattr(self.ds, '_computed_columns', None) or {}
             groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(
-                groupby_agg_op, alias_renames, all_columns=all_cols
+                groupby_agg_op, alias_renames, all_columns=all_cols, computed_columns=computed_cols
             )
             if groupby_agg_op.sort and not clauses.orderby_fields:
                 clauses.orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
@@ -1177,10 +1224,28 @@ class SQLExecutionEngine:
             having_condition=self.ds._having_condition,
         )
 
+        # Track ORDER BY from inner layers to preserve sort order in final result
+        # When we have patterns like ORDER BY + LIMIT + WHERE, the inner ORDER BY
+        # must be applied to the final result to maintain consistent row ordering
+        preserved_orderby = inner_clauses.orderby_fields
+        preserved_orderby_kind = inner_clauses.orderby_kind
+
         # Wrap with outer layers
         for layer_idx, layer_ops in enumerate(layers[1:], 1):
             layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
-            sql = self._wrap_with_layer(sql, layer_clauses, layer_idx)
+
+            # If this layer has ORDER BY, use it; otherwise preserve from inner
+            if layer_clauses.orderby_fields:
+                preserved_orderby = layer_clauses.orderby_fields
+                preserved_orderby_kind = layer_clauses.orderby_kind
+
+            sql = self._wrap_with_layer(
+                sql,
+                layer_clauses,
+                layer_idx,
+                preserved_orderby=preserved_orderby,
+                preserved_orderby_kind=preserved_orderby_kind,
+            )
 
         return sql
 
@@ -1241,7 +1306,8 @@ class SQLExecutionEngine:
         if select_fields:
             fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
             # Check if we need to prepend '*' (SELECT *, computed_col)
-            if self.ds._select_star:
+            # IMPORTANT: Don't use SELECT * with GROUP BY - only groupby columns and aggregates are valid
+            if self.ds._select_star and not groupby_fields:
                 parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
             else:
                 parts.append(f"SELECT {distinct_keyword}{fields_sql}")
@@ -1342,6 +1408,13 @@ class SQLExecutionEngine:
         executor = get_executor()
         result_df = executor.query_dataframe(sql, df, '__df__')
 
+        # Handle empty column selection: return DataFrame with 0 columns but correct row count
+        if getattr(plan, '_empty_column_select', False):
+            # Remove __row_idx__ and return empty column DataFrame
+            result_df = result_df.drop(columns=['__row_idx__'], errors='ignore')
+            # Return DataFrame with correct index but no columns
+            return result_df[[]]
+
         # Handle GroupBy SQL pushdown: set group keys as index
         # Exception: when as_index=False, keep columns as regular columns (matching Pandas behavior)
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
@@ -1363,7 +1436,7 @@ class SQLExecutionEngine:
         # Convert flat column names to MultiIndex for pandas compatibility
         # (when using agg_dict with multiple functions per column)
         # Skip for single_column_agg which should return flat column names
-        if plan.groupby_agg and plan.groupby_agg.agg_dict:
+        if plan.groupby_agg and plan.groupby_agg.agg_dict is not None and isinstance(plan.groupby_agg.agg_dict, dict):
             is_single_col_agg = getattr(plan.groupby_agg, 'single_column_agg', False)
             if not is_single_col_agg:
                 col_rename_map = {}
@@ -1431,8 +1504,10 @@ class SQLExecutionEngine:
         if plan.groupby_agg:
             # Pass all_columns for count() to generate COUNT(col) per column
             df_columns = [c for c in df.columns if c != '__row_idx__']
+            # Get computed columns for expanding assign() columns in aggregations
+            computed_cols = getattr(self.ds, '_computed_columns', None) or {}
             groupby_fields, select_fields = build_groupby_select_fields(
-                plan.groupby_agg, plan.alias_renames, all_columns=df_columns
+                plan.groupby_agg, plan.alias_renames, all_columns=df_columns, computed_columns=computed_cols
             )
 
         # Track temp alias mapping for where_ops (CASE WHEN)
@@ -1453,15 +1528,25 @@ class SQLExecutionEngine:
                 where_temp_alias_map[temp_alias] = col
 
         # Determine SELECT clause
-        # Priority: CASE WHEN/GroupBy fields -> explicit column selection -> *
-        if select_fields:
+        # Priority: empty column select -> CASE WHEN/GroupBy fields -> explicit column selection -> *
+        if clauses.empty_column_select:
+            # Empty column selection: df[[]] - return DataFrame with 0 columns
+            # We still need __row_idx__ for row tracking, but it will be removed post-query
+            select_sql = '"__row_idx__"'
+            # Mark that we want to return empty columns (handled in post-processing)
+            plan._empty_column_select = True
+        elif select_fields:
             select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
             if not groupby_fields:
                 select_sql += ', "__row_idx__"'
         elif clauses.select_fields:
             fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
             # Check if SELECT * was specified (need all original columns + computed columns)
-            if self.ds._select_star:
+            # But only add '*' if clauses.select_fields doesn't already contain explicit column
+            # selections (Field objects). If there are Field objects, they represent the columns
+            # from a previous column selection operation and '*' should not be added.
+            has_explicit_columns = any(isinstance(f, Field) for f in clauses.select_fields)
+            if self.ds._select_star and not has_explicit_columns:
                 select_sql = '*, ' + fields_sql
             else:
                 select_sql = fields_sql
@@ -1568,12 +1653,13 @@ class SQLExecutionEngine:
         Build nested subquery SQL for DataFrame execution with multiple layers.
 
         Each layer becomes a subquery wrapping the previous one:
-        Layer 0: SELECT * FROM __df__ WHERE value > 20 ORDER BY __row_idx__ LIMIT 30
-        Layer 1: SELECT * FROM (layer0) WHERE value > 60 ORDER BY __row_idx__ LIMIT 10
-        Layer 2: SELECT * FROM (layer1) WHERE value > 75
+        Layer 0: SELECT * FROM __df__ WHERE value > 20 ORDER BY a DESC LIMIT 30
+        Layer 1: SELECT * FROM (layer0) WHERE value > 60 ORDER BY a DESC LIMIT 10
+        Layer 2: SELECT * FROM (layer1) WHERE value > 75 ORDER BY a DESC
 
-        ORDER BY __row_idx__ is automatically added when LIMIT/OFFSET is present
-        without explicit ORDER BY to ensure deterministic results matching pandas semantics.
+        ORDER BY from inner layers is preserved in outer layers to maintain consistent
+        row ordering after filters. This ensures patterns like
+        df.sort_values('a').head(7)[df['a'] > 4] return rows in the sorted order.
 
         Args:
             layers: List of operation layers from QueryPlan
@@ -1586,16 +1672,32 @@ class SQLExecutionEngine:
         # add_row_order=True ensures LIMIT/OFFSET with no explicit ORDER BY gets ORDER BY __row_idx__
         sql = self._assemble_simple_sql("__df__", inner_clauses, add_row_order=True)
 
+        # Track ORDER BY from inner layer to preserve in outer layers
+        preserved_orderby = inner_clauses.orderby_fields
+
         # Wrap with outer layers
         for layer_idx, layer_ops in enumerate(layers[1:], 1):
             layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
             subq_alias = f"__subq{layer_idx}__"
+
+            # If this layer has ORDER BY, use it; otherwise preserve from inner layers
+            if layer_clauses.orderby_fields:
+                preserved_orderby = layer_clauses.orderby_fields
+
             # Each layer also needs deterministic ordering for LIMIT/OFFSET
-            sql = self._assemble_simple_sql(f"({sql}) AS {subq_alias}", layer_clauses, add_row_order=True)
+            sql = self._assemble_simple_sql(
+                f"({sql}) AS {subq_alias}", layer_clauses, add_row_order=True, preserved_orderby=preserved_orderby
+            )
 
         return sql
 
-    def _assemble_simple_sql(self, from_source: str, clauses: ExtractedClauses, add_row_order: bool = False) -> str:
+    def _assemble_simple_sql(
+        self,
+        from_source: str,
+        clauses: ExtractedClauses,
+        add_row_order: bool = False,
+        preserved_orderby: List[Tuple[Any, bool]] = None,
+    ) -> str:
         """
         Assemble a simple SQL query from a source and clauses.
 
@@ -1604,6 +1706,7 @@ class SQLExecutionEngine:
             clauses: Extracted SQL clauses
             add_row_order: If True and there's LIMIT/OFFSET without explicit ORDER BY,
                            add ORDER BY __row_idx__ to preserve pandas-like row order
+            preserved_orderby: ORDER BY fields from inner layers to preserve sort order
 
         Returns:
             SQL query string
@@ -1617,9 +1720,12 @@ class SQLExecutionEngine:
                 combined = combined & cond
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        # Add ORDER BY - either explicit or for LIMIT/OFFSET determinism
-        if clauses.orderby_fields:
-            orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+        # Add ORDER BY - either explicit, preserved from inner, or for LIMIT/OFFSET determinism
+        # Priority: explicit ORDER BY > preserved ORDER BY > __row_idx__ fallback
+        orderby_to_use = clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
+
+        if orderby_to_use:
+            orderby_sql = build_orderby_clause(orderby_to_use, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
         elif add_row_order and (clauses.limit_value is not None or clauses.offset_value is not None):
             # Add ORDER BY __row_idx__ for LIMIT/OFFSET without explicit ORDER BY

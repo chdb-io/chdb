@@ -23,7 +23,8 @@ class LazyOp(ABC):
     Each operation knows how to:
     1. Describe itself (for explain())
     2. Execute itself on a DataFrame
-    3. Optimize itself (future)
+    3. Transform column list (for column tracking)
+    4. Optimize itself (future)
     """
 
     def __init__(self):
@@ -67,6 +68,23 @@ class LazyOp(ABC):
         """
         return 'Pandas'  # Default: most LazyOps use Pandas
 
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """
+        Transform a column list based on this operation's effect.
+
+        This allows tracking column changes through the lazy op chain without
+        executing the operations. Used by _ensure_sql_source() and other
+        methods that need to know the current column state.
+
+        Args:
+            columns: Current list of column names
+
+        Returns:
+            New list of column names after this operation would be applied.
+            Default implementation returns columns unchanged.
+        """
+        return columns
+
     def _log_execute(self, op_name: str, details: str = None, prefix: str = "Pandas"):
         """Log operation execution at DEBUG level with indentation."""
         if details:
@@ -87,6 +105,12 @@ class LazyColumnAssignment(LazyOp):
         super().__init__()
         self.column = column
         self.expr = expr
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Add the assigned column if it doesn't exist."""
+        if self.column not in columns:
+            return columns + [self.column]
+        return columns
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute column assignment using unified ExpressionEvaluator."""
@@ -224,6 +248,10 @@ class LazyColumnSelection(LazyOp):
         super().__init__()
         self.columns = columns
 
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Return only the selected columns (preserving order)."""
+        return [c for c in self.columns if c in columns or c in self.columns]
+
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("ColumnSelection", f"columns={self.columns}")
         result = df[self.columns]
@@ -245,6 +273,10 @@ class LazyDropColumns(LazyOp):
         super().__init__()
         self.columns = columns
 
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Remove the dropped columns."""
+        return [c for c in columns if c not in self.columns]
+
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("DropColumns", f"columns={self.columns}")
         result = df.drop(columns=self.columns)
@@ -256,15 +288,46 @@ class LazyDropColumns(LazyOp):
 
 
 class LazyRenameColumns(LazyOp):
-    """Rename columns: df.rename(columns={...})"""
+    """Rename columns: df.rename(columns={...})
+
+    Handles both regular columns and MultiIndex columns.
+    For MultiIndex columns, pd.rename() doesn't work with tuple->string mappings,
+    so we use direct column assignment instead.
+    """
 
     def __init__(self, mapping: Dict[str, str]):
         super().__init__()
         self.mapping = mapping
 
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Apply the rename mapping to column names."""
+        return [self.mapping.get(c, c) for c in columns]
+
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("RenameColumns", f"mapping={self.mapping}")
-        result = df.rename(columns=self.mapping)
+
+        # Check if we have MultiIndex columns that need renaming to flat strings
+        # This happens when user does: ds.columns = ['flat_name1', 'flat_name2', ...]
+        # after a groupby().agg() which creates MultiIndex columns
+        has_multiindex_to_flat = any(
+            isinstance(old, tuple) and isinstance(new, str) for old, new in self.mapping.items()
+        )
+
+        if has_multiindex_to_flat:
+            # For MultiIndex -> flat string renaming, we need direct assignment
+            # because pd.rename() doesn't handle tuple->string mapping
+            new_columns = []
+            for col in df.columns:
+                if col in self.mapping:
+                    new_columns.append(self.mapping[col])
+                else:
+                    new_columns.append(col)
+            result = df.copy()
+            result.columns = new_columns
+        else:
+            # Standard rename for regular columns
+            result = df.rename(columns=self.mapping)
+
         self._logger.debug("      -> New columns: %s", list(result.columns))
         return result
 
@@ -279,6 +342,10 @@ class LazyAddPrefix(LazyOp):
     def __init__(self, prefix: str):
         super().__init__()
         self.prefix = prefix
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Add prefix to all column names."""
+        return [f"{self.prefix}{c}" for c in columns]
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("AddPrefix", f"prefix='{self.prefix}'")
@@ -296,6 +363,10 @@ class LazyAddSuffix(LazyOp):
     def __init__(self, suffix: str):
         super().__init__()
         self.suffix = suffix
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Add suffix to all column names."""
+        return [f"{c}{self.suffix}" for c in columns]
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         self._log_execute("AddSuffix", f"suffix='{self.suffix}'")
@@ -446,6 +517,24 @@ class LazyRelationalOp(LazyOp):
         self.limit_value = limit_value
         self.offset_value = offset_value
         self.kind = kind
+
+    def transform_columns(self, columns: List[str]) -> List[str]:
+        """Transform columns based on the operation type."""
+        if self.op_type == 'SELECT' and self.fields:
+            # SELECT operation: return only selected columns
+            selected = []
+            for f in self.fields:
+                if isinstance(f, str):
+                    if f != '*':
+                        selected.append(f)
+                elif hasattr(f, 'name'):
+                    # Field object - strip quotes from name
+                    name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
+                    selected.append(name)
+            # If we got specific columns, return them; otherwise return all
+            return selected if selected else columns
+        # Other operations (WHERE, ORDER BY, LIMIT, OFFSET) don't change columns
+        return columns
 
     # Map SQL op_type to pandas terminology for logging
     _PANDAS_OP_NAMES = {
@@ -747,9 +836,12 @@ class LazyGroupByAgg(LazyOp):
         """
         Check if this GroupByAgg can be pushed to SQL.
 
-        All aggregation modes (named_agg, agg_dict, agg_func) can be pushed to SQL.
-        The SQL execution engine converts them to appropriate SQL syntax.
+        Most aggregation modes can be pushed to SQL, except:
+        - agg_dict is a list (e.g., ['sum', 'mean', 'count']) which needs pandas
         """
+        # List format agg (e.g., agg(['sum', 'mean'])) needs pandas
+        if self.agg_dict is not None and isinstance(self.agg_dict, list):
+            return False
         return True
 
     def execution_engine(self) -> str:
@@ -1596,4 +1688,148 @@ class LazyUnion(LazyOp):
         return 'Pandas'
 
 
-# Add more operations as needed...
+class LazyBooleanMask(LazyOp):
+    """
+    Lazy boolean mask filtering operation.
+
+    Implements pandas-style boolean mask indexing: df[[True, False, True, ...]]
+    This filters rows based on a list of boolean values.
+
+    Examples:
+        ds[[True, True, False]]  # Keep first two rows, drop third
+        ds[[False, True, True, False]]  # Keep rows at indices 1 and 2
+    """
+
+    def __init__(self, mask: list):
+        """
+        Args:
+            mask: List of boolean values. Length must match DataFrame row count.
+        """
+        super().__init__()
+        self.mask = mask
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute boolean mask filtering using pandas loc."""
+        self._log_execute("BooleanMask", f"mask length={len(self.mask)}")
+        rows_before = len(df)
+
+        # Use pandas boolean indexing (preserves original index like pandas)
+        result = df[self.mask]
+
+        self._logger.debug("      -> df[mask]: %d -> %d rows", rows_before, len(result))
+        return result
+
+    def describe(self) -> str:
+        mask_len = len(self.mask)
+        true_count = sum(self.mask)
+        return f"Boolean mask filter ({true_count}/{mask_len} rows selected)"
+
+    def can_push_to_sql(self) -> bool:
+        """Boolean mask cannot be pushed to SQL."""
+        return False
+
+
+class LazySliceStep(LazyOp):
+    """
+    Lazy slice operation with step support.
+
+    Implements pandas-style slice with step: df[start:stop:step]
+    This is implemented via SQL using ROW_NUMBER() for efficiency.
+
+    Examples:
+        ds[::2]       # Every 2nd row (step=2, start=0)
+        ds[1::2]      # Every 2nd row starting at index 1
+        ds[::3]       # Every 3rd row
+        ds[1:8:2]     # Rows 1,3,5,7 (from 1 to 8, step 2)
+        ds[::-1]      # Reverse order (all rows, reversed)
+        ds[8:2:-2]    # Rows 8,6,4 (reverse with step)
+    """
+
+    def __init__(self, start: int = None, stop: int = None, step: int = 1):
+        """
+        Args:
+            start: Start index (0-based, inclusive). None means 0 for positive step, -1 for negative.
+            stop: Stop index (0-based, exclusive). None means end for positive step, beginning for negative.
+            step: Step size. Positive for forward, negative for reverse.
+        """
+        super().__init__()
+        self.start = start
+        self.stop = stop
+        self.step = step
+
+    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+        """Execute slice with step using pandas iloc."""
+        self._log_execute("SliceStep", f"start={self.start}, stop={self.stop}, step={self.step}")
+        rows_before = len(df)
+
+        # Use pandas iloc for slicing with step
+        result = df.iloc[self.start : self.stop : self.step]
+
+        self._logger.debug(
+            "      -> df.iloc[%s:%s:%s]: %d -> %d rows", self.start, self.stop, self.step, rows_before, len(result)
+        )
+        return result
+
+    def describe(self) -> str:
+        start_str = "" if self.start is None else str(self.start)
+        stop_str = "" if self.stop is None else str(self.stop)
+        step_str = "" if self.step is None or self.step == 1 else str(self.step)
+
+        if step_str:
+            return f"Slice [{start_str}:{stop_str}:{step_str}]"
+        elif start_str or stop_str:
+            return f"Slice [{start_str}:{stop_str}]"
+        else:
+            return "Slice [:]"
+
+    def can_push_to_sql(self) -> bool:
+        """
+        Slice with step can be pushed to SQL using ROW_NUMBER().
+
+        For positive step: WHERE (row_num - start) % step = 0 AND row_num >= start AND row_num < stop
+        For negative step: More complex, requires reversing and then applying step
+        """
+        # Only push simple positive step to SQL for now
+        # Negative step (reverse) is more complex and pandas handles it well
+        return self.step is not None and self.step > 0
+
+    def execution_engine(self) -> str:
+        if self.can_push_to_sql():
+            return 'chDB'
+        return 'Pandas'
+
+    def to_sql_condition(self, row_num_col: str = '__row_num__') -> str:
+        """
+        Generate SQL WHERE condition for step slicing.
+
+        Args:
+            row_num_col: Name of the row number column (0-based)
+
+        Returns:
+            SQL WHERE condition string
+        """
+        conditions = []
+        step = self.step if self.step else 1
+
+        if step > 0:
+            # Forward slicing
+            start = self.start if self.start is not None else 0
+
+            # Rows where (row_num - start) % step = 0
+            if step > 1:
+                conditions.append(f"({row_num_col} - {start}) % {step} = 0")
+
+            # row_num >= start
+            if start > 0:
+                conditions.append(f"{row_num_col} >= {start}")
+
+            # row_num < stop
+            if self.stop is not None:
+                conditions.append(f"{row_num_col} < {self.stop}")
+
+        else:
+            # Negative step - handled by pandas execution
+            # This method shouldn't be called for negative step
+            pass
+
+        return " AND ".join(conditions) if conditions else "1=1"

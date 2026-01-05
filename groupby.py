@@ -74,6 +74,30 @@ class LazyGroupBy:
         """Get the groupby fields."""
         return self._groupby_fields
 
+    @property
+    def ngroups(self) -> int:
+        """
+        Return the number of groups.
+
+        Returns:
+            int: Number of unique groups based on groupby keys.
+
+        Example:
+            >>> df.groupby('category').ngroups
+            3
+        """
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Execute the underlying datastore and get unique count
+        df = self._datastore._get_df()
+        return df.groupby(groupby_cols, sort=self._sort).ngroups
+
     def __getitem__(self, key: Union[str, List[str]]) -> 'ColumnExpr':
         """
         Access a column or columns for aggregation.
@@ -92,8 +116,15 @@ class LazyGroupBy:
         if isinstance(key, str):
             # Single column - return ColumnExpr with groupby fields attached
             # This avoids polluting _datastore._groupby_fields which would affect to_df()
+            # Also pass as_index and sort parameters for proper aggregation behavior
             field = Field(key)
-            return ColumnExpr(field, self._datastore, groupby_fields=self._groupby_fields.copy())
+            return ColumnExpr(
+                field,
+                self._datastore,
+                groupby_fields=self._groupby_fields.copy(),
+                groupby_as_index=self._as_index,
+                groupby_sort=self._sort,
+            )
 
         elif isinstance(key, list):
             # Multiple columns - return new GroupBy with column selection
@@ -307,6 +338,88 @@ class LazyGroupBy:
     def last(self) -> 'DataStore':
         """Return last value in each group. Returns lazy DataStore."""
         return self._apply_agg('last')
+
+    def cumcount(self, ascending: bool = True) -> 'LazySeries':
+        """
+        Number each item in each group from 0 to the length of that group - 1.
+
+        Essentially this is equivalent to:
+            self.apply(lambda x: pd.Series(np.arange(len(x)), x.index))
+
+        Args:
+            ascending: If True (default), count from 0 to len(group)-1.
+                      If False, count from len(group)-1 to 0.
+
+        Returns:
+            LazySeries: Series with index matching the original DataFrame.
+
+        Example:
+            >>> df.groupby('category').cumcount()
+            0    0
+            1    1
+            2    0
+            3    2
+            4    1
+            5    2
+            dtype: int64
+        """
+        from .lazy_result import LazySeries
+
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Capture datastore, cols, and ascending for closure
+        ds = self._datastore
+        cols = groupby_cols
+        asc = ascending
+
+        def executor():
+            # Execute underlying datastore and use pandas groupby.cumcount
+            df = ds._get_df()
+            return df.groupby(cols).cumcount(ascending=asc)
+
+        return LazySeries(executor=executor, datastore=ds)
+
+    def pipe(self, func, *args, **kwargs):
+        """
+        Apply a function to this GroupBy object.
+
+        Pipe enables method chaining by passing the GroupBy object as the
+        first argument to func.
+
+        Args:
+            func: Function to apply to this GroupBy object.
+                  Should accept a GroupBy object as its first argument.
+            *args: Positional arguments passed to func.
+            **kwargs: Keyword arguments passed to func.
+
+        Returns:
+            The return value of func.
+
+        Example:
+            >>> def summary(grp):
+            ...     return grp.agg({'value': ['mean', 'sum']})
+            >>> df.groupby('category').pipe(summary)
+        """
+        # Get groupby column names
+        groupby_cols = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_cols.append(gf.name)
+            else:
+                groupby_cols.append(str(gf))
+
+        # Execute underlying datastore and create pandas GroupBy
+        df = self._datastore._get_df()
+        pandas_grp = df.groupby(groupby_cols, sort=self._sort)
+
+        # Apply the function to the pandas GroupBy
+        return func(pandas_grp, *args, **kwargs)
 
     def nth(self, n: Union[int, List[int]], dropna: str = None) -> 'DataStore':
         """
