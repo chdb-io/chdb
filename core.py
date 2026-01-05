@@ -4327,7 +4327,7 @@ class DataStore(PandasCompatMixin):
         self._alias = alias
         self._is_subquery = True
 
-    def __getitem__(self, key: Union[int, slice, str, List[str]]) -> 'DataStore':
+    def __getitem__(self, key: Union[int, slice, str, List[str]]) -> Union['DataStore', 'ColumnExpr', Any]:
         """
         Support various indexing operations for lazy evaluation.
 
