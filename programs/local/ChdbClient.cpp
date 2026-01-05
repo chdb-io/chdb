@@ -35,6 +35,7 @@ ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
     if (!server)
         throw Exception(ErrorCodes::LOGICAL_ERROR, "EmbeddedServer pointer is null");
 
+    query_kind = ClientInfo::QueryKind::INITIAL_QUERY;
     configuration = ConfigHelper::createEmpty();
     layered_configuration = new Poco::Util::LayeredConfiguration();
     layered_configuration->addWriteable(configuration, 0);

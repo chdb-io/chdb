@@ -48,8 +48,12 @@ class myThread(threading.Thread):
 
 def print_chdb(threadName, delay):
     global result
-    result = chdb.query(query_str, 'CSV')
-    print(result)
+    try:
+        result = chdb.query(query_str, 'CSV')
+    except Exception as e:
+        print(f"[{threadName}] Exception: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
     time.sleep(delay)
     print("%s: %s" % (threadName, time.ctime(time.time())))
 
