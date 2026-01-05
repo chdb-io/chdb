@@ -56,6 +56,7 @@
 #include <Common/Config/getLocalConfigPath.h>
 #include <Common/CurrentMetrics.h>
 #include <Common/ErrorHandlers.h>
+#include <Common/EventNotifier.h>
 #include <Common/Exception.h>
 #include <Common/Macros.h>
 #include <Common/NamedCollections/NamedCollectionsFactory.h>
@@ -393,6 +394,7 @@ void EmbeddedServer::cleanup()
 {
     try
     {
+        EventNotifier::shutdown();
         if (global_context)
         {
             global_context->shutdown();
@@ -876,15 +878,15 @@ void EmbeddedServer::applyCmdOptions(ContextMutablePtr context)
             "output-format", config().getString("format",  "TSV")));
 }
 
-std::weak_ptr<EmbeddedServer> EmbeddedServer::global_instance;
+std::shared_ptr<EmbeddedServer> EmbeddedServer::global_instance;
 std::mutex EmbeddedServer::instance_mutex;
+size_t EmbeddedServer::client_ref_count = 0;
 
 std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** argv)
 {
     std::lock_guard<std::mutex> lock(instance_mutex);
 
-    auto instance = global_instance.lock();
-    if (instance)
+    if (global_instance)
     {
         if (argc > 0 && argv)
         {
@@ -897,31 +899,46 @@ std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** ar
                     break;
                 }
             }
-            if (!instance->db_path.empty() && instance->db_path != path)
+            if (!global_instance->db_path.empty() && global_instance->db_path != path)
             {
                 throw DB::Exception(
                     ErrorCodes::BAD_ARGUMENTS,
                     "EmbeddedServer already initialized with path '{}', cannot connect with different path '{}'",
-                    instance->db_path,
+                    global_instance->db_path,
                     path);
             }
         }
-        return instance;
+        ++client_ref_count;
+        return global_instance;
     }
 
-    instance = std::make_shared<EmbeddedServer>();
+    global_instance = std::make_shared<EmbeddedServer>();
     if (argc == 0 || !argv)
     {
         const char * default_argv[] = {"chdb"};
-        instance->initializeWithArgs(1, const_cast<char **>(default_argv));
+        global_instance->initializeWithArgs(1, const_cast<char **>(default_argv));
     }
     else
     {
-        instance->initializeWithArgs(argc, argv);
+        global_instance->initializeWithArgs(argc, argv);
     }
 
-    global_instance = instance;
-    return instance;
+    client_ref_count = 1;
+    return global_instance;
+}
+
+void EmbeddedServer::releaseInstance()
+{
+    std::lock_guard<std::mutex> lock(instance_mutex);
+
+    if (client_ref_count == 0)
+        return;
+
+    --client_ref_count;
+    if (client_ref_count == 0)
+    {
+        global_instance.reset();
+    }
 }
 
 void EmbeddedServer::initializeWithArgs(int argc, char ** argv)
