@@ -4049,8 +4049,16 @@ class ColumnExprStringAccessor:
             >>> ds['text'].str.split('-')  # Returns Series of arrays
             >>> ds['text'].str.split('-', expand=True)  # Returns DataFrame
         """
-        if expand:
-            # Use pandas fallback for expand=True
+        from .function_executor import function_config
+        from .config import get_logger
+
+        _logger = get_logger()
+
+        # Check if pandas fallback is needed based on parameters
+        if function_config.needs_accessor_fallback('str.split', expand=expand):
+            reason = function_config.get_accessor_fallback_reason('str.split', expand=expand)
+            _logger.debug("[Accessor] %s", reason)
+
             col_expr = self._column_expr
 
             def executor():
@@ -4059,6 +4067,7 @@ class ColumnExprStringAccessor:
 
             return ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
         else:
+            _logger.debug("[Accessor] str.split -> chDB SQL")
             # Use SQL-based split (returns array)
             result = self._base_accessor.split(pat, alias=None)
             return ColumnExpr(result, self._column_expr._datastore)
@@ -4081,6 +4090,13 @@ class ColumnExprStringAccessor:
         Example:
             >>> ds['text'].str.extract(r'([a-z]+)_(\\d+)')  # Returns DataFrame
         """
+        from .function_executor import function_config
+        from .config import get_logger
+
+        _logger = get_logger()
+        reason = function_config.get_accessor_fallback_reason('str.extract')
+        _logger.debug("[Accessor] %s", reason)
+
         col_expr = self._column_expr
 
         def executor():
@@ -4105,6 +4121,13 @@ class ColumnExprStringAccessor:
         Example:
             >>> ds['text'].str.extractall(r'([a-z])(\\d)')
         """
+        from .function_executor import function_config
+        from .config import get_logger
+
+        _logger = get_logger()
+        reason = function_config.get_accessor_fallback_reason('str.extractall')
+        _logger.debug("[Accessor] %s", reason)
+
         col_expr = self._column_expr
 
         def executor():
@@ -4127,6 +4150,13 @@ class ColumnExprStringAccessor:
         Example:
             >>> ds['text'].str.wrap(10)
         """
+        from .function_executor import function_config
+        from .config import get_logger
+
+        _logger = get_logger()
+        reason = function_config.get_accessor_fallback_reason('str.wrap')
+        _logger.debug("[Accessor] %s", reason)
+
         col_expr = self._column_expr
 
         def executor():

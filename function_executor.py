@@ -275,6 +275,57 @@ class FunctionExecutorConfig:
         'to_pytimedelta',
     }
 
+    # Accessor-level pandas fallback conditions
+    # Maps accessor.method -> condition dict
+    # Condition format:
+    #   {'param_name': specific_value} - fallback when param equals value
+    #   {'param_name': '*'} - always fallback regardless of param value
+    #   '*' - always uses pandas (no SQL implementation)
+    #
+    # This allows fine-grained control over when accessor methods use pandas
+    # based on specific parameter combinations.
+    #
+    # Use function_config.needs_accessor_fallback('str.split', expand=True) to check
+    ACCESSOR_PARAM_PANDAS_FALLBACK: Dict[str, Any] = {
+        # String accessor methods
+        'str.split': {'expand': True},  # expand=True returns DataFrame, needs pandas
+        'str.rsplit': {'expand': True},  # expand=True returns DataFrame, needs pandas
+        'str.extract': '*',  # regex extraction always needs pandas
+        'str.extractall': '*',  # multi-match extraction always needs pandas
+        'str.findall': '*',  # find all matches needs pandas
+        'str.wrap': '*',  # text wrapping needs pandas
+        'str.get': '*',  # character extraction needs pandas
+        'str.join': '*',  # array join needs pandas (chDB array type issues)
+        'str.cat': '*',  # string concatenation with others needs pandas
+        'str.partition': '*',  # split around separator needs pandas
+        'str.rpartition': '*',  # reverse split around separator needs pandas
+        'str.normalize': '*',  # unicode normalization needs pandas
+        'str.encode': '*',  # encoding needs pandas
+        'str.decode': '*',  # decoding needs pandas
+        'str.translate': '*',  # character translation needs pandas
+        # DateTime accessor methods
+        'dt.strftime': '*',  # format codes differ: Python %M=minute, chDB %M=month name
+        'dt.floor': '*',  # floor to frequency needs pandas
+        'dt.ceil': '*',  # ceil to frequency needs pandas
+        'dt.round': '*',  # round to frequency needs pandas
+        'dt.tz_localize': '*',  # timezone localization needs pandas
+        'dt.tz_convert': '*',  # timezone conversion needs pandas
+        'dt.to_period': '*',  # period conversion needs pandas
+        'dt.to_pydatetime': '*',  # datetime conversion needs pandas
+        'dt.normalize': '*',  # normalize time to midnight needs pandas
+        # DateTime properties that always need pandas
+        'dt.microsecond': '*',  # no direct chDB equivalent
+        'dt.nanosecond': '*',  # no direct chDB equivalent
+        'dt.days_in_month': '*',  # complex calculation
+        'dt.is_month_start': '*',  # boolean date property
+        'dt.is_month_end': '*',  # boolean date property
+        'dt.is_quarter_start': '*',  # boolean date property
+        'dt.is_quarter_end': '*',  # boolean date property
+        'dt.is_year_start': '*',  # boolean date property
+        'dt.is_year_end': '*',  # boolean date property
+        'dt.is_leap_year': '*',  # boolean date property
+    }
+
     # Alias mappings: maps user-facing names to canonical SQL function names
     # This allows users to configure using either name (e.g., 'mean' or 'avg')
     FUNCTION_ALIASES: Dict[str, str] = {
@@ -717,6 +768,99 @@ class FunctionExecutorConfig:
         """Check if a function is Pandas-only (no ClickHouse equivalent)."""
         return function_name.lower() in self.PANDAS_ONLY_FUNCTIONS
 
+    def needs_accessor_fallback(self, accessor_method: str, **kwargs) -> bool:
+        """
+        Check if an accessor method needs pandas fallback based on parameters.
+
+        Args:
+            accessor_method: The accessor method name (e.g., 'str.split', 'dt.strftime')
+            **kwargs: The parameters passed to the method
+
+        Returns:
+            True if pandas fallback is needed, False otherwise
+
+        Example:
+            >>> function_config.needs_accessor_fallback('str.split', expand=True)
+            True
+            >>> function_config.needs_accessor_fallback('str.split', expand=False)
+            False
+            >>> function_config.needs_accessor_fallback('str.extract')
+            True  # Always needs pandas
+        """
+        method_key = accessor_method.lower()
+
+        # Check if this method is in the fallback registry
+        if method_key not in self.ACCESSOR_PARAM_PANDAS_FALLBACK:
+            return False
+
+        condition = self.ACCESSOR_PARAM_PANDAS_FALLBACK[method_key]
+
+        # '*' means always use pandas
+        if condition == '*':
+            return True
+
+        # Dict means check specific parameter values
+        if isinstance(condition, dict):
+            for param_name, required_value in condition.items():
+                if param_name in kwargs:
+                    if required_value == '*':
+                        # Any value of this param triggers fallback
+                        return True
+                    elif kwargs[param_name] == required_value:
+                        # Specific value triggers fallback
+                        return True
+
+        return False
+
+    def get_accessor_fallback_reason(self, accessor_method: str, **kwargs) -> Optional[str]:
+        """
+        Get the reason why an accessor method needs pandas fallback.
+
+        Args:
+            accessor_method: The accessor method name (e.g., 'str.split', 'dt.strftime')
+            **kwargs: The parameters passed to the method
+
+        Returns:
+            Reason string if fallback is needed, None otherwise
+
+        Example:
+            >>> function_config.get_accessor_fallback_reason('str.split', expand=True)
+            'str.split with expand=True requires pandas (returns DataFrame)'
+        """
+        method_key = accessor_method.lower()
+
+        if method_key not in self.ACCESSOR_PARAM_PANDAS_FALLBACK:
+            return None
+
+        condition = self.ACCESSOR_PARAM_PANDAS_FALLBACK[method_key]
+
+        if condition == '*':
+            return f"'{accessor_method}' always requires pandas (no SQL implementation)"
+
+        if isinstance(condition, dict):
+            for param_name, required_value in condition.items():
+                if param_name in kwargs:
+                    if required_value == '*':
+                        return f"'{accessor_method}' with {param_name}={kwargs[param_name]} requires pandas"
+                    elif kwargs[param_name] == required_value:
+                        return f"'{accessor_method}' with {param_name}={required_value} requires pandas"
+
+        return None
+
+    def list_accessor_fallbacks(self) -> Dict[str, Any]:
+        """
+        Get a dictionary of all accessor fallback conditions.
+
+        Returns:
+            Dict mapping accessor.method to condition
+
+        Example:
+            >>> fallbacks = function_config.list_accessor_fallbacks()
+            >>> print(fallbacks['str.split'])
+            {'expand': True}
+        """
+        return dict(self.ACCESSOR_PARAM_PANDAS_FALLBACK)
+
     def has_pandas_implementation(self, function_name: str) -> bool:
         """Check if a Pandas implementation is available."""
         return function_name.lower() in self._pandas_implementations
@@ -788,6 +932,8 @@ class FunctionExecutorConfig:
             'custom_mappings': {k: v.value for k, v in self._function_engines.items()},
             'overlapping_functions': len(self.OVERLAPPING_FUNCTIONS),
             'pandas_implementations': len(self._pandas_implementations),
+            'pandas_only_functions': len(self.PANDAS_ONLY_FUNCTIONS),
+            'accessor_fallbacks': len(self.ACCESSOR_PARAM_PANDAS_FALLBACK),
         }
 
     def __repr__(self) -> str:
