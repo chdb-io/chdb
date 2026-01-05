@@ -913,14 +913,22 @@ std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** ar
     }
 
     global_instance = std::make_shared<EmbeddedServer>();
-    if (argc == 0 || !argv)
+    try
     {
-        const char * default_argv[] = {"chdb"};
-        global_instance->initializeWithArgs(1, const_cast<char **>(default_argv));
+        if (argc == 0 || !argv)
+        {
+            const char * default_argv[] = {"chdb"};
+            global_instance->initializeWithArgs(1, const_cast<char **>(default_argv));
+        }
+        else
+        {
+            global_instance->initializeWithArgs(argc, argv);
+        }
     }
-    else
+    catch (...)
     {
-        global_instance->initializeWithArgs(argc, argv);
+        global_instance.reset();
+        throw;
     }
 
     client_ref_count = 1;
