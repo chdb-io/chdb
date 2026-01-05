@@ -26,7 +26,7 @@ using EmbeddedServerPtr = std::shared_ptr<EmbeddedServer>;
 class ChdbClient : public ClientBase
 {
 public:
-    static std::unique_ptr<ChdbClient> create(EmbeddedServerPtr server_ptr = nullptr);
+    static std::unique_ptr<ChdbClient> create(EmbeddedServerPtr server_ptr);
 
     explicit ChdbClient(EmbeddedServerPtr server_ptr);
     ~ChdbClient() override;

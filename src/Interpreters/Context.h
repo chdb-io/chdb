@@ -541,7 +541,6 @@ protected:
     bool is_internal_query = false;
 
     inline static ContextPtr global_context_instance;
-    inline static ContextPtr database_context_instance;
 
     /// Temporary data for query execution accounting.
     TemporaryDataOnDiskScopePtr temp_data_on_disk;
