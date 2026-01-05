@@ -49,8 +49,9 @@ class SQLLayer:
 
     SQL Generation Strategy:
     - Uses SELECT * to preserve all original columns (unknown schema support)
-    - Computed columns are appended to SELECT
-    - Uses EXCEPT for column override scenarios
+    - When overriding columns with known_column_order, uses explicit column list
+      to preserve column order (replacing overridden columns in-place)
+    - Falls back to EXCEPT syntax only when column order is unknown
     - Supports explicit column selection for final output
 
     Attributes:
@@ -58,6 +59,7 @@ class SQLLayer:
         computed_columns: List of (column_name, expression) tuples
         except_columns: Columns to exclude from SELECT * (for override)
         explicit_columns: If set, use explicit column list instead of SELECT *
+        known_column_order: Original column order for preserving positions
         where_conditions: WHERE conditions
         orderby_fields: ORDER BY fields with ascending flags
         limit_value: LIMIT value
@@ -76,6 +78,9 @@ class SQLLayer:
 
     # Explicit column selection (if set, don't use SELECT *)
     explicit_columns: Optional[List[str]] = None
+
+    # Original column order for preserving positions during override
+    known_column_order: Optional[List[str]] = None
 
     # SQL clauses
     where_conditions: List[Condition] = field(default_factory=list)
@@ -147,9 +152,32 @@ class SQLLayer:
             for col in self.explicit_columns:
                 select_items.append(f'{quote_char}{col}{quote_char}')
         else:
-            # SELECT * mode
-            if self.except_columns:
-                # Has columns to exclude (column override scenario)
+            # Build computed column lookup for in-place replacement
+            computed_by_name = {name: expr for name, expr in self.computed_columns}
+
+            if self.except_columns and self.known_column_order:
+                # Use explicit column list to preserve order
+                # Replace overridden columns with their computed expressions in-place
+                for col in self.known_column_order:
+                    if col in computed_by_name:
+                        # This column is being overridden - use the expression
+                        expr = computed_by_name[col]
+                        expr_sql = expr.to_sql(quote_char=quote_char)
+                        select_items.append(f'({expr_sql}) AS {quote_char}{col}{quote_char}')
+                    else:
+                        # Original column - keep as-is
+                        select_items.append(f'{quote_char}{col}{quote_char}')
+
+                # Add any NEW computed columns (not in original order) at the end
+                for name, expr in self.computed_columns:
+                    if name not in self.known_column_order:
+                        expr_sql = expr.to_sql(quote_char=quote_char)
+                        select_items.append(f'({expr_sql}) AS {quote_char}{name}{quote_char}')
+
+                return select_items
+            elif self.except_columns:
+                # Fallback: use EXCEPT when column order is unknown
+                # Note: This may change column order
                 except_list = ', '.join(f'{quote_char}{c}{quote_char}' for c in sorted(self.except_columns))
                 select_items.append(f'* EXCEPT({except_list})')
             else:
@@ -193,6 +221,7 @@ class SQLLayer:
             computed_columns=list(self.computed_columns),
             except_columns=set(self.except_columns),
             explicit_columns=list(self.explicit_columns) if self.explicit_columns else None,
+            known_column_order=list(self.known_column_order) if self.known_column_order else None,
             where_conditions=list(self.where_conditions),
             orderby_fields=list(self.orderby_fields),
             limit_value=self.limit_value,
@@ -236,6 +265,9 @@ class SQLBuilder:
         self._alias_counter = 0
         self._known_columns = set(known_columns) if known_columns else set()
         self.current_layer = SQLLayer(source=base_source)
+        # Store column order for preserving positions
+        self._known_column_order = list(known_columns) if known_columns else None
+        self.current_layer.known_column_order = self._known_column_order
         self._preserve_row_order = False
 
     def set_preserve_row_order(self, value: bool) -> 'SQLBuilder':
@@ -382,6 +414,10 @@ class SQLBuilder:
         # Update known columns: add current layer's computed columns
         new_known = self._known_columns | self.current_layer.get_computed_column_names()
         self._known_columns = new_known
+        # Update column order - add new computed columns to the end
+        if self._known_column_order is not None:
+            new_cols = [c for c in self.current_layer.get_computed_column_names() if c not in self._known_column_order]
+            self._known_column_order = self._known_column_order + new_cols
 
         # Create new outer layer with current layer as source
         self.current_layer = SQLLayer(source=self.current_layer)
