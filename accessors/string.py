@@ -6,6 +6,7 @@ All methods are dynamically injected from the FunctionRegistry.
 """
 
 from .base import BaseAccessor
+from ..exceptions import UnsupportedOperationError
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -64,7 +65,11 @@ class StringAccessor(BaseAccessor):
             if step is not None and step != 1:
                 # Slices with step are not directly supported in SQL
                 # Fall back to pandas execution
-                raise NotImplementedError("String slicing with step is not supported in SQL mode")
+                raise UnsupportedOperationError(
+                    operation="str[::step]",
+                    reason="string slicing with step is not supported in SQL mode",
+                    suggestion="Use pandas directly: series.str[::step] or convert to pandas first",
+                )
 
             if start < 0:
                 # Negative start - need to compute from end
@@ -74,7 +79,11 @@ class StringAccessor(BaseAccessor):
                     return Function('substring', self._expr, Literal(start))
                 else:
                     # Complex case with negative start and positive stop
-                    raise NotImplementedError("String slicing with negative start and positive stop not supported")
+                    raise UnsupportedOperationError(
+                        operation="str[-n:m]",
+                        reason="string slicing with negative start and positive stop not supported in SQL",
+                        suggestion="Use pandas directly: series.str[-n:m]",
+                    )
 
             # ClickHouse substring is 1-based
             ch_start = start + 1

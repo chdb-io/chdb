@@ -28,6 +28,7 @@ from .function_registry import (
     FunctionCategory,
     register_function,
 )
+from .exceptions import UnsupportedOperationError
 
 __all__ = ['ensure_functions_registered']
 
@@ -579,7 +580,11 @@ def _build_split(expr, sep: str = None, n: int = -1, expand: bool = False, regex
             return ColumnExpr(executor=executor, datastore=col_expr._datastore)
         else:
             # Fallback: wrap in a function that will fail gracefully
-            raise NotImplementedError("str.split(expand=True) requires ColumnExpr context")
+            raise UnsupportedOperationError(
+                operation="str.split(expand=True)",
+                reason="string split with expand=True requires ColumnExpr context to create multiple columns",
+                suggestion="Use series.str.split(expand=True) on a pandas Series directly",
+            )
 
     # Wrap with ifNull to handle Nullable columns - ClickHouse doesn't support Nullable(Array)
     # This converts NULL to empty string, which produces empty array []

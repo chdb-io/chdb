@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 # Without this, any `import pandas` inside functions would get datastore instead,
 # causing infinite recursion.
 import pandas as _pd
+from .exceptions import UnsupportedOperationError
 
 # For backward compatibility with code that uses `pd` directly
 pd = _pd
@@ -120,9 +121,10 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
     # Check for unsupported iterator parameters FIRST
     # These return TextFileReader instead of DataFrame and are not supported
     if 'chunksize' in kwargs or 'iterator' in kwargs:
-        raise NotImplementedError(
-            "DataStore does not support chunked reading (chunksize/iterator parameters). "
-            "Use pandas.read_csv() directly for chunked reading, or remove these parameters."
+        raise UnsupportedOperationError(
+            operation="read_csv(chunksize=...) or read_csv(iterator=True)",
+            reason="DataStore does not support chunked reading as it returns TextFileReader instead of DataFrame",
+            suggestion="Use pandas.read_csv() directly for chunked reading, or remove these parameters",
         )
 
     # Parameters that MUST fall back to pandas (chDB cannot handle)

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 from .expressions import Field, Expression, Literal, Star
 from .conditions import Condition
 from .utils import immutable, ignore_copy, format_identifier, normalize_ascending, map_agg_func
-from .exceptions import QueryError, ConnectionError, ExecutionError
+from .exceptions import QueryError, ConnectionError, ExecutionError, UnsupportedOperationError
 from .connection import Connection, QueryResult
 from .executor import Executor
 from .table_functions import create_table_function, TableFunction
@@ -3485,7 +3485,11 @@ class DataStore(PandasCompatMixin):
 
         if isinstance(condition, str):
             # TODO: Parse string conditions
-            raise NotImplementedError("String conditions not yet implemented")
+            raise UnsupportedOperationError(
+                operation="string condition",
+                reason="string-based filter conditions are not yet implemented in SQL mode",
+                suggestion="Use boolean expressions: ds[ds['col'] > 5] instead of ds['col > 5']",
+            )
 
         if self._where_condition is None:
             self._where_condition = condition
@@ -3532,7 +3536,11 @@ class DataStore(PandasCompatMixin):
             if hasattr(super(), 'where'):
                 return super().where(condition, other=actual_other, **kwargs)
             # Fallback if no mixin
-            raise NotImplementedError("Pandas-style where() requires pandas compatibility layer")
+            raise UnsupportedOperationError(
+                operation="where(condition)",
+                reason="pandas-style where() with positional arguments requires pandas compatibility layer",
+                suggestion="Use ds.where(cond, other) or ds[cond] for filtering",
+            )
 
         # SQL-style filter (simple Condition or string, no other args)
         return self.filter(condition)
@@ -4301,7 +4309,11 @@ class DataStore(PandasCompatMixin):
             >>> ds.groupby("city").having(Count("*") > 10)
         """
         if isinstance(condition, str):
-            raise NotImplementedError("String conditions not yet implemented")
+            raise UnsupportedOperationError(
+                operation="string condition",
+                reason="string-based filter conditions are not yet implemented in SQL mode",
+                suggestion="Use boolean expressions: ds[ds['col'] > 5] instead of ds['col > 5']",
+            )
 
         if self._having_condition is None:
             self._having_condition = condition
