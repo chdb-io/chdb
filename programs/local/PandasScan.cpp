@@ -35,6 +35,13 @@ namespace CHDB
 namespace
 {
 
+inline const bool * getMaskPtr(const ColumnWrapper & col_wrap)
+{
+    return col_wrap.registered_array
+        ? static_cast<const bool *>(col_wrap.registered_array->numpy_array.data())
+        : nullptr;
+}
+
 template <typename T>
 void insertIntegerValue(py::handle h, typename ColumnVector<T>::Container & container, PythonObjectType object_type)
 {
@@ -133,17 +140,35 @@ ColumnPtr PandasScan::scanColumn(
     switch (which.idx)
 	{
     case TypeIndex::Float32:
-        {
-            const auto * float32_array = static_cast<const Float32 *>(col_wrap.buf);
-            innerScanFloat<Float32>(cursor, count, float32_array, column);
-            break;
-        }
+        innerScanFloat<Float32>(cursor, count, static_cast<const Float32 *>(col_wrap.buf), column);
+        break;
     case TypeIndex::Float64:
-        {
-            const auto * float64_array = static_cast<const Float64 *>(col_wrap.buf);
-            innerScanFloat<Float64>(cursor, count, float64_array, column);
-            break;
-        }
+        innerScanFloat<Float64>(cursor, count, static_cast<const Float64 *>(col_wrap.buf), column);
+        break;
+    case TypeIndex::Int8:
+        innerScanNumeric<Int8>(cursor, count, static_cast<const Int8 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::Int16:
+        innerScanNumeric<Int16>(cursor, count, static_cast<const Int16 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::Int32:
+        innerScanNumeric<Int32>(cursor, count, static_cast<const Int32 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::Int64:
+        innerScanNumeric<Int64>(cursor, count, static_cast<const Int64 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::UInt8:
+        innerScanNumeric<UInt8>(cursor, count, static_cast<const UInt8 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::UInt16:
+        innerScanNumeric<UInt16>(cursor, count, static_cast<const UInt16 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::UInt32:
+        innerScanNumeric<UInt32>(cursor, count, static_cast<const UInt32 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
+    case TypeIndex::UInt64:
+        innerScanNumeric<UInt64>(cursor, count, static_cast<const UInt64 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        break;
     case TypeIndex::DateTime64:
         {
             const auto * int64_array = static_cast<const Int64 *>(col_wrap.buf);
@@ -323,6 +348,42 @@ void PandasScan::innerScanFloat(
 
 template void PandasScan::innerScanFloat<Float32>(const size_t, const size_t, const Float32 *, DB::MutableColumnPtr &);
 template void PandasScan::innerScanFloat<Float64>(const size_t, const size_t, const Float64 *, DB::MutableColumnPtr &);
+
+template <typename T>
+void PandasScan::innerScanNumeric(
+    const size_t cursor,
+    const size_t count,
+    const T * data_ptr,
+    const bool * mask_ptr,
+    DB::MutableColumnPtr & column)
+{
+    auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+    auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+    auto & null_map = nullable_column.getNullMapData();
+
+    ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
+    const T * start = data_ptr + cursor;
+    helper->appendRawData<sizeof(T)>(reinterpret_cast<const char *>(start), count);
+
+    if (mask_ptr != nullptr)
+    {
+        const bool * mask_start = mask_ptr + cursor;
+        null_map.insert(reinterpret_cast<const UInt8 *>(mask_start), reinterpret_cast<const UInt8 *>(mask_start + count));
+    }
+    else
+    {
+        null_map.resize_fill(null_map.size() + count, 0);
+    }
+}
+
+template void PandasScan::innerScanNumeric<Int8>(const size_t, const size_t, const Int8 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<Int16>(const size_t, const size_t, const Int16 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<Int32>(const size_t, const size_t, const Int32 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<Int64>(const size_t, const size_t, const Int64 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<UInt8>(const size_t, const size_t, const UInt8 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<UInt16>(const size_t, const size_t, const UInt16 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<UInt32>(const size_t, const size_t, const UInt32 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<UInt64>(const size_t, const size_t, const UInt64 *, const bool *, DB::MutableColumnPtr &);
 
 void PandasScan::innerScanDateTime64(
     const size_t cursor,
