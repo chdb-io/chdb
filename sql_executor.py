@@ -20,7 +20,7 @@ from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 import pandas as pd
 
 from .expressions import Field, Expression, Star
-from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg
+from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg, LazyColumnAssignment
 from .utils import (
     normalize_ascending,
     map_agg_func,
@@ -267,6 +267,13 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
     result = ExtractedClauses()
 
     for op in ops:
+        # Handle LazyColumnAssignment - add computed column to SELECT
+        if isinstance(op, LazyColumnAssignment):
+            if op.can_push_to_sql():
+                expr = op.get_sql_expression()
+                result.select_fields.append(expr)
+            continue
+
         if not isinstance(op, LazyRelationalOp):
             continue
 
@@ -1006,6 +1013,7 @@ class SQLExecutionEngine:
 
         # Collect SELECT fields from SQL operations
         sql_select_fields = []
+        has_column_assignments = False
         for op in plan.sql_ops:
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == 'SELECT' and op.fields:
@@ -1015,6 +1023,10 @@ class SQLExecutionEngine:
                                 sql_select_fields.append(Field(f))
                         else:
                             sql_select_fields.append(f)
+            # Handle LazyColumnAssignment - add computed column expression
+            elif isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
+                sql_select_fields.append(op.get_sql_expression())
+                has_column_assignments = True
 
         # Handle simple vs nested query
         if len(layers) <= 1:
@@ -1025,9 +1037,10 @@ class SQLExecutionEngine:
                 where_ops,
                 alias_renames,
                 schema,
+                has_column_assignments,
             )
         else:
-            sql = self._build_nested_query_from_plan(layers, sql_select_fields)
+            sql = self._build_nested_query_from_plan(layers, sql_select_fields, has_column_assignments)
 
         return SQLBuildResult(
             sql=sql,
@@ -1043,6 +1056,7 @@ class SQLExecutionEngine:
         where_ops: List[Any],
         alias_renames: Dict[str, str],
         schema: Dict[str, str],
+        has_column_assignments: bool = False,
     ) -> str:
         """
         Build a simple (non-nested) SQL query from plan components.
@@ -1125,6 +1139,7 @@ class SQLExecutionEngine:
                 distinct=self.ds._distinct,
                 groupby_fields=groupby_fields_for_sql,
                 having_condition=self.ds._having_condition,
+                include_star=has_column_assignments if has_column_assignments else None,
             )
 
     def _build_temp_alias_query(
@@ -1207,7 +1222,9 @@ class SQLExecutionEngine:
 
         return '\n'.join(sql_parts)
 
-    def _build_nested_query_from_plan(self, layers: List[List[LazyOp]], sql_select_fields: List[Expression]) -> str:
+    def _build_nested_query_from_plan(
+        self, layers: List[List[LazyOp]], sql_select_fields: List[Expression], has_column_assignments: bool = False
+    ) -> str:
         """Build nested subquery SQL for complex patterns."""
         # Build innermost query (layer 0)
         inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
@@ -1222,6 +1239,7 @@ class SQLExecutionEngine:
             distinct=self.ds._distinct,
             groupby_fields=self.ds._groupby_fields,
             having_condition=self.ds._having_condition,
+            include_star=has_column_assignments if has_column_assignments else None,
         )
 
         # Track ORDER BY from inner layers to preserve sort order in final result
@@ -1260,6 +1278,7 @@ class SQLExecutionEngine:
         distinct=False,
         groupby_fields=None,
         having_condition=None,
+        include_star=None,
     ) -> str:
         """
         Assemble SQL query from given components.
@@ -1277,6 +1296,7 @@ class SQLExecutionEngine:
             distinct: Whether to use DISTINCT
             groupby_fields: GROUP BY fields
             having_condition: HAVING condition
+            include_star: If True, use SELECT *, computed_cols. If None, use self.ds._select_star
 
         Returns:
             SQL query string
@@ -1307,7 +1327,9 @@ class SQLExecutionEngine:
             fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
             # Check if we need to prepend '*' (SELECT *, computed_col)
             # IMPORTANT: Don't use SELECT * with GROUP BY - only groupby columns and aggregates are valid
-            if self.ds._select_star and not groupby_fields:
+            # Use include_star if explicitly set, otherwise fall back to self.ds._select_star
+            use_star = include_star if include_star is not None else self.ds._select_star
+            if use_star and not groupby_fields:
                 parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
             else:
                 parts.append(f"SELECT {distinct_keyword}{fields_sql}")

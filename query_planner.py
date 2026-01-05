@@ -608,7 +608,13 @@ class QueryPlanner:
             # so it gets executed via its own execute() method
             return False
 
-        # All other ops (LazyColumnAssignment, LazyFilter, LazyTransform, LazyApply, etc.)
+        if isinstance(op, LazyColumnAssignment):
+            # Check if the column assignment has an SQL-convertible expression
+            # Pass existing columns to prevent pushing when column already exists
+            existing_columns = list(schema.keys()) if schema else None
+            return op.can_push_to_sql(existing_columns)
+
+        # All other ops (LazyFilter, LazyTransform, LazyApply, etc.)
         # require Pandas execution
         return False
 

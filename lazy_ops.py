@@ -235,6 +235,69 @@ class LazyColumnAssignment(LazyOp):
             # Scalar value, Series, etc.
             return 'Pandas'
 
+    def can_push_to_sql(self, existing_columns: list = None) -> bool:
+        """
+        Check if this column assignment can be pushed to SQL as a SELECT expression.
+
+        Currently returns False because SQL pushdown for column assignments has
+        several edge cases that are difficult to handle correctly:
+        1. Computed columns can't be referenced in the same SELECT clause
+        2. Multiple assignments to the same column name cause conflicts
+        3. Need subqueries to properly chain computed column usage
+
+        TODO: Implement proper SQL pushdown with subqueries for computed columns
+        """
+        # DISABLED: SQL pushdown for column assignments is complex and has edge cases
+        # that can cause incorrect results. Fall back to Pandas for now.
+        # See: tests/test_sql_vs_pandas_filter.py failures
+        return False
+
+        # Original implementation preserved for future reference:
+        # from .column_expr import ColumnExpr
+        #
+        # # Cannot push if column already exists - would cause duplicate column error
+        # if existing_columns and self.column in existing_columns:
+        #     return False
+        #
+        # # Check if expr is a ColumnExpr with SQL-compatible expression
+        # if isinstance(self.expr, ColumnExpr):
+        #     return self.expr.is_sql_compatible()
+        #
+        # # Check if expr is directly an Expression
+        # if isinstance(self.expr, Expression):
+        #     return True
+        #
+        # return False
+
+    def get_sql_expression(self) -> Expression:
+        """
+        Get the SQL expression for this column assignment.
+
+        Returns an Expression with the column name as alias, suitable for
+        use in SELECT clause: SELECT *, (expr) AS "column"
+
+        Raises:
+            ValueError: If expression is not SQL-convertible
+        """
+        from copy import copy
+        from .column_expr import ColumnExpr
+
+        if isinstance(self.expr, ColumnExpr):
+            if self.expr._expr is None:
+                raise ValueError(f"ColumnExpr has no SQL expression: {self.expr}")
+            # Copy the expression to avoid modifying the original
+            expr_copy = copy(self.expr._expr)
+            expr_copy.alias = self.column
+            return expr_copy
+
+        if isinstance(self.expr, Expression):
+            # Copy the expression to avoid modifying the original
+            expr_copy = copy(self.expr)
+            expr_copy.alias = self.column
+            return expr_copy
+
+        raise ValueError(f"Expression is not SQL-convertible: {type(self.expr)}")
+
 
 class LazyColumnSelection(LazyOp):
     """
