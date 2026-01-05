@@ -1691,7 +1691,13 @@ class ColumnExpr:
     @property
     def values(self) -> Any:
         """Return underlying numpy array (property for pandas compatibility)."""
-        return self._execute().values
+        import numpy as np
+
+        result = self._execute()
+        # Handle case where _execute() returns numpy array directly (e.g., unique())
+        if isinstance(result, np.ndarray):
+            return result
+        return result.values
 
     @property
     def name(self) -> Optional[str]:
