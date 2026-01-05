@@ -16,6 +16,7 @@ namespace DB
 namespace ErrorCodes
 {
     extern const int BAD_TYPE_OF_FIELD;
+    extern const int PY_EXCEPTION_OCCURED;
 }
 
 /// Helper function to convert Python 1,2,4 bytes unicode string to utf8 with icu4c
@@ -130,9 +131,15 @@ bool _isInheritsFromPyReader(const py::handle & obj)
 
 // Will try to get the ref of py::array from pandas Series, or PyArrow Table
 // without import numpy or pyarrow. Just from class name for now.
-const void * tryGetPyArray(const py::object & obj, py::handle & result, py::handle & tmp, std::string & type_name, size_t & row_count)
+PyArrayResult tryGetPyArray(
+    const py::object & obj,
+    py::handle & result,
+    py::handle & tmp,
+    std::string & type_name,
+    size_t & row_count)
 {
     py::gil_scoped_acquire acquire;
+    PyArrayResult py_result;
     type_name = py::str(obj.attr("__class__").attr("__name__")).cast<std::string>();
     if (type_name == "ndarray")
     {
@@ -140,7 +147,8 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
         row_count = py::len(obj);
         py::array array = obj.cast<py::array>();
         result = array;
-        return array.data();
+        py_result.data = array.data();
+        return py_result;
     }
     else if (type_name == "Series")
     {
@@ -155,7 +163,8 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
             if (elem_type == "str" || elem_type == "unicode")
             {
                 result = array;
-                return array.data();
+                py_result.data = array.data();
+                return py_result;
             }
             if (elem_type == "bytes" || elem_type == "object")
             {
@@ -165,12 +174,25 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
                 result = array;
                 tmp = array;
                 tmp.inc_ref();
-                return array.data();
+                py_result.data = array.data();
+                return py_result;
             }
         }
 
+        py::object underlying_array = obj.attr("array");
+        if (py::hasattr(underlying_array, "_data") && py::hasattr(underlying_array, "_mask"))
+        {
+            py::array data_array = underlying_array.attr("_data");
+            py::array mask_array = underlying_array.attr("_mask");
+            result = data_array;
+            py_result.data = data_array.data();
+            py_result.registered_array = std::make_unique<RegisteredArray>(mask_array);
+            return py_result;
+        }
+
         result = array;
-        return array.data();
+        py_result.data = array.data();
+        return py_result;
     }
     else if (type_name == "Table")
     {
@@ -180,7 +202,8 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
         result = array;
         tmp = array;
         tmp.inc_ref();
-        return array.data();
+        py_result.data = array.data();
+        return py_result;
     }
     else if (type_name == "ChunkedArray")
     {
@@ -190,19 +213,21 @@ const void * tryGetPyArray(const py::object & obj, py::handle & result, py::hand
         result = array;
         tmp = array;
         tmp.inc_ref();
-        return array.data();
+        py_result.data = array.data();
+        return py_result;
     }
     else if (type_name == "list")
     {
         // Just set the row count for list
         row_count = py::len(obj);
         result = obj;
-        return obj.ptr();
+        py_result.data = obj.ptr();
+        return py_result;
     }
 
     // chdb todo: maybe convert list to py::array?
 
-    return nullptr;
+    return py_result;
 }
 
 void insertObjToStringColumn(PyObject * obj, ColumnString * string_column)

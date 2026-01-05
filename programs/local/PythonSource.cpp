@@ -193,7 +193,8 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale,
         if (!tmp.is_none())
             tmp.dec_ref();
     });
-    const void * data = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
+    auto py_result = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
+    const void * data = py_result.data;
     if (type_name == "list")
     {
         if (is_json)
