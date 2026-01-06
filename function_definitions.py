@@ -711,31 +711,54 @@ def _build_zfill(expr, width: int, alias=None):
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['index'],
-    doc='Find substring position. Maps to position(s, sub) - returns 0-based index.',
+    doc='Find substring position. Maps to position(s, sub) - returns 0-based index (-1 if not found).',
 )
-def _build_find(expr, sub: str, start: int = 0, alias=None):
+def _build_find(expr, sub: str, start: int = 0, end: int = None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
+    # chDB position() returns 1-based index, 0 if not found
+    # pandas str.find() returns 0-based index, -1 if not found
+    # Convert: if(position(...) = 0, -1, position(...) - 1)
+
     if start > 0:
-        return Function('position', expr, Literal(sub), Literal(start + 1), alias=alias)
-    return Function('position', expr, Literal(sub), alias=alias)
+        pos_func = Function('position', expr, Literal(sub), Literal(start + 1))
+    else:
+        pos_func = Function('position', expr, Literal(sub))
+
+    # Use if(pos = 0, -1, pos - 1) to convert to pandas semantics
+    return Function('if', Function('equals', pos_func, Literal(0)), Literal(-1), pos_func - 1, alias=alias)
 
 
 @register_function(
     name='rfind',
-    clickhouse_name='positionCaseInsensitiveUTF8',
+    clickhouse_name='position',
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['rindex'],
-    doc='Find last occurrence of substring.',
+    doc='Find last occurrence of substring. Returns 0-based index (-1 if not found).',
 )
-def _build_rfind(expr, sub: str, alias=None):
+def _build_rfind(expr, sub: str, start: int = 0, end: int = None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    # ClickHouse doesn't have rfind, use last occurrence logic
-    return Function('position', Function('reverse', expr), Literal(sub[::-1]), alias=alias)
+    # ClickHouse doesn't have rfind natively
+    # Strategy: find position in reversed string, then convert back
+    # pos_rev = position(reverse(s), reverse(sub))
+    # original_pos = length(s) - pos_rev - length(sub) + 1 (1-based)
+    # For 0-based: original_pos - 1 = length(s) - pos_rev - length(sub)
+    # For not found (pos_rev = 0): return -1
+
+    reversed_expr = Function('reverse', expr)
+    reversed_sub = sub[::-1]
+    pos_rev = Function('position', reversed_expr, Literal(reversed_sub))
+    str_len = Function('length', expr)
+    sub_len = len(sub)
+
+    # Calculate: length(s) - pos_rev - len(sub)
+    original_pos_0based = str_len - pos_rev - Literal(sub_len) + Literal(1)
+
+    return Function('if', Function('equals', pos_rev, Literal(0)), Literal(-1), original_pos_0based, alias=alias)
 
 
 @register_function(
