@@ -100,6 +100,7 @@ class ColumnExpr:
         groupby_fields: Optional[List] = None,
         groupby_as_index: bool = True,
         groupby_sort: bool = True,
+        groupby_dropna: bool = True,
         # Method mode parameters
         source: 'ColumnExpr' = None,
         method_name: str = None,
@@ -129,6 +130,7 @@ class ColumnExpr:
             groupby_as_index: If True (default), groupby keys become the index.
                               If False, groupby keys are returned as columns.
             groupby_sort: If True (default), sort by groupby keys.
+            groupby_dropna: If True (default), exclude NA/null values in keys.
             source: Source ColumnExpr for method/aggregation mode
             method_name: Method name to call on source (method mode)
             method_args: Positional arguments for method call
@@ -144,6 +146,7 @@ class ColumnExpr:
         self._groupby_fields = groupby_fields or []
         self._groupby_as_index = groupby_as_index
         self._groupby_sort = groupby_sort
+        self._groupby_dropna = groupby_dropna
 
         # Method/Aggregation mode fields
         self._source = source
@@ -260,6 +263,7 @@ class ColumnExpr:
             groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
+            groupby_dropna=self._groupby_dropna,
         )
 
     # ========== Classification Methods ==========
@@ -524,8 +528,9 @@ class ColumnExpr:
             col_name = self._get_column_name()
 
             if engine == ExecutionEngine.PANDAS:
-                # Use pure pandas groupby with as_index and sort parameters
-                grouped = df.groupby(groupby_col_names, sort=sort, as_index=as_index)
+                # Use pure pandas groupby with as_index, sort, and dropna parameters
+                dropna = getattr(self, '_groupby_dropna', True)
+                grouped = df.groupby(groupby_col_names, sort=sort, as_index=as_index, dropna=dropna)
                 agg_method = getattr(grouped[col_name], self._pandas_agg_func)
                 result = agg_method()
                 if as_index:
@@ -557,7 +562,15 @@ class ColumnExpr:
 
                 # Add ORDER BY if sort=True (pandas default behavior)
                 order_by = f' ORDER BY {groupby_sql}' if sort else ''
-                sql = f'SELECT {groupby_sql}, {agg_sql} AS "{col_name}" FROM __df__ GROUP BY {groupby_sql}{order_by}'
+
+                # Add WHERE clause for dropna=True (filter out NULL groups)
+                dropna = getattr(self, '_groupby_dropna', True)
+                where_clause = ''
+                if dropna:
+                    null_filter_conditions = [f'"{name}" IS NOT NULL' for name in groupby_col_names]
+                    where_clause = ' WHERE ' + ' AND '.join(null_filter_conditions)
+
+                sql = f'SELECT {groupby_sql}, {agg_sql} AS "{col_name}" FROM __df__{where_clause} GROUP BY {groupby_sql}{order_by}'
 
                 executor = get_executor()
                 result_df = executor.query_dataframe(sql, df)
@@ -2669,6 +2682,7 @@ class ColumnExpr:
             groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
+            groupby_dropna=self._groupby_dropna,
         )
 
     def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':

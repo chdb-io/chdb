@@ -3922,7 +3922,12 @@ class DataStore(PandasCompatMixin):
         # Note: Don't return self - @immutable decorator will return the copy
 
     def groupby(
-        self, *fields: Union[str, Expression, List], sort: bool = True, as_index: bool = True, **kwargs
+        self,
+        *fields: Union[str, Expression, List],
+        sort: bool = True,
+        as_index: bool = True,
+        dropna: bool = True,
+        **kwargs,
     ) -> 'LazyGroupBy':
         """
         Group by columns.
@@ -3943,6 +3948,8 @@ class DataStore(PandasCompatMixin):
                   When True, the result is sorted by group keys in ascending order.
             as_index: If True (default), group keys become the index of the result.
                       If False, group keys are returned as columns in the result.
+            dropna: If True (default), exclude NA/null values in keys.
+                    If False, NA values are also grouped.
             **kwargs: Additional arguments (for pandas compatibility, currently ignored).
 
         Returns:
@@ -3975,7 +3982,7 @@ class DataStore(PandasCompatMixin):
                 groupby_fields.append(field)
 
         # Return a GroupBy wrapper that references self (not a copy!)
-        return LazyGroupBy(self, groupby_fields, sort=sort, as_index=as_index)
+        return LazyGroupBy(self, groupby_fields, sort=sort, as_index=as_index, dropna=dropna)
 
     @immutable
     def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':

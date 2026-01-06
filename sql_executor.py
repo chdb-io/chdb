@@ -1956,6 +1956,34 @@ class SQLExecutionEngine:
             groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
             parts.append(f"GROUP BY {groupby_sql}")
 
+            # Handle dropna for groupby: add WHERE ... IS NOT NULL for groupby columns
+            # when dropna=True (pandas default). This must be added BEFORE GROUP BY.
+            if plan.groupby_agg and getattr(plan.groupby_agg, 'dropna', True):
+                # Build IS NOT NULL conditions for groupby columns
+                dropna_conditions = []
+                for col in plan.groupby_agg.groupby_cols:
+                    dropna_conditions.append(f'"{col}" IS NOT NULL')
+                if dropna_conditions:
+                    dropna_filter = ' AND '.join(dropna_conditions)
+                    # Find WHERE clause index in parts and add to it, or insert new WHERE
+                    where_idx = None
+                    for i, part in enumerate(parts):
+                        if part.startswith('WHERE '):
+                            where_idx = i
+                            break
+                    if where_idx is not None:
+                        # Append to existing WHERE
+                        parts[where_idx] = parts[where_idx] + f' AND {dropna_filter}'
+                    else:
+                        # Find GROUP BY and insert WHERE before it
+                        groupby_idx = None
+                        for i, part in enumerate(parts):
+                            if part.startswith('GROUP BY'):
+                                groupby_idx = i
+                                break
+                        if groupby_idx is not None:
+                            parts.insert(groupby_idx, f'WHERE {dropna_filter}')
+
         # ORDER BY clause
         # For SQL on DataFrame, we need a different approach for stable sort:
         # 1. Add __row_idx__ column (handled by query_df)

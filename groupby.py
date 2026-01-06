@@ -51,6 +51,7 @@ class LazyGroupBy:
         groupby_fields: List[Expression],
         sort: bool = True,
         as_index: bool = True,
+        dropna: bool = True,
         selected_columns: List[str] = None,
     ):
         """
@@ -63,6 +64,8 @@ class LazyGroupBy:
                   When True, the result is sorted by group keys in ascending order.
             as_index: If True (default), group keys become the index.
                       If False, group keys are returned as columns.
+            dropna: If True (default), exclude NA/null values in keys.
+                    If False, NA values are also grouped. Matches pandas default.
             selected_columns: List of column names to aggregate (None = all columns).
                               When set via groupby()[['col1', 'col2']], only these columns
                               are included in aggregation results.
@@ -71,6 +74,7 @@ class LazyGroupBy:
         self._groupby_fields = groupby_fields.copy()  # Copy the list, not the DataStore
         self._sort = sort
         self._as_index = as_index
+        self._dropna = dropna
         self._selected_columns = selected_columns
 
     @property
@@ -105,7 +109,7 @@ class LazyGroupBy:
 
         # Execute the underlying datastore and get unique count
         df = self._datastore._get_df()
-        return df.groupby(groupby_cols, sort=self._sort).ngroups
+        return df.groupby(groupby_cols, sort=self._sort, dropna=self._dropna).ngroups
 
     def __getitem__(self, key: Union[str, List[str]]) -> 'ColumnExpr':
         """
@@ -125,7 +129,7 @@ class LazyGroupBy:
         if isinstance(key, str):
             # Single column - return ColumnExpr with groupby fields attached
             # This avoids polluting _datastore._groupby_fields which would affect to_df()
-            # Also pass as_index and sort parameters for proper aggregation behavior
+            # Also pass as_index, sort, and dropna parameters for proper aggregation behavior
             field = Field(key)
             return ColumnExpr(
                 field,
@@ -133,12 +137,18 @@ class LazyGroupBy:
                 groupby_fields=self._groupby_fields.copy(),
                 groupby_as_index=self._as_index,
                 groupby_sort=self._sort,
+                groupby_dropna=self._dropna,
             )
 
         elif isinstance(key, list):
             # Multiple columns - return new LazyGroupBy with selected_columns tracked
             return LazyGroupBy(
-                self._datastore, self._groupby_fields, sort=self._sort, as_index=self._as_index, selected_columns=key
+                self._datastore,
+                self._groupby_fields,
+                sort=self._sort,
+                as_index=self._as_index,
+                dropna=self._dropna,
+                selected_columns=key,
             )
 
         else:
@@ -264,10 +274,11 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Capture datastore, cols, and sort for closure
+        # Capture datastore, cols, sort, and dropna for closure
         ds = self._datastore
         cols = groupby_cols
         sort = self._sort
+        dropna = self._dropna
 
         def executor():
             # Check if we can use SQL pushdown
@@ -311,6 +322,14 @@ class LazyGroupBy:
                 if sort:
                     orderby_sql = ' ORDER BY ' + ', '.join(f'"{col}"' for col in cols)
 
+                # When dropna=True, filter out NULL groups in the WHERE clause
+                if dropna:
+                    null_filter_conditions = [f'"{col}" IS NOT NULL' for col in cols]
+                    if where_sql:
+                        where_sql = where_sql + ' AND ' + ' AND '.join(null_filter_conditions)
+                    else:
+                        where_sql = ' WHERE ' + ' AND '.join(null_filter_conditions)
+
                 sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}'
                 result_df = ds._executor.execute(sql).to_df()
 
@@ -328,7 +347,7 @@ class LazyGroupBy:
             else:
                 # Fall back to pandas
                 df = ds._execute()
-                return df.groupby(cols).size()
+                return df.groupby(cols, dropna=dropna).size()
 
         return LazySeries(executor=executor, datastore=ds)
 
@@ -390,15 +409,16 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Capture datastore, cols, and ascending for closure
+        # Capture datastore, cols, ascending, and dropna for closure
         ds = self._datastore
         cols = groupby_cols
         asc = ascending
+        dropna = self._dropna
 
         def executor():
             # Execute underlying datastore and use pandas groupby.cumcount
             df = ds._get_df()
-            return df.groupby(cols).cumcount(ascending=asc)
+            return df.groupby(cols, dropna=dropna).cumcount(ascending=asc)
 
         return LazySeries(executor=executor, datastore=ds)
 
@@ -433,7 +453,7 @@ class LazyGroupBy:
 
         # Execute underlying datastore and create pandas GroupBy
         df = self._datastore._get_df()
-        pandas_grp = df.groupby(groupby_cols, sort=self._sort)
+        pandas_grp = df.groupby(groupby_cols, sort=self._sort, dropna=self._dropna)
 
         # Apply the function to the pandas GroupBy
         return func(pandas_grp, *args, **kwargs)
@@ -603,6 +623,7 @@ class LazyGroupBy:
                 named_agg=named_agg,
                 sort=self._sort,
                 as_index=self._as_index,
+                dropna=self._dropna,
                 selected_columns=self._selected_columns,
                 **kwargs,
             )
@@ -628,6 +649,7 @@ class LazyGroupBy:
 
         ds_copy = copy(self._datastore)
         ds_copy._groupby_fields = self._groupby_fields.copy()
+        # Note: SQL copy preserves sort for ORDER BY but dropna doesn't apply to SQL building
         return ds_copy
 
     def to_sql(self, **kwargs) -> str:
@@ -646,7 +668,9 @@ class LazyGroupBy:
         """
         ds_copy = self._get_sql_copy()
         result_ds = ds_copy.having(condition)
-        return LazyGroupBy(result_ds, self._groupby_fields)
+        return LazyGroupBy(
+            result_ds, self._groupby_fields, sort=self._sort, as_index=self._as_index, dropna=self._dropna
+        )
 
     def select(self, *fields) -> 'DataStore':
         """
@@ -661,7 +685,9 @@ class LazyGroupBy:
         """
         ds_copy = self._get_sql_copy()
         result_ds = ds_copy.sort(*fields, ascending=ascending)
-        return LazyGroupBy(result_ds, self._groupby_fields)
+        return LazyGroupBy(
+            result_ds, self._groupby_fields, sort=self._sort, as_index=self._as_index, dropna=self._dropna
+        )
 
     def orderby(self, *fields, ascending: bool = True) -> 'LazyGroupBy':
         """Alias for sort()."""
@@ -671,13 +697,17 @@ class LazyGroupBy:
         """Limit results after groupby."""
         ds_copy = self._get_sql_copy()
         result_ds = ds_copy.limit(n)
-        return LazyGroupBy(result_ds, self._groupby_fields)
+        return LazyGroupBy(
+            result_ds, self._groupby_fields, sort=self._sort, as_index=self._as_index, dropna=self._dropna
+        )
 
     def offset(self, n: int) -> 'LazyGroupBy':
         """Offset results after groupby."""
         ds_copy = self._get_sql_copy()
         result_ds = ds_copy.offset(n)
-        return LazyGroupBy(result_ds, self._groupby_fields)
+        return LazyGroupBy(
+            result_ds, self._groupby_fields, sort=self._sort, as_index=self._as_index, dropna=self._dropna
+        )
 
     def transform(self, func, *args, **kwargs) -> 'DataStore':
         """

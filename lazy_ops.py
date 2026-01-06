@@ -952,6 +952,7 @@ class LazyGroupByAgg(LazyOp):
         named_agg: dict = None,
         sort: bool = True,
         as_index: bool = True,
+        dropna: bool = True,
         single_column_agg: bool = False,
         selected_columns: List[str] = None,
         **kwargs,
@@ -966,6 +967,8 @@ class LazyGroupByAgg(LazyOp):
                   When True, the result is sorted by group keys in ascending order.
             as_index: If True (default), group keys become the index.
                       If False, group keys are returned as columns.
+            dropna: If True (default), exclude NA/null values in keys.
+                    If False, NA values are also grouped. Matches pandas default.
             single_column_agg: If True, this agg was called on a single column via
                                ColumnExpr.agg(['funcs']), which in pandas returns flat column names
             selected_columns: List of column names to aggregate (None = all columns).
@@ -978,6 +981,7 @@ class LazyGroupByAgg(LazyOp):
         self.named_agg = named_agg
         self.sort = sort
         self.as_index = as_index
+        self.dropna = dropna
         self.single_column_agg = single_column_agg
         self.selected_columns = selected_columns
         self.kwargs = kwargs
@@ -986,7 +990,7 @@ class LazyGroupByAgg(LazyOp):
         """Execute groupby aggregation on DataFrame."""
         self._log_execute(
             "GroupByAgg",
-            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}, selected_columns={self.selected_columns}",
+            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}, dropna={self.dropna}, selected_columns={self.selected_columns}",
         )
 
         # If selected_columns is specified, filter the DataFrame to only include
@@ -995,8 +999,8 @@ class LazyGroupByAgg(LazyOp):
             cols_to_keep = self.groupby_cols + self.selected_columns
             df = df[cols_to_keep]
 
-        # Pass sort and as_index parameters to pandas groupby
-        grouped = df.groupby(self.groupby_cols, sort=self.sort, as_index=self.as_index)
+        # Pass sort, as_index, and dropna parameters to pandas groupby
+        grouped = df.groupby(self.groupby_cols, sort=self.sort, as_index=self.as_index, dropna=self.dropna)
 
         if self.named_agg is not None:
             # Pandas named aggregation: agg(alias=('col', 'func'))
@@ -1218,7 +1222,9 @@ class LazyFilter(LazyOp):
         """Execute groupby filter on DataFrame."""
         self._log_execute("Filter", f"groupby={self.groupby_cols}")
         rows_before = len(df)
-        result = df.groupby(self.groupby_cols).filter(self.func)
+        # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
+        # For filter operations on groups, we use the default dropna=True behavior
+        result = df.groupby(self.groupby_cols, dropna=True).filter(self.func)
         self._logger.debug("      -> Filtered: %d -> %d rows", rows_before, len(result))
         return result
 
@@ -1271,7 +1277,9 @@ class LazyTransform(LazyOp):
 
         if self.groupby_cols:
             self._log_execute("Transform", f"groupby={self.groupby_cols}, func={func_desc}")
-            grouped = df.groupby(self.groupby_cols)
+            # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
+            # For transform operations, we use the default dropna=True behavior
+            grouped = df.groupby(self.groupby_cols, dropna=True)
 
             if self.columns:
                 result = df.copy()
@@ -1342,7 +1350,11 @@ class LazyApply(LazyOp):
 
         if self.groupby_cols:
             self._log_execute("Apply", f"groupby={self.groupby_cols}, func={func_name}")
-            result = df.groupby(self.groupby_cols).apply(self.func, *self.args, include_groups=False, **self.kwargs)
+            # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
+            # For apply operations, we use the default dropna=True behavior
+            result = df.groupby(self.groupby_cols, dropna=True).apply(
+                self.func, *self.args, include_groups=False, **self.kwargs
+            )
             # Reset index if result has MultiIndex from groupby
             if isinstance(result.index, pd.MultiIndex):
                 result = result.reset_index(drop=True)
@@ -1405,7 +1417,9 @@ class LazyNth(LazyOp):
         n_desc = self.n if isinstance(self.n, int) else list(self.n)
         self._log_execute("Nth", f"groupby={self.groupby_cols}, n={n_desc}")
 
-        grouped = df.groupby(self.groupby_cols, sort=False)
+        # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
+        # For nth operations, we use the default dropna=True behavior for groupby
+        grouped = df.groupby(self.groupby_cols, sort=False, dropna=True)
 
         # pandas nth() behavior:
         # - Returns rows with their original index preserved
@@ -1456,7 +1470,9 @@ class LazyHead(LazyOp):
         """Execute groupby head on DataFrame."""
         self._log_execute("Head", f"groupby={self.groupby_cols}, n={self.n}")
 
-        grouped = df.groupby(self.groupby_cols, sort=False)
+        # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
+        # For nth operations, we use the default dropna=True behavior for groupby
+        grouped = df.groupby(self.groupby_cols, sort=False, dropna=True)
 
         # pandas head() returns first n rows from each group with original index preserved
         result = grouped.head(self.n)
@@ -1500,7 +1516,9 @@ class LazyTail(LazyOp):
         """Execute groupby tail on DataFrame."""
         self._log_execute("Tail", f"groupby={self.groupby_cols}, n={self.n}")
 
-        grouped = df.groupby(self.groupby_cols, sort=False)
+        # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
+        # For nth operations, we use the default dropna=True behavior for groupby
+        grouped = df.groupby(self.groupby_cols, sort=False, dropna=True)
 
         # pandas tail() returns last n rows from each group with original index preserved
         result = grouped.tail(self.n)
