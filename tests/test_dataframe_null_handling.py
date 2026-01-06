@@ -192,6 +192,55 @@ class TestDataFrameNullHandling(unittest.TestCase):
         self.assertEqual(result['is_null2'].iloc[4], 1)
         self.assertEqual(result['is_null2'].iloc[5], 0)
 
+    def test_nullable_integer_extension_types(self):
+        """Test pandas nullable integer extension types (Int8, Int16, Int32, Int64, etc.)"""
+        # Create DataFrame with nullable integer extension types
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+            'int8_col': pd.array([1, 2, None, 4, pd.NA, 6, 7, None, 9, 10], dtype='Int8'),
+            'int16_col': pd.array([100, None, 300, 400, 500, pd.NA, 700, 800, None, 1000], dtype='Int16'),
+            'int32_col': pd.array([1000, 2000, 3000, None, 5000, 6000, pd.NA, 8000, 9000, None], dtype='Int32'),
+            'int64_col': pd.array([10000, 20000, None, 40000, 50000, None, 70000, pd.NA, 90000, 100000], dtype='Int64'),
+            'uint8_col': pd.array([1, None, 3, 4, pd.NA, 6, 7, 8, None, 10], dtype='UInt8'),
+            'uint16_col': pd.array([100, 200, None, pd.NA, 500, 600, 700, None, 900, 1000], dtype='UInt16'),
+            'uint32_col': pd.array([None, 2000, 3000, 4000, pd.NA, 6000, 7000, 8000, 9000, None], dtype='UInt32'),
+            'uint64_col': pd.array([10000, pd.NA, 30000, None, 50000, 60000, 70000, 80000, None, 100000], dtype='UInt64'),
+        })
+
+        result = self.conn.query('SELECT * FROM Python(df) ORDER BY id', 'DataFrame')
+        # print(result)
+
+        for col in df.columns:
+            for i in range(len(df)):
+                expected = df[col].iloc[i]
+                actual = result[col].iloc[i]
+                if pd.isna(expected):
+                    self.assertTrue(pd.isna(actual), "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+                else:
+                    self.assertEqual(actual, expected, "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+
+    def test_nullable_boolean_extension_type(self):
+        """Test pandas nullable boolean extension type"""
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5, 6, 7, 8],
+            'bool_col': pd.array([True, False, None, True, pd.NA, False, None, True], dtype='boolean'),
+        })
+
+        result = self.conn.query('SELECT * FROM Python(df) ORDER BY id', 'DataFrame')
+
+        for col in df.columns:
+            for i in range(len(df)):
+                expected = df[col].iloc[i]
+                actual = result[col].iloc[i]
+                if pd.isna(expected):
+                    self.assertTrue(pd.isna(actual), "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+                else:
+                    self.assertEqual(actual, expected, "col: {}, idx: {}, expected: {}, actual: {}".format(col, i, expected, actual))
+
+        result = self.conn.query('SELECT * FROM Python(df) WHERE bool_col = 1 ORDER BY id', 'DataFrame')
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result['id'].tolist(), [1, 4, 8])
+
     def test_json_nan_is_null(self):
         """Test that Null in JSON column is recognized as NULL"""
         df = pd.DataFrame({

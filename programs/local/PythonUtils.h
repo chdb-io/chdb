@@ -2,10 +2,7 @@
 
 #include "config.h"
 
-#include <cstddef>
 #include <Columns/ColumnString.h>
-#include <Columns/IColumn.h>
-#include <DataTypes/Serializations/SerializationNumber.h>
 #include <pybind11/gil.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -15,13 +12,13 @@
 namespace DB
 {
 
-namespace ErrorCodes
-{
-extern const int PY_EXCEPTION_OCCURED;
-}
-
 namespace py = pybind11;
 
+struct RegisteredArray
+{
+    explicit RegisteredArray(py::array numpy_array) : numpy_array(std::move(numpy_array)) {}
+    py::array numpy_array;
+};
 
 struct ColumnWrapper
 {
@@ -31,10 +28,9 @@ struct ColumnWrapper
     py::handle tmp; // hold some tmp data like hits['Title'].astype("str")
     DataTypePtr dest_type;
     std::string py_type; //py::handle type, eg. numpy.ndarray;
-    std::string row_format;
-    std::string encoding; // utf8, utf16, utf32, etc.
     std::string name;
     bool is_object_type = false;
+    std::unique_ptr<RegisteredArray> registered_array;
 
     ~ColumnWrapper()
     {
@@ -43,6 +39,7 @@ struct ColumnWrapper
         {
             tmp.dec_ref();
         }
+        registered_array.reset();
     }
 };
 
@@ -195,7 +192,18 @@ inline std::vector<py::object> readData(const py::object & data_source, const st
     return execWithGIL([&]() { return data_source.attr("read")(names, cursor, count).cast<std::vector<py::object>>(); });
 }
 
-const void * tryGetPyArray(const py::object & obj, py::handle & result, py::handle & tmp, std::string & type_name, size_t & row_count);
+struct PyArrayResult
+{
+    const void * data = nullptr;
+    std::unique_ptr<RegisteredArray> registered_array;
+};
+
+PyArrayResult tryGetPyArray(
+    const py::object & obj,
+    py::handle & result,
+    py::handle & tmp,
+    std::string & type_name,
+    size_t & row_count);
 
 void insertObjToStringColumn(PyObject * obj, ColumnString * string_column);
 

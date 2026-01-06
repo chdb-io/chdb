@@ -5,6 +5,7 @@
 #include "PythonImporter.h"
 
 #include <Common/Exception.h>
+#include <DataTypes/DataTypeNullable.h>
 #include <DataTypes/DataTypeObject.h>
 #include <Interpreters/Context.h>
 #if USE_JEMALLOC
@@ -47,7 +48,16 @@ static DataTypePtr inferDataTypeFromPandasColumn(PandasBindColumn & column, Cont
         numpy_type.type = NumpyNullableType::STRING;
 	}
 
-    return NumpyToDataType(numpy_type);
+    auto data_type = NumpyToDataType(numpy_type);
+
+    if (!data_type->isNullable())
+    {
+        bool column_has_mask = py::hasattr(column.handle.attr("array"), "_mask");
+        if (column_has_mask)
+            return std::make_shared<DataTypeNullable>(data_type);
+    }
+
+    return data_type;
 }
 
 ColumnsDescription PandasDataFrame::getActualTableStructure(const py::object & object, ContextPtr & context)
