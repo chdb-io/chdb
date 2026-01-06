@@ -521,7 +521,7 @@ class PandasCompatMixin:
         """Return minimum over requested axis."""
         return self._get_df().min(axis=axis, skipna=skipna, numeric_only=numeric_only, **kwargs)
 
-    def mode(self, axis=0, numeric_only=True, dropna=True):
+    def mode(self, axis=0, numeric_only=False, dropna=True):
         """Get the mode(s) of each element along selected axis."""
         return self._wrap_result(self._get_df().mode(axis=axis, numeric_only=numeric_only, dropna=dropna))
 
@@ -638,17 +638,19 @@ class PandasCompatMixin:
         if inplace:
             raise ImmutableError("DataStore")
 
-        # Detect nested dict format: {'A': {1: 100}, 'B': {'a': 'alpha'}}
-        # In this case, value should not be passed to pandas
-        is_nested_dict = (
-            isinstance(to_replace, dict) and to_replace and all(isinstance(v, dict) for v in to_replace.values())
-        )
+        # Detect dict format: {'x': 'X', 'y': 'Y'} or nested dict: {'A': {1: 100}}
+        # For both cases, value should not be explicitly passed (pandas handles this)
+        is_dict_replace = isinstance(to_replace, dict) and to_replace
+        is_nested_dict = is_dict_replace and all(isinstance(v, dict) for v in to_replace.values())
+        # When to_replace is a dict (either flat or nested), pandas interprets it as
+        # key->value mapping. Passing value=None explicitly changes the behavior.
+        is_flat_dict_replace = is_dict_replace and not is_nested_dict
 
-        if is_nested_dict:
-            # Nested dict format - no value parameter
+        if is_nested_dict or is_flat_dict_replace:
+            # Dict format - no value parameter (dict contains the mappings)
             return self._wrap_result(self._get_df().replace(to_replace=to_replace, limit=limit, regex=regex))
         else:
-            # Standard format - pass value
+            # Standard format - pass value (for scalar/list replacements)
             return self._wrap_result(
                 self._get_df().replace(to_replace=to_replace, value=value, limit=limit, regex=regex)
             )
