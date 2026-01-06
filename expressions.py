@@ -816,6 +816,24 @@ class DateTimePropertyExpr(Expression):
         self.source_expr = source_expr
         self.property_name = property_name
 
+    # Datetime properties that should be cast to Int32 to match pandas dtype
+    _INT32_PROPERTIES = frozenset(
+        {
+            'year',
+            'month',
+            'day',
+            'hour',
+            'minute',
+            'second',
+            'dayofweek',
+            'weekday',
+            'dayofyear',
+            'quarter',
+            'week',
+            'weekofyear',
+        }
+    )
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL using chDB function."""
         ch_func = self.CHDB_FUNCTION_MAP.get(self.property_name)
@@ -829,6 +847,12 @@ class DateTimePropertyExpr(Expression):
             result = f"({ch_func}({source_sql}) - 1)"
         else:
             result = f"{ch_func}({source_sql})"
+
+        # Cast to Int32 to match pandas dtype for datetime properties
+        # chDB datetime functions return various integer types (UInt8, UInt16, etc.)
+        # but pandas returns int32 for all datetime properties
+        if self.property_name in self._INT32_PROPERTIES:
+            result = f"toInt32({result})"
 
         if self.alias:
             return f"{result} AS {format_identifier(self.alias, quote_char)}"

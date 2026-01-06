@@ -856,6 +856,10 @@ class ExpressionEvaluator:
         if original_name and hasattr(result, 'name'):
             result = result.rename(original_name)
 
+        # Apply dtype corrections for functions where chDB returns different types than pandas
+        # (e.g., abs() on signed integers returns unsigned in chDB but signed in pandas)
+        result = self._apply_dtype_correction(expr, result, original_name)
+
         return result
 
     def _is_null_handling_function(self, expr) -> bool:
@@ -949,6 +953,44 @@ class ExpressionEvaluator:
                     if name:
                         return name
         return None
+
+    def _apply_dtype_correction(self, expr, result: pd.Series, original_col_name: Optional[str]) -> pd.Series:
+        """
+        Apply dtype corrections for functions where chDB returns different types than pandas.
+
+        Uses the centralized DtypeCorrectionRegistry to apply corrections based on
+        configurable rules. This handles various dtype mismatches:
+        - abs(): unsigned → signed for signed int input
+        - sign(): int8 → preserve input type
+        - pow(): float64 → int for integer input
+        - arithmetic ops: type width preservation
+        - And more...
+
+        Args:
+            expr: The expression that was evaluated
+            result: The result Series from chDB
+            original_col_name: The original column name (for dtype lookup)
+
+        Returns:
+            Series with corrected dtype if needed
+        """
+        from .functions import Function
+        from .dtype_correction import dtype_registry
+
+        # Only process Function expressions
+        if not isinstance(expr, Function):
+            return result
+
+        func_name = expr.name.lower()
+
+        # Get the input column's dtype
+        if not original_col_name or original_col_name not in self.df.columns:
+            return result
+
+        input_dtype = str(self.df[original_col_name].dtype)
+
+        # Apply correction using the registry
+        return dtype_registry.apply_correction(func_name, result, input_dtype)
 
 
 # Convenience function for quick evaluation

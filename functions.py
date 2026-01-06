@@ -65,6 +65,10 @@ class Function(Expression):
 
     # Functions that return UInt64 in chDB but should be Int64 to match pandas
     # Note: Hash functions (cityHash64, sipHash64, etc.) are excluded as they have no pandas equivalent
+    # Note: abs() is NOT included here because it needs input-type-aware conversion.
+    # abs() dtype correction is handled by:
+    # 1. ExpressionEvaluator._apply_dtype_correction() for expression evaluation path
+    # 2. SQLExecutionEngine._apply_sql_dtype_corrections() for SQL pushdown path
     # All names must be lowercase since we compare with self.name.lower()
     _UINT64_FUNCTIONS = frozenset(
         {

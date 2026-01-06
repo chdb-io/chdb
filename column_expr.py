@@ -38,6 +38,10 @@ if TYPE_CHECKING:
     from .conditions import Condition, BinaryCondition
 
 
+# Sentinel value for detecting if argument was passed
+_MISSING = object()
+
+
 class ColumnExpr:
     """
     A unified column expression that supports lazy evaluation in multiple modes.
@@ -2005,12 +2009,13 @@ class ColumnExpr:
         """
         return self._execute().to_dict(into=into)
 
-    def to_frame(self, name=None):
+    def to_frame(self, name=_MISSING):
         """
         Convert Series to DataFrame.
 
         Args:
             name: The passed name should substitute for the series name (if it has one).
+                  If not provided, uses the series name.
 
         Returns:
             DataStore: DataStore wrapping single-column DataFrame
@@ -2025,7 +2030,11 @@ class ColumnExpr:
         from .core import DataStore
 
         series = self._execute()
-        df = series.to_frame(name=name)
+        # Only pass name if explicitly provided (including None)
+        if name is _MISSING:
+            df = series.to_frame()
+        else:
+            df = series.to_frame(name=name)
         return DataStore.from_df(df)
 
     def reset_index(self, level=None, *, drop=False, name=None, inplace=False, allow_duplicates=False):

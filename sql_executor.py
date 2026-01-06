@@ -1741,7 +1741,46 @@ class SQLExecutionEngine:
                     result_df.columns = pd.MultiIndex.from_tuples(new_columns)
                     self._logger.debug("  Converted flat columns to MultiIndex")
 
+        # Apply dtype corrections for SQL results (e.g., abs() on signed integers)
+        result_df = self._apply_sql_dtype_corrections(result_df, df, plan)
+
         return result_df
+
+    def _apply_sql_dtype_corrections(
+        self,
+        result_df: pd.DataFrame,
+        input_df: pd.DataFrame,
+        plan: 'QueryPlan',
+    ) -> pd.DataFrame:
+        """
+        Apply dtype corrections for SQL results where chDB returns different types than pandas.
+
+        Uses the centralized DtypeCorrectionRegistry to apply corrections based on
+        configurable rules. This handles various dtype mismatches:
+        - abs(): unsigned → signed for signed int input
+        - sign(): int8 → preserve input type
+        - pow(): float64 → int for integer input
+        - arithmetic ops: type width preservation
+        - And more...
+
+        Args:
+            result_df: Result DataFrame from SQL execution
+            input_df: Input DataFrame (for dtype lookup)
+            plan: QueryPlan with operation metadata
+
+        Returns:
+            DataFrame with corrected dtypes
+        """
+        from .dtype_correction import dtype_registry
+
+        # Extract operations that may need correction from the plan
+        operations = dtype_registry.extract_operations_from_plan(plan, input_df)
+
+        if not operations:
+            return result_df
+
+        # Apply corrections using the registry
+        return dtype_registry.apply_corrections_to_dataframe(result_df, input_df, operations)
 
     def _build_sql_for_dataframe(
         self,
