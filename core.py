@@ -3679,9 +3679,14 @@ class DataStore(PandasCompatMixin):
 
         # Pandas-style where:
         # - ColumnExpr condition (always pandas-style)
+        # - DataStore condition (boolean DataFrame, e.g., ds_df > 2)
         # - Explicit other value provided
         # - Any kwargs provided
-        is_pandas_style = isinstance(condition, ColumnExpr) or other is not _MISSING or kwargs
+        # Note: DataStore boolean condition must use pandas-style where (CASE WHEN semantics),
+        # not SQL WHERE (row filtering)
+        is_pandas_style = (
+            isinstance(condition, ColumnExpr) or isinstance(condition, DataStore) or other is not _MISSING or kwargs
+        )
 
         if is_pandas_style:
             # Convert _MISSING to None for pandas compatibility
