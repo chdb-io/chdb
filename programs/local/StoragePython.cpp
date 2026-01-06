@@ -143,7 +143,9 @@ void StoragePython::prepareColumnCache(
             try
             {
                 py::object col_data = data_source[py::str(col_name)];
-                col.buf = const_cast<void *>(tryGetPyArray(col_data, col.data, col.tmp, col.py_type, col.row_count));
+                auto py_result = tryGetPyArray(col_data, col.data, col.tmp, col.py_type, col.row_count);
+                col.buf = const_cast<void *>(py_result.data);
+                col.registered_array = std::move(py_result.registered_array);
                 if (col.buf == nullptr)
                     throw Exception(
                         ErrorCodes::PY_EXCEPTION_OCCURED, "Convert to array failed for column {} type {}", col_name, col.py_type);
