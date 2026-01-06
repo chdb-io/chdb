@@ -421,7 +421,14 @@ def build_groupby_select_fields(
         return Field(col_name)
 
     # Build GROUP BY fields
-    groupby_fields = [Field(col) for col in groupby_agg.groupby_cols]
+    # Use resolve_column to expand computed columns in groupby keys
+    groupby_fields = []
+    for col in groupby_agg.groupby_cols:
+        col_expr = resolve_column(col)
+        # If computed column, alias it with the column name for SELECT
+        if col in computed_columns:
+            col_expr = col_expr.as_(col)
+        groupby_fields.append(col_expr)
 
     # Build SELECT fields with aggregations
     select_fields = list(groupby_fields)  # Include group keys
