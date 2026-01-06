@@ -131,6 +131,27 @@ class PandasCompatMixin:
             # so we no longer need to track their expressions
             new_ds._computed_columns = {}
 
+            # Track index info from the result DataFrame for index preservation
+            # This allows subsequent SQL operations to preserve the index
+            has_custom_index = (
+                result.index.name is not None
+                or isinstance(result.index, pd.MultiIndex)
+                or (hasattr(result.index, 'names') and any(n is not None for n in result.index.names))
+            )
+            if has_custom_index:
+                if isinstance(result.index, pd.MultiIndex):
+                    new_ds._index_info = {
+                        'names': list(result.index.names),
+                        'is_multiindex': True,
+                    }
+                else:
+                    new_ds._index_info = {
+                        'name': result.index.name,
+                        'is_multiindex': False,
+                    }
+            else:
+                new_ds._index_info = None
+
             return new_ds
         return result
 

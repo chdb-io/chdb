@@ -315,6 +315,11 @@ class DataStore(PandasCompatMixin):
         # instead of just Field('computed_col')
         self._computed_columns: Dict[str, Expression] = {}
 
+        # Index preservation for lazy SQL execution
+        # Tracks index info when DataFrame has a custom index (from set_index())
+        # Format: {'name': index_name, 'names': [names_for_multiindex]} or None
+        self._index_info: Optional[Dict[str, Any]] = None
+
     def _init_from_dataframe(
         self,
         df: pd.DataFrame,
@@ -407,6 +412,10 @@ class DataStore(PandasCompatMixin):
 
         # Computed columns tracking for chained assign support
         self._computed_columns: Dict[str, Expression] = {}
+
+        # Index preservation for lazy SQL execution
+        # Tracks index info when DataFrame has a custom index (from set_index())
+        self._index_info: Optional[Dict[str, Any]] = None
 
     # ========== Operation Tracking for explain() ==========
 
@@ -955,6 +964,27 @@ class DataStore(PandasCompatMixin):
 
         if is_profiling_enabled():
             profiler.log_report()
+
+        # Restore index if we tracked index info during _ensure_sql_source
+        # Skip if DataFrame already has the correct index (e.g., from set_index(drop=False))
+        if self._index_info is not None and not df.empty:
+            if self._index_info.get('is_multiindex'):
+                # Restore MultiIndex
+                index_names = self._index_info['names']
+                # Check if DataFrame already has this MultiIndex
+                current_index_names = list(df.index.names) if isinstance(df.index, pd.MultiIndex) else []
+                if current_index_names != index_names:
+                    # Check if all index columns exist in the result
+                    existing_index_cols = [n for n in index_names if n in df.columns]
+                    if existing_index_cols:
+                        df = df.set_index(existing_index_cols)
+            else:
+                # Restore single index
+                index_name = self._index_info['name']
+                # Check if DataFrame already has this index
+                if df.index.name != index_name:
+                    if index_name in df.columns:
+                        df = df.set_index(index_name)
 
         return df
 
@@ -2374,6 +2404,10 @@ class DataStore(PandasCompatMixin):
         If this DataStore was created from a DataFrame via from_df() and doesn't
         have a table function yet, creates a PythonTableFunction on-demand.
 
+        Index preservation: If the source DataFrame has a custom index (from set_index()),
+        the index is reset and stored as a regular column. The index info is tracked in
+        _index_info so it can be restored after SQL execution.
+
         Returns:
             True if SQL source is available, False otherwise
         """
@@ -2401,6 +2435,29 @@ class DataStore(PandasCompatMixin):
                 if existing_cols:
                     df_to_use = df_to_use[existing_cols]
                     self._source_df = df_to_use
+
+            # Preserve index info if DataFrame has a custom index
+            # A custom index is one with a name (from set_index()) or a MultiIndex
+            has_custom_index = (
+                df_to_use.index.name is not None
+                or isinstance(df_to_use.index, pd.MultiIndex)
+                or (hasattr(df_to_use.index, 'names') and any(n is not None for n in df_to_use.index.names))
+            )
+
+            if has_custom_index:
+                # Store index info for restoration after SQL execution
+                if isinstance(df_to_use.index, pd.MultiIndex):
+                    self._index_info = {
+                        'names': list(df_to_use.index.names),
+                        'is_multiindex': True,
+                    }
+                else:
+                    self._index_info = {
+                        'name': df_to_use.index.name,
+                        'is_multiindex': False,
+                    }
+                # Reset index to include it as a column for SQL processing
+                df_to_use = df_to_use.reset_index()
 
             # Create PythonTableFunction on-demand with the (possibly filtered) DataFrame
             self._table_function = PythonTableFunction(df=df_to_use, name=self._source_df_name)

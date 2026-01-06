@@ -1866,6 +1866,19 @@ def crosstab(
         >>> ds.crosstab(a, b)
     """
     DataStore = _get_datastore_class()
+
+    # Execute ColumnExpr to pd.Series to preserve name attribute
+    # pd.crosstab needs Series with name to set correct index/column names
+    def _to_series_if_needed(obj):
+        if hasattr(obj, '_execute'):
+            return obj._execute()
+        return obj
+
+    index = _to_series_if_needed(index)
+    columns = _to_series_if_needed(columns)
+    if values is not None:
+        values = _to_series_if_needed(values)
+
     result = pd.crosstab(
         index,
         columns,
