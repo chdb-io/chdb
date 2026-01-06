@@ -3259,7 +3259,7 @@ class DataStore(PandasCompatMixin):
 
         return self
 
-    def insert(self, loc_or_data=None, column=None, value=None, allow_duplicates=False, **columns) -> 'DataStore':
+    def insert(self, loc_or_data=None, column=None, value=None, allow_duplicates=False, **columns) -> None:
         """
         Insert column or rows into the DataStore.
 
@@ -3272,7 +3272,7 @@ class DataStore(PandasCompatMixin):
                column: Label of the inserted column
                value: Scalar, Series, or array-like
                allow_duplicates: Allow duplicate column names
-           Returns: New DataStore with the column inserted
+           Returns: None (modifies DataStore in place, like pandas)
 
         2. SQL row insertion mode (insert rows into table):
            >>> ds.insert([{"id": 1, "name": "Alice"}])
@@ -3288,16 +3288,34 @@ class DataStore(PandasCompatMixin):
         """
         # Detect pandas mode: first arg is int (loc parameter)
         if isinstance(loc_or_data, int):
-            # Pandas-compatible column insertion
+            # Pandas-compatible column insertion (inplace operation like pandas)
             loc = loc_or_data
             if column is None:
                 raise TypeError("insert() missing required argument: 'column'")
             if value is None:
                 raise TypeError("insert() missing required argument: 'value'")
 
+            # Execute any pending lazy operations first
             df = self._get_df().copy()
             df.insert(loc, column, value, allow_duplicates=allow_duplicates)
-            return self._wrap_result(df)
+
+            # Update internal state to reflect the new column (inplace modification)
+            from .lazy_ops import LazyDataFrameSource
+
+            self._source_df = df
+            self._cached_result = df
+            self._cache_valid = True
+            # Add LazyDataFrameSource so count_rows() knows to use execution
+            self._lazy_ops = [LazyDataFrameSource(df)]
+            self._computed_columns = set()
+            # Handle duplicate column names - use iloc for unique column access
+            self._schema = {}
+            for i, col in enumerate(df.columns):
+                col_data = df.iloc[:, i]
+                self._schema[col] = str(col_data.dtype)
+
+            # Return None to match pandas behavior
+            return None
 
         # SQL row insertion mode
         data = loc_or_data
