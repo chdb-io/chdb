@@ -254,7 +254,7 @@ CHDB::QueryResultPtr ChdbClient::executeMaterializedQuery(
 #if USE_PYTHON
         python_table_cache->clear();
 #endif
-        return std::make_unique<CHDB::MaterializedQueryResult>(getExceptionMessage(e, true, true));
+        return std::make_unique<CHDB::MaterializedQueryResult>(getExceptionMessage(e, false));
     }
     catch (...)
     {
