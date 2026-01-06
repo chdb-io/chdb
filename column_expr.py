@@ -3644,18 +3644,27 @@ class ColumnExpr:
         Return number of unique values (lazy).
 
         Returns a ColumnExpr that executes only when displayed.
+        When used with groupby, returns a Series with unique counts per group.
 
         Args:
-            dropna: Don't include NaN in the count (default True)
+            dropna: Do not include NaN in the count (default True)
 
         Returns:
             ColumnExpr: Lazy wrapper returning count of unique values
 
         Example:
-            >>> ds['category'].nunique()  # Lazy
+            >>> ds['category'].nunique()  # Lazy scalar
             3
+            >>> ds.groupby('group')['value'].nunique()  # Series per group
         """
-        return ColumnExpr(source=self, method_name='nunique', method_kwargs=dict(dropna=dropna))
+        # Use uniqExact for counting distinct values in ClickHouse
+        # uniqExact already excludes NULL by default, which matches pandas dropna=True behavior
+        return self._create_agg_expr(
+            agg_func_name='uniqExact',
+            pandas_agg_func='nunique',
+            skipna=dropna,
+            method_kwargs=dict(dropna=dropna),
+        )
 
     def factorize(self, sort: bool = False, use_na_sentinel: bool = True):
         """
