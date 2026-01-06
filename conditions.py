@@ -103,6 +103,14 @@ class BinaryCondition(Condition):
         yield from self.left.nodes()
         yield from self.right.nodes()
 
+    # Operators that need NULL-safe wrapping for pandas compatibility
+    # Used by NullSafeCondition wrapper class
+    # pandas follows IEEE 754: comparisons with NaN/NULL return bool, not NULL
+    # - For =, >, >=, <, <=: NULL comparison returns False in pandas
+    # - For !=, <>: NULL comparison returns True in pandas
+    _NULL_TO_FALSE_OPS = {'=', '>', '>=', '<', '<='}
+    _NULL_TO_TRUE_OPS = {'!=', '<>'}
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for binary condition."""
         left_sql = self.left.to_sql(quote_char=quote_char, **kwargs)
@@ -118,6 +126,74 @@ class BinaryCondition(Condition):
 
     def __copy__(self):
         return BinaryCondition(self.operator, copy(self.left), copy(self.right), self.alias)
+
+
+class NullSafeCondition(Condition):
+    """
+    Wrapper that applies pandas-style NULL semantics to comparisons.
+
+    This wraps a BinaryCondition or CompoundCondition and generates SQL that
+    matches pandas' NULL/NaN comparison behavior using ifNull().
+
+    pandas follows IEEE 754:
+    - =, >, >=, <, <=: comparisons with NULL return False
+    - !=, <>: comparisons with NULL return True
+
+    Example:
+        >>> NullSafeCondition(Field('a') > Field('b'))
+        >>> # Generates: ifNull("a" > "b", 0)
+    """
+
+    def __init__(self, condition: Condition, alias: Optional[str] = None):
+        super().__init__(alias)
+        self.condition = condition
+
+    def nodes(self) -> Iterator[Node]:
+        """Traverse expression tree."""
+        yield self
+        yield from self.condition.nodes()
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        """Generate SQL with ifNull wrapping for pandas NULL semantics."""
+        # Get the inner condition SQL
+        inner_sql = self.condition.to_sql(quote_char=quote_char, **kwargs)
+
+        # Determine the default value based on the operator
+        default_value = self._get_null_default(self.condition)
+
+        if default_value is not None:
+            sql = f"ifNull({inner_sql}, {default_value})"
+        else:
+            sql = inner_sql
+
+        # Add alias if present and requested
+        if kwargs.get('with_alias', False) and self.alias:
+            return format_alias(sql, self.alias, quote_char)
+
+        return sql
+
+    def _get_null_default(self, condition: Condition) -> Optional[int]:
+        """
+        Get the default value for NULL based on the condition type.
+
+        Returns:
+            0 for =, >, >=, <, <= (NULL -> False)
+            1 for !=, <> (NULL -> True)
+            None if no wrapping needed
+        """
+        if isinstance(condition, BinaryCondition):
+            if condition.operator in BinaryCondition._NULL_TO_FALSE_OPS:
+                return 0
+            elif condition.operator in BinaryCondition._NULL_TO_TRUE_OPS:
+                return 1
+        elif isinstance(condition, CompoundCondition):
+            # For compound conditions (AND, OR), apply recursively
+            # The result of AND/OR with NULL should be 0 (False) in pandas semantics
+            return 0
+        return None
+
+    def __copy__(self):
+        return NullSafeCondition(copy(self.condition), self.alias)
 
 
 class CompoundCondition(Condition):

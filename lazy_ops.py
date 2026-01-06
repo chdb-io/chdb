@@ -388,23 +388,35 @@ class LazyColumnAssignment(LazyOp):
         Returns an Expression with the column name as alias, suitable for
         use in SELECT clause: SELECT *, (expr) AS "column"
 
+        For comparison conditions (BinaryCondition, CompoundCondition), wraps with
+        NullSafeCondition to match pandas NULL semantics:
+        - NaN > NaN returns False (not NULL)
+        - 'str' != NULL returns True (not NULL)
+
         Raises:
             ValueError: If expression is not SQL-convertible
         """
         from copy import copy
         from .column_expr import ColumnExpr
+        from .conditions import BinaryCondition, CompoundCondition, NullSafeCondition
 
         if isinstance(self.expr, ColumnExpr):
             if self.expr._expr is None:
                 raise ValueError(f"ColumnExpr has no SQL expression: {self.expr}")
             # Copy the expression to avoid modifying the original
             expr_copy = copy(self.expr._expr)
+            # Wrap comparison conditions for pandas NULL semantics
+            if isinstance(expr_copy, (BinaryCondition, CompoundCondition)):
+                expr_copy = NullSafeCondition(expr_copy)
             expr_copy.alias = self.column
             return expr_copy
 
         if isinstance(self.expr, Expression):
             # Copy the expression to avoid modifying the original
             expr_copy = copy(self.expr)
+            # Wrap comparison conditions for pandas NULL semantics
+            if isinstance(expr_copy, (BinaryCondition, CompoundCondition)):
+                expr_copy = NullSafeCondition(expr_copy)
             expr_copy.alias = self.column
             return expr_copy
 
