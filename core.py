@@ -164,6 +164,12 @@ class DataStore(PandasCompatMixin):
             self._init_from_dataframe(df, database, connection, **kwargs)
             return
 
+        # Handle numpy array input
+        if isinstance(source, np.ndarray):
+            df = pd.DataFrame(source, **df_constructor_kwargs)
+            self._init_from_dataframe(df, database, connection, **kwargs)
+            return
+
         # Handle file path input directly (convenience feature)
         # Detect if source looks like a file path and convert to proper format
         import os
