@@ -205,11 +205,37 @@ class Connection:
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
+        # Handle integer column names (chDB Python() can't handle them)
+        # Convert to strings for SQL execution, track for restoration
+        int_col_map = {}  # str -> original (int or other non-string)
+        df_for_sql = df
+        if any(not isinstance(c, str) for c in df.columns):
+            df_for_sql = df.copy()
+            new_cols = []
+            for c in df.columns:
+                if isinstance(c, int):
+                    str_col = str(c)
+                    int_col_map[str_col] = c
+                    new_cols.append(str_col)
+                elif isinstance(c, str):
+                    new_cols.append(c)
+                else:
+                    # Other non-string types - convert to string
+                    str_col = str(c)
+                    int_col_map[str_col] = c
+                    new_cols.append(str_col)
+            df_for_sql.columns = new_cols
+            # Update SQL to use string column names
+            for str_col, orig_col in int_col_map.items():
+                # Replace numeric column references in SQL with quoted strings
+                # e.g., "0" stays as "0", but any unquoted references need quoting
+                sql = sql.replace(f'"{orig_col}"', f'"{str_col}"')
+
         # Prepare DataFrame with row index if order preservation is needed
         # When preserve_order is explicitly True, always preserve order
         # (only skip for GROUP BY or explicit ORDER BY where order semantics change)
         row_idx_col = '__row_idx__'
-        df_to_use = df
+        df_to_use = df_for_sql
         sql_upper = sql.upper().strip()
 
         # Determine how to handle row order preservation
@@ -244,7 +270,7 @@ class Connection:
         if needs_row_idx:
             # Add row position column (0, 1, 2, ...) to preserve original row order
             # This is independent of DataFrame's index - it's purely for chDB row ordering
-            df_to_use = df.copy()
+            df_to_use = df_for_sql.copy()
             df_to_use[row_idx_col] = range(len(df))
 
         # Auto-wrap table reference if not already wrapped
@@ -295,6 +321,16 @@ class Connection:
                     time_ms=f"{elapsed_ms:.2f}",
                 ):
                     pass  # Already executed, just record timing
+
+            # Restore original integer column names if we converted them
+            if int_col_map:
+                new_cols = []
+                for c in result.columns:
+                    if c in int_col_map:
+                        new_cols.append(int_col_map[c])
+                    else:
+                        new_cols.append(c)
+                result.columns = new_cols
 
             return result
         except Exception as e:

@@ -1064,23 +1064,31 @@ class DataStore(PandasCompatMixin):
                         if op.can_push_to_sql():
                             computed_cols.append(op.column)
 
-                # If we have computed columns but no explicit select, use all original columns + computed
-                if computed_cols and select_cols is None:
-                    select_cols = list(df.columns) + computed_cols
+                # Check if SELECT has any new expressions (not just column references)
+                # e.g., assign() creates SELECT *, expression AS alias
+                has_new_expressions = False
+                for op in plan.sql_ops or []:
+                    if hasattr(op, 'op_type') and op.op_type == 'SELECT':
+                        if hasattr(op, 'fields') and op.fields:
+                            for f in op.fields:
+                                if not isinstance(f, str):
+                                    # Non-string field = expression (need SQL execution)
+                                    has_new_expressions = True
+                                    break
 
-                if select_cols:
-                    # For empty DataFrames with computed columns, create the expected column structure
-                    existing_cols = [c for c in select_cols if c in df.columns]
-                    new_cols = [c for c in select_cols if c not in df.columns]
-                    if existing_cols or new_cols:
-                        # Start with existing columns
+                # If we have computed columns or new expressions, execute SQL for correct dtypes
+                # chDB can correctly infer output types even for empty DataFrames
+                if computed_cols or has_new_expressions:
+                    self._logger.debug("  Empty df has computed columns/expressions, executing SQL for correct dtypes")
+                    # Fall through to execute SQL below
+                else:
+                    # No computed columns, just apply column selection if present
+                    if select_cols:
+                        existing_cols = [c for c in select_cols if c in df.columns]
                         if existing_cols:
                             df = df[existing_cols]
-                        # Add new computed columns (they'll be empty since df is empty)
-                        for col in new_cols:
-                            df[col] = pd.Series(dtype='float64')
                         self._logger.debug("  Applied column selection to empty df: %s", select_cols)
-                return df
+                    return df
 
             # If we have a source but no DataFrame yet, load raw data first
             if df.empty and (self._table_function or self.table_name):
