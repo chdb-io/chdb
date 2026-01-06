@@ -58,18 +58,20 @@ ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
 
 std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServerPtr server_ptr)
 {
-    if (!server_ptr)
-    {
-        server_ptr = EmbeddedServer::getInstance();
-    }
+    chassert(server_ptr);
+
     return std::make_unique<ChdbClient>(server_ptr);
 }
 
 ChdbClient::~ChdbClient()
 {
-    std::lock_guard<std::mutex> lock(client_mutex);
-    cleanup();
-    resetQueryOutputVector();
+    {
+        std::lock_guard<std::mutex> lock(client_mutex);
+        cleanup();
+        resetQueryOutputVector();
+        server.reset();
+    }
+    EmbeddedServer::releaseInstance();
 }
 
 void ChdbClient::cleanup()

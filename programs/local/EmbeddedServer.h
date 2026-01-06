@@ -43,6 +43,8 @@ public:
 
     static std::shared_ptr<EmbeddedServer> getInstance(int argc = 0, char ** argv = nullptr);
 
+    static void releaseInstance();
+
     std::string getPath() const { return db_path; }
 
 private:
@@ -52,8 +54,9 @@ private:
     void processConfig();
     void applyCmdOptions(ContextMutablePtr context);
     void initializeWithArgs(int argc, char ** argv);
-    static std::weak_ptr<EmbeddedServer> global_instance;
+    static std::shared_ptr<EmbeddedServer> global_instance;
     static std::mutex instance_mutex;
+    static size_t client_ref_count;
     std::string db_path;
     ServerSettings server_settings;
     std::optional<StatusFile> status;
