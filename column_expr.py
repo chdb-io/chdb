@@ -575,6 +575,12 @@ class ColumnExpr:
                 executor = get_executor()
                 result_df = executor.query_dataframe(sql, df)
 
+                # Fix for sum of all-NaN: SQL returns NULL, pandas returns 0
+                # When using sumIf with skipna=True and all values are NaN,
+                # SQL returns NULL. Convert to 0 to match pandas behavior.
+                if self._agg_func_name == 'sum' and self._skipna:
+                    result_df[col_name] = result_df[col_name].fillna(0)
+
                 if as_index:
                     # Return Series with groupby keys as index
                     if len(groupby_col_names) == 1:
