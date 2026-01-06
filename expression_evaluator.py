@@ -263,6 +263,10 @@ class ExpressionEvaluator:
             # DateTimeMethodExpr
             return self._evaluate_datetime_method(expr)
 
+        elif hasattr(expr, 'component') and hasattr(expr, 'source_expr'):
+            # IsoCalendarComponentExpr
+            return self._evaluate_isocalendar_component(expr)
+
         elif isinstance(expr, Function):
             # Function call - check execution config
             # Use pandas_name if available (for functions where SQL name differs from user-facing name)
@@ -659,6 +663,58 @@ class ExpressionEvaluator:
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})), '{fmt}')"
         else:
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})))"
+
+        return self._execute_sql_expression(sql_expr)
+
+    def _evaluate_isocalendar_component(self, expr) -> pd.Series:
+        """Evaluate an IsoCalendarComponentExpr - returns ISO calendar component."""
+        from .function_executor import function_config
+
+        component = expr.component
+
+        # Check if this should use pandas
+        if function_config.should_use_pandas('isocalendar'):
+            self._logger.debug("[ExprEval] isocalendar.%s -> Pandas", component)
+            return self._evaluate_isocalendar_component_pandas(expr)
+        else:
+            self._logger.debug("[ExprEval] isocalendar.%s -> chDB", component)
+            return self._evaluate_isocalendar_component_chdb(expr)
+
+    def _evaluate_isocalendar_component_pandas(self, expr) -> pd.Series:
+        """Evaluate isocalendar component using pandas."""
+        source_series = self.evaluate(expr.source_expr)
+
+        # Convert to datetime if needed
+        if not pd.api.types.is_datetime64_any_dtype(source_series):
+            if source_series.dtype == 'object' or pd.api.types.is_string_dtype(source_series):
+                try:
+                    source_series = pd.to_datetime(source_series, errors='coerce')
+                except Exception:
+                    pass
+
+        # Get isocalendar DataFrame
+        isocal = source_series.dt.isocalendar()
+        return isocal[expr.component]
+
+    def _evaluate_isocalendar_component_chdb(self, expr) -> pd.Series:
+        """Evaluate isocalendar component using chDB SQL function."""
+        from .expressions import IsoCalendarComponentExpr
+
+        source_sql = expr.source_expr.to_sql(quote_char='"')
+
+        ch_func = IsoCalendarComponentExpr.CHDB_FUNCTION_MAP.get(expr.component)
+        if not ch_func:
+            # No chDB mapping, fall back to pandas
+            self._logger.debug("[ExprEval] No chDB mapping for isocalendar '%s', using pandas", expr.component)
+            return self._evaluate_isocalendar_component_pandas(expr)
+
+        # Build SQL expression
+        # Use parseDateTimeBestEffort to handle various datetime formats
+        if expr.component == 'day':
+            # toDayOfWeek needs mode=0 for Monday=1 (ISO standard: 1-7)
+            sql_expr = f"toUInt32({ch_func}(parseDateTimeBestEffort(toString({source_sql})), 0))"
+        else:
+            sql_expr = f"toUInt32({ch_func}(parseDateTimeBestEffort(toString({source_sql}))))"
 
         return self._execute_sql_expression(sql_expr)
 

@@ -912,6 +912,59 @@ class DateTimeMethodExpr(Expression):
         yield from self.source_expr.nodes()
 
 
+class IsoCalendarComponentExpr(Expression):
+    """
+    Expression representing an isocalendar component (.dt.isocalendar().year/week/day).
+
+    This is a lazy expression that evaluates to the ISO calendar component
+    of a datetime column.
+    """
+
+    # Mapping from component name to chDB function
+    CHDB_FUNCTION_MAP = {
+        'year': 'toISOYear',
+        'week': 'toISOWeek',
+        'day': 'toDayOfWeek',  # with mode 1 for Monday=1
+    }
+
+    def __init__(self, source_expr: Expression, component: str, alias: Optional[str] = None):
+        """
+        Args:
+            source_expr: The datetime column expression
+            component: 'year', 'week', or 'day'
+            alias: Optional alias for the result
+        """
+        super().__init__(alias)
+        self.source_expr = source_expr
+        self.component = component
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        """Generate SQL using chDB function."""
+        ch_func = self.CHDB_FUNCTION_MAP.get(self.component)
+        if not ch_func:
+            raise ValueError(f"Unknown isocalendar component: {self.component}")
+
+        source_sql = self.source_expr.to_sql(quote_char=quote_char, **kwargs)
+
+        # toDayOfWeek needs mode=0 for Monday=1 (ISO standard: 1-7)
+        # mode=1 would return Monday=0 (0-6)
+        if self.component == 'day':
+            result = f"{ch_func}({source_sql}, 0)"
+        else:
+            result = f"{ch_func}({source_sql})"
+
+        # Cast to UInt32 to match pandas isocalendar() dtype
+        result = f"toUInt32({result})"
+
+        if self.alias:
+            return f"{result} AS {format_identifier(self.alias, quote_char)}"
+        return result
+
+    def nodes(self) -> Iterator['Node']:
+        yield self
+        yield from self.source_expr.nodes()
+
+
 # =============================================================================
 # INJECT FUNCTION METHODS FROM REGISTRY
 # =============================================================================

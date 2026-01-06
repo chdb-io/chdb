@@ -4754,8 +4754,139 @@ class ColumnExprDateTimeAccessor:
         """Return the time part of the datetime. Always uses pandas."""
         return self._make_property_expr('time')
 
+    @property
+    def daysinmonth(self) -> ColumnExpr:
+        """Alias for days_in_month (pandas compatibility)."""
+        return self.days_in_month
+
+    @property
+    def freq(self):
+        """Return the frequency object if set, otherwise None. Executes immediately."""
+        # freq returns scalar, not Series - execute immediately
+        series = self._column_expr._execute()
+        return series.dt.freq
+
+    @property
+    def tz(self):
+        """Return the timezone. Executes immediately."""
+        # tz returns scalar, not Series - execute immediately
+        series = self._column_expr._execute()
+        return series.dt.tz
+
+    @property
+    def unit(self):
+        """Return the unit of the datetime. Executes immediately."""
+        # unit returns scalar, not Series - execute immediately
+        series = self._column_expr._execute()
+        return series.dt.unit
+
+    @property
+    def timetz(self) -> ColumnExpr:
+        """Return the time with timezone. Always uses pandas."""
+        return self._make_property_expr('timetz')
+
+    def as_unit(self, unit: str) -> ColumnExpr:
+        """Convert to the specified unit. Always uses pandas."""
+        return self._make_method_expr('as_unit', unit)
+
+    def day_name(self, locale: str = None) -> ColumnExpr:
+        """Return the day names (Monday, Tuesday, etc.). Always uses pandas."""
+        if locale is not None:
+            return self._make_method_expr('day_name', locale=locale)
+        return self._make_method_expr('day_name')
+
+    def month_name(self, locale: str = None) -> ColumnExpr:
+        """Return the month names (January, February, etc.). Always uses pandas."""
+        if locale is not None:
+            return self._make_method_expr('month_name', locale=locale)
+        return self._make_method_expr('month_name')
+
+    def to_pydatetime(self) -> ColumnExpr:
+        """Return an ndarray of python datetime objects. Always uses pandas."""
+        return self._make_method_expr('to_pydatetime')
+
+    def isocalendar(self) -> 'ColumnExprIsoCalendarResult':
+        """
+        Return a DataFrame with ISO year, week number, and weekday.
+
+        Returns:
+            ColumnExprIsoCalendarResult with .year, .week, .day properties
+        """
+        return ColumnExprIsoCalendarResult(self._column_expr)
+
     def __repr__(self) -> str:
         return f"ColumnExprDateTimeAccessor({self._column_expr._expr!r})"
+
+
+class ColumnExprIsoCalendarResult:
+    """
+    Result of dt.isocalendar() - provides access to ISO calendar components.
+
+    Supports:
+        - .year: ISO year
+        - .week: ISO week number (1-53)
+        - .day: ISO day of week (1=Monday, 7=Sunday)
+        - Direct iteration/execution returns DataFrame with all three columns
+    """
+
+    def __init__(self, column_expr: ColumnExpr):
+        self._column_expr = column_expr
+
+    def _make_isocalendar_component(self, component: str) -> ColumnExpr:
+        """Create a ColumnExpr for an isocalendar component."""
+        from .expressions import IsoCalendarComponentExpr
+
+        expr = IsoCalendarComponentExpr(self._column_expr._expr, component)
+        return ColumnExpr(expr, self._column_expr._datastore)
+
+    @property
+    def year(self) -> ColumnExpr:
+        """ISO year."""
+        return self._make_isocalendar_component('year')
+
+    @property
+    def week(self) -> ColumnExpr:
+        """ISO week number (1-53)."""
+        return self._make_isocalendar_component('week')
+
+    @property
+    def day(self) -> ColumnExpr:
+        """ISO day of week (1=Monday, 7=Sunday)."""
+        return self._make_isocalendar_component('day')
+
+    @property
+    def columns(self):
+        """Return column names."""
+        return ['year', 'week', 'day']
+
+    @property
+    def values(self):
+        """Return as numpy array."""
+        return self._to_dataframe().values
+
+    def __len__(self):
+        """Trigger execution and return length."""
+        return len(self._column_expr)
+
+    def _to_dataframe(self):
+        """Convert to DataFrame with year, week, day columns."""
+        import pandas as pd
+
+        return pd.DataFrame({'year': self.year.values, 'week': self.week.values, 'day': self.day.values})
+
+    def __getitem__(self, key):
+        """Allow column access like result['week']."""
+        if key == 'year':
+            return self.year
+        elif key == 'week':
+            return self.week
+        elif key == 'day':
+            return self.day
+        else:
+            raise KeyError(f"Unknown column: {key}")
+
+    def __repr__(self) -> str:
+        return f"ColumnExprIsoCalendarResult({self._column_expr._expr!r})"
 
 
 class ColumnExprILocIndexer:

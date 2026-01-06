@@ -101,7 +101,127 @@ class DateTimeAccessor(BaseAccessor):
         """Extract millisecond (0-999). Maps to toMillisecond(x)."""
         return self._create_function('toMillisecond')
 
+    @property
+    def daysinmonth(self) -> 'Function':
+        """Alias for days_in_month (pandas compatibility)."""
+        return self._create_function('toDaysInMonth')
+
+    def isocalendar(self):
+        """
+        Return a DataFrame with ISO year, week number, and weekday.
+        
+        Returns a DataFrame with columns 'year', 'week', and 'day'.
+        ISO week date: Monday is day 1, weeks start on Monday.
+        
+        Returns:
+            IsoCalendarResult: Object with .year, .week, .day properties
+        """
+        return IsoCalendarResult(self._expr)
+
+    def day_name(self, locale: str = None) -> 'Function':
+        """
+        Return the day names (Monday, Tuesday, etc.).
+        
+        Args:
+            locale: Locale for day names (ignored, always English)
+            
+        Returns:
+            Series with day names
+        """
+        # ClickHouse: dateName('weekday', date) returns 'Monday', 'Tuesday', etc.
+        return self._create_function('dateName', 'weekday')
+
+    def month_name(self, locale: str = None) -> 'Function':
+        """
+        Return the month names (January, February, etc.).
+        
+        Args:
+            locale: Locale for month names (ignored, always English)
+            
+        Returns:
+            Series with month names
+        """
+        # ClickHouse: dateName('month', date) returns 'January', 'February', etc.
+        return self._create_function('dateName', 'month')
+
     # Standard methods will be injected from registry below
+
+
+class IsoCalendarResult:
+    """
+    Result of dt.isocalendar() - provides access to ISO calendar components.
+    
+    Supports:
+        - .year: ISO year
+        - .week: ISO week number (1-53)
+        - .day: ISO day of week (1=Monday, 7=Sunday)
+        - Direct iteration/execution returns DataFrame with all three columns
+    """
+    
+    def __init__(self, expr):
+        self._expr = expr
+    
+    @property
+    def year(self):
+        """ISO year. Maps to toISOYear(x)."""
+        from ..functions import Function
+        return Function('toISOYear', self._expr)
+    
+    @property
+    def week(self):
+        """ISO week number (1-53). Maps to toISOWeek(x)."""
+        from ..functions import Function
+        return Function('toISOWeek', self._expr)
+    
+    @property
+    def day(self):
+        """ISO day of week (1=Monday, 7=Sunday). Maps to toDayOfWeek(x, 1)."""
+        from ..functions import Function
+        from ..expressions import Literal
+        # toDayOfWeek(date, mode) where mode=1 means Monday=1
+        return Function('toDayOfWeek', self._expr, Literal(1))
+    
+    def __repr__(self):
+        return f"IsoCalendarResult({self._expr})"
+    
+    def __len__(self):
+        """Trigger execution and return length."""
+        return len(self._to_datastore())
+    
+    @property
+    def values(self):
+        """Return as numpy array."""
+        return self._to_datastore().values
+    
+    @property
+    def columns(self):
+        """Return column names."""
+        return ['year', 'week', 'day']
+    
+    def _to_datastore(self):
+        """Convert to DataStore with year, week, day columns."""
+        from ..core import DataStore
+        
+        # Get the source DataStore from the expression
+        source_ds = self._expr._datastore
+        
+        # Create new DataStore with isocalendar columns
+        return source_ds.assign(
+            year=self.year,
+            week=self.week,
+            day=self.day
+        )[['year', 'week', 'day']]
+    
+    def __getitem__(self, key):
+        """Allow column access like result['week']."""
+        if key == 'year':
+            return self.year
+        elif key == 'week':
+            return self.week
+        elif key == 'day':
+            return self.day
+        else:
+            raise KeyError(f"Unknown column: {key}")
 
 
 # =============================================================================

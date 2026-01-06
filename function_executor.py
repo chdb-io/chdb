@@ -170,6 +170,9 @@ class FunctionExecutorConfig:
         # Python %H = hour 24h, ClickHouse %H = hour 24h (same)
         # Using pandas ensures Python strftime format compatibility
         'strftime',
+        # isocalendar - chDB timezone handling causes issues at day boundaries
+        # e.g., 2024-12-31 23:59:59 may be interpreted differently
+        'isocalendar',
         # String functions that need pandas for na parameter support
         'contains',  # pandas str.contains has na parameter (na=True/False), SQL propagates NULL
         # Cumulative functions (no simple SQL equivalent)
