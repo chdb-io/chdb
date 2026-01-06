@@ -4272,6 +4272,25 @@ class DataStore(PandasCompatMixin):
             else:
                 select_items = ['*']
 
+            # Get list of aliases being assigned
+            aliases_to_assign = set(sql_kwargs.keys())
+
+            # Get existing columns to check for overwrites
+            existing_columns = set(result._get_all_column_names())
+
+            # Check if any alias overwrites an existing column
+            columns_to_overwrite = aliases_to_assign & existing_columns
+
+            if columns_to_overwrite:
+                # If using '*', expand to explicit column list excluding overwritten columns
+                if select_items == ['*']:
+                    select_items = [col for col in result._get_all_column_names() if col not in columns_to_overwrite]
+                else:
+                    # Remove overwritten columns from existing selection
+                    select_items = [
+                        item for item in select_items if not (isinstance(item, str) and item in columns_to_overwrite)
+                    ]
+
             for alias, expr in sql_kwargs.items():
                 original_expr = expr
                 if isinstance(expr, ColumnExpr):
