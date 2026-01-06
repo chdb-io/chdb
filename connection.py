@@ -666,6 +666,8 @@ class Connection:
         IMPORTANT: This method preserves row order by adding an index column and
         ORDER BY clause to ensure results align with the original DataFrame.
         For aggregate expressions, ORDER BY is skipped as they return single values.
+        For row-expanding expressions (arrayJoin/explode), the result may have more
+        rows than the input and index alignment is skipped.
 
         Args:
             expr_sql: SQL expression to evaluate (e.g., "CAST(value AS Float64)")
@@ -673,13 +675,17 @@ class Connection:
             result_column: Name for the result column (default: '__result__')
 
         Returns:
-            Result Series with the original DataFrame's index
+            Result Series with the original DataFrame's index (when possible)
         """
         if self._conn is None:
             raise ConnectionError("Not connected. Call connect() first.")
 
         # Check if expression contains aggregate functions
         is_aggregate = self._is_aggregate_expression(expr_sql)
+
+        # Check if expression contains row-expanding functions (arrayJoin/explode)
+        # These functions can change the number of rows, so we can't preserve index
+        is_row_expanding = self._is_row_expanding_expression(expr_sql)
 
         # Convert nullable dtypes to non-nullable for Python 3.8 compatibility
         df_converted = _convert_nullable_dtypes(df)
@@ -703,8 +709,14 @@ class Connection:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             result_series = result_df[result_column]
-            if not is_aggregate:
+
+            # Only set index if:
+            # - Not aggregate (which returns single value)
+            # - Not row-expanding (which changes row count)
+            # - Result length matches input length
+            if not is_aggregate and not is_row_expanding and len(result_series) == len(df):
                 result_series.index = df.index
+
             self._logger.debug("[chDB] Expression result: %d values, time: %.2fms", len(result_series), elapsed_ms)
 
             # Add profiling info if profiler is active
@@ -718,6 +730,32 @@ class Connection:
         except Exception as e:
             self._logger.error("[chDB] Expression evaluation failed: %s", e)
             raise ExecutionError(f"Failed to evaluate expression '{expr_sql}': {e}")
+
+    def _is_row_expanding_expression(self, expr_sql: str) -> bool:
+        """
+        Check if SQL expression contains row-expanding functions.
+
+        Row-expanding functions like arrayJoin can produce more rows than the input,
+        so we cannot align the result index with the original DataFrame.
+
+        Args:
+            expr_sql: SQL expression to check
+
+        Returns:
+            True if expression contains row-expanding functions
+        """
+        import re
+
+        # Row-expanding function patterns (case-insensitive)
+        row_expanding_patterns = [
+            r'\barrayJoin\s*\(',
+        ]
+
+        expr_lower = expr_sql.lower()
+        for pattern in row_expanding_patterns:
+            if re.search(pattern, expr_lower, re.IGNORECASE):
+                return True
+        return False
 
     def _is_aggregate_expression(self, expr_sql: str) -> bool:
         """
