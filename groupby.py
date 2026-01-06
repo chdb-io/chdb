@@ -315,10 +315,16 @@ class LazyGroupBy:
                 result_df = ds._executor.execute(sql).to_df()
 
                 # Convert to Series with groupby col as index
+                # Fix dtype: chDB COUNT(*) returns uint64, pandas expects int64
                 if len(cols) == 1:
-                    return result_df.set_index(cols[0])['size']
+                    series = result_df.set_index(cols[0])['size']
                 else:
-                    return result_df.set_index(cols)['size']
+                    series = result_df.set_index(cols)['size']
+
+                # Convert uint64 to int64 to match pandas behavior
+                if series.dtype == 'uint64':
+                    series = series.astype('int64')
+                return series
             else:
                 # Fall back to pandas
                 df = ds._execute()

@@ -159,7 +159,7 @@ class FunctionExecutorConfig:
     }
 
     # Pandas-only functions (no ClickHouse equivalent or require pandas-specific features)
-    # NOTE: As of chDB 4.0.0b3, NaN/NULL handling is fixed at the SQL level (see GitHub issue #447).
+    # NOTE: As of chDB 4.0.0b4, NaN/NULL handling is fixed at the SQL level (see GitHub issue #447).
     # Functions like isNull/isNotNull/ifNull now work correctly with NaN in SQL.
     # HOWEVER, the DataStore lazy execution pipeline still has issues extracting
     # function results correctly (returns original column instead of function result).

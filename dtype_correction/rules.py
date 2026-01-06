@@ -286,6 +286,50 @@ class Float32PreserveRule(DtypeCorrectionRule):
         return None
 
 
+class ClipNullablePreserveRule(DtypeCorrectionRule):
+    """
+    Correction rule for clip() on nullable integer columns.
+
+    chDB's greatest/least functions return float64 for nullable integer columns,
+    but pandas preserves the original nullable dtype (Int64, Int32, etc.).
+
+    Example:
+        clip(Int64) → chDB returns float64, pandas returns Int64
+    """
+
+    func_names = {'greatest', 'least', 'clip'}  # clip uses greatest/least internally
+    priority = CorrectionPriority.HIGH
+
+    def should_correct(self, input_dtype: str, output_dtype: str) -> bool:
+        """Check if input was nullable int and output is float64."""
+        # Nullable int dtypes start with capital letter: Int64, Int32, Int16, Int8
+        is_nullable_int = input_dtype.startswith('Int') and input_dtype[3:].isdigit()
+        return is_nullable_int and output_dtype == 'float64'
+
+    def get_target_dtype(self, input_dtype: str) -> Optional[str]:
+        """Return the original nullable dtype."""
+        if input_dtype.startswith('Int') and input_dtype[3:].isdigit():
+            return input_dtype
+        return None
+
+    def apply(self, series: pd.Series, input_dtype: str) -> pd.Series:
+        """
+        Apply correction: convert float64 back to nullable Int.
+
+        Need special handling because we need to use pd.array with nullable dtype.
+        """
+        target_dtype = self.get_target_dtype(input_dtype)
+        if target_dtype is None:
+            return series
+
+        try:
+            # Use convert_dtypes() or direct astype to nullable int
+            return series.astype(target_dtype)
+        except (ValueError, TypeError, OverflowError):
+            # If conversion fails, return original
+            return series
+
+
 # All available rules
 ALL_RULES = [
     SignedAbsRule(),
@@ -294,4 +338,5 @@ ALL_RULES = [
     PowPreserveRule(),
     FloordivPreserveRule(),
     Float32PreserveRule(),
+    ClipNullablePreserveRule(),
 ]
