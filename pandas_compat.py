@@ -937,7 +937,12 @@ class PandasCompatMixin:
 
     def pivot(self, *, columns, index=None, values=None):
         """Return reshaped DataFrame organized by given index / column values."""
-        return self._wrap_result(self._get_df().pivot(columns=columns, index=index, values=values))
+        # Note: pandas pivot() behaves differently when values=None vs not passed
+        # We need to conditionally include the values parameter
+        kwargs = {'columns': columns, 'index': index}
+        if values is not None:
+            kwargs['values'] = values
+        return self._wrap_result(self._get_df().pivot(**kwargs))
 
     def pivot_table(
         self,
