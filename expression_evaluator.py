@@ -649,15 +649,34 @@ class ExpressionEvaluator:
         """Evaluate datetime method using chDB SQL function."""
         from .expressions import DateTimeMethodExpr
 
-        source_sql = expr.source_expr.to_sql(quote_char='"')
-
         ch_func = DateTimeMethodExpr.CHDB_FUNCTION_MAP.get(expr.method_name)
         if not ch_func:
             # No chDB mapping, fall back to pandas
             self._logger.debug("[ExprEval] No chDB mapping for method '%s', using pandas", expr.method_name)
             return self._evaluate_datetime_method_pandas(expr)
 
-        # Build SQL expression
+        source_sql = expr.source_expr.to_sql(quote_char='"')
+
+        # For floor/ceil/round/normalize, need to handle timezone properly
+        # Use toTimezone(..., 'UTC') to ensure correct results matching pandas
+        if expr.method_name in ('floor_dt', 'ceil_dt', 'round_dt', 'normalize'):
+            # Build a modified expression with UTC timezone handling
+            # First convert source to UTC to avoid local timezone issues
+            utc_source = f"toTimezone(parseDateTimeBestEffort(toString({source_sql})), 'UTC')"
+            sql_expr = self._build_datetime_method_sql(expr, utc_source)
+            result = self._execute_sql_expression(sql_expr)
+
+            # Post-process result to match pandas dtype
+            # 1. Remove UTC timezone (convert to naive datetime)
+            # 2. Ensure datetime64[ns] resolution
+            if hasattr(result.dt, 'tz') and result.dt.tz is not None:
+                result = result.dt.tz_localize(None)
+            # Convert to datetime64[ns] to match pandas
+            if result.dtype == 'datetime64[s]' or str(result.dtype).startswith('datetime64[s'):
+                result = result.astype('datetime64[ns]')
+            return result
+
+        # Build SQL expression for other methods
         if expr.method_name == 'strftime' and expr.args:
             fmt = expr.args[0]
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})), '{fmt}')"
@@ -665,6 +684,37 @@ class ExpressionEvaluator:
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})))"
 
         return self._execute_sql_expression(sql_expr)
+
+    def _build_datetime_method_sql(self, expr, source_sql: str) -> str:
+        """Build SQL for datetime methods (floor/ceil/round/normalize) with proper source."""
+        from .expressions import DateTimeMethodExpr
+
+        method_name = expr.method_name
+
+        if method_name == 'normalize':
+            return f"toStartOfDay({source_sql})"
+
+        freq = expr.args[0] if expr.args else 'D'
+        floor_func = DateTimeMethodExpr.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
+
+        if method_name == 'floor_dt':
+            return f"{floor_func}({source_sql})"
+
+        add_info = DateTimeMethodExpr.FREQ_TO_ADD_FUNC.get(freq, ('addDays', 1, 43200))
+        add_func, amount, half_seconds = add_info
+        floor_expr = f"{floor_func}({source_sql})"
+        ceil_expr = f"{add_func}({floor_expr}, {amount})"
+
+        if method_name == 'ceil_dt':
+            # ceil = if(floor(x) == x, x, floor(x) + 1 unit)
+            return f"if({floor_expr} = {source_sql}, {source_sql}, {ceil_expr})"
+
+        if method_name == 'round_dt':
+            # round = if(diff >= half_interval, ceil, floor)
+            diff_seconds = f"dateDiff('second', {floor_expr}, {source_sql})"
+            return f"if({diff_seconds} >= {half_seconds}, {ceil_expr}, {floor_expr})"
+
+        return f"{floor_func}({source_sql})"
 
     def _evaluate_isocalendar_component(self, expr) -> pd.Series:
         """Evaluate an IsoCalendarComponentExpr - returns ISO calendar component."""

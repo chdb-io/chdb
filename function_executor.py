@@ -293,10 +293,6 @@ class FunctionExecutorConfig:
         'is_leap_year',
         'tz_localize',
         'tz_convert',
-        'normalize',
-        'floor_dt',
-        'ceil_dt',
-        'round_dt',
         'to_period',
         'to_pydatetime',
         'to_pytimedelta',
@@ -332,14 +328,13 @@ class FunctionExecutorConfig:
         'str.translate': '*',  # character translation needs pandas
         # DateTime accessor methods
         'dt.strftime': '*',  # format codes differ: Python %M=minute, chDB %M=month name
-        'dt.floor': '*',  # floor to frequency needs pandas
-        'dt.ceil': '*',  # ceil to frequency needs pandas
-        'dt.round': '*',  # round to frequency needs pandas
+        # dt.floor, dt.ceil, dt.round now support common frequencies (h, min, s, D) via SQL
+        # Unsupported frequencies fall back to pandas
         'dt.tz_localize': '*',  # timezone localization needs pandas
         'dt.tz_convert': '*',  # timezone conversion needs pandas
         'dt.to_period': '*',  # period conversion needs pandas
         'dt.to_pydatetime': '*',  # datetime conversion needs pandas
-        'dt.normalize': '*',  # normalize time to midnight needs pandas
+        # dt.normalize now uses toStartOfDay SQL function
         # DateTime properties that always need pandas
         'dt.microsecond': '*',  # no direct chDB equivalent
         'dt.nanosecond': '*',  # no direct chDB equivalent

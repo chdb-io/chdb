@@ -873,6 +873,34 @@ class DateTimeMethodExpr(Expression):
     # Mapping from method name to chDB function name
     CHDB_FUNCTION_MAP = {
         'strftime': 'formatDateTime',
+        'floor_dt': 'FLOOR_DT',  # Special marker for floor datetime
+        'ceil_dt': 'CEIL_DT',  # Special marker for ceil datetime
+        'round_dt': 'ROUND_DT',  # Special marker for round datetime
+        'normalize': 'toStartOfDay',  # Normalize = start of day
+    }
+
+    # Mapping from pandas frequency to ClickHouse floor function
+    FREQ_TO_FLOOR_FUNC = {
+        'h': 'toStartOfHour',
+        'H': 'toStartOfHour',
+        'min': 'toStartOfMinute',
+        'T': 'toStartOfMinute',
+        's': 'toStartOfSecond',
+        'S': 'toStartOfSecond',
+        'd': 'toStartOfDay',
+        'D': 'toStartOfDay',
+    }
+
+    # Mapping from pandas frequency to ClickHouse add function and interval
+    FREQ_TO_ADD_FUNC = {
+        'h': ('addHours', 1, 1800),  # (add_func, amount, half_interval_seconds)
+        'H': ('addHours', 1, 1800),
+        'min': ('addMinutes', 1, 30),
+        'T': ('addMinutes', 1, 30),
+        's': ('addSeconds', 1, 0.5),
+        'S': ('addSeconds', 1, 0.5),
+        'd': ('addDays', 1, 43200),  # 12 hours
+        'D': ('addDays', 1, 43200),
     }
 
     def __init__(
@@ -900,12 +928,61 @@ class DateTimeMethodExpr(Expression):
         if self.method_name == 'strftime' and self.args:
             fmt = self.args[0]
             result = f"{ch_func}({source_sql}, '{fmt}')"
+        elif self.method_name == 'floor_dt':
+            result = self._build_floor_sql(source_sql)
+        elif self.method_name == 'ceil_dt':
+            result = self._build_ceil_sql(source_sql)
+        elif self.method_name == 'round_dt':
+            result = self._build_round_sql(source_sql)
+        elif self.method_name == 'normalize':
+            result = f"{ch_func}({source_sql})"
         else:
             result = f"{ch_func}({source_sql})"
 
         if self.alias:
             return f"{result} AS {format_identifier(self.alias, quote_char)}"
         return result
+
+    def _build_floor_sql(self, source_sql: str) -> str:
+        """Build SQL for floor operation."""
+        freq = self.args[0] if self.args else 'D'
+        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
+        return f"{floor_func}({source_sql})"
+
+    def _build_ceil_sql(self, source_sql: str) -> str:
+        """Build SQL for ceil operation.
+
+        ceil = if(floor(x) == x, x, floor(x) + 1 unit)
+        """
+        freq = self.args[0] if self.args else 'D'
+        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
+        add_info = self.FREQ_TO_ADD_FUNC.get(freq, ('addDays', 1, 43200))
+        add_func, amount, _ = add_info
+
+        floor_expr = f"{floor_func}({source_sql})"
+        ceil_expr = f"{add_func}({floor_expr}, {amount})"
+        # If already at boundary, return as-is; otherwise ceil
+        return f"if({floor_expr} = {source_sql}, {source_sql}, {ceil_expr})"
+
+    def _build_round_sql(self, source_sql: str) -> str:
+        """Build SQL for round operation.
+
+        round = if(time_to_next_boundary <= half_interval, ceil, floor)
+        For simplicity, we use: if the fractional part >= 0.5, ceil; else floor
+        """
+        freq = self.args[0] if self.args else 'D'
+        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
+        add_info = self.FREQ_TO_ADD_FUNC.get(freq, ('addDays', 1, 43200))
+        add_func, amount, half_seconds = add_info
+
+        floor_expr = f"{floor_func}({source_sql})"
+        ceil_expr = f"{add_func}({floor_expr}, {amount})"
+
+        # Calculate seconds from floor to original
+        diff_seconds = f"dateDiff('second', {floor_expr}, {source_sql})"
+
+        # If diff >= half_interval, round up (ceil), else round down (floor)
+        return f"if({diff_seconds} >= {half_seconds}, {ceil_expr}, {floor_expr})"
 
     def nodes(self) -> Iterator['Node']:
         yield self
