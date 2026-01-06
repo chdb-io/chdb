@@ -113,10 +113,23 @@ class ExpressionEvaluator:
                 # Execute arguments
                 args = tuple(self.evaluate(arg) if _is_lazy(arg) else arg for arg in expr._method_args)
                 kwargs = {k: self.evaluate(v) if _is_lazy(v) else v for k, v in expr._method_kwargs.items()}
+                # Handle chained function calls (e.g., diff().abs() creates _chain_abs)
+                method_name = expr._method_name
+                if method_name.startswith('_chain_'):
+                    method_name = method_name[7:]  # Remove '_chain_' prefix
+                    # Remove 'alias' from kwargs if present (SQL-specific parameter)
+                    kwargs = {k: v for k, v in kwargs.items() if k != 'alias'}
                 # Call the method
-                if hasattr(source_series, expr._method_name):
-                    method = getattr(source_series, expr._method_name)
+                if hasattr(source_series, method_name):
+                    method = getattr(source_series, method_name)
                     return method(*args, **kwargs)
+                # Try numpy function as fallback for _chain_ methods
+                if expr._method_name.startswith('_chain_'):
+                    import numpy as np
+
+                    if hasattr(np, method_name):
+                        np_func = getattr(np, method_name)
+                        return np_func(source_series, *args)
                 return source_series
             elif expr._exec_mode == 'agg' and expr._source is not None:
                 # Aggregation mode - evaluate source and apply aggregation
