@@ -46,7 +46,12 @@ class LazyGroupBy:
     """
 
     def __init__(
-        self, datastore: 'DataStore', groupby_fields: List[Expression], sort: bool = True, as_index: bool = True
+        self,
+        datastore: 'DataStore',
+        groupby_fields: List[Expression],
+        sort: bool = True,
+        as_index: bool = True,
+        selected_columns: List[str] = None,
     ):
         """
         Initialize LazyGroupBy.
@@ -58,11 +63,15 @@ class LazyGroupBy:
                   When True, the result is sorted by group keys in ascending order.
             as_index: If True (default), group keys become the index.
                       If False, group keys are returned as columns.
+            selected_columns: List of column names to aggregate (None = all columns).
+                              When set via groupby()[['col1', 'col2']], only these columns
+                              are included in aggregation results.
         """
         self._datastore = datastore
         self._groupby_fields = groupby_fields.copy()  # Copy the list, not the DataStore
         self._sort = sort
         self._as_index = as_index
+        self._selected_columns = selected_columns
 
     @property
     def datastore(self) -> 'DataStore':
@@ -127,8 +136,10 @@ class LazyGroupBy:
             )
 
         elif isinstance(key, list):
-            # Multiple columns - return new GroupBy with column selection
-            return self
+            # Multiple columns - return new LazyGroupBy with selected_columns tracked
+            return LazyGroupBy(
+                self._datastore, self._groupby_fields, sort=self._sort, as_index=self._as_index, selected_columns=key
+            )
 
         else:
             raise TypeError(f"Expected str or list, got {type(key).__name__}")
@@ -577,7 +588,7 @@ class LazyGroupBy:
         new_ds = copy(self._datastore)
 
         # Add the lazy groupby aggregation operation
-        # Pass sort and as_index parameters from LazyGroupBy to LazyGroupByAgg
+        # Pass sort, as_index, and selected_columns parameters from LazyGroupBy to LazyGroupByAgg
         new_ds._add_lazy_op(
             LazyGroupByAgg(
                 groupby_cols=groupby_cols,
@@ -586,6 +597,7 @@ class LazyGroupBy:
                 named_agg=named_agg,
                 sort=self._sort,
                 as_index=self._as_index,
+                selected_columns=self._selected_columns,
                 **kwargs,
             )
         )

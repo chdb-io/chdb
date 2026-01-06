@@ -941,6 +941,7 @@ class LazyGroupByAgg(LazyOp):
         sort: bool = True,
         as_index: bool = True,
         single_column_agg: bool = False,
+        selected_columns: List[str] = None,
         **kwargs,
     ):
         """
@@ -955,6 +956,7 @@ class LazyGroupByAgg(LazyOp):
                       If False, group keys are returned as columns.
             single_column_agg: If True, this agg was called on a single column via
                                ColumnExpr.agg(['funcs']), which in pandas returns flat column names
+            selected_columns: List of column names to aggregate (None = all columns).
             **kwargs: Additional arguments passed to aggregation function
         """
         super().__init__()
@@ -965,14 +967,21 @@ class LazyGroupByAgg(LazyOp):
         self.sort = sort
         self.as_index = as_index
         self.single_column_agg = single_column_agg
+        self.selected_columns = selected_columns
         self.kwargs = kwargs
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute groupby aggregation on DataFrame."""
         self._log_execute(
             "GroupByAgg",
-            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}",
+            f"groupby={self.groupby_cols}, func={self.agg_func or self.agg_dict or self.named_agg}, sort={self.sort}, as_index={self.as_index}, selected_columns={self.selected_columns}",
         )
+
+        # If selected_columns is specified, filter the DataFrame to only include
+        # groupby columns + selected columns before aggregation
+        if self.selected_columns:
+            cols_to_keep = self.groupby_cols + self.selected_columns
+            df = df[cols_to_keep]
 
         # Pass sort and as_index parameters to pandas groupby
         grouped = df.groupby(self.groupby_cols, sort=self.sort, as_index=self.as_index)

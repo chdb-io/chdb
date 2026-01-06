@@ -518,10 +518,14 @@ def build_groupby_select_fields(
             # size() counts ALL rows including NULL -> COUNT(*)
             select_fields.append(AggregateFunction(sql_func, Star()))
         elif all_columns:
-            # Apply aggregation to all non-groupby columns
+            # Apply aggregation to non-groupby columns (or only selected columns)
             # This handles sum, mean, count, min, max, std, var, first, last, etc.
-            non_groupby_cols = [c for c in all_columns if c not in groupby_agg.groupby_cols]
-            for col in non_groupby_cols:
+            # If selected_columns is set, only aggregate those columns
+            if groupby_agg.selected_columns:
+                cols_to_agg = groupby_agg.selected_columns
+            else:
+                cols_to_agg = [c for c in all_columns if c not in groupby_agg.groupby_cols]
+            for col in cols_to_agg:
                 # Check if this alias conflicts with WHERE columns
                 temp_alias = f"__agg_{col}__"
                 if temp_alias in alias_renames:
