@@ -89,7 +89,7 @@ class TestComplexPyObj(unittest.TestCase):
         )
         self.assertEqual(ret.dtypes["A"], "int64")
         self.assertEqual(ret.dtypes["B"], "float64")
-        self.assertEqual(ret.dtypes["C"], "uint8")
+        self.assertEqual(ret.dtypes["C"], "bool")
         self.assertEqual(ret.dtypes["D"], "object")
         self.assertEqual(ret.dtypes["E"], "object")
         self.assertEqual(ret.dtypes["F"], "object")
@@ -100,7 +100,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 0
         self.assertEqual(ret.iloc[0]["A"], 1)
         self.assertEqual(ret.iloc[0]["B"], 4.0)
-        self.assertEqual(ret.iloc[0]["C"], 1)
+        self.assertEqual(ret.iloc[0]["C"], True)
         self.assertEqual(ret.iloc[0]["D"], "a")
         self.assertEqual(ret.iloc[0]["E"], "a")
         self.assertEqual(ret.iloc[0]["F"], '[1, 2]')
@@ -109,7 +109,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 1
         self.assertEqual(ret.iloc[1]["A"], 2)
         self.assertEqual(ret.iloc[1]["B"], 5.0)
-        self.assertEqual(ret.iloc[1]["C"], 0)
+        self.assertEqual(ret.iloc[1]["C"], False)
         self.assertEqual(ret.iloc[1]["D"], "b")
         self.assertEqual(ret.iloc[1]["E"], "b")
         self.assertEqual(ret.iloc[1]["F"], '[3, 4]')
@@ -118,7 +118,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 2
         self.assertEqual(ret.iloc[2]["A"], 3)
         self.assertEqual(ret.iloc[2]["B"], 6.0)
-        self.assertEqual(ret.iloc[2]["C"], 1)
+        self.assertEqual(ret.iloc[2]["C"], True)
         self.assertEqual(ret.iloc[2]["D"], "c")
         self.assertEqual(ret.iloc[2]["E"], "c")
         self.assertEqual(ret.iloc[2]["F"], '[5, 6]')
@@ -127,7 +127,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 3
         self.assertEqual(ret.iloc[3]["A"], 4)
         self.assertEqual(ret.iloc[3]["B"], 7.0)
-        self.assertEqual(ret.iloc[3]["C"], 0)
+        self.assertEqual(ret.iloc[3]["C"], False)
         self.assertEqual(ret.iloc[3]["D"], "d")
         self.assertEqual(ret.iloc[3]["E"], "d")
         self.assertEqual(ret.iloc[3]["F"], '[7, 8]')
