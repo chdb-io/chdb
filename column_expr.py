@@ -2198,6 +2198,50 @@ class ColumnExpr:
                 method_kwargs=kwargs,
             )
 
+    def unstack(self, level=-1, fill_value=None):
+        """
+        Pivot level(s) of the (necessarily hierarchical) index labels.
+
+        Returns a DataFrame having a new level of column labels whose inner-most level
+        consists of the pivoted index labels.
+
+        If the index is not a MultiIndex, an error is raised.
+
+        Args:
+            level: Level(s) of the index to unstack, can pass level name.
+                   Default is -1 (last level).
+            fill_value: Replace NaN with this value if the unstack produces missing values.
+
+        Returns:
+            DataStore: Unstacked DataFrame wrapped in DataStore.
+
+        Example:
+            >>> ds = DataStore({'a': ['A', 'A', 'B', 'B'], 'b': ['X', 'Y', 'X', 'Y'], 'v': [1, 2, 3, 4]})
+            >>> grouped = ds.groupby(['a', 'b'])['v'].sum()
+            >>> grouped
+            a  b
+            A  X    1
+               Y    2
+            B  X    3
+               Y    4
+            Name: v, dtype: int64
+            >>> grouped.unstack()
+            b  X  Y
+            a
+            A  1  2
+            B  3  4
+        """
+        from .core import DataStore
+
+        # Execute to get the actual Series with MultiIndex
+        series = self._execute()
+
+        # Call pandas unstack
+        result = series.unstack(level=level, fill_value=fill_value)
+
+        # Return DataStore wrapping the result DataFrame
+        return DataStore.from_df(result)
+
     def copy(self, deep=True) -> 'ColumnExpr':
         """
         Make a copy of this ColumnExpr's data (lazy).
