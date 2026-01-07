@@ -553,6 +553,9 @@ class ColumnExpr:
 
                 # Special handling for first/last: use argMin/argMax with rowNumberInAllBlocks()
                 # to preserve row order semantics (any/anyLast don't guarantee order)
+                # NOTE: rowNumberInAllBlocks() is non-deterministic when using Python() table function
+                # with parallel execution, but stable with file-based sources (Parquet, CSV, etc.)
+                # See: https://github.com/chdb-io/chdb/issues/469
                 if self._agg_func_name == 'any':
                     # first() -> argMin(value, rowNumberInAllBlocks())
                     if self._skipna:
