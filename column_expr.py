@@ -551,7 +551,21 @@ class ColumnExpr:
                 )
                 groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
 
-                if self._skipna:
+                # Special handling for first/last: use argMin/argMax with rowNumberInAllBlocks()
+                # to preserve row order semantics (any/anyLast don't guarantee order)
+                if self._agg_func_name == 'any':
+                    # first() -> argMin(value, rowNumberInAllBlocks())
+                    if self._skipna:
+                        agg_sql = f'argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT isNaN({col_expr_sql}))'
+                    else:
+                        agg_sql = f'argMin({col_expr_sql}, rowNumberInAllBlocks())'
+                elif self._agg_func_name == 'anyLast':
+                    # last() -> argMax(value, rowNumberInAllBlocks())
+                    if self._skipna:
+                        agg_sql = f'argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT isNaN({col_expr_sql}))'
+                    else:
+                        agg_sql = f'argMax({col_expr_sql}, rowNumberInAllBlocks())'
+                elif self._skipna:
                     agg_sql = f'{self._agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
                 else:
                     agg_sql = f'{self._agg_func_name}({col_expr_sql})'
