@@ -143,7 +143,18 @@ static void writeInteger(const py::handle & obj, rapidjson::Value & json_value)
 
 bool isNone(const py::handle & obj)
 {
-	return GetPythonObjectType(obj) == PythonObjectType::None;
+    auto & import_cache = PythonImporter::ImportCache();
+
+	if (obj.is_none())
+		return true;
+
+	if (obj.is(import_cache.pandas.NaT()))
+		return true;
+
+	if (obj.is(import_cache.pandas.NA()))
+		return true;
+
+	return false;
 }
 
 static void writeNone(const py::handle &, rapidjson::Value & json_value)
@@ -153,7 +164,7 @@ static void writeNone(const py::handle &, rapidjson::Value & json_value)
 
 bool isFloat(const py::handle & obj)
 {
-	return GetPythonObjectType(obj) == PythonObjectType::Float;
+    return py::isinstance<py::float_>(obj);
 }
 
 static void writeFloat(const py::handle & obj, rapidjson::Value & json_value)
@@ -359,52 +370,19 @@ void convert_to_json_str(const py::handle & obj, String & ret)
     ret = buffer.GetString();
 }
 
-bool tryInsertJsonResult(
+void tryInsertJsonResult(
     const py::handle & handle,
     const FormatSettings & format_settings,
     MutableColumnPtr & column,
     SerializationPtr & serialization)
 {
-    if (py::isinstance<py::dict>(handle))
-    {
-        String json_str;
-        convert_to_json_str(handle, json_str);
+    chassert(py::isinstance<py::dict>(handle));
 
-        ReadBuffer read_buffer(json_str.data(), json_str.size(), 0);
-        serialization->deserializeTextJSON(*column, read_buffer, format_settings);
+    String json_str;
+    convert_to_json_str(handle, json_str);
 
-        return true;
-    }
-
-    return false;
-}
-
-void transformPythonObject(
-	py::handle obj,
-    DB::MutableColumnPtr & column,
-	const ObjectCallback & object_callback)
-{
-    auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
-    auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
-    auto & null_map = nullable_column.getNullMapData();
-    auto object_type = GetPythonObjectType(obj);
-
-    if (object_type == PythonObjectType::None)
-    {
-        null_map.push_back(1);
-        data_column->insertDefault();
-        return;
-    }
-
-    if (object_type == PythonObjectType::Float && std::isnan(PyFloat_AsDouble(obj.ptr())))
-    {
-        null_map.push_back(1);
-        data_column->insertDefault();
-        return;
-    }
-
-    null_map.push_back(0);
-    object_callback(obj, data_column, object_type);
+    ReadBuffer read_buffer(json_str.data(), json_str.size(), 0);
+    serialization->deserializeTextJSON(*column, read_buffer, format_settings);
 }
 
 } // namespace CHDB
