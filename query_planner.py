@@ -487,6 +487,61 @@ class QueryPlanner:
 
         return layers
 
+    def _extract_referenced_columns(self, expr) -> set:
+        """
+        Extract all column names referenced in an expression.
+
+        This is used to detect dependencies between column assignments.
+        If assignment A references column X, and assignment B targets column X,
+        then A depends on B and they cannot be in the same SQL segment.
+
+        ClickHouse has a quirk where alias references in the same SELECT can cause
+        unexpected results when multiple columns reference each other.
+
+        Args:
+            expr: Expression to analyze (can be Expression, ColumnExpr, or other)
+
+        Returns:
+            Set of column names referenced in the expression
+        """
+        from .expressions import ArithmeticExpression
+        from .column_expr import ColumnExpr
+        from .functions import Function
+
+        columns = set()
+
+        def _extract(e):
+            if e is None:
+                return
+
+            if isinstance(e, ColumnExpr):
+                # Unwrap ColumnExpr and extract from inner expression
+                if e._expr is not None:
+                    _extract(e._expr)
+                if e._source is not None:
+                    _extract(e._source)
+
+            elif isinstance(e, Field):
+                # Field directly references a column
+                columns.add(e.name)
+
+            elif isinstance(e, ArithmeticExpression):
+                # Binary expression - extract from both sides
+                _extract(e.left)
+                _extract(e.right)
+
+            elif isinstance(e, Function):
+                # Function call - extract from arguments
+                for arg in e.args:
+                    _extract(arg)
+
+            elif hasattr(e, 'expr') and e.expr is not None:
+                # Wrapper types with an 'expr' attribute
+                _extract(e.expr)
+
+        _extract(expr)
+        return columns
+
     def can_push_all_to_sql(self, plan: QueryPlan) -> bool:
         """
         Check if all operations can be executed via SQL.
@@ -598,6 +653,22 @@ class QueryPlanner:
                     self._logger.debug(
                         "  [Segment Split] Column '%s' already assigned in current segment, splitting", op.column
                     )
+                else:
+                    # Check if this assignment references any column that was assigned
+                    # in the current segment (cross-column dependency)
+                    # ClickHouse has a quirk where alias references in the same SELECT
+                    # can cause unexpected results when columns reference each other
+                    referenced_cols = self._extract_referenced_columns(op.expr)
+                    dependency_cols = referenced_cols & assigned_columns_in_segment
+                    if dependency_cols:
+                        # This assignment references a column that was just assigned
+                        # Split to ensure correct execution order
+                        needs_new_segment = True
+                        self._logger.debug(
+                            "  [Segment Split] Column '%s' references recently assigned columns %s, splitting",
+                            op.column,
+                            dependency_cols,
+                        )
 
             if op_type != current_type or needs_new_segment:
                 # Save previous segment
