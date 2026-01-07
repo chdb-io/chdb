@@ -32,10 +32,7 @@ using namespace DB;
 namespace CHDB
 {
 
-namespace
-{
-
-inline const bool * getMaskPtr(const ColumnWrapper & col_wrap)
+static inline const bool * getMaskPtr(const ColumnWrapper & col_wrap)
 {
     return col_wrap.registered_array
         ? static_cast<const bool *>(col_wrap.registered_array->numpy_array.data())
@@ -43,14 +40,8 @@ inline const bool * getMaskPtr(const ColumnWrapper & col_wrap)
 }
 
 template <typename T>
-void insertIntegerValue(py::handle h, typename ColumnVector<T>::Container & container, PythonObjectType object_type)
+static void insertIntegerValue(py::handle h, typename ColumnVector<T>::Container & container)
 {
-    if (object_type != PythonObjectType::Integer)
-    {
-        container.push_back(T{});
-        return;
-    }
-
     auto * ptr = h.ptr();
 
     if constexpr (std::is_signed_v<T>)
@@ -96,16 +87,23 @@ void insertIntegerValue(py::handle h, typename ColumnVector<T>::Container & cont
 }
 
 template <typename T>
-void scanIntegerColumn(py::handle handle, MutableColumnPtr & column)
+static void scanIntegerColumn(py::handle handle, MutableColumnPtr & column)
 {
-    transformPythonObject(handle, column, [](py::handle h, MutableColumnPtr & col, PythonObjectType object_type)
-    {
-        auto & container = assert_cast<ColumnVector<T> &>(*col).getData();
-        insertIntegerValue<T>(h, container, object_type);
-    });
-}
+    auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+    auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+    auto & null_map = nullable_column.getNullMapData();
 
-} // anonymous namespace
+    if (!py::isinstance<py::int_>(handle))
+    {
+        null_map.push_back(1);
+        data_column->insertDefault();
+        return;
+    }
+
+    null_map.push_back(0);
+    auto & container = assert_cast<ColumnVector<T> &>(*data_column).getData();
+    insertIntegerValue<T>(handle, container);
+}
 
 ColumnPtr PandasScan::scanColumn(
     const DB::ColumnWrapper & col_wrap,
@@ -228,31 +226,38 @@ void PandasScan::innerScanObject(
     ::Memory::MemoryCheckScope memory_check_scope;
 #endif
 
-    ColumnString::Chars * string_chars_ptr = nullptr;
-    if (which.idx == TypeIndex::String)
+    switch (which.idx)
     {
-        auto & nullable_col = assert_cast<ColumnNullable &>(*column);
-        auto * column_string = assert_cast<ColumnString *>(nullable_col.getNestedColumn().assumeMutable().get());
-        string_chars_ptr = &column_string->getChars();
-    }
+    case TypeIndex::Object:
+        {
+            auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+            auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+            auto & null_map = nullable_column.getNullMapData();
 
-    for (size_t i = cursor; i < cursor + count; ++i)
-    {
-        auto * obj = objects[i];
-        auto handle = py::handle(obj);
-
-        switch (which.idx)
-	    {
-        case TypeIndex::Object:
+            for (size_t i = cursor; i < cursor + count; ++i)
             {
-                transformPythonObject(handle, column, [&](py::handle h, MutableColumnPtr & col, PythonObjectType /* object_type */)
+                auto handle = py::handle(objects[i]);
+                if (!py::isinstance<py::dict>(handle))
                 {
-                    if (!tryInsertJsonResult(h, format_settings, col, serialization))
-                        col->insertDefault();
-                });
-                break;
+                    null_map.push_back(1);
+                    data_column->insertDefault();
+                    continue;
+                }
+
+                null_map.push_back(0);
+                tryInsertJsonResult(handle, format_settings, data_column, serialization);
             }
-        case TypeIndex::String:
+            break;
+        }
+    case TypeIndex::String:
+        {
+            auto & nullable_col = assert_cast<ColumnNullable &>(*column);
+            auto data_column = nullable_col.getNestedColumnPtr()->assumeMutable();
+            auto & null_map = nullable_col.getNullMapData();
+            auto * column_string = assert_cast<ColumnString *>(data_column.get());
+            auto * string_chars_ptr = &column_string->getChars();
+
+            for (size_t i = cursor; i < cursor + count; ++i)
             {
                 size_t local_idx = i - cursor;
                 if (local_idx % 10 == 9)
@@ -265,62 +270,92 @@ void PandasScan::innerScanObject(
                         string_chars_ptr->reserve(reserve_size);
                 }
 
-                transformPythonObject(handle, column, [](py::handle h, MutableColumnPtr & col, PythonObjectType /* object_type */)
-                {
-                    auto * obj = h.ptr();
-                    auto * col_string = assert_cast<ColumnString *>(col.get());
+                auto handle = py::handle(objects[i]);
 
-                    if (!PyUnicode_Check(obj))
-                        insertObjToStringColumn(obj, col_string);
-                    else
-                        FillColumnString(obj, col_string);
-                });
-                break;
-            }
-        case TypeIndex::Float64:
-            {
-                transformPythonObject(handle, column, [&](py::handle h, MutableColumnPtr & col, PythonObjectType object_type)
+                bool is_null = false;
+                bool is_str = py::isinstance<py::str>(handle);
+                if (!is_str)
                 {
-                    auto & container = assert_cast<ColumnVector<Float64> &>(*col).getData();
-                    switch (object_type)
-                    {
-                    case PythonObjectType::Float:
-                        {
-                            container.push_back(h.cast<double>());
-                            break;
-                        }
-                    case PythonObjectType::Integer:
-                        {
-                            double number = PyLong_AsDouble(handle.ptr());
-                            if (number == -1.0 && PyErr_Occurred())
-                            {
-                                number = 0.0;
-                                PyErr_Clear();
-                            }
-                            container.push_back(number);
-                            break;
-                        }
-                    default:
-                        {
-                            container.push_back(0.0);
-                            break;
-                        }
-                    }
-                });
-                break;
+                    if (isNone(handle) || (isFloat(handle) && std::isnan(PyFloat_AsDouble(handle.ptr()))))
+                        is_null = true;
+                }
+
+                if (is_null)
+                {
+                    null_map.push_back(1);
+                    data_column->insertDefault();
+                    continue;
+                }
+
+                null_map.push_back(0);
+                auto * obj = handle.ptr();
+                if (!is_str)
+                    insertObjToStringColumn(obj, column_string);
+                else
+                    FillColumnString(obj, column_string);
             }
-        case TypeIndex::Int64:
-            scanIntegerColumn<Int64>(handle, column);
             break;
-        case TypeIndex::Int32:
-            scanIntegerColumn<Int32>(handle, column);
-            break;
-        case TypeIndex::UInt64:
-            scanIntegerColumn<UInt64>(handle, column);
-            break;
-        default:
-            throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported nullable target type: {}", which.idx);
         }
+    case TypeIndex::Float64:
+        {
+            auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+            auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+            auto & null_map = nullable_column.getNullMapData();
+            auto & container = assert_cast<ColumnVector<Float64> &>(*data_column).getData();
+
+            for (size_t i = cursor; i < cursor + count; ++i)
+            {
+                auto handle = py::handle(objects[i]);
+
+                if (!py::isinstance<py::int_>(handle) && !py::isinstance<py::float_>(handle))
+                {
+                    null_map.push_back(1);
+                    data_column->insertDefault();
+                    continue;
+                }
+
+                if (py::isinstance<py::int_>(handle))
+                {
+                    double number = PyLong_AsDouble(handle.ptr());
+                    if (number == -1.0 && PyErr_Occurred())
+                    {
+                        number = 0.0;
+                        PyErr_Clear();
+                    }
+                    null_map.push_back(0);
+                    container.push_back(number);
+                }
+                else
+                {
+                    double value = handle.cast<double>();
+                    if (std::isnan(value))
+                    {
+                        null_map.push_back(1);
+                        data_column->insertDefault();
+                    }
+                    else
+                    {
+                        null_map.push_back(0);
+                        container.push_back(value);
+                    }
+                }
+            }
+            break;
+        }
+    case TypeIndex::Int64:
+        for (size_t i = cursor; i < cursor + count; ++i)
+            scanIntegerColumn<Int64>(py::handle(objects[i]), column);
+        break;
+    case TypeIndex::Int32:
+        for (size_t i = cursor; i < cursor + count; ++i)
+            scanIntegerColumn<Int32>(py::handle(objects[i]), column);
+        break;
+    case TypeIndex::UInt64:
+        for (size_t i = cursor; i < cursor + count; ++i)
+            scanIntegerColumn<UInt64>(py::handle(objects[i]), column);
+        break;
+    default:
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported nullable target type: {}", which.idx);
     }
 }
 

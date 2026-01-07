@@ -7,6 +7,7 @@
 #include <DataTypes/IDataType.h>
 #include <DataTypes/Serializations/SerializationJSON.h>
 #include <IO/WriteHelpers.h>
+#include <Common/typeid_cast.h>
 
 namespace DB
 {
@@ -66,15 +67,23 @@ void ListScan::innerScanObject(
 
     auto list = obj.cast<py::list>();
 
+    auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+    auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+    auto & null_map = nullable_column.getNullMapData();
+
     for (size_t i = cursor; i < cursor + count; ++i)
     {
         auto item = list.attr("__getitem__")(i);
 
-        transformPythonObject(item, column, [&](py::handle h, MutableColumnPtr & col, PythonObjectType /* object_type */)
+        if (!py::isinstance<py::dict>(item))
         {
-            if (!tryInsertJsonResult(h, format_settings, col, serialization))
-                col->insertDefault();
-        });
+            null_map.push_back(1);
+            data_column->insertDefault();
+            continue;
+        }
+
+        null_map.push_back(0);
+        tryInsertJsonResult(item, format_settings, data_column, serialization);
     }
 }
 
