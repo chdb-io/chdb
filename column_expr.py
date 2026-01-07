@@ -336,6 +336,7 @@ class ColumnExpr:
     def _execute_expression(self) -> pd.Series:
         """Execute expression mode - evaluate the expression tree."""
         from .expression_evaluator import ExpressionEvaluator
+        from .conditions import Condition
 
         # Get the executed DataFrame from the DataStore
         df = self._datastore._execute()
@@ -350,6 +351,10 @@ class ColumnExpr:
         elif isinstance(self._expr, Literal):
             # Literal value - expand to Series
             return pd.Series([result] * len(df), index=df.index)
+        elif isinstance(self._expr, Condition) and isinstance(result, bool):
+            # Boolean condition returning scalar (e.g., 1=1 for None comparison)
+            # Expand to Series to match pandas behavior
+            return pd.Series([result] * len(df), index=df.index, dtype=bool)
         else:
             # Scalar result - return as is (will be wrapped if needed)
             return result
