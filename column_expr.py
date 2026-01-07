@@ -438,6 +438,46 @@ class ColumnExpr:
                 method = getattr(series, self._method_name)
                 return method(**method_kwargs)
 
+        # Handle groupby + apply scenario: df.groupby('col')['value'].apply(func)
+        # apply() with groupby should pass each group (as Series) to the function,
+        # not individual elements
+        if (
+            self._source is not None
+            and hasattr(self._source, '_groupby_fields')
+            and self._source._groupby_fields
+            and self._method_name == 'apply'
+        ):
+            groupby_col_names = []
+            for gf in self._source._groupby_fields:
+                if isinstance(gf, Field):
+                    groupby_col_names.append(gf.name)
+                else:
+                    groupby_col_names.append(str(gf))
+
+            col_name = None
+            if self._source._expr is not None and isinstance(self._source._expr, Field):
+                col_name = self._source._expr.name
+            elif self._source._expr is not None:
+                col_name = str(self._source._expr)
+
+            df = self._datastore._execute()
+            # Get groupby sort and dropna settings from source
+            sort = getattr(self._source, '_groupby_sort', True)
+            dropna = getattr(self._source, '_groupby_dropna', True)
+
+            # Filter kwargs for apply - remove convert_dtype and args as pandas SeriesGroupBy.apply
+            # doesn't accept them (they're only for Series.apply)
+            apply_kwargs = {k: v for k, v in kwargs.items() if k not in ('convert_dtype', 'args')}
+
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_col_names, sort=sort, dropna=dropna)[col_name]
+                # args[0] is the function
+                return grouped.apply(args[0], **apply_kwargs)
+            else:
+                # Fallback for computed columns - use pandas directly
+                series = self._source._execute()
+                return series.apply(*args, **kwargs)
+
         # Execute source
         if self._source is not None:
             series = self._source._execute()
