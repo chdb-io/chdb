@@ -2173,8 +2173,9 @@ class DataStore(PandasCompatMixin):
             self._executor = Executor(self._connection)
             self._logger.debug("Connection established successfully")
 
-            # Try to get schema if table exists
-            if self.table_name:
+            # Try to get schema if table exists (but not for table functions)
+            # For table functions, schema is discovered via _discover_table_function_schema()
+            if self._table_function is None and self.table_name:
                 self._discover_schema()
                 self._logger.debug("Schema discovered: %s", self._schema)
 
@@ -3368,13 +3369,25 @@ class DataStore(PandasCompatMixin):
         return self
 
     def close(self):
-        """Close the connection."""
+        """
+        Close the connection and reset global state.
+
+        This method closes:
+        1. The DataStore's own executor and connection
+        2. The global executor (to ensure clean state for next DataStore)
+        """
         if self._executor:
             self._executor.close()
             self._executor = None
         if self._connection:
             self._connection.close()
             self._connection = None
+
+        # Also reset the global executor to ensure clean state
+        # This prevents state leakage between different DataStore instances
+        from .executor import reset_executor
+
+        reset_executor()
 
     # ========== INSERT/UPDATE/DELETE Query Building ==========
 
