@@ -217,7 +217,6 @@ class DataStore(PandasCompatMixin):
 
         self.source_type = source or 'chdb'
         self.table_name = table
-        self.database = database
         self.connection_params = kwargs
 
         # Table function support
@@ -227,6 +226,46 @@ class DataStore(PandasCompatMixin):
         # Source DataFrame (for from_df() - enables on-demand PythonTableFunction creation)
         self._source_df = None
         self._source_df_name: Optional[str] = None
+
+        # Determine if this is a table function source (external data sources)
+        # These sources use table functions and should always use :memory: for chDB
+        table_function_sources = [
+            'file',
+            's3',
+            'gcs',
+            'http',
+            'https',
+            'url',
+            'mysql',
+            'postgresql',
+            'postgres',
+            'clickhouse',
+            'remote',
+            'remotesecure',
+            'mongodb',
+            'mongo',
+            'sqlite',
+            'redis',
+            'azure',
+            'azureblob',
+            'hdfs',
+            'iceberg',
+            'hudi',
+            'delta',
+            'deltalake',
+            'numbers',
+            'generaterandom',
+            'python',
+        ]
+        is_table_function_source = source and source.lower() in table_function_sources
+
+        # For table function sources, the 'database' parameter refers to the REMOTE
+        # database name (e.g., MySQL database, ClickHouse database), NOT the local
+        # chDB database path. chDB should always use :memory: for these sources.
+        if is_table_function_source:
+            self.database = ":memory:"
+        else:
+            self.database = database
 
         # Create table function if source is specified
         if source and source.lower() != 'chdb':
@@ -244,7 +283,8 @@ class DataStore(PandasCompatMixin):
                 ]:
                     kwargs['table'] = table
 
-                # For database sources, also pass database if provided
+                # For database sources, pass the database name to the table function
+                # (this is the REMOTE database, not the local chDB path)
                 if (
                     database
                     and database != ":memory:"
