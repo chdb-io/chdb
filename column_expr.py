@@ -1538,6 +1538,17 @@ class ColumnExpr:
         new_expr = ArithmeticExpression('-', Literal(0), self._expr)
         return self._derive_expr(new_expr)
 
+    def __pos__(self) -> 'ColumnExpr':
+        """
+        Unary positive operator (+column).
+
+        Returns the column unchanged (identity operation), same as pandas Series behavior.
+        """
+        if self._exec_mode != 'expr' or self._expr is None:
+            return ColumnExpr(source=self, method_name='__pos__')
+        # Unary + is identity - return the same expression
+        return self._derive_expr(self._expr)
+
     def __round__(self, ndigits: Optional[int] = None) -> 'ColumnExpr':
         """
         Support Python's built-in round() function.
