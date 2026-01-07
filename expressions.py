@@ -94,13 +94,25 @@ class Expression(Node):
 
     # ========== Comparison Operators ==========
 
-    def __eq__(self, other: Any) -> 'BinaryCondition':
+    def __eq__(self, other: Any) -> 'Condition':
         from .conditions import BinaryCondition
+
+        # pandas semantics: col == None returns False for ALL rows
+        # This is element-wise comparison with Python singleton None,
+        # NOT a check for NA values (use .isna() for that)
+        if other is None:
+            return BinaryCondition('=', Literal(0), Literal(1))  # Always False
 
         return BinaryCondition('=', self, self.wrap(other))
 
-    def __ne__(self, other: Any) -> 'BinaryCondition':
+    def __ne__(self, other: Any) -> 'Condition':
         from .conditions import BinaryCondition
+
+        # pandas semantics: col != None returns True for ALL rows
+        # This is element-wise comparison with Python singleton None,
+        # NOT a check for non-NA values (use .notna() for that)
+        if other is None:
+            return BinaryCondition('=', Literal(1), Literal(1))  # Always True
 
         return BinaryCondition('!=', self, self.wrap(other))
 

@@ -1008,7 +1008,15 @@ class ColumnExpr:
                 return result == other
 
         # Return ColumnExpr wrapping Condition for lazy boolean column
-        condition = BinaryCondition('=', self._expr, Expression.wrap(other))
+        # pandas semantics: col == None returns False for ALL rows
+        # This is element-wise comparison with Python singleton None,
+        # NOT a check for NA values (use .isna() for that)
+        if other is None:
+            from .expressions import Literal
+
+            condition = BinaryCondition('=', Literal(0), Literal(1))  # Always False
+        else:
+            condition = BinaryCondition('=', self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
     def __ne__(self, other: Any) -> 'ColumnExpr':
@@ -1025,8 +1033,15 @@ class ColumnExpr:
             return ColumnExpr(source=self, method_name='__ne__', method_args=(other,))
 
         from .conditions import BinaryCondition
+        from .expressions import Literal
 
-        condition = BinaryCondition('!=', self._expr, Expression.wrap(other))
+        # pandas semantics: col != None returns True for ALL rows
+        # This is element-wise comparison with Python singleton None,
+        # NOT a check for non-NA values (use .notna() for that)
+        if other is None:
+            condition = BinaryCondition('=', Literal(1), Literal(1))  # Always True
+        else:
+            condition = BinaryCondition('!=', self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
     def __gt__(self, other: Any) -> 'ColumnExpr':
