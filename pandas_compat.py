@@ -39,6 +39,60 @@ def _parse_pandas_version():
 _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 
 
+class DataStoreLocIndexer:
+    """
+    Wrapper for pandas loc indexer that handles ColumnExpr arguments.
+
+    When a ColumnExpr is used as a row indexer (e.g., ds.loc[ds['a'] > 2]),
+    this wrapper converts it to a pandas boolean Series before passing
+    to the underlying pandas loc indexer.
+    """
+
+    def __init__(self, datastore):
+        self._datastore = datastore
+
+    def _convert_key(self, key):
+        """Convert ColumnExpr or tuple with ColumnExpr to pandas types."""
+        from .column_expr import ColumnExpr
+        from .lazy_result import LazyCondition
+
+        # Handle single ColumnExpr key (boolean indexing)
+        if isinstance(key, ColumnExpr):
+            # Execute to get the underlying Series
+            return key._execute()
+        elif isinstance(key, LazyCondition):
+            return key._to_series()
+
+        # Handle tuple (row_indexer, column_indexer)
+        if isinstance(key, tuple) and len(key) == 2:
+            row_key, col_key = key
+
+            # Convert row key if it's a ColumnExpr
+            if isinstance(row_key, ColumnExpr):
+                row_key = row_key._execute()
+            elif isinstance(row_key, LazyCondition):
+                row_key = row_key._to_series()
+
+            return (row_key, col_key)
+
+        return key
+
+    def __getitem__(self, key):
+        """Get item from loc, converting ColumnExpr to pandas types first."""
+        converted_key = self._convert_key(key)
+        df = self._datastore._get_df()
+        return df.loc[converted_key]
+
+    def __setitem__(self, key, value):
+        """Set item via loc, converting ColumnExpr to pandas types first."""
+        converted_key = self._convert_key(key)
+        df = self._datastore._get_df()
+        df.loc[converted_key] = value
+
+        # Invalidate cache since we modified the underlying DataFrame
+        self._datastore._invalidate_cache()
+
+
 class PandasCompatMixin:
     """
     Mixin class that adds pandas DataFrame compatibility to DataStore.
@@ -201,8 +255,8 @@ class PandasCompatMixin:
 
     @property
     def loc(self):
-        """Access a group of rows and columns by label(s)."""
-        return self._get_df().loc
+        """Access a group of rows and columns by label(s). Supports ColumnExpr conditions."""
+        return DataStoreLocIndexer(self)
 
     @property
     def iloc(self):
