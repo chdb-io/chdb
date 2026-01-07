@@ -314,7 +314,6 @@ void PandasScan::innerScanObject(
                     continue;
                 }
 
-                null_map.push_back(0);
                 if (py::isinstance<py::int_>(handle))
                 {
                     double number = PyLong_AsDouble(handle.ptr());
@@ -323,11 +322,22 @@ void PandasScan::innerScanObject(
                         number = 0.0;
                         PyErr_Clear();
                     }
+                    null_map.push_back(0);
                     container.push_back(number);
                 }
                 else
                 {
-                    container.push_back(handle.cast<double>());
+                    double value = handle.cast<double>();
+                    if (std::isnan(value))
+                    {
+                        null_map.push_back(1);
+                        data_column->insertDefault();
+                    }
+                    else
+                    {
+                        null_map.push_back(0);
+                        container.push_back(value);
+                    }
                 }
             }
             break;
