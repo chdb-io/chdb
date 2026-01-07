@@ -107,9 +107,6 @@ class ExpressionEvaluator:
                 return self.evaluate(expr._expr)
             elif expr._exec_mode == 'method' and expr._source is not None:
                 # Method mode - evaluate source and call method
-                source_series = self.evaluate(expr._source)
-                if source_series is None:
-                    return None
                 # Execute arguments
                 args = tuple(self.evaluate(arg) if _is_lazy(arg) else arg for arg in expr._method_args)
                 kwargs = {k: self.evaluate(v) if _is_lazy(v) else v for k, v in expr._method_kwargs.items()}
@@ -119,6 +116,54 @@ class ExpressionEvaluator:
                     method_name = method_name[7:]  # Remove '_chain_' prefix
                     # Remove 'alias' from kwargs if present (SQL-specific parameter)
                     kwargs = {k: v for k, v in kwargs.items() if k != 'alias'}
+
+                # Check for groupby window methods (cumsum, cummax, cummin, cumprod, rank, diff, shift, pct_change)
+                # These need to be executed within the groupby context
+                _GROUPBY_WINDOW_METHODS = {
+                    'cumsum',
+                    'cummax',
+                    'cummin',
+                    'cumprod',
+                    'rank',
+                    'diff',
+                    'shift',
+                    'pct_change',
+                }
+                source_groupby_fields = getattr(expr._source, '_groupby_fields', None)
+                if source_groupby_fields and method_name in _GROUPBY_WINDOW_METHODS:
+                    from .expressions import Field as ExprField
+
+                    # Get groupby columns
+                    groupby_cols = []
+                    for gf in source_groupby_fields:
+                        if isinstance(gf, ExprField):
+                            groupby_cols.append(gf.name)
+                        else:
+                            groupby_cols.append(str(gf))
+
+                    # Get the column name from source expr
+                    col_name = None
+                    source_expr = getattr(expr._source, '_expr', None)
+                    if isinstance(source_expr, ExprField):
+                        col_name = source_expr.name
+                    elif source_expr is not None:
+                        col_name = str(source_expr)
+
+                    # Apply method within groupby context using evaluator's df
+                    if col_name and col_name in self.df.columns:
+                        # Different methods accept different parameters - filter appropriately
+                        if method_name == 'rank':
+                            method_kwargs = {k: v for k, v in kwargs.items() if k not in ('axis', 'numeric_only')}
+                        else:
+                            method_kwargs = {k: v for k, v in kwargs.items() if k not in ('axis',)}
+                        grouped = self.df.groupby(groupby_cols)[col_name]
+                        method_func = getattr(grouped, method_name)
+                        return method_func(*args, **method_kwargs)
+
+                # Standard method mode - evaluate source and call method
+                source_series = self.evaluate(expr._source)
+                if source_series is None:
+                    return None
                 # Call the method
                 if hasattr(source_series, method_name):
                     method = getattr(source_series, method_name)
