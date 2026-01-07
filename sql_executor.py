@@ -20,7 +20,7 @@ from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 import pandas as pd
 
 from .expressions import Field, Expression, Star
-from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg, LazyColumnAssignment, LazyJoin
+from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg, LazyColumnAssignment, LazyJoin, LazyWhere, LazyMask
 from .sql_builder import SQLBuilder
 from .utils import (
     normalize_ascending,
@@ -1142,7 +1142,7 @@ class SQLExecutionEngine:
         if assigned_columns & existing_columns:
             return True
 
-        # Check if any computed column is referenced in WHERE or ORDER BY
+        # Check if any computed column is referenced in WHERE, ORDER BY, or where()/mask() conditions
         for op in sql_ops:
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == 'WHERE' and op.condition:
@@ -1158,6 +1158,11 @@ class SQLExecutionEngine:
                         elif isinstance(f, str):
                             if f.strip('"\'') in assigned_columns:
                                 return True
+            # Check LazyWhere/LazyMask conditions for computed column references
+            elif isinstance(op, (LazyWhere, LazyMask)):
+                referenced = self._extract_column_references(op.condition)
+                if referenced & assigned_columns:
+                    return True
 
         # Check if any computed column references another computed column
         for op in column_assignments:

@@ -1660,6 +1660,16 @@ class LazyWhere(LazyOp):
         if schema and not self._is_type_compatible_with_schema(schema):
             return False
 
+        # Check if all columns referenced in condition exist in schema
+        # This prevents SQL errors when condition references computed columns
+        # that haven't been materialized yet
+        if schema:
+            referenced_cols = self._extract_condition_columns(cond)
+            existing_cols = set(schema.keys())
+            if referenced_cols and not referenced_cols.issubset(existing_cols):
+                # Condition references a column not in schema (likely a computed column)
+                return False
+
         # Scalar other - can push to SQL
         return True
 
@@ -1727,6 +1737,40 @@ class LazyWhere(LazyOp):
             return False  # Always fall back to Pandas for bool columns with numeric other
 
         return True
+
+    def _extract_condition_columns(self, condition) -> set:
+        """
+        Extract column names referenced in a condition.
+
+        Args:
+            condition: Condition object to analyze
+
+        Returns:
+            Set of column names referenced in the condition
+        """
+        columns = set()
+
+        if condition is None:
+            return columns
+
+        from .expressions import Field
+
+        # Try to extract columns from condition
+        if hasattr(condition, 'left'):
+            columns.update(self._extract_condition_columns(condition.left))
+        if hasattr(condition, 'right'):
+            columns.update(self._extract_condition_columns(condition.right))
+        if hasattr(condition, 'field') and isinstance(condition.field, Field):
+            columns.add(condition.field.name.strip('"\''))
+        if isinstance(condition, Field):
+            columns.add(condition.name.strip('"\''))
+
+        # Handle nested conditions
+        if hasattr(condition, 'conditions'):
+            for cond in condition.conditions:
+                columns.update(self._extract_condition_columns(cond))
+
+        return columns
 
     def get_sql_case_when(self, columns: List[str], quote_char: str = '"') -> Dict[str, str]:
         """
