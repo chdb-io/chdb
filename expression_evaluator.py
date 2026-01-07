@@ -176,6 +176,21 @@ class ExpressionEvaluator:
                         except AttributeError:
                             # If transform params not available, fall back to executor
                             return expr._executor()
+                # Check for JSON array extraction (pandas fallback for Array inside Nullable issue)
+                elif expr._datastore is self.context and getattr(expr, '_json_extract_array', False):
+                    # JSON array extraction being evaluated during DataStore execution
+                    # Use current df instead of calling ds._execute() to avoid circular execution
+                    from .column_expr import _extract_json_array
+
+                    source_col = getattr(expr, '_json_source_col', None)
+                    json_path = getattr(expr, '_json_path', '')
+
+                    if source_col and source_col in self.df.columns:
+                        series = self.df[source_col]
+                        return _extract_json_array(series, json_path)
+                    else:
+                        # Fallback to executor if source column not found
+                        return expr._executor()
                 else:
                     # Normal executor call
                     return expr._executor()

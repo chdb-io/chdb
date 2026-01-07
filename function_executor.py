@@ -346,6 +346,12 @@ class FunctionExecutorConfig:
         'dt.is_year_start': '*',  # boolean date property
         'dt.is_year_end': '*',  # boolean date property
         'dt.is_leap_year': '*',  # boolean date property
+        # JSON accessor methods that return arrays
+        # chDB limitation: Array type cannot be inside Nullable type when using Python() table function
+        # These must fall back to pandas to avoid "Nested type Array(T) cannot be inside Nullable type" error
+        'json.json_extract_array_raw': '*',  # JSONExtractArrayRaw returns Array(String)
+        'json.json_extract_array_raw_ci': '*',  # JSONExtractArrayRawCaseInsensitive returns Array(String)
+        'json.get_array': '*',  # Alias for json_extract_array_raw
     }
 
     # Alias mappings: maps user-facing names to canonical SQL function names

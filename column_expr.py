@@ -4461,6 +4461,10 @@ class ColumnExprJsonAccessor:
     This wraps the base JsonAccessor and ensures all results are wrapped in
     ColumnExpr, maintaining pandas-like API compatibility (e.g., sort_values()).
 
+    Some methods that return Array types (like json_extract_array_raw) fall back
+    to pandas execution because chDB doesn't support Array inside Nullable type
+    when using Python() table function.
+
     Example:
         >>> ds['data'].json.json_extract_string('name')  # Returns ColumnExpr
         >>> ds['data'].json.json_extract_string('name').sort_values()  # Works!
@@ -4473,14 +4477,52 @@ class ColumnExprJsonAccessor:
 
     def __getattr__(self, name: str):
         """Delegate to base accessor and wrap result in ColumnExpr."""
+        from .function_executor import function_config
+        from .config import get_logger
+
+        _logger = get_logger()
+
         base_attr = getattr(self._base_accessor, name)
 
         # If it's a method, wrap the result
         if callable(base_attr):
 
             def wrapper(*args, **kwargs):
-                result = base_attr(*args, **kwargs)
-                return ColumnExpr(result, self._column_expr._datastore)
+                # Check if this JSON method needs pandas fallback
+                accessor_method = f'json.{name}'
+                if function_config.needs_accessor_fallback(accessor_method):
+                    reason = function_config.get_accessor_fallback_reason(accessor_method)
+                    _logger.debug("[Accessor] %s", reason)
+
+                    # Get source column name from the expression
+                    source_expr = self._column_expr._expr
+                    source_col_name = None
+                    if hasattr(source_expr, 'name'):
+                        source_col_name = source_expr.name
+
+                    # Get the JSON path
+                    json_path = args[0] if args else kwargs.get('path', '')
+
+                    # Create executor that uses df from context
+                    def executor():
+                        import json as json_module
+
+                        # This is only called when NOT using evaluator context
+                        # (i.e., direct _execute() call, not during lazy op execution)
+                        series = self._column_expr._execute()
+                        return _extract_json_array(series, json_path)
+
+                    result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+                    # Store info for ExpressionEvaluator to use current df
+                    result._json_extract_array = True
+                    result._json_source_col = source_col_name
+                    result._json_path = json_path
+                    result._expr = self._column_expr._expr  # Keep reference to source column
+                    return result
+                else:
+                    _logger.debug("[Accessor] json.%s -> chDB SQL", name)
+                    result = base_attr(*args, **kwargs)
+                    return ColumnExpr(result, self._column_expr._datastore)
 
             return wrapper
         else:
@@ -4489,6 +4531,37 @@ class ColumnExprJsonAccessor:
 
     def __repr__(self) -> str:
         return f"ColumnExprJsonAccessor({self._column_expr._expr!r})"
+
+
+def _extract_json_array(series, json_path):
+    """Extract array from JSON column using pure Python.
+
+    This function is used by json.json_extract_array_raw fallback to pandas.
+    """
+    import json as json_module
+
+    def extract_array(json_str):
+        if json_str is None or (isinstance(json_str, float) and json_str != json_str):
+            return None
+        try:
+            data = json_module.loads(json_str)
+            # Navigate the path
+            if json_path:
+                for key in json_path.split('.'):
+                    if isinstance(data, dict):
+                        data = data.get(key)
+                    else:
+                        return None
+                    if data is None:
+                        return None
+            # Return as list (array)
+            if isinstance(data, list):
+                return data
+            return None
+        except (json_module.JSONDecodeError, TypeError):
+            return None
+
+    return series.apply(extract_array)
 
 
 class ColumnExprArrayAccessor:
