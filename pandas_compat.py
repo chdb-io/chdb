@@ -455,9 +455,15 @@ class PandasCompatMixin:
             return self._wrap_result(self._get_df().mask(cond, other=other, axis=axis, level=level))
 
     def query(self, expr, *, inplace=False, **kwargs):
-        """Query the DataFrame with a boolean expression."""
+        """Query the DataFrame with a boolean expression.
+
+        Supports @variable references from the caller's scope.
+        """
         if inplace:
             raise ImmutableError("DataStore")
+        # Increment level to account for DataStore call frame
+        # so pandas can find @variables in the caller's scope
+        kwargs["level"] = kwargs.pop("level", 0) + 1
         return self._wrap_result(self._get_df().query(expr, **kwargs))
 
     # ========== Statistical Methods ==========
