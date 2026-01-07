@@ -4404,8 +4404,6 @@ class ColumnExprStringAccessor:
 
         series = self._execute_series()
         result = series.str.extractall(pat, flags=flags)
-        # Reset index to make it a regular DataFrame
-        result = result.reset_index()
         return DataStore.from_df(result)
 
     def get_dummies(self, sep='|'):
