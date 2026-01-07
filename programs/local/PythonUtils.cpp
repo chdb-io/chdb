@@ -1,7 +1,6 @@
 #include "PythonUtils.h"
 #include "config.h"
 
-#include <cstddef>
 #include <pybind11/gil.h>
 #include <pybind11/pytypes.h>
 #include <pybind11/numpy.h>
