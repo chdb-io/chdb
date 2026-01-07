@@ -579,12 +579,27 @@ class QueryPlanner:
                 op_types.append(('pandas', op))
 
         # Group consecutive operations of the same type into segments
+        # Special case: when multiple LazyColumnAssignment ops target the same column,
+        # they must be executed in separate SQL segments to maintain correct execution order.
+        # Each assignment must see the result of the previous one.
         current_type = None
         current_ops = []
         is_first = True
+        # Track columns assigned in current SQL segment for conflict detection
+        assigned_columns_in_segment = set()
 
         for op_type, op in op_types:
-            if op_type != current_type:
+            # Check if this is a column assignment that conflicts with previous ones in segment
+            needs_new_segment = False
+            if op_type == 'sql' and isinstance(op, LazyColumnAssignment):
+                if op.column in assigned_columns_in_segment:
+                    # Same column being assigned again - need a new segment
+                    needs_new_segment = True
+                    self._logger.debug(
+                        "  [Segment Split] Column '%s' already assigned in current segment, splitting", op.column
+                    )
+
+            if op_type != current_type or needs_new_segment:
                 # Save previous segment
                 if current_ops:
                     segment = self._create_segment(current_type, current_ops, is_first, has_sql_source, schema)
@@ -593,8 +608,14 @@ class QueryPlanner:
                 # Start new segment
                 current_type = op_type
                 current_ops = [op]
+                # Reset column tracking for new segment
+                assigned_columns_in_segment = set()
+                if isinstance(op, LazyColumnAssignment):
+                    assigned_columns_in_segment.add(op.column)
             else:
                 current_ops.append(op)
+                if isinstance(op, LazyColumnAssignment):
+                    assigned_columns_in_segment.add(op.column)
 
         # Save last segment
         if current_ops:
