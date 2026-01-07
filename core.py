@@ -4810,6 +4810,13 @@ class DataStore(PandasCompatMixin):
             # Integer column name access: df[0] when column name is 0
             return ColumnExpr(Field(str(key)), self)
 
+        elif callable(key):
+            # Callable indexing: df[lambda x: x['a'] > 2]
+            # Call the callable with self, then apply the result as indexing
+            condition = key(self)
+            # Recursively handle the result (could be Condition, ColumnExpr, list, etc.)
+            return self[condition]
+
         else:
             # Check for LazyCondition (from isin/between) - needs late import
             from .lazy_result import LazyCondition
