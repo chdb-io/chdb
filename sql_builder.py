@@ -279,11 +279,13 @@ class SQLBuilder:
         """
         Add a computed column.
 
-        Handles four scenarios:
+        Handles five scenarios:
         1. New column (no reference to computed): directly append
         2. Override known original column: use EXCEPT
         3. Override same-layer computed column: wrap subquery first
         4. Expression references current-layer computed column: wrap first
+        5. Column name is referenced in existing WHERE conditions: wrap first
+           (ClickHouse quirk: SELECT alias shadows original column in WHERE)
 
         Args:
             name: Column name
@@ -308,6 +310,15 @@ class SQLBuilder:
                 # After wrapping, referenced columns are now "existing" columns
                 # No EXCEPT needed since we're adding a new column
 
+        # Case 5: Column name is referenced in existing WHERE conditions
+        # This handles ClickHouse quirk where SELECT alias shadows original column in WHERE
+        # Example: SELECT value*2 AS value WHERE value > 15
+        #   ClickHouse incorrectly uses computed value*2 in WHERE instead of original value
+        #   Fix: wrap to apply WHERE on original column first, then compute in outer query
+        columns_in_where = self._get_columns_in_current_where()
+        if name in columns_in_where:
+            self._wrap_current_layer()
+
         # Case 2: Override known original column -> use EXCEPT
         # Check after potential wrap, as known_columns may have changed
         if name in self._known_columns:
@@ -318,6 +329,18 @@ class SQLBuilder:
 
         self.current_layer.computed_columns.append((name, expr))
         return self
+
+    def _get_columns_in_current_where(self) -> Set[str]:
+        """
+        Get column names referenced in current layer's WHERE conditions.
+
+        Returns:
+            Set of column names referenced in WHERE conditions
+        """
+        columns = set()
+        for condition in self.current_layer.where_conditions:
+            columns.update(self._extract_referenced_columns(condition))
+        return columns
 
     def add_filter(self, condition: Condition) -> 'SQLBuilder':
         """
