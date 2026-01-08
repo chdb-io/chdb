@@ -1382,6 +1382,13 @@ class ColumnExpr:
         from .conditions import CompoundCondition, Condition
 
         # For method mode (e.g., from groupby comparison), use pandas & on executed results
+        import numpy as np
+        import pandas as pd
+
+        # Handle numpy arrays and pandas Series by deferring to method mode
+        if isinstance(other, (np.ndarray, pd.Series)):
+            return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
+
         if self._exec_mode == 'method' or (isinstance(other, ColumnExpr) and other._exec_mode == 'method'):
             return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
 
@@ -1402,6 +1409,12 @@ class ColumnExpr:
     def __rand__(self, other: Any) -> 'ColumnExpr':
         """Right AND operator."""
         from .conditions import CompoundCondition, Condition
+        import numpy as np
+        import pandas as pd
+
+        # Handle numpy arrays and pandas Series by deferring to method mode
+        if isinstance(other, (np.ndarray, pd.Series)):
+            return ColumnExpr(source=self, method_name='__rand__', method_args=(other,))
 
         self_cond = self._to_condition()
 
@@ -1422,6 +1435,13 @@ class ColumnExpr:
             >>> ds.filter((ds['age'] < 18) | (ds['age'] > 65))
         """
         from .conditions import CompoundCondition, Condition
+
+        import numpy as np
+        import pandas as pd
+
+        # Handle numpy arrays and pandas Series by deferring to method mode
+        if isinstance(other, (np.ndarray, pd.Series)):
+            return ColumnExpr(source=self, method_name='__or__', method_args=(other,))
 
         # For method mode (e.g., from groupby comparison), use pandas | on executed results
         if self._exec_mode == 'method' or (isinstance(other, ColumnExpr) and other._exec_mode == 'method'):
@@ -1444,6 +1464,12 @@ class ColumnExpr:
     def __ror__(self, other: Any) -> 'ColumnExpr':
         """Right OR operator."""
         from .conditions import CompoundCondition, Condition
+        import numpy as np
+        import pandas as pd
+
+        # Handle numpy arrays and pandas Series by deferring to method mode
+        if isinstance(other, (np.ndarray, pd.Series)):
+            return ColumnExpr(source=self, method_name='__ror__', method_args=(other,))
 
         self_cond = self._to_condition()
 
@@ -1461,6 +1487,12 @@ class ColumnExpr:
         Returns a ColumnExpr wrapping CompoundCondition('XOR', ...).
         """
         from .conditions import CompoundCondition, Condition
+        import numpy as np
+        import pandas as pd
+
+        # Handle numpy arrays and pandas Series by deferring to method mode
+        if isinstance(other, (np.ndarray, pd.Series)):
+            return ColumnExpr(source=self, method_name='__xor__', method_args=(other,))
 
         self_cond = self._to_condition()
 
