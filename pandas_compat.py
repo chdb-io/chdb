@@ -77,8 +77,122 @@ class DataStoreLocIndexer:
 
         return key
 
+    def _can_pushdown_condition(self, row_key):
+        """Check if a row key condition can be pushed down to SQL."""
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .lazy_result import LazyCondition
+
+        if isinstance(row_key, ColumnExpr):
+            # ColumnExpr wrapping a Condition can be pushed down
+            # Method-mode ColumnExpr (e.g., cumsum() > 6) cannot be pushed
+            if row_key._exec_mode == 'method' or row_key._expr is None:
+                return False
+            return isinstance(row_key._expr, Condition)
+        elif isinstance(row_key, LazyCondition):
+            return True
+        elif isinstance(row_key, Condition):
+            return True
+        return False
+
+    def _extract_condition(self, row_key):
+        """Extract Condition object from row key."""
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .lazy_result import LazyCondition
+
+        if isinstance(row_key, ColumnExpr):
+            return row_key._expr
+        elif isinstance(row_key, LazyCondition):
+            return row_key.condition
+        elif isinstance(row_key, Condition):
+            return row_key
+        return None
+
     def __getitem__(self, key):
-        """Get item from loc, converting ColumnExpr to pandas types first."""
+        """
+        Get item from loc with lazy SQL pushdown support.
+
+        When accessing ds.loc[condition, columns] where:
+        - condition is a SQL-compatible ColumnExpr/Condition (e.g., ds['a'] > 2)
+        - columns is a list of column names
+
+        This method creates lazy WHERE + SELECT operations that can be
+        pushed down to SQL: SELECT col1, col2 FROM ... WHERE a > 2
+
+        For non-pushable conditions or complex label-based indexing,
+        falls back to pandas loc execution.
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .lazy_result import LazyCondition
+        from .lazy_ops import LazyRelationalOp
+        from .expressions import Field
+        from copy import copy
+
+        # Check for loc[condition, columns] pattern that can be pushed to SQL
+        if isinstance(key, tuple) and len(key) == 2:
+            row_key, col_key = key
+
+            # Check if row_key is a pushable condition and col_key is column selection
+            if self._can_pushdown_condition(row_key) and isinstance(col_key, (list, str)):
+                # Extract the condition
+                condition = self._extract_condition(row_key)
+
+                if condition is not None:
+                    # Create a copy of the DataStore for immutability
+                    result = copy(self._datastore)
+                    result._cached_result = None
+                    result._cache_version = 0
+                    result._cached_at_version = -1
+                    result._cache_timestamp = None
+
+                    # Add WHERE operation (filter)
+                    result._add_lazy_op(
+                        LazyRelationalOp(
+                            op_type='WHERE',
+                            description=f"loc filter: {condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)}",
+                            condition=condition,
+                        )
+                    )
+
+                    # Add SELECT operation (column selection)
+                    if isinstance(col_key, str):
+                        col_key = [col_key]
+
+                    if col_key:
+                        # Reset select star since we're selecting specific columns
+                        result._select_star = False
+                        fields = [Field(str(col) if isinstance(col, int) else col) for col in col_key]
+                        col_names = [str(col) if isinstance(col, int) else col for col in col_key]
+                        result._add_lazy_op(
+                            LazyRelationalOp(
+                                op_type='SELECT', description=f"loc columns: {', '.join(col_names)}", fields=fields
+                            )
+                        )
+
+                    return result
+
+        # Check for loc[condition] pattern (single condition, no column selection)
+        if self._can_pushdown_condition(key):
+            condition = self._extract_condition(key)
+            if condition is not None:
+                result = copy(self._datastore)
+                result._cached_result = None
+                result._cache_version = 0
+                result._cached_at_version = -1
+                result._cache_timestamp = None
+                result._add_lazy_op(
+                    LazyRelationalOp(
+                        op_type='WHERE',
+                        description=f"loc filter: {condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)}",
+                        condition=condition,
+                    )
+                )
+                return result
+
+        # Fall back to pandas execution for non-pushable cases
+        # (label-based indexing, slice indexing, method-mode conditions, etc.)
         converted_key = self._convert_key(key)
         df = self._datastore._get_df()
         return df.loc[converted_key]
