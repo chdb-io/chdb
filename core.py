@@ -4151,7 +4151,9 @@ class DataStore(PandasCompatMixin):
                 break
 
         # Return a GroupBy wrapper that references self (not a copy!)
-        return LazyGroupBy(self, groupby_fields, sort=sort, as_index=as_index, dropna=dropna, selected_columns=selected_columns)
+        return LazyGroupBy(
+            self, groupby_fields, sort=sort, as_index=as_index, dropna=dropna, selected_columns=selected_columns
+        )
 
     @immutable
     def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':

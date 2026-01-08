@@ -236,6 +236,24 @@ class ExpressionEvaluator:
                     else:
                         # Fallback to executor if source column not found
                         return expr._executor()
+                # Check for string accessor methods (e.g., str.extract, str.split)
+                # that would cause recursion if we call _execute() on their source
+                elif expr._datastore is self.context and getattr(expr, '_str_accessor_method', None):
+                    # String accessor being evaluated during DataStore execution
+                    # Use current df instead of calling _execute() to avoid circular execution
+                    source_expr = getattr(expr, '_str_source_expr', None)
+                    if source_expr is not None:
+                        # Evaluate the source expression using this evaluator's df
+                        source_series = self.evaluate(source_expr)
+                        if source_series is not None:
+                            method_name = expr._str_accessor_method
+                            args = getattr(expr, '_str_accessor_args', ())
+                            kwargs = getattr(expr, '_str_accessor_kwargs', {})
+                            str_accessor = source_series.str
+                            method = getattr(str_accessor, method_name)
+                            return method(*args, **kwargs)
+                    # Fallback to executor if source not available
+                    return expr._executor()
                 else:
                     # Normal executor call
                     return expr._executor()

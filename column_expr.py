@@ -4658,12 +4658,19 @@ class ColumnExprStringAccessor:
             _logger.debug("[Accessor] %s", reason)
 
             col_expr = self._column_expr
+            n_val = n if n != -1 else None
 
             def executor():
                 series = col_expr._execute()
-                return series.str.split(pat=pat, n=n if n != -1 else None, expand=True, regex=regex)
+                return series.str.split(pat=pat, n=n_val, expand=True, regex=regex)
 
-            return ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+            result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+            # Store metadata for ExpressionEvaluator to handle circular execution
+            result._str_accessor_method = 'split'
+            result._str_source_expr = col_expr
+            result._str_accessor_args = ()
+            result._str_accessor_kwargs = {'pat': pat, 'n': n_val, 'expand': True, 'regex': regex}
+            return result
         else:
             _logger.debug("[Accessor] str.split -> chDB SQL")
             # Use SQL-based split (returns array)
@@ -4701,7 +4708,13 @@ class ColumnExprStringAccessor:
             series = col_expr._execute()
             return series.str.extract(pat, flags=flags, expand=expand)
 
-        return ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+        result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+        # Store metadata for ExpressionEvaluator to handle circular execution
+        result._str_accessor_method = 'extract'
+        result._str_source_expr = col_expr
+        result._str_accessor_args = (pat,)
+        result._str_accessor_kwargs = {'flags': flags, 'expand': expand}
+        return result
 
     def extractall(self, pat, flags=0):
         """
@@ -4732,7 +4745,13 @@ class ColumnExprStringAccessor:
             series = col_expr._execute()
             return series.str.extractall(pat, flags=flags)
 
-        return ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+        result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+        # Store metadata for ExpressionEvaluator to handle circular execution
+        result._str_accessor_method = 'extractall'
+        result._str_source_expr = col_expr
+        result._str_accessor_args = (pat,)
+        result._str_accessor_kwargs = {'flags': flags}
+        return result
 
     def wrap(self, width, **kwargs):
         """
@@ -4761,7 +4780,13 @@ class ColumnExprStringAccessor:
             series = col_expr._execute()
             return series.str.wrap(width, **kwargs)
 
-        return ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+        result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
+        # Store metadata for ExpressionEvaluator to handle circular execution
+        result._str_accessor_method = 'wrap'
+        result._str_source_expr = col_expr
+        result._str_accessor_args = (width,)
+        result._str_accessor_kwargs = kwargs
+        return result
 
     def __getitem__(self, index: int):
         """
