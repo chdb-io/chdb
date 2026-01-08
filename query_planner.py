@@ -300,11 +300,25 @@ class QueryPlanner:
         groupby_agg_op = None
         where_ops = []  # LazyWhere/LazyMask that can be pushed to SQL
         alias_renames = {}  # temp_alias -> original_alias for conflict resolution
+        pending_computed_columns = set()  # Track columns added by LazyColumnAssignment
 
         for i, op in enumerate(ops):
             if isinstance(op, LazyRelationalOp):
                 # Relational ops can be pushed to SQL
                 continue
+
+            elif isinstance(op, LazyColumnAssignment):
+                # Check if this column assignment can be pushed to SQL
+                if has_sql_source and op.can_push_to_sql():
+                    # Track this as a pending computed column for subsequent ops
+                    pending_computed_columns.add(op.column)
+                    self._logger.debug("  [ColumnAssignment] Can push to SQL: %s", op.column)
+                    continue  # Include in SQL, continue looking
+                else:
+                    # Cannot push to SQL - this operation breaks the SQL chain
+                    self._logger.debug("  [ColumnAssignment] Cannot push to SQL: %s", op.column)
+                    first_df_op_idx = i
+                    break
 
             elif isinstance(op, LazyGroupByAgg) and groupby_agg_op is None:
                 # Check if GroupByAgg can be pushed to SQL
@@ -341,8 +355,8 @@ class QueryPlanner:
 
             elif isinstance(op, (LazyWhere, LazyMask)):
                 # Check if LazyWhere/LazyMask can be pushed to SQL
-                # Pass schema for type-aware checking (auto fallback for incompatible types)
-                if has_sql_source and op.can_push_to_sql(schema):
+                # Pass schema and pending computed columns for type-aware checking
+                if has_sql_source and op.can_push_to_sql(schema, pending_computed_columns):
                     where_ops.append(op)
                     self._logger.debug("  [Where/Mask] Can push to SQL: CASE WHEN")
                     continue  # Include in SQL, continue looking
@@ -359,8 +373,7 @@ class QueryPlanner:
                 first_df_op_idx = i
                 break
 
-            # Any other operation (LazyColumnAssignment, LazyGroupByFilter, etc.)
-            # breaks the SQL chain
+            # Any other operation (LazyGroupByFilter, etc.) breaks the SQL chain
             first_df_op_idx = i
             break
 

@@ -1666,17 +1666,18 @@ class LazyWhere(LazyOp):
         if schema and not self._is_type_compatible_with_schema(schema):
             return False
 
-        # Check if all columns referenced in condition exist in schema
-        # This prevents SQL errors when condition references computed columns
-        # that haven't been materialized yet.
-        # Note: We intentionally DO NOT include pending_computed_columns here
-        # because where() SQL generation (CASE WHEN) doesn't work with SQLBuilder's
-        # computed column handling. This may be improved in the future.
+        # Check if all columns referenced in condition exist in schema or pending computed columns
+        # This prevents SQL errors when condition references columns that don't exist.
+        # When pending_computed_columns is provided, we can push to SQL because SQLBuilder
+        # will handle the computed columns via subquery wrapping (CTE-like pattern).
         if schema:
             referenced_cols = self._extract_condition_columns(cond)
             existing_cols = set(schema.keys())
+            # Include pending computed columns in the available columns
+            if pending_computed_columns:
+                existing_cols = existing_cols | pending_computed_columns
             if referenced_cols and not referenced_cols.issubset(existing_cols):
-                # Condition references a column not in schema (likely a computed column)
+                # Condition references a column that doesn't exist
                 return False
 
         # Scalar other - can push to SQL
