@@ -8,7 +8,6 @@ and only executed when execution is triggered (e.g., print, to_df()).
 from typing import Any, Dict, List, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 import pandas as pd
-import dis
 
 from .expressions import Expression, Field, Literal, ArithmeticExpression
 from .config import get_logger
@@ -1320,6 +1319,48 @@ class LazyTransform(LazyOp):
 SQL_PUSHABLE_AGGS = {'sum', 'mean', 'max', 'min', 'count', 'std', 'var', 'first', 'last'}
 
 
+class _AggregationProbe:
+    """
+    A probe object that records method calls to detect simple aggregation patterns.
+
+    When a function like `lambda x: x.sum()` is called with this probe,
+    the probe records that `sum` was called and returns a sentinel value.
+    This allows us to detect the aggregation pattern without relying on bytecode
+    which varies between Python versions.
+    """
+
+    def __init__(self):
+        self._called_method = None
+        self._call_count = 0
+        self._has_args = False
+
+    def _record_call(self, name, *args, **kwargs):
+        """Record a method call."""
+        self._call_count += 1
+        self._called_method = name
+        # If any args/kwargs are passed (beyond defaults), mark it
+        if args or kwargs:
+            self._has_args = True
+        return _AggregationProbe()  # Return probe to allow chaining detection
+
+    def __getattr__(self, name):
+        """Intercept attribute access and return a callable that records the call."""
+        if name.startswith('_'):
+            raise AttributeError(name)
+
+        def method_proxy(*args, **kwargs):
+            return self._record_call(name, *args, **kwargs)
+
+        return method_proxy
+
+    # Prevent common magic method calls from being intercepted
+    def __repr__(self):
+        return f"_AggregationProbe(called={self._called_method})"
+
+    def __str__(self):
+        return repr(self)
+
+
 def detect_simple_aggregation(func):
     """
     Detect if a function is a simple aggregation pattern like:
@@ -1327,8 +1368,8 @@ def detect_simple_aggregation(func):
     - lambda x: x.mean()
     - etc.
 
-    This analyzes the bytecode to detect patterns where a function
-    simply calls a single aggregation method on its argument.
+    This uses a probe object to detect what method is called on the argument.
+    Unlike bytecode analysis, this approach is reliable across Python versions.
 
     Returns:
         Tuple of (is_simple_agg: bool, agg_func_name: str or None)
@@ -1338,49 +1379,27 @@ def detect_simple_aggregation(func):
     if not callable(func):
         return False, None
 
+    probe = _AggregationProbe()
+
     try:
-        code = func.__code__
-    except AttributeError:
-        # Built-in functions don't have __code__
+        # Call the function with our probe to see what methods it calls
+        result = func(probe)
+    except Exception:
+        # If the function fails (e.g., expects specific types), it's not simple
         return False, None
 
-    instructions = list(dis.get_instructions(code))
-
-    # Filter out RESUME instruction (Python 3.11+) and PRECALL (Python 3.11 only, removed in 3.12)
-    instructions = [i for i in instructions if i.opname not in ('RESUME', 'PRECALL')]
-
-    # Simple aggregation pattern should have exactly 4 instructions:
-    # 1. LOAD_FAST (load argument x)
-    # 2. LOAD_ATTR or LOAD_METHOD (load method like .sum)
-    # 3. CALL or CALL_FUNCTION or CALL_METHOD (call the method)
-    # 4. RETURN_VALUE (return result)
-
-    if len(instructions) != 4:
+    # Check if exactly one method was called
+    if probe._call_count != 1:
         return False, None
 
-    load_fast, load_attr, call, ret = instructions
-
-    if load_fast.opname != 'LOAD_FAST':
+    # Check if any arguments were passed to the method
+    if probe._has_args:
         return False, None
 
-    # Handle both Python 3.11+ and earlier
-    if load_attr.opname not in ('LOAD_ATTR', 'LOAD_METHOD'):
-        return False, None
-
-    # Extract method name - handle 'sum + NULL|self' format in Python 3.11+
-    attr_name = load_attr.argrepr
-    if '+' in attr_name:
-        attr_name = attr_name.split('+')[0].strip()
-
-    if call.opname not in ('CALL', 'CALL_FUNCTION', 'CALL_METHOD'):
-        return False, None
-
-    if ret.opname != 'RETURN_VALUE':
-        return False, None
-
-    # Check if method is a supported aggregation
-    if attr_name in SQL_PUSHABLE_AGGS:
-        return True, attr_name
+    # Check if the called method is a supported aggregation
+    method_name = probe._called_method
+    if method_name in SQL_PUSHABLE_AGGS:
+        return True, method_name
 
     return False, None
 
