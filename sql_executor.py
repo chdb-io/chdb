@@ -1042,7 +1042,12 @@ class SQLExecutionEngine:
         # SQLBuilder is needed when:
         # 1. Multiple assignments to the same column (override scenario)
         # 2. Computed column is referenced in subsequent operations (WHERE, ORDER BY)
-        if column_assignments and self._needs_sql_builder(plan.sql_ops, column_assignments, schema):
+        # Skip SQLBuilder if there is a groupby operation (SQLBuilder does not support GROUP BY yet)
+        if (
+            column_assignments
+            and not groupby_agg_op
+            and self._needs_sql_builder(plan.sql_ops, column_assignments, schema)
+        ):
             sql = self._build_sql_with_builder(plan, schema)
             return SQLBuildResult(
                 sql=sql,

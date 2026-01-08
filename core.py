@@ -1293,7 +1293,9 @@ class DataStore(PandasCompatMixin):
         # For GroupBy SQL pushdown: set group keys as index
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
-            if all(col in df.columns for col in groupby_cols):
+            # Check as_index: only set index if as_index=True (default)
+            as_index = getattr(plan.groupby_agg, 'as_index', True)
+            if as_index and all(col in df.columns for col in groupby_cols):
                 df = df.set_index(groupby_cols)
                 self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
 
