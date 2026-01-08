@@ -148,10 +148,11 @@ class DataStoreLocIndexer:
                     result._cache_timestamp = None
 
                     # Add WHERE operation (filter)
+                    cond_desc = condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)
                     result._add_lazy_op(
                         LazyRelationalOp(
                             op_type='WHERE',
-                            description=f"loc filter: {condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)}",
+                            description=f"loc filter: {cond_desc}",
                             condition=condition,
                         )
                     )
@@ -182,10 +183,11 @@ class DataStoreLocIndexer:
                 result._cache_version = 0
                 result._cached_at_version = -1
                 result._cache_timestamp = None
+                cond_desc = condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)
                 result._add_lazy_op(
                     LazyRelationalOp(
                         op_type='WHERE',
-                        description=f"loc filter: {condition.to_sql(quote_char='"') if hasattr(condition, 'to_sql') else str(condition)}",
+                        description=f"loc filter: {cond_desc}",
                         condition=condition,
                     )
                 )
