@@ -3520,6 +3520,16 @@ class ColumnExpr:
         """
         Shift values by desired number of periods (lazy).
 
+        When possible, uses SQL LAG()/LEAD() window functions for better performance.
+        Uses lagInFrame for positive periods (shift down / previous values) and
+        leadInFrame for negative periods (shift up / next values).
+
+        Falls back to pandas for:
+        - freq parameter (time series offset)
+        - fill_value parameter (SQL returns NULL, pandas supports custom fill)
+        - Groupby context (has special handling in _execute)
+        - String/object columns (toFloat64 would corrupt data)
+
         Args:
             periods: Number of periods to shift (positive = shift down)
             freq: Offset to use from tseries
@@ -3530,10 +3540,88 @@ class ColumnExpr:
             ColumnExpr: Lazy wrapper returning shifted Series
 
         Example:
-            >>> ds['value'].shift(1)  # Previous value
-            >>> ds['value'].shift(-1)  # Next value
-            >>> ds['value'].shift(1, fill_value=0)
+            >>> ds['value'].shift(1)  # Previous value (uses SQL LAG)
+            >>> ds['value'].shift(-1)  # Next value (uses SQL LEAD)
+            >>> ds['value'].shift(1, fill_value=0)  # Uses pandas (fill_value)
         """
+        from .functions import WindowFunction, Function
+        from .expressions import Literal
+
+        # Check if we can use SQL window functions
+        # Requirements:
+        # 1. No freq parameter (time series offset not supported in SQL)
+        # 2. No fill_value (SQL LAG/LEAD returns NULL, pandas supports custom fill)
+        # 3. We have a valid expression (Field) to shift
+        # 4. Not in groupby context (groupby shift has special handling in _execute)
+        # 5. Must be numeric column (string columns don't work with toFloat64)
+        can_use_sql = (
+            freq is None
+            and fill_value is None
+            and self._expr is not None
+            and not self._groupby_fields  # Groupby context uses different path
+        )
+
+        # Check if the column is numeric (skip SQL for string columns)
+        if can_use_sql and self._datastore is not None:
+            try:
+                # Try to get the column dtype from the datastore
+                col_name = None
+                if isinstance(self._expr, Field):
+                    col_name = self._expr.name
+                if col_name:
+                    # Use _get_df() to get the DataFrame
+                    df = self._datastore._get_df()
+                    if df is not None and col_name in df.columns:
+                        col_dtype = df[col_name].dtype
+                        # Only use SQL for numeric columns
+                        if col_dtype == 'object' or pd.api.types.is_string_dtype(col_dtype):
+                            can_use_sql = False
+            except Exception:
+                # If we can't determine dtype, fall back to pandas
+                pass
+
+        if can_use_sql:
+            # Build the window function
+            # lagInFrame for positive periods (previous values)
+            # leadInFrame for negative periods (next values)
+            # Wrap column with toNullable to get proper NULL for missing rows
+            col_nullable = Function('toNullable', self._expr)
+
+            if periods >= 0:
+                # shift(1) -> lagInFrame(col, 1) = previous value
+                window_func = WindowFunction('lagInFrame', col_nullable, Literal(periods))
+            else:
+                # shift(-1) -> leadInFrame(col, 1) = next value
+                window_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
+
+            # Add OVER clause with ORDER BY rowNumberInAllBlocks() to preserve row order
+            # Frame must span entire partition to access all rows
+            row_num_func = Function('rowNumberInAllBlocks')
+            window_func = window_func.over(
+                order_by=[row_num_func],
+                frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
+            )
+
+            # Wrap with toFloat64 to match pandas behavior
+            # pandas shift() returns float64 because NaN is only supported in float
+            float_wrapped = Function('toFloat64', window_func)
+
+            # Preserve the original column name for the result Series
+            col_name = None
+            if isinstance(self._expr, Field):
+                col_name = self._expr.name
+
+            # Return new ColumnExpr with the window function expression
+            return ColumnExpr(
+                expr=float_wrapped,
+                datastore=self._datastore,
+                alias=col_name,
+                groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+                groupby_as_index=self._groupby_as_index,
+                groupby_sort=self._groupby_sort,
+            )
+
+        # Fall back to pandas for unsupported cases
         return ColumnExpr(
             source=self,
             method_name='shift',
@@ -3544,6 +3632,14 @@ class ColumnExpr:
         """
         First discrete difference of element (lazy).
 
+        When possible, uses SQL window functions for better performance:
+        diff(n) = value - lagInFrame(value, n)  for positive periods
+        diff(-n) = value - leadInFrame(value, n)  for negative periods
+
+        Falls back to pandas for:
+        - Groupby context (has special handling in _execute)
+        - No valid expression
+
         Args:
             periods: Periods to shift for calculating difference
 
@@ -3551,9 +3647,62 @@ class ColumnExpr:
             ColumnExpr: Lazy wrapper returning first differences Series
 
         Example:
-            >>> ds['value'].diff()  # Difference from previous
+            >>> ds['value'].diff()  # Difference from previous (uses SQL)
             >>> ds['value'].diff(2)  # Difference from 2 periods ago
         """
+        from .functions import WindowFunction, Function
+        from .expressions import Literal
+
+        # Check if we can use SQL window functions
+        # Requirements:
+        # 1. We have a valid expression (Field) to diff
+        # 2. Not in groupby context (groupby diff has special handling in _execute)
+        can_use_sql = self._expr is not None and not self._groupby_fields  # Groupby context uses different path
+
+        if can_use_sql:
+            # Build: value - lagInFrame(toNullable(value), periods)
+            # Wrap column with toNullable to get proper NULL for first rows
+            col_nullable = Function('toNullable', self._expr)
+
+            # Create lag/lead window function based on periods sign
+            if periods >= 0:
+                # diff(1) -> value - lagInFrame(col, 1)
+                lag_func = WindowFunction('lagInFrame', col_nullable, Literal(periods))
+            else:
+                # diff(-1) -> value - leadInFrame(col, 1)
+                lag_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
+
+            # Add OVER clause with ORDER BY rowNumberInAllBlocks() to preserve row order
+            row_num_func = Function('rowNumberInAllBlocks')
+            lag_func = lag_func.over(
+                order_by=[row_num_func],
+                frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
+            )
+
+            # diff = current - lag
+            # Result will be NULL for first `periods` rows (since lag is NULL)
+            diff_expr = Function('minus', self._expr, lag_func)
+
+            # Wrap with toFloat64 to match pandas behavior
+            # pandas diff() returns float64 because NaN is only supported in float
+            float_wrapped = Function('toFloat64', diff_expr)
+
+            # Preserve the original column name for the result Series
+            col_name = None
+            if isinstance(self._expr, Field):
+                col_name = self._expr.name
+
+            # Return new ColumnExpr with the diff expression
+            return ColumnExpr(
+                expr=float_wrapped,
+                datastore=self._datastore,
+                alias=col_name,
+                groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+                groupby_as_index=self._groupby_as_index,
+                groupby_sort=self._groupby_sort,
+            )
+
+        # Fall back to pandas for unsupported cases
         return ColumnExpr(source=self, method_name='diff', method_kwargs=dict(periods=periods))
 
     def pct_change(self, periods=1, fill_method=None, limit=None, freq=None, **kwargs) -> 'ColumnExpr':

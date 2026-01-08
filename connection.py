@@ -699,7 +699,10 @@ class Connection:
             row_idx_col = '__row_idx__'
             __df__ = df_converted.copy()  # noqa: F841
             __df__[row_idx_col] = range(len(df))
-            query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__) ORDER BY {row_idx_col}"
+            # Replace rowNumberInAllBlocks() with __row_idx__ for window function ordering
+            # This ensures window functions use the original DataFrame row order
+            expr_sql_fixed = expr_sql.replace('rowNumberInAllBlocks()', row_idx_col)
+            query = f"SELECT {expr_sql_fixed} AS {result_column} FROM Python(__df__) ORDER BY {row_idx_col}"
 
         self._log_query(query, "Expression")
 
