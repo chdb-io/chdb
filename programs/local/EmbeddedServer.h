@@ -22,7 +22,6 @@ namespace DB
 /// Quiet mode by default
 ///
 /// EmbeddedServer lifecycle is managed exclusively by getInstance/releaseInstance.
-/// ChdbClient holds a reference to EmbeddedServer but does not own it.
 /// Only one EmbeddedServer instance can exist globally at a time.
 class EmbeddedServer : public Poco::Util::Application, public IHints<2>, public Loggers
 {
@@ -41,7 +40,7 @@ public:
 
     std::string getErrorMsg() const { return error_message_oss.str(); }
 
-    static EmbeddedServer& getInstance(int argc = 0, char ** argv = nullptr);
+    static EmbeddedServer & getInstance(int argc = 0, char ** argv = nullptr);
 
     static void releaseInstance();
 

@@ -882,7 +882,7 @@ std::unique_ptr<EmbeddedServer> EmbeddedServer::global_instance;
 std::mutex EmbeddedServer::instance_mutex;
 size_t EmbeddedServer::client_ref_count = 0;
 
-EmbeddedServer& EmbeddedServer::getInstance(int argc, char ** argv)
+EmbeddedServer & EmbeddedServer::getInstance(int argc, char ** argv)
 {
     std::lock_guard<std::mutex> lock(instance_mutex);
 
