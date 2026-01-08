@@ -31,6 +31,7 @@ from .config import get_logger
 
 if TYPE_CHECKING:
     from .core import DataStore
+    from .column_expr import ColumnExpr
 
 
 class ExpressionEvaluator:
@@ -452,6 +453,7 @@ class ExpressionEvaluator:
             # Special handling for JSON array extraction
             if accessor_name == 'json' and op_method == '_extract_array':
                 from .column_expr import _extract_json_array
+
                 json_path = op_args[0] if op_args else ''
                 return _extract_json_array(source_result, json_path)
 
@@ -473,6 +475,7 @@ class ExpressionEvaluator:
             col_name = None
             if op_source is not None and hasattr(op_source, '_expr'):
                 from .expressions import Field as ExprField
+
                 if isinstance(op_source._expr, ExprField):
                     col_name = op_source._expr.name
                 elif op_source._expr is not None:
@@ -494,6 +497,7 @@ class ExpressionEvaluator:
             col_name = None
             if op_source is not None and hasattr(op_source, '_expr'):
                 from .expressions import Field as ExprField
+
                 if isinstance(op_source._expr, ExprField):
                     col_name = op_source._expr.name
                 elif op_source._expr is not None:
@@ -516,6 +520,7 @@ class ExpressionEvaluator:
             col_name = None
             if op_source is not None and hasattr(op_source, '_expr'):
                 from .expressions import Field as ExprField
+
                 if isinstance(op_source._expr, ExprField):
                     col_name = op_source._expr.name
                 elif op_source._expr is not None:
