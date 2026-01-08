@@ -1346,8 +1346,8 @@ def detect_simple_aggregation(func):
 
     instructions = list(dis.get_instructions(code))
 
-    # Filter out RESUME instruction (Python 3.11+)
-    instructions = [i for i in instructions if i.opname != 'RESUME']
+    # Filter out RESUME instruction (Python 3.11+) and PRECALL (Python 3.11 only, removed in 3.12)
+    instructions = [i for i in instructions if i.opname not in ('RESUME', 'PRECALL')]
 
     # Simple aggregation pattern should have exactly 4 instructions:
     # 1. LOAD_FAST (load argument x)

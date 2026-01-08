@@ -3545,7 +3545,7 @@ class ColumnExpr:
             >>> ds['value'].shift(1, fill_value=0)  # Uses pandas (fill_value)
         """
         from .functions import WindowFunction, Function
-        from .expressions import Literal
+        from .expressions import Literal, Field
 
         # Check if we can use SQL window functions
         # Requirements:
@@ -3594,11 +3594,12 @@ class ColumnExpr:
                 # shift(-1) -> leadInFrame(col, 1) = next value
                 window_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
 
-            # Add OVER clause with ORDER BY rowNumberInAllBlocks() to preserve row order
+            # Add OVER clause with ORDER BY __row_idx__ to preserve original row order
+            # __row_idx__ is added by the executor when registering DataFrame with chDB
             # Frame must span entire partition to access all rows
-            row_num_func = Function('rowNumberInAllBlocks')
+            row_idx_field = Field('__row_idx__')
             window_func = window_func.over(
-                order_by=[row_num_func],
+                order_by=[row_idx_field],
                 frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
             )
 
@@ -3651,7 +3652,7 @@ class ColumnExpr:
             >>> ds['value'].diff(2)  # Difference from 2 periods ago
         """
         from .functions import WindowFunction, Function
-        from .expressions import Literal
+        from .expressions import Literal, Field
 
         # Check if we can use SQL window functions
         # Requirements:
@@ -3672,10 +3673,11 @@ class ColumnExpr:
                 # diff(-1) -> value - leadInFrame(col, 1)
                 lag_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
 
-            # Add OVER clause with ORDER BY rowNumberInAllBlocks() to preserve row order
-            row_num_func = Function('rowNumberInAllBlocks')
+            # Add OVER clause with ORDER BY __row_idx__ to preserve original row order
+            # __row_idx__ is added by the executor when registering DataFrame with chDB
+            row_idx_field = Field('__row_idx__')
             lag_func = lag_func.over(
-                order_by=[row_num_func],
+                order_by=[row_idx_field],
                 frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
             )
 

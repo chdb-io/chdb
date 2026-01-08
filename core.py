@@ -4132,8 +4132,26 @@ class DataStore(PandasCompatMixin):
             else:
                 groupby_fields.append(field)
 
+        # Extract selected columns from prior LazyRelationalOp(SELECT) operations
+        # This ensures that df[['col1', 'col2']].groupby('col1').mean() only aggregates
+        # the explicitly selected columns, not all columns from the source
+        selected_columns = None
+        for op in reversed(self._lazy_ops):
+            if isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and op.fields:
+                # Found a SELECT operation - extract column names
+                selected_columns = []
+                for f in op.fields:
+                    if isinstance(f, str) and f != '*':
+                        selected_columns.append(f)
+                    elif isinstance(f, Field):
+                        selected_columns.append(f.name)
+                # If SELECT * or no explicit columns, don't override
+                if not selected_columns:
+                    selected_columns = None
+                break
+
         # Return a GroupBy wrapper that references self (not a copy!)
-        return LazyGroupBy(self, groupby_fields, sort=sort, as_index=as_index, dropna=dropna)
+        return LazyGroupBy(self, groupby_fields, sort=sort, as_index=as_index, dropna=dropna, selected_columns=selected_columns)
 
     @immutable
     def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':

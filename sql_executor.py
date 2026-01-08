@@ -520,9 +520,10 @@ def build_groupby_select_fields(
         elif all_columns:
             # Apply aggregation to non-groupby columns (or only selected columns)
             # This handles sum, mean, count, min, max, std, var, first, last, etc.
-            # If selected_columns is set, only aggregate those columns
+            # If selected_columns is set, only aggregate those columns (excluding groupby keys)
             if groupby_agg.selected_columns:
-                cols_to_agg = groupby_agg.selected_columns
+                # Filter out groupby columns from selected_columns
+                cols_to_agg = [c for c in groupby_agg.selected_columns if c not in groupby_agg.groupby_cols]
             else:
                 cols_to_agg = [c for c in all_columns if c not in groupby_agg.groupby_cols]
             for col in cols_to_agg:
@@ -1363,8 +1364,33 @@ class SQLExecutionEngine:
         select_fields_for_sql = sql_select_fields
 
         if groupby_agg_op:
-            # Get all columns for count() to generate COUNT(col) per column
-            all_cols = self.ds._get_all_column_names() if hasattr(self.ds, '_get_all_column_names') else None
+            # Get columns for aggregation - prioritize explicit column selection from
+            # df[['col1', 'col2']].groupby(...) over all source columns
+            # This ensures that df[['Pclass', 'Survived']].groupby('Pclass').mean()
+            # only aggregates 'Survived', not all columns from the source file
+            if clauses.select_fields:
+                # Use explicitly selected columns (from LazyRelationalOp(SELECT))
+                all_cols = []
+                for f in clauses.select_fields:
+                    if isinstance(f, Field):
+                        all_cols.append(f.name)
+                    elif hasattr(f, 'alias') and f.alias:
+                        all_cols.append(f.alias)
+                    else:
+                        all_cols.append(str(f))
+            elif sql_select_fields:
+                # Use columns from passed-in select fields
+                all_cols = []
+                for f in sql_select_fields:
+                    if isinstance(f, Field):
+                        all_cols.append(f.name)
+                    elif hasattr(f, 'alias') and f.alias:
+                        all_cols.append(f.alias)
+                    else:
+                        all_cols.append(str(f))
+            else:
+                # Fall back to all source columns
+                all_cols = self.ds._get_all_column_names() if hasattr(self.ds, '_get_all_column_names') else None
             # Get computed columns for expanding assign() columns in aggregations
             computed_cols = getattr(self.ds, '_computed_columns', None) or {}
             groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(
