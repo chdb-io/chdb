@@ -157,7 +157,7 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
     try
     {
         DB::ThreadStatus thread_status;
-        auto server = DB::EmbeddedServer::getInstance(argc, argv);
+        auto & server = DB::EmbeddedServer::getInstance(argc, argv);
         auto client = DB::ChdbClient::create(server);
         if (!client)
         {
