@@ -563,21 +563,16 @@ def _build_split(expr, sep: str = None, n: int = -1, expand: bool = False, regex
     # Handle expand=True case with pandas fallback
     if expand:
         # Need to use pandas fallback for expand=True
-        # Create a ColumnExpr with executor that uses pandas str.split
+        # Use operation descriptor mode (safe from recursion)
         if isinstance(expr, ColumnExpr):
-            col_expr = expr
-        else:
-            # If expr is not ColumnExpr, we need the datastore from somewhere
-            # This case is handled in the accessor wrapper
-            col_expr = None
-
-        if col_expr is not None:
-
-            def executor():
-                series = col_expr._execute()
-                return series.str.split(pat=sep, n=n if n != -1 else None, expand=True, regex=regex)
-
-            return ColumnExpr(executor=executor, datastore=col_expr._datastore)
+            n_val = n if n != -1 else None
+            return ColumnExpr.from_accessor_op(
+                source=expr,
+                accessor='str',
+                method='split',
+                args=(),
+                kwargs={'pat': sep, 'n': n_val, 'expand': True, 'regex': regex},
+            )
         else:
             # Fallback: wrap in a function that will fail gracefully
             raise UnsupportedOperationError(

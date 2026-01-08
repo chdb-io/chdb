@@ -409,18 +409,25 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Capture datastore, cols, ascending, and dropna for closure
+        # Create LazySeries with operation metadata (avoids recursion)
         ds = self._datastore
         cols = groupby_cols
         asc = ascending
-        dropna = self._dropna
+        dropna_val = self._dropna
 
         def executor():
             # Execute underlying datastore and use pandas groupby.cumcount
+            # This is only called for standalone execution (not during lazy op evaluation)
             df = ds._get_df()
-            return df.groupby(cols, dropna=dropna).cumcount(ascending=asc)
+            return df.groupby(cols, dropna=dropna_val).cumcount(ascending=asc)
 
-        return LazySeries(executor=executor, datastore=ds)
+        result = LazySeries(executor=executor, datastore=ds)
+        # Store operation metadata for ExpressionEvaluator to use current df
+        result._groupby_cumcount = True
+        result._groupby_cols = cols
+        result._cumcount_ascending = asc
+        result._cumcount_dropna = dropna_val
+        return result
 
     def pipe(self, func, *args, **kwargs):
         """

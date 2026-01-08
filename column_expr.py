@@ -110,8 +110,16 @@ class ColumnExpr:
         agg_func_name: str = None,
         pandas_agg_func: str = None,
         skipna: bool = True,
-        # Executor mode parameters
+        # Executor mode parameters (DEPRECATED - use op mode instead)
         executor: Any = None,
+        # Operation descriptor mode parameters (preferred over executor)
+        op_type: str = None,  # 'accessor' | 'method' | 'groupby_transform' | 'groupby_agg'
+        op_source: 'ColumnExpr' = None,  # source expression to evaluate first
+        op_accessor: str = None,  # 'str' | 'dt' | 'json' (for accessor ops)
+        op_method: str = None,  # method name to call
+        op_args: tuple = None,  # positional arguments
+        op_kwargs: dict = None,  # keyword arguments
+        op_groupby_cols: list = None,  # groupby columns (for groupby ops)
     ):
         """
         Initialize ColumnExpr with expression and DataStore reference.
@@ -120,7 +128,8 @@ class ColumnExpr:
         1. Expression mode: expr + datastore
         2. Method mode: source + method_name (+ args/kwargs)
         3. Aggregation mode: source + agg_func_name
-        4. Executor mode: executor + datastore
+        4. Operation descriptor mode: op_type + op_source + op_method (PREFERRED)
+        5. Executor mode: executor + datastore (DEPRECATED - use op mode instead)
 
         Args:
             expr: The underlying expression (Field, ArithmeticExpression, Function, etc.)
@@ -138,7 +147,14 @@ class ColumnExpr:
             agg_func_name: SQL aggregate function name (aggregation mode)
             pandas_agg_func: Pandas aggregation method name
             skipna: Whether to skip NaN values in aggregation
-            executor: Custom callable for complex operations
+            executor: Custom callable for complex operations (DEPRECATED)
+            op_type: Operation type for descriptor mode ('accessor', 'method', etc.)
+            op_source: Source ColumnExpr to evaluate first (op mode)
+            op_accessor: Accessor name ('str', 'dt', 'json') for accessor ops
+            op_method: Method name to call on source/accessor
+            op_args: Positional arguments for the method
+            op_kwargs: Keyword arguments for the method
+            op_groupby_cols: Groupby column names (for groupby ops)
         """
         # Expression mode fields
         self._expr = expr
@@ -159,8 +175,17 @@ class ColumnExpr:
         self._pandas_agg_func = pandas_agg_func or agg_func_name
         self._skipna = skipna
 
-        # Executor mode
+        # Executor mode (DEPRECATED - use op mode instead)
         self._executor = executor
+
+        # Operation descriptor mode fields (PREFERRED)
+        self._op_type = op_type
+        self._op_source = op_source
+        self._op_accessor = op_accessor
+        self._op_method = op_method
+        self._op_args = op_args or ()
+        self._op_kwargs = op_kwargs or {}
+        self._op_groupby_cols = op_groupby_cols or []
 
         # DataStore reference (from different sources)
         if datastore is not None:
@@ -178,7 +203,10 @@ class ColumnExpr:
         self._cached_result = None
 
         # Determine execution mode
-        if executor is not None:
+        # Priority: op mode > executor mode (op is the preferred new pattern)
+        if op_type is not None:
+            self._exec_mode = 'op'
+        elif executor is not None:
             self._exec_mode = 'executor'
         elif agg_func_name is not None:
             self._exec_mode = 'agg'
@@ -265,6 +293,127 @@ class ColumnExpr:
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
         )
+
+    # ========== Operation Descriptor Factory Methods ==========
+    # These create ColumnExprs using the 'op' mode which is safe from recursion.
+    # Use these instead of creating executors that call _execute().
+
+    @classmethod
+    def from_accessor_op(
+        cls,
+        source: 'ColumnExpr',
+        accessor: str,
+        method: str,
+        args: tuple = (),
+        kwargs: dict = None,
+    ) -> 'ColumnExpr':
+        """
+        Create a ColumnExpr for an accessor operation (e.g., str.extract, dt.year).
+
+        This is the preferred way to create lazy accessor operations. The evaluator
+        can safely execute this by:
+        1. Evaluating the source expression using the current df
+        2. Getting the accessor (e.g., series.str)
+        3. Calling the method with args/kwargs
+
+        This avoids the recursion problem of executor closures that call _execute().
+
+        Args:
+            source: The source ColumnExpr to evaluate first
+            accessor: The accessor name ('str', 'dt', 'json')
+            method: The method name to call on the accessor
+            args: Positional arguments for the method
+            kwargs: Keyword arguments for the method
+
+        Returns:
+            ColumnExpr in 'op' mode
+
+        Example:
+            >>> # Instead of:
+            >>> def executor():
+            >>>     series = col_expr._execute()  # DANGEROUS - causes recursion!
+            >>>     return series.str.extract(pat)
+            >>> return ColumnExpr(executor=executor, datastore=ds)
+            >>>
+            >>> # Use:
+            >>> return ColumnExpr.from_accessor_op(col_expr, 'str', 'extract', (pat,), {'expand': False})
+        """
+        return cls(
+            datastore=source._datastore,
+            op_type='accessor',
+            op_source=source,
+            op_accessor=accessor,
+            op_method=method,
+            op_args=args,
+            op_kwargs=kwargs or {},
+        )
+
+    @classmethod
+    def from_method_op(
+        cls,
+        source: 'ColumnExpr',
+        method: str,
+        args: tuple = (),
+        kwargs: dict = None,
+    ) -> 'ColumnExpr':
+        """
+        Create a ColumnExpr for a method operation (e.g., fillna, replace).
+
+        Similar to from_accessor_op but for direct Series methods.
+
+        Args:
+            source: The source ColumnExpr to evaluate first
+            method: The method name to call on the source series
+            args: Positional arguments for the method
+            kwargs: Keyword arguments for the method
+
+        Returns:
+            ColumnExpr in 'op' mode
+        """
+        return cls(
+            datastore=source._datastore,
+            op_type='method',
+            op_source=source,
+            op_method=method,
+            op_args=args,
+            op_kwargs=kwargs or {},
+        )
+
+    @classmethod
+    def from_groupby_transform_op(
+        cls,
+        source: 'ColumnExpr',
+        groupby_cols: list,
+        func: str,
+        args: tuple = (),
+        kwargs: dict = None,
+    ) -> 'ColumnExpr':
+        """
+        Create a ColumnExpr for a groupby transform operation.
+
+        Args:
+            source: The source ColumnExpr (column to transform)
+            groupby_cols: List of column names to group by
+            func: Transform function name or callable
+            args: Positional arguments for the transform
+            kwargs: Keyword arguments for the transform
+
+        Returns:
+            ColumnExpr in 'op' mode
+        """
+        result = cls(
+            datastore=source._datastore,
+            op_type='groupby_transform',
+            op_source=source,
+            op_method=func if isinstance(func, str) else None,
+            op_args=args,
+            op_kwargs=kwargs or {},
+            op_groupby_cols=groupby_cols,
+        )
+        # Store the function if it's a callable
+        if not isinstance(func, str):
+            result._op_func = func
+        return result
 
     def _create_window_method(self, method_name: str, sql_func: str, **method_kwargs) -> 'ColumnExpr':
         """
@@ -391,9 +540,14 @@ class ColumnExpr:
         Returns True only if:
         - Has a valid _expr (Expression tree)
         - Is NOT in pandas-only mode
+        - Is NOT in 'op' mode (operation descriptors use Pandas execution)
 
         This is the canonical method to determine if SQL pushdown is possible.
         """
+        # Operation descriptor mode always uses Pandas execution
+        # (accessor ops, groupby transforms, etc. cannot be SQL-pushed)
+        if self._exec_mode == 'op':
+            return False
         # Must have an expression tree AND not be pandas-only
         return self._expr is not None and not self.is_pandas_only()
 
@@ -407,7 +561,8 @@ class ColumnExpr:
         - expr: Execute expression tree
         - method: Call method on source result
         - agg: Execute aggregation (scalar or Series with groupby)
-        - executor: Call custom executor
+        - op: Execute operation descriptor (PREFERRED - safe from recursion)
+        - executor: Call custom executor (DEPRECATED)
 
         Returns:
             pd.Series, scalar, or other result depending on operation
@@ -416,7 +571,9 @@ class ColumnExpr:
         if self._cached_result is not None:
             return self._cached_result
 
-        if self._exec_mode == 'executor':
+        if self._exec_mode == 'op':
+            self._cached_result = self._execute_op()
+        elif self._exec_mode == 'executor':
             self._cached_result = self._execute_executor()
         elif self._exec_mode == 'agg':
             self._cached_result = self._execute_aggregation()
@@ -761,8 +918,86 @@ class ColumnExpr:
             # Restore original groupby fields
             datastore._groupby_fields = original_groupby
 
+    def _execute_op(self):
+        """
+        Execute operation descriptor mode - the preferred pattern for lazy operations.
+
+        This evaluates the source expression first, then applies the operation.
+        When called directly (not through ExpressionEvaluator), it's safe because
+        we evaluate the source first, avoiding recursion.
+
+        Returns:
+            The result of the operation (usually pd.Series or pd.DataFrame)
+        """
+        op_type = self._op_type
+        op_source = self._op_source
+        op_method = self._op_method
+        op_args = self._op_args
+        op_kwargs = self._op_kwargs
+
+        # First, evaluate the source expression
+        source_result = op_source._execute() if op_source is not None else None
+
+        if source_result is None:
+            return None
+
+        if op_type == 'accessor':
+            # Accessor operation (e.g., str.extract, dt.year, json._extract_array)
+            accessor_name = self._op_accessor
+
+            # Special handling for JSON array extraction
+            if accessor_name == 'json' and op_method == '_extract_array':
+                json_path = op_args[0] if op_args else ''
+                return _extract_json_array(source_result, json_path)
+
+            accessor = getattr(source_result, accessor_name)
+            method = getattr(accessor, op_method)
+            return method(*op_args, **op_kwargs)
+
+        elif op_type == 'method':
+            # Direct method operation (e.g., fillna, replace)
+            method = getattr(source_result, op_method)
+            return method(*op_args, **op_kwargs)
+
+        elif op_type == 'groupby_transform':
+            # Groupby transform operation
+            groupby_cols = self._op_groupby_cols
+            func = getattr(self, '_op_func', None) or op_method
+            # Use the datastore's df for groupby context
+            df = self._datastore._execute()
+            col_name = None
+            if op_source is not None and hasattr(op_source, '_expr'):
+                from .expressions import Field as ExprField
+                if isinstance(op_source._expr, ExprField):
+                    col_name = op_source._expr.name
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_cols)[col_name]
+                return grouped.transform(func, *op_args, **op_kwargs)
+            return source_result
+
+        elif op_type == 'groupby_agg':
+            # Groupby aggregation operation
+            groupby_cols = self._op_groupby_cols
+            func = getattr(self, '_op_func', None) or op_method
+            df = self._datastore._execute()
+            col_name = None
+            if op_source is not None and hasattr(op_source, '_expr'):
+                from .expressions import Field as ExprField
+                if isinstance(op_source._expr, ExprField):
+                    col_name = op_source._expr.name
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_cols)[col_name]
+                agg_method = getattr(grouped, func) if isinstance(func, str) else func
+                if callable(agg_method):
+                    return agg_method(*op_args, **op_kwargs)
+                return agg_method
+            return source_result
+
+        else:
+            raise ValueError(f"Unknown op_type: {op_type}")
+
     def _execute_executor(self):
-        """Execute executor mode - call the custom executor."""
+        """Execute executor mode - call the custom executor (DEPRECATED)."""
         return self._executor()
 
     def _execute_if_needed(self, value: Any) -> Any:
@@ -2733,7 +2968,7 @@ class ColumnExpr:
         """
         # Check if we have groupby context
         if hasattr(self, '_groupby_fields') and self._groupby_fields:
-            # Groupby transform
+            # Groupby transform - use operation descriptor mode (safe from recursion)
             from .expressions import Field as ExprField
 
             # Get groupby column names
@@ -2744,36 +2979,15 @@ class ColumnExpr:
                 else:
                     groupby_cols.append(str(gf))
 
-            # Get the column name
-            col_name = None
-            if isinstance(self._expr, ExprField):
-                col_name = self._expr.name
-            else:
-                col_name = str(self._expr)
-
-            # Capture for closure
-            ds = self._datastore
-            cols = groupby_cols
-            col = col_name
-
-            def executor():
-                df = ds._execute()
-                if col and col in df.columns:
-                    return df.groupby(cols)[col].transform(func, *args, **kwargs)
-                else:
-                    # Fallback: try to evaluate expression first
-                    series = self._execute()
-                    return series.transform(func, *args, **kwargs)
-
-            # Create ColumnExpr with executor and store transform parameters
-            # for use in ExpressionEvaluator to avoid circular execution
-            result = ColumnExpr(executor=executor, datastore=ds)
-            # Store transform parameters so ExpressionEvaluator can re-execute
-            # the transform using current df instead of calling ds._execute()
-            result._transform_func = func
-            result._transform_args = args
-            result._transform_kwargs = kwargs
-            # Also copy groupby fields to the result for circular detection
+            # Use operation descriptor mode (preferred - safe from recursion)
+            result = ColumnExpr.from_groupby_transform_op(
+                source=self,
+                groupby_cols=groupby_cols,
+                func=func,
+                args=args,
+                kwargs=kwargs,
+            )
+            # Copy groupby fields for context
             result._groupby_fields = self._groupby_fields
             result._expr = self._expr  # Copy the expression (column reference)
             return result
@@ -4657,20 +4871,15 @@ class ColumnExprStringAccessor:
             reason = function_config.get_accessor_fallback_reason('str.split', expand=expand)
             _logger.debug("[Accessor] %s", reason)
 
-            col_expr = self._column_expr
             n_val = n if n != -1 else None
-
-            def executor():
-                series = col_expr._execute()
-                return series.str.split(pat=pat, n=n_val, expand=True, regex=regex)
-
-            result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
-            # Store metadata for ExpressionEvaluator to handle circular execution
-            result._str_accessor_method = 'split'
-            result._str_source_expr = col_expr
-            result._str_accessor_args = ()
-            result._str_accessor_kwargs = {'pat': pat, 'n': n_val, 'expand': True, 'regex': regex}
-            return result
+            # Use operation descriptor mode (safe from recursion)
+            return ColumnExpr.from_accessor_op(
+                source=self._column_expr,
+                accessor='str',
+                method='split',
+                args=(),
+                kwargs={'pat': pat, 'n': n_val, 'expand': True, 'regex': regex},
+            )
         else:
             _logger.debug("[Accessor] str.split -> chDB SQL")
             # Use SQL-based split (returns array)
@@ -4702,19 +4911,14 @@ class ColumnExprStringAccessor:
         reason = function_config.get_accessor_fallback_reason('str.extract')
         _logger.debug("[Accessor] %s", reason)
 
-        col_expr = self._column_expr
-
-        def executor():
-            series = col_expr._execute()
-            return series.str.extract(pat, flags=flags, expand=expand)
-
-        result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
-        # Store metadata for ExpressionEvaluator to handle circular execution
-        result._str_accessor_method = 'extract'
-        result._str_source_expr = col_expr
-        result._str_accessor_args = (pat,)
-        result._str_accessor_kwargs = {'flags': flags, 'expand': expand}
-        return result
+        # Use operation descriptor mode (safe from recursion)
+        return ColumnExpr.from_accessor_op(
+            source=self._column_expr,
+            accessor='str',
+            method='extract',
+            args=(pat,),
+            kwargs={'flags': flags, 'expand': expand},
+        )
 
     def extractall(self, pat, flags=0):
         """
@@ -4739,19 +4943,14 @@ class ColumnExprStringAccessor:
         reason = function_config.get_accessor_fallback_reason('str.extractall')
         _logger.debug("[Accessor] %s", reason)
 
-        col_expr = self._column_expr
-
-        def executor():
-            series = col_expr._execute()
-            return series.str.extractall(pat, flags=flags)
-
-        result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
-        # Store metadata for ExpressionEvaluator to handle circular execution
-        result._str_accessor_method = 'extractall'
-        result._str_source_expr = col_expr
-        result._str_accessor_args = (pat,)
-        result._str_accessor_kwargs = {'flags': flags}
-        return result
+        # Use operation descriptor mode (safe from recursion)
+        return ColumnExpr.from_accessor_op(
+            source=self._column_expr,
+            accessor='str',
+            method='extractall',
+            args=(pat,),
+            kwargs={'flags': flags},
+        )
 
     def wrap(self, width, **kwargs):
         """
@@ -4774,19 +4973,14 @@ class ColumnExprStringAccessor:
         reason = function_config.get_accessor_fallback_reason('str.wrap')
         _logger.debug("[Accessor] %s", reason)
 
-        col_expr = self._column_expr
-
-        def executor():
-            series = col_expr._execute()
-            return series.str.wrap(width, **kwargs)
-
-        result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
-        # Store metadata for ExpressionEvaluator to handle circular execution
-        result._str_accessor_method = 'wrap'
-        result._str_source_expr = col_expr
-        result._str_accessor_args = (width,)
-        result._str_accessor_kwargs = kwargs
-        return result
+        # Use operation descriptor mode (safe from recursion)
+        return ColumnExpr.from_accessor_op(
+            source=self._column_expr,
+            accessor='str',
+            method='wrap',
+            args=(width,),
+            kwargs=kwargs,
+        )
 
     def __getitem__(self, index: int):
         """
@@ -4946,30 +5140,19 @@ class ColumnExprJsonAccessor:
                     reason = function_config.get_accessor_fallback_reason(accessor_method)
                     _logger.debug("[Accessor] %s", reason)
 
-                    # Get source column name from the expression
-                    source_expr = self._column_expr._expr
-                    source_col_name = None
-                    if hasattr(source_expr, 'name'):
-                        source_col_name = source_expr.name
-
                     # Get the JSON path
                     json_path = args[0] if args else kwargs.get('path', '')
 
-                    # Create executor that uses df from context
-                    def executor():
-                        import json as json_module
-
-                        # This is only called when NOT using evaluator context
-                        # (i.e., direct _execute() call, not during lazy op execution)
-                        series = self._column_expr._execute()
-                        return _extract_json_array(series, json_path)
-
-                    result = ColumnExpr(executor=executor, datastore=self._column_expr._datastore)
-                    # Store info for ExpressionEvaluator to use current df
-                    result._json_extract_array = True
-                    result._json_source_col = source_col_name
-                    result._json_path = json_path
-                    result._expr = self._column_expr._expr  # Keep reference to source column
+                    # Use operation descriptor mode (safe from recursion)
+                    # Note: JSON extraction uses a special 'json_extract' method
+                    # that the evaluator handles via _extract_json_array
+                    result = ColumnExpr.from_accessor_op(
+                        source=self._column_expr,
+                        accessor='json',
+                        method='_extract_array',  # Special method for JSON array extraction
+                        args=(json_path,),
+                        kwargs={},
+                    )
                     return result
                 else:
                     _logger.debug("[Accessor] json.%s -> chDB SQL", name)

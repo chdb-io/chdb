@@ -183,80 +183,15 @@ class ExpressionEvaluator:
                     return None
                 agg_method = getattr(source_series, expr._pandas_agg_func)
                 return agg_method()
+            elif expr._exec_mode == 'op' and expr._op_type is not None:
+                # Operation descriptor mode - unified handling for all lazy operations
+                # This is the preferred pattern that avoids recursion by storing
+                # structured metadata instead of closures that call _execute()
+                return self._evaluate_op_mode(expr)
             elif expr._exec_mode == 'executor' and expr._executor is not None:
-                # Executor mode - check for circular reference to avoid recursion
-                # If the ColumnExpr's datastore is the same as our context,
-                # we're in a circular execution scenario (e.g., transform inside assign)
-                # In this case, we need to use the current df instead of calling ds._execute()
-                if expr._datastore is self.context and expr._groupby_fields:
-                    # This is a groupby transform/agg being evaluated during the same
-                    # DataStore's execution - use the current df
-                    from .expressions import Field as ExprField
-
-                    # Get groupby columns
-                    groupby_cols = []
-                    for gf in expr._groupby_fields:
-                        if isinstance(gf, ExprField):
-                            groupby_cols.append(gf.name)
-                        else:
-                            groupby_cols.append(str(gf))
-
-                    # Get the column name
-                    col_name = None
-                    if isinstance(expr._expr, ExprField):
-                        col_name = expr._expr.name
-                    elif expr._expr is not None:
-                        col_name = str(expr._expr)
-
-                    # Use the current df from the evaluator
-                    if col_name and col_name in self.df.columns:
-                        # Re-execute the transform using current df
-                        # The original executor captures the transform function
-                        # but we can't access it directly, so we need to call the executor
-                        # with a workaround - set up a temporary source df
-                        try:
-                            return self.df.groupby(groupby_cols)[col_name].transform(
-                                expr._transform_func, *expr._transform_args, **expr._transform_kwargs
-                            )
-                        except AttributeError:
-                            # If transform params not available, fall back to executor
-                            return expr._executor()
-                # Check for JSON array extraction (pandas fallback for Array inside Nullable issue)
-                elif expr._datastore is self.context and getattr(expr, '_json_extract_array', False):
-                    # JSON array extraction being evaluated during DataStore execution
-                    # Use current df instead of calling ds._execute() to avoid circular execution
-                    from .column_expr import _extract_json_array
-
-                    source_col = getattr(expr, '_json_source_col', None)
-                    json_path = getattr(expr, '_json_path', '')
-
-                    if source_col and source_col in self.df.columns:
-                        series = self.df[source_col]
-                        return _extract_json_array(series, json_path)
-                    else:
-                        # Fallback to executor if source column not found
-                        return expr._executor()
-                # Check for string accessor methods (e.g., str.extract, str.split)
-                # that would cause recursion if we call _execute() on their source
-                elif expr._datastore is self.context and getattr(expr, '_str_accessor_method', None):
-                    # String accessor being evaluated during DataStore execution
-                    # Use current df instead of calling _execute() to avoid circular execution
-                    source_expr = getattr(expr, '_str_source_expr', None)
-                    if source_expr is not None:
-                        # Evaluate the source expression using this evaluator's df
-                        source_series = self.evaluate(source_expr)
-                        if source_series is not None:
-                            method_name = expr._str_accessor_method
-                            args = getattr(expr, '_str_accessor_args', ())
-                            kwargs = getattr(expr, '_str_accessor_kwargs', {})
-                            str_accessor = source_series.str
-                            method = getattr(str_accessor, method_name)
-                            return method(*args, **kwargs)
-                    # Fallback to executor if source not available
-                    return expr._executor()
-                else:
-                    # Normal executor call
-                    return expr._executor()
+                # Executor mode (DEPRECATED - new code should use 'op' mode)
+                # All special cases have been migrated to 'op' mode
+                return expr._executor()
             else:
                 # Fallback - try to execute directly
                 return expr._execute()
@@ -264,6 +199,21 @@ class ExpressionEvaluator:
         # Handle LazySeries - evaluate the underlying column expr first
         # to avoid circular execution, then apply the method
         if isinstance(expr, LazySeries):
+            # Check for groupby cumcount with metadata (avoids recursion)
+            if getattr(expr, '_groupby_cumcount', False):
+                cols = getattr(expr, '_groupby_cols', [])
+                ascending = getattr(expr, '_cumcount_ascending', True)
+                dropna = getattr(expr, '_cumcount_dropna', True)
+                # Use the current df from the evaluator
+                return self.df.groupby(cols, dropna=dropna).cumcount(ascending=ascending)
+
+            # Executor mode: LazySeries with _executor (e.g., groupby.size())
+            # For these, we need to execute using the current df context if possible
+            if expr._executor is not None:
+                # Execute the executor (it handles SQL vs pandas internally)
+                return expr._executor()
+
+            # Method mode: evaluate source and apply method
             # Evaluate the source ColumnExpr using this evaluator's df
             # (avoids circular execution when inside DataStore._execute)
             source_series = self.evaluate(expr._column_expr)
@@ -283,7 +233,7 @@ class ExpressionEvaluator:
             kwargs = {k: _execute_arg(v) for k, v in expr._kwargs.items()}
 
             # Handle special _dt_* methods for datetime operations (pandas fallback)
-            if expr._method_name.startswith('_dt_'):
+            if expr._method_name and expr._method_name.startswith('_dt_'):
                 dt_attr = expr._method_name[4:]  # Remove '_dt_' prefix
                 # Convert to datetime if needed
                 if not pd.api.types.is_datetime64_any_dtype(source_series):
@@ -442,6 +392,107 @@ class ExpressionEvaluator:
             return left**right
         else:
             raise ValueError(f"Unknown operator: {operator}")
+
+    # ========== Operation Descriptor Evaluation ==========
+
+    def _evaluate_op_mode(self, expr: 'ColumnExpr') -> Any:
+        """
+        Evaluate a ColumnExpr in operation descriptor mode.
+
+        This is the unified handler for all lazy operations that use the 'op' mode.
+        It safely evaluates the source expression using the current df (avoiding
+        recursion), then applies the operation.
+
+        Supported op_types:
+        - 'accessor': Apply accessor method (e.g., series.str.extract)
+        - 'method': Apply direct method (e.g., series.fillna)
+        - 'groupby_transform': Apply groupby transform
+        - 'groupby_agg': Apply groupby aggregation
+
+        Args:
+            expr: ColumnExpr with _exec_mode == 'op'
+
+        Returns:
+            The result of the operation (usually pd.Series or pd.DataFrame)
+        """
+        op_type = expr._op_type
+        op_source = expr._op_source
+        op_method = expr._op_method
+        op_args = expr._op_args
+        op_kwargs = expr._op_kwargs
+
+        # First, evaluate the source expression using the current df
+        # This is the key to avoiding recursion!
+        source_result = self.evaluate(op_source) if op_source is not None else None
+
+        if source_result is None:
+            return None
+
+        if op_type == 'accessor':
+            # Accessor operation (e.g., str.extract, dt.year, json._extract_array)
+            accessor_name = expr._op_accessor
+
+            # Special handling for JSON array extraction
+            if accessor_name == 'json' and op_method == '_extract_array':
+                from .column_expr import _extract_json_array
+                json_path = op_args[0] if op_args else ''
+                return _extract_json_array(source_result, json_path)
+
+            accessor = getattr(source_result, accessor_name)
+            method = getattr(accessor, op_method)
+            return method(*op_args, **op_kwargs)
+
+        elif op_type == 'method':
+            # Direct method operation (e.g., fillna, replace)
+            method = getattr(source_result, op_method)
+            return method(*op_args, **op_kwargs)
+
+        elif op_type == 'groupby_transform':
+            # Groupby transform operation
+            groupby_cols = expr._op_groupby_cols
+            func = getattr(expr, '_op_func', None) or op_method
+
+            # Get the column name from source
+            col_name = None
+            if op_source is not None and hasattr(op_source, '_expr'):
+                from .expressions import Field as ExprField
+                if isinstance(op_source._expr, ExprField):
+                    col_name = op_source._expr.name
+                elif op_source._expr is not None:
+                    col_name = str(op_source._expr)
+
+            if col_name and col_name in self.df.columns:
+                grouped = self.df.groupby(groupby_cols)[col_name]
+                return grouped.transform(func, *op_args, **op_kwargs)
+
+            # Fallback: use evaluated source_result
+            # This shouldn't normally happen but provides safety
+            return source_result
+
+        elif op_type == 'groupby_agg':
+            # Groupby aggregation operation
+            groupby_cols = expr._op_groupby_cols
+            func = getattr(expr, '_op_func', None) or op_method
+
+            col_name = None
+            if op_source is not None and hasattr(op_source, '_expr'):
+                from .expressions import Field as ExprField
+                if isinstance(op_source._expr, ExprField):
+                    col_name = op_source._expr.name
+                elif op_source._expr is not None:
+                    col_name = str(op_source._expr)
+
+            if col_name and col_name in self.df.columns:
+                grouped = self.df.groupby(groupby_cols)[col_name]
+                agg_method = getattr(grouped, func) if isinstance(func, str) else func
+                if callable(agg_method):
+                    return agg_method(*op_args, **op_kwargs)
+                return agg_method
+
+            return source_result
+
+        else:
+            raise ValueError(f"Unknown op_type: {op_type}")
 
     # ========== Condition Evaluation Methods ==========
 
