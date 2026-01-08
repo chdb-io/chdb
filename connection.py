@@ -821,19 +821,24 @@ class Connection:
 
     def close(self):
         """Close cursor and connection."""
-        if self._cursor:
-            try:
-                self._cursor.close()
-            except Exception:
-                pass
-            self._cursor = None
+        # Use local references to avoid race conditions during GC
+        cursor = self._cursor
+        conn = self._conn
 
-        if self._conn:
+        self._cursor = None
+        self._conn = None
+
+        if cursor:
             try:
-                self._conn.close()
+                cursor.close()
             except Exception:
                 pass
-            self._conn = None
+
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def __enter__(self):
         """Context manager entry."""
@@ -846,7 +851,13 @@ class Connection:
 
     def __del__(self):
         """Cleanup on deletion."""
-        self.close()
+        # Avoid calling close() during GC if already closed
+        # This prevents issues when GC runs during chdb internal operations
+        # (e.g., when pandas validates hashable types during DataFrame creation)
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 class QueryResult:

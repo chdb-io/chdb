@@ -102,10 +102,16 @@ class Executor:
         """Close the connection if we own it."""
         if self._owns_connection and self.connection:
             self.connection.close()
+            self.connection = None
 
     def __del__(self):
         """Cleanup on deletion."""
-        self.close()
+        # Avoid calling close() during GC if already closed
+        # This prevents issues when GC runs during chdb internal operations
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 # Global executor instance for convenience
