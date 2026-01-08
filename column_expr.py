@@ -266,6 +266,100 @@ class ColumnExpr:
             groupby_dropna=self._groupby_dropna,
         )
 
+    def _create_window_method(self, method_name: str, sql_func: str, **method_kwargs) -> 'ColumnExpr':
+        """
+        Create a ColumnExpr for a window method (cumsum, cummax, cummin, rank, shift, diff).
+
+        When _groupby_fields is set AND data source is SQL-based (has _table_function),
+        this creates a SQL window function expression:
+            SUM(col) OVER (PARTITION BY groupby_col ORDER BY rowNumberInAllBlocks() ROWS UNBOUNDED PRECEDING)
+
+        The ORDER BY rowNumberInAllBlocks() is crucial to maintain original row order,
+        which matches pandas behavior where cumulative operations follow the DataFrame's
+        original row order within each group.
+
+        Without _groupby_fields or without a SQL data source, it falls back to pandas.
+
+        Args:
+            method_name: pandas method name ('cumsum', 'cummax', etc.)
+            sql_func: SQL aggregate function name ('sum', 'max', 'min', etc.)
+            **method_kwargs: Additional keyword arguments for pandas method
+
+        Returns:
+            ColumnExpr with SQL window function or pandas method fallback
+        """
+        from .functions import WindowFunction, Function
+        from .expressions import Field
+
+        # If no groupby context, fall back to pandas method mode
+        if not self._groupby_fields:
+            return ColumnExpr(
+                source=self,
+                method_name=method_name,
+                method_kwargs=method_kwargs,
+            )
+
+        # Get column field from expression
+        col_field = self._expr
+        if col_field is None:
+            # Fallback to pandas if no expression
+            return ColumnExpr(
+                source=self,
+                method_name=method_name,
+                method_kwargs=method_kwargs,
+            )
+
+        # Check if data source is SQL-based (has _table_function)
+        # Window functions via Python() table function have row order issues,
+        # so only use SQL for native SQL sources (parquet files, etc.)
+        has_sql_source = self._datastore._table_function is not None if self._datastore else False
+        if not has_sql_source:
+            # Fall back to pandas for DataFrame-based sources
+            # This avoids row order issues with Python() table function
+            return ColumnExpr(
+                source=self,
+                method_name=method_name,
+                method_kwargs=method_kwargs,
+            )
+
+        # Extract partition by columns from groupby_fields
+        partition_by = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                partition_by.append(gf.name)
+            else:
+                partition_by.append(str(gf))
+
+        # Create SQL window function with ORDER BY rowNumberInAllBlocks() to preserve row order
+        # Format: SUM(col) OVER (PARTITION BY groupby_col ORDER BY rowNumberInAllBlocks() ROWS UNBOUNDED PRECEDING)
+        # The ORDER BY ensures cumulative operations follow the original row order within each group
+        row_num_func = Function('rowNumberInAllBlocks')
+        window_func = WindowFunction(sql_func, col_field).over(
+            partition_by=partition_by,
+            order_by=[row_num_func],
+            frame='ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW',
+        )
+
+        # Return a new ColumnExpr with the window function expression
+        # Preserve groupby context for potential chained operations
+        result = ColumnExpr(
+            expr=window_func,
+            datastore=self._datastore,
+            groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+            groupby_as_index=self._groupby_as_index,
+            groupby_sort=self._groupby_sort,
+            groupby_dropna=self._groupby_dropna,
+        )
+        # Store fallback info for pandas execution if SQL fails
+        result._window_method_fallback = {
+            'method_name': method_name,
+            'method_kwargs': method_kwargs,
+            'source': self,
+        }
+        # Mark this expression as needing row order preservation in final SQL
+        result._needs_row_order_preservation = True
+        return result
+
     # ========== Classification Methods ==========
 
     def is_pandas_only(self) -> bool:
@@ -3220,6 +3314,9 @@ class ColumnExpr:
         """
         Compute cumulative sum of the column (lazy).
 
+        When called on a groupby result (e.g., ds.groupby('cat')['val'].cumsum()),
+        this generates SQL window function: SUM(val) OVER (PARTITION BY cat).
+
         Args:
             axis: NumPy axis parameter
             dtype: NumPy dtype parameter
@@ -3230,11 +3327,13 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative sum Series
         """
-        return ColumnExpr(source=self, method_name='cumsum', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
+        return self._create_window_method('cumsum', 'sum', axis=axis, skipna=skipna, **kwargs)
 
     def cumprod(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative product of the column (lazy).
+
+        Note: cumprod is not easily expressed in SQL, so it falls back to pandas execution.
 
         Args:
             axis: NumPy axis parameter
@@ -3246,11 +3345,15 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative product Series
         """
+        # cumprod doesn't have a direct SQL equivalent, use pandas fallback
         return ColumnExpr(source=self, method_name='cumprod', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
 
     def cummax(self, axis=None, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative maximum of the column (lazy).
+
+        When called on a groupby result (e.g., ds.groupby('cat')['val'].cummax()),
+        this generates SQL window function: MAX(val) OVER (PARTITION BY cat).
 
         Args:
             axis: Axis parameter
@@ -3260,11 +3363,14 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative maximum Series
         """
-        return ColumnExpr(source=self, method_name='cummax', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
+        return self._create_window_method('cummax', 'max', axis=axis, skipna=skipna, **kwargs)
 
     def cummin(self, axis=None, skipna=True, **kwargs) -> 'ColumnExpr':
         """
         Compute cumulative minimum of the column (lazy).
+
+        When called on a groupby result (e.g., ds.groupby('cat')['val'].cummin()),
+        this generates SQL window function: MIN(val) OVER (PARTITION BY cat).
 
         Args:
             axis: Axis parameter
@@ -3274,7 +3380,7 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative minimum Series
         """
-        return ColumnExpr(source=self, method_name='cummin', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
+        return self._create_window_method('cummin', 'min', axis=axis, skipna=skipna, **kwargs)
 
     # ========== Window / Rolling Methods ==========
 

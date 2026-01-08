@@ -1622,7 +1622,7 @@ class LazyWhere(LazyOp):
 
         return f"{op_name}({cond_str}, other={self.other})"
 
-    def can_push_to_sql(self, schema: Dict[str, str] = None) -> bool:
+    def can_push_to_sql(self, schema: Dict[str, str] = None, pending_computed_columns: set = None) -> bool:
         """
         Check if this where can be pushed to SQL.
 
@@ -1631,9 +1631,15 @@ class LazyWhere(LazyOp):
         2. Condition must be SQL-compatible
         3. other must be a scalar
         4. Type compatibility between other and columns (no NO_COMMON_TYPE errors)
+        5. All referenced columns exist in schema (not computed columns)
+           Note: where() referencing computed columns requires pandas execution
+           because SQL generation needs the computed columns to be materialized first
 
         Args:
             schema: Optional dict mapping column names to types for type-aware checking
+            pending_computed_columns: Set of column names that will be added by
+                LazyColumnAssignment ops earlier in the current SQL segment.
+                Currently NOT used - we fall back to pandas when referencing computed columns.
         """
         from .column_expr import ColumnExpr
         from .conditions import Condition
@@ -1662,7 +1668,10 @@ class LazyWhere(LazyOp):
 
         # Check if all columns referenced in condition exist in schema
         # This prevents SQL errors when condition references computed columns
-        # that haven't been materialized yet
+        # that haven't been materialized yet.
+        # Note: We intentionally DO NOT include pending_computed_columns here
+        # because where() SQL generation (CASE WHEN) doesn't work with SQLBuilder's
+        # computed column handling. This may be improved in the future.
         if schema:
             referenced_cols = self._extract_condition_columns(cond)
             existing_cols = set(schema.keys())
