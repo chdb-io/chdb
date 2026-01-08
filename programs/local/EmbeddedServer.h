@@ -21,8 +21,7 @@ namespace DB
 /// No networking, no extra configs and working directories, no pid and status files, no dictionaries, no logging.
 /// Quiet mode by default
 ///
-/// EmbeddedServer is managed via shared_ptr by ChdbClient instances.
-/// When the last ChdbClient is destroyed, the EmbeddedServer is automatically destroyed.
+/// EmbeddedServer lifecycle is managed exclusively by getInstance/releaseInstance.
 /// Only one EmbeddedServer instance can exist globally at a time.
 class EmbeddedServer : public Poco::Util::Application, public IHints<2>, public Loggers
 {
@@ -41,7 +40,9 @@ public:
 
     std::string getErrorMsg() const { return error_message_oss.str(); }
 
-    static std::shared_ptr<EmbeddedServer> getInstance(int argc = 0, char ** argv = nullptr);
+    static EmbeddedServer & getInstance(int argc = 0, char ** argv = nullptr);
+
+    static void releaseInstance();
 
     std::string getPath() const { return db_path; }
 
@@ -52,8 +53,9 @@ private:
     void processConfig();
     void applyCmdOptions(ContextMutablePtr context);
     void initializeWithArgs(int argc, char ** argv);
-    static std::weak_ptr<EmbeddedServer> global_instance;
+    static std::unique_ptr<EmbeddedServer> global_instance;
     static std::mutex instance_mutex;
+    static size_t client_ref_count;
     std::string db_path;
     ServerSettings server_settings;
     std::optional<StatusFile> status;

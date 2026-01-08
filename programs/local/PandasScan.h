@@ -47,6 +47,14 @@ private:
         const T * ptr,
         DB::MutableColumnPtr & column);
 
+    template <typename T>
+    static void innerScanNumeric(
+        const size_t cursor,
+        const size_t count,
+        const T * data_ptr,
+        const bool * mask_ptr,
+        DB::MutableColumnPtr & column);
+
     static void innerScanDateTime64(
         const size_t cursor,
         const size_t count,

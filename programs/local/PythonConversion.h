@@ -6,7 +6,8 @@
 #include <base/types.h>
 #include <rapidjson/document.h>
 
-namespace CHDB {
+namespace CHDB
+{
 
 enum class PythonObjectType
 {
@@ -52,17 +53,10 @@ bool isMemoryView(const py::handle & obj);
 
 void convert_to_json_str(const py::handle & obj, String & ret);
 
-bool tryInsertJsonResult(
+void tryInsertJsonResult(
     const py::handle & handle,
     const DB::FormatSettings & format_settings,
     DB::MutableColumnPtr & column,
     DB::SerializationPtr & serialization);
-
-using ObjectCallback = std::function<void(py::handle, DB::MutableColumnPtr &, PythonObjectType)>;
-
-void transformPythonObject(
-	py::handle obj,
-	DB::MutableColumnPtr & column,
-	const ObjectCallback & object_callback);
 
 } // namespace CHDB
