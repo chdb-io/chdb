@@ -878,11 +878,11 @@ void EmbeddedServer::applyCmdOptions(ContextMutablePtr context)
             "output-format", config().getString("format",  "TSV")));
 }
 
-std::shared_ptr<EmbeddedServer> EmbeddedServer::global_instance;
+std::unique_ptr<EmbeddedServer> EmbeddedServer::global_instance;
 std::mutex EmbeddedServer::instance_mutex;
 size_t EmbeddedServer::client_ref_count = 0;
 
-std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** argv)
+EmbeddedServer & EmbeddedServer::getInstance(int argc, char ** argv)
 {
     std::lock_guard<std::mutex> lock(instance_mutex);
 
@@ -909,10 +909,10 @@ std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** ar
             }
         }
         ++client_ref_count;
-        return global_instance;
+        return *global_instance;
     }
 
-    global_instance = std::make_shared<EmbeddedServer>();
+    global_instance = std::make_unique<EmbeddedServer>();
     try
     {
         if (argc == 0 || !argv)
@@ -932,7 +932,7 @@ std::shared_ptr<EmbeddedServer> EmbeddedServer::getInstance(int argc, char ** ar
     }
 
     client_ref_count = 1;
-    return global_instance;
+    return *global_instance;
 }
 
 void EmbeddedServer::releaseInstance()
