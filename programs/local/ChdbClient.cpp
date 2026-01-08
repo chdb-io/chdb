@@ -28,18 +28,15 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
-ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
+ChdbClient::ChdbClient(EmbeddedServer & server_ref)
     : ClientBase()
-    , server(server_ptr)
+    , server(server_ref)
 {
-    if (!server)
-        throw Exception(ErrorCodes::LOGICAL_ERROR, "EmbeddedServer pointer is null");
-
     query_kind = ClientInfo::QueryKind::INITIAL_QUERY;
     configuration = ConfigHelper::createEmpty();
     layered_configuration = new Poco::Util::LayeredConfiguration();
     layered_configuration->addWriteable(configuration, 0);
-    session = std::make_unique<Session>(server->getGlobalContext(), ClientInfo::Interface::LOCAL);
+    session = std::make_unique<Session>(server.getGlobalContext(), ClientInfo::Interface::LOCAL);
 #if USE_PYTHON
     python_table_cache = std::make_shared<CHDB::PythonTableCache>();
     session->setPythonTableCache(python_table_cache);
@@ -57,20 +54,19 @@ ChdbClient::ChdbClient(EmbeddedServerPtr server_ptr)
     print_stack_trace = false;
 }
 
-std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServerPtr server_ptr)
+std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServer & server_ref)
 {
-    if (!server_ptr)
-    {
-        server_ptr = EmbeddedServer::getInstance();
-    }
-    return std::make_unique<ChdbClient>(server_ptr);
+    return std::make_unique<ChdbClient>(server_ref);
 }
 
 ChdbClient::~ChdbClient()
 {
-    std::lock_guard<std::mutex> lock(client_mutex);
-    cleanup();
-    resetQueryOutputVector();
+    {
+        std::lock_guard<std::mutex> lock(client_mutex);
+        cleanup();
+        resetQueryOutputVector();
+    }
+    EmbeddedServer::releaseInstance();
 }
 
 void ChdbClient::cleanup()

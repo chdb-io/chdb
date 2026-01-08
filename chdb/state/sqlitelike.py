@@ -67,7 +67,9 @@ def to_arrowTable(res):
 
 
 class StreamingResult:
-    def __init__(self, c_result, conn, result_func, supports_record_batch, is_dataframe):
+    def __init__(
+        self, c_result, conn, result_func, supports_record_batch, is_dataframe
+    ):
         self._result = c_result
         self._result_func = result_func
         self._conn = conn
@@ -111,12 +113,12 @@ class StreamingResult:
         try:
             if self._is_dataframe:
                 result = self._conn.streaming_fetch_df(self._result)
-                if (result is None or result.empty):
+                if result is None or result.empty:
                     self._exhausted = True
                     return None
             else:
                 result = self._conn.streaming_fetch_result(self._result)
-                if (result is None or result.rows_read() == 0):
+                if result is None or result.rows_read() == 0:
                     self._exhausted = True
                     return None
             return self._result_func(result)
@@ -322,7 +324,7 @@ class ChdbRecordBatchReader:
                     if len(self._accumulator) == 1:
                         result = self._accumulator.pop(0)
                     else:
-                        if hasattr(pa, 'concat_batches'):
+                        if hasattr(pa, "concat_batches"):
                             result = pa.concat_batches(self._accumulator)
                             self._accumulator = []
                         else:
@@ -336,7 +338,7 @@ class ChdbRecordBatchReader:
             if len(self._accumulator) == 1:
                 result = self._accumulator.pop(0)
             else:
-                if hasattr(pa, 'concat_batches'):
+                if hasattr(pa, "concat_batches"):
                     result = pa.concat_batches(self._accumulator)
                     self._accumulator = []
                 else:
@@ -494,7 +496,9 @@ class Connection:
         generated_sql = self.generate_sql(prompt)
         return self.query(generated_sql, **kwargs)
 
-    def send_query(self, query: str, format: str = "CSV", params=None) -> StreamingResult:
+    def send_query(
+        self, query: str, format: str = "CSV", params=None
+    ) -> StreamingResult:
         """Execute a SQL query and return a streaming result iterator.
 
         This method executes a SQL query and returns a StreamingResult object
@@ -561,7 +565,13 @@ class Connection:
 
         c_stream_result = self._conn.send_query(query, format, params=params or {})
         is_dataframe = lower_output_format == "dataframe"
-        return StreamingResult(c_stream_result, self._conn, result_func, supports_record_batch, is_dataframe)
+        return StreamingResult(
+            c_stream_result,
+            self._conn,
+            result_func,
+            supports_record_batch,
+            is_dataframe,
+        )
 
     def __enter__(self):
         """Enter the context manager and return the connection.
@@ -611,10 +621,32 @@ class Connection:
             ...     conn.query("SELECT 1")
             ...     # Connection automatically closed
         """
-        # print("close")
-        if self._cursor:
-            self._cursor.close()
-        self._conn.close()
+        # Use local references to avoid race conditions
+        cursor = self._cursor
+        conn = self._conn
+
+        # Set to None first to prevent duplicate close
+        self._cursor = None
+        self._conn = None
+
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def __del__(self):
+        """Safe cleanup on garbage collection."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 class Cursor:
@@ -924,7 +956,14 @@ class Cursor:
             >>> result = cursor.fetchone()
             >>> cursor.close()  # Cleanup cursor resources
         """
-        self._cursor.close()
+        cursor = self._cursor
+        self._cursor = None
+
+        if cursor:
+            try:
+                cursor.close()
+            except Exception:
+                pass
 
     def __iter__(self):
         return self
