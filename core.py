@@ -598,7 +598,7 @@ class DataStore(PandasCompatMixin):
         # Use plan_segments() for accurate SQL-Pandas-SQL interleaving analysis
         if self._lazy_ops:
             planner = QueryPlanner()
-            has_sql_source = bool(self._table_function or self.table_name)
+            has_sql_source = bool(self._table_function or self.table_name or self._source_df is not None)
             schema = self.schema() if has_sql_source else self._schema
             exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
 
@@ -944,7 +944,7 @@ class DataStore(PandasCompatMixin):
             # Segmented planning phase
             with profiler.step("Query Planning", ops_count=len(self._lazy_ops)):
                 planner = QueryPlanner()
-                has_sql_source = bool(self._table_function or self.table_name)
+                has_sql_source = bool(self._table_function or self.table_name or self._source_df is not None)
                 schema = self.schema() if has_sql_source else self._schema
                 exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
 
@@ -1057,6 +1057,10 @@ class DataStore(PandasCompatMixin):
             Result DataFrame
         """
         from .query_planner import ExecutionSegment
+
+        # Ensure SQL source is available (creates PythonTableFunction on-demand for from_df())
+        if segment.is_first_segment:
+            self._ensure_sql_source()
 
         if segment.is_first_segment and (self._table_function or self.table_name):
             # First segment: execute from original data source

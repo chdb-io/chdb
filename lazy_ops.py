@@ -8,6 +8,7 @@ and only executed when execution is triggered (e.g., print, to_df()).
 from typing import Any, Dict, List, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 import pandas as pd
+import dis
 
 from .expressions import Expression, Field, Literal, ArithmeticExpression
 from .config import get_logger
@@ -1315,6 +1316,75 @@ class LazyTransform(LazyOp):
         return 'Pandas'
 
 
+# Aggregation functions that can be pushed to SQL
+SQL_PUSHABLE_AGGS = {'sum', 'mean', 'max', 'min', 'count', 'std', 'var', 'first', 'last'}
+
+
+def detect_simple_aggregation(func):
+    """
+    Detect if a function is a simple aggregation pattern like:
+    - lambda x: x.sum()
+    - lambda x: x.mean()
+    - etc.
+
+    This analyzes the bytecode to detect patterns where a function
+    simply calls a single aggregation method on its argument.
+
+    Returns:
+        Tuple of (is_simple_agg: bool, agg_func_name: str or None)
+        - (True, 'sum') if it's a simple aggregation
+        - (False, None) otherwise
+    """
+    if not callable(func):
+        return False, None
+
+    try:
+        code = func.__code__
+    except AttributeError:
+        # Built-in functions don't have __code__
+        return False, None
+
+    instructions = list(dis.get_instructions(code))
+
+    # Filter out RESUME instruction (Python 3.11+)
+    instructions = [i for i in instructions if i.opname != 'RESUME']
+
+    # Simple aggregation pattern should have exactly 4 instructions:
+    # 1. LOAD_FAST (load argument x)
+    # 2. LOAD_ATTR or LOAD_METHOD (load method like .sum)
+    # 3. CALL or CALL_FUNCTION or CALL_METHOD (call the method)
+    # 4. RETURN_VALUE (return result)
+
+    if len(instructions) != 4:
+        return False, None
+
+    load_fast, load_attr, call, ret = instructions
+
+    if load_fast.opname != 'LOAD_FAST':
+        return False, None
+
+    # Handle both Python 3.11+ and earlier
+    if load_attr.opname not in ('LOAD_ATTR', 'LOAD_METHOD'):
+        return False, None
+
+    # Extract method name - handle 'sum + NULL|self' format in Python 3.11+
+    attr_name = load_attr.argrepr
+    if '+' in attr_name:
+        attr_name = attr_name.split('+')[0].strip()
+
+    if call.opname not in ('CALL', 'CALL_FUNCTION', 'CALL_METHOD'):
+        return False, None
+
+    if ret.opname != 'RETURN_VALUE':
+        return False, None
+
+    # Check if method is a supported aggregation
+    if attr_name in SQL_PUSHABLE_AGGS:
+        return True, attr_name
+
+    return False, None
+
+
 class LazyApply(LazyOp):
     """
     Lazy apply operation with optional groupby support.
@@ -1322,8 +1392,15 @@ class LazyApply(LazyOp):
     When groupby_cols is provided, applies function to each group.
     When groupby_cols is None, applies function to entire DataFrame.
 
+    SQL Pushdown:
+        When the function is a simple aggregation pattern like `lambda x: x.sum()`,
+        this operation can be converted to SQL for better performance.
+
     Example:
-        # With groupby
+        # With groupby - simple aggregation (can be pushed to SQL)
+        ds.groupby('category').apply(lambda x: x.sum())
+
+        # With groupby - complex function (falls back to Pandas)
         ds.groupby('category').apply(lambda x: x.nlargest(3, 'value'))
 
         # Without groupby
@@ -1343,6 +1420,12 @@ class LazyApply(LazyOp):
         self.groupby_cols = groupby_cols
         self.args = args
         self.kwargs = kwargs
+        # Detect if this is a simple aggregation that can be pushed to SQL
+        self._is_simple_agg, self._detected_agg_func = detect_simple_aggregation(func)
+
+    def get_detected_agg_func(self) -> str:
+        """Return the detected aggregation function name if this is a simple aggregation."""
+        return self._detected_agg_func if self._is_simple_agg else None
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Execute apply on DataFrame."""
@@ -1369,14 +1452,31 @@ class LazyApply(LazyOp):
 
     def describe(self) -> str:
         func_name = getattr(self.func, '__name__', '<callable>')
+        if self._is_simple_agg:
+            func_name = f"{func_name} [SQL: {self._detected_agg_func}]"
         if self.groupby_cols:
             return f"GroupBy({self.groupby_cols}).apply({func_name})"
         return f"apply({func_name})"
 
     def can_push_to_sql(self) -> bool:
-        return False
+        """
+        Check if this apply can be pushed to SQL.
+
+        Apply operations can be pushed to SQL when:
+        1. There are groupby columns (groupby.apply())
+        2. The function is a simple aggregation pattern (lambda x: x.sum(), etc.)
+        3. There are no extra args/kwargs that would modify behavior
+        """
+        if not self.groupby_cols:
+            return False
+        if self.args or self.kwargs:
+            return False
+        return self._is_simple_agg
 
     def execution_engine(self) -> str:
+        """Return which engine this operation should use."""
+        if self.can_push_to_sql():
+            return 'SQL'
         return 'Pandas'
 
 

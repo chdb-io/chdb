@@ -33,6 +33,7 @@ from .lazy_ops import (
     LazySQLQuery,
     LazyWhere,
     LazyMask,
+    LazyDataFrameSource,
 )
 from .expressions import Field, Expression
 from .config import get_logger
@@ -233,9 +234,9 @@ class QueryPlanner:
             plan.sql_ops = lazy_ops.copy()
             plan.df_ops = []
 
-        # Remove GroupByAgg from sql_ops if it's being pushed separately
+        # Remove GroupByAgg and converted LazyApply from sql_ops if being pushed separately
         if plan.groupby_agg:
-            plan.sql_ops = [op for op in plan.sql_ops if not isinstance(op, LazyGroupByAgg)]
+            plan.sql_ops = [op for op in plan.sql_ops if not isinstance(op, (LazyGroupByAgg, LazyApply))]
 
         # Remove LazyWhere/LazyMask from sql_ops if they're being pushed separately
         if plan.where_ops:
@@ -350,6 +351,27 @@ class QueryPlanner:
                     continue  # Include in SQL, continue looking
                 else:
                     # Cannot push to SQL - this operation breaks the SQL chain
+                    first_df_op_idx = i
+                    break
+
+            elif isinstance(op, LazyApply) and groupby_agg_op is None:
+                # Check if LazyApply can be pushed to SQL
+                # LazyApply with simple aggregation pattern can be converted to GroupByAgg
+                if has_sql_source and op.can_push_to_sql():
+                    # Convert LazyApply to LazyGroupByAgg for SQL execution
+                    agg_func = op.get_detected_agg_func()
+                    groupby_agg_op = LazyGroupByAgg(
+                        groupby_cols=op.groupby_cols,
+                        agg_func=agg_func,
+                        sort=True,  # Default pandas behavior
+                        as_index=True,
+                        dropna=True,
+                    )
+                    self._logger.debug("  [Apply] Converted to GroupByAgg: %s -> %s", op.describe(), agg_func)
+                    continue  # Include in SQL, continue looking
+                else:
+                    # Cannot push to SQL - breaks the chain
+                    self._logger.debug("  [Apply] Cannot push to SQL: %s", op.describe())
                     first_df_op_idx = i
                     break
 
@@ -726,6 +748,15 @@ class QueryPlanner:
         Returns:
             True if the operation can be executed via SQL
         """
+        if isinstance(op, LazyDataFrameSource):
+            # LazyDataFrameSource is handled specially in segment creation
+            # It should be skipped (not classified as SQL or Pandas)
+            # Return True here to keep the SQL chain continuous only if SQL source exists
+            # But this depends on context, so we let plan_segments handle it
+            # For now, return False to let it fall into Pandas segment by default
+            # The actual SQL execution will use _ensure_sql_source() to create table function
+            return False
+
         if isinstance(op, LazyRelationalOp):
             # Most relational ops (WHERE, SELECT, ORDER BY, LIMIT, OFFSET) can be pushed
             # But PANDAS_FILTER is for method-mode ColumnExpr that cannot be converted to SQL
@@ -755,7 +786,12 @@ class QueryPlanner:
             existing_columns = list(schema.keys()) if schema else None
             return op.can_push_to_sql(existing_columns)
 
-        # All other ops (LazyFilter, LazyTransform, LazyApply, etc.)
+        if isinstance(op, LazyApply):
+            # LazyApply can be pushed to SQL if it's a simple aggregation pattern
+            # e.g., groupby('category').apply(lambda x: x.sum())
+            return op.can_push_to_sql()
+
+        # All other ops (LazyFilter, LazyTransform, etc.)
         # require Pandas execution
         return False
 
@@ -817,11 +853,31 @@ class QueryPlanner:
                                 "  [GroupBy] Using temp aliases for conflict resolution: %s",
                                 plan.alias_renames,
                             )
+                    elif isinstance(op, LazyApply) and op.can_push_to_sql():
+                        # Convert LazyApply with simple aggregation to LazyGroupByAgg
+                        agg_func = op.get_detected_agg_func()
+                        plan.groupby_agg = LazyGroupByAgg(
+                            groupby_cols=op.groupby_cols,
+                            agg_func=agg_func,
+                            sort=True,  # Default pandas behavior
+                            as_index=True,
+                            dropna=True,
+                        )
+                        self._logger.debug(
+                            "  [Apply] Converted to GroupByAgg in segment: %s -> %s",
+                            op.describe(),
+                            agg_func,
+                        )
                     elif isinstance(op, (LazyWhere, LazyMask)):
                         plan.where_ops.append(op)
 
                 # Remove special ops from sql_ops (they're handled separately)
-                plan.sql_ops = [op for op in plan.sql_ops if not isinstance(op, (LazyGroupByAgg, LazyWhere, LazyMask))]
+                plan.sql_ops = [
+                    op
+                    for op in plan.sql_ops
+                    if not isinstance(op, (LazyGroupByAgg, LazyWhere, LazyMask))
+                    and not (isinstance(op, LazyApply) and op.can_push_to_sql())
+                ]
 
                 # Build layers for nested subqueries
                 plan.layers = self._build_layers(plan.sql_ops)
