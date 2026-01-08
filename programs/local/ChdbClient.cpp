@@ -28,7 +28,7 @@ namespace ErrorCodes
     extern const int LOGICAL_ERROR;
 }
 
-ChdbClient::ChdbClient(EmbeddedServer& server_ref)
+ChdbClient::ChdbClient(EmbeddedServer & server_ref)
     : ClientBase()
     , server(server_ref)
 {
@@ -53,7 +53,7 @@ ChdbClient::ChdbClient(EmbeddedServer& server_ref)
     print_stack_trace = false;
 }
 
-std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServer& server_ref)
+std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServer & server_ref)
 {
     return std::make_unique<ChdbClient>(server_ref);
 }
