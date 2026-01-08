@@ -441,6 +441,15 @@ class ColumnExpr:
 
         # Ensure we return a Series with proper index
         if isinstance(result, pd.Series):
+            # Apply alias as series name if set, or explicitly None
+            # This ensures we don't keep evaluator's default name (like __result__)
+            if self._alias is not None:
+                result = result.copy()
+                result.name = self._alias
+            elif isinstance(result.name, str) and result.name.startswith('__'):
+                # Clear internal names like __result__ when no explicit alias
+                result = result.copy()
+                result.name = None
             return result
         elif isinstance(self._expr, Literal):
             # Literal value - expand to Series
@@ -3584,6 +3593,14 @@ class ColumnExpr:
         """
         Compute numerical data ranks along axis (lazy).
 
+        When possible, uses SQL window functions for better performance:
+        - method='first' -> SQL ROW_NUMBER()
+        - method='min' -> SQL RANK()
+        - method='dense' -> SQL DENSE_RANK()
+
+        Other methods ('average', 'max') and special options (na_option, pct)
+        fall back to pandas execution.
+
         Args:
             axis: Axis for ranking
             method: How to rank equal values ('average', 'min', 'max', 'first', 'dense')
@@ -3598,7 +3615,73 @@ class ColumnExpr:
         Example:
             >>> ds['score'].rank()
             >>> ds['score'].rank(method='dense', ascending=False)
+            >>> ds['score'].rank(method='first')  # Uses SQL ROW_NUMBER()
         """
+        from .functions import WindowFunction, Function
+
+        # Mapping from pandas method to SQL window function
+        SQL_RANK_METHODS = {
+            'first': 'row_number',  # ROW_NUMBER() - unique rank by order of appearance
+            'min': 'rank',  # RANK() - same rank for ties, skip next
+            'dense': 'dense_rank',  # DENSE_RANK() - same rank for ties, no skip
+        }
+
+        # Check if we can use SQL window functions
+        # Requirements:
+        # 1. method is SQL-compatible ('first', 'min', 'dense')
+        # 2. na_option is 'keep' (SQL NULL handling matches this)
+        # 3. pct is False (SQL doesn't directly support percentile rank)
+        # 4. We have a valid expression (Field) to order by
+        # 5. Not in groupby context (groupby rank has special handling)
+        can_use_sql = (
+            method in SQL_RANK_METHODS
+            and na_option == 'keep'
+            and not pct
+            and self._expr is not None
+            and not self._groupby_fields  # Groupby context uses different path
+        )
+
+        if can_use_sql:
+            # Create SQL window function
+            sql_func_name = SQL_RANK_METHODS[method]
+
+            # Build ORDER BY clause
+            order_by_expr = self._expr
+            if not ascending:
+                # For descending, append DESC to the order
+                if isinstance(order_by_expr, Field):
+                    order_by = f'{order_by_expr.name} DESC'
+                else:
+                    # For complex expressions, convert to SQL and append DESC
+                    order_by = f'{order_by_expr.to_sql()} DESC'
+            else:
+                order_by = order_by_expr
+
+            # Create the window function: e.g., row_number() OVER (ORDER BY col)
+            window_func = WindowFunction(sql_func_name).over(order_by=order_by)
+
+            # Wrap with toFloat64 to match pandas return type (float64)
+            # pandas rank() always returns float64, SQL window functions return integers
+            float_wrapped = Function('toFloat64', window_func)
+
+            # Preserve the original column name for the result Series
+            # Only set alias for simple Field expressions, not complex expressions
+            # This matches pandas behavior where (df['a'] + df['b']).rank() has name=None
+            col_name = None
+            if isinstance(self._expr, Field):
+                col_name = self._expr.name
+
+            # Return new ColumnExpr with the window function expression
+            return ColumnExpr(
+                expr=float_wrapped,
+                datastore=self._datastore,
+                alias=col_name,  # Preserve original column name (None for complex expr)
+                groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+                groupby_as_index=self._groupby_as_index,
+                groupby_sort=self._groupby_sort,
+            )
+
+        # Fall back to pandas for unsupported methods or options
         return ColumnExpr(
             source=self,
             method_name='rank',
