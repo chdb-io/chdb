@@ -15,6 +15,10 @@ from .config import get_logger
 if TYPE_CHECKING:
     from .core import DataStore
 
+# Pandas version tuple for version-specific behavior
+PANDAS_VERSION = tuple(int(x) for x in pd.__version__.split('.')[:2])
+PANDAS_HAS_INCLUDE_GROUPS = PANDAS_VERSION >= (2, 1)  # include_groups added in pandas 2.1.0
+
 
 class LazyOp(ABC):
     """
@@ -1454,9 +1458,14 @@ class LazyApply(LazyOp):
             self._log_execute("Apply", f"groupby={self.groupby_cols}, func={func_name}")
             # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
             # For apply operations, we use the default dropna=True behavior
-            result = df.groupby(self.groupby_cols, dropna=True).apply(
-                self.func, *self.args, include_groups=False, **self.kwargs
-            )
+
+            # include_groups parameter was added in pandas 2.1.0
+            # In older versions, groupby columns are included by default
+            apply_kwargs = dict(self.kwargs)
+            if PANDAS_HAS_INCLUDE_GROUPS:
+                apply_kwargs['include_groups'] = False
+
+            result = df.groupby(self.groupby_cols, dropna=True).apply(self.func, *self.args, **apply_kwargs)
             # Reset index if result has MultiIndex from groupby
             if isinstance(result.index, pd.MultiIndex):
                 result = result.reset_index(drop=True)
