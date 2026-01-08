@@ -274,82 +274,14 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Capture datastore, cols, sort, and dropna for closure
-        ds = self._datastore
-        cols = groupby_cols
-        sort = self._sort
-        dropna = self._dropna
-
-        def executor():
-            # Check if we can use SQL pushdown
-            if ds._table_function or ds.table_name:
-                # Use SQL GROUP BY for performance
-                # Build: SELECT col, COUNT(*) FROM ... GROUP BY col
-                from .expressions import Star
-                from .functions import AggregateFunction
-
-                # Ensure connection exists
-                if ds._executor is None:
-                    ds.connect()
-
-                # Build SELECT fields: groupby cols + COUNT(*)
-                select_parts = [f'"{col}"' for col in cols]
-                select_parts.append('COUNT(*) AS "size"')
-                select_sql = ', '.join(select_parts)
-
-                # Build GROUP BY
-                groupby_sql = ', '.join(f'"{col}"' for col in cols)
-
-                # Get base table SQL
-                if ds._table_function:
-                    table_sql = ds._table_function.to_sql()
-                else:
-                    table_sql = f'"{ds.table_name}"'
-
-                # Build WHERE clause from lazy ops if any
-                where_sql = ''
-                from .lazy_ops import LazyRelationalOp
-
-                where_conditions = []
-                for op in ds._lazy_ops:
-                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
-                        where_conditions.append(op.condition.to_sql(quote_char='"'))
-                if where_conditions:
-                    where_sql = ' WHERE ' + ' AND '.join(where_conditions)
-
-                # Add ORDER BY for sorted groupby (pandas default: sort=True)
-                orderby_sql = ''
-                if sort:
-                    orderby_sql = ' ORDER BY ' + ', '.join(f'"{col}"' for col in cols)
-
-                # When dropna=True, filter out NULL groups in the WHERE clause
-                if dropna:
-                    null_filter_conditions = [f'"{col}" IS NOT NULL' for col in cols]
-                    if where_sql:
-                        where_sql = where_sql + ' AND ' + ' AND '.join(null_filter_conditions)
-                    else:
-                        where_sql = ' WHERE ' + ' AND '.join(null_filter_conditions)
-
-                sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}'
-                result_df = ds._executor.execute(sql).to_df()
-
-                # Convert to Series with groupby col as index
-                # Fix dtype: chDB COUNT(*) returns uint64, pandas expects int64
-                if len(cols) == 1:
-                    series = result_df.set_index(cols[0])['size']
-                else:
-                    series = result_df.set_index(cols)['size']
-
-                # Convert uint64 to int64 to match pandas behavior
-                if series.dtype == 'uint64':
-                    series = series.astype('int64')
-                return series
-            else:
-                # Fall back to pandas
-                df = ds._execute()
-                return df.groupby(cols, dropna=dropna).size()
-
-        return LazySeries(executor=executor, datastore=ds)
+        # Use operation descriptor mode (safe from recursion)
+        return LazySeries.from_op(
+            datastore=self._datastore,
+            op_type='groupby_size',
+            op_groupby_cols=groupby_cols,
+            op_sort=self._sort,
+            op_dropna=self._dropna,
+        )
 
     def min(self, numeric_only: bool = False) -> 'DataStore':
         """Compute min of groups. Returns lazy DataStore."""
@@ -409,25 +341,15 @@ class LazyGroupBy:
             else:
                 groupby_cols.append(str(gf))
 
-        # Create LazySeries with operation metadata (avoids recursion)
-        ds = self._datastore
-        cols = groupby_cols
-        asc = ascending
-        dropna_val = self._dropna
-
-        def executor():
-            # Execute underlying datastore and use pandas groupby.cumcount
-            # This is only called for standalone execution (not during lazy op evaluation)
-            df = ds._get_df()
-            return df.groupby(cols, dropna=dropna_val).cumcount(ascending=asc)
-
-        result = LazySeries(executor=executor, datastore=ds)
-        # Store operation metadata for ExpressionEvaluator to use current df
-        result._groupby_cumcount = True
-        result._groupby_cols = cols
-        result._cumcount_ascending = asc
-        result._cumcount_dropna = dropna_val
-        return result
+        # Use operation descriptor mode (safe from recursion)
+        return LazySeries.from_op(
+            datastore=self._datastore,
+            op_type='groupby_cumcount',
+            op_groupby_cols=groupby_cols,
+            op_sort=self._sort,
+            op_dropna=self._dropna,
+            op_kwargs={'ascending': ascending},
+        )
 
     def pipe(self, func, *args, **kwargs):
         """

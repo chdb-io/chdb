@@ -199,7 +199,24 @@ class ExpressionEvaluator:
         # Handle LazySeries - evaluate the underlying column expr first
         # to avoid circular execution, then apply the method
         if isinstance(expr, LazySeries):
-            # Check for groupby cumcount with metadata (avoids recursion)
+            # Operation descriptor mode (safe from recursion)
+            if expr._op_type is not None:
+                op_type = expr._op_type
+                cols = expr._op_groupby_cols or []
+                sort = expr._op_sort
+                dropna = expr._op_dropna
+                op_kwargs = expr._op_kwargs or {}
+
+                if op_type == 'groupby_size':
+                    # Use current df from evaluator (safe from recursion)
+                    return self.df.groupby(cols, sort=sort, dropna=dropna).size()
+                elif op_type == 'groupby_cumcount':
+                    ascending = op_kwargs.get('ascending', True)
+                    return self.df.groupby(cols, sort=sort, dropna=dropna).cumcount(ascending=ascending)
+                else:
+                    raise ValueError(f"Unknown LazySeries op_type: {op_type}")
+
+            # Legacy: Check for groupby cumcount with metadata (avoids recursion)
             if getattr(expr, '_groupby_cumcount', False):
                 cols = getattr(expr, '_groupby_cols', [])
                 ascending = getattr(expr, '_cumcount_ascending', True)
@@ -488,6 +505,25 @@ class ExpressionEvaluator:
                 if callable(agg_method):
                     return agg_method(*op_args, **op_kwargs)
                 return agg_method
+
+            return source_result
+
+        elif op_type == 'groupby_nth':
+            # Groupby nth operation
+            groupby_cols = expr._op_groupby_cols
+            n = op_args[0] if op_args else 0
+
+            col_name = None
+            if op_source is not None and hasattr(op_source, '_expr'):
+                from .expressions import Field as ExprField
+                if isinstance(op_source._expr, ExprField):
+                    col_name = op_source._expr.name
+                elif op_source._expr is not None:
+                    col_name = str(op_source._expr)
+
+            if col_name and col_name in self.df.columns:
+                grouped = self.df.groupby(groupby_cols, sort=False)[col_name]
+                return grouped.nth(n, **op_kwargs)
 
             return source_result
 

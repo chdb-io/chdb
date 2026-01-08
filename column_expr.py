@@ -968,6 +968,7 @@ class ColumnExpr:
             col_name = None
             if op_source is not None and hasattr(op_source, '_expr'):
                 from .expressions import Field as ExprField
+
                 if isinstance(op_source._expr, ExprField):
                     col_name = op_source._expr.name
             if col_name and col_name in df.columns:
@@ -983,6 +984,7 @@ class ColumnExpr:
             col_name = None
             if op_source is not None and hasattr(op_source, '_expr'):
                 from .expressions import Field as ExprField
+
                 if isinstance(op_source._expr, ExprField):
                     col_name = op_source._expr.name
             if col_name and col_name in df.columns:
@@ -991,6 +993,22 @@ class ColumnExpr:
                 if callable(agg_method):
                     return agg_method(*op_args, **op_kwargs)
                 return agg_method
+            return source_result
+
+        elif op_type == 'groupby_nth':
+            # Groupby nth operation
+            groupby_cols = self._op_groupby_cols
+            n = op_args[0] if op_args else 0
+            df = self._datastore._execute()
+            col_name = None
+            if op_source is not None and hasattr(op_source, '_expr'):
+                from .expressions import Field as ExprField
+
+                if isinstance(op_source._expr, ExprField):
+                    col_name = op_source._expr.name
+            if col_name and col_name in df.columns:
+                grouped = df.groupby(groupby_cols, sort=False)[col_name]
+                return grouped.nth(n, **op_kwargs)
             return source_result
 
         else:
@@ -3463,32 +3481,20 @@ class ColumnExpr:
                 else:
                     groupby_cols.append(str(gf))
 
-            # Get the column name
-            col_name = None
-            if isinstance(self._expr, ExprField):
-                col_name = self._expr.name
-            else:
-                col_name = str(self._expr)
-
-            # Capture for closure
-            ds = self._datastore
-            cols = groupby_cols
-            col = col_name
-            n_val = n
-            dropna_val = dropna
-
-            def executor():
-                df = ds._execute()
-                grouped = df.groupby(cols, sort=False)
-                if col and col in df.columns:
-                    if dropna_val is not None:
-                        return grouped[col].nth(n_val, dropna=dropna_val)
-                    else:
-                        return grouped[col].nth(n_val)
-                else:
-                    raise ValueError(f"Column '{col}' not found in DataFrame")
-
-            return ColumnExpr(executor=executor, datastore=ds)
+            # Use operation descriptor mode (safe from recursion)
+            result = ColumnExpr(
+                datastore=self._datastore,
+                op_type='groupby_nth',
+                op_source=self,
+                op_method='nth',
+                op_args=(n,),
+                op_kwargs={'dropna': dropna} if dropna is not None else {},
+                op_groupby_cols=groupby_cols,
+            )
+            # Copy groupby fields for context
+            result._groupby_fields = self._groupby_fields
+            result._expr = self._expr
+            return result
         else:
             # Without groupby context, nth doesn't make sense
             raise AttributeError("nth() requires groupby context. Use ds.groupby('col')['value'].nth(n)")

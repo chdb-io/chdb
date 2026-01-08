@@ -250,24 +250,40 @@ class LazySeries:
         *args,
         executor: Callable[[], Any] = None,
         datastore: 'DataStore' = None,
+        # Operation descriptor fields (new pattern to avoid recursion)
+        op_type: str = None,  # 'groupby_size' | 'groupby_cumcount' | etc.
+        op_groupby_cols: list = None,
+        op_sort: bool = True,
+        op_dropna: bool = True,
+        op_args: tuple = (),
+        op_kwargs: dict = None,
         **kwargs,
     ):
         """
         Initialize a LazySeries.
 
-        Supports two modes:
+        Supports three modes:
         1. Method mode: column_expr + method_name (traditional)
            >>> LazySeries(column_expr, 'value_counts')
 
         2. Executor mode: executor callable (for complex operations like groupby.size())
            >>> LazySeries(executor=lambda: df.groupby(cols).size(), datastore=ds)
 
+        3. Operation descriptor mode: structured metadata (safe from recursion)
+           >>> LazySeries.from_op(datastore=ds, op_type='groupby_size', ...)
+
         Args:
             column_expr: The source ColumnExpr (method mode)
             method_name: Name of the Series method to call (method mode)
             *args: Positional arguments for the method
             executor: Callable that returns the result when executed (executor mode)
-            datastore: DataStore reference for executor mode
+            datastore: DataStore reference for executor mode / op mode
+            op_type: Operation type for op descriptor mode
+            op_groupby_cols: Groupby column names for op mode
+            op_sort: Sort parameter for groupby
+            op_dropna: Dropna parameter for groupby
+            op_args: Additional args for the operation
+            op_kwargs: Additional kwargs for the operation
             **kwargs: Keyword arguments for the method
         """
         self._column_expr = column_expr
@@ -277,6 +293,52 @@ class LazySeries:
         self._explicit_datastore = datastore
         self._kwargs = kwargs
         self._cached_result = None
+        # Operation descriptor fields
+        self._op_type = op_type
+        self._op_groupby_cols = op_groupby_cols
+        self._op_sort = op_sort
+        self._op_dropna = op_dropna
+        self._op_args = op_args or ()
+        self._op_kwargs = op_kwargs or {}
+
+    @classmethod
+    def from_op(
+        cls,
+        datastore: 'DataStore',
+        op_type: str,
+        op_groupby_cols: list = None,
+        op_sort: bool = True,
+        op_dropna: bool = True,
+        op_args: tuple = (),
+        op_kwargs: dict = None,
+    ) -> 'LazySeries':
+        """
+        Create a LazySeries with operation descriptor (recursion-safe).
+
+        This factory method creates LazySeries instances that store structured
+        metadata instead of closures, avoiding recursion during evaluation.
+
+        Args:
+            datastore: The source DataStore
+            op_type: Operation type ('groupby_size', 'groupby_cumcount', etc.)
+            op_groupby_cols: Column names to group by
+            op_sort: Whether to sort groups
+            op_dropna: Whether to drop NA values
+            op_args: Additional positional arguments
+            op_kwargs: Additional keyword arguments
+
+        Returns:
+            LazySeries in 'op' mode
+        """
+        return cls(
+            datastore=datastore,
+            op_type=op_type,
+            op_groupby_cols=op_groupby_cols,
+            op_sort=op_sort,
+            op_dropna=op_dropna,
+            op_args=op_args,
+            op_kwargs=op_kwargs,
+        )
 
     @property
     def _datastore(self) -> Optional['DataStore']:
@@ -299,6 +361,11 @@ class LazySeries:
             The result of the method call (typically pd.Series or pd.DataFrame)
         """
         if self._cached_result is not None:
+            return self._cached_result
+
+        # Operation descriptor mode: safe from recursion
+        if self._op_type is not None:
+            self._cached_result = self._execute_op()
             return self._cached_result
 
         # Executor mode: directly call the executor callable
@@ -388,6 +455,96 @@ class LazySeries:
         self._cached_result = method(*args, **kwargs)
 
         return self._cached_result
+
+    def _execute_op(self) -> Union[pd.Series, pd.DataFrame, Any]:
+        """
+        Execute operation descriptor mode (recursion-safe).
+
+        This method evaluates operations using stored metadata instead of closures,
+        preventing recursion by getting the DataFrame directly and applying operations.
+
+        Returns:
+            The result of the operation
+        """
+        ds = self._explicit_datastore
+        op_type = self._op_type
+        cols = self._op_groupby_cols or []
+        sort = self._op_sort
+        dropna = self._op_dropna
+        op_args = self._op_args
+        op_kwargs = self._op_kwargs
+
+        if op_type == 'groupby_size':
+            # Check if we can use SQL pushdown
+            if ds._table_function or ds.table_name:
+                # Use SQL GROUP BY for performance
+                if ds._executor is None:
+                    ds.connect()
+
+                # Build SELECT fields: groupby cols + COUNT(*)
+                select_parts = [f'"{col}"' for col in cols]
+                select_parts.append('COUNT(*) AS "size"')
+                select_sql = ', '.join(select_parts)
+
+                # Build GROUP BY
+                groupby_sql = ', '.join(f'"{col}"' for col in cols)
+
+                # Get base table SQL
+                if ds._table_function:
+                    table_sql = ds._table_function.to_sql()
+                else:
+                    table_sql = f'"{ds.table_name}"'
+
+                # Build WHERE clause from lazy ops if any
+                where_sql = ''
+                from .lazy_ops import LazyRelationalOp
+
+                where_conditions = []
+                for op in ds._lazy_ops:
+                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+                        where_conditions.append(op.condition.to_sql(quote_char='"'))
+                if where_conditions:
+                    where_sql = ' WHERE ' + ' AND '.join(where_conditions)
+
+                # Add ORDER BY for sorted groupby (pandas default: sort=True)
+                orderby_sql = ''
+                if sort:
+                    orderby_sql = ' ORDER BY ' + ', '.join(f'"{col}"' for col in cols)
+
+                # When dropna=True, filter out NULL groups in the WHERE clause
+                if dropna:
+                    null_filter_conditions = [f'"{col}" IS NOT NULL' for col in cols]
+                    if where_sql:
+                        where_sql = where_sql + ' AND ' + ' AND '.join(null_filter_conditions)
+                    else:
+                        where_sql = ' WHERE ' + ' AND '.join(null_filter_conditions)
+
+                sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}'
+                result_df = ds._executor.execute(sql).to_df()
+
+                # Convert to Series with groupby col as index
+                if len(cols) == 1:
+                    series = result_df.set_index(cols[0])['size']
+                else:
+                    series = result_df.set_index(cols)['size']
+
+                # Convert uint64 to int64 to match pandas behavior
+                if series.dtype == 'uint64':
+                    series = series.astype('int64')
+                return series
+            else:
+                # Fall back to pandas - get DataFrame directly (safe)
+                df = ds._get_df()
+                return df.groupby(cols, dropna=dropna).size()
+
+        elif op_type == 'groupby_cumcount':
+            # Execute using pandas - get DataFrame directly (safe)
+            df = ds._get_df()
+            ascending = op_kwargs.get('ascending', True)
+            return df.groupby(cols, sort=sort).cumcount(ascending=ascending)
+
+        else:
+            raise ValueError(f"Unknown op_type: {op_type}")
 
     def _execute_if_needed(self, value: Any) -> Any:
         """Execute ColumnExpr, LazySeries arguments if needed."""
