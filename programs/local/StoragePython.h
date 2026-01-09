@@ -164,7 +164,7 @@ private:
         const std::vector<bool> & is_virtual_column);
     py::object data_source;
     PyColumnVecPtr column_cache;
-    size_t data_source_row_count;
+    size_t data_source_row_count = 0;
     Poco::Logger * logger = &Poco::Logger::get("StoragePython");
 };
 
