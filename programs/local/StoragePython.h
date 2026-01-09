@@ -1,12 +1,9 @@
 #pragma once
 
+#include "PythonUtils.h"
 #include "config.h"
 
 #include <QueryPipeline/Pipe.h>
-
-#include <memory>
-#include <string>
-#include <vector>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
 #include <Storages/StorageFactory.h>
@@ -17,8 +14,6 @@
 #include <pybind11/pytypes.h>
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
-#include <Common/Exception.h>
-#include "PythonUtils.h"
 
 
 namespace DB
@@ -124,25 +119,6 @@ protected:
     py::object data;
 };
 
-// // Trampoline class
-// // see: https://pybind11.readthedocs.io/en/stable/advanced/classes.html#trampolines
-// class PyReaderTrampoline : public PyReader
-// {
-// public:
-//     using PyReader::PyReader; // Inherit constructors
-
-//     // Just forward the virtual function call to Python
-//     std::vector<py::object> read(const std::vector<std::string> & col_names, int count) override
-//     {
-//         PYBIND11_OVERRIDE_PURE(
-//             std::vector<py::object>, // Return type List[object]
-//             PyReader, // Parent class
-//             read, // Name of the function in C++ (must match Python name)
-//             col_names, // Argument(s)
-//             count);
-//     }
-// };
-
 class StoragePython : public IStorage, public WithContext
 {
 public:
@@ -151,7 +127,8 @@ public:
         const ColumnsDescription & columns_,
         const ConstraintsDescription & constraints_,
         py::object reader_,
-        ContextPtr context_);
+        ContextPtr context_,
+        bool is_pandas_df);
 
     ~StoragePython() override
     {
@@ -172,16 +149,19 @@ public:
         size_t max_block_size,
         size_t num_streams) override;
 
-    Block prepareSampleBlock(const Names & column_names, const StorageSnapshotPtr & storage_snapshot);
+    Block prepareSampleBlock(
+        const Names & column_names,
+        const StorageSnapshotPtr & storage_snapshot,
+        const std::vector<bool> & is_virtual_column);
 
     static ColumnsDescription getTableStructureFromData(std::vector<std::pair<std::string, std::string>> & schema, const ContextPtr & context);
 
 private:
     void prepareColumnCache(
         const Names & names,
-        const Columns & columns,
         const Block & sample_block,
-        const bool is_pandas_df);
+        const bool is_pandas_df,
+        const std::vector<bool> & is_virtual_column);
     py::object data_source;
     PyColumnVecPtr column_cache;
     size_t data_source_row_count;
