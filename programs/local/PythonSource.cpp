@@ -18,6 +18,7 @@
 #include <Poco/Logger.h>
 #include <Common/COW.h>
 #include <Common/Exception.h>
+#include <Common/iota.h>
 #include <Common/logger_useful.h>
 #include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnString.h>
@@ -396,23 +397,27 @@ Chunk PythonSource::scanDataToChunk()
     if (names.empty())
         return {};
 
-    //  1. Try to get the column data from the data source by column name with GIL
-    //  2. Get the raw data from the array to bypass GIL
-    //  3. Insert the raw data into the column with given cursor and count
-    //      a. If the column is a string column, convert it to UTF-8
-    //      b. If the column is a numeric column, directly insert the raw data
-    Columns columns(sample_block.columns());
-    if (names.size() != columns.size())
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column cache size mismatch");
-
     auto [offset, count] = calculateOffsetAndCount();
     if (count == 0)
         return {};
     LOG_DEBUG(logger, "Stream index {} Reading {} rows from {}", stream_index, count, cursor);
 
-    for (size_t i = 0; i < columns.size(); ++i)
+    Columns columns(sample_block.columns());
+
+    for (size_t i = 0; i < sample_block.columns(); ++i)
     {
         const auto & col = (*column_cache)[i];
+        if (col.is_virtual)
+        {
+            const auto & col_name = sample_block.getByPosition(i).name;
+            chassert(col_name == "_row_id");
+            auto row_id_column = ColumnVector<UInt64>::create(count);
+            auto & row_id_data = row_id_column->getData();
+            iota(row_id_data.data(), count, static_cast<UInt64>(cursor));
+            columns[i] = std::move(row_id_column);
+            continue;
+        }
+
         const auto & type = sample_block.getByPosition(i).type;
 
         bool is_nullable = type->isNullable();
@@ -491,11 +496,6 @@ Chunk PythonSource::scanDataToChunk()
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);
         }
-        catch (Exception & e)
-        {
-            LOG_ERROR(logger, "Error processing column \"{}\": {}", col.name, e.what());
-            throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Error processing column \"{}\": {}", col.name, e.what());
-        }
         catch (std::exception & e)
         {
             LOG_ERROR(logger, "Error processing column \"{}\": {}", col.name, e.what());
@@ -507,6 +507,7 @@ Chunk PythonSource::scanDataToChunk()
             throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Error processing column \"{}\": unknown exception", col.name);
         }
     }
+
     cursor += count;
 
     return Chunk(std::move(columns), count);
@@ -540,15 +541,7 @@ Chunk PythonSource::generate()
 
         return std::move(scanDataToChunk());
     }
-    catch (const Exception & e)
-    {
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling {}", e.what());
-    }
     catch (const std::exception & e)
-    {
-        throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling {}", e.what());
-    }
-    catch (const py::error_already_set & e)
     {
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Python data handling {}", e.what());
     }

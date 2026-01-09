@@ -22,6 +22,7 @@
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
 #include <Storages/StorageFactory.h>
+#include <Storages/VirtualColumnsDescription.h>
 #include <base/types.h>
 #include <pybind11/functional.h>
 #include <pybind11/gil.h>
@@ -56,13 +57,21 @@ StoragePython::StoragePython(
     const ColumnsDescription & columns_,
     const ConstraintsDescription & constraints_,
     py::object reader_,
-    ContextPtr context_)
+    ContextPtr context_,
+    bool is_pandas_df)
     : IStorage(table_id_), data_source(reader_), WithContext(context_)
 {
     StorageInMemoryMetadata storage_metadata;
     storage_metadata.setColumns(columns_);
     storage_metadata.setConstraints(constraints_);
     setInMemoryMetadata(storage_metadata);
+
+    if (is_pandas_df)
+    {
+        VirtualColumnsDescription virtuals;
+        virtuals.addEphemeral("_row_id", std::make_shared<DataTypeUInt64>(), "Row index in the Pandas DataFrame");
+        setVirtuals(std::move(virtuals));
+    }
 }
 
 Pipe StoragePython::read(
@@ -76,7 +85,14 @@ Pipe StoragePython::read(
 {
     storage_snapshot->check(column_names);
 
-    Block sample_block = prepareSampleBlock(column_names, storage_snapshot);
+    std::vector<bool> is_virtual_column(column_names.size(), false);
+    for (size_t i = 0; i < column_names.size(); ++i)
+    {
+        if (isVirtualColumn(column_names[i], storage_snapshot->metadata))
+            is_virtual_column[i] = true;
+    }
+
+    Block sample_block = prepareSampleBlock(column_names, storage_snapshot, is_virtual_column);
     auto format_settings = getFormatSettings(getContext());
 
     if (isInheritsFromPyReader(data_source))
@@ -103,7 +119,7 @@ Pipe StoragePython::read(
     }
 
     if (!arrow_table_reader)
-        prepareColumnCache(column_names, sample_block.getColumns(), sample_block, is_pandas_df);
+        prepareColumnCache(column_names, sample_block, is_pandas_df, is_virtual_column);
 
     Pipes pipes;
     for (size_t stream = 0; stream < num_streams; ++stream)
@@ -112,33 +128,48 @@ Pipe StoragePython::read(
     return Pipe::unitePipes(std::move(pipes));
 }
 
-Block StoragePython::prepareSampleBlock(const Names & column_names, const StorageSnapshotPtr & storage_snapshot)
+Block StoragePython::prepareSampleBlock(
+    const Names & column_names,
+    const StorageSnapshotPtr & storage_snapshot,
+    const std::vector<bool> & is_virtual_column)
 {
     Block sample_block;
-    for (const String & column_name : column_names)
+    for (size_t i = 0; i < column_names.size(); ++i)
     {
-        auto column_data = storage_snapshot->metadata->getColumns().getPhysical(column_name);
-        sample_block.insert({column_data.type, column_data.name});
+        if (is_virtual_column[i])
+        {
+            auto virtual_column = storage_snapshot->virtual_columns->get(column_names[i]);
+            sample_block.insert({virtual_column.type, virtual_column.name});
+        }
+        else
+        {
+            auto column_data = storage_snapshot->metadata->getColumns().getPhysical(column_names[i]);
+            sample_block.insert({column_data.type, column_data.name});
+        }
     }
     return sample_block;
 }
 
 void StoragePython::prepareColumnCache(
     const Names & names,
-    const Columns & columns,
     const Block & sample_block,
-    const bool is_pandas_df)
+    const bool is_pandas_df,
+    const std::vector<bool> & is_virtual_column)
 {
-    // check column cache with GIL holded
     py::gil_scoped_acquire acquire;
     if (column_cache == nullptr)
     {
-        // fill in the cache
-        column_cache = std::make_shared<PyColumnVec>(columns.size());
-        for (size_t i = 0; i < columns.size(); ++i)
+        column_cache = std::make_shared<PyColumnVec>(names.size());
+        for (size_t i = 0; i < names.size(); ++i)
         {
-            const auto & col_name = names[i];
             auto & col = (*column_cache)[i];
+            if (is_virtual_column[i])
+            {
+                col.is_virtual = true;
+                continue;
+            }
+
+            const auto & col_name = names[i];
             col.name = col_name;
             try
             {
@@ -165,6 +196,9 @@ void StoragePython::prepareColumnCache(
                 throw;
             }
         }
+
+        if (data_source_row_count == 0 && is_pandas_df)
+            data_source_row_count = py::len(data_source);
     }
 }
 
@@ -410,7 +444,12 @@ void registerStoragePython(StorageFactory & factory)
                 throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python engine requires 1 argument: PyReader object");
 
             py::object reader = std::any_cast<py::object>(args.engine_args[0]);
-            return std::make_shared<StoragePython>(args.table_id, args.columns, args.constraints, reader, args.getLocalContext());
+            bool is_pandas_df = false;
+            {
+                py::gil_scoped_acquire acquire;
+                is_pandas_df = CHDB::PandasDataFrame::isPandasDataframe(reader);
+            }
+            return std::make_shared<StoragePython>(args.table_id, args.columns, args.constraints, reader, args.getLocalContext(), is_pandas_df);
         },
         {
             .supports_settings = false,

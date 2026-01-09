@@ -30,6 +30,7 @@ struct ColumnWrapper
     std::string py_type; //py::handle type, eg. numpy.ndarray;
     std::string name;
     bool is_object_type = false;
+    bool is_virtual = false;
     std::unique_ptr<RegisteredArray> registered_array;
 
     ~ColumnWrapper()
