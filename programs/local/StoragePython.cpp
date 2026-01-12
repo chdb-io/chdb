@@ -35,6 +35,9 @@
 #include <Common/logger_useful.h>
 #include <any>
 #include <PandasAnalyzer.h>
+#if USE_JEMALLOC
+#include <Common/memory.h>
+#endif
 
 using namespace CHDB;
 
@@ -131,6 +134,10 @@ void StoragePython::prepareColumnCache(
 {
     // check column cache with GIL holded
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+	::Memory::MemoryCheckScope memory_check_scope;
+#endif
+
     if (column_cache == nullptr)
     {
         // fill in the cache
