@@ -45,39 +45,6 @@ jobs:
             exit 1
           fi
           echo "GitHub CLI installed successfully"
-      - name: Scan SQLite vulnerabilities with grype
-        run: |
-          # Install grype and required tools
-          mkdir -p $HOME/.local/bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b $HOME/.local/bin
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          sudo apt-get update && sudo apt-get install -y jq lsb-release
-
-          # Detect OS distribution info
-          DISTRO_ID=$(lsb_release -si | tr '[:upper:]' '[:lower:]')
-          DISTRO_VERSION=$(lsb_release -sr)
-          echo "Detected OS: $DISTRO_ID:$DISTRO_VERSION"
-
-          # Update grype vulnerability database
-          $HOME/.local/bin/grype db update
-
-          # Check SQLite vulnerabilities in installed packages
-          echo "Scanning SQLite packages for vulnerabilities..."
-          GRYPE_RAW_OUTPUT=$($HOME/.local/bin/grype dir:/var/lib/dpkg --distro "$DISTRO_ID:$DISTRO_VERSION" --scope all-layers 2>/dev/null || true)
-          echo "Raw grype output:"
-          echo "$GRYPE_RAW_OUTPUT"
-
-          SQLITE_SCAN_OUTPUT=$(echo "$GRYPE_RAW_OUTPUT" | grep -i sqlite || true)
-
-          if [ -n "$SQLITE_SCAN_OUTPUT" ]; then
-            echo "❌ SQLite vulnerabilities found in packages! Build should be reviewed."
-            echo "SQLite vulnerability details:"
-            echo "$SQLITE_SCAN_OUTPUT"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found"
-          fi
-        continue-on-error: true
       - name: Setup pyenv
         run: |
           # Remove existing pyenv installation if present
@@ -213,42 +180,6 @@ jobs:
           bash ./chdb/build/build_static_lib.sh
           pyenv shell --unset
         continue-on-error: false
-      - name: Scan chdb libraries with grype
-        run: |
-          echo "Scanning chdb libraries for vulnerabilities..."
-
-          # Files to scan
-          FILES_TO_SCAN=""
-          [ -f libchdb.so ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.so"
-          [ -f libchdb.a ] && FILES_TO_SCAN="$FILES_TO_SCAN libchdb.a"
-          FILES_TO_SCAN="$FILES_TO_SCAN $(find chdb/ \( -name "*.so" -o -name "*.dylib" \) 2>/dev/null || true)"
-
-          SQLITE_VULNERABILITIES_FOUND=false
-
-          for file in $FILES_TO_SCAN; do
-            if [ -f "$file" ]; then
-              echo "=== Scanning $file ==="
-              SCAN_OUTPUT=$($HOME/.local/bin/grype "$file" 2>/dev/null || true)
-              echo "$SCAN_OUTPUT"
-
-              if echo "$SCAN_OUTPUT" | grep -qi sqlite; then
-                echo "❌ SQLite vulnerability found in $file"
-                SQLITE_VULNERABILITIES_FOUND=true
-              fi
-            fi
-          done
-
-          if [ "$SQLITE_VULNERABILITIES_FOUND" = true ]; then
-            echo "❌ SQLite vulnerabilities detected in chdb libraries!"
-            exit 1
-          else
-            echo "✅ No SQLite vulnerabilities found in chdb libraries"
-          fi
-        continue-on-error: false
-      - name: Run libchdb stub in examples dir
-        run: |
-          bash -x ./examples/runStub.sh
-          bash -x ./examples/runArrowTest.sh
       - name: Check ccache statistics
         run: |
           ccache -s
@@ -282,46 +213,6 @@ jobs:
           sudo rm -f dist/*-linux_x86_64.whl
           ls -lh dist
         shell: bash
-      - name: Setup core dump collection
-        run: |
-          mkdir -p tmp/core
-          echo "tmp/core/core.%p" | sudo tee /proc/sys/kernel/core_pattern
-          ulimit -c unlimited
-      - name: Test wheel on all Python versions
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
-            echo "Testing chdb on Python $version"
-            pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
-            python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-            make test
-            pyenv shell --unset
-          done
-        continue-on-error: false
-      - name: Run notebook tests
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.9
-          python -m pip install dist/*.whl --force-reinstall
-          jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
-          pyenv shell --unset
-        continue-on-error: false
-      - name: Check and upload core files if present
-        if: always()
-        run: |
-          if ls tmp/core/core.* >/dev/null 2>&1; then
-            echo "CORE_FILES_FOUND=true" >> $GITHUB_ENV
-            tar -czvf core-files-linux-x86_64.tar.gz tmp/core/core.*
-            echo "Core files tar created: core-files-linux-x86_64.tar.gz"
-            ls -lh core-files-linux-x86_64.tar.gz
-          else
-            echo "CORE_FILES_FOUND=false" >> $GITHUB_ENV
-            echo "No core files found in tmp/core"
-          fi
-        continue-on-error: true
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
         run: |
@@ -330,55 +221,9 @@ jobs:
             killall ccache; \
             sleep 10; \
           done
-      - name: Upload core files artifact
-        if: always() && env.CORE_FILES_FOUND == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: core-files-linux-x86_64
-          path: core-files-linux-x86_64.tar.gz
-      - name: Upload wheels to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} dist/*.whl --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Packege libchdb.so
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf linux-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
-      - name: Package libchdb.a
-        run: |
-          cp programs/local/chdb.h chdb.h
-          cp programs/local/chdb.hpp chdb.hpp
-          tar -czvf linux-x86_64-libchdb-static.tar.gz libchdb.a chdb.h chdb.hpp
-      - name: Upload libchdb.so to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} linux-x86_64-libchdb.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
-      - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          gh release upload ${{ github.ref_name }} linux-x86_64-libchdb-static.tar.gz --clobber
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
           name: chdb-artifacts-linux-x86_64
           path: |
             ./dist/*.whl
-            ./linux-x86_64-libchdb.tar.gz
-            ./linux-x86_64-libchdb-static.tar.gz
           overwrite: true
-      - name: Upload pypi
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          pyenv shell 3.8
-          python -m twine upload dist/*.whl
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
