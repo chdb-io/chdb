@@ -14,6 +14,7 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <Formats/FormatFactory.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/StorageFactory.h>
 #include <base/types.h>
@@ -125,7 +126,7 @@ void StoragePython::prepareColumnCache(
     // check column cache with GIL holded
     py::gil_scoped_acquire acquire;
 #if USE_JEMALLOC
-	::Memory::MemoryCheckScope memory_check_scope;
+    ::Memory::MemoryCheckScope memory_check_scope;
 #endif
 
     if (column_cache == nullptr)
