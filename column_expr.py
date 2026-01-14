@@ -511,6 +511,16 @@ class ColumnExpr:
 
     # ========== Classification Methods ==========
 
+    # DateTime methods that should always use pandas execution
+    # These have incompatible behavior between chDB SQL and pandas
+    _PANDAS_ONLY_DT_METHODS = frozenset({
+        'strftime',  # Format code differences (%M) + timezone issues
+        'tz_localize',  # Timezone handling
+        'tz_convert',  # Timezone handling
+        'to_pydatetime',  # Python object conversion
+        'to_pytimedelta',  # Python object conversion
+    })
+
     def is_pandas_only(self) -> bool:
         """
         Check if this expression can ONLY be executed via Pandas.
@@ -519,6 +529,7 @@ class ColumnExpr:
         - executor mode (e.g., groupby().transform() results)
         - method mode without SQL-compatible expression
         - expressions that reference pandas-only operations
+        - DateTimeMethodExpr with methods known to have incompatible SQL behavior
 
         This is the canonical method to determine execution path.
         Use this instead of checking _executor/_expr directly.
@@ -530,6 +541,13 @@ class ColumnExpr:
         # Method mode without underlying expression needs Pandas
         if self._exec_mode == 'method' and self._expr is None:
             return True
+
+        # Check if expression contains pandas-only datetime methods
+        if self._expr is not None:
+            from .expressions import DateTimeMethodExpr
+            if isinstance(self._expr, DateTimeMethodExpr):
+                if self._expr.method_name in self._PANDAS_ONLY_DT_METHODS:
+                    return True
 
         return False
 

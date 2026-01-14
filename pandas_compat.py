@@ -2458,6 +2458,30 @@ class PandasCompatMixin:
         """The index (row labels) of the DataFrame."""
         return self._get_df().index
 
+    @index.setter
+    def index(self, value):
+        """
+        Set the index (row labels) of the DataFrame.
+
+        This modifies the underlying cached DataFrame's index in-place,
+        similar to pandas behavior.
+
+        Args:
+            value: New index values. Can be a pandas Index, array-like,
+                   or any iterable that pandas accepts for index assignment.
+
+        Example:
+            >>> ds.index = pd.Index(['x', 'y', 'z'])
+            >>> ds.index = ['a', 'b', 'c']
+            >>> ds.index = pd.RangeIndex(start=1, stop=4)
+        """
+        # Get the current DataFrame (executes lazy ops if needed)
+        df = self._get_df()
+        # Set the index on the cached DataFrame
+        df.index = value
+        # Ensure _cached_result reflects the change
+        self._cached_result = df
+
     @property
     def attrs(self):
         """Dictionary of global attributes of this dataset."""

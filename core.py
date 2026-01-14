@@ -4118,27 +4118,61 @@ class DataStore(PandasCompatMixin):
             >>> ds.to_df()  # Uses cached result (no re-computation!)
         """
         from .groupby import LazyGroupBy
+        from .column_expr import ColumnExpr
+        from .lazy_result import LazySeries
+        from .lazy_ops import LazyColumnAssignment
+        from copy import copy
+        import uuid
 
+        # Track the datastore to use - may need to create a copy if we have derived columns
+        target_ds = self
         groupby_fields = []
+        temp_column_counter = 0
+
+        def process_field(f) -> Field:
+            """Process a single field, handling ColumnExpr/LazySeries specially."""
+            nonlocal target_ds, temp_column_counter
+
+            if isinstance(f, str):
+                return Field(f)
+            elif isinstance(f, ColumnExpr):
+                # ColumnExpr like ds['date'].dt.year
+                # Check if it's a simple Field reference - use directly
+                if isinstance(f._expr, Field):
+                    return f._expr
+                # Complex expression - assign to temp column
+                temp_name = f"__groupby_temp_{temp_column_counter}_{uuid.uuid4().hex[:8]}"
+                temp_column_counter += 1
+                # Create a copy if we haven't already
+                if target_ds is self:
+                    target_ds = copy(self)
+                target_ds._add_lazy_op(LazyColumnAssignment(temp_name, f._expr))
+                return Field(temp_name)
+            elif isinstance(f, LazySeries):
+                # LazySeries - similar handling
+                temp_name = f"__groupby_temp_{temp_column_counter}_{uuid.uuid4().hex[:8]}"
+                temp_column_counter += 1
+                # Create a copy if we haven't already
+                if target_ds is self:
+                    target_ds = copy(self)
+                target_ds._add_lazy_op(LazyColumnAssignment(temp_name, f))
+                return Field(temp_name)
+            else:
+                return f
+
         for field in fields:
             # Handle list argument (pandas-style): groupby(["a", "b"])
             if isinstance(field, (list, tuple)):
                 for f in field:
-                    if isinstance(f, str):
-                        groupby_fields.append(Field(f))
-                    else:
-                        groupby_fields.append(f)
-            elif isinstance(field, str):
-                # Don't add table prefix for string fields
-                groupby_fields.append(Field(field))
+                    groupby_fields.append(process_field(f))
             else:
-                groupby_fields.append(field)
+                groupby_fields.append(process_field(field))
 
         # Extract selected columns from prior LazyRelationalOp(SELECT) operations
         # This ensures that df[['col1', 'col2']].groupby('col1').mean() only aggregates
         # the explicitly selected columns, not all columns from the source
         selected_columns = None
-        for op in reversed(self._lazy_ops):
+        for op in reversed(target_ds._lazy_ops):
             if isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and op.fields:
                 # Found a SELECT operation - extract column names
                 selected_columns = []
@@ -4152,9 +4186,9 @@ class DataStore(PandasCompatMixin):
                     selected_columns = None
                 break
 
-        # Return a GroupBy wrapper that references self (not a copy!)
+        # Return a GroupBy wrapper that references target_ds
         return LazyGroupBy(
-            self, groupby_fields, sort=sort, as_index=as_index, dropna=dropna, selected_columns=selected_columns
+            target_ds, groupby_fields, sort=sort, as_index=as_index, dropna=dropna, selected_columns=selected_columns
         )
 
     @immutable

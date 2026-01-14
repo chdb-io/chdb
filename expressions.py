@@ -889,6 +889,8 @@ class DateTimeMethodExpr(Expression):
         'ceil_dt': 'CEIL_DT',  # Special marker for ceil datetime
         'round_dt': 'ROUND_DT',  # Special marker for round datetime
         'normalize': 'toStartOfDay',  # Normalize = start of day
+        'day_name': 'dateName',  # dateName('weekday', date) -> 'Monday', etc.
+        'month_name': 'dateName',  # dateName('month', date) -> 'January', etc.
     }
 
     # Mapping from pandas frequency to ClickHouse floor function
@@ -915,6 +917,22 @@ class DateTimeMethodExpr(Expression):
         'D': ('addDays', 1, 43200),
     }
 
+    # Mapping from Python strftime format codes to ClickHouse formatDateTime codes
+    # Python: https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
+    # ClickHouse: https://clickhouse.com/docs/en/sql-reference/functions/date-time-functions#formatDateTime
+    STRFTIME_FORMAT_MAP = {
+        '%M': '%i',  # Python %M = minute (00-59), ClickHouse %i = minute
+        # ClickHouse %M = full month name (January, etc.) - different meaning!
+    }
+
+    @classmethod
+    def _convert_strftime_format(cls, fmt: str) -> str:
+        """Convert Python strftime format to ClickHouse formatDateTime format."""
+        result = fmt
+        for py_code, ch_code in cls.STRFTIME_FORMAT_MAP.items():
+            result = result.replace(py_code, ch_code)
+        return result
+
     def __init__(
         self,
         source_expr: Expression,
@@ -938,7 +956,7 @@ class DateTimeMethodExpr(Expression):
         source_sql = self.source_expr.to_sql(quote_char=quote_char, **kwargs)
 
         if self.method_name == 'strftime' and self.args:
-            fmt = self.args[0]
+            fmt = self._convert_strftime_format(self.args[0])
             result = f"{ch_func}({source_sql}, '{fmt}')"
         elif self.method_name == 'floor_dt':
             result = self._build_floor_sql(source_sql)
@@ -948,6 +966,12 @@ class DateTimeMethodExpr(Expression):
             result = self._build_round_sql(source_sql)
         elif self.method_name == 'normalize':
             result = f"{ch_func}({source_sql})"
+        elif self.method_name == 'day_name':
+            # dateName('weekday', date) returns 'Monday', 'Tuesday', etc.
+            result = f"{ch_func}('weekday', {source_sql})"
+        elif self.method_name == 'month_name':
+            # dateName('month', date) returns 'January', 'February', etc.
+            result = f"{ch_func}('month', {source_sql})"
         else:
             result = f"{ch_func}({source_sql})"
 

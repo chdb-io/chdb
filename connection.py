@@ -323,7 +323,9 @@ class Connection:
             # Restore original pandas index from _row_id (row positions)
             # Map row positions back to original index values
             # Also handle auto-renamed columns like _row_id_1, _row_id_2 from nested subqueries
-            row_id_cols = [c for c in result.columns if c == '_row_id' or (isinstance(c, str) and c.startswith('_row_id_'))]
+            row_id_cols = [
+                c for c in result.columns if c == '_row_id' or (isinstance(c, str) and c.startswith('_row_id_'))
+            ]
             if need_row_id_in_result and '_row_id' in result.columns:
                 # _row_id contains row positions (0, 1, 2, ...)
                 # Look up original index values from these positions

@@ -848,8 +848,15 @@ class ExpressionEvaluator:
 
         # Build SQL expression for other methods
         if expr.method_name == 'strftime' and expr.args:
-            fmt = expr.args[0]
+            from .expressions import DateTimeMethodExpr
+            fmt = DateTimeMethodExpr._convert_strftime_format(expr.args[0])
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})), '{fmt}')"
+        elif expr.method_name == 'day_name':
+            # dateName('weekday', date) returns 'Monday', 'Tuesday', etc.
+            sql_expr = f"{ch_func}('weekday', parseDateTimeBestEffort(toString({source_sql})))"
+        elif expr.method_name == 'month_name':
+            # dateName('month', date) returns 'January', 'February', etc.
+            sql_expr = f"{ch_func}('month', parseDateTimeBestEffort(toString({source_sql})))"
         else:
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})))"
 
