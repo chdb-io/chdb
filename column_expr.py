@@ -513,13 +513,15 @@ class ColumnExpr:
 
     # DateTime methods that should always use pandas execution
     # These have incompatible behavior between chDB SQL and pandas
-    _PANDAS_ONLY_DT_METHODS = frozenset({
-        'strftime',  # Format code differences (%M) + timezone issues
-        'tz_localize',  # Timezone handling
-        'tz_convert',  # Timezone handling
-        'to_pydatetime',  # Python object conversion
-        'to_pytimedelta',  # Python object conversion
-    })
+    _PANDAS_ONLY_DT_METHODS = frozenset(
+        {
+            'strftime',  # Format code differences (%M) + timezone issues
+            'tz_localize',  # Timezone handling
+            'tz_convert',  # Timezone handling
+            'to_pydatetime',  # Python object conversion
+            'to_pytimedelta',  # Python object conversion
+        }
+    )
 
     def is_pandas_only(self) -> bool:
         """
@@ -545,6 +547,7 @@ class ColumnExpr:
         # Check if expression contains pandas-only datetime methods
         if self._expr is not None:
             from .expressions import DateTimeMethodExpr
+
             if isinstance(self._expr, DateTimeMethodExpr):
                 if self._expr.method_name in self._PANDAS_ONLY_DT_METHODS:
                     return True

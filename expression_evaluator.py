@@ -849,6 +849,7 @@ class ExpressionEvaluator:
         # Build SQL expression for other methods
         if expr.method_name == 'strftime' and expr.args:
             from .expressions import DateTimeMethodExpr
+
             fmt = DateTimeMethodExpr._convert_strftime_format(expr.args[0])
             sql_expr = f"{ch_func}(parseDateTimeBestEffort(toString({source_sql})), '{fmt}')"
         elif expr.method_name == 'day_name':
