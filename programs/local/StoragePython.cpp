@@ -7,8 +7,6 @@
 #include "PyArrowStreamFactory.h"
 #include "PythonUtils.h"
 
-#include <Columns/IColumn.h>
-#include <DataTypes/DataTypeDate.h>
 #include <DataTypes/DataTypeDate32.h>
 #include <DataTypes/DataTypeDateTime.h>
 #include <DataTypes/DataTypeNullable.h>
@@ -16,26 +14,22 @@
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesDecimal.h>
 #include <DataTypes/DataTypesNumber.h>
-#include <Formats/FormatFactory.cpp>
-#include <Interpreters/Context_fwd.h>
-#include <Interpreters/evaluateConstantExpression.h>
+#include <Formats/FormatFactory.h>
 #include <Storages/ColumnsDescription.h>
-#include <Storages/IStorage.h>
 #include <Storages/StorageFactory.h>
 #include <Storages/VirtualColumnsDescription.h>
 #include <base/types.h>
-#include <pybind11/functional.h>
 #include <pybind11/gil.h>
-#include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
-#include <pybind11/stl.h>
 #include <re2/re2.h>
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
 #include <any>
-#include <PandasAnalyzer.h>
+#if USE_JEMALLOC
+#include <Common/memory.h>
+#endif
 
 using namespace CHDB;
 
@@ -157,6 +151,10 @@ void StoragePython::prepareColumnCache(
     const std::vector<bool> & is_virtual_column)
 {
     py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+    ::Memory::MemoryCheckScope memory_check_scope;
+#endif
+
     if (column_cache == nullptr)
     {
         column_cache = std::make_shared<PyColumnVec>(names.size());
