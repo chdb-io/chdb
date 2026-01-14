@@ -80,6 +80,7 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
             py_reader_arg_str,
             py::str(instance.attr("__class__")).cast<std::string>());
         reader = instance.cast<py::object>();
+        is_pandas_df = PandasDataFrame::isPandasDataframe(reader);
     }
     catch (py::error_already_set & e)
     {
@@ -103,7 +104,8 @@ StoragePtr TableFunctionPython::executeImpl(
     {
         py::gil_scoped_acquire acquire;
         storage = std::make_shared<StoragePython>(
-            StorageID(getDatabaseName(), table_name), columns, ConstraintsDescription{}, reader, context);
+            StorageID(getDatabaseName(), table_name), columns,
+            ConstraintsDescription{}, reader, context, is_pandas_df);
     }
     storage->startup();
     return storage;
@@ -119,7 +121,7 @@ ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr conte
     if (!reader)
         throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python reader not initialized");
 
-    if (PandasDataFrame::isPandasDataframe(reader))
+    if (is_pandas_df)
         return PandasDataFrame::getActualTableStructure(reader, context);
 
     if (PyArrowTable::isPyArrowTable(reader))
