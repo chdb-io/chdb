@@ -858,9 +858,9 @@ class ColumnExpr:
 
                 # Special handling for first/last: use argMin/argMax with rowNumberInAllBlocks()
                 # to preserve row order semantics (any/anyLast don't guarantee order)
-                # NOTE: rowNumberInAllBlocks() is non-deterministic when using Python() table function
-                # with parallel execution, but stable with file-based sources (Parquet, CSV, etc.)
-                # See: https://github.com/chdb-io/chdb/issues/469
+                # NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
+                # with _row_id (deterministic) at execution time (chDB v4.0.0b5+)
+                # For file sources (Parquet, CSV), rowNumberInAllBlocks() works correctly as-is
                 if self._agg_func_name == 'any':
                     # first() -> argMin(value, rowNumberInAllBlocks())
                     if self._skipna:
@@ -3846,10 +3846,10 @@ class ColumnExpr:
                 # shift(-1) -> leadInFrame(col, 1) = next value
                 window_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
 
-            # Add OVER clause with ORDER BY __row_idx__ to preserve original row order
-            # __row_idx__ is added by the executor when registering DataFrame with chDB
+            # Add OVER clause with ORDER BY _row_id to preserve original row order
+            # _row_id is a built-in virtual column in chDB v4.0.0b5+ for Python() table function
             # Frame must span entire partition to access all rows
-            row_idx_field = Field('__row_idx__')
+            row_idx_field = Field('_row_id')
             window_func = window_func.over(
                 order_by=[row_idx_field],
                 frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
@@ -3925,9 +3925,9 @@ class ColumnExpr:
                 # diff(-1) -> value - leadInFrame(col, 1)
                 lag_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
 
-            # Add OVER clause with ORDER BY __row_idx__ to preserve original row order
-            # __row_idx__ is added by the executor when registering DataFrame with chDB
-            row_idx_field = Field('__row_idx__')
+            # Add OVER clause with ORDER BY _row_id to preserve original row order
+            # _row_id is a built-in virtual column in chDB v4.0.0b5+ for Python() table function
+            row_idx_field = Field('_row_id')
             lag_func = lag_func.over(
                 order_by=[row_idx_field],
                 frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
@@ -5030,7 +5030,7 @@ class ColumnExprStringAccessor:
 
         # If not found directly, the expression might be complex
         # Use executor.execute_expression which preserves row order
-        # by adding __row_idx__ column and ORDER BY clause
+        # using _row_id virtual column and ORDER BY clause
         executor = get_executor()
         sql_expr = col_expr.to_sql(quote_char='"')
         return executor.execute_expression(sql_expr, df)

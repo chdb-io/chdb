@@ -2750,6 +2750,10 @@ class PandasCompatMixin:
         """Return absolute value of DataStore element-wise."""
         return self._wrap_result(abs(self._get_df()))
 
+    def __invert__(self):
+        """Invert (bitwise NOT) DataStore element-wise (~ds)."""
+        return self._wrap_result(~self._get_df())
+
     def equals(self, other, check_dtype=True, check_names=True, rtol=1e-5, atol=1e-8):
         """
         Test whether two DataStore/DataFrame objects contain the same elements.

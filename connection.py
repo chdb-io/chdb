@@ -191,7 +191,11 @@ class Connection:
 
         IMPORTANT: chDB's Python() table function does NOT guarantee row order by default.
         Set preserve_order=True (default) to maintain original DataFrame row order.
-        This adds a hidden index column and ORDER BY clause with minimal overhead (~2-5%).
+        This uses chDB's built-in _row_id virtual column for ORDER BY with minimal overhead.
+
+        Note: _row_id is a built-in virtual column in chDB v4.0.0b5+ that provides
+        the 0-based row number from the original DataFrame, enabling deterministic
+        row order preservation without manually adding an index column.
 
         Args:
             sql: SQL query string. Use Python(df_name) or df_name to reference the DataFrame.
@@ -231,60 +235,82 @@ class Connection:
                 # e.g., "0" stays as "0", but any unquoted references need quoting
                 sql = sql.replace(f'"{orig_col}"', f'"{str_col}"')
 
-        # Prepare DataFrame with row index if order preservation is needed
-        # When preserve_order is explicitly True, always preserve order
-        # (only skip for GROUP BY or explicit ORDER BY where order semantics change)
-        row_idx_col = '__row_idx__'
+        # Row order preservation using chDB's built-in _row_id virtual column
+        # _row_id provides the 0-based row number from the original DataFrame
+        # No need to manually add an index column - _row_id is deterministic
+        #
+        # IMPORTANT: chDB's Python() table function reads DataFrame data using the
+        # pandas index values as row positions. For DataFrames with non-contiguous
+        # indices (e.g., after slicing with step), we must reset the index to ensure
+        # chdb reads the correct data. The original index is stored and restored after.
         df_to_use = df_for_sql
+        original_index = None
+        original_index_name = None
+
+        # Check if index is non-contiguous (not 0, 1, 2, ..., n-1)
+        if len(df_for_sql) > 0:
+            expected_index = range(len(df_for_sql))
+            if not (
+                df_for_sql.index.equals(pd.RangeIndex(len(df_for_sql)))
+                or list(df_for_sql.index) == list(expected_index)
+            ):
+                # Non-contiguous index - need to reset for chdb compatibility
+                original_index = df_for_sql.index.copy()
+                original_index_name = df_for_sql.index.name
+                df_to_use = df_for_sql.reset_index(drop=True)
+
         sql_upper = sql.upper().strip()
 
         # Determine how to handle row order preservation
-        # __row_idx__ is used to prevent chDB from shuffling original row order
+        # _row_id is used to preserve original row order in Python() table function
         has_order_by = self._has_outer_order_by(sql_upper)
         has_group_by = 'GROUP BY' in sql_upper
         is_aggregate = self._is_aggregate_query(sql_upper)
 
-        # Determine row index handling strategy
-        needs_row_idx = False  # Whether to add __row_idx__ column
-        add_order_by_row_idx = False  # Whether to add ORDER BY __row_idx__ (no existing ORDER BY)
-        add_row_idx_as_tiebreaker = False  # Whether to append __row_idx__ to existing ORDER BY
+        # Determine row order handling strategy using _row_id
+        add_order_by_row_id = False  # Whether to add ORDER BY _row_id (no existing ORDER BY)
+        add_row_id_as_tiebreaker = False  # Whether to append _row_id to existing ORDER BY
+        need_row_id_in_result = False  # Whether we need _row_id in result for index restoration
 
         if not preserve_order:
             pass  # All False
         elif has_group_by or is_aggregate:
             # GROUP BY/aggregate: rows don't correspond to original rows
-            # __row_idx__ is meaningless after aggregation
+            # _row_id is meaningless after aggregation
             pass  # All False
         elif has_order_by:
-            # Has explicit ORDER BY: add __row_idx__ as tie-breaker for stable sort
+            # Has explicit ORDER BY: add _row_id as tie-breaker for stable sort
             # This ensures rows with equal sort keys maintain original relative order
-            needs_row_idx = True
-            add_row_idx_as_tiebreaker = True
+            add_row_id_as_tiebreaker = True
+            need_row_id_in_result = True
         else:
             # No explicit ORDER BY and no GROUP BY/aggregate: preserve original row order
             # This applies to all queries including column selection (SELECT col1, col2)
-            # chDB doesn't guarantee row order, so we must add __row_idx__ ordering
-            needs_row_idx = True
-            add_order_by_row_idx = True
-
-        if needs_row_idx:
-            # Add row position column (0, 1, 2, ...) to preserve original row order
-            # This is independent of DataFrame's index - it's purely for chDB row ordering
-            df_to_use = df_for_sql.copy()
-            df_to_use[row_idx_col] = range(len(df))
+            # chDB doesn't guarantee row order, so we must add _row_id ordering
+            add_order_by_row_id = True
+            need_row_id_in_result = True
 
         # Auto-wrap table reference if not already wrapped
         processed_sql = sql
         if f'Python({df_name})' not in sql:
             processed_sql = sql.replace(df_name, f'Python({df_name})')
 
-        # Handle ORDER BY modifications
-        if add_order_by_row_idx:
-            # No existing ORDER BY: wrap query and add ORDER BY __row_idx__
-            processed_sql = self._add_order_by(processed_sql, row_idx_col)
-        elif add_row_idx_as_tiebreaker:
-            # Has existing ORDER BY: append __row_idx__ as tie-breaker for stable sort
-            processed_sql = self._append_tiebreaker_to_orderby(processed_sql, row_idx_col)
+        # Replace rowNumberInAllBlocks() with _row_id for Python() table function
+        # rowNumberInAllBlocks() is non-deterministic with Python() table function
+        # but _row_id is a built-in deterministic virtual column in chDB v4.0.0b5+
+        processed_sql = processed_sql.replace('rowNumberInAllBlocks()', '_row_id')
+
+        # Handle ORDER BY modifications using _row_id
+        if add_order_by_row_id:
+            # No existing ORDER BY: add ORDER BY _row_id to preserve row order
+            processed_sql = self._add_order_by_row_id(processed_sql)
+        elif add_row_id_as_tiebreaker:
+            # Has existing ORDER BY: append _row_id as tie-breaker for stable sort
+            processed_sql = self._append_row_id_tiebreaker(processed_sql)
+
+        # Add _row_id to SELECT if we need it for index restoration
+        if need_row_id_in_result:
+            processed_sql = self._add_row_id_to_select(processed_sql)
 
         self._log_query(processed_sql, "DataFrame")
 
@@ -294,15 +320,30 @@ class Connection:
             result = self._execute_df_query(processed_sql, df_to_use, df_name)
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
-            # Restore original pandas index from __row_idx__ (row positions)
+            # Restore original pandas index from _row_id (row positions)
             # Map row positions back to original index values
-            if needs_row_idx and row_idx_col in result.columns:
-                # __row_idx__ contains row positions (0, 1, 2, ...)
+            # Also handle auto-renamed columns like _row_id_1, _row_id_2 from nested subqueries
+            row_id_cols = [c for c in result.columns if c == '_row_id' or (isinstance(c, str) and c.startswith('_row_id_'))]
+            if need_row_id_in_result and '_row_id' in result.columns:
+                # _row_id contains row positions (0, 1, 2, ...)
                 # Look up original index values from these positions
-                row_positions = result[row_idx_col].values
-                result = result.drop(columns=[row_idx_col])
-                result.index = df.index[row_positions]
-                result.index.name = df.index.name  # Preserve original index name
+                row_positions = result['_row_id'].values
+                result = result.drop(columns=row_id_cols)
+
+                # If we reset the index earlier, use original_index for restoration
+                if original_index is not None:
+                    result.index = original_index[row_positions]
+                    result.index.name = original_index_name
+                else:
+                    result.index = df.index[row_positions]
+                    result.index.name = df.index.name  # Preserve original index name
+            elif row_id_cols:
+                # Remove any _row_id columns that weren't used for index restoration
+                result = result.drop(columns=row_id_cols)
+                # Restore original index if we reset it earlier
+                if original_index is not None and len(result) == len(original_index):
+                    result.index = original_index
+                    result.index.name = original_index_name
 
             self._log_result(result)
             self._logger.debug(
@@ -617,13 +658,15 @@ class Connection:
         """
         Append a tie-breaker column to existing ORDER BY clause for stable sort.
 
-        When there's an explicit ORDER BY, we append __row_idx__ as a secondary
+        Append a tie-breaker column to existing ORDER BY clause for stable sort.
+
+        When there's an explicit ORDER BY, we append the tie-breaker column as a secondary
         sort key to maintain original relative order for rows with equal sort keys.
         This implements stable sort behavior like pandas sort_values(kind='stable').
 
         Example:
             Input:  SELECT * FROM t ORDER BY name DESC
-            Output: SELECT * FROM t ORDER BY name DESC, __row_idx__ ASC
+            Output: SELECT * FROM t ORDER BY name DESC, __tiebreaker__ ASC
         """
         sql_upper = sql.upper()
 
@@ -642,6 +685,161 @@ class Connection:
 
         # Insert tie-breaker before the end of ORDER BY clause
         return sql[:order_by_end] + f', "{tiebreaker_col}" ASC' + sql[order_by_end:]
+
+    def _add_order_by_row_id(self, sql: str) -> str:
+        """
+        Add ORDER BY _row_id clause to preserve original row order.
+
+        Uses chDB's built-in _row_id virtual column which provides the 0-based
+        row number from the original DataFrame.
+
+        For queries with LIMIT/OFFSET at the outer level, ORDER BY must be applied
+        BEFORE them.
+
+        Example:
+            Input:  SELECT id, value FROM Python(df) WHERE value > 10
+            Output: SELECT id, value FROM Python(df) WHERE value > 10 ORDER BY _row_id
+        """
+        sql_upper = sql.upper()
+
+        # Check if LIMIT/OFFSET exists at the OUTER level (not inside a subquery)
+        limit_pos = self._find_outer_clause_position(sql_upper, 'LIMIT')
+        offset_pos = self._find_outer_clause_position(sql_upper, 'OFFSET')
+
+        if limit_pos != -1 or offset_pos != -1:
+            # LIMIT/OFFSET at outer level - insert ORDER BY before it
+            clause_start = len(sql)
+            if limit_pos != -1:
+                clause_start = min(clause_start, limit_pos)
+            if offset_pos != -1:
+                clause_start = min(clause_start, offset_pos)
+
+            base_query = sql[:clause_start].strip()
+            limit_offset_clause = sql[clause_start:].strip()
+            return f"{base_query} ORDER BY _row_id {limit_offset_clause}"
+        else:
+            # No LIMIT/OFFSET at outer level: add ORDER BY at the end
+            return f"{sql} ORDER BY _row_id"
+
+    def _append_row_id_tiebreaker(self, sql: str) -> str:
+        """
+        Append _row_id as tie-breaker to existing ORDER BY clause for stable sort.
+
+        When there's an explicit ORDER BY, we append _row_id as a secondary
+        sort key to maintain original relative order for rows with equal sort keys.
+        This implements stable sort behavior like pandas sort_values(kind='stable').
+
+        Example:
+            Input:  SELECT * FROM Python(df) ORDER BY name DESC
+            Output: SELECT * FROM Python(df) ORDER BY name DESC, _row_id ASC
+        """
+        sql_upper = sql.upper()
+
+        # Find the last ORDER BY position (to handle subqueries)
+        order_by_pos = sql_upper.rfind('ORDER BY')
+        if order_by_pos == -1:
+            # No ORDER BY found, shouldn't happen but handle gracefully
+            return sql
+
+        # Find where ORDER BY clause ends (LIMIT, OFFSET, or end of string)
+        order_by_end = len(sql)
+        for keyword in [' LIMIT ', ' OFFSET ', ';']:
+            pos = sql_upper.find(keyword, order_by_pos)
+            if pos != -1 and pos < order_by_end:
+                order_by_end = pos
+
+        # Insert _row_id tie-breaker before the end of ORDER BY clause
+        return sql[:order_by_end] + ', _row_id ASC' + sql[order_by_end:]
+
+    def _add_row_id_to_select(self, sql: str) -> str:
+        """
+        Add _row_id to SELECT clauses for index restoration after query.
+
+        For queries with subqueries, _row_id must be added to ALL SELECT clauses
+        because _row_id is a virtual column that is NOT included in SELECT *.
+        The innermost query (with Python()) needs _row_id explicitly selected,
+        and each outer query needs it too for propagation.
+
+        Example:
+            Input:  SELECT id, value FROM Python(df)
+            Output: SELECT id, value, _row_id FROM Python(df)
+
+            Input:  SELECT * FROM Python(df)
+            Output: SELECT *, _row_id FROM Python(df)
+
+            Input:  SELECT * FROM (SELECT * FROM Python(df)) AS sub
+            Output: SELECT *, _row_id FROM (SELECT *, _row_id FROM Python(df)) AS sub
+        """
+        # For queries with subqueries, we need to add _row_id to ALL SELECT clauses
+        # because _row_id is a virtual column not included in SELECT *
+        return self._add_row_id_to_all_selects(sql)
+
+    def _add_row_id_to_all_selects(self, sql: str) -> str:
+        """
+        Add _row_id to all SELECT clauses in the SQL.
+
+        This is necessary because _row_id is a virtual column that's only
+        available on Python() table function, and SELECT * doesn't include it.
+        We need to explicitly select it at every level for it to be available
+        in outer queries.
+        """
+        # Find all FROM positions that are at valid SQL boundaries (not inside quoted strings)
+        # and add _row_id before each one
+        result = []
+        i = 0
+        sql_len = len(sql)
+
+        while i < sql_len:
+            # Track if we're inside a quoted string
+            if sql[i] == '"':
+                # Find closing quote
+                end = sql.find('"', i + 1)
+                if end == -1:
+                    result.append(sql[i:])
+                    break
+                result.append(sql[i : end + 1])
+                i = end + 1
+                continue
+            elif sql[i] == "'":
+                # Find closing quote
+                end = sql.find("'", i + 1)
+                if end == -1:
+                    result.append(sql[i:])
+                    break
+                result.append(sql[i : end + 1])
+                i = end + 1
+                continue
+
+            # Check if we're at a FROM keyword (case-insensitive)
+            upper_remaining = sql[i:].upper()
+            if upper_remaining.startswith('FROM') and (i == 0 or not sql[i - 1].isalnum() and sql[i - 1] != '_'):
+                # Check if FROM is followed by a non-alphanumeric character (word boundary)
+                after_from = i + 4
+                if after_from >= sql_len or (not sql[after_from].isalnum() and sql[after_from] != '_'):
+                    # This is a valid FROM keyword
+                    # Check the preceding content for _row_id
+                    preceding = ''.join(result)
+
+                    # Find the last SELECT before this FROM
+                    select_pos = preceding.upper().rfind('SELECT')
+                    if select_pos != -1:
+                        # Check if _row_id is already in this SELECT clause
+                        select_clause = preceding[select_pos:]
+                        if '_row_id' not in select_clause.lower():
+                            # Add _row_id before FROM
+                            # Remove trailing whitespace and add _row_id
+                            while result and result[-1].isspace():
+                                result.pop()
+                            result.append(', _row_id ')
+
+                    result.append(sql[i : i + 4])  # Add FROM
+                    i = i + 4
+                    continue
+
+            result.append(sql[i])
+            i += 1
+
+        return ''.join(result)
 
     def _execute_df_query(self, sql: str, df: pd.DataFrame, df_name: str) -> pd.DataFrame:
         """
@@ -663,8 +861,9 @@ class Connection:
 
         Useful for column assignments like: ds['new_col'] = ds['value'].cast('Float64')
 
-        IMPORTANT: This method preserves row order by adding an index column and
-        ORDER BY clause to ensure results align with the original DataFrame.
+        IMPORTANT: This method preserves row order using chDB's built-in _row_id
+        virtual column (available in chDB v4.0.0b5+) to ensure results align with
+        the original DataFrame.
         For aggregate expressions, ORDER BY is skipped as they return single values.
         For row-expanding expressions (arrayJoin/explode), the result may have more
         rows than the input and index alignment is skipped.
@@ -695,14 +894,14 @@ class Connection:
             __df__ = df_converted  # noqa: F841
             query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__)"
         else:
-            # Add row index to preserve order for row-level expressions
-            row_idx_col = '__row_idx__'
-            __df__ = df_converted.copy()  # noqa: F841
-            __df__[row_idx_col] = range(len(df))
-            # Replace rowNumberInAllBlocks() with __row_idx__ for window function ordering
+            # Use _row_id to preserve order for row-level expressions
+            # _row_id is a built-in virtual column in chDB that provides the 0-based
+            # row number from the original DataFrame
+            __df__ = df_converted  # noqa: F841
+            # Replace rowNumberInAllBlocks() with _row_id for window function ordering
             # This ensures window functions use the original DataFrame row order
-            expr_sql_fixed = expr_sql.replace('rowNumberInAllBlocks()', row_idx_col)
-            query = f"SELECT {expr_sql_fixed} AS {result_column} FROM Python(__df__) ORDER BY {row_idx_col}"
+            expr_sql_fixed = expr_sql.replace('rowNumberInAllBlocks()', '_row_id')
+            query = f"SELECT {expr_sql_fixed} AS {result_column} FROM Python(__df__) ORDER BY _row_id"
 
         self._log_query(query, "Expression")
 

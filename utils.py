@@ -153,8 +153,9 @@ def format_identifier(name: str, quote_char: str = '"') -> str:
 # ========== Sort Stability Constants and Functions ==========
 # These ensure DataStore sort matches pandas stable sort (kind='stable') behavior
 
-# Tie-breaker for stable sort: rowNumberInAllBlocks() preserves original row order
-# when sort keys have duplicate values. Performance overhead is minimal (~5%).
+# Tie-breaker for stable sort to preserve original row order when sort keys have duplicates.
+# For Python() table function: connection.py replaces this with _row_id at execution time
+# For file sources (Parquet, CSV): rowNumberInAllBlocks() works correctly as-is
 STABLE_SORT_TIEBREAKER = "rowNumberInAllBlocks() ASC"
 
 # Sort kinds that guarantee stability (matching pandas behavior)

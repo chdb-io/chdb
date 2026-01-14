@@ -1729,8 +1729,8 @@ class SQLExecutionEngine:
 
         # Handle empty column selection: return DataFrame with 0 columns but correct row count
         if getattr(plan, '_empty_column_select', False):
-            # Remove __row_idx__ and return empty column DataFrame
-            result_df = result_df.drop(columns=['__row_idx__'], errors='ignore')
+            # Remove _row_id and return empty column DataFrame
+            result_df = result_df.drop(columns=['_row_id'], errors='ignore')
             # Return DataFrame with correct index but no columns
             return result_df[[]]
 
@@ -1861,7 +1861,7 @@ class SQLExecutionEngine:
 
         if plan.groupby_agg:
             # Pass all_columns for count() to generate COUNT(col) per column
-            df_columns = [c for c in df.columns if c != '__row_idx__']
+            df_columns = list(df.columns)
             # Get computed columns for expanding assign() columns in aggregations
             computed_cols = getattr(self.ds, '_computed_columns', None) or {}
             groupby_fields, select_fields = build_groupby_select_fields(
@@ -1877,8 +1877,6 @@ class SQLExecutionEngine:
         if plan.where_ops:
             all_columns = list(df.columns)
             for col in all_columns:
-                if col == '__row_idx__':
-                    continue
                 col_type = schema.get(col, str(df[col].dtype))
                 temp_alias = f"__tmp_{col}__"
                 case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type, alias=temp_alias)
@@ -1889,14 +1887,13 @@ class SQLExecutionEngine:
         # Priority: empty column select -> CASE WHEN/GroupBy fields -> explicit column selection -> *
         if clauses.empty_column_select:
             # Empty column selection: df[[]] - return DataFrame with 0 columns
-            # We still need __row_idx__ for row tracking, but it will be removed post-query
-            select_sql = '"__row_idx__"'
+            # We use _row_id for row tracking (built-in virtual column in chDB v4.0.0b5+)
+            select_sql = '_row_id'
             # Mark that we want to return empty columns (handled in post-processing)
             plan._empty_column_select = True
         elif select_fields:
             select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
-            if not groupby_fields:
-                select_sql += ', "__row_idx__"'
+            # No need to add _row_id here - connection.query_df handles it automatically
         elif clauses.select_fields:
             # Check if SELECT * was specified (need all original columns + computed columns)
             # But only add '*' if clauses.select_fields doesn't already contain explicit column
@@ -1913,7 +1910,7 @@ class SQLExecutionEngine:
             has_column_assignments = bool(column_assignments)
 
             # Check for column overrides (assigned column already exists in DataFrame)
-            df_columns_ordered = [c for c in df.columns if c != '__row_idx__']
+            df_columns_ordered = list(df.columns)
             df_columns_set = set(df_columns_ordered)
             override_columns = {op.column for op in column_assignments if op.column in df_columns_set}
 
@@ -1975,7 +1972,7 @@ class SQLExecutionEngine:
                 f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
                 for temp, orig in where_temp_alias_map.items()
             )
-            outer_select += ', "__row_idx__"'
+            # _row_id is added automatically by connection.query_df
             parts = [f"SELECT {outer_select}", f"FROM ({inner_sql}) AS __case_subq__"]
         else:
             parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
@@ -2021,9 +2018,8 @@ class SQLExecutionEngine:
                             parts.insert(groupby_idx, f'WHERE {dropna_filter}')
 
         # ORDER BY clause
-        # For SQL on DataFrame, we need a different approach for stable sort:
-        # 1. Add __row_idx__ column (handled by query_df)
-        # 2. Use __row_idx__ as tie-breaker instead of rowNumberInAllBlocks()
+        # For SQL on DataFrame, row order preservation is handled by connection.query_df
+        # using chDB's built-in _row_id virtual column (available in v4.0.0b5+)
         if clauses.orderby_fields:
             # Build ORDER BY without stable sort modifier
             orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
@@ -2097,7 +2093,7 @@ class SQLExecutionEngine:
         """
         # Build innermost query from layer 0
         inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
-        # add_row_order=True ensures LIMIT/OFFSET with no explicit ORDER BY gets ORDER BY __row_idx__
+        # add_row_order=True ensures LIMIT/OFFSET with no explicit ORDER BY gets ORDER BY _row_id
         sql = self._assemble_simple_sql("__df__", inner_clauses, add_row_order=True)
 
         # Track ORDER BY from inner layer to preserve in outer layers
@@ -2133,7 +2129,7 @@ class SQLExecutionEngine:
             from_source: The FROM clause source (table name or subquery)
             clauses: Extracted SQL clauses
             add_row_order: If True and there's LIMIT/OFFSET without explicit ORDER BY,
-                           add ORDER BY __row_idx__ to preserve pandas-like row order
+                           add ORDER BY _row_id to preserve pandas-like row order
             preserved_orderby: ORDER BY fields from inner layers to preserve sort order
 
         Returns:
@@ -2154,16 +2150,17 @@ class SQLExecutionEngine:
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
         # Add ORDER BY - either explicit, preserved from inner, or for LIMIT/OFFSET determinism
-        # Priority: explicit ORDER BY > preserved ORDER BY > __row_idx__ fallback
+        # Priority: explicit ORDER BY > preserved ORDER BY > _row_id fallback
         orderby_to_use = clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
 
         if orderby_to_use:
             orderby_sql = build_orderby_clause(orderby_to_use, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
         elif add_row_order and (clauses.limit_value is not None or clauses.offset_value is not None):
-            # Add ORDER BY __row_idx__ for LIMIT/OFFSET without explicit ORDER BY
+            # Add ORDER BY _row_id for LIMIT/OFFSET without explicit ORDER BY
             # This preserves pandas-like row order (original DataFrame row positions)
-            parts.append("ORDER BY __row_idx__")
+            # _row_id is a built-in virtual column in chDB v4.0.0b5+
+            parts.append("ORDER BY _row_id")
 
         if clauses.limit_value is not None:
             parts.append(f"LIMIT {clauses.limit_value}")
