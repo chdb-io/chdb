@@ -130,7 +130,7 @@ ColumnPtr PandasScan::scanColumn(
             serialization = real_type->getDefaultSerialization();
 
         auto * object_array = static_cast<PyObject **>(col_wrap.buf);
-        innerScanObject(cursor, count, format_settings, serialization, object_array, column, which);
+        innerScanObject(cursor, count, format_settings, serialization, object_array, column, which, col_wrap.stride);
         return column;
     }
 
@@ -138,41 +138,38 @@ ColumnPtr PandasScan::scanColumn(
     switch (which.idx)
 	{
     case TypeIndex::Float32:
-        innerScanFloat<Float32>(cursor, count, static_cast<const Float32 *>(col_wrap.buf), column);
+        innerScanFloat<Float32>(cursor, count, static_cast<const Float32 *>(col_wrap.buf), column, col_wrap.stride);
         break;
     case TypeIndex::Float64:
-        innerScanFloat<Float64>(cursor, count, static_cast<const Float64 *>(col_wrap.buf), column);
+        innerScanFloat<Float64>(cursor, count, static_cast<const Float64 *>(col_wrap.buf), column, col_wrap.stride);
         break;
     case TypeIndex::Int8:
-        innerScanNumeric<Int8>(cursor, count, static_cast<const Int8 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<Int8>(cursor, count, static_cast<const Int8 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::Int16:
-        innerScanNumeric<Int16>(cursor, count, static_cast<const Int16 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<Int16>(cursor, count, static_cast<const Int16 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::Int32:
-        innerScanNumeric<Int32>(cursor, count, static_cast<const Int32 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<Int32>(cursor, count, static_cast<const Int32 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::Int64:
-        innerScanNumeric<Int64>(cursor, count, static_cast<const Int64 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<Int64>(cursor, count, static_cast<const Int64 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::UInt8:
-        innerScanNumeric<UInt8>(cursor, count, static_cast<const UInt8 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<UInt8>(cursor, count, static_cast<const UInt8 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::UInt16:
-        innerScanNumeric<UInt16>(cursor, count, static_cast<const UInt16 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<UInt16>(cursor, count, static_cast<const UInt16 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::UInt32:
-        innerScanNumeric<UInt32>(cursor, count, static_cast<const UInt32 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<UInt32>(cursor, count, static_cast<const UInt32 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::UInt64:
-        innerScanNumeric<UInt64>(cursor, count, static_cast<const UInt64 *>(col_wrap.buf), getMaskPtr(col_wrap), column);
+        innerScanNumeric<UInt64>(cursor, count, static_cast<const UInt64 *>(col_wrap.buf), getMaskPtr(col_wrap), column, col_wrap.stride, col_wrap.mask_stride);
         break;
     case TypeIndex::DateTime64:
-        {
-            const auto * int64_array = static_cast<const Int64 *>(col_wrap.buf);
-            innerScanDateTime64(cursor, count, int64_array, column);
-            break;
-        }
+        innerScanDateTime64(cursor, count, static_cast<const Int64 *>(col_wrap.buf), column, col_wrap.stride);
+        break;
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported target type: {}", which.idx);
 	}
@@ -219,12 +216,16 @@ void PandasScan::innerScanObject(
     SerializationPtr & serialization,
     PyObject ** objects,
     MutableColumnPtr & column,
-    WhichDataType which)
+    WhichDataType which,
+    size_t stride)
 {
     py::gil_scoped_acquire acquire;
 #if USE_JEMALLOC
     ::Memory::MemoryCheckScope memory_check_scope;
 #endif
+
+    const size_t effective_stride = (stride == 0) ? sizeof(PyObject *) : stride;
+    const auto * base_ptr = reinterpret_cast<const char *>(objects);
 
     switch (which.idx)
     {
@@ -236,7 +237,8 @@ void PandasScan::innerScanObject(
 
             for (size_t i = cursor; i < cursor + count; ++i)
             {
-                auto handle = py::handle(objects[i]);
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                auto handle = py::handle(obj_ptr);
                 if (!py::isinstance<py::dict>(handle))
                 {
                     null_map.push_back(1);
@@ -270,7 +272,8 @@ void PandasScan::innerScanObject(
                         string_chars_ptr->reserve(reserve_size);
                 }
 
-                auto handle = py::handle(objects[i]);
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                auto handle = py::handle(obj_ptr);
 
                 bool is_null = false;
                 bool is_str = py::isinstance<py::str>(handle);
@@ -305,7 +308,8 @@ void PandasScan::innerScanObject(
 
             for (size_t i = cursor; i < cursor + count; ++i)
             {
-                auto handle = py::handle(objects[i]);
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                auto handle = py::handle(obj_ptr);
 
                 if (!py::isinstance<py::int_>(handle) && !py::isinstance<py::float_>(handle))
                 {
@@ -344,15 +348,24 @@ void PandasScan::innerScanObject(
         }
     case TypeIndex::Int64:
         for (size_t i = cursor; i < cursor + count; ++i)
-            scanIntegerColumn<Int64>(py::handle(objects[i]), column);
+        {
+            auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+            scanIntegerColumn<Int64>(py::handle(obj_ptr), column);
+        }
         break;
     case TypeIndex::Int32:
         for (size_t i = cursor; i < cursor + count; ++i)
-            scanIntegerColumn<Int32>(py::handle(objects[i]), column);
+        {
+            auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+            scanIntegerColumn<Int32>(py::handle(obj_ptr), column);
+        }
         break;
     case TypeIndex::UInt64:
         for (size_t i = cursor; i < cursor + count; ++i)
-            scanIntegerColumn<UInt64>(py::handle(objects[i]), column);
+        {
+            auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+            scanIntegerColumn<UInt64>(py::handle(obj_ptr), column);
+        }
         break;
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported nullable target type: {}", which.idx);
@@ -364,25 +377,40 @@ void PandasScan::innerScanFloat(
     const size_t cursor,
     const size_t count,
     const T * ptr,
-    DB::MutableColumnPtr & column)
+    DB::MutableColumnPtr & column,
+    size_t stride)
 {
     auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
     auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
     auto & null_map = nullable_column.getNullMapData();
 
-    ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
-    const T * start = ptr + cursor;
-    helper->appendRawData<sizeof(T)>(reinterpret_cast<const char *>(start), count);
-
-    for (size_t i = 0; i < count; ++i)
+    if (stride == 0 || stride == sizeof(T))
     {
-        bool is_nan = std::isnan(start[i]);
-        null_map.push_back(is_nan ? 1 : 0);
+        ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
+        const T * start = ptr + cursor;
+        helper->appendRawData<sizeof(T)>(reinterpret_cast<const char *>(start), count);
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            bool is_nan = std::isnan(start[i]);
+            null_map.push_back(is_nan ? 1 : 0);
+        }
+    }
+    else
+    {
+        auto & container = assert_cast<ColumnVector<T> &>(*data_column).getData();
+        const auto * base_ptr = reinterpret_cast<const char *>(ptr);
+        for (size_t i = cursor; i < cursor + count; ++i)
+        {
+            T value = *reinterpret_cast<const T *>(base_ptr + i * stride);
+            container.push_back(value);
+            null_map.push_back(std::isnan(value) ? 1 : 0);
+        }
     }
 }
 
-template void PandasScan::innerScanFloat<Float32>(const size_t, const size_t, const Float32 *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanFloat<Float64>(const size_t, const size_t, const Float64 *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanFloat<Float32>(const size_t, const size_t, const Float32 *, DB::MutableColumnPtr &, size_t);
+template void PandasScan::innerScanFloat<Float64>(const size_t, const size_t, const Float64 *, DB::MutableColumnPtr &, size_t);
 
 template <typename T>
 void PandasScan::innerScanNumeric(
@@ -390,54 +418,103 @@ void PandasScan::innerScanNumeric(
     const size_t count,
     const T * data_ptr,
     const bool * mask_ptr,
-    DB::MutableColumnPtr & column)
+    DB::MutableColumnPtr & column,
+    size_t stride,
+    size_t mask_stride)
 {
     auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
     auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
     auto & null_map = nullable_column.getNullMapData();
 
-    ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
-    const T * start = data_ptr + cursor;
-    helper->appendRawData<sizeof(T)>(reinterpret_cast<const char *>(start), count);
+    const bool data_contiguous = (stride == 0 || stride == sizeof(T));
+    const bool mask_contiguous = (mask_stride == 0 || mask_stride == sizeof(bool));
 
-    if (mask_ptr != nullptr)
+    if (data_contiguous && mask_contiguous)
     {
-        const bool * mask_start = mask_ptr + cursor;
-        null_map.insert(reinterpret_cast<const UInt8 *>(mask_start), reinterpret_cast<const UInt8 *>(mask_start + count));
+        ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
+        const T * start = data_ptr + cursor;
+        helper->appendRawData<sizeof(T)>(reinterpret_cast<const char *>(start), count);
+
+        if (mask_ptr != nullptr)
+        {
+            const bool * mask_start = mask_ptr + cursor;
+            null_map.insert(reinterpret_cast<const UInt8 *>(mask_start), reinterpret_cast<const UInt8 *>(mask_start + count));
+        }
+        else
+        {
+            null_map.resize_fill(null_map.size() + count, 0);
+        }
     }
     else
     {
-        null_map.resize_fill(null_map.size() + count, 0);
+        // Slow path: non-contiguous data or mask
+        auto & container = assert_cast<ColumnVector<T> &>(*data_column).getData();
+        const size_t effective_stride = (stride == 0) ? sizeof(T) : stride;
+        const size_t effective_mask_stride = (mask_stride == 0) ? sizeof(bool) : mask_stride;
+        const auto * data_base = reinterpret_cast<const char *>(data_ptr);
+        const auto * mask_base = reinterpret_cast<const char *>(mask_ptr);
+
+        for (size_t i = cursor; i < cursor + count; ++i)
+        {
+            T value = *reinterpret_cast<const T *>(data_base + i * effective_stride);
+            container.push_back(value);
+
+            if (mask_ptr != nullptr)
+            {
+                bool is_null = *reinterpret_cast<const bool *>(mask_base + i * effective_mask_stride);
+                null_map.push_back(is_null ? 1 : 0);
+            }
+            else
+            {
+                null_map.push_back(0);
+            }
+        }
     }
 }
 
-template void PandasScan::innerScanNumeric<Int8>(const size_t, const size_t, const Int8 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<Int16>(const size_t, const size_t, const Int16 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<Int32>(const size_t, const size_t, const Int32 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<Int64>(const size_t, const size_t, const Int64 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<UInt8>(const size_t, const size_t, const UInt8 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<UInt16>(const size_t, const size_t, const UInt16 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<UInt32>(const size_t, const size_t, const UInt32 *, const bool *, DB::MutableColumnPtr &);
-template void PandasScan::innerScanNumeric<UInt64>(const size_t, const size_t, const UInt64 *, const bool *, DB::MutableColumnPtr &);
+template void PandasScan::innerScanNumeric<Int8>(const size_t, const size_t, const Int8 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<Int16>(const size_t, const size_t, const Int16 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<Int32>(const size_t, const size_t, const Int32 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<Int64>(const size_t, const size_t, const Int64 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<UInt8>(const size_t, const size_t, const UInt8 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<UInt16>(const size_t, const size_t, const UInt16 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<UInt32>(const size_t, const size_t, const UInt32 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
+template void PandasScan::innerScanNumeric<UInt64>(const size_t, const size_t, const UInt64 *, const bool *, DB::MutableColumnPtr &, size_t, size_t);
 
 void PandasScan::innerScanDateTime64(
     const size_t cursor,
     const size_t count,
     const Int64 * ptr,
-    DB::MutableColumnPtr & column)
+    DB::MutableColumnPtr & column,
+    size_t stride)
 {
     auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
     auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
     auto & null_map = nullable_column.getNullMapData();
 
-    ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
-    const Int64 * start = ptr + cursor;
-    helper->appendRawData<sizeof(Int64)>(reinterpret_cast<const char *>(start), count);
-
-    for (size_t i = 0; i < count; ++i)
+    if (stride == 0 || stride == sizeof(Int64))
     {
-        bool is_nat = start[i] <= std::numeric_limits<Int64>::min();
-        null_map.push_back(is_nat ? 1 : 0);
+        ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
+        const Int64 * start = ptr + cursor;
+        helper->appendRawData<sizeof(Int64)>(reinterpret_cast<const char *>(start), count);
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            bool is_nat = start[i] <= std::numeric_limits<Int64>::min();
+            null_map.push_back(is_nat ? 1 : 0);
+        }
+    }
+    else
+    {
+        auto & container = assert_cast<ColumnVector<Int64> &>(*data_column).getData();
+        const auto * base_ptr = reinterpret_cast<const char *>(ptr);
+        for (size_t i = cursor; i < cursor + count; ++i)
+        {
+            Int64 value = *reinterpret_cast<const Int64 *>(base_ptr + i * stride);
+            container.push_back(value);
+            bool is_nat = value <= std::numeric_limits<Int64>::min();
+            null_map.push_back(is_nat ? 1 : 0);
+        }
     }
 }
 

@@ -52,8 +52,9 @@ StoragePython::StoragePython(
     const ConstraintsDescription & constraints_,
     py::object reader_,
     ContextPtr context_,
-    bool is_pandas_df)
+    bool is_pandas_df_)
     : IStorage(table_id_), data_source(reader_), WithContext(context_)
+    , is_pandas_df(is_pandas_df_)
 {
     StorageInMemoryMetadata storage_metadata;
     storage_metadata.setColumns(columns_);
@@ -171,22 +172,20 @@ void StoragePython::prepareColumnCache(
             col.name = col_name;
             try
             {
-                py::object col_data = data_source[py::str(col_name)];
-                auto py_result = tryGetPyArray(col_data, col.data, col.tmp, col.py_type, col.row_count);
-                col.buf = const_cast<void *>(py_result.data);
-                col.registered_array = std::move(py_result.registered_array);
+                if (is_pandas_df)
+                {
+                    CHDB::PandasDataFrame::fillColumn(data_source, col_name, col);
+                }
+                else
+                {
+                    py::object col_data = data_source[py::str(col_name)];
+                    col.buf = const_cast<void *>(tryGetPyArray(col_data, col.data, col.tmp, col.py_type, col.row_count));
+                }
                 if (col.buf == nullptr)
                     throw Exception(
                         ErrorCodes::PY_EXCEPTION_OCCURED, "Convert to array failed for column {} type {}", col_name, col.py_type);
                 col.dest_type = sample_block.getByPosition(i).type;
                 data_source_row_count = col.row_count;
-
-                if (is_pandas_df)
-                {
-                    py::object dtype = data_source.attr("dtypes")[py::str(col_name)];
-                    auto numpy_type = ConvertNumpyType(dtype);
-                    col.is_object_type = (numpy_type.type == NumpyNullableType::OBJECT);
-                }
             }
             catch (const Exception & e)
             {

@@ -121,4 +121,58 @@ bool PandasDataFrame::isPyArrowBacked(const py::handle & /*object*/)
     return false;
 }
 
+void PandasDataFrame::fillColumn(const py::handle & data_source, const std::string & col_name, DB::ColumnWrapper & column)
+{
+    chassert(py::gil_check());
+
+    py::object series = data_source[py::str(col_name)];
+    py::object dtype = data_source.attr("dtypes")[py::str(col_name)];
+
+    auto numpy_type = ConvertNumpyType(dtype);
+    column.is_object_type = (numpy_type.type == NumpyNullableType::OBJECT);
+
+    py::array array = series.attr("values");
+    column.row_count = py::len(series);
+    chassert(py::hasattr(array, "strides"));
+    column.stride = array.attr("strides").attr("__getitem__")(0).cast<size_t>();
+
+    if (column.row_count > 0)
+    {
+        auto elem_type = series.attr("iloc").attr("__getitem__")(0).attr("__class__").attr("__name__").cast<std::string>();
+        if (elem_type == "str" || elem_type == "unicode")
+        {
+            column.data = array;
+            column.buf = const_cast<void *>(array.data());
+            return;
+        }
+
+        if (elem_type == "bytes" || elem_type == "object")
+        {
+            auto str_obj = series.attr("astype")(py::dtype("str"));
+            array = str_obj.attr("values");
+            column.data = array;
+            column.tmp = array;
+            column.tmp.inc_ref();
+            column.buf = const_cast<void *>(array.data());
+            return;
+        }
+    }
+
+    py::object underlying_array = series.attr("array");
+    if (py::hasattr(underlying_array, "_data") && py::hasattr(underlying_array, "_mask"))
+    {
+        py::array data_array = underlying_array.attr("_data");
+        py::array mask_array = underlying_array.attr("_mask");
+        column.data = data_array;
+        column.buf = const_cast<void *>(data_array.data());
+        column.stride = data_array.attr("strides").attr("__getitem__")(0).cast<size_t>();
+        column.mask_stride = mask_array.attr("strides").attr("__getitem__")(0).cast<size_t>();
+        column.registered_array = std::make_unique<DB::RegisteredArray>(mask_array);
+        return;
+    }
+
+    column.data = array;
+    column.buf = const_cast<void *>(array.data());
+}
+
 } // namespace CHDB

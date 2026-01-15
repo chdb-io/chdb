@@ -71,9 +71,9 @@ private:
     template <typename T>
     ColumnPtr convert_and_insert(const py::object & obj, UInt32 scale = 0, bool is_json = false);
     template <typename T>
-    void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, size_t offset, size_t row_count);
+    void insert_from_ptr(const void * ptr, const MutableColumnPtr & column, size_t offset, size_t row_count, size_t stride = 0);
 
-    void convert_string_array_to_block(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count);
+    void convert_string_array_to_block(PyObject ** buf, const MutableColumnPtr & column, size_t offset, size_t row_count, size_t stride = 0);
 
     template <typename T>
     void insert_from_list(const py::list & obj, const MutableColumnPtr & column);

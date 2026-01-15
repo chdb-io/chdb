@@ -128,7 +128,7 @@ public:
         const ConstraintsDescription & constraints_,
         py::object reader_,
         ContextPtr context_,
-        bool is_pandas_df);
+        bool is_pandas_df_);
 
     ~StoragePython() override
     {
@@ -164,6 +164,7 @@ private:
         const std::vector<bool> & is_virtual_column);
     py::object data_source;
     PyColumnVecPtr column_cache;
+    bool is_pandas_df;
     size_t data_source_row_count = 0;
     Poco::Logger * logger = &Poco::Logger::get("StoragePython");
 };
