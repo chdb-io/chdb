@@ -101,7 +101,8 @@ AllocationTrace CurrentMemoryTracker::allocImpl(Int64 size, bool throw_if_memory
             }
         }
 
-        return AllocationTrace(memory_tracker->getSampleProbability(size));
+        /// return AllocationTrace(memory_tracker->getSampleProbability(size));
+        return AllocationTrace(0);
     }
 
     return AllocationTrace(0);
@@ -149,7 +150,8 @@ AllocationTrace CurrentMemoryTracker::free(Int64 size)
             return memory_tracker->free(-untracked_memory);
         }
 
-        return AllocationTrace(memory_tracker->getSampleProbability(size));
+        /// return AllocationTrace(memory_tracker->getSampleProbability(size));
+        return AllocationTrace(0);
     }
 
     return AllocationTrace(0);
