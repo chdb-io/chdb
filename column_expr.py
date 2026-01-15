@@ -3470,6 +3470,42 @@ class ColumnExpr:
             method_kwargs=kwargs,
         )
 
+    def quantile(self, q=0.5, interpolation='linear', **kwargs) -> 'ColumnExpr':
+        """
+        Compute quantile of the column.
+
+        Returns a ColumnExpr (aggregation mode) that executes on display.
+        When used with groupby (i.e., when _groupby_fields is set), returns
+        a Series with the quantile value for each group.
+
+        Args:
+            q: Quantile(s) to compute. Must be between 0 and 1.
+               Can be a float or list of floats. Default is 0.5 (median).
+            interpolation: Method for interpolation when the desired quantile
+                          lies between two data points. Options:
+                          'linear', 'lower', 'higher', 'midpoint', 'nearest'.
+                          Default is 'linear'.
+            **kwargs: Additional pandas arguments
+
+        Returns:
+            ColumnExpr: Lazy aggregate that executes on display
+
+        Example:
+            >>> ds['value'].quantile(0.5)  # Displays scalar when shown
+            25.0
+            >>> ds.groupby('category')['value'].quantile(0.5)  # Displays Series
+            category
+            A    20.0
+            B    50.0
+            Name: value, dtype: float64
+        """
+        return self._create_agg_expr(
+            agg_func_name=f'quantile({q})',
+            pandas_agg_func='quantile',
+            skipna=False,  # quantile ignores NaN by default, no If suffix needed
+            method_kwargs=dict(q=q, interpolation=interpolation, **kwargs),
+        )
+
     def nth(self, n, dropna=None) -> 'ColumnExpr':
         """
         Return the nth value from each group.
