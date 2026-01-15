@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from .core import DataStore
 
 
-
 class LazyOp(ABC):
     """
     Base class for lazy operations.
