@@ -2018,8 +2018,9 @@ class SQLExecutionEngine:
                             parts.insert(groupby_idx, f'WHERE {dropna_filter}')
 
         # ORDER BY clause
-        # For SQL on DataFrame, row order preservation is handled by connection.query_df
-        # using chDB's built-in _row_id virtual column (available in v4.0.0b5+)
+        # Use chDB's built-in _row_id virtual column (available in v4.0.0b5+) to preserve row order
+        # This is explicitly added here rather than relying solely on connection.query_df
+        # to ensure consistent behavior across all platforms
         if clauses.orderby_fields:
             # Build ORDER BY without stable sort modifier
             orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
@@ -2029,6 +2030,10 @@ class SQLExecutionEngine:
             orderby_cols = [(Field(col), True) for col in plan.groupby_agg.groupby_cols]
             orderby_sql = build_orderby_clause(orderby_cols, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
+        elif not plan.groupby_agg:
+            # No explicit ORDER BY and no GROUP BY: preserve original row order using _row_id
+            # This ensures filter operations maintain pandas-like row order semantics
+            parts.append("ORDER BY _row_id")
 
         # LIMIT clause
         if clauses.limit_value is not None:
@@ -2149,16 +2154,16 @@ class SQLExecutionEngine:
                 combined = combined & cond
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        # Add ORDER BY - either explicit, preserved from inner, or for LIMIT/OFFSET determinism
+        # Add ORDER BY - either explicit, preserved from inner, or _row_id for row order preservation
         # Priority: explicit ORDER BY > preserved ORDER BY > _row_id fallback
         orderby_to_use = clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
 
         if orderby_to_use:
             orderby_sql = build_orderby_clause(orderby_to_use, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
-        elif add_row_order and (clauses.limit_value is not None or clauses.offset_value is not None):
-            # Add ORDER BY _row_id for LIMIT/OFFSET without explicit ORDER BY
-            # This preserves pandas-like row order (original DataFrame row positions)
+        elif add_row_order:
+            # Add ORDER BY _row_id to preserve pandas-like row order
+            # This ensures filter operations maintain original row order
             # _row_id is a built-in virtual column in chDB v4.0.0b5+
             parts.append("ORDER BY _row_id")
 
