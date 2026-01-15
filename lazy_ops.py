@@ -18,22 +18,37 @@ def _needs_memory_copy(df: pd.DataFrame) -> bool:
     """
     Check if a DataFrame has a memory layout that is incompatible with chDB's Python() table function.
 
-    When a pandas DataFrame is created from a 2D numpy array, it may share memory
-    with the original array in a transposed internal layout. chDB's Python() table
-    function cannot correctly read this layout, causing corrupted column data.
+    When a pandas DataFrame is created from a 2D numpy array, columns become
+    non-contiguous strided views into the original array's memory. chDB's Python()
+    table function cannot correctly read this layout, causing corrupted column data
+    where values shift between columns.
 
-    This function detects such problematic cases by checking if multiple numeric
-    columns share memory with each other (indicating views into a single 2D block).
+    This function detects such problematic cases by checking if any numeric column's
+    underlying array is not C-contiguous (indicating a strided view into shared memory).
 
     Args:
-        df: The pandas DataFrame to check
+        df: The pandas DataFrame or Series to check
 
     Returns:
         True if the DataFrame needs to be copied before use with chDB, False otherwise
 
+    Example:
+        >>> data = np.random.normal(size=(5, 2))
+        >>> df = pd.DataFrame(data, columns=['A', 'B'])  # Columns are strided views
+        >>> _needs_memory_copy(df)  # Returns True
+        True
+
+        >>> df2 = pd.DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})  # Independent columns
+        >>> _needs_memory_copy(df2)  # Returns False
+        False
+
     See Also:
         https://github.com/chdb-io/chdb/issues/XXX (to be reported)
     """
+    # Series objects don't have the multi-column memory layout issue
+    if isinstance(df, pd.Series):
+        return False
+
     if len(df.columns) < 2:
         return False
 
@@ -43,15 +58,16 @@ def _needs_memory_copy(df: pd.DataFrame) -> bool:
     if len(numeric_cols) < 2:
         return False
 
-    # Check if any two numeric columns share memory
-    # This indicates the DataFrame was created from a 2D numpy array
-    first_col_values = df[numeric_cols[0]].values
-    for col in numeric_cols[1:]:
+    # Check if any numeric column's values array is not C-contiguous
+    # Non-contiguous arrays indicate strided views into a shared 2D block,
+    # which chDB's Python() table function cannot read correctly
+    for col in numeric_cols:
         col_values = df[col].values
-        if np.shares_memory(first_col_values, col_values):
+        if hasattr(col_values, 'flags') and not col_values.flags['C_CONTIGUOUS']:
             return True
 
     return False
+
 
 if TYPE_CHECKING:
     from .core import DataStore
@@ -1099,11 +1115,22 @@ class LazyDataFrameSource(LazyOp):
 
     This is used when we need to wrap an existing DataFrame into the lazy pipeline,
     for example after executing SQL on a executed DataFrame.
+
+    Note:
+        If the DataFrame has a memory layout incompatible with chDB's Python() table
+        function (e.g., created from a 2D numpy array with shared memory), it will
+        be automatically copied to ensure correct behavior.
     """
 
     def __init__(self, df: pd.DataFrame):
         super().__init__()
-        self._df = df
+        # Check for problematic memory layout that causes chDB Python() corruption
+        if _needs_memory_copy(df):
+            self._logger = get_logger()
+            self._logger.debug("DataFrame has shared memory layout incompatible with chDB; copying")
+            self._df = df.copy()
+        else:
+            self._df = df
 
     def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
         """Return the stored DataFrame, ignoring the input."""
