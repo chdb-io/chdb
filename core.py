@@ -4413,21 +4413,17 @@ class DataStore(PandasCompatMixin):
             aliases_to_assign = set(sql_kwargs.keys())
 
             # Get existing columns to check for overwrites
-            existing_columns = set(result._get_all_column_names())
+            existing_columns = list(result._get_all_column_names())
+            existing_columns_set = set(existing_columns)
 
             # Check if any alias overwrites an existing column
-            columns_to_overwrite = aliases_to_assign & existing_columns
+            columns_to_overwrite = aliases_to_assign & existing_columns_set
 
-            if columns_to_overwrite:
-                # If using '*', expand to explicit column list excluding overwritten columns
-                if select_items == ['*']:
-                    select_items = [col for col in result._get_all_column_names() if col not in columns_to_overwrite]
-                else:
-                    # Remove overwritten columns from existing selection
-                    select_items = [
-                        item for item in select_items if not (isinstance(item, str) and item in columns_to_overwrite)
-                    ]
+            # New columns that don't exist yet
+            new_columns = aliases_to_assign - existing_columns_set
 
+            # Build expression map for all assigned columns first
+            expr_map = {}
             for alias, expr in sql_kwargs.items():
                 original_expr = expr
                 if isinstance(expr, ColumnExpr):
@@ -4440,7 +4436,38 @@ class DataStore(PandasCompatMixin):
                     # Record the resolved expression (alias -> expression without alias)
                     result._computed_columns[alias] = resolved_expr
                     # Set alias on the expression
-                    expr_with_alias = resolved_expr.as_(alias)
+                    expr_map[alias] = resolved_expr.as_(alias)
+
+            if columns_to_overwrite:
+                # When overwriting, expand '*' and replace columns in-place to preserve order
+                if select_items == ['*']:
+                    # Build select items preserving order, replacing overwrites in-place
+                    new_select_items = []
+                    for col in existing_columns:
+                        if col in columns_to_overwrite:
+                            # Replace with new expression in-place
+                            new_select_items.append(expr_map[col])
+                        else:
+                            new_select_items.append(col)
+                    select_items = new_select_items
+                else:
+                    # Replace overwritten columns in existing selection
+                    new_select_items = []
+                    for item in select_items:
+                        col_name = item if isinstance(item, str) else getattr(item, '_alias', None)
+                        if col_name in columns_to_overwrite:
+                            new_select_items.append(expr_map[col_name])
+                        else:
+                            new_select_items.append(item)
+                    select_items = new_select_items
+
+                # Add new (non-overwrite) columns at the end
+                for alias in sql_kwargs.keys():
+                    if alias in new_columns:
+                        select_items.append(expr_map[alias])
+            else:
+                # No overwrites - keep '*' and just append new columns
+                for alias, expr_with_alias in expr_map.items():
                     select_items.append(expr_with_alias)
 
             result = result.select(*select_items)
