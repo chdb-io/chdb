@@ -8,9 +8,50 @@ and only executed when execution is triggered (e.g., print, to_df()).
 from typing import Any, Dict, List, Union, TYPE_CHECKING
 from abc import ABC, abstractmethod
 import pandas as pd
+import numpy as np
 
 from .expressions import Expression, Field, Literal, ArithmeticExpression
 from .config import get_logger
+
+
+def _needs_memory_copy(df: pd.DataFrame) -> bool:
+    """
+    Check if a DataFrame has a memory layout that is incompatible with chDB's Python() table function.
+
+    When a pandas DataFrame is created from a 2D numpy array, it may share memory
+    with the original array in a transposed internal layout. chDB's Python() table
+    function cannot correctly read this layout, causing corrupted column data.
+
+    This function detects such problematic cases by checking if multiple numeric
+    columns share memory with each other (indicating views into a single 2D block).
+
+    Args:
+        df: The pandas DataFrame to check
+
+    Returns:
+        True if the DataFrame needs to be copied before use with chDB, False otherwise
+
+    See Also:
+        https://github.com/chdb-io/chdb/issues/XXX (to be reported)
+    """
+    if len(df.columns) < 2:
+        return False
+
+    # Get numeric columns only (the issue affects numeric arrays)
+    numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+
+    if len(numeric_cols) < 2:
+        return False
+
+    # Check if any two numeric columns share memory
+    # This indicates the DataFrame was created from a 2D numpy array
+    first_col_values = df[numeric_cols[0]].values
+    for col in numeric_cols[1:]:
+        col_values = df[col].values
+        if np.shares_memory(first_col_values, col_values):
+            return True
+
+    return False
 
 if TYPE_CHECKING:
     from .core import DataStore
