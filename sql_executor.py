@@ -221,6 +221,7 @@ class ExtractedClauses:
     offset_value: Optional[int] = None
     select_fields: List[Expression] = field(default_factory=list)
     empty_column_select: bool = False
+    explicit_column_selection: bool = False  # True if SELECT explicitly listed columns (without *)
 
     def has_orderby(self) -> bool:
         """Check if ORDER BY is present."""
@@ -350,6 +351,7 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
                         new_select_fields.append(f)
 
                 result.select_fields = new_select_fields
+                result.explicit_column_selection = True  # Mark that explicit columns were selected
 
     return result
 
@@ -1901,7 +1903,9 @@ class SQLExecutionEngine:
             # from a previous column selection operation and '*' should not be added.
             # Note: Fields with alias (e.g., from LazyColumnAssignment) are computed columns,
             # not explicit column selections. Only count non-aliased Fields as explicit.
-            has_explicit_columns = any(isinstance(f, Field) and not f.alias for f in clauses.select_fields)
+            # Check if there was an explicit column selection (SELECT col1, col2, ... without *)
+            # This flag is set when extract_clauses_from_ops processes a SELECT op with explicit columns
+            has_explicit_columns = clauses.explicit_column_selection
             # Also check if we have LazyColumnAssignment - these need * plus computed columns
             # BUT only if there's no explicit column selection (SELECT col1, col2, ...)
             column_assignments = [
