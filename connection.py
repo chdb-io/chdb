@@ -1110,12 +1110,14 @@ class QueryResult:
 
     @property
     def rows(self) -> List[Tuple]:
-        """Get all rows as list of tuples (lazy conversion from DataFrame)."""
+        """Get all rows as list of tuples (lazy conversion from DataFrame/Series)."""
         if self._rows is None and self._data is not None:
-            # Convert DataFrame to rows
             try:
                 if isinstance(self._data, pd.DataFrame):
                     self._rows = [tuple(row) for row in self._data.itertuples(index=False, name=None)]
+                elif isinstance(self._data, pd.Series):
+                    # Series: each value becomes a single-element tuple
+                    self._rows = [(v,) for v in self._data.values]
                 else:
                     # Fallback for other formats
                     self._rows = []
@@ -1125,11 +1127,14 @@ class QueryResult:
 
     @property
     def column_names(self) -> List[str]:
-        """Get column names (lazy extraction from DataFrame)."""
+        """Get column names (lazy extraction from DataFrame/Series)."""
         if self._column_names is None and self._data is not None:
             try:
                 if isinstance(self._data, pd.DataFrame):
                     self._column_names = list(self._data.columns)
+                elif isinstance(self._data, pd.Series):
+                    # Series has a single column (its name or default)
+                    self._column_names = [self._data.name or 'value']
                 else:
                     self._column_names = []
             except Exception:
@@ -1138,11 +1143,13 @@ class QueryResult:
 
     @property
     def column_types(self) -> List[str]:
-        """Get column types (lazy extraction from DataFrame)."""
+        """Get column types (lazy extraction from DataFrame/Series)."""
         if self._column_types is None and self._data is not None:
             try:
                 if isinstance(self._data, pd.DataFrame):
                     self._column_types = [str(dtype) for dtype in self._data.dtypes]
+                elif isinstance(self._data, pd.Series):
+                    self._column_types = [str(self._data.dtype)]
                 else:
                     self._column_types = []
             except Exception:
@@ -1151,10 +1158,10 @@ class QueryResult:
 
     @property
     def row_count(self) -> int:
-        """Get number of rows (lazy calculation from DataFrame)."""
+        """Get number of rows (lazy calculation from DataFrame/Series)."""
         if self._row_count is None and self._data is not None:
             try:
-                if isinstance(self._data, pd.DataFrame):
+                if isinstance(self._data, (pd.DataFrame, pd.Series)):
                     self._row_count = len(self._data)
                 else:
                     self._row_count = 0
@@ -1197,6 +1204,8 @@ class QueryResult:
         try:
             if isinstance(self._data, pd.DataFrame):
                 return self._data.to_dict(orient=orient, into=into, index=index)
+            elif isinstance(self._data, pd.Series):
+                return self._data.to_dict(into=into)
         except Exception:
             pass
 
@@ -1217,12 +1226,37 @@ class QueryResult:
         """
         if isinstance(self._data, pd.DataFrame):
             return self._data
+        elif isinstance(self._data, pd.Series):
+            return self._data.to_frame()
         else:
             # Convert rows to DataFrame
             if self.rows:
                 return pd.DataFrame(self.rows, columns=self.column_names)
             else:
                 return pd.DataFrame()
+
+    def to_series(self):
+        """
+        Return the result as a pandas Series.
+
+        Returns:
+            pandas Series
+        """
+        if isinstance(self._data, pd.Series):
+            return self._data
+        elif isinstance(self._data, pd.DataFrame):
+            if len(self._data.columns) == 1:
+                return self._data.iloc[:, 0]
+            else:
+                raise ValueError("Cannot convert multi-column DataFrame to Series")
+        else:
+            # Convert rows to Series
+            if self.rows:
+                values = [row[0] for row in self.rows]
+                name = self.column_names[0] if self.column_names else None
+                return pd.Series(values, name=name)
+            else:
+                return pd.Series()
 
     def __iter__(self):
         """Iterate over rows."""
@@ -1233,4 +1267,17 @@ class QueryResult:
         return self.row_count
 
     def __repr__(self):
-        return f"QueryResult(rows={self.row_count}, columns={len(self.column_names)})"
+        """Return pandas-like string representation."""
+        if isinstance(self._data, (pd.DataFrame, pd.Series)):
+            # Delegate to pandas repr (respects display options, truncates automatically)
+            return repr(self._data)
+        else:
+            return f"QueryResult(rows={self.row_count}, columns={len(self.column_names)})"
+
+    def _repr_html_(self):
+        """Return HTML representation for Jupyter notebooks."""
+        if isinstance(self._data, (pd.DataFrame, pd.Series)):
+            # Delegate to pandas HTML repr
+            return self._data._repr_html_()
+        else:
+            return f"<p>QueryResult(rows={self.row_count}, columns={len(self.column_names)})</p>"
