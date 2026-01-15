@@ -124,7 +124,7 @@ void PythonSource::insert_string_from_array(const py::handle obj, const MutableC
 }
 
 void PythonSource::convert_string_array_to_block(
-    PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
+    PyObject ** buf, const MutableColumnPtr & column, const size_t offset, const size_t row_count, size_t stride)
 {
     ColumnString * string_column = typeid_cast<ColumnString *>(column.get());
     if (string_column == nullptr)
@@ -132,9 +132,13 @@ void PythonSource::convert_string_array_to_block(
     ColumnString::Chars & data = string_column->getChars();
     ColumnString::Offsets & offsets = string_column->getOffsets();
     offsets.reserve(row_count);
+
+    const size_t effective_stride = (stride == 0) ? sizeof(PyObject *) : stride;
+    const auto * base_ptr = reinterpret_cast<const char *>(buf);
+
     for (size_t i = offset; i < offset + row_count; ++i)
     {
-        auto * obj = buf[i];
+        auto * obj = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
         if (!PyUnicode_Check(obj))
         {
             insertObjToStringColumn(obj, string_column);
@@ -160,13 +164,25 @@ void PythonSource::convert_string_array_to_block(
 }
 
 template <typename T>
-void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const size_t offset, const size_t row_count)
+void PythonSource::insert_from_ptr(const void * ptr, const MutableColumnPtr & column, const size_t offset, const size_t row_count, size_t stride)
 {
     column->reserve(row_count);
-    // get the raw data from the array and memcpy it into the column
+
+    if (stride == 0 || stride == sizeof(T))
+    {
     ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(column.get());
     const char * start = static_cast<const char *>(ptr) + offset * sizeof(T);
     helper->appendRawData<sizeof(T)>(start, row_count);
+    }
+    else
+    {
+        const auto * base_ptr = static_cast<const char *>(ptr);
+        for (size_t i = offset; i < offset + row_count; ++i)
+        {
+            T value = *reinterpret_cast<const T *>(base_ptr + i * stride);
+            column->insert(value);
+        }
+    }
 }
 
 template <typename T>
@@ -194,8 +210,7 @@ ColumnPtr PythonSource::convert_and_insert(const py::object & obj, UInt32 scale,
         if (!tmp.is_none())
             tmp.dec_ref();
     });
-    auto py_result = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
-    const void * data = py_result.data;
+    const void * data = tryGetPyArray(obj, py_array, tmp, type_name, row_count);
     if (type_name == "list")
     {
         if (is_json)
@@ -246,9 +261,9 @@ ColumnPtr PythonSource::convert_and_insert_array(const ColumnWrapper & col_wrap,
         return column;
     }
     if constexpr (std::is_same_v<T, String>)
-        convert_string_array_to_block(static_cast<PyObject **>(col_wrap.buf), column, cursor, count);
+        convert_string_array_to_block(static_cast<PyObject **>(col_wrap.buf), column, cursor, count, col_wrap.stride);
     else
-        insert_from_ptr<T>(col_wrap.buf, column, cursor, count);
+        insert_from_ptr<T>(col_wrap.buf, column, cursor, count, col_wrap.stride);
 
     return column;
 }
@@ -489,9 +504,14 @@ Chunk PythonSource::scanDataToChunk()
             else if (which.isObject())
             {
                 if (col.py_type == "list")
+                {
                     columns[i] = CHDB::ListScan::scanObject(col, cursor, count, format_settings);
+                }
                 else
+                {
+                    chassert(!isPandasDataFrame);
                     columns[i] = CHDB::PandasScan::scanObject(col, cursor, count, format_settings);
+                }
             }
             else
                 throw Exception(ErrorCodes::BAD_TYPE_OF_FIELD, "Unsupported type {} for column {}", type->getName(), col.name);

@@ -130,7 +130,7 @@ bool _isInheritsFromPyReader(const py::handle & obj)
 
 // Will try to get the ref of py::array from pandas Series, or PyArrow Table
 // without import numpy or pyarrow. Just from class name for now.
-PyArrayResult tryGetPyArray(
+const void * tryGetPyArray(
     const py::object & obj,
     py::handle & result,
     py::handle & tmp,
@@ -138,7 +138,6 @@ PyArrayResult tryGetPyArray(
     size_t & row_count)
 {
     py::gil_scoped_acquire acquire;
-    PyArrayResult py_result;
     type_name = py::str(obj.attr("__class__").attr("__name__")).cast<std::string>();
     if (type_name == "ndarray")
     {
@@ -146,8 +145,7 @@ PyArrayResult tryGetPyArray(
         row_count = py::len(obj);
         py::array array = obj.cast<py::array>();
         result = array;
-        py_result.data = array.data();
-        return py_result;
+        return array.data();
     }
     else if (type_name == "Series")
     {
@@ -162,8 +160,7 @@ PyArrayResult tryGetPyArray(
             if (elem_type == "str" || elem_type == "unicode")
             {
                 result = array;
-                py_result.data = array.data();
-                return py_result;
+                return array.data();
             }
             if (elem_type == "bytes" || elem_type == "object")
             {
@@ -173,25 +170,12 @@ PyArrayResult tryGetPyArray(
                 result = array;
                 tmp = array;
                 tmp.inc_ref();
-                py_result.data = array.data();
-                return py_result;
+                return array.data();
             }
         }
 
-        py::object underlying_array = obj.attr("array");
-        if (py::hasattr(underlying_array, "_data") && py::hasattr(underlying_array, "_mask"))
-        {
-            py::array data_array = underlying_array.attr("_data");
-            py::array mask_array = underlying_array.attr("_mask");
-            result = data_array;
-            py_result.data = data_array.data();
-            py_result.registered_array = std::make_unique<RegisteredArray>(mask_array);
-            return py_result;
-        }
-
         result = array;
-        py_result.data = array.data();
-        return py_result;
+        return array.data();
     }
     else if (type_name == "Table")
     {
@@ -201,8 +185,7 @@ PyArrayResult tryGetPyArray(
         result = array;
         tmp = array;
         tmp.inc_ref();
-        py_result.data = array.data();
-        return py_result;
+        return array.data();
     }
     else if (type_name == "ChunkedArray")
     {
@@ -212,21 +195,17 @@ PyArrayResult tryGetPyArray(
         result = array;
         tmp = array;
         tmp.inc_ref();
-        py_result.data = array.data();
-        return py_result;
+        return array.data();
     }
     else if (type_name == "list")
     {
         // Just set the row count for list
         row_count = py::len(obj);
         result = obj;
-        py_result.data = obj.ptr();
-        return py_result;
+        return obj.ptr();
     }
 
-    // chdb todo: maybe convert list to py::array?
-
-    return py_result;
+    return nullptr;
 }
 
 void insertObjToStringColumn(PyObject * obj, ColumnString * string_column)

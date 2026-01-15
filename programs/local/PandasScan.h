@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include "PybindWrapper.h"
 #include "PythonUtils.h"
 #include <DataTypes/IDataType.h>
@@ -38,14 +39,16 @@ private:
         DB::SerializationPtr & serialization,
         PyObject ** objects,
         DB::MutableColumnPtr & column,
-        DB::WhichDataType which = DB::WhichDataType(DB::TypeIndex::Object));
+        DB::WhichDataType which = DB::WhichDataType(DB::TypeIndex::Object),
+        size_t stride = 0);
 
     template <typename T>
     static void innerScanFloat(
         const size_t cursor,
         const size_t count,
         const T * ptr,
-        DB::MutableColumnPtr & column);
+        DB::MutableColumnPtr & column,
+        size_t stride = 0);
 
     template <typename T>
     static void innerScanNumeric(
@@ -53,13 +56,16 @@ private:
         const size_t count,
         const T * data_ptr,
         const bool * mask_ptr,
-        DB::MutableColumnPtr & column);
+        DB::MutableColumnPtr & column,
+        size_t stride = 0,
+        size_t mask_stride = 0);
 
     static void innerScanDateTime64(
         const size_t cursor,
         const size_t count,
         const Int64 * ptr,
-        DB::MutableColumnPtr & column);
+        DB::MutableColumnPtr & column,
+        size_t stride = 0);
 };
 
 } // namespace CHDB
