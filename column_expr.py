@@ -3820,6 +3820,10 @@ class ColumnExpr:
         from .functions import WindowFunction, Function
         from .expressions import Literal, Field
 
+        # Special case: shift(0) is a no-op, return self to preserve dtype
+        if periods == 0 and freq is None:
+            return self
+
         # Check if we can use SQL window functions
         # Requirements:
         # 1. No freq parameter (time series offset not supported in SQL)
