@@ -289,7 +289,9 @@ def _build_trim(expr, to_strip=None, alias=None):
     if to_strip is not None:
         # Use trimBoth to trim specific characters
         return Function('trimBoth', expr, Literal(to_strip), alias=alias)
-    return Function('trim', expr, alias=alias)
+    # Use trimBoth with all whitespace chars for pandas compatibility
+    # (ClickHouse's trim() only removes spaces, not tabs/newlines)
+    return Function('trimBoth', expr, Literal(' \t\n\r'), alias=alias)
 
 
 @register_function(
@@ -306,7 +308,8 @@ def _build_ltrim(expr, to_strip=None, alias=None):
 
     if to_strip is not None:
         return Function('trimLeft', expr, Literal(to_strip), alias=alias)
-    return Function('trimLeft', expr, alias=alias)
+    # Use trimLeft with all whitespace chars for pandas compatibility
+    return Function('trimLeft', expr, Literal(' \t\n\r'), alias=alias)
 
 
 @register_function(
@@ -323,7 +326,8 @@ def _build_rtrim(expr, to_strip=None, alias=None):
 
     if to_strip is not None:
         return Function('trimRight', expr, Literal(to_strip), alias=alias)
-    return Function('trimRight', expr, alias=alias)
+    # Use trimRight with all whitespace chars for pandas compatibility
+    return Function('trimRight', expr, Literal(' \t\n\r'), alias=alias)
 
 
 @register_function(
