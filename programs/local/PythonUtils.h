@@ -24,6 +24,8 @@ struct ColumnWrapper
 {
     void * buf; // we may modify the data when cast it to PyObject **, so we need a non-const pointer
     size_t row_count;
+    size_t stride = 0;
+    size_t mask_stride = 0;
     py::handle data;
     py::handle tmp; // hold some tmp data like hits['Title'].astype("str")
     DataTypePtr dest_type;
@@ -193,13 +195,7 @@ inline std::vector<py::object> readData(const py::object & data_source, const st
     return execWithGIL([&]() { return data_source.attr("read")(names, cursor, count).cast<std::vector<py::object>>(); });
 }
 
-struct PyArrayResult
-{
-    const void * data = nullptr;
-    std::unique_ptr<RegisteredArray> registered_array;
-};
-
-PyArrayResult tryGetPyArray(
+const void * tryGetPyArray(
     const py::object & obj,
     py::handle & result,
     py::handle & tmp,

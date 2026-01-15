@@ -1,6 +1,7 @@
 #pragma once
 
 #include "PybindWrapper.h"
+#include "PythonUtils.h"
 
 #include <Storages/ColumnsDescription.h>
 
@@ -53,6 +54,8 @@ public:
     static bool isPandasDataframe(const py::object & object);
 
     static bool isPyArrowBacked(const py::handle & object);
+
+    static void fillColumn(const py::handle & data_source, const std::string & col_name, DB::ColumnWrapper & column);
 };
 
 } // namespace CHDB
