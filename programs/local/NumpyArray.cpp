@@ -593,7 +593,13 @@ static bool CHColumnStringToNumpyArray(NumpyAppendData & append_data)
 			StringRef str_ref = string_column->getDataAt(src_index);
 			auto * str_ptr = const_cast<char *>(str_ref.data);
 			auto str_size = str_ref.size;
-			dest_ptr[dest_index] = PyUnicode_FromStringAndSize(str_ptr, str_size);
+			PyObject * py_str = PyUnicode_DecodeUTF8(str_ptr, str_size, nullptr);
+			if (!py_str)
+			{
+				PyErr_Clear();
+				py_str = PyByteArray_FromStringAndSize(str_ptr, str_size);
+			}
+			dest_ptr[dest_index] = py_str;
 		}
 	}
 

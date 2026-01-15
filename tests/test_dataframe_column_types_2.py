@@ -1380,6 +1380,22 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(df['a'].dtype, result['a'].dtype)
         self.assertEqual(df['a'].isna().tolist(), result['a'].isna().tolist())
 
+    def test_binary_blob_and_string(self):
+        result = self.session.query("SELECT 'hello' AS str_col, toFixedString('world', 5) AS fixed_str", 'DataFrame')
+        self.assertIsInstance(result['str_col'].iloc[0], str)
+        self.assertEqual(result['str_col'].iloc[0], 'hello')
+        self.assertIsInstance(result['fixed_str'].iloc[0], str)
+        self.assertEqual(result['fixed_str'].iloc[0], 'world')
+
+        result = self.session.query(
+            "SELECT unhex('0186000000') AS blob_col, toFixedString(unhex('ff00fe01'), 4) AS fixed_blob",
+            'DataFrame'
+        )
+        self.assertIsInstance(result['blob_col'].iloc[0], bytearray)
+        self.assertEqual(bytes(result['blob_col'].iloc[0]), b'\x01\x86\x00\x00\x00')
+        self.assertIsInstance(result['fixed_blob'].iloc[0], bytearray)
+        self.assertEqual(bytes(result['fixed_blob'].iloc[0]), b'\xff\x00\xfe\x01')
+
 
 if __name__ == '__main__':
     unittest.main()
