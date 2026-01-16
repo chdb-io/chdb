@@ -129,7 +129,7 @@ void PandasDataFrame::fillColumn(const py::handle & data_source, const std::stri
     py::object dtype = data_source.attr("dtypes")[py::str(col_name)];
 
     auto numpy_type = ConvertNumpyType(dtype);
-    column.is_object_type = (numpy_type.type == NumpyNullableType::OBJECT);
+    column.is_object_type = (numpy_type.type == NumpyNullableType::OBJECT || numpy_type.type == NumpyNullableType::STRING);
 
     py::array array = series.attr("values");
     column.row_count = py::len(series);
