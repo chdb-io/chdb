@@ -3581,9 +3581,13 @@ class ColumnExpr:
         pandas_agg_func: str,
         skipna: bool = True,
         method_kwargs: dict = None,
-    ) -> 'ColumnExpr':
+    ):
         """
         Create an aggregation ColumnExpr, preserving groupby parameters from source.
+
+        When called without groupby context (no _groupby_fields), this method
+        executes immediately and returns the scalar result to match pandas behavior.
+        With groupby context, it returns a lazy ColumnExpr.
 
         This helper ensures groupby_fields, groupby_as_index, and groupby_sort
         are properly propagated to aggregation expressions.
@@ -3595,8 +3599,19 @@ class ColumnExpr:
             method_kwargs: Additional method arguments
 
         Returns:
-            ColumnExpr configured for aggregation with proper groupby handling
+            scalar: When no groupby context (matches pandas Series.agg() behavior)
+            ColumnExpr: When groupby context exists (lazy evaluation for SQL)
         """
+        # When there's no groupby, execute immediately and return scalar
+        # This matches pandas behavior: Series.mean() returns a scalar
+        if not self._groupby_fields:
+            series = self._execute()
+            agg_method = getattr(series, pandas_agg_func)
+            # Filter out axis and numeric_only for methods that don't accept them
+            filtered_kwargs = {k: v for k, v in (method_kwargs or {}).items() if k not in ('axis', 'numeric_only')}
+            return agg_method(**filtered_kwargs)
+
+        # With groupby, return lazy ColumnExpr for SQL generation
         return ColumnExpr(
             source=self,
             agg_func_name=agg_func_name,
