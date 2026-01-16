@@ -574,6 +574,27 @@ class SQLExecutionEngine:
         self.quote_char = datastore.quote_char
         self._logger = get_logger()
 
+    def is_python_table_function(self) -> bool:
+        """Check if the data source is a Python() table function.
+
+        Python() table function requires special handling for row order preservation:
+        - rowNumberInAllBlocks() is non-deterministic with Python() table function
+        - _row_id is a built-in deterministic virtual column in chDB v4.0.0b5+
+        """
+        from .table_functions import PythonTableFunction
+
+        return isinstance(self.ds._table_function, PythonTableFunction)
+
+    def get_row_number_expr(self) -> str:
+        """Get the appropriate row number expression for the current data source.
+
+        Returns _row_id for Python() table function (deterministic),
+        rowNumberInAllBlocks() for other sources.
+        """
+        if self.is_python_table_function():
+            return '_row_id'
+        return 'rowNumberInAllBlocks()'
+
     def get_table_source(self) -> str:
         """Get the SQL table source (table function or table name)."""
         if self.ds._table_function:
@@ -800,9 +821,10 @@ class SQLExecutionEngine:
             SQL query string with row order subquery
         """
         table_source = self.get_table_source()
+        row_num_expr = self.get_row_number_expr()
 
-        # Build base query with rowNumberInAllBlocks()
-        base_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+        # Build base query with row number expression
+        base_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
 
         # Build outer query with WHERE and ORDER BY __orig_row_num__
         sql_parts = []
@@ -866,14 +888,15 @@ class SQLExecutionEngine:
         """
         table_source = self.get_table_source()
         needs_row_order = clauses.needs_row_order()
+        row_num_expr = self.get_row_number_expr()
 
         # Build SQL based on whether we need WHERE subquery
         if clauses.where_conditions:
             if needs_row_order:
                 # Step 0: Capture original row number BEFORE filtering
-                # This is critical for stable row order - rowNumberInAllBlocks() must be
+                # This is critical for stable row order - row number expression must be
                 # called on the source table, not after WHERE filtering
-                innermost_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+                innermost_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
 
                 # Step 1: Build query with WHERE (no CASE WHEN yet)
                 combined = clauses.where_conditions[0]
@@ -899,7 +922,7 @@ class SQLExecutionEngine:
             # No WHERE - just CASE WHEN on source table
             if needs_row_order:
                 # Still need to capture row order
-                innermost_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+                innermost_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
                 inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
                 middle_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({innermost_sql}) AS __rownum_subq__"
             else:
@@ -969,9 +992,10 @@ class SQLExecutionEngine:
             SQL query string
         """
         table_source = self.get_table_source()
+        row_num_expr = self.get_row_number_expr()
 
         # Build the inner query
-        inner_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+        inner_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
 
         # Build middle query with columns and WHERE
         middle_parts = []
@@ -1450,16 +1474,17 @@ class SQLExecutionEngine:
     ) -> str:
         """Build SQL with temp alias wrapping (no WHERE subquery needed).
 
-        When row order preservation is needed, we must capture rowNumberInAllBlocks()
+        When row order preservation is needed, we must capture row number
         at the source level, even if there are no WHERE conditions.
         """
         table_source = self.get_table_source()
+        row_num_expr = self.get_row_number_expr()
         inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
 
         if needs_row_order:
             if clauses.where_conditions:
                 # Capture row number before WHERE filtering
-                rownum_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+                rownum_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
 
                 # Build WHERE on top of row number subquery
                 combined = clauses.where_conditions[0]
@@ -1469,7 +1494,7 @@ class SQLExecutionEngine:
                 inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
             else:
                 # No WHERE but still need row order - simpler structure
-                rownum_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_source}"
+                rownum_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
                 inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__"
         else:
             # No row order needed - use original simple structure
@@ -1678,8 +1703,9 @@ class SQLExecutionEngine:
             # Check for special row order marker (must be a string, not a Field object)
             first_field = orderby_fields[0][0]
             if len(orderby_fields) == 1 and isinstance(first_field, str) and first_field == '__rowNumberInAllBlocks__':
-                # Special case: use rowNumberInAllBlocks() for row order preservation
-                parts.append("ORDER BY rowNumberInAllBlocks()")
+                # Special case: use appropriate row number expression for row order preservation
+                row_num_expr = self.get_row_number_expr()
+                parts.append(f"ORDER BY {row_num_expr}")
             else:
                 orderby_sql = build_orderby_clause(
                     orderby_fields, self.quote_char, stable=is_stable_sort(self.ds._orderby_kind)

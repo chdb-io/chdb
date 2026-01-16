@@ -1662,6 +1662,11 @@ def factorize(values, sort=False, use_na_sentinel=True, size_hint=None):
         >>> uniques
         array(['b', 'a', 'c'], dtype=object)
     """
+    # Convert list/tuple to ndarray to avoid deprecation warning
+    import numpy as np
+
+    if isinstance(values, (list, tuple)):
+        values = np.array(values)
     return pd.factorize(values, sort=sort, use_na_sentinel=use_na_sentinel, size_hint=size_hint)
 
 
@@ -1705,7 +1710,10 @@ def value_counts(values, sort=True, ascending=False, normalize=False, bins=None,
         b    1
         dtype: int64
     """
-    return pd.value_counts(values, sort=sort, ascending=ascending, normalize=normalize, bins=bins, dropna=dropna)
+    # Use pd.Series().value_counts() as pd.value_counts() is deprecated
+    if not isinstance(values, pd.Series):
+        values = pd.Series(values)
+    return values.value_counts(sort=sort, ascending=ascending, normalize=normalize, bins=bins, dropna=dropna)
 
 
 # ========== Reshaping Functions ==========

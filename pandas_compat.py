@@ -1083,12 +1083,26 @@ class PandasCompatMixin:
         return self._wrap_result(result)
 
     def applymap(self, func, na_action=None, **kwargs):
-        """Apply a function to a DataFrame elementwise."""
-        return self._wrap_result(self._get_df().applymap(func, na_action=na_action, **kwargs))
+        """Apply a function to a DataFrame elementwise.
+
+        Note: applymap is deprecated in pandas 2.1+. Use map() instead.
+        This method is kept for backward compatibility.
+        """
+        df = self._get_df()
+        # Use map() if available (pandas 2.1+), otherwise fall back to applymap
+        if hasattr(df, 'map') and callable(getattr(df, 'map', None)):
+            return self._wrap_result(df.map(func, na_action=na_action, **kwargs))
+        else:
+            return self._wrap_result(df.applymap(func, na_action=na_action, **kwargs))
 
     def map(self, func, na_action=None, **kwargs):
-        """Apply a function to a DataFrame elementwise (alias for applymap)."""
-        return self.applymap(func, na_action=na_action, **kwargs)
+        """Apply a function to a DataFrame elementwise."""
+        df = self._get_df()
+        # Use map() if available (pandas 2.1+), otherwise fall back to applymap
+        if hasattr(df, 'map') and callable(getattr(df, 'map', None)):
+            return self._wrap_result(df.map(func, na_action=na_action, **kwargs))
+        else:
+            return self._wrap_result(df.applymap(func, na_action=na_action, **kwargs))
 
     def pipe(self, func, *args, **kwargs):
         """Apply chainable functions that expect Series or DataFrames."""
@@ -2782,13 +2796,13 @@ class PandasCompatMixin:
         """
         Test whether two DataStore/DataFrame objects contain the same elements.
 
-        This method allows for more flexible comparison than __eq__, with options
-        to ignore dtype differences, name differences, and floating point tolerance.
+        This follows pandas DataFrame.equals() semantics: values, columns, AND index must match.
+        Additional options allow for dtype flexibility and floating point tolerance.
 
         Args:
             other: DataStore, DataFrame, Series, or scalar to compare with
             check_dtype: Whether to check dtypes match (default True)
-            check_names: Whether to check names match (default True)
+            check_names: Whether to check column names match (default True)
             rtol: Relative tolerance for float comparison (default 1e-5)
             atol: Absolute tolerance for float comparison (default 1e-8)
 
@@ -2826,6 +2840,10 @@ class PandasCompatMixin:
 
         # Check shapes
         if self_df.shape != other_df.shape:
+            return False
+
+        # Check index (pandas equals() considers index)
+        if not self_df.index.equals(other_df.index):
             return False
 
         # Check columns

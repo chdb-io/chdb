@@ -759,6 +759,10 @@ class ColumnExpr:
                 series = self._source._execute()
                 return series.apply(*args, **kwargs)
 
+        # Handle value_counts with SQL pushdown
+        if self._method_name == 'value_counts':
+            return self._execute_value_counts_sql(args, kwargs)
+
         # Execute source
         if self._source is not None:
             series = self._source._execute()
@@ -808,6 +812,181 @@ class ColumnExpr:
 
         method = getattr(series, self._method_name)
         return method(*args, **kwargs)
+
+    def _execute_value_counts_sql(self, args: tuple, kwargs: dict) -> pd.Series:
+        """
+        Execute value_counts with SQL pushdown when possible.
+
+        SQL equivalent:
+            SELECT col, COUNT(*) AS count
+            FROM table
+            [WHERE col IS NOT NULL]  -- when dropna=True
+            GROUP BY col
+
+        Post-processing ensures pandas-compatible tie-breaking:
+        - When sort=True: sort by count, ties broken by first-appearance order
+        - When sort=False: order by first-appearance
+
+        For normalize=True:
+            SELECT col, CAST(COUNT(*) AS Float64) / total AS proportion
+            ...
+
+        Args:
+            args: Positional arguments (unused for value_counts)
+            kwargs: Keyword arguments (normalize, sort, ascending, bins, dropna)
+
+        Returns:
+            pd.Series with counts/proportions, indexed by unique values
+        """
+        from .config import get_execution_engine, ExecutionEngine
+        from .executor import get_executor
+        from .expressions import Field
+
+        # Extract parameters with defaults matching pandas
+        normalize = kwargs.get('normalize', False)
+        sort = kwargs.get('sort', True)
+        ascending = kwargs.get('ascending', False)
+        bins = kwargs.get('bins', None)
+        dropna = kwargs.get('dropna', True)
+
+        # bins parameter requires special handling - fall back to pandas
+        # because SQL doesn't have a direct equivalent to pandas cut/qcut
+        if bins is not None:
+            # Fall back to pandas for bins
+            series = self._source._execute() if self._source is not None else self._execute_expression()
+            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, bins=bins, dropna=dropna)
+
+        # Check execution engine
+        engine = get_execution_engine()
+
+        # Use pandas for PANDAS engine
+        if engine == ExecutionEngine.PANDAS:
+            series = self._source._execute() if self._source is not None else self._execute_expression()
+            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, dropna=dropna)
+
+        # Get the DataFrame from datastore
+        df = self._datastore._execute()
+
+        # Get column name from expression
+        col_name = None
+        if self._source is not None:
+            if hasattr(self._source, '_expr') and self._source._expr is not None:
+                if isinstance(self._source._expr, Field):
+                    col_name = self._source._expr.name
+                else:
+                    # Could be an expression - get SQL representation
+                    col_name = self._source._expr.to_sql(quote_char='"')
+
+        # If we can't determine the column, fall back to pandas
+        if col_name is None or (not isinstance(self._source._expr, Field) and col_name not in df.columns):
+            series = self._source._execute() if self._source is not None else self._execute_expression()
+            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, dropna=dropna)
+
+        # Build SQL query for value_counts
+        try:
+            executor = get_executor()
+
+            # Determine if we're dealing with a simple column or expression
+            if isinstance(self._source._expr, Field):
+                col_sql = f'"{col_name}"'
+                is_simple_column = True
+            else:
+                col_sql = col_name  # Already a SQL expression
+                is_simple_column = False
+
+            # Build WHERE clause for dropna
+            where_clause = ''
+            if dropna:
+                where_clause = f' WHERE {col_sql} IS NOT NULL'
+
+            # Build SELECT and GROUP BY (no ORDER BY - we'll sort in Python for pandas compatibility)
+            if normalize:
+                # For normalize, we need to calculate proportion
+                # Use subquery to get total count
+                total_sql = f'(SELECT COUNT(*) FROM __df__{where_clause})'
+                select_sql = f'{col_sql} AS __value__, CAST(COUNT(*) AS Float64) / {total_sql} AS __count__'
+            else:
+                select_sql = f'{col_sql} AS __value__, toInt64(COUNT(*)) AS __count__'
+
+            # Build complete SQL (no ORDER BY - sorting done in Python)
+            sql = f'SELECT {select_sql} FROM __df__{where_clause} GROUP BY {col_sql}'
+
+            # Execute SQL
+            result_df = executor.query_dataframe(sql, df, preserve_order=False)
+
+            # Convert to Series with proper index
+            if len(result_df) == 0:
+                # Empty result - return empty Series matching pandas behavior
+                result = pd.Series([], dtype='int64' if not normalize else 'float64', name='count')
+                result.index.name = col_name if is_simple_column else None
+                return result
+
+            # Get first-appearance order from original data for pandas-compatible tie-breaking
+            # This ensures that when counts are tied, values appear in their first-occurrence order
+            if is_simple_column and col_name in df.columns:
+                original_series = df[col_name]
+                if dropna:
+                    original_series = original_series.dropna()
+                # Get first appearance position for each unique value
+                first_appearance = {}
+                for idx, val in enumerate(original_series):
+                    if val not in first_appearance:
+                        first_appearance[val] = idx
+            else:
+                # For expressions, we can't easily get first appearance, use index order
+                first_appearance = {val: idx for idx, val in enumerate(result_df['__value__'])}
+
+            # Create result Series
+            result = result_df.set_index('__value__')['__count__']
+
+            # Sort according to pandas behavior
+            if sort:
+                # pandas sorts by count (desc by default), ties broken by first-appearance order
+                # Create a DataFrame for sorting with count and first_appearance
+                sort_df = pd.DataFrame(
+                    {
+                        'value': result.index,
+                        'count': result.values,
+                        'first_pos': [first_appearance.get(v, float('inf')) for v in result.index],
+                    }
+                )
+                # Sort by count (ascending or descending), then by first_pos (always ascending for ties)
+                sort_df = sort_df.sort_values(by=['count', 'first_pos'], ascending=[ascending, True])
+                # Rebuild result with correct order
+                result = pd.Series(
+                    sort_df['count'].values,
+                    index=sort_df['value'].values,
+                    name='count' if not normalize else 'proportion',
+                )
+            else:
+                # sort=False: pandas returns in first-appearance order
+                sort_df = pd.DataFrame(
+                    {
+                        'value': result.index,
+                        'count': result.values,
+                        'first_pos': [first_appearance.get(v, float('inf')) for v in result.index],
+                    }
+                )
+                sort_df = sort_df.sort_values(by='first_pos', ascending=True)
+                result = pd.Series(
+                    sort_df['count'].values,
+                    index=sort_df['value'].values,
+                    name='count' if not normalize else 'proportion',
+                )
+
+            result.index.name = col_name if is_simple_column else None
+
+            return result
+
+        except Exception as e:
+            # Log and fall back to pandas on any SQL error
+            from .config import get_logger
+
+            logger = get_logger()
+            logger.debug(f"value_counts SQL pushdown failed, falling back to pandas: {e}")
+
+            series = self._source._execute() if self._source is not None else self._execute_expression()
+            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, dropna=dropna)
 
     def _execute_aggregation(self):
         """Execute aggregation mode - compute aggregate with optional groupby."""
@@ -1264,19 +1443,68 @@ class ColumnExpr:
         """
         Test whether ColumnExpr contains the same elements as another object.
 
-        This is similar to pandas Series.equals() but with more flexibility.
+        This follows pandas Series.equals() semantics: both values AND index must match.
+        Use values_equal() if you only want to compare values by position.
 
         Args:
             other: Series, ColumnExpr, list, or array-like to compare with
             check_names: Whether to check Series names match (default False)
+            rtol: Relative tolerance for float comparison (only used with values_equal)
+            atol: Absolute tolerance for float comparison (only used with values_equal)
+
+        Returns:
+            bool: True if both values and index are equivalent
+
+        Examples:
+            >>> ds['name'].str.upper().equals(pd_df['name'].str.upper())
+            True
+        """
+        import numpy as np
+
+        self_series = self._execute()
+
+        # Unwrap ColumnExpr or lazy objects
+        if isinstance(other, ColumnExpr):
+            other = other._execute()
+        elif hasattr(other, '_execute'):
+            other = other._execute()
+
+        # Convert to Series if needed
+        if isinstance(other, pd.DataFrame):
+            if len(other.columns) == 1:
+                other = other.iloc[:, 0]
+            else:
+                return False
+        elif not isinstance(other, pd.Series):
+            other = pd.Series(other)
+
+        # Use pandas equals() which considers both values and index
+        result = self_series.equals(other)
+
+        # If pandas equals returns True and check_names is required, verify names
+        if result and check_names:
+            if self_series.name != other.name:
+                return False
+
+        return result
+
+    def values_equal(self, other, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
+        """
+        Test whether ColumnExpr contains the same values as another object (ignoring index).
+
+        This compares values by position only, ignoring index labels.
+        Use equals() if you want to check both values and index.
+
+        Args:
+            other: Series, ColumnExpr, list, or array-like to compare with
             rtol: Relative tolerance for float comparison
             atol: Absolute tolerance for float comparison
 
         Returns:
-            bool: True if values are equivalent
+            bool: True if values are equivalent by position
 
         Examples:
-            >>> ds['name'].str.upper().equals(pd_df['name'].str.upper())
+            >>> ds['name'].str.upper().values_equal(pd_df['name'].str.upper())
             True
         """
         # Unwrap ColumnExpr or lazy objects
@@ -1284,17 +1512,8 @@ class ColumnExpr:
             other = other._execute()
         elif hasattr(other, '_execute'):
             other = other._execute()
-        elif hasattr(other, '_execute'):
-            other = other._execute()
 
-        result = self._compare_values(other, rtol=rtol, atol=atol)
-
-        if result and check_names:
-            self_series = self._execute()
-            if isinstance(other, pd.Series):
-                return self_series.name == other.name
-
-        return result
+        return self._compare_values(other, rtol=rtol, atol=atol)
 
     # ========== Display Methods ==========
 

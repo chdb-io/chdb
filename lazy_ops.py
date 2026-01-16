@@ -1063,10 +1063,8 @@ class LazyGroupByAgg(LazyOp):
             # Pandas named aggregation: agg(alias=('col', 'func'))
             # Pass the named_agg dict as **kwargs to grouped.agg()
             result = grouped.agg(**self.named_agg)
-            # For named_agg with as_index=True, reset index to make groupby columns regular columns
-            # This matches pandas behavior where named aggregation returns flat columns
-            if self.as_index:
-                result = result.reset_index()
+            # as_index=True: groupby keys remain in index (pandas default behavior)
+            # as_index=False: groupby keys become columns (handled by groupby() call above)
         elif self.agg_dict is not None:
             # Pandas-style: agg({'col': 'func'})
             result = grouped.agg(self.agg_dict, **self.kwargs)
@@ -1526,9 +1524,8 @@ class LazyApply(LazyOp):
             apply_kwargs['include_groups'] = False
 
             result = df.groupby(self.groupby_cols, dropna=True).apply(self.func, *self.args, **apply_kwargs)
-            # Reset index if result has MultiIndex from groupby
-            if isinstance(result.index, pd.MultiIndex):
-                result = result.reset_index(drop=True)
+            # Keep the MultiIndex result as-is to match pandas behavior exactly
+            # Users can call .reset_index() if they need flat columns
         else:
             self._log_execute("Apply", f"func={func_name}")
             result = df.apply(self.func, *self.args, **self.kwargs)
