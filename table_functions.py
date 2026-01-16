@@ -81,6 +81,21 @@ class TableFunction(ABC):
 
         return " SETTINGS " + ", ".join(settings_parts)
 
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        """
+        Check if this table function preserves row order with given format settings.
+
+        Override in subclasses to indicate when row order is guaranteed to be preserved.
+        By default, returns False (conservative assumption).
+
+        Args:
+            format_settings: Format settings dictionary (e.g., input_format_parquet_preserve_order)
+
+        Returns:
+            True if row order is guaranteed to be preserved, False otherwise
+        """
+        return False
+
 
 class FileTableFunction(TableFunction):
     """
@@ -142,6 +157,27 @@ class FileTableFunction(TableFunction):
                 sql_params.append(self._format_param(compression))
 
         return f"file({', '.join(sql_params)})"
+
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        """
+        Check if this file table function preserves row order.
+
+        For Parquet files with input_format_parquet_preserve_order=1, row order is preserved.
+        For other formats, we conservatively return False.
+
+        Args:
+            format_settings: Format settings dictionary
+
+        Returns:
+            True if row order is guaranteed to be preserved
+        """
+        format_name = self.params.get('format', '').lower()
+
+        # For Parquet files, check if preserve_order setting is enabled
+        if format_name == 'parquet':
+            if format_settings:
+                return format_settings.get('input_format_parquet_preserve_order', 0) == 1
+        return False
 
 
 class UrlTableFunction(TableFunction):
@@ -280,6 +316,25 @@ class S3TableFunction(TableFunction):
                 sql_params.append(self._format_param(compression))
 
         return f"s3({', '.join(sql_params)})"
+
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        """
+        Check if this S3 table function preserves row order.
+
+        For Parquet files with input_format_parquet_preserve_order=1, row order is preserved.
+
+        Args:
+            format_settings: Format settings dictionary
+
+        Returns:
+            True if row order is guaranteed to be preserved
+        """
+        format_name = self.params.get('format', '').lower()
+
+        if format_name == 'parquet':
+            if format_settings:
+                return format_settings.get('input_format_parquet_preserve_order', 0) == 1
+        return False
 
 
 class AzureBlobStorageTableFunction(TableFunction):
@@ -871,6 +926,10 @@ class NumbersTableFunction(TableFunction):
             raise DataStoreError("'count' parameter is required for numbers()")
 
         return f"numbers({', '.join(sql_params)})"
+
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        """numbers() always returns rows in sequential order."""
+        return True
 
 
 class GenerateRandomTableFunction(TableFunction):

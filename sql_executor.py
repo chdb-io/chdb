@@ -595,6 +595,29 @@ class SQLExecutionEngine:
             return '_row_id'
         return 'rowNumberInAllBlocks()'
 
+    def source_preserves_row_order(self) -> bool:
+        """
+        Check if the data source inherently preserves row order.
+
+        This is used to skip adding ORDER BY rowNumberInAllBlocks() when the source
+        already guarantees row order (e.g., Parquet files with preserve_order setting).
+
+        For Python() table function, _row_id is still used but via connection.query_df,
+        so we return False here to maintain existing behavior.
+
+        Returns:
+            True if the source preserves row order without explicit ORDER BY
+        """
+        # Python() table function uses _row_id via connection.query_df
+        if self.is_python_table_function():
+            return False
+
+        # Check if table function supports row order preservation
+        if self.ds._table_function:
+            return self.ds._table_function.preserves_row_order(self.ds._format_settings)
+
+        return False
+
     def get_table_source(self) -> str:
         """Get the SQL table source (table function or table name)."""
         if self.ds._table_function:
@@ -887,7 +910,7 @@ class SQLExecutionEngine:
             SQL query string
         """
         table_source = self.get_table_source()
-        needs_row_order = clauses.needs_row_order()
+        needs_row_order = clauses.needs_row_order() and not self.source_preserves_row_order()
         row_num_expr = self.get_row_number_expr()
 
         # Build SQL based on whether we need WHERE subquery
@@ -1326,8 +1349,8 @@ class SQLExecutionEngine:
                     if columns:
                         builder.select_columns(columns)
 
-        # Set row order preservation if no explicit ORDER BY
-        if not has_explicit_orderby:
+        # Set row order preservation if no explicit ORDER BY and source doesn't preserve order
+        if not has_explicit_orderby and not self.source_preserves_row_order():
             builder.set_preserve_row_order(True)
 
         sql = builder.build(self.quote_char)
@@ -1431,7 +1454,10 @@ class SQLExecutionEngine:
                 clauses.orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
 
         # Determine if row order preservation is needed
-        needs_row_order = clauses.needs_row_order(has_groupby=groupby_agg_op is not None)
+        # Skip row order preservation if source already preserves order (e.g., Parquet with preserve_order)
+        needs_row_order = (
+            clauses.needs_row_order(has_groupby=groupby_agg_op is not None) and not self.source_preserves_row_order()
+        )
 
         # Build SQL based on complexity
         if where_needs_subquery:
