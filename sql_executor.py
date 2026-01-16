@@ -1475,7 +1475,7 @@ class SQLExecutionEngine:
         else:
             # Simple case - use assemble_sql
             effective_orderby = clauses.orderby_fields
-            if needs_row_order and not clauses.orderby_fields:
+            if needs_row_order and not clauses.orderby_fields and (clauses.where_conditions or self.ds._joins):
                 effective_orderby = [('__rowNumberInAllBlocks__', True)]
 
             return self.assemble_sql(
@@ -1777,9 +1777,28 @@ class SQLExecutionEngine:
 
         self._logger.debug("  [SQL on DataFrame] Executing: %s", sql[:200] + "..." if len(sql) > 200 else sql)
 
+        # Determine if row order preservation is needed
+        # Only preserve order when there are WHERE conditions (filter) or explicit ORDER BY
+        # For LIMIT-only operations, source provides natural row order
+        clauses = extract_clauses_from_ops(plan.sql_ops, self.quote_char)
+        # Also need preserve_order for nested queries (plan.layers) since they use _row_id in nested ORDER BY
+        has_nested_queries = bool(plan.layers and len(plan.layers) > 1)
+        # For SQL on DataFrame, always preserve order unless its a simple LIMIT-only operation
+        # Column assignments, select operations, etc. all need deterministic row order
+        has_column_assignments = any(isinstance(op, LazyColumnAssignment) for op in plan.sql_ops)
+        is_simple_limit_only = bool(
+            clauses.limit_value
+            and not clauses.offset_value
+            and not clauses.where_conditions
+            and not clauses.orderby_fields
+            and not plan.groupby_agg
+            and not has_column_assignments
+            and not has_nested_queries
+        )
+        needs_order_preservation = not is_simple_limit_only
         # Execute via chDB using Python() table function
         executor = get_executor()
-        result_df = executor.query_dataframe(sql, df, '__df__')
+        result_df = executor.query_dataframe(sql, df, '__df__', preserve_order=needs_order_preservation)
 
         # Handle empty column selection: return DataFrame with 0 columns but correct row count
         if getattr(plan, '_empty_column_select', False):
@@ -2141,9 +2160,9 @@ class SQLExecutionEngine:
             orderby_cols = [(Field(col), True) for col in plan.groupby_agg.groupby_cols]
             orderby_sql = build_orderby_clause(orderby_cols, self.quote_char, stable=False)
             parts.append(f"ORDER BY {orderby_sql}")
-        elif not plan.groupby_agg:
-            # No explicit ORDER BY and no GROUP BY: preserve original row order using _row_id
-            # This ensures filter operations maintain pandas-like row order semantics
+        elif not plan.groupby_agg and clauses.where_conditions:
+            # No explicit ORDER BY, no GROUP BY, but has WHERE: preserve original row order
+            # For LIMIT-only operations without WHERE, ORDER BY is not needed - source provides natural order
             parts.append("ORDER BY _row_id")
 
         # LIMIT clause
