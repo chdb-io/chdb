@@ -1056,6 +1056,12 @@ class ColumnExpr:
                 )
                 groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
 
+                # Determine null check function based on column type
+                # isNaN() only works for numeric types, use isNull() for strings/other types
+                col_dtype = df[col_name].dtype if col_name in df.columns else None
+                is_numeric = col_dtype is not None and pd.api.types.is_numeric_dtype(col_dtype)
+                null_check_fn = 'isNaN' if is_numeric else 'isNull'
+
                 # Special handling for first/last: use argMin/argMax with rowNumberInAllBlocks()
                 # to preserve row order semantics (any/anyLast don't guarantee order)
                 # NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
@@ -1064,17 +1070,21 @@ class ColumnExpr:
                 if self._agg_func_name == 'any':
                     # first() -> argMin(value, rowNumberInAllBlocks())
                     if self._skipna:
-                        agg_sql = f'argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT isNaN({col_expr_sql}))'
+                        agg_sql = (
+                            f'argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))'
+                        )
                     else:
                         agg_sql = f'argMin({col_expr_sql}, rowNumberInAllBlocks())'
                 elif self._agg_func_name == 'anyLast':
                     # last() -> argMax(value, rowNumberInAllBlocks())
                     if self._skipna:
-                        agg_sql = f'argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT isNaN({col_expr_sql}))'
+                        agg_sql = (
+                            f'argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))'
+                        )
                     else:
                         agg_sql = f'argMax({col_expr_sql}, rowNumberInAllBlocks())'
                 elif self._skipna:
-                    agg_sql = f'{self._agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
+                    agg_sql = f'{self._agg_func_name}If({col_expr_sql}, NOT {null_check_fn}({col_expr_sql}))'
                 else:
                     agg_sql = f'{self._agg_func_name}({col_expr_sql})'
 
