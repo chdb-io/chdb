@@ -324,6 +324,23 @@ class QueryPlanner:
             elif isinstance(op, LazyGroupByAgg) and groupby_agg_op is None:
                 # Check if GroupByAgg can be pushed to SQL
                 can_push = has_sql_source
+
+                # Special case: first() and last() aggregations cannot be pushed to SQL
+                # when preceded by ORDER BY operations, because SQL's GROUP BY executes
+                # before ORDER BY, making the sort order meaningless for SQL aggregation.
+                # In pandas, sort_values().groupby().first() returns the first row per
+                # group based on the sort order, but SQL's any()/argMax() doesn't respect this.
+                if can_push and op.agg_func in ('first', 'last'):
+                    has_preceding_orderby = any(
+                        isinstance(prev_op, LazyRelationalOp) and prev_op.op_type == 'ORDER BY' for prev_op in ops[:i]
+                    )
+                    if has_preceding_orderby:
+                        can_push = False
+                        self._logger.debug(
+                            "  [GroupBy] %s() cannot be pushed to SQL after ORDER BY",
+                            op.agg_func,
+                        )
+
                 if can_push and op.agg_dict:
                     # Check for alias conflict with WHERE columns
                     # ClickHouse has a quirk: if SELECT has `agg(col) AS col` where `col` is
@@ -663,7 +680,9 @@ class QueryPlanner:
                         }
                         self._logger.debug("  [Schema] After SELECT: %s", list(effective_schema.keys()))
 
-            if self._can_push_op_to_sql(op, effective_schema):
+            # Pass preceding operations to allow context-aware decisions
+            preceding_ops = lazy_ops[: lazy_ops.index(op)] if op in lazy_ops else []
+            if self._can_push_op_to_sql(op, effective_schema, preceding_ops):
                 op_types.append(('sql', op))
             else:
                 op_types.append(('pandas', op))
@@ -737,13 +756,16 @@ class QueryPlanner:
 
         return exec_plan
 
-    def _can_push_op_to_sql(self, op: LazyOp, schema: Dict[str, str] = None) -> bool:
+    def _can_push_op_to_sql(
+        self, op: LazyOp, schema: Dict[str, str] = None, preceding_ops: List[LazyOp] = None
+    ) -> bool:
         """
         Check if a single operation can be pushed to SQL.
 
         Args:
             op: The operation to check
             schema: Column schema for type-aware checking
+            preceding_ops: List of operations that come before this one (for context-aware decisions)
 
         Returns:
             True if the operation can be executed via SQL
@@ -767,7 +789,26 @@ class QueryPlanner:
         if isinstance(op, LazyGroupByAgg):
             # GroupBy aggregation can be pushed if it doesn't use named_agg
             # named_agg (pandas named aggregation syntax) requires Pandas execution
-            return op.can_push_to_sql()
+            if not op.can_push_to_sql():
+                return False
+
+            # Special case: first() and last() cannot be pushed to SQL when preceded
+            # by ORDER BY, because SQL's GROUP BY executes BEFORE ORDER BY, making
+            # the sort order meaningless for SQL aggregation functions like any().
+            # In pandas, sort_values().groupby().first() returns the first row per
+            # group based on the sort order, but SQL cannot express this semantics.
+            if op.agg_func in ('first', 'last') and preceding_ops:
+                has_preceding_orderby = any(
+                    isinstance(prev_op, LazyRelationalOp) and prev_op.op_type == 'ORDER BY' for prev_op in preceding_ops
+                )
+                if has_preceding_orderby:
+                    self._logger.debug(
+                        "  [GroupBy] %s() cannot be pushed to SQL after ORDER BY (requires pandas execution)",
+                        op.agg_func,
+                    )
+                    return False
+
+            return True
 
         if isinstance(op, (LazyWhere, LazyMask)):
             # Check type compatibility for SQL pushdown
