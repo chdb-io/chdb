@@ -1885,6 +1885,49 @@ class SQLExecutionEngine:
                 select_fields.append(case_expr)
                 where_temp_alias_map[temp_alias] = col
 
+        # Pre-calculate column assignments and override columns for use in multiple places
+        # This is needed to detect when WHERE references columns that will be overridden
+        _all_column_assignments = [
+            op for op in plan.sql_ops if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
+        ]
+        _df_columns_set = set(df.columns)
+        _override_columns = {op.column for op in _all_column_assignments if op.column in _df_columns_set}
+
+        # Analyze WHERE conditions and their relationship with column assignments
+        # We need to identify which WHERE conditions come BEFORE assignments (need subquery)
+        # vs which come AFTER assignments (should use assigned values)
+        _where_conditions_before_assign = []  # These go in subquery
+        _where_conditions_after_assign = []  # These go in outer query
+
+        if _override_columns and clauses.where_conditions:
+            # Find the index of the first ASSIGN that overrides a column
+            first_conflicting_assign_idx = -1
+            for i, op in enumerate(plan.sql_ops):
+                if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
+                    if op.column in _override_columns:
+                        first_conflicting_assign_idx = i
+                        break
+
+            if first_conflicting_assign_idx >= 0:
+                # Categorize each WHERE condition based on its position relative to the assignment
+                where_op_indices = []
+                for i, op in enumerate(plan.sql_ops):
+                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+                        # Check if this WHERE references any override columns
+                        refs = self._extract_column_references(op.condition)
+                        if refs & _override_columns:
+                            where_op_indices.append((i, op.condition))
+
+                for where_idx, cond in where_op_indices:
+                    if where_idx < first_conflicting_assign_idx:
+                        # WHERE comes BEFORE the assignment - needs subquery
+                        _where_conditions_before_assign.append(cond)
+                    else:
+                        # WHERE comes AFTER the assignment - use in outer query
+                        _where_conditions_after_assign.append(cond)
+
+        _where_references_overrides = bool(_where_conditions_before_assign)
+
         # Determine SELECT clause
         # Priority: empty column select -> CASE WHEN/GroupBy fields -> explicit column selection -> *
         if clauses.empty_column_select:
@@ -1978,10 +2021,22 @@ class SQLExecutionEngine:
             )
             # _row_id is added automatically by connection.query_df
             parts = [f"SELECT {outer_select}", f"FROM ({inner_sql}) AS __case_subq__"]
+        elif _where_references_overrides:
+            # WHERE conditions that come BEFORE column assignment need to use original column values
+            # Put these in a subquery, then apply column assignment in outer query
+            # WHERE conditions that come AFTER should be applied to the final result
+            combined_before = _where_conditions_before_assign[0]
+            for cond in _where_conditions_before_assign[1:]:
+                combined_before = combined_before & cond
+            inner_sql = f"SELECT * FROM {from_sql} WHERE {combined_before.to_sql(quote_char=self.quote_char)}"
+            parts = [f"SELECT {select_sql}", f"FROM ({inner_sql}) AS __where_subq__"]
+            # Remove the "before" conditions from clauses.where_conditions, keep only "after"
+            # clauses.where_conditions may contain all conditions, so we need to replace it
+            clauses.where_conditions = _where_conditions_after_assign
         else:
             parts = [f"SELECT {select_sql}", f"FROM {from_sql}"]
 
-        # WHERE clause
+        # WHERE clause (skip if already applied in subquery above)
         if clauses.where_conditions:
             combined = clauses.where_conditions[0]
             for cond in clauses.where_conditions[1:]:

@@ -260,9 +260,21 @@ class NotCondition(Condition):
         yield from self.condition.nodes()
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
-        """Generate SQL for NOT condition."""
+        """Generate SQL for NOT condition with pandas-style NULL semantics.
+
+        In pandas, comparisons with NaN return False, and NOT False = True.
+        In SQL, comparisons with NULL return NULL, and NOT NULL = NULL.
+
+        To match pandas behavior, we need:
+        - NOT (ifNull(condition, 0)) - treats NULL as 0 (False), so NOT gives 1 (True)
+        - OR: ifNull(NOT (condition), 1) - if NOT returns NULL, default to 1 (True)
+
+        We use the second form as it's cleaner for nested conditions.
+        """
         cond_sql = self.condition.to_sql(quote_char=quote_char, **kwargs)
-        sql = f"NOT ({cond_sql})"
+        # Wrap with ifNull to handle NULL comparisons like pandas
+        # NOT NULL -> NULL in SQL, but should be True in pandas
+        sql = f"ifNull(NOT ({cond_sql}), 1)"
 
         # Add alias if present and requested
         if kwargs.get('with_alias', False) and self.alias:
