@@ -1116,12 +1116,15 @@ class SQLExecutionEngine:
         # Collect SELECT fields from SQL operations (original logic)
         sql_select_fields = []
         has_column_assignments = False
+        has_select_star = False  # Track if '*' was in SELECT fields
         for op in plan.sql_ops:
             if isinstance(op, LazyRelationalOp):
                 if op.op_type == 'SELECT' and op.fields:
                     for f in op.fields:
                         if isinstance(f, str):
-                            if f != '*':
+                            if f == '*':
+                                has_select_star = True  # Record that we need all columns
+                            else:
                                 sql_select_fields.append(Field(f))
                         else:
                             sql_select_fields.append(f)
@@ -1129,6 +1132,10 @@ class SQLExecutionEngine:
             elif isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
                 sql_select_fields.append(op.get_sql_expression())
                 has_column_assignments = True
+
+        # If '*' was in SELECT fields, set has_column_assignments to trigger include_star
+        if has_select_star and sql_select_fields:
+            has_column_assignments = True
 
         # Handle simple vs nested query
         if len(layers) <= 1:

@@ -799,14 +799,42 @@ class LazyRelationalOp(LazyOp):
         rows_before = len(df)
 
         if self.op_type == 'SELECT' and self.fields:
-            # Select specific columns
-            cols = [f if isinstance(f, str) else f.name for f in self.fields]
-            existing_cols = [c for c in cols if c in df.columns]
+            # Select specific columns, handling '*' to mean all existing columns
+            has_star = '*' in self.fields
+            if has_star:
+                # Start with all existing columns
+                selected_cols = list(df.columns)
+                # Add any additional columns (expressions with aliases)
+                for f in self.fields:
+                    if f == '*':
+                        continue
+                    if isinstance(f, str):
+                        if f not in selected_cols and f in df.columns:
+                            selected_cols.append(f)
+                    elif hasattr(f, 'alias') and f.alias:
+                        # Expression with alias - this is a computed column
+                        # It should already exist in df if SQL was executed
+                        if f.alias not in selected_cols and f.alias in df.columns:
+                            selected_cols.append(f.alias)
+                    elif hasattr(f, 'name'):
+                        name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
+                        if name not in selected_cols and name in df.columns:
+                            selected_cols.append(name)
+            else:
+                # No star - select specific columns
+                cols = [
+                    f if isinstance(f, str) else (f.alias if hasattr(f, 'alias') and f.alias else f.name)
+                    for f in self.fields
+                ]
+                # Handle Field objects - strip quotes
+                cols = [c.strip('"') if isinstance(c, str) else str(c) for c in cols]
+                selected_cols = [c for c in cols if c in df.columns]
+
             # Log column selection
-            self._logger.debug("      -> df[%s]", existing_cols)
-            if existing_cols:
-                result = df[existing_cols]
-                self._logger.debug("      -> Selected columns: %s", existing_cols)
+            self._logger.debug("      -> df[%s]", selected_cols)
+            if selected_cols:
+                result = df[selected_cols]
+                self._logger.debug("      -> Selected columns: %s", selected_cols)
                 return result
             return df
         elif self.op_type == 'WHERE' and self.condition is not None:
