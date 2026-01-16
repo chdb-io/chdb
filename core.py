@@ -2362,7 +2362,7 @@ class DataStore(PandasCompatMixin):
         # Fallback to table name or generic
         return self.table_name if self.table_name else 'tbl'
 
-    def _resolve_expr_dependencies(self, expr: 'Expression') -> 'Expression':
+    def _resolve_expr_dependencies(self, expr: 'Expression', _visited: set = None) -> 'Expression':
         """
         Recursively resolve computed column references in an expression.
 
@@ -2378,6 +2378,8 @@ class DataStore(PandasCompatMixin):
 
         Args:
             expr: Expression to resolve
+            _visited: Internal set to track visited column names and prevent infinite recursion
+                     when a computed column references itself (e.g., a = a + 1, then a = a * 2)
 
         Returns:
             Expression with all computed column references expanded
@@ -2389,23 +2391,38 @@ class DataStore(PandasCompatMixin):
         if expr is None:
             return None
 
+        # Initialize visited set on first call
+        if _visited is None:
+            _visited = set()
+
         # If it's a Field that references a computed column, expand it
         if isinstance(expr, Field):
             col_name = expr.name.strip('"\'')  # Remove quotes if present
             if hasattr(self, '_computed_columns') and col_name in self._computed_columns:
-                # Recursively resolve the computed column's expression
-                resolved = self._resolve_expr_dependencies(self._computed_columns[col_name])
-                # Preserve any alias from the original Field
-                if expr.alias:
-                    resolved = copy(resolved)
-                    resolved.alias = expr.alias
-                return resolved
+                # Check for circular reference to prevent infinite recursion
+                # This happens when overwriting a column: a = a + 1, then a = a * 2
+                # In this case, we should NOT expand the reference - just use the Field as-is
+                if col_name in _visited:
+                    return expr
+                # Mark this column as being visited
+                _visited.add(col_name)
+                try:
+                    # Recursively resolve the computed column's expression
+                    resolved = self._resolve_expr_dependencies(self._computed_columns[col_name], _visited)
+                    # Preserve any alias from the original Field
+                    if expr.alias:
+                        resolved = copy(resolved)
+                        resolved.alias = expr.alias
+                    return resolved
+                finally:
+                    # Remove from visited after processing (allow re-visiting in different branches)
+                    _visited.discard(col_name)
             return expr
 
         # For ArithmeticExpression, recursively resolve left and right
         if isinstance(expr, ArithmeticExpression):
-            resolved_left = self._resolve_expr_dependencies(expr.left)
-            resolved_right = self._resolve_expr_dependencies(expr.right)
+            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
+            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
             # Only create new expression if something changed
             if resolved_left is expr.left and resolved_right is expr.right:
                 return expr
@@ -2414,7 +2431,7 @@ class DataStore(PandasCompatMixin):
 
         # For Function, recursively resolve all arguments
         if isinstance(expr, Function):
-            resolved_args = [self._resolve_expr_dependencies(arg) for arg in expr.args]
+            resolved_args = [self._resolve_expr_dependencies(arg, _visited) for arg in expr.args]
             # Only create new function if something changed
             if all(r is o for r, o in zip(resolved_args, expr.args)):
                 return expr
@@ -2431,8 +2448,8 @@ class DataStore(PandasCompatMixin):
         from .conditions import BinaryCondition, CompoundCondition
 
         if isinstance(expr, BinaryCondition):
-            resolved_left = self._resolve_expr_dependencies(expr.left)
-            resolved_right = self._resolve_expr_dependencies(expr.right)
+            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
+            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
             if resolved_left is expr.left and resolved_right is expr.right:
                 return expr
             result = BinaryCondition(expr.operator, resolved_left, resolved_right, expr.alias)
@@ -2440,8 +2457,8 @@ class DataStore(PandasCompatMixin):
 
         # For CompoundCondition (AND, OR), resolve both sides
         if isinstance(expr, CompoundCondition):
-            resolved_left = self._resolve_expr_dependencies(expr.left)
-            resolved_right = self._resolve_expr_dependencies(expr.right)
+            resolved_left = self._resolve_expr_dependencies(expr.left, _visited)
+            resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
             if resolved_left is expr.left and resolved_right is expr.right:
                 return expr
             result = CompoundCondition(expr.operator, resolved_left, resolved_right)

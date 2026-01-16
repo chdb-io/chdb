@@ -413,7 +413,8 @@ def build_groupby_select_fields(
     """
     from .functions import AggregateFunction
 
-    alias_renames = alias_renames or {}
+    if alias_renames is None:
+        alias_renames = {}
     computed_columns = computed_columns or {}
 
     def resolve_column(col_name: str) -> Expression:
@@ -461,6 +462,8 @@ def build_groupby_select_fields(
         is_single_col_agg = getattr(groupby_agg, 'single_column_agg', False)
 
         # Check for function name conflicts across columns
+        # This only matters when a single column has multiple funcs and those func names conflict
+        # When each column has single func, alias = col name, so no conflicts
         all_funcs = []
         for col, funcs in groupby_agg.agg_dict.items():
             if isinstance(funcs, str):
@@ -473,16 +476,18 @@ def build_groupby_select_fields(
         # - single_column_agg (ColumnExpr.agg(['funcs'])): use function names only (pandas returns flat columns)
         # - agg({col: [funcs]}): use compound alias col_func (pandas returns MultiIndex)
         # - agg({col: func}): use column names only (pandas returns flat columns)
+        #   Note: Even if multiple columns use same func (e.g., 'sum'), no conflict
+        #   because each column uses its own name as alias
         if is_single_col_agg:
             # Single column agg: pandas returns flat column names with just function names
             use_compound_alias = False
             use_func_only_alias = True
-        elif has_any_multi_func or (has_multi_col and has_func_conflict):
-            # Multi-func or conflicts: use compound alias for MultiIndex
+        elif has_any_multi_func:
+            # Multi-func: use compound alias col_func for MultiIndex (pandas behavior)
             use_compound_alias = True
             use_func_only_alias = False
         else:
-            # Single func per column: use column names
+            # Single func per column: use column names (no conflict because different cols)
             use_compound_alias = False
             use_func_only_alias = False
 
@@ -501,9 +506,13 @@ def build_groupby_select_fields(
                 else:
                     alias = col
 
-                # Check if this alias conflicts with WHERE columns
+                # Check if this alias conflicts with WHERE columns or source columns
+                # When alias == source column name (e.g., sum(amount) AS amount),
+                # chDB interprets it as nested aggregation which is invalid
                 temp_alias = f"__agg_{alias}__"
-                if temp_alias in alias_renames:
+                if temp_alias in alias_renames or col == alias:
+                    # Use temp alias to avoid conflict, will rename back later
+                    alias_renames[temp_alias] = alias
                     alias = temp_alias
 
                 # Resolve column - may be a computed column from assign()
@@ -1450,6 +1459,9 @@ class SQLExecutionEngine:
             groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(
                 groupby_agg_op, alias_renames, all_columns=all_cols, computed_columns=computed_cols
             )
+            # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
+            # This handles cases like ORDER BY value where value is aggregated (sum(value) AS __agg_value__)
+            clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, alias_renames)
             if groupby_agg_op.sort and not clauses.orderby_fields:
                 clauses.orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
 
@@ -1826,11 +1838,14 @@ class SQLExecutionEngine:
                 self._logger.debug("  Renamed temp aliases: %s", rename_back)
 
         # Convert flat column names to MultiIndex for pandas compatibility
-        # (when using agg_dict with multiple functions per column)
-        # Skip for single_column_agg which should return flat column names
+        # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))
+        # When each column has single func, pandas returns flat column names, so we should too
         if plan.groupby_agg and plan.groupby_agg.agg_dict is not None and isinstance(plan.groupby_agg.agg_dict, dict):
             is_single_col_agg = getattr(plan.groupby_agg, 'single_column_agg', False)
-            if not is_single_col_agg:
+            has_any_multi_func = any(isinstance(f, (list, tuple)) for f in plan.groupby_agg.agg_dict.values())
+
+            # Only convert to MultiIndex when there are multiple funcs per column
+            if not is_single_col_agg and has_any_multi_func:
                 col_rename_map = {}
                 for col, funcs in plan.groupby_agg.agg_dict.items():
                     if isinstance(funcs, str):
@@ -1940,6 +1955,9 @@ class SQLExecutionEngine:
             groupby_fields, select_fields = build_groupby_select_fields(
                 plan.groupby_agg, plan.alias_renames, all_columns=df_columns, computed_columns=computed_cols
             )
+            # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
+            if plan.alias_renames and clauses.orderby_fields:
+                clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, plan.alias_renames)
 
         # Track temp alias mapping for where_ops (CASE WHEN)
         # chDB has alias conflict quirks: if a CASE WHEN uses "col" as alias and
