@@ -207,6 +207,7 @@ class ExecutionEngine:
 
 _execution_engine: str = ExecutionEngine.AUTO
 _prefer_pandas_for_simple: bool = True  # Prefer pandas for simple ops when AUTO
+_cross_datastore_engine: str = ExecutionEngine.AUTO  # Engine for cross-DataStore ops
 
 
 def get_execution_engine() -> str:
@@ -257,6 +258,46 @@ def use_chdb() -> None:
 def use_auto() -> None:
     """Use auto-selection for execution engine."""
     set_execution_engine(ExecutionEngine.AUTO)
+
+
+# =============================================================================
+# CROSS-DATASTORE OPERATION CONFIGURATION
+# =============================================================================
+
+
+def get_cross_datastore_engine() -> str:
+    """
+    Get current execution engine for cross-DataStore operations.
+
+    Returns:
+        str: One of 'auto', 'chdb', 'pandas'
+    """
+    return _cross_datastore_engine
+
+
+def set_cross_datastore_engine(engine: str) -> None:
+    """
+    Set the execution engine for cross-DataStore operations.
+
+    Cross-DataStore operations occur when columns from different DataStores
+    are combined (e.g., ds1['a'] + ds2['b']).
+
+    Args:
+        engine: One of 'auto', 'chdb', 'pandas'
+            - 'auto': Execute each side with its optimal engine, then combine with pandas
+            - 'chdb': Force chDB for each side before combining (slower for simple ops)
+            - 'pandas': Force pandas for entire operation (fastest for simple arithmetic)
+
+    Example:
+        >>> from datastore import config
+        >>> config.set_cross_datastore_engine('pandas')  # Fastest for simple ops
+        >>> ds1['a'] + ds2['b']  # Will use pure pandas
+    """
+    global _cross_datastore_engine
+    valid = {ExecutionEngine.AUTO, ExecutionEngine.CHDB, ExecutionEngine.PANDAS}
+    if engine not in valid:
+        raise ValueError(f"Invalid engine: {engine}. Use one of {valid}")
+    _cross_datastore_engine = engine
 
 
 class DataStoreConfig:
@@ -338,6 +379,22 @@ class DataStoreConfig:
     def use_auto(self) -> None:
         """Use auto-selection."""
         use_auto()
+
+    # ========== Cross-DataStore Engine ==========
+
+    @property
+    def cross_datastore_engine(self) -> str:
+        """Get current cross-DataStore execution engine."""
+        return get_cross_datastore_engine()
+
+    @cross_datastore_engine.setter
+    def cross_datastore_engine(self, engine: str) -> None:
+        """Set cross-DataStore execution engine ('auto', 'chdb', 'pandas')."""
+        set_cross_datastore_engine(engine)
+
+    def set_cross_datastore_engine(self, engine: str) -> None:
+        """Set cross-DataStore execution engine."""
+        set_cross_datastore_engine(engine)
 
     # ========== Cache Configuration ==========
 

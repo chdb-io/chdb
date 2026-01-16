@@ -1429,6 +1429,11 @@ class ColumnExpr:
             if not isinstance(result, (pd.Series, pd.DataFrame)):
                 return result == other
 
+        # NOTE: Do NOT add cross-DataStore handling for __eq__ here!
+        # __eq__ is commonly used for join conditions (e.g., ds1.id == ds2.user_id)
+        # which need to remain as BinaryCondition for SQL generation.
+        # Cross-DataStore value comparison for == should use .eq() method instead.
+
         # Return ColumnExpr wrapping Condition for lazy boolean column
         # pandas semantics: col == None returns False for ALL rows
         # This is element-wise comparison with Python singleton None,
@@ -1454,6 +1459,10 @@ class ColumnExpr:
             # For multi-element Series, return method-mode ColumnExpr
             return ColumnExpr(source=self, method_name='__ne__', method_args=(other,))
 
+        # NOTE: Do NOT add cross-DataStore handling for __ne__ here!
+        # Similar to __eq__, != may be used in join conditions.
+        # Use .ne() method for cross-DataStore value comparison.
+
         from .conditions import BinaryCondition
         from .expressions import Literal
 
@@ -1476,6 +1485,10 @@ class ColumnExpr:
             # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__gt__', method_args=(other,))
 
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('>', other, is_comparison=True)
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('>', self._expr, Expression.wrap(other))
@@ -1490,6 +1503,10 @@ class ColumnExpr:
                 return result >= other
             # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__ge__', method_args=(other,))
+
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('>=', other, is_comparison=True)
 
         from .conditions import BinaryCondition
 
@@ -1506,6 +1523,10 @@ class ColumnExpr:
             # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__lt__', method_args=(other,))
 
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('<', other, is_comparison=True)
+
         from .conditions import BinaryCondition
 
         condition = BinaryCondition('<', self._expr, Expression.wrap(other))
@@ -1520,6 +1541,10 @@ class ColumnExpr:
                 return result <= other
             # For Series results, return method-mode ColumnExpr for boolean indexing
             return ColumnExpr(source=self, method_name='__le__', method_args=(other,))
+
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('<=', other, is_comparison=True)
 
         from .conditions import BinaryCondition
 
@@ -1663,7 +1688,10 @@ class ColumnExpr:
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
 
-        if self._exec_mode == 'method' or (isinstance(other, ColumnExpr) and other._exec_mode == 'method'):
+        # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
+        if self._exec_mode in ('method', 'executor') or (
+            isinstance(other, ColumnExpr) and other._exec_mode in ('method', 'executor')
+        ):
             return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
 
         self_cond = self._to_condition()
@@ -1717,8 +1745,10 @@ class ColumnExpr:
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name='__or__', method_args=(other,))
 
-        # For method mode (e.g., from groupby comparison), use pandas | on executed results
-        if self._exec_mode == 'method' or (isinstance(other, ColumnExpr) and other._exec_mode == 'method'):
+        # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
+        if self._exec_mode in ('method', 'executor') or (
+            isinstance(other, ColumnExpr) and other._exec_mode in ('method', 'executor')
+        ):
             return ColumnExpr(source=self, method_name='__or__', method_args=(other,))
 
         self_cond = self._to_condition()
@@ -1801,6 +1831,10 @@ class ColumnExpr:
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__add__', method_args=(other,))
 
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('+', other)
+
         # Check if this is string concatenation
         other_is_string = isinstance(other, str)
         other_is_string_col = isinstance(other, ColumnExpr) and other._is_string_column()
@@ -1833,6 +1867,134 @@ class ColumnExpr:
     def _is_method_mode_columnexpr(self, value: Any) -> bool:
         """Check if value is a ColumnExpr in method mode (with _expr=None)."""
         return isinstance(value, ColumnExpr) and (value._exec_mode != 'expr' or value._expr is None)
+
+    def _is_cross_datastore(self, other: Any) -> bool:
+        """
+        Check if other is a ColumnExpr from a different DataStore.
+
+        This is used to detect cross-DataStore operations that need
+        special handling (row alignment via _row_id).
+
+        Args:
+            other: The other operand in an arithmetic/comparison operation
+
+        Returns:
+            True if other is a ColumnExpr from a different DataStore
+        """
+        if not isinstance(other, ColumnExpr):
+            return False
+        if other._datastore is None or self._datastore is None:
+            return False
+        return other._datastore is not self._datastore
+
+    def _create_cross_datastore_op(self, op: str, other: 'ColumnExpr', is_comparison: bool = False) -> 'ColumnExpr':
+        """
+        Create a ColumnExpr for cross-DataStore operations.
+
+        Uses _row_id for row alignment between two DataStores.
+        The operation is executed by materializing both sides and
+        aligning by position (similar to pandas index alignment).
+
+        The execution path is controlled by config.cross_datastore_engine:
+        - 'auto': Execute each side with its optimal engine, then combine with pandas
+        - 'pandas': Use pure pandas for entire operation (fastest for simple ops)
+        - 'chdb': Force chDB execution for each side (not recommended)
+
+        Args:
+            op: The operator ('+', '-', '*', '/', '>', '<', '==', etc.)
+            other: The ColumnExpr from another DataStore
+            is_comparison: If True, the result is a boolean Series
+
+        Returns:
+            ColumnExpr in executor mode that performs the aligned operation
+        """
+        from .config import get_cross_datastore_engine, ExecutionEngine
+
+        # Capture references for the closure
+        self_expr = self
+        other_expr = other
+        cross_engine = get_cross_datastore_engine()
+
+        def executor():
+            import pandas as pd
+
+            def get_series(expr: 'ColumnExpr') -> pd.Series:
+                """Get Series from ColumnExpr, using pandas path if configured and possible."""
+                if cross_engine == ExecutionEngine.PANDAS:
+                    # Try pure pandas path for simple Field expressions
+                    if isinstance(expr._expr, Field) and expr._datastore is not None:
+                        col_name = expr._expr.name
+                        df = expr._datastore._get_df()
+                        if col_name in df.columns:
+                            return df[col_name]
+                # Fall back to execute (may use SQL for complex expressions)
+                return expr._execute()
+
+            # Get Series based on configured engine
+            s1 = get_series(self_expr)
+            s2 = get_series(other_expr)
+
+            # Ensure both are Series
+            if not isinstance(s1, pd.Series):
+                s1 = pd.Series([s1])
+            if not isinstance(s2, pd.Series):
+                s2 = pd.Series([s2])
+
+            # Align by position using reset_index only if necessary
+            # Skip reset_index if both Series have compatible indices (same length RangeIndex)
+            # This optimization avoids expensive index operations when not needed
+            s1_idx = s1.index
+            s2_idx = s2.index
+            need_reset = True
+
+            if len(s1) == len(s2):
+                # Check if both have default RangeIndex (0, 1, 2, ...)
+                if (
+                    isinstance(s1_idx, pd.RangeIndex)
+                    and isinstance(s2_idx, pd.RangeIndex)
+                    and s1_idx.start == 0
+                    and s2_idx.start == 0
+                    and s1_idx.step == 1
+                    and s2_idx.step == 1
+                ):
+                    need_reset = False
+                # Or if indices are already equal
+                elif s1_idx.equals(s2_idx):
+                    need_reset = False
+
+            if need_reset:
+                s1_aligned = s1.reset_index(drop=True)
+                s2_aligned = s2.reset_index(drop=True)
+            else:
+                s1_aligned = s1
+                s2_aligned = s2
+
+            # Perform the operation
+            op_map = {
+                '+': '__add__',
+                '-': '__sub__',
+                '*': '__mul__',
+                '/': '__truediv__',
+                '//': '__floordiv__',
+                '%': '__mod__',
+                '**': '__pow__',
+                '>': '__gt__',
+                '>=': '__ge__',
+                '<': '__lt__',
+                '<=': '__le__',
+                '==': '__eq__',
+                '!=': '__ne__',
+            }
+            method_name = op_map.get(op, f'__{op}__')
+            result = getattr(s1_aligned, method_name)(s2_aligned)
+
+            # Restore original index from self (left operand)
+            if len(result) == len(s1):
+                result.index = s1.index
+
+            return result
+
+        return ColumnExpr(executor=executor, datastore=self._datastore)
 
     def _is_string_column(self) -> bool:
         """
@@ -1872,6 +2034,9 @@ class ColumnExpr:
         # If self or other is method mode, use pandas arithmetic
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__sub__', method_args=(other,))
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('-', other)
         new_expr = ArithmeticExpression('-', self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
@@ -1884,6 +2049,9 @@ class ColumnExpr:
     def __mul__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__mul__', method_args=(other,))
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('*', other)
         new_expr = ArithmeticExpression('*', self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
@@ -1896,6 +2064,9 @@ class ColumnExpr:
     def __truediv__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__truediv__', method_args=(other,))
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('/', other)
         new_expr = ArithmeticExpression('/', self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
@@ -1908,6 +2079,9 @@ class ColumnExpr:
     def __floordiv__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__floordiv__', method_args=(other,))
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('//', other)
         new_expr = ArithmeticExpression('//', self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
@@ -1920,6 +2094,9 @@ class ColumnExpr:
     def __mod__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
             return ColumnExpr(source=self, method_name='__mod__', method_args=(other,))
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('%', other)
         new_expr = ArithmeticExpression('%', self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
@@ -1932,6 +2109,9 @@ class ColumnExpr:
     def __pow__(self, other: Any) -> 'ColumnExpr':
         if self._exec_mode != 'expr' or self._expr is None:
             return ColumnExpr(source=self, method_name='__pow__', method_args=(other,))
+        # Cross-DataStore operation: align by _row_id (position)
+        if self._is_cross_datastore(other):
+            return self._create_cross_datastore_op('**', other)
         new_expr = ArithmeticExpression('**', self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
