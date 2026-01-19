@@ -268,6 +268,20 @@ class TestDataFrameNullHandling(unittest.TestCase):
         self.assertEqual(result['is_null1'].iloc[4], 1)
         self.assertEqual(result['is_null1'].iloc[5], 0)
 
+    def test_bool_nan_is_null(self):
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5, 6, 7],
+            'bool_col': [True, np.nan, None, pd.NA, pd.NaT, False, True],
+        })
+        result = self.conn.query('SELECT * FROM Python(df) ORDER BY id', 'DataFrame')
+        self.assertEqual(result['bool_col'].iloc[0], 1)
+        self.assertTrue(pd.isna(result['bool_col'].iloc[1]))
+        self.assertTrue(pd.isna(result['bool_col'].iloc[2]))
+        self.assertTrue(pd.isna(result['bool_col'].iloc[3]))
+        self.assertTrue(pd.isna(result['bool_col'].iloc[4]))
+        self.assertEqual(result['bool_col'].iloc[5], 0)
+        self.assertEqual(result['bool_col'].iloc[6], 1)
+
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)
