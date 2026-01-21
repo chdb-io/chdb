@@ -121,6 +121,9 @@ jobs:
             python -m pip install --upgrade pip
             if [ "$version" = "3.8" ]; then
               python -m pip install setuptools tox twine psutil wheel
+            # Python 3.13+ needs newer pyarrow (16.1.0 has no pre-built wheels for 3.13+)
+            elif [ "$version" = "3.13" ] || [ "$version" = "3.14" ]; then
+              python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
             else
               python -m pip install setuptools tox pandas pyarrow==16.1.0 twine psutil deltalake wheel
             fi
