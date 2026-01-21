@@ -122,7 +122,7 @@ jobs:
             if [ "$version" = "3.8" ]; then
               python -m pip install setuptools tox twine psutil wheel
             else
-              python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+              python -m pip install setuptools tox pandas pyarrow==16.1.0 twine psutil deltalake wheel
             fi
             pyenv shell --unset
           done
