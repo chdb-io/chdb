@@ -16,7 +16,6 @@
 #include <DataTypes/DataTypesNumber.h>
 #include <Formats/FormatFactory.h>
 #include <Storages/ColumnsDescription.h>
-#include <Storages/StorageFactory.h>
 #include <Storages/VirtualColumnsDescription.h>
 #include <base/types.h>
 #include <pybind11/gil.h>
@@ -26,7 +25,6 @@
 #include <Poco/Logger.h>
 #include <Common/Exception.h>
 #include <Common/logger_useful.h>
-#include <any>
 #if USE_JEMALLOC
 #include <Common/memory.h>
 #endif
@@ -50,11 +48,11 @@ StoragePython::StoragePython(
     const StorageID & table_id_,
     const ColumnsDescription & columns_,
     const ConstraintsDescription & constraints_,
-    py::object reader_,
     ContextPtr context_,
-    bool is_pandas_df_)
-    : IStorage(table_id_), data_source(reader_), WithContext(context_)
-    , is_pandas_df(is_pandas_df_)
+    bool is_pandas_df_,
+    CHDB::DataSourceWrapperPtr data_source_wrapper_)
+    : IStorage(table_id_), WithContext(context_)
+    , is_pandas_df(is_pandas_df_), data_source_wrapper(std::move(data_source_wrapper_))
 {
     StorageInMemoryMetadata storage_metadata;
     storage_metadata.setColumns(columns_);
@@ -90,10 +88,11 @@ Pipe StoragePython::read(
     Block sample_block = prepareSampleBlock(column_names, storage_snapshot, is_virtual_column);
     auto format_settings = getFormatSettings(getContext());
 
+    auto & data_source = data_source_wrapper->getDataSource();
     if (isInheritsFromPyReader(data_source))
     {
         return Pipe(
-            std::make_shared<PythonSource>(data_source, true, false, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
+            std::make_shared<PythonSource>(data_source_wrapper, true, false, sample_block, column_cache, data_source_row_count, max_block_size, 0, 1, format_settings));
     }
 
     ArrowTableReaderPtr arrow_table_reader;
@@ -119,7 +118,7 @@ Pipe StoragePython::read(
     Pipes pipes;
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source, false, is_pandas_df, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
+            data_source_wrapper, false, is_pandas_df, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
     return Pipe::unitePipes(std::move(pipes));
 }
 
@@ -156,6 +155,7 @@ void StoragePython::prepareColumnCache(
     ::Memory::MemoryCheckScope memory_check_scope;
 #endif
 
+    auto & data_source = data_source_wrapper->getDataSource();
     if (column_cache == nullptr)
     {
         column_cache = std::make_shared<PyColumnVec>(names.size());
@@ -174,7 +174,7 @@ void StoragePython::prepareColumnCache(
             {
                 if (is_pandas_df)
                 {
-                    CHDB::PandasDataFrame::fillColumn(data_source, col_name, col);
+                    CHDB::PandasDataFrame::fillColumn(data_source, col_name, col, *data_source_wrapper);
                 }
                 else
                 {
@@ -431,26 +431,4 @@ std::vector<std::pair<std::string, std::string>> PyReader::getSchemaFromPyObj(co
         py::str(data.attr("__class__")).cast<std::string>());
 }
 
-void registerStoragePython(StorageFactory & factory)
-{
-    factory.registerStorage(
-        "Python",
-        [](const StorageFactory::Arguments & args) -> StoragePtr
-        {
-            if (args.engine_args.size() != 1)
-                throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python engine requires 1 argument: PyReader object");
-
-            py::object reader = std::any_cast<py::object>(args.engine_args[0]);
-            bool is_pandas_df = false;
-            {
-                py::gil_scoped_acquire acquire;
-                is_pandas_df = CHDB::PandasDataFrame::isPandasDataframe(reader);
-            }
-            return std::make_shared<StoragePython>(args.table_id, args.columns, args.constraints, reader, args.getLocalContext(), is_pandas_df);
-        },
-        {
-            .supports_settings = false,
-            .supports_parallel_insert = false,
-        });
-}
 }
