@@ -225,7 +225,7 @@ jobs:
           mv ./artifacts/libchdb.a ./
           mv ./artifacts/chdb/_chdb.abi3.so ./chdb/
           mv ./artifacts/chdb/libpybind11nonlimitedapi_stubs.dylib ./chdb/
-          for v in 8 9 10 11 12 13 14; do
+          for v in 9 10 11 12 13 14; do
             mv ./artifacts/chdb/libpybind11nonlimitedapi_chdb_3.${v}.dylib ./chdb/
           done
           ls -lh ./libchdb.so ./libchdb.a

@@ -6,7 +6,6 @@ TARGET_DIR="${HOME}/python_include"
 TEMP_DIR="${TARGET_DIR}/tmp"
 
 VERSIONS=(
-    "3.8.10:3.8:3.8"
     "3.9.13:3.9:3.9"
     "3.10.11:3.10:3.10"
     "3.11.9:3.11:3.11"
@@ -30,7 +29,7 @@ for entry in "${VERSIONS[@]}"; do
     echo "Processing Python ${FULL_VER}..."
     echo "=========================================="
 
-    # 检查目标目录是否已存在
+    # Check if headers already installed
     DEST_DIR="${TARGET_DIR}/${SUBDIR}"
     if [ -d "$DEST_DIR" ] && [ -f "${DEST_DIR}/Python.h" ]; then
         echo "✓ Python ${FULL_VER} headers already installed at ${DEST_DIR}"
