@@ -734,7 +734,6 @@ class TestWhereWithVariousDataTypes:
 
             np.testing.assert_array_equal(ds_result['value'].values, pd_result['value'].values)
 
-    @pytest.mark.skipif(sys.version_info < (3, 9), reason="Datetime handling differs in Python 3.8")
     def test_where_datetime_column_preserves_type(self):
         """where() on datetime column handles type correctly."""
         df = pd.DataFrame(

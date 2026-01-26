@@ -25,11 +25,11 @@ if(CHDB_CROSSCOMPILING)
         # Set include directory based on provided prefix and version
         set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}")
     else()
-        # Default to Python 3.8 if not specified
+        # Default to Python 3.9 if not specified
         set(Python_VERSION_MAJOR 3)
-        set(Python_VERSION_MINOR 8)
-        set(Python_VERSION "3.8")
-        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+        set(Python_VERSION_MINOR 9)
+        set(Python_VERSION "3.9")
+        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.9")
     endif()
 
     message(STATUS "Cross-compiling: Using Python ${Python_VERSION} include directory: ${Python_INCLUDE_DIRS}")

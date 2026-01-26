@@ -25,71 +25,18 @@ from .config import get_logger, get_profiler
 
 def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Convert nullable pandas dtypes to non-nullable equivalents for chDB compatibility.
+    Legacy function for Python 3.8 compatibility (no longer needed).
 
-    On Python 3.8, chDB has issues reading from DataFrames with nullable dtypes
-    (Int64, Float64, etc.) which can cause uninitialized memory reads.
-
-    This function converts:
-    - Float64 -> float64 (NaN preserved as np.nan)
-    - Int64 -> int64 (NA values become 0, use with caution)
-    - Other nullable types -> their non-nullable equivalents
+    Previously converted nullable pandas dtypes to non-nullable equivalents.
+    Now returns the DataFrame unchanged since Python 3.9+ handles nullable dtypes correctly.
 
     Args:
         df: DataFrame that may contain nullable dtypes
 
     Returns:
-        DataFrame with non-nullable dtypes
+        DataFrame unchanged
     """
-    import sys
-
-    # Only apply fix for Python 3.8.x
-    if sys.version_info[:2] != (3, 8):
-        return df
-
-    result = df
-    needs_copy = False
-
-    for col in df.columns:
-        dtype = df[col].dtype
-        dtype_str = str(dtype)
-
-        # Check for nullable extension types
-        if dtype_str == 'Float64':
-            if not needs_copy:
-                result = df.copy()
-                needs_copy = True
-            # Convert to float64, preserving NaN
-            result[col] = df[col].astype('float64')
-        elif dtype_str == 'Float32':
-            if not needs_copy:
-                result = df.copy()
-                needs_copy = True
-            result[col] = df[col].astype('float32')
-        elif dtype_str in ('Int64', 'Int32', 'Int16', 'Int8', 'UInt64', 'UInt32', 'UInt16', 'UInt8'):
-            if not needs_copy:
-                result = df.copy()
-                needs_copy = True
-            # For nullable integers with NA, convert to float to preserve NaN
-            if df[col].isna().any():
-                result[col] = df[col].astype('float64')
-            else:
-                result[col] = df[col].astype(dtype_str.lower())
-        elif dtype_str == 'boolean':
-            if not needs_copy:
-                result = df.copy()
-                needs_copy = True
-            if df[col].isna().any():
-                result[col] = df[col].astype('object')
-            else:
-                result[col] = df[col].astype('bool')
-        elif dtype_str == 'string':
-            if not needs_copy:
-                result = df.copy()
-                needs_copy = True
-            result[col] = df[col].astype('object')
-
-    return result
+    return df
 
 
 class Connection:
@@ -870,7 +817,6 @@ class Connection:
         chDB's Python() table function requires the DataFrame to be
         accessible in the local scope where conn.query() is called.
         """
-        # Convert nullable dtypes to non-nullable for Python 3.8 compatibility
         df_converted = _convert_nullable_dtypes(df)
         __df__ = df_converted  # noqa: F841 - Required for conn.query to access via Python(__df__)
         if df_name != '__df__':
@@ -908,7 +854,6 @@ class Connection:
         # These functions can change the number of rows, so we can't preserve index
         is_row_expanding = self._is_row_expanding_expression(expr_sql)
 
-        # Convert nullable dtypes to non-nullable for Python 3.8 compatibility
         df_converted = _convert_nullable_dtypes(df)
 
         # Handle non-contiguous index for chDB compatibility

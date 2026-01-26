@@ -14,10 +14,9 @@ Known dtype differences:
   (e.g., int64 instead of Int64, bool instead of boolean)
 - This is acceptable as long as values match
 
-Version-specific notes (Python 3.8 / pandas 2.0.x):
-- Nullable boolean type handling in SQL differs in older pandas versions
+Version-specific notes:
+- Nullable boolean type handling in SQL may differ in older pandas versions
 - chDB type conversion for Bool/String supertype issues in older versions
-- These tests may be skipped on older pandas versions
 """
 
 import unittest

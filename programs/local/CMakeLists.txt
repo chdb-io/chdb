@@ -86,41 +86,13 @@ if (USE_PYTHON)
         )
     endforeach(_file)
 
-    # remove all warning, because pybind11 will generate a lot of warning
-    if (OS_LINUX)
-        # get python version, something like python3.x
-        execute_process(COMMAND python3 -c "import sys; print('python3.'+str(sys.version_info[1]))"
-            OUTPUT_VARIABLE PYTHON_VERSION
-            OUTPUT_STRIP_TRAILING_WHITESPACE
+    # remove all warnings, because pybind11 will generate a lot of warnings
+    foreach(_file ${CHDB_SOURCES})
+        set_source_files_properties(${_file}
+            PROPERTIES COMPILE_FLAGS
+            "-w"
         )
-        # pybind11 will try to find x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h
-        # use -idirafter to make it find the right one and not polute the include path
-        # set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
-        #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
-        # )
-        if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
-            foreach(_file ${CHDB_SOURCES})
-                set_source_files_properties(${_file}
-                    PROPERTIES COMPILE_FLAGS
-                    "-w -idirafter /usr/include -include crypt.h"
-                )
-            endforeach(_file)
-        else()
-            foreach(_file ${CHDB_SOURCES})
-                set_source_files_properties(${_file}
-                    PROPERTIES COMPILE_FLAGS
-                    "-w"
-                )
-            endforeach(_file)
-        endif()
-    elseif (OS_DARWIN)
-        foreach(_file ${CHDB_SOURCES})
-            set_source_files_properties(${_file}
-                PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
-        endforeach(_file)
-    endif()
+    endforeach(_file)
 endif()
 
 set (CLICKHOUSE_LOCAL_LINK
