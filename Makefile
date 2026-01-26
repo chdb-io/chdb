@@ -14,6 +14,13 @@ test:
 	@echo "Testing..."
 	cd tests && python3 run_all.py
 
+test-datastore:
+	@echo "Testing DataStore..."
+	cd chdb/datastore && python3 -m pytest tests/ -v --tb=short
+
+test-all: test test-datastore
+	@echo "All tests completed."
+
 pub:
 	@echo "Publishing wheel..."
 	tox -e publish

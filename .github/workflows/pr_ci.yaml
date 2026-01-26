@@ -27,4 +27,7 @@ jobs:
         run: python -m pip install flake8
 
       - name: Run flake8 on chdb directory
-        run: cd chdb && flake8 .
+        run: cd chdb && flake8 . --exclude=datastore/tests
+
+      - name: Run flake8 on datastore directory
+        run: cd chdb/datastore && flake8 . --exclude=tests --max-line-length=120
