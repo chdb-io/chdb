@@ -1024,11 +1024,17 @@ class DataStore(PandasCompatMixin):
                     existing_index_cols = [n for n in index_names if n in df.columns]
                     if existing_index_cols:
                         df = df.set_index(existing_index_cols)
+            elif self._index_info.get('is_noncontiguous'):
+                # Non-contiguous index was reset for SQL execution
+                # The result already has correct row order via _row_id handling in query_df
+                # Just ensure the DataFrame has a clean RangeIndex (which it should have)
+                if not df.index.equals(pd.RangeIndex(len(df))):
+                    df = df.reset_index(drop=True)
             else:
                 # Restore single index
-                index_name = self._index_info['name']
+                index_name = self._index_info.get('name')
                 # Check if DataFrame already has this index
-                if df.index.name != index_name:
+                if index_name is not None and df.index.name != index_name:
                     if index_name in df.columns:
                         df = df.set_index(index_name)
 
@@ -1094,12 +1100,32 @@ class DataStore(PandasCompatMixin):
 
             self._logger.debug("  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql)
 
-            with profiler.step("SQL Execution"):
-                result = self._executor.execute(sql)
+            # For PythonTableFunction, use query_df to ensure row order preservation
+            # (chDB's parallel execution can cause non-deterministic row ordering)
+            # EXCEPTION: If SQL already contains row order handling (e.g., __orig_row_num__
+            # from nested subqueries), skip query_df's additional _row_id processing
+            from .table_functions import PythonTableFunction
 
-            with profiler.step("Result to DataFrame"):
-                df = result.to_df()
-                df = self._postprocess_sql_result(df, plan)
+            sql_has_row_order_handling = '__orig_row_num__' in sql or 'ORDER BY _row_id' in sql
+
+            if isinstance(self._table_function, PythonTableFunction) and not sql_has_row_order_handling:
+                with profiler.step("SQL Execution (query_df)"):
+                    # Use executor.query_dataframe which calls connection.query_df
+                    # with preserve_order=True for deterministic row ordering
+                    from .executor import get_executor
+
+                    executor = get_executor()
+                    df = executor.query_dataframe(sql, self._table_function._df, '__df__', preserve_order=True)
+                    df = self._postprocess_sql_result(df, plan)
+            else:
+                # For non-Python table functions (file, URL, etc.), or SQL that already
+                # has row order handling, use direct execution
+                with profiler.step("SQL Execution"):
+                    result = self._executor.execute(sql)
+
+                with profiler.step("Result to DataFrame"):
+                    df = result.to_df()
+                    df = self._postprocess_sql_result(df, plan)
 
             self._logger.debug("  SQL returned DataFrame with shape: %s", df.shape)
 
@@ -2514,6 +2540,10 @@ class DataStore(PandasCompatMixin):
                 or (hasattr(df_to_use.index, 'names') and any(n is not None for n in df_to_use.index.names))
             )
 
+            # Also check for non-contiguous index (e.g., after dropna, filter, etc.)
+            # chDB's Python() table function requires contiguous 0..n-1 index for correct data access
+            has_noncontiguous_index = len(df_to_use) > 0 and not df_to_use.index.equals(pd.RangeIndex(len(df_to_use)))
+
             if has_custom_index:
                 # Store index info for restoration after SQL execution
                 if isinstance(df_to_use.index, pd.MultiIndex):
@@ -2528,6 +2558,15 @@ class DataStore(PandasCompatMixin):
                     }
                 # Reset index to include it as a column for SQL processing
                 df_to_use = df_to_use.reset_index()
+            elif has_noncontiguous_index:
+                # Non-contiguous index without a name (e.g., from dropna/filter)
+                # Store original index for potential restoration
+                self._index_info = {
+                    'original_index': df_to_use.index.copy(),
+                    'is_noncontiguous': True,
+                }
+                # Reset index to contiguous 0..n-1 for chDB compatibility
+                df_to_use = df_to_use.reset_index(drop=True)
 
             # Create PythonTableFunction on-demand with the (possibly filtered) DataFrame
             self._table_function = PythonTableFunction(df=df_to_use, name=self._source_df_name)
