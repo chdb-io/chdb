@@ -315,6 +315,19 @@ jobs:
             pyenv shell --unset
           done
         continue-on-error: false
+      - name: Test DataStore on Python 3.11
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.11
+          python -m pip install dist/*.whl --force-reinstall
+          python -m pip install pytest pytest-cov pytest-timeout
+          echo "Testing DataStore import..."
+          python -c "from chdb import datastore; print('DataStore import OK'); from chdb.datastore import DataStore, DataFrame; print('DataStore classes import OK')"
+          echo "Running DataStore tests..."
+          cd chdb/datastore && python -m pytest tests/ -v --tb=short -x --timeout=300
+          pyenv shell --unset
+        continue-on-error: false
       - name: Run notebook tests
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
