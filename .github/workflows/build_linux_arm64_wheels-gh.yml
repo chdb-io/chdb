@@ -323,7 +323,7 @@ jobs:
           python -m pip install dist/*.whl --force-reinstall
           python -m pip install pytest pytest-cov pytest-timeout
           echo "Testing DataStore import..."
-          python -c "from chdb import datastore; print('DataStore import OK'); from chdb.datastore import DataStore, DataFrame; print('DataStore classes import OK')"
+          python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
           echo "Running DataStore tests..."
           cd chdb/datastore && python -m pytest tests/ -v --tb=short -x --timeout=300
           pyenv shell --unset

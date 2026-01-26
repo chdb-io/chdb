@@ -54,7 +54,7 @@ DataStore provides a **familiar pandas-like API** with automatic SQL generation 
 Just change your import - use the pandas API you already know:
 
 ```python
-import chdb.datastore as pd  # That's it! Use pandas API as usual
+import datastore as pd  # That's it! Use pandas API as usual
 
 # Create a DataFrame - works exactly like pandas
 df = pd.DataFrame({
@@ -92,7 +92,7 @@ print(df.groupby('city')['age'].mean())
 ### Working with Files
 
 ```python
-from chdb.datastore import DataStore
+from datastore import DataStore
 
 # Load any file format
 ds = DataStore.from_file("data.parquet")  # or CSV, JSON, ORC...
@@ -115,7 +115,7 @@ print(result)
 ### Query Any Data Source
 
 ```python
-from chdb.datastore import DataStore
+from datastore import DataStore
 
 # S3 (with anonymous access)
 ds = DataStore.uri("s3://bucket/data.parquet?nosign=true")

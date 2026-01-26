@@ -222,10 +222,9 @@ from .state import connect  # noqa: E402
 
 # DataStore: Pandas-like data manipulation framework with automatic SQL generation
 # Usage:
-#   from chdb import datastore
-#   import chdb.datastore as ds
-#   from chdb.datastore import DataStore, DataFrame
-from . import datastore  # noqa: E402
+#   from datastore import DataStore, DataFrame
+#   import datastore as ds
+import datastore  # noqa: E402
 
 __all__ = [
     "_chdb",

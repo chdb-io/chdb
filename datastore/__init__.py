@@ -13,7 +13,7 @@ Key Features:
 - Immutable operations for thread safety
 
 Example:
-    >>> from chdb_ds import DataStore
+    >>> from datastore import DataStore
     >>>
     >>> # Simplest way: Use URI with automatic type inference
     >>> ds = DataStore.uri("/path/to/data.csv")
