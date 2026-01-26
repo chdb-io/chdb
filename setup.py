@@ -140,7 +140,7 @@ if __name__ == "__main__":
                 libraries=[],
                 library_dirs=[libdir],
                 extra_objects=[chdb_so],
-                define_macros=[("Py_LIMITED_API", "0x03080000")],
+                define_macros=[("Py_LIMITED_API", "0x03090000")],
                 py_limited_api=True,
             ),
         ]
@@ -183,7 +183,7 @@ if __name__ == "__main__":
             zip_safe=False,
             options={
                 "bdist_wheel": {
-                    "py_limited_api": "cp38",
+                    "py_limited_api": "cp39",
                 }
             },
         )

@@ -152,7 +152,7 @@ if (TARGET ch_contrib::arrow)
 endif()
 if (TARGET ch_contrib::pybind11_stubs)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::pybind11_stubs)
-    target_compile_definitions(clickhouse-local-lib PRIVATE Py_LIMITED_API=0x03080000)
+    target_compile_definitions(clickhouse-local-lib PRIVATE Py_LIMITED_API=0x03090000)
 endif()
 
 if (ENABLE_CLIENT_AI AND TARGET ch_contrib::ai-sdk-cpp)
