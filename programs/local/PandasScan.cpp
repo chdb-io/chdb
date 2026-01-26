@@ -155,7 +155,6 @@ ColumnPtr PandasScan::scanColumn(
         return column;
     }
 
-
     switch (which.idx)
 	{
     case TypeIndex::Float32:
