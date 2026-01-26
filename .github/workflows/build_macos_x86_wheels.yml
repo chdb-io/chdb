@@ -119,10 +119,6 @@ jobs:
             ./libchdb.a
             ./chdb/_chdb.abi3.so
             ./chdb/libpybind11nonlimitedapi_stubs.dylib
-<<<<<<< HEAD
-=======
-            ./chdb/libpybind11nonlimitedapi_chdb_3.8.dylib
->>>>>>> origin/main
             ./chdb/libpybind11nonlimitedapi_chdb_3.9.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.10.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.11.dylib
@@ -191,11 +187,7 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-<<<<<<< HEAD
             python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0 jupyter nbconvert
-=======
-            python -m pip install setuptools tox "pandas<3.0" pyarrow twine psutil deltalake wheel>=0.40.0 jupyter nbconvert
->>>>>>> origin/main
             pyenv shell --unset
           done
       - name: Remove /usr/local/bin/python3
@@ -233,11 +225,7 @@ jobs:
           mv ./artifacts/libchdb.a ./
           mv ./artifacts/chdb/_chdb.abi3.so ./chdb/
           mv ./artifacts/chdb/libpybind11nonlimitedapi_stubs.dylib ./chdb/
-<<<<<<< HEAD
           for v in 9 10 11 12 13 14; do
-=======
-          for v in 8 9 10 11 12 13 14; do
->>>>>>> origin/main
             mv ./artifacts/chdb/libpybind11nonlimitedapi_chdb_3.${v}.dylib ./chdb/
           done
           ls -lh ./libchdb.so ./libchdb.a
@@ -302,17 +290,12 @@ jobs:
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
-<<<<<<< HEAD
             python -m pip install dist/*.whl --force-reinstall
-=======
-            python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
->>>>>>> origin/main
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
             make test
             pyenv shell --unset
           done
         continue-on-error: false
-<<<<<<< HEAD
       - name: Test DataStore on Python 3.11
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -323,21 +306,15 @@ jobs:
           echo "Testing DataStore import..."
           python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
           echo "Running DataStore tests..."
-          cd chdb/datastore && python -m pytest tests/ -v --tb=short -x --timeout=300
+          cd datastore && python -m pytest tests/ -v --tb=short -x --timeout=300
           pyenv shell --unset
         continue-on-error: false
-=======
->>>>>>> origin/main
       - name: Run notebook tests
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.9
-<<<<<<< HEAD
           python -m pip install dist/*.whl --force-reinstall
-=======
-          python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
->>>>>>> origin/main
           jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
           pyenv shell --unset
         continue-on-error: false
