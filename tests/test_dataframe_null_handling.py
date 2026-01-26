@@ -281,6 +281,16 @@ class TestDataFrameNullHandling(unittest.TestCase):
         self.assertTrue(pd.isna(result['bool_col'].iloc[4]))
         self.assertEqual(result['bool_col'].iloc[5], 0)
         self.assertEqual(result['bool_col'].iloc[6], 1)
+    def test_pandas_string_dtype(self):
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4],
+            'name': pd.array(['a', None, 'c', None], dtype='string')
+        })
+        result = self.conn.query('SELECT * FROM Python(df) ORDER BY id', 'DataFrame')
+        self.assertEqual(result['name'].iloc[0], 'a')
+        self.assertTrue(pd.isna(result['name'].iloc[1]))
+        self.assertEqual(result['name'].iloc[2], 'c')
+        self.assertTrue(pd.isna(result['name'].iloc[3]))
 
 
 if __name__ == '__main__':
