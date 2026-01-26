@@ -1,12 +1,12 @@
 #pragma once
 
+#include "DataSourceWrapper.h"
 #include "PythonUtils.h"
 #include "config.h"
 
 #include <QueryPipeline/Pipe.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
-#include <Storages/StorageFactory.h>
 #include <pybind11/cast.h>
 #include <pybind11/functional.h>
 #include <pybind11/numpy.h>
@@ -27,8 +27,6 @@ extern const int UNKNOWN_FORMAT;
 extern const int NOT_IMPLEMENTED;
 extern const int PY_EXCEPTION_OCCURED;
 }
-
-void registerStoragePython(StorageFactory & factory);
 
 class PyReader
 {
@@ -126,17 +124,11 @@ public:
         const StorageID & table_id_,
         const ColumnsDescription & columns_,
         const ConstraintsDescription & constraints_,
-        py::object reader_,
         ContextPtr context_,
-        bool is_pandas_df_);
+        bool is_pandas_df_,
+        CHDB::DataSourceWrapperPtr data_source_wrapper_);
 
-    ~StoragePython() override
-    {
-        // Destroy the reader with the GIL
-        py::gil_scoped_acquire acquire;
-        data_source.dec_ref();
-        data_source.release();
-    }
+    ~StoragePython() override = default;
 
     std::string getName() const override { return "Python"; }
 
@@ -162,9 +154,9 @@ private:
         const Block & sample_block,
         const bool is_pandas_df,
         const std::vector<bool> & is_virtual_column);
-    py::object data_source;
     PyColumnVecPtr column_cache;
     bool is_pandas_df;
+    CHDB::DataSourceWrapperPtr data_source_wrapper;
     size_t data_source_row_count = 0;
     Poco::Logger * logger = &Poco::Logger::get("StoragePython");
 };

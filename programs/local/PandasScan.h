@@ -66,6 +66,15 @@ private:
         const Int64 * ptr,
         DB::MutableColumnPtr & column,
         size_t stride = 0);
+
+    template <typename T, typename IndexType>
+    static void innerScanCategory(
+        const size_t cursor,
+        const size_t count,
+        const T * codes_ptr,
+        const DB::ColumnUniquePtr & category_unique,
+        DB::MutableColumnPtr & column,
+        size_t stride = 0);
 };
 
 } // namespace CHDB

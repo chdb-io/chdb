@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ArrowTableReader.h"
+#include "DataSourceWrapper.h"
 #include "PythonUtils.h"
 #include "config.h"
 
@@ -23,7 +24,7 @@ class PythonSource : public ISource
 {
 public:
     PythonSource(
-        py::object & data_source_,
+        CHDB::DataSourceWrapperPtr data_source_wrapper_,
         bool isInheritsFromPyReader_,
         bool isPandasDataFrame_,
         const Block & sample_block_,
@@ -43,7 +44,7 @@ public:
 
 
 private:
-    py::object & data_source; // Do not own the reference
+    CHDB::DataSourceWrapperPtr data_source_wrapper;
     bool isInheritsFromPyReader; // If the data_source is a PyReader object
     bool isPandasDataFrame;
 
