@@ -251,3 +251,87 @@ class TestSliceStepMultipleColumns:
         ds_result = ds[1::2]
 
         assert_datastore_equals_pandas(ds_result, pd_result)
+
+
+class TestSliceStepExpressions:
+    """Test expressions on sliced DataFrames with non-contiguous index."""
+
+    def test_arithmetic_expression_after_step_slice(self):
+        """Test arithmetic expression on sliced DataFrame preserves correct index."""
+        data = {'value': [1, 2, 3, 4, 5]}
+        ds = DataStore(data)
+        pd_df = pd.DataFrame(data)
+
+        pd_sliced = pd_df[::2]
+        ds_sliced = ds[::2]
+
+        pd_result = pd_sliced['value'] * 2
+        ds_result = ds_sliced['value'] * 2
+
+        # Verify values match
+        assert list(ds_result.values) == list(pd_result.values), (
+            f"Values mismatch: {list(ds_result.values)} != {list(pd_result.values)}"
+        )
+        # Verify index matches (should be 0, 2, 4)
+        assert list(ds_result.index) == list(pd_result.index), (
+            f"Index mismatch: {list(ds_result.index)} != {list(pd_result.index)}"
+        )
+
+    def test_comparison_expression_after_step_slice(self):
+        """Test comparison expression on sliced DataFrame."""
+        data = {'value': [1, 2, 3, 4, 5]}
+        ds = DataStore(data)
+        pd_df = pd.DataFrame(data)
+
+        pd_sliced = pd_df[::2]
+        ds_sliced = ds[::2]
+
+        pd_result = pd_sliced['value'] > 2
+        ds_result = ds_sliced['value'] > 2
+
+        assert list(ds_result.values) == list(pd_result.values)
+        assert list(ds_result.index) == list(pd_result.index)
+
+    def test_column_assignment_after_step_slice(self):
+        """Test column assignment on sliced DataFrame."""
+        data = {'a': [1, 2, 3, 4, 5], 'b': [10, 20, 30, 40, 50]}
+        ds = DataStore(data)
+        pd_df = pd.DataFrame(data)
+
+        pd_sliced = pd_df[::2].copy()
+        ds_sliced = ds[::2]
+
+        # Add new column via expression
+        pd_sliced['c'] = pd_sliced['a'] + pd_sliced['b']
+        ds_sliced['c'] = ds_sliced['a'] + ds_sliced['b']
+
+        assert_datastore_equals_pandas(ds_sliced, pd_sliced)
+
+    def test_chained_operations_after_step_slice(self):
+        """Test chained operations on sliced DataFrame."""
+        data = {'value': list(range(10))}
+        ds = DataStore(data)
+        pd_df = pd.DataFrame(data)
+
+        # Step slice then filter
+        pd_result = pd_df[::2]
+        pd_result = pd_result[pd_result['value'] > 2]
+
+        ds_result = ds[::2]
+        ds_result = ds_result[ds_result['value'] > 2]
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_aggregation_on_step_sliced_df(self):
+        """Test aggregation on sliced DataFrame (should not preserve index)."""
+        data = {'value': [1, 2, 3, 4, 5]}
+        ds = DataStore(data)
+        pd_df = pd.DataFrame(data)
+
+        pd_sliced = pd_df[::2]
+        ds_sliced = ds[::2]
+
+        pd_sum = pd_sliced['value'].sum()
+        ds_sum = ds_sliced['value'].sum()
+
+        assert ds_sum == pd_sum, f"Sum mismatch: {ds_sum} != {pd_sum}"

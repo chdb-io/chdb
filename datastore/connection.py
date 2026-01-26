@@ -243,21 +243,8 @@ class Connection:
         # pandas index values as row positions. For DataFrames with non-contiguous
         # indices (e.g., after slicing with step), we must reset the index to ensure
         # chdb reads the correct data. The original index is stored and restored after.
-        df_to_use = df_for_sql
-        original_index = None
-        original_index_name = None
-
-        # Check if index is non-contiguous (not 0, 1, 2, ..., n-1)
-        if len(df_for_sql) > 0:
-            expected_index = range(len(df_for_sql))
-            if not (
-                df_for_sql.index.equals(pd.RangeIndex(len(df_for_sql)))
-                or list(df_for_sql.index) == list(expected_index)
-            ):
-                # Non-contiguous index - need to reset for chdb compatibility
-                original_index = df_for_sql.index.copy()
-                original_index_name = df_for_sql.index.name
-                df_to_use = df_for_sql.reset_index(drop=True)
+        # Handle non-contiguous index for chDB compatibility
+        df_to_use, original_index, original_index_name = self._prepare_df_for_chdb(df_for_sql)
 
         sql_upper = sql.upper().strip()
 
@@ -379,6 +366,39 @@ class Connection:
         except Exception as e:
             self._logger.error("[chDB] DataFrame query failed: %s", e)
             raise ExecutionError(f"Failed to execute SQL on DataFrame: {e}")
+
+    def _prepare_df_for_chdb(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Optional[pd.Index], Optional[str]]:
+        """
+        Prepare DataFrame for chDB execution by handling non-contiguous index.
+
+        chDB's Python() table function reads DataFrame data using pandas index
+        values as row positions. For DataFrames with non-contiguous indices
+        (e.g., after slicing with step like df[::2]), we must reset the index
+        to ensure chDB reads the correct data.
+
+        Args:
+            df: DataFrame to prepare
+
+        Returns:
+            Tuple of (df_to_use, original_index, original_index_name):
+            - df_to_use: DataFrame with contiguous 0..n-1 index (or original if already contiguous)
+            - original_index: Original index if reset was needed, None otherwise
+            - original_index_name: Original index name if reset was needed, None otherwise
+        """
+        if len(df) == 0:
+            return df, None, None
+
+        # Check if index is contiguous (0, 1, 2, ..., n-1)
+        # pd.RangeIndex.equals() correctly handles value comparison even for
+        # non-RangeIndex types (e.g., Int64Index with values 0,1,2 equals RangeIndex(3))
+        if df.index.equals(pd.RangeIndex(len(df))):
+            return df, None, None
+
+        # Non-contiguous index - need to reset for chDB compatibility
+        original_index = df.index.copy()
+        original_index_name = df.index.name
+        df_to_use = df.reset_index(drop=True)
+        return df_to_use, original_index, original_index_name
 
     def _should_preserve_order(self, sql: str) -> bool:
         """
@@ -891,19 +911,29 @@ class Connection:
         # Convert nullable dtypes to non-nullable for Python 3.8 compatibility
         df_converted = _convert_nullable_dtypes(df)
 
+        # Handle non-contiguous index for chDB compatibility
+        # Skip for aggregate expressions as they don't need index restoration
+        if is_aggregate:
+            df_to_use, original_index, original_index_name = df_converted, None, None
+        else:
+            df_to_use, original_index, original_index_name = self._prepare_df_for_chdb(df_converted)
+
         if is_aggregate:
             # Aggregate expressions return single value, no ORDER BY needed
-            __df__ = df_converted  # noqa: F841
+            __df__ = df_to_use  # noqa: F841
             query = f"SELECT {expr_sql} AS {result_column} FROM Python(__df__)"
         else:
             # Use _row_id to preserve order for row-level expressions
             # _row_id is a built-in virtual column in chDB that provides the 0-based
             # row number from the original DataFrame
-            __df__ = df_converted  # noqa: F841
+            # IMPORTANT: Include _row_id in SELECT and use it to restore index
+            # (don't assume ORDER BY _row_id returns exact 0,1,2... order due to
+            # potential parallel execution in chDB)
+            __df__ = df_to_use  # noqa: F841
             # Replace rowNumberInAllBlocks() with _row_id for window function ordering
             # This ensures window functions use the original DataFrame row order
             expr_sql_fixed = expr_sql.replace('rowNumberInAllBlocks()', '_row_id')
-            query = f"SELECT {expr_sql_fixed} AS {result_column} FROM Python(__df__) ORDER BY _row_id"
+            query = f"SELECT {expr_sql_fixed} AS {result_column}, _row_id FROM Python(__df__) ORDER BY _row_id"
 
         self._log_query(query, "Expression")
 
@@ -914,12 +944,23 @@ class Connection:
 
             result_series = result_df[result_column]
 
-            # Only set index if:
-            # - Not aggregate (which returns single value)
-            # - Not row-expanding (which changes row count)
-            # - Result length matches input length
+            # Restore index using _row_id values from result
+            # This correctly handles cases where parallel execution in chDB
+            # causes non-deterministic _row_id assignment
             if not is_aggregate and not is_row_expanding and len(result_series) == len(df):
-                result_series.index = df.index
+                if '_row_id' in result_df.columns:
+                    row_positions = result_df['_row_id'].values
+                    if original_index is not None:
+                        # Restore original non-contiguous index
+                        result_series.index = original_index[row_positions]
+                        result_series.index.name = original_index_name
+                    else:
+                        # Use row positions to look up original index values
+                        result_series.index = df.index[row_positions]
+                        result_series.index.name = df.index.name
+                else:
+                    # Fallback: direct assignment (for aggregate or older chDB)
+                    result_series.index = df.index
 
             self._logger.debug("[chDB] Expression result: %d values, time: %.2fms", len(result_series), elapsed_ms)
 
