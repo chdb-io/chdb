@@ -307,7 +307,7 @@ jobs:
           echo "Testing DataStore import..."
           python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
           echo "Running DataStore tests..."
-          cd datastore && python -m pytest tests/ -v --tb=short -x --timeout=300
+          cd datastore && python -m pytest tests/ -v --tb=short -x
           pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests

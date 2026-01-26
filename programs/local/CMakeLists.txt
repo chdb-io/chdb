@@ -69,7 +69,7 @@ if (USE_PYTHON)
     # include Python.h
     if(CHDB_CROSSCOMPILING)
         # For cross-compiling, use the provided Python include directory
-        set(PYTHON_INCLUDE_DIR "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+        set(PYTHON_INCLUDE_DIR "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.9")
         message(STATUS "Cross-compiling: Using Python include directory: ${PYTHON_INCLUDE_DIR}")
     else()
         execute_process(COMMAND python3-config --includes
