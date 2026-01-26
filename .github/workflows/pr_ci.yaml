@@ -26,11 +26,7 @@ jobs:
       - name: Install flake8
         run: python -m pip install flake8
 
-      - name: Run flake8 on chdb directory
-        run: cd chdb && flake8 . --exclude=datastore
-
-      - name: Run flake8 on datastore directory
+      - name: Run flake8
         run: |
-          cd chdb/datastore
-          # Uses setup.cfg for configuration (max-line-length, select, ignore, etc.)
-          flake8 . --count --show-source --statistics
+          # Uses root setup.cfg for unified configuration
+          flake8 chdb --count --show-source --statistics

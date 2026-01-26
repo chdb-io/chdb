@@ -173,7 +173,7 @@ if __name__ == "__main__":
             include_package_data=False,
             package_data={"chdb": pkg_files},
             ext_modules=ext_modules,
-            python_requires=">=3.8",
+            python_requires=">=3.9",
             install_requires=[
                 "pyarrow>=13.0.0",
                 "pandas>=2.1.0,<3.0.0",

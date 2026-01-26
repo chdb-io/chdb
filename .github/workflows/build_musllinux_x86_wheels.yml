@@ -86,14 +86,13 @@ jobs:
           curl https://pyenv.run | bash
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv install 3.8:latest
           pyenv install 3.9:latest
           pyenv install 3.10:latest
           pyenv install 3.11:latest
           pyenv install 3.12:latest
           pyenv install 3.13:latest
           pyenv install 3.14:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
+          pyenv global 3.9 3.10 3.11 3.12 3.13 3.14
 
           # Verify installations
           echo "Installed versions:"
@@ -103,7 +102,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -115,15 +114,11 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            if [ "$version" = "3.8" ]; then
-              python -m pip install setuptools tox twine psutil wheel
-            else
-              python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
-            fi
+            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
             pyenv shell --unset
           done
       - name: Install clang++ for Alpine
@@ -182,11 +177,10 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           source $HOME/.cargo/env
-          pyenv shell 3.8
+          pyenv shell 3.9
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build-musl.sh
-          pyenv shell 3.9
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Scan chdb libraries with grype
@@ -227,7 +221,7 @@ jobs:
           eval "$(pyenv init -)"
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
-          pyenv shell 3.8
+          pyenv shell 3.9
           make wheel
       - name: Install patchelf from github
         run: |

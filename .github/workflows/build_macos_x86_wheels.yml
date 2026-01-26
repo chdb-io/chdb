@@ -119,7 +119,6 @@ jobs:
             ./libchdb.a
             ./chdb/_chdb.abi3.so
             ./chdb/libpybind11nonlimitedapi_stubs.dylib
-            ./chdb/libpybind11nonlimitedapi_chdb_3.8.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.9.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.10.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.11.dylib

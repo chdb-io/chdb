@@ -119,7 +119,6 @@ jobs:
             ./libchdb.a
             ./chdb/_chdb.abi3.so
             ./chdb/libpybind11nonlimitedapi_stubs.dylib
-            ./chdb/libpybind11nonlimitedapi_chdb_3.8.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.9.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.10.dylib
             ./chdb/libpybind11nonlimitedapi_chdb_3.11.dylib
@@ -154,14 +153,14 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          pyenv install 3.8:latest
+          # Python 3.8 removed
           pyenv install 3.9:latest
           pyenv install 3.10:latest
           pyenv install 3.11:latest
           pyenv install 3.12:latest
           pyenv install 3.13:latest
           pyenv install 3.14:latest
-          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
+          pyenv global 3.9 3.10 3.11 3.12 3.13 3.14
 
           echo "Installed versions:"
           pyenv versions
@@ -173,7 +172,7 @@ jobs:
           pyenv versions
           echo ""
           echo "Verifying all required Python versions are available:"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -185,7 +184,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
@@ -249,7 +248,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           bash gen_manifest.sh
           bash -x ./chdb/test_smoke.sh cross-compile
       - name: Run chdb/build/test_go_example.sh
@@ -266,13 +265,13 @@ jobs:
           rm -rf chdb/build/
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           make wheel
       - name: Fix wheel platform tag
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           python -m wheel tags --platform-tag=macosx_11_0_arm64 --remove dist/*.whl
       - name: Verify wheel sizes
         run: |
@@ -289,7 +288,7 @@ jobs:
           ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall --no-cache-dir
@@ -384,7 +383,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.8
+          pyenv shell 3.9
           python -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__

@@ -1,6 +1,6 @@
 [project]
 name = "chdb"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 version = "3.7.0"
 description = "chDB is an in-process OLAP SQL Engine powered by ClickHouse"
 readme = "README.md"
@@ -17,7 +17,6 @@ classifiers = [
     "Operating System :: MacOS :: MacOS X",
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -61,5 +60,5 @@ build-verbosity = 1
 [tool.pyright]
 include = ["chdb"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
-pythonVersion = "3.8"
+pythonVersion = "3.9"
 typeCheckingMode = "basic"
