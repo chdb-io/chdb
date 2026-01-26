@@ -94,7 +94,7 @@ for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
     if [ "$version" = "3.8" ]; then
     python -m pip install setuptools tox twine psutil wheel
     else
-    python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel
+    python -m pip install setuptools tox "pandas<3.0" pyarrow twine psutil deltalake wheel
     fi
     pyenv shell --unset
 done
@@ -218,7 +218,7 @@ for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
     echo "pip version: $(python -m pip --version)"
 
     echo "Installing chdb wheel..."
-    python -m pip install dist/*.whl --force-reinstall
+    python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
     echo "Installation completed at: $(date)"
 
     echo "Running basic query test..."
