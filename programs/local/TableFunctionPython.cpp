@@ -79,7 +79,9 @@ void TableFunctionPython::parseArguments(const ASTPtr & ast_function, ContextPtr
             "Python object found in Python environment with name: {} type: {}",
             py_reader_arg_str,
             py::str(instance.attr("__class__")).cast<std::string>());
-        reader = instance.cast<py::object>();
+
+        auto reader = instance.cast<py::object>();
+        data_source_wrapper = std::make_shared<DataSourceWrapper>(reader);
         is_pandas_df = PandasDataFrame::isPandasDataframe(reader);
     }
     catch (py::error_already_set & e)
@@ -95,8 +97,8 @@ StoragePtr TableFunctionPython::executeImpl(
     ColumnsDescription /*cached_columns*/,
     bool is_insert_query) const
 {
-    if (!reader)
-        throw Exception(ErrorCodes::NUMBER_OF_ARGUMENTS_DOESNT_MATCH, "Python data source not initialized");
+    if (!data_source_wrapper)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python data source not initialized");
 
     auto columns = getActualTableStructure(context, is_insert_query);
 
@@ -105,7 +107,7 @@ StoragePtr TableFunctionPython::executeImpl(
         py::gil_scoped_acquire acquire;
         storage = std::make_shared<StoragePython>(
             StorageID(getDatabaseName(), table_name), columns,
-            ConstraintsDescription{}, reader, context, is_pandas_df);
+            ConstraintsDescription{}, context, is_pandas_df, std::move(data_source_wrapper));
     }
     storage->startup();
     return storage;
@@ -115,14 +117,16 @@ ColumnsDescription TableFunctionPython::getActualTableStructure(ContextPtr conte
 {
     py::gil_scoped_acquire acquire;
 #if USE_JEMALLOC
-    Memory::MemoryCheckScope memory_check_scope;  // Enable memory checking for Python calls
+    Memory::MemoryCheckScope memory_check_scope;
 #endif
 
-    if (!reader)
-        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python reader not initialized");
+    if (!data_source_wrapper)
+        throw Exception(ErrorCodes::BAD_ARGUMENTS, "Python data source not initialized");
+
+    const auto & reader = data_source_wrapper->getDataSource();
 
     if (is_pandas_df)
-        return PandasDataFrame::getActualTableStructure(reader, context);
+        return PandasDataFrame::getActualTableStructure(*data_source_wrapper, context);
 
     if (PyArrowTable::isPyArrowTable(reader))
         return PyArrowTable::getActualTableStructure(reader, context);

@@ -3,10 +3,15 @@
 #include "PythonImporter.h"
 #include "ColumnVectorHelper.h"
 
+#include <Columns/ColumnLowCardinality.h>
 #include <Columns/ColumnNullable.h>
 #include <Columns/ColumnObject.h>
+#include <Columns/ColumnsNumber.h>
+#include <Columns/ColumnString.h>
 #include <Columns/ColumnVector.h>
+#include <DataTypes/DataTypeLowCardinality.h>
 #include <DataTypes/DataTypeNullable.h>
+#include <DataTypes/DataTypeString.h>
 #include <DataTypes/IDataType.h>
 #include <DataTypes/Serializations/SerializationJSON.h>
 #include <IO/WriteHelpers.h>
@@ -114,14 +119,30 @@ ColumnPtr PandasScan::scanColumn(
     innerCheck(col_wrap);
 
     const auto & data_type = col_wrap.dest_type;
-    chassert(data_type->isNullable());
     auto column = data_type->createColumn();
     column->reserve(count);
 
+    if (col_wrap.is_category)
+    {
+        chassert(data_type->lowCardinality());
+        const auto & codes_type = col_wrap.category_codes_type;
+        if (codes_type == "int8")
+            innerScanCategory<Int8, UInt8>(cursor, count, static_cast<const Int8 *>(col_wrap.buf), col_wrap.category_unique, column, col_wrap.stride);
+        else if (codes_type == "int16")
+            innerScanCategory<Int16, UInt16>(cursor, count, static_cast<const Int16 *>(col_wrap.buf), col_wrap.category_unique, column, col_wrap.stride);
+        else if (codes_type == "int32")
+            innerScanCategory<Int32, UInt32>(cursor, count, static_cast<const Int32 *>(col_wrap.buf), col_wrap.category_unique, column, col_wrap.stride);
+        else if (codes_type == "int64")
+            innerScanCategory<Int64, UInt64>(cursor, count, static_cast<const Int64 *>(col_wrap.buf), col_wrap.category_unique, column, col_wrap.stride);
+        else
+            throw Exception(ErrorCodes::BAD_ARGUMENTS, "Unsupported category codes type: {}", codes_type);
+        return column;
+    }
+
+    chassert(data_type->isNullable());
     auto real_type = removeNullable(data_type);
 
     WhichDataType which(real_type);
-
 
     if (col_wrap.is_object_type)
     {
@@ -558,5 +579,35 @@ void PandasScan::innerCheck(const ColumnWrapper & col_wrap)
     if (!col_wrap.buf)
         throw Exception(ErrorCodes::PY_EXCEPTION_OCCURED, "Column buffer is null");
 }
+
+template <typename T, typename IndexType>
+void PandasScan::innerScanCategory(
+    const size_t cursor,
+    const size_t count,
+    const T * codes_ptr,
+    const ColumnUniquePtr & category_unique,
+    MutableColumnPtr & column,
+    size_t stride)
+{
+    const size_t effective_stride = (stride == 0) ? sizeof(T) : stride;
+    const auto * base_ptr = reinterpret_cast<const char *>(codes_ptr);
+
+    auto indexes_column = ColumnVector<IndexType>::create();
+    auto & indexes_data = indexes_column->getData();
+    indexes_data.reserve(count);
+
+    for (size_t i = cursor; i < cursor + count; ++i)
+    {
+        T code = *reinterpret_cast<const T *>(base_ptr + i * effective_stride);
+        indexes_data.push_back(code < 0 ? 0 : static_cast<IndexType>(code + 1));
+    }
+
+    column = ColumnLowCardinality::create(category_unique->assumeMutable(), std::move(indexes_column), true);
+}
+
+template void PandasScan::innerScanCategory<Int8, UInt8>(size_t, size_t, const Int8 *, const ColumnUniquePtr &, MutableColumnPtr &, size_t);
+template void PandasScan::innerScanCategory<Int16, UInt16>(size_t, size_t, const Int16 *, const ColumnUniquePtr &, MutableColumnPtr &, size_t);
+template void PandasScan::innerScanCategory<Int32, UInt32>(size_t, size_t, const Int32 *, const ColumnUniquePtr &, MutableColumnPtr &, size_t);
+template void PandasScan::innerScanCategory<Int64, UInt64>(size_t, size_t, const Int64 *, const ColumnUniquePtr &, MutableColumnPtr &, size_t);
 
 } // namespace CHDB

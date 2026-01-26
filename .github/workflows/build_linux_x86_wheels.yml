@@ -121,7 +121,7 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel jupyter nbconvert
+            python -m pip install setuptools tox "pandas<3.0" pyarrow twine psutil deltalake wheel jupyter nbconvert
             pyenv shell --unset
           done
       - name: Upgrade Rust toolchain
@@ -294,7 +294,7 @@ jobs:
           for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
+            python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
             make test
             pyenv shell --unset
@@ -305,7 +305,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.9
-          python -m pip install dist/*.whl --force-reinstall
+          python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
           jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
           pyenv shell --unset
         continue-on-error: false
