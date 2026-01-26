@@ -16,7 +16,7 @@ endif()
 if(CHDB_CROSSCOMPILING)
     # For cross-compiling, manually set Python variables
     if (DEFINED PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION)
-        # Parse version like "3.8" into major and minor
+        # Parse version like "3.9" into major and minor
         string(REPLACE "." ";" VERSION_LIST ${PYBIND11_NONLIMITEDAPI_PYTHON_HEADERS_VERSION})
         list(GET VERSION_LIST 0 Python_VERSION_MAJOR)
         list(GET VERSION_LIST 1 Python_VERSION_MINOR)
@@ -25,11 +25,11 @@ if(CHDB_CROSSCOMPILING)
         # Set include directory based on provided prefix and version
         set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}")
     else()
-        # Default to Python 3.8 if not specified
+        # Default to Python 3.9 if not specified
         set(Python_VERSION_MAJOR 3)
-        set(Python_VERSION_MINOR 8)
-        set(Python_VERSION "3.8")
-        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+        set(Python_VERSION_MINOR 9)
+        set(Python_VERSION "3.9")
+        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.9")
     endif()
 
     message(STATUS "Cross-compiling: Using Python ${Python_VERSION} include directory: ${Python_INCLUDE_DIRS}")
@@ -64,10 +64,6 @@ target_compile_definitions(pybind11_stubs PUBLIC
     Py_LIMITED_API=0x03090000
 )
 
-if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)
-    target_compile_options(pybind11_stubs PRIVATE -w -idirafter /usr/include -include crypt.h)
-endif()
-
 set_target_properties(pybind11_stubs PROPERTIES
     OUTPUT_NAME "pybind11nonlimitedapi_stubs"
 )
@@ -87,10 +83,6 @@ set(PYBIND11_NONLIMITEDAPI_LIBNAME
     "pybind11nonlimitedapi_${PYBIND11_LIB_SUFFIX}_${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}")
 
 add_library(${PYBIND11_NONLIMITEDAPI_LIBNAME} SHARED ${LIBRARY_DIR}/source/non_limited_api/non_limited_api.cpp)
-
-if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)
-    target_compile_options(${PYBIND11_NONLIMITEDAPI_LIBNAME} PRIVATE -w -idirafter /usr/include -include crypt.h)
-endif()
 
 set_target_properties(${PYBIND11_NONLIMITEDAPI_LIBNAME} PROPERTIES
     OUTPUT_NAME "${PYBIND11_NONLIMITEDAPI_LIBNAME}"
