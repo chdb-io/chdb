@@ -58,7 +58,7 @@ build-frontend = "pip"
 build-verbosity = 1
 
 [tool.pyright]
-include = ["chdb"]
+include = ["chdb", "datastore"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
 pythonVersion = "3.9"
 typeCheckingMode = "basic"

@@ -7,7 +7,7 @@ eval "$(pyenv init -)"
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 PROJ_DIR=$(dirname ${DIR})
 
-[ -z "${PYTHON_VERSIONS}" ] && { echo "please provide PYTHON_VERSIONS env, e.g: PYTHON_VERSIONS='3.8 3.9'"; exit 1; }
+[ -z "${PYTHON_VERSIONS}" ] && { echo "please provide PYTHON_VERSIONS env, e.g: PYTHON_VERSIONS='3.9 3.10'"; exit 1; }
 
 # echo ${PROJ_DIR}
 

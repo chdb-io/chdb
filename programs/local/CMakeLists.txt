@@ -69,7 +69,7 @@ if (USE_PYTHON)
     # include Python.h
     if(CHDB_CROSSCOMPILING)
         # For cross-compiling, use the provided Python include directory
-        set(PYTHON_INCLUDE_DIR "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.9")
+        set(PYTHON_INCLUDE_DIR "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
         message(STATUS "Cross-compiling: Using Python include directory: ${PYTHON_INCLUDE_DIR}")
     else()
         execute_process(COMMAND python3-config --includes
@@ -98,12 +98,21 @@ if (USE_PYTHON)
         # set_source_files_properties(LocalChdb.cpp PROPERTIES COMPILE_FLAGS
         #     "-w -idirafter /usr/include -include x86_64-linux-gnu/${PYTHON_VERSION}/pyconfig.h"
         # )
-        foreach(_file ${CHDB_SOURCES})
-            set_source_files_properties(${_file}
-                PROPERTIES COMPILE_FLAGS
-                "-w"
-            )
-        endforeach(_file)
+        if (PYTHON_VERSION STREQUAL "python3.6" OR PYTHON_VERSION STREQUAL "python3.7" OR PYTHON_VERSION STREQUAL "python3.8")
+            foreach(_file ${CHDB_SOURCES})
+                set_source_files_properties(${_file}
+                    PROPERTIES COMPILE_FLAGS
+                    "-w -idirafter /usr/include -include crypt.h"
+                )
+            endforeach(_file)
+        else()
+            foreach(_file ${CHDB_SOURCES})
+                set_source_files_properties(${_file}
+                    PROPERTIES COMPILE_FLAGS
+                    "-w"
+                )
+            endforeach(_file)
+        endif()
     elseif (OS_DARWIN)
         foreach(_file ${CHDB_SOURCES})
             set_source_files_properties(${_file}

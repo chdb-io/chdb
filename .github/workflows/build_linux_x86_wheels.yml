@@ -85,14 +85,22 @@ jobs:
           curl https://pyenv.run | bash
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+<<<<<<< HEAD
           # Python 3.8 removed
+=======
+          pyenv install 3.8:latest
+>>>>>>> origin/main
           pyenv install 3.9:latest
           pyenv install 3.10:latest
           pyenv install 3.11:latest
           pyenv install 3.12:latest
           pyenv install 3.13:latest
           pyenv install 3.14:latest
+<<<<<<< HEAD
           pyenv global 3.9 3.10 3.11 3.12 3.13 3.14
+=======
+          pyenv global 3.8 3.9 3.10 3.11 3.12 3.13 3.14
+>>>>>>> origin/main
 
           # Verify installations
           echo "Installed versions:"
@@ -105,7 +113,11 @@ jobs:
           pyenv versions
           echo ""
           echo "Verifying all required Python versions are available:"
+<<<<<<< HEAD
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+=======
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+>>>>>>> origin/main
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "ERROR: Python $version is not installed!"
               exit 1
@@ -117,7 +129,11 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+<<<<<<< HEAD
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+=======
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+>>>>>>> origin/main
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
@@ -194,11 +210,19 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           source ~/.cargo/env
+<<<<<<< HEAD
           pyenv shell 3.9
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           bash ./chdb/build.sh
           pyenv shell 3.9
+=======
+          pyenv shell 3.8
+          export CC=/usr/bin/clang
+          export CXX=/usr/bin/clang++
+          bash ./chdb/build.sh
+          pyenv shell 3.8
+>>>>>>> origin/main
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Run chdb/build/build_static_lib.sh
@@ -209,7 +233,11 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           source ~/.cargo/env
           eval "$(pyenv init -)"
+<<<<<<< HEAD
           pyenv shell 3.9
+=======
+          pyenv shell 3.8
+>>>>>>> origin/main
           bash ./chdb/build/build_static_lib.sh
           pyenv shell --unset
         continue-on-error: false
@@ -260,7 +288,11 @@ jobs:
           eval "$(pyenv init -)"
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
+<<<<<<< HEAD
           pyenv shell 3.9
+=======
+          pyenv shell 3.8
+>>>>>>> origin/main
           make wheel
       - name: Install patchelf from github
         run: |
@@ -291,15 +323,23 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+<<<<<<< HEAD
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
+=======
+          for version in 3.8 3.9 3.10 3.11 3.12 3.13 3.14; do
+            echo "Testing chdb on Python $version"
+            pyenv shell $version
+            python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
+>>>>>>> origin/main
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
             make test
             pyenv shell --unset
           done
         continue-on-error: false
+<<<<<<< HEAD
       - name: Test DataStore on Python 3.11
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
@@ -313,12 +353,18 @@ jobs:
           cd chdb/datastore && python -m pytest tests/ -v --tb=short -x --timeout=300
           pyenv shell --unset
         continue-on-error: false
+=======
+>>>>>>> origin/main
       - name: Run notebook tests
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.9
+<<<<<<< HEAD
           python -m pip install dist/*.whl --force-reinstall
+=======
+          python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
+>>>>>>> origin/main
           jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
           pyenv shell --unset
         continue-on-error: false
@@ -390,7 +436,11 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+<<<<<<< HEAD
           pyenv shell 3.9
+=======
+          pyenv shell 3.8
+>>>>>>> origin/main
           python -m twine upload dist/*.whl
         env:
           TWINE_USERNAME: __token__

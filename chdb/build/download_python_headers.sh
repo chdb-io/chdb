@@ -29,7 +29,7 @@ for entry in "${VERSIONS[@]}"; do
     echo "Processing Python ${FULL_VER}..."
     echo "=========================================="
 
-    # Check if headers already installed
+    # 检查目标目录是否已存在
     DEST_DIR="${TARGET_DIR}/${SUBDIR}"
     if [ -d "$DEST_DIR" ] && [ -f "${DEST_DIR}/Python.h" ]; then
         echo "✓ Python ${FULL_VER} headers already installed at ${DEST_DIR}"

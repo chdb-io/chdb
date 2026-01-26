@@ -2,7 +2,6 @@
 #include "chdb-internal.h"
 #if USE_PYTHON
 #include "ChunkCollectorOutputFormat.h"
-#include "StoragePython.h"
 #include "TableFunctionPython.h"
 #else
 #include "StorageArrowStream.h"
@@ -667,7 +666,6 @@ try
 
             registerStorages();
 #if USE_PYTHON
-            registerStoragePython(StorageFactory::instance());
             CHDB::registerDataFrameOutputFormat();
 #endif
 
