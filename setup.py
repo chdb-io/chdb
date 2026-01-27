@@ -67,6 +67,7 @@ def get_latest_git_tag(minor_ver_auto=False):
         print(e)
         raise
 
+
 # Update version in pyproject.toml
 def update_pyproject_version(version):
     pyproject_file = os.path.join(script_dir, "pyproject.toml")
@@ -159,10 +160,14 @@ if __name__ == "__main__":
                 if file.endswith(".py"):
                     pkg_files.append(os.path.join(root, file))
                 # Include pybind11 nonlimitedapi libraries for all Python versions
-                elif file.startswith("libpybind11nonlimitedapi_chdb_") and (file.endswith(".dylib") or file.endswith(".so")):
+                elif file.startswith("libpybind11nonlimitedapi_chdb_") and (
+                    file.endswith(".dylib") or file.endswith(".so")
+                ):
                     pkg_files.append(os.path.join(root, file))
                 # Include pybind11 stub library
-                elif file.startswith("libpybind11nonlimitedapi_stubs") and (file.endswith(".dylib") or file.endswith(".so")):
+                elif file.startswith("libpybind11nonlimitedapi_stubs") and (
+                    file.endswith(".dylib") or file.endswith(".so")
+                ):
                     pkg_files.append(os.path.join(root, file))
 
         pkg_files.append(chdb_so)

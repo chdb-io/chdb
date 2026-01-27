@@ -456,7 +456,11 @@ class TestBooleanIndexingEdgeCases:
 class TestCategoricalOperations:
     """Test categorical dtype operations"""
 
-    @pytest.mark.xfail(reason="chDB limitation: does not support pandas Categorical dtype")
+    # chDB v4.x supports categorical SQL operations but converts dtype to object
+    @pytest.mark.xfail(
+        reason="chDB converts categorical to object dtype after SQL execution - VALUES ARE CORRECT",
+        strict=True,
+    )
     def test_categorical_groupby(self):
         """GroupBy on categorical column"""
         pd_df = pd.DataFrame({
@@ -473,7 +477,11 @@ class TestCategoricalOperations:
 
         assert_datastore_equals_pandas(ds_result, pd_result, check_row_order=False)
 
-    @pytest.mark.xfail(reason="chDB limitation: does not support pandas Categorical dtype")
+    # chDB v4.x supports categorical SQL operations but converts dtype to object
+    @pytest.mark.xfail(
+        reason="chDB converts categorical to object dtype after SQL execution - VALUES ARE CORRECT",
+        strict=True,
+    )
     def test_categorical_filter(self):
         """Filter on categorical column"""
         pd_df = pd.DataFrame({

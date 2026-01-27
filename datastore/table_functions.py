@@ -39,7 +39,7 @@ class TableFunction(ABC):
         """Generate SQL for the table function."""
         pass
 
-    def with_settings(self, **settings) -> 'TableFunction':
+    def with_settings(self, **settings) -> "TableFunction":
         """
         Add format-specific settings to the table function.
 
@@ -55,9 +55,9 @@ class TableFunction(ABC):
     def _format_param(self, value: Any) -> str:
         """Format parameter value for SQL."""
         if value is None:
-            return 'NULL'
+            return "NULL"
         elif isinstance(value, bool):
-            return '1' if value else '0'
+            return "1" if value else "0"
         elif isinstance(value, str):
             # Escape single quotes
             escaped = value.replace("'", "''")
@@ -130,10 +130,10 @@ class FileTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        path = self.params.get('path')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
-        compression = self.params.get('compression')
+        path = self.params.get("path")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
+        compression = self.params.get("compression")
 
         if not path:
             raise DataStoreError("'path' parameter is required for file()")
@@ -151,7 +151,7 @@ class FileTableFunction(TableFunction):
                 # If compression is specified but not structure, we need a placeholder
                 # ClickHouse file() signature: file(path, format, structure, compression)
                 # Use 'auto' to let ClickHouse infer structure
-                sql_params.append(self._format_param('auto'))
+                sql_params.append(self._format_param("auto"))
 
             if compression:
                 sql_params.append(self._format_param(compression))
@@ -171,12 +171,14 @@ class FileTableFunction(TableFunction):
         Returns:
             True if row order is guaranteed to be preserved
         """
-        format_name = self.params.get('format', '').lower()
+        format_name = self.params.get("format", "").lower()
 
         # For Parquet files, check if preserve_order setting is enabled
-        if format_name == 'parquet':
+        if format_name == "parquet":
             if format_settings:
-                return format_settings.get('input_format_parquet_preserve_order', 0) == 1
+                return (
+                    format_settings.get("input_format_parquet_preserve_order", 0) == 1
+                )
         return False
 
 
@@ -214,10 +216,10 @@ class UrlTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        url = self.params.get('url')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
-        headers = self.params.get('headers')
+        url = self.params.get("url")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
+        headers = self.params.get("headers")
 
         if not url:
             raise DataStoreError("'url' parameter is required for url()")
@@ -236,7 +238,7 @@ class UrlTableFunction(TableFunction):
         # Add headers if provided
         if headers:
             if isinstance(headers, list):
-                headers_sql = ', '.join([self._format_param(h) for h in headers])
+                headers_sql = ", ".join([self._format_param(h) for h in headers])
             else:
                 headers_sql = self._format_param(headers)
             sql += f" HEADERS({headers_sql})"
@@ -280,14 +282,14 @@ class S3TableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        url = self.params.get('url') or self.params.get('path')
-        access_key = self.params.get('access_key_id')
-        secret_key = self.params.get('secret_access_key')
-        session_token = self.params.get('session_token')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
-        compression = self.params.get('compression')
-        nosign = self.params.get('nosign', False)
+        url = self.params.get("url") or self.params.get("path")
+        access_key = self.params.get("access_key_id")
+        secret_key = self.params.get("secret_access_key")
+        session_token = self.params.get("session_token")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
+        compression = self.params.get("compression")
+        nosign = self.params.get("nosign", False)
 
         if not url:
             raise DataStoreError("'url' or 'path' parameter is required for s3()")
@@ -296,7 +298,7 @@ class S3TableFunction(TableFunction):
 
         # Handle authentication
         if nosign:
-            sql_params.append('NOSIGN')
+            sql_params.append("NOSIGN")
         elif access_key and secret_key:
             sql_params.append(self._format_param(access_key))
             sql_params.append(self._format_param(secret_key))
@@ -329,11 +331,13 @@ class S3TableFunction(TableFunction):
         Returns:
             True if row order is guaranteed to be preserved
         """
-        format_name = self.params.get('format', '').lower()
+        format_name = self.params.get("format", "").lower()
 
-        if format_name == 'parquet':
+        if format_name == "parquet":
             if format_settings:
-                return format_settings.get('input_format_parquet_preserve_order', 0) == 1
+                return (
+                    format_settings.get("input_format_parquet_preserve_order", 0) == 1
+                )
         return False
 
 
@@ -363,15 +367,17 @@ class AzureBlobStorageTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        connection_string = self.params.get('connection_string')
-        container = self.params.get('container')
-        path = self.params.get('path', '')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
-        compression = self.params.get('compression')
+        connection_string = self.params.get("connection_string")
+        container = self.params.get("container")
+        path = self.params.get("path", "")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
+        compression = self.params.get("compression")
 
         if not connection_string or not container:
-            raise DataStoreError("'connection_string' and 'container' are required for azureBlobStorage()")
+            raise DataStoreError(
+                "'connection_string' and 'container' are required for azureBlobStorage()"
+            )
 
         sql_params = [
             self._format_param(connection_string),
@@ -417,13 +423,13 @@ class GcsTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        url = self.params.get('url') or self.params.get('path')
-        hmac_key = self.params.get('hmac_key')
-        hmac_secret = self.params.get('hmac_secret')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
-        compression = self.params.get('compression')
-        nosign = self.params.get('nosign', False)
+        url = self.params.get("url") or self.params.get("path")
+        hmac_key = self.params.get("hmac_key")
+        hmac_secret = self.params.get("hmac_secret")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
+        compression = self.params.get("compression")
+        nosign = self.params.get("nosign", False)
 
         if not url:
             raise DataStoreError("'url' or 'path' parameter is required for gcs()")
@@ -431,7 +437,7 @@ class GcsTableFunction(TableFunction):
         sql_params = [self._format_param(url)]
 
         if nosign:
-            sql_params.append('NOSIGN')
+            sql_params.append("NOSIGN")
         elif hmac_key and hmac_secret:
             sql_params.append(self._format_param(hmac_key))
             sql_params.append(self._format_param(hmac_secret))
@@ -471,10 +477,10 @@ class HdfsTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        uri = self.params.get('uri') or self.params.get('path')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
-        compression = self.params.get('compression')
+        uri = self.params.get("uri") or self.params.get("path")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
+        compression = self.params.get("compression")
 
         if not uri:
             raise DataStoreError("'uri' or 'path' parameter is required for hdfs()")
@@ -519,14 +525,16 @@ class MySQLTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        host = self.params.get('host')
-        database = self.params.get('database')
-        table = self.params.get('table')
-        user = self.params.get('user')
-        password = self.params.get('password', '')
+        host = self.params.get("host")
+        database = self.params.get("database")
+        table = self.params.get("table")
+        user = self.params.get("user")
+        password = self.params.get("password", "")
 
         if not all([host, database, table, user]):
-            raise DataStoreError("'host', 'database', 'table', and 'user' are required for mysql()")
+            raise DataStoreError(
+                "'host', 'database', 'table', and 'user' are required for mysql()"
+            )
 
         sql_params = [
             self._format_param(host),
@@ -562,14 +570,16 @@ class PostgreSQLTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        host = self.params.get('host')
-        database = self.params.get('database')
-        table = self.params.get('table')
-        user = self.params.get('user')
-        password = self.params.get('password', '')
+        host = self.params.get("host")
+        database = self.params.get("database")
+        table = self.params.get("table")
+        user = self.params.get("user")
+        password = self.params.get("password", "")
 
         if not all([host, database, table, user]):
-            raise DataStoreError("'host', 'database', 'table', and 'user' are required for postgresql()")
+            raise DataStoreError(
+                "'host', 'database', 'table', and 'user' are required for postgresql()"
+            )
 
         sql_params = [
             self._format_param(host),
@@ -607,15 +617,17 @@ class MongoDBTableFunction(TableFunction):
         return False  # MongoDB table function is read-only
 
     def to_sql(self, quote_char: str = '"') -> str:
-        host = self.params.get('host')
-        database = self.params.get('database')
-        collection = self.params.get('collection') or self.params.get('table')
-        user = self.params.get('user')
-        password = self.params.get('password', '')
-        structure = self.params.get('structure')
+        host = self.params.get("host")
+        database = self.params.get("database")
+        collection = self.params.get("collection") or self.params.get("table")
+        user = self.params.get("user")
+        password = self.params.get("password", "")
+        structure = self.params.get("structure")
 
         if not all([host, database, collection, user]):
-            raise DataStoreError("'host', 'database', 'collection', and 'user' are required for mongodb()")
+            raise DataStoreError(
+                "'host', 'database', 'collection', and 'user' are required for mongodb()"
+            )
 
         sql_params = [
             self._format_param(host),
@@ -654,16 +666,22 @@ class RedisTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        host = self.params.get('host')
-        key = self.params.get('key')
-        structure = self.params.get('structure')
-        password = self.params.get('password')
-        db_index = self.params.get('db_index', 0)
+        host = self.params.get("host")
+        key = self.params.get("key")
+        structure = self.params.get("structure")
+        password = self.params.get("password")
+        db_index = self.params.get("db_index", 0)
 
         if not all([host, key, structure]):
-            raise DataStoreError("'host', 'key', and 'structure' are required for redis()")
+            raise DataStoreError(
+                "'host', 'key', and 'structure' are required for redis()"
+            )
 
-        sql_params = [self._format_param(host), self._format_param(key), self._format_param(structure)]
+        sql_params = [
+            self._format_param(host),
+            self._format_param(key),
+            self._format_param(structure),
+        ]
 
         if password:
             sql_params.append(self._format_param(password))
@@ -692,11 +710,13 @@ class SQLiteTableFunction(TableFunction):
         return False  # SQLite table function is read-only
 
     def to_sql(self, quote_char: str = '"') -> str:
-        database_path = self.params.get('database_path') or self.params.get('path')
-        table = self.params.get('table')
+        database_path = self.params.get("database_path") or self.params.get("path")
+        table = self.params.get("table")
 
         if not all([database_path, table]):
-            raise DataStoreError("'database_path' and 'table' are required for sqlite()")
+            raise DataStoreError(
+                "'database_path' and 'table' are required for sqlite()"
+            )
 
         sql_params = [self._format_param(database_path), self._format_param(table)]
 
@@ -728,17 +748,17 @@ class RemoteTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
-        host = self.params.get('host')
-        database = self.params.get('database', 'default')
-        table = self.params.get('table')
-        user = self.params.get('user', 'default')
-        password = self.params.get('password', '')
-        secure = self.params.get('secure', False)
+        host = self.params.get("host")
+        database = self.params.get("database", "default")
+        table = self.params.get("table")
+        user = self.params.get("user", "default")
+        password = self.params.get("password", "")
+        secure = self.params.get("secure", False)
 
         if not all([host, table]):
             raise DataStoreError("'host' and 'table' are required for remote()")
 
-        func_name = 'remoteSecure' if secure else 'remote'
+        func_name = "remoteSecure" if secure else "remote"
 
         sql_params = [
             self._format_param(host),
@@ -774,11 +794,11 @@ class IcebergTableFunction(TableFunction):
         return False  # Iceberg is read-only (experimental write in 25.x)
 
     def to_sql(self, quote_char: str = '"') -> str:
-        url = self.params.get('url') or self.params.get('path')
-        access_key = self.params.get('access_key_id')
-        secret_key = self.params.get('secret_access_key')
-        format_name = self.params.get('format')
-        structure = self.params.get('structure')
+        url = self.params.get("url") or self.params.get("path")
+        access_key = self.params.get("access_key_id")
+        secret_key = self.params.get("secret_access_key")
+        format_name = self.params.get("format")
+        structure = self.params.get("structure")
 
         if not url:
             raise DataStoreError("'url' or 'path' parameter is required for iceberg()")
@@ -821,12 +841,14 @@ class DeltaLakeTableFunction(TableFunction):
         return False  # DeltaLake is read-only (experimental write in 25.x)
 
     def to_sql(self, quote_char: str = '"') -> str:
-        url = self.params.get('url') or self.params.get('path')
-        access_key = self.params.get('access_key_id')
-        secret_key = self.params.get('secret_access_key')
+        url = self.params.get("url") or self.params.get("path")
+        access_key = self.params.get("access_key_id")
+        secret_key = self.params.get("secret_access_key")
 
         if not url:
-            raise DataStoreError("'url' or 'path' parameter is required for deltaLake()")
+            raise DataStoreError(
+                "'url' or 'path' parameter is required for deltaLake()"
+            )
 
         sql_params = [self._format_param(url)]
 
@@ -860,9 +882,9 @@ class HudiTableFunction(TableFunction):
         return False  # Hudi is read-only
 
     def to_sql(self, quote_char: str = '"') -> str:
-        url = self.params.get('url') or self.params.get('path')
-        access_key = self.params.get('access_key_id')
-        secret_key = self.params.get('secret_access_key')
+        url = self.params.get("url") or self.params.get("path")
+        access_key = self.params.get("access_key_id")
+        secret_key = self.params.get("secret_access_key")
 
         if not url:
             raise DataStoreError("'url' or 'path' parameter is required for hudi()")
@@ -907,9 +929,9 @@ class NumbersTableFunction(TableFunction):
         return False
 
     def to_sql(self, quote_char: str = '"') -> str:
-        start = self.params.get('start')
-        count = self.params.get('count')
-        step = self.params.get('step')
+        start = self.params.get("start")
+        count = self.params.get("count")
+        step = self.params.get("step")
 
         # Handle different parameter combinations
         sql_params = []
@@ -954,13 +976,15 @@ class GenerateRandomTableFunction(TableFunction):
         return False
 
     def to_sql(self, quote_char: str = '"') -> str:
-        structure = self.params.get('structure')
-        random_seed = self.params.get('random_seed')
-        max_string_length = self.params.get('max_string_length')
-        max_array_length = self.params.get('max_array_length')
+        structure = self.params.get("structure")
+        random_seed = self.params.get("random_seed")
+        max_string_length = self.params.get("max_string_length")
+        max_array_length = self.params.get("max_array_length")
 
         if not structure:
-            raise DataStoreError("'structure' parameter is required for generateRandom()")
+            raise DataStoreError(
+                "'structure' parameter is required for generateRandom()"
+            )
 
         sql_params = [self._format_param(structure)]
 
@@ -1071,38 +1095,38 @@ class PythonTableFunction(TableFunction):
 
     def __del__(self):
         """Cleanup: unregister the DataFrame when this table function is deleted."""
-        if hasattr(self, '_df_id'):
+        if hasattr(self, "_df_id"):
             _unregister_dataframe(self._df_id)
 
 
 # Map source_type to TableFunction class
 TABLE_FUNCTION_MAP = {
-    'file': FileTableFunction,
-    'url': UrlTableFunction,
-    'http': UrlTableFunction,  # Alias for url
-    'https': UrlTableFunction,  # Alias for url
-    's3': S3TableFunction,
-    'azure': AzureBlobStorageTableFunction,
-    'azureblob': AzureBlobStorageTableFunction,
-    'gcs': GcsTableFunction,
-    'hdfs': HdfsTableFunction,
-    'mysql': MySQLTableFunction,
-    'postgresql': PostgreSQLTableFunction,
-    'postgres': PostgreSQLTableFunction,  # Alias
-    'mongodb': MongoDBTableFunction,
-    'mongo': MongoDBTableFunction,  # Alias
-    'redis': RedisTableFunction,
-    'sqlite': SQLiteTableFunction,
-    'remote': RemoteTableFunction,
-    'remotesecure': RemoteTableFunction,  # Alias with secure=True
-    'clickhouse': RemoteTableFunction,  # Alias for remote
-    'iceberg': IcebergTableFunction,
-    'deltalake': DeltaLakeTableFunction,
-    'delta': DeltaLakeTableFunction,  # Alias
-    'hudi': HudiTableFunction,
-    'numbers': NumbersTableFunction,
-    'generaterandom': GenerateRandomTableFunction,
-    'python': PythonTableFunction,
+    "file": FileTableFunction,
+    "url": UrlTableFunction,
+    "http": UrlTableFunction,  # Alias for url
+    "https": UrlTableFunction,  # Alias for url
+    "s3": S3TableFunction,
+    "azure": AzureBlobStorageTableFunction,
+    "azureblob": AzureBlobStorageTableFunction,
+    "gcs": GcsTableFunction,
+    "hdfs": HdfsTableFunction,
+    "mysql": MySQLTableFunction,
+    "postgresql": PostgreSQLTableFunction,
+    "postgres": PostgreSQLTableFunction,  # Alias
+    "mongodb": MongoDBTableFunction,
+    "mongo": MongoDBTableFunction,  # Alias
+    "redis": RedisTableFunction,
+    "sqlite": SQLiteTableFunction,
+    "remote": RemoteTableFunction,
+    "remotesecure": RemoteTableFunction,  # Alias with secure=True
+    "clickhouse": RemoteTableFunction,  # Alias for remote
+    "iceberg": IcebergTableFunction,
+    "deltalake": DeltaLakeTableFunction,
+    "delta": DeltaLakeTableFunction,  # Alias
+    "hudi": HudiTableFunction,
+    "numbers": NumbersTableFunction,
+    "generaterandom": GenerateRandomTableFunction,
+    "python": PythonTableFunction,
 }
 
 
@@ -1136,7 +1160,7 @@ def create_table_function(source_type: str, **params) -> TableFunction:
     table_function_class = TABLE_FUNCTION_MAP[source_type_lower]
 
     # Handle remoteSecure - set secure=True automatically
-    if source_type_lower == 'remotesecure':
-        params.setdefault('secure', True)
+    if source_type_lower == "remotesecure":
+        params.setdefault("secure", True)
 
     return table_function_class(**params)

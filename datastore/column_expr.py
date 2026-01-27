@@ -24,7 +24,7 @@ from .exceptions import ImmutableError
 def _parse_pandas_version():
     """Parse pandas version to a tuple for comparison."""
     try:
-        parts = pd.__version__.split('.')[:2]
+        parts = pd.__version__.split(".")[:2]
         return tuple(int(p) for p in parts)
     except (ValueError, AttributeError):
         return (0, 0)
@@ -95,14 +95,14 @@ class ColumnExpr:
     def __init__(
         self,
         expr: Expression = None,
-        datastore: 'DataStore' = None,
+        datastore: "DataStore" = None,
         alias: Optional[str] = None,
         groupby_fields: Optional[List] = None,
         groupby_as_index: bool = True,
         groupby_sort: bool = True,
         groupby_dropna: bool = True,
         # Method mode parameters
-        source: 'ColumnExpr' = None,
+        source: "ColumnExpr" = None,
         method_name: str = None,
         method_args: tuple = None,
         method_kwargs: dict = None,
@@ -114,7 +114,7 @@ class ColumnExpr:
         executor: Any = None,
         # Operation descriptor mode parameters (preferred over executor)
         op_type: str = None,  # 'accessor' | 'method' | 'groupby_transform' | 'groupby_agg'
-        op_source: 'ColumnExpr' = None,  # source expression to evaluate first
+        op_source: "ColumnExpr" = None,  # source expression to evaluate first
         op_accessor: str = None,  # 'str' | 'dt' | 'json' (for accessor ops)
         op_method: str = None,  # method name to call
         op_args: tuple = None,  # positional arguments
@@ -196,8 +196,14 @@ class ColumnExpr:
             self._datastore = None
 
         # Inherit groupby_fields from source if not provided
-        if not self._groupby_fields and source is not None and hasattr(source, '_groupby_fields'):
-            self._groupby_fields = source._groupby_fields.copy() if source._groupby_fields else []
+        if (
+            not self._groupby_fields
+            and source is not None
+            and hasattr(source, "_groupby_fields")
+        ):
+            self._groupby_fields = (
+                source._groupby_fields.copy() if source._groupby_fields else []
+            )
 
         # Cache for executed result
         self._cached_result = None
@@ -205,20 +211,20 @@ class ColumnExpr:
         # Determine execution mode
         # Priority: op mode > executor mode (op is the preferred new pattern)
         if op_type is not None:
-            self._exec_mode = 'op'
+            self._exec_mode = "op"
         elif executor is not None:
-            self._exec_mode = 'executor'
+            self._exec_mode = "executor"
         elif agg_func_name is not None:
-            self._exec_mode = 'agg'
+            self._exec_mode = "agg"
             # Create AggregateFunction for SQL building (needed by agg() method)
             if source is not None and source._expr is not None:
                 from .functions import AggregateFunction
 
                 self._expr = AggregateFunction(agg_func_name, source._expr)
         elif method_name is not None:
-            self._exec_mode = 'method'
+            self._exec_mode = "method"
         else:
-            self._exec_mode = 'expr'
+            self._exec_mode = "expr"
 
     @property
     def expr(self) -> Expression:
@@ -226,7 +232,7 @@ class ColumnExpr:
         return self._expr
 
     @property
-    def datastore(self) -> 'DataStore':
+    def datastore(self) -> "DataStore":
         """Get the DataStore reference."""
         return self._datastore
 
@@ -258,7 +264,9 @@ class ColumnExpr:
 
     # ========== Factory Methods ==========
 
-    def _derive_expr(self, expr: Expression, alias: Optional[str] = None) -> 'ColumnExpr':
+    def _derive_expr(
+        self, expr: Expression, alias: Optional[str] = None
+    ) -> "ColumnExpr":
         """
         Create a new ColumnExpr derived from this one, preserving groupby context.
 
@@ -288,7 +296,9 @@ class ColumnExpr:
             expr=expr,
             datastore=self._datastore,
             alias=alias,
-            groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+            groupby_fields=(
+                self._groupby_fields.copy() if self._groupby_fields else None
+            ),
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
@@ -301,12 +311,12 @@ class ColumnExpr:
     @classmethod
     def from_accessor_op(
         cls,
-        source: 'ColumnExpr',
+        source: "ColumnExpr",
         accessor: str,
         method: str,
         args: tuple = (),
         kwargs: dict = None,
-    ) -> 'ColumnExpr':
+    ) -> "ColumnExpr":
         """
         Create a ColumnExpr for an accessor operation (e.g., str.extract, dt.year).
 
@@ -340,7 +350,7 @@ class ColumnExpr:
         """
         return cls(
             datastore=source._datastore,
-            op_type='accessor',
+            op_type="accessor",
             op_source=source,
             op_accessor=accessor,
             op_method=method,
@@ -351,11 +361,11 @@ class ColumnExpr:
     @classmethod
     def from_method_op(
         cls,
-        source: 'ColumnExpr',
+        source: "ColumnExpr",
         method: str,
         args: tuple = (),
         kwargs: dict = None,
-    ) -> 'ColumnExpr':
+    ) -> "ColumnExpr":
         """
         Create a ColumnExpr for a method operation (e.g., fillna, replace).
 
@@ -372,7 +382,7 @@ class ColumnExpr:
         """
         return cls(
             datastore=source._datastore,
-            op_type='method',
+            op_type="method",
             op_source=source,
             op_method=method,
             op_args=args,
@@ -382,12 +392,12 @@ class ColumnExpr:
     @classmethod
     def from_groupby_transform_op(
         cls,
-        source: 'ColumnExpr',
+        source: "ColumnExpr",
         groupby_cols: list,
         func: str,
         args: tuple = (),
         kwargs: dict = None,
-    ) -> 'ColumnExpr':
+    ) -> "ColumnExpr":
         """
         Create a ColumnExpr for a groupby transform operation.
 
@@ -403,7 +413,7 @@ class ColumnExpr:
         """
         result = cls(
             datastore=source._datastore,
-            op_type='groupby_transform',
+            op_type="groupby_transform",
             op_source=source,
             op_method=func if isinstance(func, str) else None,
             op_args=args,
@@ -415,7 +425,9 @@ class ColumnExpr:
             result._op_func = func
         return result
 
-    def _create_window_method(self, method_name: str, sql_func: str, **method_kwargs) -> 'ColumnExpr':
+    def _create_window_method(
+        self, method_name: str, sql_func: str, **method_kwargs
+    ) -> "ColumnExpr":
         """
         Create a ColumnExpr for a window method (cumsum, cummax, cummin, rank, shift, diff).
 
@@ -461,7 +473,9 @@ class ColumnExpr:
         # Check if data source is SQL-based (has _table_function)
         # Window functions via Python() table function have row order issues,
         # so only use SQL for native SQL sources (parquet files, etc.)
-        has_sql_source = self._datastore._table_function is not None if self._datastore else False
+        has_sql_source = (
+            self._datastore._table_function is not None if self._datastore else False
+        )
         if not has_sql_source:
             # Fall back to pandas for DataFrame-based sources
             # This avoids row order issues with Python() table function
@@ -482,11 +496,11 @@ class ColumnExpr:
         # Create SQL window function with ORDER BY rowNumberInAllBlocks() to preserve row order
         # Format: SUM(col) OVER (PARTITION BY groupby_col ORDER BY rowNumberInAllBlocks() ROWS UNBOUNDED PRECEDING)
         # The ORDER BY ensures cumulative operations follow the original row order within each group
-        row_num_func = Function('rowNumberInAllBlocks')
+        row_num_func = Function("rowNumberInAllBlocks")
         window_func = WindowFunction(sql_func, col_field).over(
             partition_by=partition_by,
             order_by=[row_num_func],
-            frame='ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW',
+            frame="ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
         )
 
         # Return a new ColumnExpr with the window function expression
@@ -494,16 +508,18 @@ class ColumnExpr:
         result = ColumnExpr(
             expr=window_func,
             datastore=self._datastore,
-            groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+            groupby_fields=(
+                self._groupby_fields.copy() if self._groupby_fields else None
+            ),
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
         )
         # Store fallback info for pandas execution if SQL fails
         result._window_method_fallback = {
-            'method_name': method_name,
-            'method_kwargs': method_kwargs,
-            'source': self,
+            "method_name": method_name,
+            "method_kwargs": method_kwargs,
+            "source": self,
         }
         # Mark this expression as needing row order preservation in final SQL
         result._needs_row_order_preservation = True
@@ -515,11 +531,11 @@ class ColumnExpr:
     # These have incompatible behavior between chDB SQL and pandas
     _PANDAS_ONLY_DT_METHODS = frozenset(
         {
-            'strftime',  # Format code differences (%M) + timezone issues
-            'tz_localize',  # Timezone handling
-            'tz_convert',  # Timezone handling
-            'to_pydatetime',  # Python object conversion
-            'to_pytimedelta',  # Python object conversion
+            "strftime",  # Format code differences (%M) + timezone issues
+            "tz_localize",  # Timezone handling
+            "tz_convert",  # Timezone handling
+            "to_pydatetime",  # Python object conversion
+            "to_pytimedelta",  # Python object conversion
         }
     )
 
@@ -537,11 +553,11 @@ class ColumnExpr:
         Use this instead of checking _executor/_expr directly.
         """
         # Executor mode always requires Pandas execution
-        if self._exec_mode == 'executor':
+        if self._exec_mode == "executor":
             return True
 
         # Method mode without underlying expression needs Pandas
-        if self._exec_mode == 'method' and self._expr is None:
+        if self._exec_mode == "method" and self._expr is None:
             return True
 
         # Check if expression contains pandas-only datetime methods
@@ -567,7 +583,7 @@ class ColumnExpr:
         """
         # Operation descriptor mode always uses Pandas execution
         # (accessor ops, groupby transforms, etc. cannot be SQL-pushed)
-        if self._exec_mode == 'op':
+        if self._exec_mode == "op":
             return False
         # Must have an expression tree AND not be pandas-only
         return self._expr is not None and not self.is_pandas_only()
@@ -592,13 +608,13 @@ class ColumnExpr:
         if self._cached_result is not None:
             return self._cached_result
 
-        if self._exec_mode == 'op':
+        if self._exec_mode == "op":
             self._cached_result = self._execute_op()
-        elif self._exec_mode == 'executor':
+        elif self._exec_mode == "executor":
             self._cached_result = self._execute_executor()
-        elif self._exec_mode == 'agg':
+        elif self._exec_mode == "agg":
             self._cached_result = self._execute_aggregation()
-        elif self._exec_mode == 'method':
+        elif self._exec_mode == "method":
             self._cached_result = self._execute_method()
         else:
             self._cached_result = self._execute_expression()
@@ -624,7 +640,7 @@ class ColumnExpr:
             if self._alias is not None:
                 result = result.copy()
                 result.name = self._alias
-            elif isinstance(result.name, str) and result.name.startswith('__'):
+            elif isinstance(result.name, str) and result.name.startswith("__"):
                 # Clear internal names like __result__ when no explicit alias
                 result = result.copy()
                 result.name = None
@@ -651,9 +667,9 @@ class ColumnExpr:
         # Handle groupby + agg scenario: df.groupby('col')['value'].agg(['sum', 'mean'])
         if (
             self._source is not None
-            and hasattr(self._source, '_groupby_fields')
+            and hasattr(self._source, "_groupby_fields")
             and self._source._groupby_fields
-            and self._method_name in ('agg', 'aggregate')
+            and self._method_name in ("agg", "aggregate")
         ):
             groupby_col_names = []
             for gf in self._source._groupby_fields:
@@ -669,7 +685,7 @@ class ColumnExpr:
                 col_name = str(self._source._expr)
 
             df = self._datastore._execute()
-            agg_kwargs = {k: v for k, v in kwargs.items() if k != 'axis'}
+            agg_kwargs = {k: v for k, v in kwargs.items() if k != "axis"}
 
             if col_name and col_name in df.columns:
                 grouped = df.groupby(groupby_col_names)[col_name]
@@ -681,10 +697,19 @@ class ColumnExpr:
 
         # Handle groupby + window function scenario: df.groupby('col')['value'].cumsum(), rank(), etc.
         # These methods need to operate within each group, not globally
-        _GROUPBY_WINDOW_METHODS = {'cumsum', 'cummax', 'cummin', 'cumprod', 'rank', 'diff', 'shift', 'pct_change'}
+        _GROUPBY_WINDOW_METHODS = {
+            "cumsum",
+            "cummax",
+            "cummin",
+            "cumprod",
+            "rank",
+            "diff",
+            "shift",
+            "pct_change",
+        }
         if (
             self._source is not None
-            and hasattr(self._source, '_groupby_fields')
+            and hasattr(self._source, "_groupby_fields")
             and self._source._groupby_fields
             and self._method_name in _GROUPBY_WINDOW_METHODS
         ):
@@ -704,10 +729,12 @@ class ColumnExpr:
             df = self._datastore._execute()
             # Different methods accept different parameters - filter appropriately
             # rank() in groupby doesn't accept 'numeric_only'
-            if self._method_name == 'rank':
-                method_kwargs = {k: v for k, v in kwargs.items() if k not in ('axis', 'numeric_only')}
+            if self._method_name == "rank":
+                method_kwargs = {
+                    k: v for k, v in kwargs.items() if k not in ("axis", "numeric_only")
+                }
             else:
-                method_kwargs = {k: v for k, v in kwargs.items() if k not in ('axis',)}
+                method_kwargs = {k: v for k, v in kwargs.items() if k not in ("axis",)}
 
             if col_name and col_name in df.columns:
                 grouped = df.groupby(groupby_col_names)[col_name]
@@ -724,9 +751,9 @@ class ColumnExpr:
         # not individual elements
         if (
             self._source is not None
-            and hasattr(self._source, '_groupby_fields')
+            and hasattr(self._source, "_groupby_fields")
             and self._source._groupby_fields
-            and self._method_name == 'apply'
+            and self._method_name == "apply"
         ):
             groupby_col_names = []
             for gf in self._source._groupby_fields:
@@ -743,15 +770,19 @@ class ColumnExpr:
 
             df = self._datastore._execute()
             # Get groupby sort and dropna settings from source
-            sort = getattr(self._source, '_groupby_sort', True)
-            dropna = getattr(self._source, '_groupby_dropna', True)
+            sort = getattr(self._source, "_groupby_sort", True)
+            dropna = getattr(self._source, "_groupby_dropna", True)
 
             # Filter kwargs for apply - remove convert_dtype and args as pandas SeriesGroupBy.apply
             # doesn't accept them (they're only for Series.apply)
-            apply_kwargs = {k: v for k, v in kwargs.items() if k not in ('convert_dtype', 'args')}
+            apply_kwargs = {
+                k: v for k, v in kwargs.items() if k not in ("convert_dtype", "args")
+            }
 
             if col_name and col_name in df.columns:
-                grouped = df.groupby(groupby_col_names, sort=sort, dropna=dropna)[col_name]
+                grouped = df.groupby(groupby_col_names, sort=sort, dropna=dropna)[
+                    col_name
+                ]
                 # args[0] is the function
                 return grouped.apply(args[0], **apply_kwargs)
             else:
@@ -760,7 +791,7 @@ class ColumnExpr:
                 return series.apply(*args, **kwargs)
 
         # Handle value_counts with SQL pushdown
-        if self._method_name == 'value_counts':
+        if self._method_name == "value_counts":
             return self._execute_value_counts_sql(args, kwargs)
 
         # Execute source
@@ -770,12 +801,12 @@ class ColumnExpr:
             series = None
 
         # Handle special _dt_* methods for datetime operations
-        if self._method_name and self._method_name.startswith('_dt_'):
+        if self._method_name and self._method_name.startswith("_dt_"):
             dt_attr = self._method_name[4:]
             if not pd.api.types.is_datetime64_any_dtype(series):
-                if series.dtype == 'object' or pd.api.types.is_string_dtype(series):
+                if series.dtype == "object" or pd.api.types.is_string_dtype(series):
                     try:
-                        series = pd.to_datetime(series, errors='coerce')
+                        series = pd.to_datetime(series, errors="coerce")
                     except Exception:
                         pass
             dt_accessor = series.dt
@@ -787,10 +818,10 @@ class ColumnExpr:
         # Handle chained function calls from method-mode ColumnExpr
         # These are created when calling e.g., ds['a'].fillna(0).abs()
         # where fillna returns method-mode ColumnExpr and abs() chains on it
-        if self._method_name and self._method_name.startswith('_chain_'):
+        if self._method_name and self._method_name.startswith("_chain_"):
             func_name = self._method_name[7:]  # Remove '_chain_' prefix
             # Remove 'alias' from kwargs if present (SQL-specific parameter)
-            kwargs_clean = {k: v for k, v in kwargs.items() if k != 'alias'}
+            kwargs_clean = {k: v for k, v in kwargs.items() if k != "alias"}
             if hasattr(series, func_name):
                 method = getattr(series, func_name)
                 return method(*args, **kwargs_clean)
@@ -801,7 +832,9 @@ class ColumnExpr:
                 if hasattr(np, func_name):
                     np_func = getattr(np, func_name)
                     return np_func(series, *args)
-                raise AttributeError(f"'{type(series).__name__}' has no attribute '{func_name}'")
+                raise AttributeError(
+                    f"'{type(series).__name__}' has no attribute '{func_name}'"
+                )
 
         # Execute the method
         if series is None:
@@ -843,26 +876,42 @@ class ColumnExpr:
         from .expressions import Field
 
         # Extract parameters with defaults matching pandas
-        normalize = kwargs.get('normalize', False)
-        sort = kwargs.get('sort', True)
-        ascending = kwargs.get('ascending', False)
-        bins = kwargs.get('bins', None)
-        dropna = kwargs.get('dropna', True)
+        normalize = kwargs.get("normalize", False)
+        sort = kwargs.get("sort", True)
+        ascending = kwargs.get("ascending", False)
+        bins = kwargs.get("bins", None)
+        dropna = kwargs.get("dropna", True)
 
         # bins parameter requires special handling - fall back to pandas
         # because SQL doesn't have a direct equivalent to pandas cut/qcut
         if bins is not None:
             # Fall back to pandas for bins
-            series = self._source._execute() if self._source is not None else self._execute_expression()
-            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, bins=bins, dropna=dropna)
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
+            return series.value_counts(
+                normalize=normalize,
+                sort=sort,
+                ascending=ascending,
+                bins=bins,
+                dropna=dropna,
+            )
 
         # Check execution engine
         engine = get_execution_engine()
 
         # Use pandas for PANDAS engine
         if engine == ExecutionEngine.PANDAS:
-            series = self._source._execute() if self._source is not None else self._execute_expression()
-            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, dropna=dropna)
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
+            return series.value_counts(
+                normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
+            )
 
         # Get the DataFrame from datastore
         df = self._datastore._execute()
@@ -870,7 +919,7 @@ class ColumnExpr:
         # Get column name from expression
         col_name = None
         if self._source is not None:
-            if hasattr(self._source, '_expr') and self._source._expr is not None:
+            if hasattr(self._source, "_expr") and self._source._expr is not None:
                 if isinstance(self._source._expr, Field):
                     col_name = self._source._expr.name
                 else:
@@ -878,9 +927,17 @@ class ColumnExpr:
                     col_name = self._source._expr.to_sql(quote_char='"')
 
         # If we can't determine the column, fall back to pandas
-        if col_name is None or (not isinstance(self._source._expr, Field) and col_name not in df.columns):
-            series = self._source._execute() if self._source is not None else self._execute_expression()
-            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, dropna=dropna)
+        if col_name is None or (
+            not isinstance(self._source._expr, Field) and col_name not in df.columns
+        ):
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
+            return series.value_counts(
+                normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
+            )
 
         # Build SQL query for value_counts
         try:
@@ -895,21 +952,21 @@ class ColumnExpr:
                 is_simple_column = False
 
             # Build WHERE clause for dropna
-            where_clause = ''
+            where_clause = ""
             if dropna:
-                where_clause = f' WHERE {col_sql} IS NOT NULL'
+                where_clause = f" WHERE {col_sql} IS NOT NULL"
 
             # Build SELECT and GROUP BY (no ORDER BY - we'll sort in Python for pandas compatibility)
             if normalize:
                 # For normalize, we need to calculate proportion
                 # Use subquery to get total count
-                total_sql = f'(SELECT COUNT(*) FROM __df__{where_clause})'
-                select_sql = f'{col_sql} AS __value__, CAST(COUNT(*) AS Float64) / {total_sql} AS __count__'
+                total_sql = f"(SELECT COUNT(*) FROM __df__{where_clause})"
+                select_sql = f"{col_sql} AS __value__, CAST(COUNT(*) AS Float64) / {total_sql} AS __count__"
             else:
-                select_sql = f'{col_sql} AS __value__, toInt64(COUNT(*)) AS __count__'
+                select_sql = f"{col_sql} AS __value__, toInt64(COUNT(*)) AS __count__"
 
             # Build complete SQL (no ORDER BY - sorting done in Python)
-            sql = f'SELECT {select_sql} FROM __df__{where_clause} GROUP BY {col_sql}'
+            sql = f"SELECT {select_sql} FROM __df__{where_clause} GROUP BY {col_sql}"
 
             # Execute SQL
             result_df = executor.query_dataframe(sql, df, preserve_order=False)
@@ -917,7 +974,9 @@ class ColumnExpr:
             # Convert to Series with proper index
             if len(result_df) == 0:
                 # Empty result - return empty Series matching pandas behavior
-                result = pd.Series([], dtype='int64' if not normalize else 'float64', name='count')
+                result = pd.Series(
+                    [], dtype="int64" if not normalize else "float64", name="count"
+                )
                 result.index.name = col_name if is_simple_column else None
                 return result
 
@@ -934,10 +993,12 @@ class ColumnExpr:
                         first_appearance[val] = idx
             else:
                 # For expressions, we can't easily get first appearance, use index order
-                first_appearance = {val: idx for idx, val in enumerate(result_df['__value__'])}
+                first_appearance = {
+                    val: idx for idx, val in enumerate(result_df["__value__"])
+                }
 
             # Create result Series
-            result = result_df.set_index('__value__')['__count__']
+            result = result_df.set_index("__value__")["__count__"]
 
             # Sort according to pandas behavior
             if sort:
@@ -945,33 +1006,39 @@ class ColumnExpr:
                 # Create a DataFrame for sorting with count and first_appearance
                 sort_df = pd.DataFrame(
                     {
-                        'value': result.index,
-                        'count': result.values,
-                        'first_pos': [first_appearance.get(v, float('inf')) for v in result.index],
+                        "value": result.index,
+                        "count": result.values,
+                        "first_pos": [
+                            first_appearance.get(v, float("inf")) for v in result.index
+                        ],
                     }
                 )
                 # Sort by count (ascending or descending), then by first_pos (always ascending for ties)
-                sort_df = sort_df.sort_values(by=['count', 'first_pos'], ascending=[ascending, True])
+                sort_df = sort_df.sort_values(
+                    by=["count", "first_pos"], ascending=[ascending, True]
+                )
                 # Rebuild result with correct order
                 result = pd.Series(
-                    sort_df['count'].values,
-                    index=sort_df['value'].values,
-                    name='count' if not normalize else 'proportion',
+                    sort_df["count"].values,
+                    index=sort_df["value"].values,
+                    name="count" if not normalize else "proportion",
                 )
             else:
                 # sort=False: pandas returns in first-appearance order
                 sort_df = pd.DataFrame(
                     {
-                        'value': result.index,
-                        'count': result.values,
-                        'first_pos': [first_appearance.get(v, float('inf')) for v in result.index],
+                        "value": result.index,
+                        "count": result.values,
+                        "first_pos": [
+                            first_appearance.get(v, float("inf")) for v in result.index
+                        ],
                     }
                 )
-                sort_df = sort_df.sort_values(by='first_pos', ascending=True)
+                sort_df = sort_df.sort_values(by="first_pos", ascending=True)
                 result = pd.Series(
-                    sort_df['count'].values,
-                    index=sort_df['value'].values,
-                    name='count' if not normalize else 'proportion',
+                    sort_df["count"].values,
+                    index=sort_df["value"].values,
+                    name="count" if not normalize else "proportion",
                 )
 
             result.index.name = col_name if is_simple_column else None
@@ -983,10 +1050,18 @@ class ColumnExpr:
             from .config import get_logger
 
             logger = get_logger()
-            logger.debug(f"value_counts SQL pushdown failed, falling back to pandas: {e}")
+            logger.debug(
+                f"value_counts SQL pushdown failed, falling back to pandas: {e}"
+            )
 
-            series = self._source._execute() if self._source is not None else self._execute_expression()
-            return series.value_counts(normalize=normalize, sort=sort, ascending=ascending, dropna=dropna)
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
+            return series.value_counts(
+                normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
+            )
 
     def _execute_aggregation(self):
         """Execute aggregation mode - compute aggregate with optional groupby."""
@@ -998,9 +1073,19 @@ class ColumnExpr:
             return self._execute_groupby_aggregation()
         else:
             # No groupby - compute scalar value
-            series = self._source._execute() if self._source is not None else self._execute_expression()
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
             agg_method = getattr(series, self._pandas_agg_func)
-            return agg_method(**{k: v for k, v in self._method_kwargs.items() if k not in ('axis', 'numeric_only')})
+            return agg_method(
+                **{
+                    k: v
+                    for k, v in self._method_kwargs.items()
+                    if k not in ("axis", "numeric_only")
+                }
+            )
 
     def _execute_groupby_aggregation(self):
         """Execute aggregation with GROUP BY."""
@@ -1018,12 +1103,14 @@ class ColumnExpr:
 
         # Temporarily clear groupby fields on datastore to prevent SQL generation issues
         datastore = self._datastore
-        original_groupby = datastore._groupby_fields.copy() if datastore._groupby_fields else []
+        original_groupby = (
+            datastore._groupby_fields.copy() if datastore._groupby_fields else []
+        )
         datastore._groupby_fields = []
 
         # Get as_index and sort parameters
-        as_index = getattr(self, '_groupby_as_index', True)
-        sort = getattr(self, '_groupby_sort', True)
+        as_index = getattr(self, "_groupby_as_index", True)
+        sort = getattr(self, "_groupby_sort", True)
 
         try:
             df = datastore._execute()
@@ -1034,8 +1121,10 @@ class ColumnExpr:
 
             if engine == ExecutionEngine.PANDAS:
                 # Use pure pandas groupby with as_index, sort, and dropna parameters
-                dropna = getattr(self, '_groupby_dropna', True)
-                grouped = df.groupby(groupby_col_names, sort=sort, as_index=as_index, dropna=dropna)
+                dropna = getattr(self, "_groupby_dropna", True)
+                grouped = df.groupby(
+                    groupby_col_names, sort=sort, as_index=as_index, dropna=dropna
+                )
                 agg_method = getattr(grouped[col_name], self._pandas_agg_func)
                 result = agg_method()
                 if as_index:
@@ -1054,53 +1143,53 @@ class ColumnExpr:
                     if self._source and self._source._expr
                     else '"' + col_name + '"'
                 )
-                groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
+                groupby_sql = ", ".join(f'"{name}"' for name in groupby_col_names)
 
                 # Determine null check function based on column type
                 # isNaN() only works for numeric types, use isNull() for strings/other types
                 col_dtype = df[col_name].dtype if col_name in df.columns else None
-                is_numeric = col_dtype is not None and pd.api.types.is_numeric_dtype(col_dtype)
-                null_check_fn = 'isNaN' if is_numeric else 'isNull'
+                is_numeric = col_dtype is not None and pd.api.types.is_numeric_dtype(
+                    col_dtype
+                )
+                null_check_fn = "isNaN" if is_numeric else "isNull"
 
                 # Special handling for first/last: use argMin/argMax with rowNumberInAllBlocks()
                 # to preserve row order semantics (any/anyLast don't guarantee order)
                 # NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
                 # with _row_id (deterministic) at execution time (chDB v4.0.0b5+)
                 # For file sources (Parquet, CSV), rowNumberInAllBlocks() works correctly as-is
-                if self._agg_func_name == 'any':
+                if self._agg_func_name == "any":
                     # first() -> argMin(value, rowNumberInAllBlocks())
                     if self._skipna:
-                        agg_sql = (
-                            f'argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))'
-                        )
+                        agg_sql = f"argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))"
                     else:
-                        agg_sql = f'argMin({col_expr_sql}, rowNumberInAllBlocks())'
-                elif self._agg_func_name == 'anyLast':
+                        agg_sql = f"argMin({col_expr_sql}, rowNumberInAllBlocks())"
+                elif self._agg_func_name == "anyLast":
                     # last() -> argMax(value, rowNumberInAllBlocks())
                     if self._skipna:
-                        agg_sql = (
-                            f'argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))'
-                        )
+                        agg_sql = f"argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))"
                     else:
-                        agg_sql = f'argMax({col_expr_sql}, rowNumberInAllBlocks())'
+                        agg_sql = f"argMax({col_expr_sql}, rowNumberInAllBlocks())"
                 elif self._skipna:
-                    agg_sql = f'{self._agg_func_name}If({col_expr_sql}, NOT {null_check_fn}({col_expr_sql}))'
+                    agg_sql = f"{self._agg_func_name}If({col_expr_sql}, NOT {null_check_fn}({col_expr_sql}))"
                 else:
-                    agg_sql = f'{self._agg_func_name}({col_expr_sql})'
+                    agg_sql = f"{self._agg_func_name}({col_expr_sql})"
 
                 # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
-                if self._agg_func_name == 'count':
-                    agg_sql = f'toInt64({agg_sql})'
+                if self._agg_func_name == "count":
+                    agg_sql = f"toInt64({agg_sql})"
 
                 # Add ORDER BY if sort=True (pandas default behavior)
-                order_by = f' ORDER BY {groupby_sql}' if sort else ''
+                order_by = f" ORDER BY {groupby_sql}" if sort else ""
 
                 # Add WHERE clause for dropna=True (filter out NULL groups)
-                dropna = getattr(self, '_groupby_dropna', True)
-                where_clause = ''
+                dropna = getattr(self, "_groupby_dropna", True)
+                where_clause = ""
                 if dropna:
-                    null_filter_conditions = [f'"{name}" IS NOT NULL' for name in groupby_col_names]
-                    where_clause = ' WHERE ' + ' AND '.join(null_filter_conditions)
+                    null_filter_conditions = [
+                        f'"{name}" IS NOT NULL' for name in groupby_col_names
+                    ]
+                    where_clause = " WHERE " + " AND ".join(null_filter_conditions)
 
                 sql = f'SELECT {groupby_sql}, {agg_sql} AS "{col_name}" FROM __df__{where_clause} GROUP BY {groupby_sql}{order_by}'
 
@@ -1110,13 +1199,15 @@ class ColumnExpr:
                 # Fix for sum of all-NaN: SQL returns NULL, pandas returns 0
                 # When using sumIf with skipna=True and all values are NaN,
                 # SQL returns NULL. Convert to 0 to match pandas behavior.
-                if self._agg_func_name == 'sum' and self._skipna:
+                if self._agg_func_name == "sum" and self._skipna:
                     result_df[col_name] = result_df[col_name].fillna(0)
 
                 if as_index:
                     # Return Series with groupby keys as index
                     if len(groupby_col_names) == 1:
-                        result_series = result_df.set_index(groupby_col_names[0])[col_name]
+                        result_series = result_df.set_index(groupby_col_names[0])[
+                            col_name
+                        ]
                     else:
                         result_series = result_df.set_index(groupby_col_names)[col_name]
                     result_series.name = col_name
@@ -1151,32 +1242,32 @@ class ColumnExpr:
         if source_result is None:
             return None
 
-        if op_type == 'accessor':
+        if op_type == "accessor":
             # Accessor operation (e.g., str.extract, dt.year, json._extract_array)
             accessor_name = self._op_accessor
 
             # Special handling for JSON array extraction
-            if accessor_name == 'json' and op_method == '_extract_array':
-                json_path = op_args[0] if op_args else ''
+            if accessor_name == "json" and op_method == "_extract_array":
+                json_path = op_args[0] if op_args else ""
                 return _extract_json_array(source_result, json_path)
 
             accessor = getattr(source_result, accessor_name)
             method = getattr(accessor, op_method)
             return method(*op_args, **op_kwargs)
 
-        elif op_type == 'method':
+        elif op_type == "method":
             # Direct method operation (e.g., fillna, replace)
             method = getattr(source_result, op_method)
             return method(*op_args, **op_kwargs)
 
-        elif op_type == 'groupby_transform':
+        elif op_type == "groupby_transform":
             # Groupby transform operation
             groupby_cols = self._op_groupby_cols
-            func = getattr(self, '_op_func', None) or op_method
+            func = getattr(self, "_op_func", None) or op_method
             # Use the datastore's df for groupby context
             df = self._datastore._execute()
             col_name = None
-            if op_source is not None and hasattr(op_source, '_expr'):
+            if op_source is not None and hasattr(op_source, "_expr"):
                 from .expressions import Field as ExprField
 
                 if isinstance(op_source._expr, ExprField):
@@ -1186,13 +1277,13 @@ class ColumnExpr:
                 return grouped.transform(func, *op_args, **op_kwargs)
             return source_result
 
-        elif op_type == 'groupby_agg':
+        elif op_type == "groupby_agg":
             # Groupby aggregation operation
             groupby_cols = self._op_groupby_cols
-            func = getattr(self, '_op_func', None) or op_method
+            func = getattr(self, "_op_func", None) or op_method
             df = self._datastore._execute()
             col_name = None
-            if op_source is not None and hasattr(op_source, '_expr'):
+            if op_source is not None and hasattr(op_source, "_expr"):
                 from .expressions import Field as ExprField
 
                 if isinstance(op_source._expr, ExprField):
@@ -1205,13 +1296,13 @@ class ColumnExpr:
                 return agg_method
             return source_result
 
-        elif op_type == 'groupby_nth':
+        elif op_type == "groupby_nth":
             # Groupby nth operation
             groupby_cols = self._op_groupby_cols
             n = op_args[0] if op_args else 0
             df = self._datastore._execute()
             col_name = None
-            if op_source is not None and hasattr(op_source, '_expr'):
+            if op_source is not None and hasattr(op_source, "_expr"):
                 from .expressions import Field as ExprField
 
                 if isinstance(op_source._expr, ExprField):
@@ -1336,21 +1427,23 @@ class ColumnExpr:
             col_expr_sql = self._expr.to_sql(quote_char='"')
 
             # Build SQL query with GROUP BY
-            groupby_sql = ', '.join(f'"{name}"' for name in groupby_col_names)
+            groupby_sql = ", ".join(f'"{name}"' for name in groupby_col_names)
 
             # Use -If suffix to skip NaN values (matching pandas skipna=True behavior)
             # In chDB, pandas NaN is recognized as isNaN(), not isNull()
             if skipna:
                 # Use aggregate function with If suffix to skip NaN values
-                agg_sql = f'{agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))'
+                agg_sql = (
+                    f"{agg_func_name}If({col_expr_sql}, NOT isNaN({col_expr_sql}))"
+                )
             else:
-                agg_sql = f'{agg_func_name}({col_expr_sql})'
+                agg_sql = f"{agg_func_name}({col_expr_sql})"
 
             # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
-            if agg_func_name == 'count':
-                agg_sql = f'toInt64({agg_sql})'
+            if agg_func_name == "count":
+                agg_sql = f"toInt64({agg_sql})"
 
-            sql = f'SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}'
+            sql = f"SELECT {groupby_sql}, {agg_sql} AS __agg_result__ FROM __df__ GROUP BY {groupby_sql}"
 
             # Execute via chDB
             executor = get_executor()
@@ -1359,11 +1452,13 @@ class ColumnExpr:
             # Convert result to Series with proper index
             if len(groupby_col_names) == 1:
                 # Single groupby column - use it as index
-                result_series = result_df.set_index(groupby_col_names[0])['__agg_result__']
+                result_series = result_df.set_index(groupby_col_names[0])[
+                    "__agg_result__"
+                ]
                 result_series.name = self._get_column_name()
             else:
                 # Multiple groupby columns - use MultiIndex
-                result_series = result_df.set_index(groupby_col_names)['__agg_result__']
+                result_series = result_df.set_index(groupby_col_names)["__agg_result__"]
                 result_series.name = self._get_column_name()
 
             # Sort by index to match pandas default behavior (sort=True)
@@ -1381,7 +1476,7 @@ class ColumnExpr:
         if isinstance(self._expr, Field):
             return self._expr.name
         if self._expr is None:
-            return 'unknown'
+            return "unknown"
         return self._expr.to_sql(quote_char='"')
 
     # ========== Value Comparison Methods ==========
@@ -1435,13 +1530,17 @@ class ColumnExpr:
 
         # Handle numeric comparison with tolerance
         if np.issubdtype(s1.dtype, np.number) and np.issubdtype(s2.dtype, np.number):
-            return np.allclose(vals1.values, vals2.values, rtol=rtol, atol=atol, equal_nan=True)
+            return np.allclose(
+                vals1.values, vals2.values, rtol=rtol, atol=atol, equal_nan=True
+            )
 
         # Handle datetime comparison
-        if np.issubdtype(s1.dtype, np.datetime64) or np.issubdtype(s2.dtype, np.datetime64):
+        if np.issubdtype(s1.dtype, np.datetime64) or np.issubdtype(
+            s2.dtype, np.datetime64
+        ):
             try:
-                dt1 = pd.to_datetime(vals1, errors='coerce')
-                dt2 = pd.to_datetime(vals2, errors='coerce')
+                dt1 = pd.to_datetime(vals1, errors="coerce")
+                dt2 = pd.to_datetime(vals2, errors="coerce")
                 return dt1.equals(dt2)
             except Exception:
                 pass
@@ -1449,7 +1548,9 @@ class ColumnExpr:
         # String/object comparison
         return list(vals1) == list(vals2)
 
-    def equals(self, other, check_names: bool = False, rtol: float = 1e-5, atol: float = 1e-8) -> bool:
+    def equals(
+        self, other, check_names: bool = False, rtol: float = 1e-5, atol: float = 1e-8
+    ) -> bool:
         """
         Test whether ColumnExpr contains the same elements as another object.
 
@@ -1476,7 +1577,7 @@ class ColumnExpr:
         # Unwrap ColumnExpr or lazy objects
         if isinstance(other, ColumnExpr):
             other = other._execute()
-        elif hasattr(other, '_execute'):
+        elif hasattr(other, "_execute"):
             other = other._execute()
 
         # Convert to Series if needed
@@ -1520,7 +1621,7 @@ class ColumnExpr:
         # Unwrap ColumnExpr or lazy objects
         if isinstance(other, ColumnExpr):
             other = other._execute()
-        elif hasattr(other, '_execute'):
+        elif hasattr(other, "_execute"):
             other = other._execute()
 
         return self._compare_values(other, rtol=rtol, atol=atol)
@@ -1547,7 +1648,7 @@ class ColumnExpr:
         """HTML representation for Jupyter notebooks."""
         try:
             series = self._execute()
-            if hasattr(series, '_repr_html_'):
+            if hasattr(series, "_repr_html_"):
                 return series._repr_html_()
             return f"<pre>{repr(series)}</pre>"
         except Exception as e:
@@ -1640,7 +1741,7 @@ class ColumnExpr:
 
         # For aggregation mode or method mode, use pandas comparison on executed result
         # This handles cases like: groupby_result == 20, cumsum_result == 10
-        if self._exec_mode in ('agg', 'method', 'executor'):
+        if self._exec_mode in ("agg", "method", "executor"):
             result = self._execute()
             # If result is scalar, return boolean comparison directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
@@ -1649,10 +1750,10 @@ class ColumnExpr:
             if isinstance(result, pd.Series) and len(result) == 1:
                 return result.iloc[0] == other
             # For multi-element Series, return method-mode ColumnExpr for boolean indexing
-            return ColumnExpr(source=self, method_name='__eq__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__eq__", method_args=(other,))
 
         # For expression mode, check if _expr exists
-        if self._exec_mode == 'expr' and self._expr is None:
+        if self._exec_mode == "expr" and self._expr is None:
             # Fallback: execute and compare
             result = self._execute()
             if not isinstance(result, (pd.Series, pd.DataFrame)):
@@ -1670,14 +1771,14 @@ class ColumnExpr:
         if other is None:
             from .expressions import Literal
 
-            condition = BinaryCondition('=', Literal(0), Literal(1))  # Always False
+            condition = BinaryCondition("=", Literal(0), Literal(1))  # Always False
         else:
-            condition = BinaryCondition('=', self._expr, Expression.wrap(other))
+            condition = BinaryCondition("=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
-    def __ne__(self, other: Any) -> 'ColumnExpr':
+    def __ne__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
-        if self._exec_mode in ('agg', 'method', 'executor'):
+        if self._exec_mode in ("agg", "method", "executor"):
             result = self._execute()
             # If result is scalar, return boolean comparison directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
@@ -1686,7 +1787,7 @@ class ColumnExpr:
             if isinstance(result, pd.Series) and len(result) == 1:
                 return result.iloc[0] != other
             # For multi-element Series, return method-mode ColumnExpr
-            return ColumnExpr(source=self, method_name='__ne__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__ne__", method_args=(other,))
 
         # NOTE: Do NOT add cross-DataStore handling for __ne__ here!
         # Similar to __eq__, != may be used in join conditions.
@@ -1699,90 +1800,90 @@ class ColumnExpr:
         # This is element-wise comparison with Python singleton None,
         # NOT a check for non-NA values (use .notna() for that)
         if other is None:
-            condition = BinaryCondition('=', Literal(1), Literal(1))  # Always True
+            condition = BinaryCondition("=", Literal(1), Literal(1))  # Always True
         else:
-            condition = BinaryCondition('!=', self._expr, Expression.wrap(other))
+            condition = BinaryCondition("!=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
-    def __gt__(self, other: Any) -> 'ColumnExpr':
+    def __gt__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
-        if self._exec_mode in ('agg', 'method', 'executor'):
+        if self._exec_mode in ("agg", "method", "executor"):
             result = self._execute()
             # For scalar results, return bool directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
                 return result > other
             # For Series results, return method-mode ColumnExpr for boolean indexing
-            return ColumnExpr(source=self, method_name='__gt__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__gt__", method_args=(other,))
 
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('>', other, is_comparison=True)
+            return self._create_cross_datastore_op(">", other, is_comparison=True)
 
         from .conditions import BinaryCondition
 
-        condition = BinaryCondition('>', self._expr, Expression.wrap(other))
+        condition = BinaryCondition(">", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
-    def __ge__(self, other: Any) -> 'ColumnExpr':
+    def __ge__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
-        if self._exec_mode in ('agg', 'method', 'executor'):
+        if self._exec_mode in ("agg", "method", "executor"):
             result = self._execute()
             # For scalar results, return bool directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
                 return result >= other
             # For Series results, return method-mode ColumnExpr for boolean indexing
-            return ColumnExpr(source=self, method_name='__ge__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__ge__", method_args=(other,))
 
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('>=', other, is_comparison=True)
+            return self._create_cross_datastore_op(">=", other, is_comparison=True)
 
         from .conditions import BinaryCondition
 
-        condition = BinaryCondition('>=', self._expr, Expression.wrap(other))
+        condition = BinaryCondition(">=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
-    def __lt__(self, other: Any) -> 'ColumnExpr':
+    def __lt__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
-        if self._exec_mode in ('agg', 'method', 'executor'):
+        if self._exec_mode in ("agg", "method", "executor"):
             result = self._execute()
             # For scalar results, return bool directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
                 return result < other
             # For Series results, return method-mode ColumnExpr for boolean indexing
-            return ColumnExpr(source=self, method_name='__lt__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__lt__", method_args=(other,))
 
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('<', other, is_comparison=True)
+            return self._create_cross_datastore_op("<", other, is_comparison=True)
 
         from .conditions import BinaryCondition
 
-        condition = BinaryCondition('<', self._expr, Expression.wrap(other))
+        condition = BinaryCondition("<", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
-    def __le__(self, other: Any) -> 'ColumnExpr':
+    def __le__(self, other: Any) -> "ColumnExpr":
         # For aggregation/method mode, use pandas comparison on executed result
-        if self._exec_mode in ('agg', 'method', 'executor'):
+        if self._exec_mode in ("agg", "method", "executor"):
             result = self._execute()
             # For scalar results, return bool directly
             if not isinstance(result, (pd.Series, pd.DataFrame)):
                 return result <= other
             # For Series results, return method-mode ColumnExpr for boolean indexing
-            return ColumnExpr(source=self, method_name='__le__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__le__", method_args=(other,))
 
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('<=', other, is_comparison=True)
+            return self._create_cross_datastore_op("<=", other, is_comparison=True)
 
         from .conditions import BinaryCondition
 
-        condition = BinaryCondition('<=', self._expr, Expression.wrap(other))
+        condition = BinaryCondition("<=", self._expr, Expression.wrap(other))
         return self._derive_expr(condition)
 
     # ========== Pandas-style Comparison Methods ==========
 
-    def eq(self, other: Any) -> 'ColumnExpr':
+    def eq(self, other: Any) -> "ColumnExpr":
         """
         Element-wise equality comparison, returns boolean Series (lazy).
 
@@ -1802,9 +1903,9 @@ class ColumnExpr:
             2    False
             dtype: bool
         """
-        return ColumnExpr(source=self, method_name='eq', method_args=(other,))
+        return ColumnExpr(source=self, method_name="eq", method_args=(other,))
 
-    def ne(self, other: Any) -> 'ColumnExpr':
+    def ne(self, other: Any) -> "ColumnExpr":
         """
         Element-wise not-equal comparison, returns boolean Series (lazy).
 
@@ -1817,9 +1918,9 @@ class ColumnExpr:
         Example:
             >>> ds['value'].ne(5)
         """
-        return ColumnExpr(source=self, method_name='ne', method_args=(other,))
+        return ColumnExpr(source=self, method_name="ne", method_args=(other,))
 
-    def lt(self, other: Any) -> 'ColumnExpr':
+    def lt(self, other: Any) -> "ColumnExpr":
         """
         Element-wise less-than comparison, returns boolean Series (lazy).
 
@@ -1832,9 +1933,9 @@ class ColumnExpr:
         Example:
             >>> ds['value'].lt(5)
         """
-        return ColumnExpr(source=self, method_name='lt', method_args=(other,))
+        return ColumnExpr(source=self, method_name="lt", method_args=(other,))
 
-    def le(self, other: Any) -> 'ColumnExpr':
+    def le(self, other: Any) -> "ColumnExpr":
         """
         Element-wise less-than-or-equal comparison, returns boolean Series (lazy).
 
@@ -1847,9 +1948,9 @@ class ColumnExpr:
         Example:
             >>> ds['value'].le(5)
         """
-        return ColumnExpr(source=self, method_name='le', method_args=(other,))
+        return ColumnExpr(source=self, method_name="le", method_args=(other,))
 
-    def gt(self, other: Any) -> 'ColumnExpr':
+    def gt(self, other: Any) -> "ColumnExpr":
         """
         Element-wise greater-than comparison, returns boolean Series (lazy).
 
@@ -1862,9 +1963,9 @@ class ColumnExpr:
         Example:
             >>> ds['value'].gt(5)
         """
-        return ColumnExpr(source=self, method_name='gt', method_args=(other,))
+        return ColumnExpr(source=self, method_name="gt", method_args=(other,))
 
-    def ge(self, other: Any) -> 'ColumnExpr':
+    def ge(self, other: Any) -> "ColumnExpr":
         """
         Element-wise greater-than-or-equal comparison, returns boolean Series (lazy).
 
@@ -1877,7 +1978,7 @@ class ColumnExpr:
         Example:
             >>> ds['value'].ge(5)
         """
-        return ColumnExpr(source=self, method_name='ge', method_args=(other,))
+        return ColumnExpr(source=self, method_name="ge", method_args=(other,))
 
     # ========== Logical Operators (Return ColumnExpr wrapping Condition) ==========
     #
@@ -1894,9 +1995,9 @@ class ColumnExpr:
             return self._expr
         else:
             # Non-condition expression, convert to truthy check: expr = 1
-            return BinaryCondition('=', self._expr, Literal(1))
+            return BinaryCondition("=", self._expr, Literal(1))
 
-    def __and__(self, other: Any) -> 'ColumnExpr':
+    def __and__(self, other: Any) -> "ColumnExpr":
         """
         Combine with AND operator.
 
@@ -1915,13 +2016,13 @@ class ColumnExpr:
 
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
 
         # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
-        if self._exec_mode in ('method', 'executor') or (
-            isinstance(other, ColumnExpr) and other._exec_mode in ('method', 'executor')
+        if self._exec_mode in ("method", "executor") or (
+            isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
         ):
-            return ColumnExpr(source=self, method_name='__and__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
 
         self_cond = self._to_condition()
 
@@ -1935,9 +2036,9 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot AND ColumnExpr with {type(other).__name__}")
 
-        return self._derive_expr(CompoundCondition('AND', self_cond, other_cond))
+        return self._derive_expr(CompoundCondition("AND", self_cond, other_cond))
 
-    def __rand__(self, other: Any) -> 'ColumnExpr':
+    def __rand__(self, other: Any) -> "ColumnExpr":
         """Right AND operator."""
         from .conditions import CompoundCondition, Condition
         import numpy as np
@@ -1945,18 +2046,20 @@ class ColumnExpr:
 
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name='__rand__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__rand__", method_args=(other,))
 
         self_cond = self._to_condition()
 
         if isinstance(other, LazyCondition):
-            return self._derive_expr(CompoundCondition('AND', other.condition, self_cond))
+            return self._derive_expr(
+                CompoundCondition("AND", other.condition, self_cond)
+            )
         elif isinstance(other, Condition):
-            return self._derive_expr(CompoundCondition('AND', other, self_cond))
+            return self._derive_expr(CompoundCondition("AND", other, self_cond))
         else:
             raise TypeError(f"Cannot AND {type(other).__name__} with ColumnExpr")
 
-    def __or__(self, other: Any) -> 'ColumnExpr':
+    def __or__(self, other: Any) -> "ColumnExpr":
         """
         Combine with OR operator.
 
@@ -1972,13 +2075,13 @@ class ColumnExpr:
 
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name='__or__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
 
         # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
-        if self._exec_mode in ('method', 'executor') or (
-            isinstance(other, ColumnExpr) and other._exec_mode in ('method', 'executor')
+        if self._exec_mode in ("method", "executor") or (
+            isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
         ):
-            return ColumnExpr(source=self, method_name='__or__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
 
         self_cond = self._to_condition()
 
@@ -1992,9 +2095,9 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot OR ColumnExpr with {type(other).__name__}")
 
-        return self._derive_expr(CompoundCondition('OR', self_cond, other_cond))
+        return self._derive_expr(CompoundCondition("OR", self_cond, other_cond))
 
-    def __ror__(self, other: Any) -> 'ColumnExpr':
+    def __ror__(self, other: Any) -> "ColumnExpr":
         """Right OR operator."""
         from .conditions import CompoundCondition, Condition
         import numpy as np
@@ -2002,18 +2105,20 @@ class ColumnExpr:
 
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name='__ror__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__ror__", method_args=(other,))
 
         self_cond = self._to_condition()
 
         if isinstance(other, LazyCondition):
-            return self._derive_expr(CompoundCondition('OR', other.condition, self_cond))
+            return self._derive_expr(
+                CompoundCondition("OR", other.condition, self_cond)
+            )
         elif isinstance(other, Condition):
-            return self._derive_expr(CompoundCondition('OR', other, self_cond))
+            return self._derive_expr(CompoundCondition("OR", other, self_cond))
         else:
             raise TypeError(f"Cannot OR {type(other).__name__} with ColumnExpr")
 
-    def __xor__(self, other: Any) -> 'ColumnExpr':
+    def __xor__(self, other: Any) -> "ColumnExpr":
         """
         Combine with XOR operator.
 
@@ -2025,7 +2130,7 @@ class ColumnExpr:
 
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
-            return ColumnExpr(source=self, method_name='__xor__', method_args=(other,))
+            return ColumnExpr(source=self, method_name="__xor__", method_args=(other,))
 
         self_cond = self._to_condition()
 
@@ -2036,9 +2141,9 @@ class ColumnExpr:
         else:
             raise TypeError(f"Cannot XOR ColumnExpr with {type(other).__name__}")
 
-        return self._derive_expr(CompoundCondition('XOR', self_cond, other_cond))
+        return self._derive_expr(CompoundCondition("XOR", self_cond, other_cond))
 
-    def __invert__(self) -> 'ColumnExpr':
+    def __invert__(self) -> "ColumnExpr":
         """
         Negate with NOT operator.
 
@@ -2055,21 +2160,23 @@ class ColumnExpr:
 
     # ========== Arithmetic Operators (Return ColumnExpr) ==========
 
-    def __add__(self, other: Any) -> 'ColumnExpr':
+    def __add__(self, other: Any) -> "ColumnExpr":
         # For non-expression modes, use method call mode
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__add__', method_args=(other,))
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__add__", method_args=(other,))
 
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('+', other)
+            return self._create_cross_datastore_op("+", other)
 
         # Check if this is string concatenation
         other_is_string = isinstance(other, str)
-        other_is_string_col = isinstance(other, ColumnExpr) and other._is_string_column()
+        other_is_string_col = (
+            isinstance(other, ColumnExpr) and other._is_string_column()
+        )
         self_is_string = self._is_string_column()
 
-        new_expr = ArithmeticExpression('+', self._expr, Expression.wrap(other))
+        new_expr = ArithmeticExpression("+", self._expr, Expression.wrap(other))
 
         # Mark expression as string type if either operand is a string
         if self_is_string or other_is_string or other_is_string_col:
@@ -2077,15 +2184,15 @@ class ColumnExpr:
 
         return self._derive_expr(new_expr)
 
-    def __radd__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__radd__', method_args=(other,))
+    def __radd__(self, other: Any) -> "ColumnExpr":
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__radd__", method_args=(other,))
 
         # Check if this is string concatenation
         other_is_string = isinstance(other, str)
         self_is_string = self._is_string_column()
 
-        new_expr = ArithmeticExpression('+', Expression.wrap(other), self._expr)
+        new_expr = ArithmeticExpression("+", Expression.wrap(other), self._expr)
 
         # Mark expression as string type if either operand is a string
         if self_is_string or other_is_string:
@@ -2095,7 +2202,9 @@ class ColumnExpr:
 
     def _is_method_mode_columnexpr(self, value: Any) -> bool:
         """Check if value is a ColumnExpr in method mode (with _expr=None)."""
-        return isinstance(value, ColumnExpr) and (value._exec_mode != 'expr' or value._expr is None)
+        return isinstance(value, ColumnExpr) and (
+            value._exec_mode != "expr" or value._expr is None
+        )
 
     def _is_cross_datastore(self, other: Any) -> bool:
         """
@@ -2116,7 +2225,9 @@ class ColumnExpr:
             return False
         return other._datastore is not self._datastore
 
-    def _create_cross_datastore_op(self, op: str, other: 'ColumnExpr', is_comparison: bool = False) -> 'ColumnExpr':
+    def _create_cross_datastore_op(
+        self, op: str, other: "ColumnExpr", is_comparison: bool = False
+    ) -> "ColumnExpr":
         """
         Create a ColumnExpr for cross-DataStore operations.
 
@@ -2147,7 +2258,7 @@ class ColumnExpr:
         def executor():
             import pandas as pd
 
-            def get_series(expr: 'ColumnExpr') -> pd.Series:
+            def get_series(expr: "ColumnExpr") -> pd.Series:
                 """Get Series from ColumnExpr, using pandas path if configured and possible."""
                 if cross_engine == ExecutionEngine.PANDAS:
                     # Try pure pandas path for simple Field expressions
@@ -2200,21 +2311,21 @@ class ColumnExpr:
 
             # Perform the operation
             op_map = {
-                '+': '__add__',
-                '-': '__sub__',
-                '*': '__mul__',
-                '/': '__truediv__',
-                '//': '__floordiv__',
-                '%': '__mod__',
-                '**': '__pow__',
-                '>': '__gt__',
-                '>=': '__ge__',
-                '<': '__lt__',
-                '<=': '__le__',
-                '==': '__eq__',
-                '!=': '__ne__',
+                "+": "__add__",
+                "-": "__sub__",
+                "*": "__mul__",
+                "/": "__truediv__",
+                "//": "__floordiv__",
+                "%": "__mod__",
+                "**": "__pow__",
+                ">": "__gt__",
+                ">=": "__ge__",
+                "<": "__lt__",
+                "<=": "__le__",
+                "==": "__eq__",
+                "!=": "__ne__",
             }
-            method_name = op_map.get(op, f'__{op}__')
+            method_name = op_map.get(op, f"__{op}__")
             result = getattr(s1_aligned, method_name)(s2_aligned)
 
             # Restore original index from self (left operand)
@@ -2235,7 +2346,7 @@ class ColumnExpr:
             return False
 
         # Get schema from DataStore
-        schema = getattr(self._datastore, '_schema', None)
+        schema = getattr(self._datastore, "_schema", None)
         if not schema:
             return False
 
@@ -2245,7 +2356,14 @@ class ColumnExpr:
             if col_name in schema:
                 col_type = str(schema[col_name]).lower()
                 # Check for string types (pandas 'object', 'string', ClickHouse 'String', etc.)
-                string_indicators = ('object', 'string', 'str', 'fixedstring', 'enum', 'uuid')
+                string_indicators = (
+                    "object",
+                    "string",
+                    "str",
+                    "fixedstring",
+                    "enum",
+                    "uuid",
+                )
                 return any(s in col_type for s in string_indicators)
 
         return False
@@ -2259,115 +2377,159 @@ class ColumnExpr:
         expr._is_string_type = True
         return expr
 
-    def __sub__(self, other: Any) -> 'ColumnExpr':
+    def __sub__(self, other: Any) -> "ColumnExpr":
         # If self or other is method mode, use pandas arithmetic
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__sub__', method_args=(other,))
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(source=self, method_name="__sub__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('-', other)
-        new_expr = ArithmeticExpression('-', self._expr, Expression.wrap(other))
+            return self._create_cross_datastore_op("-", other)
+        new_expr = ArithmeticExpression("-", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
-    def __rsub__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__rsub__', method_args=(other,))
-        new_expr = ArithmeticExpression('-', Expression.wrap(other), self._expr)
+    def __rsub__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(source=self, method_name="__rsub__", method_args=(other,))
+        new_expr = ArithmeticExpression("-", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
-    def __mul__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__mul__', method_args=(other,))
+    def __mul__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(source=self, method_name="__mul__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('*', other)
-        new_expr = ArithmeticExpression('*', self._expr, Expression.wrap(other))
+            return self._create_cross_datastore_op("*", other)
+        new_expr = ArithmeticExpression("*", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
-    def __rmul__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__rmul__', method_args=(other,))
-        new_expr = ArithmeticExpression('*', Expression.wrap(other), self._expr)
+    def __rmul__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(source=self, method_name="__rmul__", method_args=(other,))
+        new_expr = ArithmeticExpression("*", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
-    def __truediv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__truediv__', method_args=(other,))
+    def __truediv__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(
+                source=self, method_name="__truediv__", method_args=(other,)
+            )
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('/', other)
-        new_expr = ArithmeticExpression('/', self._expr, Expression.wrap(other))
+            return self._create_cross_datastore_op("/", other)
+        new_expr = ArithmeticExpression("/", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
-    def __rtruediv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__rtruediv__', method_args=(other,))
-        new_expr = ArithmeticExpression('/', Expression.wrap(other), self._expr)
+    def __rtruediv__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(
+                source=self, method_name="__rtruediv__", method_args=(other,)
+            )
+        new_expr = ArithmeticExpression("/", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
-    def __floordiv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__floordiv__', method_args=(other,))
+    def __floordiv__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(
+                source=self, method_name="__floordiv__", method_args=(other,)
+            )
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('//', other)
-        new_expr = ArithmeticExpression('//', self._expr, Expression.wrap(other))
+            return self._create_cross_datastore_op("//", other)
+        new_expr = ArithmeticExpression("//", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
-    def __rfloordiv__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__rfloordiv__', method_args=(other,))
-        new_expr = ArithmeticExpression('//', Expression.wrap(other), self._expr)
+    def __rfloordiv__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(
+                source=self, method_name="__rfloordiv__", method_args=(other,)
+            )
+        new_expr = ArithmeticExpression("//", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
-    def __mod__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None or self._is_method_mode_columnexpr(other):
-            return ColumnExpr(source=self, method_name='__mod__', method_args=(other,))
+    def __mod__(self, other: Any) -> "ColumnExpr":
+        if (
+            self._exec_mode != "expr"
+            or self._expr is None
+            or self._is_method_mode_columnexpr(other)
+        ):
+            return ColumnExpr(source=self, method_name="__mod__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('%', other)
-        new_expr = ArithmeticExpression('%', self._expr, Expression.wrap(other))
+            return self._create_cross_datastore_op("%", other)
+        new_expr = ArithmeticExpression("%", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
-    def __rmod__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__rmod__', method_args=(other,))
-        new_expr = ArithmeticExpression('%', Expression.wrap(other), self._expr)
+    def __rmod__(self, other: Any) -> "ColumnExpr":
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__rmod__", method_args=(other,))
+        new_expr = ArithmeticExpression("%", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
-    def __pow__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__pow__', method_args=(other,))
+    def __pow__(self, other: Any) -> "ColumnExpr":
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__pow__", method_args=(other,))
         # Cross-DataStore operation: align by _row_id (position)
         if self._is_cross_datastore(other):
-            return self._create_cross_datastore_op('**', other)
-        new_expr = ArithmeticExpression('**', self._expr, Expression.wrap(other))
+            return self._create_cross_datastore_op("**", other)
+        new_expr = ArithmeticExpression("**", self._expr, Expression.wrap(other))
         return self._derive_expr(new_expr)
 
-    def __rpow__(self, other: Any) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__rpow__', method_args=(other,))
-        new_expr = ArithmeticExpression('**', Expression.wrap(other), self._expr)
+    def __rpow__(self, other: Any) -> "ColumnExpr":
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__rpow__", method_args=(other,))
+        new_expr = ArithmeticExpression("**", Expression.wrap(other), self._expr)
         return self._derive_expr(new_expr)
 
-    def __neg__(self) -> 'ColumnExpr':
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__neg__')
-        new_expr = ArithmeticExpression('-', Literal(0), self._expr)
+    def __neg__(self) -> "ColumnExpr":
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__neg__")
+        new_expr = ArithmeticExpression("-", Literal(0), self._expr)
         return self._derive_expr(new_expr)
 
-    def __pos__(self) -> 'ColumnExpr':
+    def __pos__(self) -> "ColumnExpr":
         """
         Unary positive operator (+column).
 
         Returns the column unchanged (identity operation), same as pandas Series behavior.
         """
-        if self._exec_mode != 'expr' or self._expr is None:
-            return ColumnExpr(source=self, method_name='__pos__')
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__pos__")
         # Unary + is identity - return the same expression
         return self._derive_expr(self._expr)
 
-    def __round__(self, ndigits: Optional[int] = None) -> 'ColumnExpr':
+    def __round__(self, ndigits: Optional[int] = None) -> "ColumnExpr":
         """
         Support Python's built-in round() function.
 
@@ -2383,48 +2545,48 @@ class ColumnExpr:
         from .functions import Function
 
         if ndigits is None:
-            return self._derive_expr(Function('round', self._expr))
-        return self._derive_expr(Function('round', self._expr, Literal(ndigits)))
+            return self._derive_expr(Function("round", self._expr))
+        return self._derive_expr(Function("round", self._expr, Literal(ndigits)))
 
     # ========== Accessor Properties ==========
 
     @property
-    def str(self) -> 'ColumnExprStringAccessor':
+    def str(self) -> "ColumnExprStringAccessor":
         """Accessor for string functions."""
         return ColumnExprStringAccessor(self)
 
     @property
-    def dt(self) -> 'ColumnExprDateTimeAccessor':
+    def dt(self) -> "ColumnExprDateTimeAccessor":
         """Accessor for date/time functions."""
         return ColumnExprDateTimeAccessor(self)
 
     @property
-    def json(self) -> 'ColumnExprJsonAccessor':
+    def json(self) -> "ColumnExprJsonAccessor":
         """Accessor for JSON functions."""
         return ColumnExprJsonAccessor(self)
 
     @property
-    def arr(self) -> 'ColumnExprArrayAccessor':
+    def arr(self) -> "ColumnExprArrayAccessor":
         """Accessor for array functions."""
         return ColumnExprArrayAccessor(self)
 
     @property
-    def url(self) -> 'ColumnExprUrlAccessor':
+    def url(self) -> "ColumnExprUrlAccessor":
         """Accessor for URL functions."""
         return ColumnExprUrlAccessor(self)
 
     @property
-    def ip(self) -> 'ColumnExprIpAccessor':
+    def ip(self) -> "ColumnExprIpAccessor":
         """Accessor for IP address functions."""
         return ColumnExprIpAccessor(self)
 
     @property
-    def geo(self) -> 'ColumnExprGeoAccessor':
+    def geo(self) -> "ColumnExprGeoAccessor":
         """Accessor for geo/distance functions."""
         return ColumnExprGeoAccessor(self)
 
     @property
-    def iloc(self) -> 'ColumnExprILocIndexer':
+    def iloc(self) -> "ColumnExprILocIndexer":
         """
         Integer-location based indexing for selection by position.
 
@@ -2443,7 +2605,7 @@ class ColumnExpr:
         return ColumnExprILocIndexer(self)
 
     @property
-    def loc(self) -> 'ColumnExprLocIndexer':
+    def loc(self) -> "ColumnExprLocIndexer":
         """
         Label-based indexing for selection by label.
 
@@ -2531,7 +2693,7 @@ class ColumnExpr:
 
     # ========== Condition Methods (for filtering) ==========
 
-    def isnull(self) -> 'ColumnExpr':
+    def isnull(self) -> "ColumnExpr":
         """
         Detect missing values (NULL/NaN), returns a boolean-like ColumnExpr.
 
@@ -2554,9 +2716,9 @@ class ColumnExpr:
 
         # Wrap with toBool() to return bool dtype instead of uint8
         # This ensures pandas compatibility (pandas isna() returns bool)
-        return self._derive_expr(Function('toBool', Function('isNull', self._expr)))
+        return self._derive_expr(Function("toBool", Function("isNull", self._expr)))
 
-    def notnull(self) -> 'ColumnExpr':
+    def notnull(self) -> "ColumnExpr":
         """
         Detect non-missing values (not NULL/NaN), returns a boolean-like ColumnExpr.
 
@@ -2579,26 +2741,26 @@ class ColumnExpr:
 
         # Wrap with toBool() to return bool dtype instead of uint8
         # This ensures pandas compatibility (pandas notna() returns bool)
-        return self._derive_expr(Function('toBool', Function('isNotNull', self._expr)))
+        return self._derive_expr(Function("toBool", Function("isNotNull", self._expr)))
 
     # Aliases for pandas compatibility
-    def isna(self) -> 'ColumnExpr':
+    def isna(self) -> "ColumnExpr":
         """Alias for isnull() - pandas compatibility."""
         return self.isnull()
 
-    def notna(self) -> 'ColumnExpr':
+    def notna(self) -> "ColumnExpr":
         """Alias for notnull() - pandas compatibility."""
         return self.notnull()
 
-    def isnull_condition(self) -> 'Condition':
+    def isnull_condition(self) -> "Condition":
         """Create IS NULL condition for filtering (SQL style)."""
         return self._expr.isnull()
 
-    def notnull_condition(self) -> 'Condition':
+    def notnull_condition(self) -> "Condition":
         """Create IS NOT NULL condition for filtering (SQL style)."""
         return self._expr.notnull()
 
-    def isin(self, values) -> 'LazyCondition':
+    def isin(self, values) -> "LazyCondition":
         """
         Check if values are contained in a list.
 
@@ -2619,11 +2781,11 @@ class ColumnExpr:
         """
         return LazyCondition(self._expr.isin(values), self._datastore)
 
-    def notin(self, values) -> 'LazyCondition':
+    def notin(self, values) -> "LazyCondition":
         """Create NOT IN condition."""
         return LazyCondition(self._expr.notin(values), self._datastore)
 
-    def between(self, left, right, inclusive: str = 'both') -> 'LazyCondition':
+    def between(self, left, right, inclusive: str = "both") -> "LazyCondition":
         """
         Check if values are between lower and upper bounds.
 
@@ -2649,24 +2811,26 @@ class ColumnExpr:
             >>> ds['value'].between(10, 30).to_pandas()  # Boolean Series
             >>> ds['value'].between(10, 30, inclusive='neither')  # 10 < x < 30
         """
-        return LazyCondition(self._expr.between(left, right, inclusive=inclusive), self._datastore)
+        return LazyCondition(
+            self._expr.between(left, right, inclusive=inclusive), self._datastore
+        )
 
-    def like(self, pattern: str) -> 'Condition':
+    def like(self, pattern: str) -> "Condition":
         """Create LIKE condition."""
         return self._expr.like(pattern)
 
-    def notlike(self, pattern: str) -> 'Condition':
+    def notlike(self, pattern: str) -> "Condition":
         """Create NOT LIKE condition."""
         return self._expr.notlike(pattern)
 
-    def ilike(self, pattern: str) -> 'Condition':
+    def ilike(self, pattern: str) -> "Condition":
         """Create ILIKE condition (case-insensitive)."""
         return self._expr.ilike(pattern)
 
     # ========== Alias Support ==========
 
     @immutable
-    def as_(self, alias: str) -> 'ColumnExpr':
+    def as_(self, alias: str) -> "ColumnExpr":
         """Set an alias for this expression."""
         new_expr = self._expr.as_(alias)
         return self._derive_expr(new_expr, alias=alias)
@@ -2691,7 +2855,7 @@ class ColumnExpr:
             return self._expr.name
         # For complex expressions, execute and get the result's name
         result = self._execute()
-        if hasattr(result, 'name'):
+        if hasattr(result, "name"):
             return result.name
         return None
 
@@ -2705,9 +2869,9 @@ class ColumnExpr:
             dtype('int64')
         """
         result = self._execute()
-        if hasattr(result, 'dtype'):
+        if hasattr(result, "dtype"):
             return result.dtype
-        elif hasattr(result, 'dtypes'):
+        elif hasattr(result, "dtypes"):
             # For DataFrame results (e.g., when selecting duplicate column names)
             return result.dtypes
         else:
@@ -2888,12 +3052,14 @@ class ColumnExpr:
         if isinstance(key, ColumnExpr):
             # Return method-mode ColumnExpr so chained indexing works correctly
             # e.g., ds_grouped[cond1][cond2] where cond2 has different length
-            return ColumnExpr(source=self, method_name='__getitem__', method_args=(key,))
+            return ColumnExpr(
+                source=self, method_name="__getitem__", method_args=(key,)
+            )
 
         # For Condition keys, execute condition and use as boolean mask
         if isinstance(key, Condition):
             series = self._execute()
-            key = key.evaluate(pd.DataFrame({series.name or '_': series}))
+            key = key.evaluate(pd.DataFrame({series.name or "_": series}))
             return series[key]
 
         # For scalar/slice keys, directly execute and index
@@ -2962,7 +3128,15 @@ class ColumnExpr:
             df = series.to_frame(name=name)
         return DataStore.from_df(df)
 
-    def reset_index(self, level=None, *, drop=False, name=None, inplace=False, allow_duplicates=False):
+    def reset_index(
+        self,
+        level=None,
+        *,
+        drop=False,
+        name=None,
+        inplace=False,
+        allow_duplicates=False,
+    ):
         """
         Generate a new DataFrame or Series with the index reset.
 
@@ -3007,12 +3181,12 @@ class ColumnExpr:
 
         # Use pandas reset_index
         # Build kwargs carefully to match pandas signature
-        kwargs = {'drop': drop, 'allow_duplicates': allow_duplicates}
+        kwargs = {"drop": drop, "allow_duplicates": allow_duplicates}
         if level is not None:
-            kwargs['level'] = level
+            kwargs["level"] = level
         # 'name' parameter is only valid when drop=False
         if not drop and name is not None:
-            kwargs['name'] = name
+            kwargs["name"] = name
 
         result = series.reset_index(**kwargs)
 
@@ -3023,7 +3197,7 @@ class ColumnExpr:
             # drop=True returns a Series
             return ColumnExpr(
                 source=self,
-                method_name='reset_index',
+                method_name="reset_index",
                 method_kwargs=kwargs,
             )
 
@@ -3071,7 +3245,7 @@ class ColumnExpr:
         # Return DataStore wrapping the result DataFrame
         return DataStore.from_df(result)
 
-    def copy(self, deep=True) -> 'ColumnExpr':
+    def copy(self, deep=True) -> "ColumnExpr":
         """
         Make a copy of this ColumnExpr's data (lazy).
 
@@ -3086,9 +3260,11 @@ class ColumnExpr:
             >>> s.values  # Triggers execution
             array([28, 31, 29, 45, 22])
         """
-        return ColumnExpr(source=self, method_name='copy', method_kwargs=dict(deep=deep))
+        return ColumnExpr(
+            source=self, method_name="copy", method_kwargs=dict(deep=deep)
+        )
 
-    def describe(self, percentiles=None, include=None, exclude=None) -> 'ColumnExpr':
+    def describe(self, percentiles=None, include=None, exclude=None) -> "ColumnExpr":
         """
         Generate descriptive statistics.
 
@@ -3114,11 +3290,15 @@ class ColumnExpr:
         """
         return ColumnExpr(
             source=self,
-            method_name='describe',
-            method_kwargs=dict(percentiles=percentiles, include=include, exclude=exclude),
+            method_name="describe",
+            method_kwargs=dict(
+                percentiles=percentiles, include=include, exclude=exclude
+            ),
         )
 
-    def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
+    def info(
+        self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None
+    ):
         """
         Print a concise summary of a Series.
 
@@ -3144,12 +3324,23 @@ class ColumnExpr:
             memory usage: 168.0 bytes
         """
         return self._execute().info(
-            verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts
+            verbose=verbose,
+            buf=buf,
+            max_cols=max_cols,
+            memory_usage=memory_usage,
+            show_counts=show_counts,
         )
 
     def sample(
-        self, n=None, frac=None, replace=False, weights=None, random_state=None, axis=None, ignore_index=False
-    ) -> 'ColumnExpr':
+        self,
+        n=None,
+        frac=None,
+        replace=False,
+        weights=None,
+        random_state=None,
+        axis=None,
+        ignore_index=False,
+    ) -> "ColumnExpr":
         """
         Return a random sample of items (lazy).
 
@@ -3174,7 +3365,7 @@ class ColumnExpr:
         """
         return ColumnExpr(
             source=self,
-            method_name='sample',
+            method_name="sample",
             method_kwargs=dict(
                 n=n,
                 frac=frac,
@@ -3186,7 +3377,7 @@ class ColumnExpr:
             ),
         )
 
-    def nlargest(self, n=5, keep='first') -> 'ColumnExpr':
+    def nlargest(self, n=5, keep="first") -> "ColumnExpr":
         """
         Return the largest n elements (lazy).
 
@@ -3204,9 +3395,11 @@ class ColumnExpr:
             2     60000.0
             Name: salary, dtype: float64
         """
-        return ColumnExpr(source=self, method_name='nlargest', method_kwargs=dict(n=n, keep=keep))
+        return ColumnExpr(
+            source=self, method_name="nlargest", method_kwargs=dict(n=n, keep=keep)
+        )
 
-    def nsmallest(self, n=5, keep='first') -> 'ColumnExpr':
+    def nsmallest(self, n=5, keep="first") -> "ColumnExpr":
         """
         Return the smallest n elements (lazy).
 
@@ -3224,9 +3417,13 @@ class ColumnExpr:
             2    60000.0
             Name: salary, dtype: float64
         """
-        return ColumnExpr(source=self, method_name='nsmallest', method_kwargs=dict(n=n, keep=keep))
+        return ColumnExpr(
+            source=self, method_name="nsmallest", method_kwargs=dict(n=n, keep=keep)
+        )
 
-    def drop_duplicates(self, keep='first', inplace=False, ignore_index=False) -> 'ColumnExpr':
+    def drop_duplicates(
+        self, keep="first", inplace=False, ignore_index=False
+    ) -> "ColumnExpr":
         """
         Return Series with duplicate values removed (lazy).
 
@@ -3246,10 +3443,12 @@ class ColumnExpr:
             Name: department, dtype: object
         """
         return ColumnExpr(
-            source=self, method_name='drop_duplicates', method_kwargs=dict(keep=keep, ignore_index=ignore_index)
+            source=self,
+            method_name="drop_duplicates",
+            method_kwargs=dict(keep=keep, ignore_index=ignore_index),
         )
 
-    def duplicated(self, keep='first') -> 'ColumnExpr':
+    def duplicated(self, keep="first") -> "ColumnExpr":
         """
         Indicate duplicate values (lazy).
 
@@ -3268,7 +3467,9 @@ class ColumnExpr:
             4     True
             Name: department, dtype: bool
         """
-        return ColumnExpr(source=self, method_name='duplicated', method_kwargs=dict(keep=keep))
+        return ColumnExpr(
+            source=self, method_name="duplicated", method_kwargs=dict(keep=keep)
+        )
 
     def hist(self, bins=10, **kwargs):
         """
@@ -3315,7 +3516,7 @@ class ColumnExpr:
             >>> ds.groupby('city')['salary'].agg(['mean', 'sum', 'count'])
         """
         # When called with groupby context, return DataStore to preserve SQL semantics
-        if hasattr(self, '_groupby_fields') and self._groupby_fields:
+        if hasattr(self, "_groupby_fields") and self._groupby_fields:
             from .lazy_ops import LazyGroupByAgg
             from copy import copy
             from .expressions import Field as ExprField
@@ -3347,7 +3548,10 @@ class ColumnExpr:
             else:
                 # Fallback to ColumnExpr for unknown func types
                 return ColumnExpr(
-                    source=self, method_name='agg', method_args=(func,), method_kwargs=dict(axis=axis, **kwargs)
+                    source=self,
+                    method_name="agg",
+                    method_args=(func,),
+                    method_kwargs=dict(axis=axis, **kwargs),
                 )
 
             # Create a shallow copy of the datastore
@@ -3359,14 +3563,22 @@ class ColumnExpr:
             is_single_col_agg = isinstance(func, (list, tuple))
             new_ds._add_lazy_op(
                 LazyGroupByAgg(
-                    groupby_cols=groupby_cols, agg_dict=agg_dict, single_column_agg=is_single_col_agg, **kwargs
+                    groupby_cols=groupby_cols,
+                    agg_dict=agg_dict,
+                    single_column_agg=is_single_col_agg,
+                    **kwargs,
                 )
             )
 
             return new_ds
 
         # No groupby context - return ColumnExpr for lazy execution
-        return ColumnExpr(source=self, method_name='agg', method_args=(func,), method_kwargs=dict(axis=axis, **kwargs))
+        return ColumnExpr(
+            source=self,
+            method_name="agg",
+            method_args=(func,),
+            method_kwargs=dict(axis=axis, **kwargs),
+        )
 
     def aggregate(self, func=None, axis=0, *args, **kwargs):
         """
@@ -3415,7 +3627,7 @@ class ColumnExpr:
             >>> ds.groupby('category')['value'].transform(lambda x: x / x.sum())
         """
         # Check if we have groupby context
-        if hasattr(self, '_groupby_fields') and self._groupby_fields:
+        if hasattr(self, "_groupby_fields") and self._groupby_fields:
             # Groupby transform - use operation descriptor mode (safe from recursion)
             from .expressions import Field as ExprField
 
@@ -3441,9 +3653,16 @@ class ColumnExpr:
             return result
         else:
             # Regular transform without groupby
-            return ColumnExpr(source=self, method_name='transform', method_args=(func,) + args, method_kwargs=kwargs)
+            return ColumnExpr(
+                source=self,
+                method_name="transform",
+                method_args=(func,) + args,
+                method_kwargs=kwargs,
+            )
 
-    def where(self, cond, other=pd.NA, inplace=False, axis=None, level=None) -> 'ColumnExpr':
+    def where(
+        self, cond, other=pd.NA, inplace=False, axis=None, level=None
+    ) -> "ColumnExpr":
         """
         Replace values where the condition is False (lazy).
 
@@ -3468,12 +3687,14 @@ class ColumnExpr:
         """
         return ColumnExpr(
             source=self,
-            method_name='where',
+            method_name="where",
             method_args=(cond,),
             method_kwargs=dict(other=other, axis=axis, level=level),
         )
 
-    def argsort(self, axis=0, kind='quicksort', order=None, stable=None) -> 'ColumnExpr':
+    def argsort(
+        self, axis=0, kind="quicksort", order=None, stable=None
+    ) -> "ColumnExpr":
         """
         Return the indices that would sort the Series (lazy).
 
@@ -3495,7 +3716,11 @@ class ColumnExpr:
             4    3
             dtype: int64
         """
-        return ColumnExpr(source=self, method_name='argsort', method_kwargs=dict(axis=axis, kind=kind, order=order))
+        return ColumnExpr(
+            source=self,
+            method_name="argsort",
+            method_kwargs=dict(axis=axis, kind=kind, order=order),
+        )
 
     def sort_index(
         self,
@@ -3503,12 +3728,12 @@ class ColumnExpr:
         level=None,
         ascending=True,
         inplace=False,
-        kind='quicksort',
-        na_position='last',
+        kind="quicksort",
+        na_position="last",
         sort_remaining=True,
         ignore_index=False,
         key=None,
-    ) -> 'ColumnExpr':
+    ) -> "ColumnExpr":
         """
         Sort Series by index labels (lazy).
 
@@ -3531,7 +3756,7 @@ class ColumnExpr:
         """
         return ColumnExpr(
             source=self,
-            method_name='sort_index',
+            method_name="sort_index",
             method_kwargs=dict(
                 axis=axis,
                 level=level,
@@ -3618,7 +3843,11 @@ class ColumnExpr:
             series = self._execute()
             agg_method = getattr(series, pandas_agg_func)
             # Filter out axis and numeric_only for methods that don't accept them
-            filtered_kwargs = {k: v for k, v in (method_kwargs or {}).items() if k not in ('axis', 'numeric_only')}
+            filtered_kwargs = {
+                k: v
+                for k, v in (method_kwargs or {}).items()
+                if k not in ("axis", "numeric_only")
+            }
             return agg_method(**filtered_kwargs)
 
         # With groupby, return lazy ColumnExpr for SQL generation
@@ -3629,13 +3858,17 @@ class ColumnExpr:
             skipna=skipna,
             method_kwargs=method_kwargs or {},
             # Inherit groupby parameters from source
-            groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+            groupby_fields=(
+                self._groupby_fields.copy() if self._groupby_fields else None
+            ),
             groupby_as_index=self._groupby_as_index,
             groupby_sort=self._groupby_sort,
             groupby_dropna=self._groupby_dropna,
         )
 
-    def mean(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
+    def mean(
+        self, axis=None, skipna=True, numeric_only=False, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute mean of the column.
 
@@ -3664,8 +3897,8 @@ class ColumnExpr:
             >>> ds.groupby('x').agg(avg=ds['value'].mean())  # Uses in SQL
         """
         return self._create_agg_expr(
-            agg_func_name='avg',
-            pandas_agg_func='mean',
+            agg_func_name="avg",
+            pandas_agg_func="mean",
             skipna=skipna,
             method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
         )
@@ -3685,9 +3918,11 @@ class ColumnExpr:
         """
         from .functions import AggregateFunction
 
-        return self._derive_expr(AggregateFunction('avg', self._expr))
+        return self._derive_expr(AggregateFunction("avg", self._expr))
 
-    def sum(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs) -> 'ColumnExpr':
+    def sum(
+        self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute sum of the column.
 
@@ -3704,19 +3939,23 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         return self._create_agg_expr(
-            agg_func_name='sum',
-            pandas_agg_func='sum',
+            agg_func_name="sum",
+            pandas_agg_func="sum",
             skipna=skipna,
-            method_kwargs=dict(axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs),
+            method_kwargs=dict(
+                axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs
+            ),
         )
 
     def sum_sql(self):
         """Return SUM() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return self._derive_expr(AggregateFunction('sum', self._expr))
+        return self._derive_expr(AggregateFunction("sum", self._expr))
 
-    def std(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs) -> 'ColumnExpr':
+    def std(
+        self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute standard deviation of the column.
 
@@ -3733,22 +3972,26 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         # Use sample std by default (ddof=1)
-        func_name = 'stddevSamp' if ddof == 1 else 'stddevPop'
+        func_name = "stddevSamp" if ddof == 1 else "stddevPop"
         return self._create_agg_expr(
             agg_func_name=func_name,
-            pandas_agg_func='std',
+            pandas_agg_func="std",
             skipna=skipna,
-            method_kwargs=dict(axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs),
+            method_kwargs=dict(
+                axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs
+            ),
         )
 
     def std_sql(self, sample=True):
         """Return stddevSamp() or stddevPop() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        func_name = 'stddevSamp' if sample else 'stddevPop'
+        func_name = "stddevSamp" if sample else "stddevPop"
         return self._derive_expr(AggregateFunction(func_name, self._expr))
 
-    def var(self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs) -> 'ColumnExpr':
+    def var(
+        self, axis=None, skipna=True, ddof=1, numeric_only=False, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute variance of the column.
 
@@ -3765,22 +4008,24 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         # Use sample var by default (ddof=1)
-        func_name = 'varSamp' if ddof == 1 else 'varPop'
+        func_name = "varSamp" if ddof == 1 else "varPop"
         return self._create_agg_expr(
             agg_func_name=func_name,
-            pandas_agg_func='var',
+            pandas_agg_func="var",
             skipna=skipna,
-            method_kwargs=dict(axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs),
+            method_kwargs=dict(
+                axis=axis, ddof=ddof, numeric_only=numeric_only, **kwargs
+            ),
         )
 
     def var_sql(self, sample=True):
         """Return varSamp() or varPop() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        func_name = 'varSamp' if sample else 'varPop'
+        func_name = "varSamp" if sample else "varPop"
         return self._derive_expr(AggregateFunction(func_name, self._expr))
 
-    def min(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
+    def min(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> "ColumnExpr":
         """
         Compute minimum of the column.
 
@@ -3796,8 +4041,8 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         return self._create_agg_expr(
-            agg_func_name='min',
-            pandas_agg_func='min',
+            agg_func_name="min",
+            pandas_agg_func="min",
             skipna=skipna,
             method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
         )
@@ -3806,9 +4051,9 @@ class ColumnExpr:
         """Return MIN() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return self._derive_expr(AggregateFunction('min', self._expr))
+        return self._derive_expr(AggregateFunction("min", self._expr))
 
-    def max(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
+    def max(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> "ColumnExpr":
         """
         Compute maximum of the column.
 
@@ -3824,8 +4069,8 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         return self._create_agg_expr(
-            agg_func_name='max',
-            pandas_agg_func='max',
+            agg_func_name="max",
+            pandas_agg_func="max",
             skipna=skipna,
             method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
         )
@@ -3834,9 +4079,9 @@ class ColumnExpr:
         """Return MAX() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return self._derive_expr(AggregateFunction('max', self._expr))
+        return self._derive_expr(AggregateFunction("max", self._expr))
 
-    def first(self, **kwargs) -> 'ColumnExpr':
+    def first(self, **kwargs) -> "ColumnExpr":
         """
         Return the first element in each group (for groupby) or the first element (for Series).
 
@@ -3859,13 +4104,13 @@ class ColumnExpr:
             Name: value, dtype: int64
         """
         return self._create_agg_expr(
-            agg_func_name='any',  # ClickHouse any() returns first encountered value
-            pandas_agg_func='first',
+            agg_func_name="any",  # ClickHouse any() returns first encountered value
+            pandas_agg_func="first",
             skipna=True,
             method_kwargs=kwargs,
         )
 
-    def last(self, **kwargs) -> 'ColumnExpr':
+    def last(self, **kwargs) -> "ColumnExpr":
         """
         Return the last element in each group (for groupby) or the last element (for Series).
 
@@ -3888,13 +4133,13 @@ class ColumnExpr:
             Name: value, dtype: int64
         """
         return self._create_agg_expr(
-            agg_func_name='anyLast',  # ClickHouse anyLast() returns last encountered value
-            pandas_agg_func='last',
+            agg_func_name="anyLast",  # ClickHouse anyLast() returns last encountered value
+            pandas_agg_func="last",
             skipna=True,
             method_kwargs=kwargs,
         )
 
-    def quantile(self, q=0.5, interpolation='linear', **kwargs) -> 'ColumnExpr':
+    def quantile(self, q=0.5, interpolation="linear", **kwargs) -> "ColumnExpr":
         """
         Compute quantile of the column.
 
@@ -3924,13 +4169,13 @@ class ColumnExpr:
             Name: value, dtype: float64
         """
         return self._create_agg_expr(
-            agg_func_name=f'quantile({q})',
-            pandas_agg_func='quantile',
+            agg_func_name=f"quantile({q})",
+            pandas_agg_func="quantile",
             skipna=False,  # quantile ignores NaN by default, no If suffix needed
             method_kwargs=dict(q=q, interpolation=interpolation, **kwargs),
         )
 
-    def nth(self, n, dropna=None) -> 'ColumnExpr':
+    def nth(self, n, dropna=None) -> "ColumnExpr":
         """
         Return the nth value from each group.
 
@@ -3951,7 +4196,7 @@ class ColumnExpr:
             >>> ds.groupby('category')['value'].nth(-1)  # Last value in each group
         """
         # Check if we have groupby context
-        if hasattr(self, '_groupby_fields') and self._groupby_fields:
+        if hasattr(self, "_groupby_fields") and self._groupby_fields:
             from .expressions import Field as ExprField
 
             # Get groupby column names
@@ -3965,11 +4210,11 @@ class ColumnExpr:
             # Use operation descriptor mode (safe from recursion)
             result = ColumnExpr(
                 datastore=self._datastore,
-                op_type='groupby_nth',
+                op_type="groupby_nth",
                 op_source=self,
-                op_method='nth',
+                op_method="nth",
                 op_args=(n,),
-                op_kwargs={'dropna': dropna} if dropna is not None else {},
+                op_kwargs={"dropna": dropna} if dropna is not None else {},
                 op_groupby_cols=groupby_cols,
             )
             # Copy groupby fields for context
@@ -3978,9 +4223,11 @@ class ColumnExpr:
             return result
         else:
             # Without groupby context, nth doesn't make sense
-            raise AttributeError("nth() requires groupby context. Use ds.groupby('col')['value'].nth(n)")
+            raise AttributeError(
+                "nth() requires groupby context. Use ds.groupby('col')['value'].nth(n)"
+            )
 
-    def count(self) -> 'ColumnExpr':
+    def count(self) -> "ColumnExpr":
         """
         Count non-NA values in the column.
 
@@ -3990,8 +4237,8 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         return self._create_agg_expr(
-            agg_func_name='count',
-            pandas_agg_func='count',
+            agg_func_name="count",
+            pandas_agg_func="count",
             skipna=True,
         )
 
@@ -3999,9 +4246,11 @@ class ColumnExpr:
         """Return COUNT() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return self._derive_expr(AggregateFunction('count', self._expr))
+        return self._derive_expr(AggregateFunction("count", self._expr))
 
-    def median(self, axis=None, skipna=True, numeric_only=False, **kwargs) -> 'ColumnExpr':
+    def median(
+        self, axis=None, skipna=True, numeric_only=False, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute median of the column.
 
@@ -4017,8 +4266,8 @@ class ColumnExpr:
             ColumnExpr: Lazy aggregate that executes on display
         """
         return self._create_agg_expr(
-            agg_func_name='median',
-            pandas_agg_func='median',
+            agg_func_name="median",
+            pandas_agg_func="median",
             skipna=skipna,
             method_kwargs=dict(axis=axis, numeric_only=numeric_only, **kwargs),
         )
@@ -4027,9 +4276,11 @@ class ColumnExpr:
         """Return median() SQL expression for use in select()."""
         from .functions import AggregateFunction
 
-        return self._derive_expr(AggregateFunction('median', self._expr))
+        return self._derive_expr(AggregateFunction("median", self._expr))
 
-    def prod(self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs) -> 'ColumnExpr':
+    def prod(
+        self, axis=None, skipna=True, numeric_only=False, min_count=0, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute product of values (lazy).
 
@@ -4046,13 +4297,17 @@ class ColumnExpr:
             ColumnExpr: Lazy wrapper returning product of values
         """
         return self._create_agg_expr(
-            agg_func_name='prod',
-            pandas_agg_func='prod',
+            agg_func_name="prod",
+            pandas_agg_func="prod",
             skipna=skipna,
-            method_kwargs=dict(axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs),
+            method_kwargs=dict(
+                axis=axis, numeric_only=numeric_only, min_count=min_count, **kwargs
+            ),
         )
 
-    def cumsum(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs) -> 'ColumnExpr':
+    def cumsum(
+        self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute cumulative sum of the column (lazy).
 
@@ -4069,9 +4324,13 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative sum Series
         """
-        return self._create_window_method('cumsum', 'sum', axis=axis, skipna=skipna, **kwargs)
+        return self._create_window_method(
+            "cumsum", "sum", axis=axis, skipna=skipna, **kwargs
+        )
 
-    def cumprod(self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs) -> 'ColumnExpr':
+    def cumprod(
+        self, axis=None, dtype=None, out=None, *, skipna=True, **kwargs
+    ) -> "ColumnExpr":
         """
         Compute cumulative product of the column (lazy).
 
@@ -4088,9 +4347,13 @@ class ColumnExpr:
             ColumnExpr: Lazy wrapper returning cumulative product Series
         """
         # cumprod doesn't have a direct SQL equivalent, use pandas fallback
-        return ColumnExpr(source=self, method_name='cumprod', method_kwargs=dict(axis=axis, skipna=skipna, **kwargs))
+        return ColumnExpr(
+            source=self,
+            method_name="cumprod",
+            method_kwargs=dict(axis=axis, skipna=skipna, **kwargs),
+        )
 
-    def cummax(self, axis=None, skipna=True, **kwargs) -> 'ColumnExpr':
+    def cummax(self, axis=None, skipna=True, **kwargs) -> "ColumnExpr":
         """
         Compute cumulative maximum of the column (lazy).
 
@@ -4105,9 +4368,11 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative maximum Series
         """
-        return self._create_window_method('cummax', 'max', axis=axis, skipna=skipna, **kwargs)
+        return self._create_window_method(
+            "cummax", "max", axis=axis, skipna=skipna, **kwargs
+        )
 
-    def cummin(self, axis=None, skipna=True, **kwargs) -> 'ColumnExpr':
+    def cummin(self, axis=None, skipna=True, **kwargs) -> "ColumnExpr":
         """
         Compute cumulative minimum of the column (lazy).
 
@@ -4122,7 +4387,9 @@ class ColumnExpr:
         Returns:
             ColumnExpr: Lazy wrapper returning cumulative minimum Series
         """
-        return self._create_window_method('cummin', 'min', axis=axis, skipna=skipna, **kwargs)
+        return self._create_window_method(
+            "cummin", "min", axis=axis, skipna=skipna, **kwargs
+        )
 
     # ========== Window / Rolling Methods ==========
 
@@ -4135,7 +4402,7 @@ class ColumnExpr:
         on=None,
         closed=None,
         step=None,
-        method='single',
+        method="single",
     ):
         """
         Provide rolling window calculations.
@@ -4163,22 +4430,22 @@ class ColumnExpr:
         series = self._execute()
         # Build kwargs, excluding None values and deprecated params
         kwargs = {
-            'window': window,
-            'min_periods': min_periods,
-            'center': center,
-            'win_type': win_type,
-            'on': on,
-            'closed': closed,
-            'method': method,
+            "window": window,
+            "min_periods": min_periods,
+            "center": center,
+            "win_type": win_type,
+            "on": on,
+            "closed": closed,
+            "method": method,
         }
         # step parameter added in pandas 1.5
         if step is not None:
-            kwargs['step'] = step
+            kwargs["step"] = step
         # Remove None values
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         return series.rolling(**kwargs)
 
-    def expanding(self, min_periods=1, method='single'):
+    def expanding(self, min_periods=1, method="single"):
         """
         Provide expanding window calculations.
 
@@ -4208,7 +4475,7 @@ class ColumnExpr:
         adjust=True,
         ignore_na=False,
         times=None,
-        method='single',
+        method="single",
     ):
         """
         Provide exponentially weighted (EW) calculations.
@@ -4235,21 +4502,21 @@ class ColumnExpr:
         """
         series = self._execute()
         kwargs = {
-            'com': com,
-            'span': span,
-            'halflife': halflife,
-            'alpha': alpha,
-            'min_periods': min_periods,
-            'adjust': adjust,
-            'ignore_na': ignore_na,
-            'times': times,
-            'method': method,
+            "com": com,
+            "span": span,
+            "halflife": halflife,
+            "alpha": alpha,
+            "min_periods": min_periods,
+            "adjust": adjust,
+            "ignore_na": ignore_na,
+            "times": times,
+            "method": method,
         }
         # Remove None values
         kwargs = {k: v for k, v in kwargs.items() if v is not None}
         return series.ewm(**kwargs)
 
-    def shift(self, periods=1, freq=None, axis=0, fill_value=None) -> 'ColumnExpr':
+    def shift(self, periods=1, freq=None, axis=0, fill_value=None) -> "ColumnExpr":
         """
         Shift values by desired number of periods (lazy).
 
@@ -4311,7 +4578,9 @@ class ColumnExpr:
                     if df is not None and col_name in df.columns:
                         col_dtype = df[col_name].dtype
                         # Only use SQL for numeric columns
-                        if col_dtype == 'object' or pd.api.types.is_string_dtype(col_dtype):
+                        if col_dtype == "object" or pd.api.types.is_string_dtype(
+                            col_dtype
+                        ):
                             can_use_sql = False
             except Exception:
                 # If we can't determine dtype, fall back to pandas
@@ -4322,27 +4591,31 @@ class ColumnExpr:
             # lagInFrame for positive periods (previous values)
             # leadInFrame for negative periods (next values)
             # Wrap column with toNullable to get proper NULL for missing rows
-            col_nullable = Function('toNullable', self._expr)
+            col_nullable = Function("toNullable", self._expr)
 
             if periods >= 0:
                 # shift(1) -> lagInFrame(col, 1) = previous value
-                window_func = WindowFunction('lagInFrame', col_nullable, Literal(periods))
+                window_func = WindowFunction(
+                    "lagInFrame", col_nullable, Literal(periods)
+                )
             else:
                 # shift(-1) -> leadInFrame(col, 1) = next value
-                window_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
+                window_func = WindowFunction(
+                    "leadInFrame", col_nullable, Literal(-periods)
+                )
 
             # Add OVER clause with ORDER BY _row_id to preserve original row order
             # _row_id is a built-in virtual column in chDB v4.0.0b5+ for Python() table function
             # Frame must span entire partition to access all rows
-            row_idx_field = Field('_row_id')
+            row_idx_field = Field("_row_id")
             window_func = window_func.over(
                 order_by=[row_idx_field],
-                frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
+                frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
             )
 
             # Wrap with toFloat64 to match pandas behavior
             # pandas shift() returns float64 because NaN is only supported in float
-            float_wrapped = Function('toFloat64', window_func)
+            float_wrapped = Function("toFloat64", window_func)
 
             # Preserve the original column name for the result Series
             col_name = None
@@ -4354,7 +4627,9 @@ class ColumnExpr:
                 expr=float_wrapped,
                 datastore=self._datastore,
                 alias=col_name,
-                groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+                groupby_fields=(
+                    self._groupby_fields.copy() if self._groupby_fields else None
+                ),
                 groupby_as_index=self._groupby_as_index,
                 groupby_sort=self._groupby_sort,
             )
@@ -4362,11 +4637,13 @@ class ColumnExpr:
         # Fall back to pandas for unsupported cases
         return ColumnExpr(
             source=self,
-            method_name='shift',
-            method_kwargs=dict(periods=periods, freq=freq, axis=axis, fill_value=fill_value),
+            method_name="shift",
+            method_kwargs=dict(
+                periods=periods, freq=freq, axis=axis, fill_value=fill_value
+            ),
         )
 
-    def diff(self, periods=1) -> 'ColumnExpr':
+    def diff(self, periods=1) -> "ColumnExpr":
         """
         First discrete difference of element (lazy).
 
@@ -4395,36 +4672,40 @@ class ColumnExpr:
         # Requirements:
         # 1. We have a valid expression (Field) to diff
         # 2. Not in groupby context (groupby diff has special handling in _execute)
-        can_use_sql = self._expr is not None and not self._groupby_fields  # Groupby context uses different path
+        can_use_sql = (
+            self._expr is not None and not self._groupby_fields
+        )  # Groupby context uses different path
 
         if can_use_sql:
             # Build: value - lagInFrame(toNullable(value), periods)
             # Wrap column with toNullable to get proper NULL for first rows
-            col_nullable = Function('toNullable', self._expr)
+            col_nullable = Function("toNullable", self._expr)
 
             # Create lag/lead window function based on periods sign
             if periods >= 0:
                 # diff(1) -> value - lagInFrame(col, 1)
-                lag_func = WindowFunction('lagInFrame', col_nullable, Literal(periods))
+                lag_func = WindowFunction("lagInFrame", col_nullable, Literal(periods))
             else:
                 # diff(-1) -> value - leadInFrame(col, 1)
-                lag_func = WindowFunction('leadInFrame', col_nullable, Literal(-periods))
+                lag_func = WindowFunction(
+                    "leadInFrame", col_nullable, Literal(-periods)
+                )
 
             # Add OVER clause with ORDER BY _row_id to preserve original row order
             # _row_id is a built-in virtual column in chDB v4.0.0b5+ for Python() table function
-            row_idx_field = Field('_row_id')
+            row_idx_field = Field("_row_id")
             lag_func = lag_func.over(
                 order_by=[row_idx_field],
-                frame='ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING',
+                frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
             )
 
             # diff = current - lag
             # Result will be NULL for first `periods` rows (since lag is NULL)
-            diff_expr = Function('minus', self._expr, lag_func)
+            diff_expr = Function("minus", self._expr, lag_func)
 
             # Wrap with toFloat64 to match pandas behavior
             # pandas diff() returns float64 because NaN is only supported in float
-            float_wrapped = Function('toFloat64', diff_expr)
+            float_wrapped = Function("toFloat64", diff_expr)
 
             # Preserve the original column name for the result Series
             col_name = None
@@ -4436,15 +4717,21 @@ class ColumnExpr:
                 expr=float_wrapped,
                 datastore=self._datastore,
                 alias=col_name,
-                groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+                groupby_fields=(
+                    self._groupby_fields.copy() if self._groupby_fields else None
+                ),
                 groupby_as_index=self._groupby_as_index,
                 groupby_sort=self._groupby_sort,
             )
 
         # Fall back to pandas for unsupported cases
-        return ColumnExpr(source=self, method_name='diff', method_kwargs=dict(periods=periods))
+        return ColumnExpr(
+            source=self, method_name="diff", method_kwargs=dict(periods=periods)
+        )
 
-    def pct_change(self, periods=1, fill_method=None, limit=None, freq=None, **kwargs) -> 'ColumnExpr':
+    def pct_change(
+        self, periods=1, fill_method=None, limit=None, freq=None, **kwargs
+    ) -> "ColumnExpr":
         """
         Percentage change between current and prior element (lazy).
 
@@ -4463,21 +4750,23 @@ class ColumnExpr:
             >>> ds['value'].pct_change(periods=2)  # % change from 2 ago
         """
         # Handle deprecated parameters - pass only valid ones
-        pct_kwargs = {'periods': periods}
+        pct_kwargs = {"periods": periods}
         if freq is not None:
-            pct_kwargs['freq'] = freq
+            pct_kwargs["freq"] = freq
         pct_kwargs.update(kwargs)
-        return ColumnExpr(source=self, method_name='pct_change', method_kwargs=pct_kwargs)
+        return ColumnExpr(
+            source=self, method_name="pct_change", method_kwargs=pct_kwargs
+        )
 
     def rank(
         self,
         axis=0,
-        method='average',
+        method="average",
         numeric_only=False,
-        na_option='keep',
+        na_option="keep",
         ascending=True,
         pct=False,
-    ) -> 'ColumnExpr':
+    ) -> "ColumnExpr":
         """
         Compute numerical data ranks along axis (lazy).
 
@@ -4509,9 +4798,9 @@ class ColumnExpr:
 
         # Mapping from pandas method to SQL window function
         SQL_RANK_METHODS = {
-            'first': 'row_number',  # ROW_NUMBER() - unique rank by order of appearance
-            'min': 'rank',  # RANK() - same rank for ties, skip next
-            'dense': 'dense_rank',  # DENSE_RANK() - same rank for ties, no skip
+            "first": "row_number",  # ROW_NUMBER() - unique rank by order of appearance
+            "min": "rank",  # RANK() - same rank for ties, skip next
+            "dense": "dense_rank",  # DENSE_RANK() - same rank for ties, no skip
         }
 
         # Check if we can use SQL window functions
@@ -4523,7 +4812,7 @@ class ColumnExpr:
         # 5. Not in groupby context (groupby rank has special handling)
         can_use_sql = (
             method in SQL_RANK_METHODS
-            and na_option == 'keep'
+            and na_option == "keep"
             and not pct
             and self._expr is not None
             and not self._groupby_fields  # Groupby context uses different path
@@ -4538,10 +4827,10 @@ class ColumnExpr:
             if not ascending:
                 # For descending, append DESC to the order
                 if isinstance(order_by_expr, Field):
-                    order_by = f'{order_by_expr.name} DESC'
+                    order_by = f"{order_by_expr.name} DESC"
                 else:
                     # For complex expressions, convert to SQL and append DESC
-                    order_by = f'{order_by_expr.to_sql()} DESC'
+                    order_by = f"{order_by_expr.to_sql()} DESC"
             else:
                 order_by = order_by_expr
 
@@ -4550,7 +4839,7 @@ class ColumnExpr:
 
             # Wrap with toFloat64 to match pandas return type (float64)
             # pandas rank() always returns float64, SQL window functions return integers
-            float_wrapped = Function('toFloat64', window_func)
+            float_wrapped = Function("toFloat64", window_func)
 
             # Preserve the original column name for the result Series
             # Only set alias for simple Field expressions, not complex expressions
@@ -4564,7 +4853,9 @@ class ColumnExpr:
                 expr=float_wrapped,
                 datastore=self._datastore,
                 alias=col_name,  # Preserve original column name (None for complex expr)
-                groupby_fields=self._groupby_fields.copy() if self._groupby_fields else None,
+                groupby_fields=(
+                    self._groupby_fields.copy() if self._groupby_fields else None
+                ),
                 groupby_as_index=self._groupby_as_index,
                 groupby_sort=self._groupby_sort,
             )
@@ -4572,7 +4863,7 @@ class ColumnExpr:
         # Fall back to pandas for unsupported methods or options
         return ColumnExpr(
             source=self,
-            method_name='rank',
+            method_name="rank",
             method_kwargs=dict(
                 axis=axis,
                 method=method,
@@ -4583,7 +4874,7 @@ class ColumnExpr:
             ),
         )
 
-    def mode(self, dropna: bool = True) -> 'ColumnExpr':
+    def mode(self, dropna: bool = True) -> "ColumnExpr":
         """
         Return the mode(s) of the column.
 
@@ -4603,7 +4894,9 @@ class ColumnExpr:
             >>> ds['category'].mode()[0]  # Get first mode value
             'A'
         """
-        return ColumnExpr(source=self, method_name='mode', method_kwargs=dict(dropna=dropna))
+        return ColumnExpr(
+            source=self, method_name="mode", method_kwargs=dict(dropna=dropna)
+        )
 
     def argmin(self, axis=None, out=None, *, skipna=True, **kwargs):
         """
@@ -4772,7 +5065,7 @@ class ColumnExpr:
 
     # ========== Pandas Series Methods ==========
 
-    def apply(self, func, convert_dtype=True, args=(), **kwargs) -> 'ColumnExpr':
+    def apply(self, func, convert_dtype=True, args=(), **kwargs) -> "ColumnExpr":
         """
         Apply a function to each element of the column (lazy).
 
@@ -4803,7 +5096,7 @@ class ColumnExpr:
         """
         return ColumnExpr(
             source=self,
-            method_name='apply',
+            method_name="apply",
             method_args=(func,),
             method_kwargs=dict(convert_dtype=convert_dtype, args=args, **kwargs),
         )
@@ -4815,7 +5108,7 @@ class ColumnExpr:
         ascending: bool = False,
         bins=None,
         dropna: bool = True,
-    ) -> 'ColumnExpr':
+    ) -> "ColumnExpr":
         """
         Return a Series containing counts of unique values (lazy).
 
@@ -4852,7 +5145,7 @@ class ColumnExpr:
         """
         return ColumnExpr(
             source=self,
-            method_name='value_counts',
+            method_name="value_counts",
             method_kwargs=dict(
                 normalize=normalize,
                 sort=sort,
@@ -4862,7 +5155,7 @@ class ColumnExpr:
             ),
         )
 
-    def unique(self) -> 'ColumnExpr':
+    def unique(self) -> "ColumnExpr":
         """
         Return unique values of the column (lazy).
 
@@ -4875,9 +5168,9 @@ class ColumnExpr:
             >>> ds['category'].unique()  # Lazy
             array(['A', 'B', 'C'], dtype=object)
         """
-        return ColumnExpr(source=self, method_name='unique')
+        return ColumnExpr(source=self, method_name="unique")
 
-    def nunique(self, dropna: bool = True) -> 'ColumnExpr':
+    def nunique(self, dropna: bool = True) -> "ColumnExpr":
         """
         Return number of unique values (lazy).
 
@@ -4898,8 +5191,8 @@ class ColumnExpr:
         # Use uniqExact for counting distinct values in ClickHouse
         # uniqExact already excludes NULL by default, which matches pandas dropna=True behavior
         return self._create_agg_expr(
-            agg_func_name='uniqExact',
-            pandas_agg_func='nunique',
+            agg_func_name="uniqExact",
+            pandas_agg_func="nunique",
             skipna=dropna,
             method_kwargs=dict(dropna=dropna),
         )
@@ -4931,7 +5224,7 @@ class ColumnExpr:
         series = self._execute()
         return series.factorize(sort=sort, use_na_sentinel=use_na_sentinel)
 
-    def searchsorted(self, value, side: str = 'left', sorter=None):
+    def searchsorted(self, value, side: str = "left", sorter=None):
         """
         Find indices where elements should be inserted to maintain order.
 
@@ -4986,7 +5279,7 @@ class ColumnExpr:
         # For scalar results or other types, can't use .get()
         return default
 
-    def map(self, arg, na_action=None) -> 'ColumnExpr':
+    def map(self, arg, na_action=None) -> "ColumnExpr":
         """
         Map values of Series according to input mapping or function (lazy).
 
@@ -5004,9 +5297,16 @@ class ColumnExpr:
             2    2.0
             Name: grade, dtype: float64
         """
-        return ColumnExpr(source=self, method_name='map', method_args=(arg,), method_kwargs=dict(na_action=na_action))
+        return ColumnExpr(
+            source=self,
+            method_name="map",
+            method_args=(arg,),
+            method_kwargs=dict(na_action=na_action),
+        )
 
-    def fillna(self, value=None, method=None, axis=None, inplace=False, limit=None) -> 'ColumnExpr':
+    def fillna(
+        self, value=None, method=None, axis=None, inplace=False, limit=None
+    ) -> "ColumnExpr":
         """
         Fill NA/NaN values using pandas (lazy).
 
@@ -5028,7 +5328,9 @@ class ColumnExpr:
             raise ImmutableError("ColumnExpr")
 
         return ColumnExpr(
-            source=self, method_name='fillna', method_kwargs=dict(value=value, method=method, axis=axis, limit=limit)
+            source=self,
+            method_name="fillna",
+            method_kwargs=dict(value=value, method=method, axis=axis, limit=limit),
         )
 
     def fillna_sql(self, value):
@@ -5054,7 +5356,7 @@ class ColumnExpr:
         else:
             fill_value = Literal(value)
 
-        return self._derive_expr(Function('ifNull', self._expr, fill_value))
+        return self._derive_expr(Function("ifNull", self._expr, fill_value))
 
     def _contains_aggregate(self, expr) -> bool:
         """Check if an expression contains aggregate functions."""
@@ -5066,20 +5368,20 @@ class ColumnExpr:
         if isinstance(expr, Function):
             # Check function name for common aggregates
             agg_names = {
-                'avg',
-                'sum',
-                'count',
-                'min',
-                'max',
-                'median',
-                'stddevSamp',
-                'stddevPop',
-                'varSamp',
-                'varPop',
-                'any',
-                'argMin',
-                'argMax',
-                'groupArray',
+                "avg",
+                "sum",
+                "count",
+                "min",
+                "max",
+                "median",
+                "stddevSamp",
+                "stddevPop",
+                "varSamp",
+                "varPop",
+                "any",
+                "argMin",
+                "argMax",
+                "groupArray",
             }
             if expr.name.lower() in agg_names:
                 return True
@@ -5089,14 +5391,14 @@ class ColumnExpr:
                     return True
 
         # Check other expression types that might contain nested expressions
-        if hasattr(expr, 'args'):
+        if hasattr(expr, "args"):
             for arg in expr.args:
                 if self._contains_aggregate(arg):
                     return True
 
         return False
 
-    def dropna(self) -> 'ColumnExpr':
+    def dropna(self) -> "ColumnExpr":
         """
         Return Series with missing values removed (lazy).
 
@@ -5106,9 +5408,11 @@ class ColumnExpr:
         Example:
             >>> ds['value'].dropna()
         """
-        return ColumnExpr(source=self, method_name='dropna')
+        return ColumnExpr(source=self, method_name="dropna")
 
-    def ffill(self, axis=None, inplace=False, limit=None, limit_area=None) -> 'ColumnExpr':
+    def ffill(
+        self, axis=None, inplace=False, limit=None, limit_area=None
+    ) -> "ColumnExpr":
         """
         Fill NA/NaN values by propagating the last valid observation forward (lazy).
 
@@ -5128,12 +5432,14 @@ class ColumnExpr:
             raise ImmutableError("ColumnExpr")
 
         # Build kwargs, excluding limit_area if pandas doesn't support it
-        ffill_kwargs = {'axis': axis, 'limit': limit}
+        ffill_kwargs = {"axis": axis, "limit": limit}
         if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
-            ffill_kwargs['limit_area'] = limit_area
-        return ColumnExpr(source=self, method_name='ffill', method_kwargs=ffill_kwargs)
+            ffill_kwargs["limit_area"] = limit_area
+        return ColumnExpr(source=self, method_name="ffill", method_kwargs=ffill_kwargs)
 
-    def bfill(self, axis=None, inplace=False, limit=None, limit_area=None) -> 'ColumnExpr':
+    def bfill(
+        self, axis=None, inplace=False, limit=None, limit_area=None
+    ) -> "ColumnExpr":
         """
         Fill NA/NaN values by propagating the next valid observation backward (lazy).
 
@@ -5153,14 +5459,21 @@ class ColumnExpr:
             raise ImmutableError("ColumnExpr")
 
         # Build kwargs, excluding limit_area if pandas doesn't support it
-        bfill_kwargs = {'axis': axis, 'limit': limit}
+        bfill_kwargs = {"axis": axis, "limit": limit}
         if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
-            bfill_kwargs['limit_area'] = limit_area
-        return ColumnExpr(source=self, method_name='bfill', method_kwargs=bfill_kwargs)
+            bfill_kwargs["limit_area"] = limit_area
+        return ColumnExpr(source=self, method_name="bfill", method_kwargs=bfill_kwargs)
 
     def interpolate(
-        self, method='linear', axis=0, limit=None, inplace=False, limit_direction=None, limit_area=None, **kwargs
-    ) -> 'ColumnExpr':
+        self,
+        method="linear",
+        axis=0,
+        limit=None,
+        inplace=False,
+        limit_direction=None,
+        limit_area=None,
+        **kwargs,
+    ) -> "ColumnExpr":
         """
         Fill NaN values using an interpolation method (lazy).
 
@@ -5184,13 +5497,20 @@ class ColumnExpr:
             raise ImmutableError("ColumnExpr")
 
         # Build kwargs, excluding limit_area if pandas doesn't support it
-        interp_kwargs = {'method': method, 'axis': axis, 'limit': limit, 'limit_direction': limit_direction}
+        interp_kwargs = {
+            "method": method,
+            "axis": axis,
+            "limit": limit,
+            "limit_direction": limit_direction,
+        }
         if _PANDAS_HAS_LIMIT_AREA and limit_area is not None:
-            interp_kwargs['limit_area'] = limit_area
+            interp_kwargs["limit_area"] = limit_area
         interp_kwargs.update(kwargs)
-        return ColumnExpr(source=self, method_name='interpolate', method_kwargs=interp_kwargs)
+        return ColumnExpr(
+            source=self, method_name="interpolate", method_kwargs=interp_kwargs
+        )
 
-    def astype(self, dtype, copy=True, errors='raise') -> 'ColumnExpr':
+    def astype(self, dtype, copy=True, errors="raise") -> "ColumnExpr":
         """
         Cast to a specified dtype (lazy).
 
@@ -5206,12 +5526,22 @@ class ColumnExpr:
             >>> ds['age'].astype(float)
         """
         return ColumnExpr(
-            source=self, method_name='astype', method_args=(dtype,), method_kwargs=dict(copy=copy, errors=errors)
+            source=self,
+            method_name="astype",
+            method_args=(dtype,),
+            method_kwargs=dict(copy=copy, errors=errors),
         )
 
     def sort_values(
-        self, axis=0, ascending=True, inplace=False, kind='quicksort', na_position='last', ignore_index=False, key=None
-    ) -> 'ColumnExpr':
+        self,
+        axis=0,
+        ascending=True,
+        inplace=False,
+        kind="quicksort",
+        na_position="last",
+        ignore_index=False,
+        key=None,
+    ) -> "ColumnExpr":
         """
         Sort by the values (lazy).
 
@@ -5231,7 +5561,7 @@ class ColumnExpr:
             raise ImmutableError("ColumnExpr")
         return ColumnExpr(
             source=self,
-            method_name='sort_values',
+            method_name="sort_values",
             method_kwargs=dict(
                 axis=axis,
                 ascending=ascending,
@@ -5242,7 +5572,7 @@ class ColumnExpr:
             ),
         )
 
-    def head(self, n: int = 5) -> 'ColumnExpr':
+    def head(self, n: int = 5) -> "ColumnExpr":
         """
         Return the first n elements (lazy).
 
@@ -5259,9 +5589,9 @@ class ColumnExpr:
             >>> ds['age'].head(5)  # Lazy, no execution yet
             >>> print(ds['age'].head(5))  # Triggers execution
         """
-        return ColumnExpr(source=self, method_name='head', method_args=(n,))
+        return ColumnExpr(source=self, method_name="head", method_args=(n,))
 
-    def tail(self, n: int = 5) -> 'ColumnExpr':
+    def tail(self, n: int = 5) -> "ColumnExpr":
         """
         Return the last n elements (lazy).
 
@@ -5277,7 +5607,7 @@ class ColumnExpr:
             >>> ds['age'].tail(5)  # Lazy, no execution yet
             >>> print(ds['age'].tail(5))  # Triggers execution
         """
-        return ColumnExpr(source=self, method_name='tail', method_args=(n,))
+        return ColumnExpr(source=self, method_name="tail", method_args=(n,))
 
     # ========== Dynamic Method Delegation ==========
 
@@ -5288,14 +5618,18 @@ class ColumnExpr:
         Delegates to self._expr and wraps Expression results in ColumnExpr.
         """
         # Avoid infinite recursion for internal attributes
-        if name.startswith('_'):
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if name.startswith("_"):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
 
         # Try to get from underlying expression
         try:
             attr = getattr(self._expr, name)
         except AttributeError:
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
 
         if callable(attr):
             # It's a method - wrap the result in ColumnExpr
@@ -5358,18 +5692,20 @@ class ColumnExprStringAccessor:
         _logger = get_logger()
 
         # Check if pandas fallback is needed based on parameters
-        if function_config.needs_accessor_fallback('str.split', expand=expand):
-            reason = function_config.get_accessor_fallback_reason('str.split', expand=expand)
+        if function_config.needs_accessor_fallback("str.split", expand=expand):
+            reason = function_config.get_accessor_fallback_reason(
+                "str.split", expand=expand
+            )
             _logger.debug("[Accessor] %s", reason)
 
             n_val = n if n != -1 else None
             # Use operation descriptor mode (safe from recursion)
             return ColumnExpr.from_accessor_op(
                 source=self._column_expr,
-                accessor='str',
-                method='split',
+                accessor="str",
+                method="split",
                 args=(),
-                kwargs={'pat': pat, 'n': n_val, 'expand': True, 'regex': regex},
+                kwargs={"pat": pat, "n": n_val, "expand": True, "regex": regex},
             )
         else:
             _logger.debug("[Accessor] str.split -> chDB SQL")
@@ -5399,16 +5735,16 @@ class ColumnExprStringAccessor:
         from .config import get_logger
 
         _logger = get_logger()
-        reason = function_config.get_accessor_fallback_reason('str.extract')
+        reason = function_config.get_accessor_fallback_reason("str.extract")
         _logger.debug("[Accessor] %s", reason)
 
         # Use operation descriptor mode (safe from recursion)
         return ColumnExpr.from_accessor_op(
             source=self._column_expr,
-            accessor='str',
-            method='extract',
+            accessor="str",
+            method="extract",
             args=(pat,),
-            kwargs={'flags': flags, 'expand': expand},
+            kwargs={"flags": flags, "expand": expand},
         )
 
     def extractall(self, pat, flags=0):
@@ -5431,16 +5767,16 @@ class ColumnExprStringAccessor:
         from .config import get_logger
 
         _logger = get_logger()
-        reason = function_config.get_accessor_fallback_reason('str.extractall')
+        reason = function_config.get_accessor_fallback_reason("str.extractall")
         _logger.debug("[Accessor] %s", reason)
 
         # Use operation descriptor mode (safe from recursion)
         return ColumnExpr.from_accessor_op(
             source=self._column_expr,
-            accessor='str',
-            method='extractall',
+            accessor="str",
+            method="extractall",
             args=(pat,),
-            kwargs={'flags': flags},
+            kwargs={"flags": flags},
         )
 
     def wrap(self, width, **kwargs):
@@ -5461,14 +5797,14 @@ class ColumnExprStringAccessor:
         from .config import get_logger
 
         _logger = get_logger()
-        reason = function_config.get_accessor_fallback_reason('str.wrap')
+        reason = function_config.get_accessor_fallback_reason("str.wrap")
         _logger.debug("[Accessor] %s", reason)
 
         # Use operation descriptor mode (safe from recursion)
         return ColumnExpr.from_accessor_op(
             source=self._column_expr,
-            accessor='str',
-            method='wrap',
+            accessor="str",
+            method="wrap",
             args=(width,),
             kwargs=kwargs,
         )
@@ -5520,7 +5856,7 @@ class ColumnExprStringAccessor:
         sql_expr = col_expr.to_sql(quote_char='"')
         return executor.execute_expression(sql_expr, df)
 
-    def cat(self, others=None, sep=None, na_rep=None, join='left'):
+    def cat(self, others=None, sep=None, na_rep=None, join="left"):
         """
         Concatenate strings in the Series/Index with given separator.
 
@@ -5543,7 +5879,7 @@ class ColumnExprStringAccessor:
         result = series.str.extractall(pat, flags=flags)
         return DataStore.from_df(result)
 
-    def get_dummies(self, sep='|'):
+    def get_dummies(self, sep="|"):
         """
         Return DataFrame of dummy/indicator variables for Series.
 
@@ -5556,7 +5892,7 @@ class ColumnExprStringAccessor:
         result = series.str.get_dummies(sep=sep)
         return DataStore.from_df(result)
 
-    def partition(self, sep=' ', expand=True):
+    def partition(self, sep=" ", expand=True):
         """
         Split the string at the first occurrence of sep.
 
@@ -5572,7 +5908,7 @@ class ColumnExprStringAccessor:
             return DataStore.from_df(result)
         return result
 
-    def rpartition(self, sep=' ', expand=True):
+    def rpartition(self, sep=" ", expand=True):
         """
         Split the string at the last occurrence of sep.
 
@@ -5626,21 +5962,23 @@ class ColumnExprJsonAccessor:
 
             def wrapper(*args, **kwargs):
                 # Check if this JSON method needs pandas fallback
-                accessor_method = f'json.{name}'
+                accessor_method = f"json.{name}"
                 if function_config.needs_accessor_fallback(accessor_method):
-                    reason = function_config.get_accessor_fallback_reason(accessor_method)
+                    reason = function_config.get_accessor_fallback_reason(
+                        accessor_method
+                    )
                     _logger.debug("[Accessor] %s", reason)
 
                     # Get the JSON path
-                    json_path = args[0] if args else kwargs.get('path', '')
+                    json_path = args[0] if args else kwargs.get("path", "")
 
                     # Use operation descriptor mode (safe from recursion)
                     # Note: JSON extraction uses a special 'json_extract' method
                     # that the evaluator handles via _extract_json_array
                     result = ColumnExpr.from_accessor_op(
                         source=self._column_expr,
-                        accessor='json',
-                        method='_extract_array',  # Special method for JSON array extraction
+                        accessor="json",
+                        method="_extract_array",  # Special method for JSON array extraction
                         args=(json_path,),
                         kwargs={},
                     )
@@ -5673,7 +6011,7 @@ def _extract_json_array(series, json_path):
             data = json_module.loads(json_str)
             # Navigate the path
             if json_path:
-                for key in json_path.split('.'):
+                for key in json_path.split("."):
                     if isinstance(data, dict):
                         data = data.get(key)
                     else:
@@ -5865,52 +6203,52 @@ class ColumnExprDateTimeAccessor:
     @property
     def year(self) -> ColumnExpr:
         """Extract year from date/datetime. Engine selected at execution time."""
-        return self._make_property_expr('year')
+        return self._make_property_expr("year")
 
     @property
     def month(self) -> ColumnExpr:
         """Extract month from date/datetime (1-12). Engine selected at execution time."""
-        return self._make_property_expr('month')
+        return self._make_property_expr("month")
 
     @property
     def day(self) -> ColumnExpr:
         """Extract day of month from date/datetime (1-31). Engine selected at execution time."""
-        return self._make_property_expr('day')
+        return self._make_property_expr("day")
 
     @property
     def hour(self) -> ColumnExpr:
         """Extract hour from datetime (0-23). Engine selected at execution time."""
-        return self._make_property_expr('hour')
+        return self._make_property_expr("hour")
 
     @property
     def minute(self) -> ColumnExpr:
         """Extract minute from datetime (0-59). Engine selected at execution time."""
-        return self._make_property_expr('minute')
+        return self._make_property_expr("minute")
 
     @property
     def second(self) -> ColumnExpr:
         """Extract second from datetime (0-59). Engine selected at execution time."""
-        return self._make_property_expr('second')
+        return self._make_property_expr("second")
 
     @property
     def microsecond(self) -> ColumnExpr:
         """Extract microsecond from datetime. Always uses pandas (no chDB equivalent)."""
-        return self._make_property_expr('microsecond')
+        return self._make_property_expr("microsecond")
 
     @property
     def nanosecond(self) -> ColumnExpr:
         """Extract nanosecond from datetime. Always uses pandas (no chDB equivalent)."""
-        return self._make_property_expr('nanosecond')
+        return self._make_property_expr("nanosecond")
 
     @property
     def dayofweek(self) -> ColumnExpr:
         """Return day of the week (Monday=0). Engine selected at execution time."""
-        return self._make_property_expr('dayofweek')
+        return self._make_property_expr("dayofweek")
 
     @property
     def weekday(self) -> ColumnExpr:
         """Alias for dayofweek."""
-        return self._make_property_expr('weekday')
+        return self._make_property_expr("weekday")
 
     @property
     def day_of_week(self) -> ColumnExpr:
@@ -5920,7 +6258,7 @@ class ColumnExprDateTimeAccessor:
     @property
     def dayofyear(self) -> ColumnExpr:
         """Return day of the year (1-366). Engine selected at execution time."""
-        return self._make_property_expr('dayofyear')
+        return self._make_property_expr("dayofyear")
 
     @property
     def day_of_year(self) -> ColumnExpr:
@@ -5930,103 +6268,103 @@ class ColumnExprDateTimeAccessor:
     @property
     def quarter(self) -> ColumnExpr:
         """Return quarter of the year (1-4). Engine selected at execution time."""
-        return self._make_property_expr('quarter')
+        return self._make_property_expr("quarter")
 
     @property
     def week(self) -> ColumnExpr:
         """Return ISO week number. Engine selected at execution time."""
-        return self._make_property_expr('week')
+        return self._make_property_expr("week")
 
     @property
     def weekofyear(self) -> ColumnExpr:
         """Alias for week."""
-        return self._make_property_expr('weekofyear')
+        return self._make_property_expr("weekofyear")
 
     @property
     def date(self) -> ColumnExpr:
         """Return date part. Engine selected at execution time."""
-        return self._make_property_expr('date')
+        return self._make_property_expr("date")
 
     @property
     def is_month_start(self) -> ColumnExpr:
         """Indicate whether the date is the first day of a month. Always uses pandas."""
-        return self._make_property_expr('is_month_start')
+        return self._make_property_expr("is_month_start")
 
     @property
     def is_month_end(self) -> ColumnExpr:
         """Indicate whether the date is the last day of a month. Always uses pandas."""
-        return self._make_property_expr('is_month_end')
+        return self._make_property_expr("is_month_end")
 
     @property
     def is_quarter_start(self) -> ColumnExpr:
         """Indicate whether the date is the first day of a quarter. Always uses pandas."""
-        return self._make_property_expr('is_quarter_start')
+        return self._make_property_expr("is_quarter_start")
 
     @property
     def is_quarter_end(self) -> ColumnExpr:
         """Indicate whether the date is the last day of a quarter. Always uses pandas."""
-        return self._make_property_expr('is_quarter_end')
+        return self._make_property_expr("is_quarter_end")
 
     @property
     def is_year_start(self) -> ColumnExpr:
         """Indicate whether the date is the first day of a year. Always uses pandas."""
-        return self._make_property_expr('is_year_start')
+        return self._make_property_expr("is_year_start")
 
     @property
     def is_year_end(self) -> ColumnExpr:
         """Indicate whether the date is the last day of a year. Always uses pandas."""
-        return self._make_property_expr('is_year_end')
+        return self._make_property_expr("is_year_end")
 
     @property
     def is_leap_year(self) -> ColumnExpr:
         """Indicate whether the date is in a leap year. Always uses pandas."""
-        return self._make_property_expr('is_leap_year')
+        return self._make_property_expr("is_leap_year")
 
     @property
     def days_in_month(self) -> ColumnExpr:
         """Return number of days in month. Always uses pandas."""
-        return self._make_property_expr('days_in_month')
+        return self._make_property_expr("days_in_month")
 
     def strftime(self, fmt: str) -> ColumnExpr:
         """Format datetime as string. Engine selected at execution time."""
-        return self._make_method_expr('strftime', fmt)
+        return self._make_method_expr("strftime", fmt)
 
     def floor(self, freq: str) -> ColumnExpr:
         """Floor datetime to frequency. Always uses pandas."""
-        return self._make_method_expr('floor_dt', freq)
+        return self._make_method_expr("floor_dt", freq)
 
     def ceil(self, freq: str) -> ColumnExpr:
         """Ceil datetime to frequency. Always uses pandas."""
-        return self._make_method_expr('ceil_dt', freq)
+        return self._make_method_expr("ceil_dt", freq)
 
     def round(self, freq: str) -> ColumnExpr:
         """Round datetime to frequency. Always uses pandas."""
-        return self._make_method_expr('round_dt', freq)
+        return self._make_method_expr("round_dt", freq)
 
     def tz_localize(self, tz) -> ColumnExpr:
         """Localize to timezone. Always uses pandas."""
-        return self._make_method_expr('tz_localize', tz)
+        return self._make_method_expr("tz_localize", tz)
 
     def tz_convert(self, tz) -> ColumnExpr:
         """Convert to timezone. Always uses pandas."""
-        return self._make_method_expr('tz_convert', tz)
+        return self._make_method_expr("tz_convert", tz)
 
     def to_period(self, freq) -> ColumnExpr:
         """Convert to PeriodIndex with specified frequency. Always uses pandas."""
-        return self._make_method_expr('to_period', freq)
+        return self._make_method_expr("to_period", freq)
 
-    def to_timestamp(self, freq=None, how='start') -> ColumnExpr:
+    def to_timestamp(self, freq=None, how="start") -> ColumnExpr:
         """Convert to DatetimeIndex from PeriodIndex. Always uses pandas."""
-        return self._make_method_expr('to_timestamp', freq, how=how)
+        return self._make_method_expr("to_timestamp", freq, how=how)
 
     def normalize(self) -> ColumnExpr:
         """Normalize times to midnight. Always uses pandas."""
-        return self._make_method_expr('normalize')
+        return self._make_method_expr("normalize")
 
     @property
     def time(self) -> ColumnExpr:
         """Return the time part of the datetime. Always uses pandas."""
-        return self._make_property_expr('time')
+        return self._make_property_expr("time")
 
     @property
     def daysinmonth(self) -> ColumnExpr:
@@ -6057,29 +6395,29 @@ class ColumnExprDateTimeAccessor:
     @property
     def timetz(self) -> ColumnExpr:
         """Return the time with timezone. Always uses pandas."""
-        return self._make_property_expr('timetz')
+        return self._make_property_expr("timetz")
 
     def as_unit(self, unit: str) -> ColumnExpr:
         """Convert to the specified unit. Always uses pandas."""
-        return self._make_method_expr('as_unit', unit)
+        return self._make_method_expr("as_unit", unit)
 
     def day_name(self, locale: str = None) -> ColumnExpr:
         """Return the day names (Monday, Tuesday, etc.). Always uses pandas."""
         if locale is not None:
-            return self._make_method_expr('day_name', locale=locale)
-        return self._make_method_expr('day_name')
+            return self._make_method_expr("day_name", locale=locale)
+        return self._make_method_expr("day_name")
 
     def month_name(self, locale: str = None) -> ColumnExpr:
         """Return the month names (January, February, etc.). Always uses pandas."""
         if locale is not None:
-            return self._make_method_expr('month_name', locale=locale)
-        return self._make_method_expr('month_name')
+            return self._make_method_expr("month_name", locale=locale)
+        return self._make_method_expr("month_name")
 
     def to_pydatetime(self) -> ColumnExpr:
         """Return an ndarray of python datetime objects. Always uses pandas."""
-        return self._make_method_expr('to_pydatetime')
+        return self._make_method_expr("to_pydatetime")
 
-    def isocalendar(self) -> 'ColumnExprIsoCalendarResult':
+    def isocalendar(self) -> "ColumnExprIsoCalendarResult":
         """
         Return a DataFrame with ISO year, week number, and weekday.
 
@@ -6116,22 +6454,22 @@ class ColumnExprIsoCalendarResult:
     @property
     def year(self) -> ColumnExpr:
         """ISO year."""
-        return self._make_isocalendar_component('year')
+        return self._make_isocalendar_component("year")
 
     @property
     def week(self) -> ColumnExpr:
         """ISO week number (1-53)."""
-        return self._make_isocalendar_component('week')
+        return self._make_isocalendar_component("week")
 
     @property
     def day(self) -> ColumnExpr:
         """ISO day of week (1=Monday, 7=Sunday)."""
-        return self._make_isocalendar_component('day')
+        return self._make_isocalendar_component("day")
 
     @property
     def columns(self):
         """Return column names."""
-        return ['year', 'week', 'day']
+        return ["year", "week", "day"]
 
     @property
     def values(self):
@@ -6146,15 +6484,17 @@ class ColumnExprIsoCalendarResult:
         """Convert to DataFrame with year, week, day columns."""
         import pandas as pd
 
-        return pd.DataFrame({'year': self.year.values, 'week': self.week.values, 'day': self.day.values})
+        return pd.DataFrame(
+            {"year": self.year.values, "week": self.week.values, "day": self.day.values}
+        )
 
     def __getitem__(self, key):
         """Allow column access like result['week']."""
-        if key == 'year':
+        if key == "year":
             return self.year
-        elif key == 'week':
+        elif key == "week":
             return self.week
-        elif key == 'day':
+        elif key == "day":
             return self.day
         else:
             raise KeyError(f"Unknown column: {key}")

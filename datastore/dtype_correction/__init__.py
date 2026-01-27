@@ -28,12 +28,12 @@ from .rules import (
 from .config import dtype_correction_config
 
 __all__ = [
-    'DtypeCorrectionRegistry',
-    'dtype_registry',
-    'CorrectionPriority',
-    'DtypeCorrectionRule',
-    'SignedAbsRule',
-    'SignPreserveRule',
-    'ArithmeticPreserveRule',
-    'dtype_correction_config',
+    "DtypeCorrectionRegistry",
+    "dtype_registry",
+    "CorrectionPriority",
+    "DtypeCorrectionRule",
+    "SignedAbsRule",
+    "SignPreserveRule",
+    "ArithmeticPreserveRule",
+    "dtype_correction_config",
 ]

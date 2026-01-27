@@ -16,7 +16,11 @@ Known limitations (chDB engine):
 """
 
 import pytest
-from tests.xfail_markers import chdb_category_type, datastore_loc_conditional_assignment
+from tests.xfail_markers import (
+    chdb_category_type,
+    chdb_category_to_object,
+    datastore_loc_conditional_assignment,
+)
 import pandas as pd
 import numpy as np
 from datastore import DataStore
@@ -24,13 +28,14 @@ from tests.test_utils import assert_datastore_equals_pandas
 
 
 # =============================================================================
-# Category Accessor Operations - Known chDB limitation
+# Category Accessor Operations - chDB now supports categorical SQL operations
+# but converts dtype from category to object after execution
 # =============================================================================
 
 class TestCategoryAccessor:
     """Test Category accessor methods on categorical columns."""
 
-    @chdb_category_type
+    @chdb_category_type  # FIXED: SQL operations now work, values are correct
     def test_categorical_column_creation(self):
         """Create DataFrame with categorical column."""
         pd_df = pd.DataFrame({
@@ -43,7 +48,7 @@ class TestCategoryAccessor:
 
         assert list(ds_result['category'].values) == list(pd_result['category'].values)
 
-    @chdb_category_type
+    @chdb_category_type  # FIXED: SQL operations now work, values are correct
     def test_categorical_ordered(self):
         """Create ordered categorical column."""
         pd_df = pd.DataFrame({
@@ -60,7 +65,7 @@ class TestCategoryAccessor:
 
         assert list(ds_result['size'].values) == list(pd_result['size'].values)
 
-    @chdb_category_type
+    @chdb_category_to_object  # chDB converts category -> object dtype
     def test_filter_categorical_column(self):
         """Filter based on categorical values."""
         pd_df = pd.DataFrame({
@@ -74,7 +79,7 @@ class TestCategoryAccessor:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @chdb_category_type
+    @chdb_category_to_object  # chDB converts category -> object dtype
     def test_groupby_categorical(self):
         """GroupBy on categorical column."""
         pd_df = pd.DataFrame({

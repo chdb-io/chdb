@@ -20,7 +20,15 @@ from typing import List, Optional, Dict, Any, Tuple, TYPE_CHECKING
 import pandas as pd
 
 from .expressions import Field, Expression, Star
-from .lazy_ops import LazyOp, LazyRelationalOp, LazyGroupByAgg, LazyColumnAssignment, LazyJoin, LazyWhere, LazyMask
+from .lazy_ops import (
+    LazyOp,
+    LazyRelationalOp,
+    LazyGroupByAgg,
+    LazyColumnAssignment,
+    LazyJoin,
+    LazyWhere,
+    LazyMask,
+)
 from .sql_builder import SQLBuilder
 from .utils import (
     normalize_ascending,
@@ -55,7 +63,14 @@ class WhereMaskCaseExpr(Expression):
     - NULL is used as a safe fallback for type mismatches
     """
 
-    def __init__(self, column: str, where_ops: List, quote_char: str = '"', col_type: str = None, alias: str = None):
+    def __init__(
+        self,
+        column: str,
+        where_ops: List,
+        quote_char: str = '"',
+        col_type: str = None,
+        alias: str = None,
+    ):
         """
         Args:
             column: Column name to transform
@@ -67,32 +82,32 @@ class WhereMaskCaseExpr(Expression):
         self.column = column
         self.where_ops = where_ops
         self.quote_char = quote_char
-        self.col_type = col_type or 'Unknown'
+        self.col_type = col_type or "Unknown"
         self.alias = alias or column
 
     def _is_numeric_type(self) -> bool:
         """Check if column is a numeric type."""
         col_type_lower = self.col_type.lower()
-        numeric_types = ('int', 'float', 'double', 'decimal', 'uint', 'number')
+        numeric_types = ("int", "float", "double", "decimal", "uint", "number")
         return any(t in col_type_lower for t in numeric_types)
 
     def _is_string_type(self) -> bool:
         """Check if column is a string type."""
         col_type_lower = self.col_type.lower()
         # Include pandas 'object' dtype which is typically used for strings
-        string_types = ('string', 'fixedstring', 'enum', 'uuid', 'object')
+        string_types = ("string", "fixedstring", "enum", "uuid", "object")
         return any(t in col_type_lower for t in string_types)
 
     def _is_date_type(self) -> bool:
         """Check if column is a date/datetime type."""
         col_type_lower = self.col_type.lower()
-        date_types = ('date', 'datetime', 'datetime64')
+        date_types = ("date", "datetime", "datetime64")
         return any(t in col_type_lower for t in date_types)
 
     def _is_bool_type(self) -> bool:
         """Check if column is a boolean type."""
         col_type_lower = self.col_type.lower()
-        return 'bool' in col_type_lower
+        return "bool" in col_type_lower
 
     def _needs_variant_type(self, other) -> bool:
         """Check if we need to use Variant type to preserve mixed types."""
@@ -176,7 +191,7 @@ class WhereMaskCaseExpr(Expression):
         for op in self.where_ops:
             cond = op.condition
             if isinstance(cond, ColumnExpr):
-                cond = cond._expr if hasattr(cond, '_expr') else cond
+                cond = cond._expr if hasattr(cond, "_expr") else cond
 
             if isinstance(cond, Condition):
                 cond_sql = cond.to_sql(quote_char=qc)
@@ -191,7 +206,9 @@ class WhereMaskCaseExpr(Expression):
             other_sql = self._format_other_value(op.other, use_variant=use_variant)
 
             # Build CASE WHEN
-            current_expr = f"CASE WHEN {cond_sql} THEN {current_expr} ELSE {other_sql} END"
+            current_expr = (
+                f"CASE WHEN {cond_sql} THEN {current_expr} ELSE {other_sql} END"
+            )
 
         # Use alias
         alias_quoted = f"{qc}{self.alias}{qc}"
@@ -216,12 +233,14 @@ class ExtractedClauses:
 
     where_conditions: List[Any] = field(default_factory=list)
     orderby_fields: List[Tuple[Any, bool]] = field(default_factory=list)
-    orderby_kind: str = 'quicksort'
+    orderby_kind: str = "quicksort"
     limit_value: Optional[int] = None
     offset_value: Optional[int] = None
     select_fields: List[Expression] = field(default_factory=list)
     empty_column_select: bool = False
-    explicit_column_selection: bool = False  # True if SELECT explicitly listed columns (without *)
+    explicit_column_selection: bool = (
+        False  # True if SELECT explicitly listed columns (without *)
+    )
 
     def has_orderby(self) -> bool:
         """Check if ORDER BY is present."""
@@ -243,7 +262,9 @@ class ExtractedClauses:
         return not self.has_orderby() and not has_groupby
 
 
-def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> ExtractedClauses:
+def extract_clauses_from_ops(
+    ops: List[LazyOp], quote_char: str = '"'
+) -> ExtractedClauses:
     """
     Extract SQL clauses from a list of LazyOps.
 
@@ -279,13 +300,13 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
         if not isinstance(op, LazyRelationalOp):
             continue
 
-        if op.op_type == 'WHERE' and op.condition is not None:
+        if op.op_type == "WHERE" and op.condition is not None:
             result.where_conditions.append(op.condition)
 
-        elif op.op_type == 'ORDER BY' and op.fields:
+        elif op.op_type == "ORDER BY" and op.fields:
             # Later ORDER BY replaces earlier ones (pandas semantics)
             result.orderby_fields = []
-            result.orderby_kind = getattr(op, 'kind', 'quicksort')
+            result.orderby_kind = getattr(op, "kind", "quicksort")
 
             ascending_list = normalize_ascending(op.ascending, len(op.fields))
             for i, f in enumerate(op.fields):
@@ -295,13 +316,13 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
                 else:
                     result.orderby_fields.append((f, asc))
 
-        elif op.op_type == 'LIMIT':
+        elif op.op_type == "LIMIT":
             result.limit_value = op.limit_value
 
-        elif op.op_type == 'OFFSET':
+        elif op.op_type == "OFFSET":
             result.offset_value = op.offset_value
 
-        elif op.op_type == 'SELECT':
+        elif op.op_type == "SELECT":
             # Handle empty column selection (fields=[]) - return empty DataFrame
             if op.fields is not None and len(op.fields) == 0:
                 result.select_fields = []  # Empty select
@@ -312,13 +333,13 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
                 continue
             # Check if this SELECT includes '*' (add computed columns mode)
             # or is explicit column selection (replace mode)
-            has_star = any(f == '*' for f in op.fields if isinstance(f, str))
+            has_star = any(f == "*" for f in op.fields if isinstance(f, str))
 
             if has_star:
                 # Add computed columns mode: append non-* fields to existing select
                 for f in op.fields:
                     if isinstance(f, str):
-                        if f != '*':
+                        if f != "*":
                             result.select_fields.append(Field(f))
                     else:
                         result.select_fields.append(f)
@@ -328,7 +349,7 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
                 # Build a lookup for computed columns by their alias
                 computed_by_alias = {}
                 for prev_field in result.select_fields:
-                    alias = getattr(prev_field, 'alias', None)
+                    alias = getattr(prev_field, "alias", None)
                     if alias:
                         computed_by_alias[alias] = prev_field
 
@@ -351,7 +372,9 @@ def extract_clauses_from_ops(ops: List[LazyOp], quote_char: str = '"') -> Extrac
                         new_select_fields.append(f)
 
                 result.select_fields = new_select_fields
-                result.explicit_column_selection = True  # Mark that explicit columns were selected
+                result.explicit_column_selection = (
+                    True  # Mark that explicit columns were selected
+                )
 
     return result
 
@@ -458,8 +481,10 @@ def build_groupby_select_fields(
         # Pandas-style: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
         # Determine if we need compound aliases (col_func) to avoid duplicates
         has_multi_col = len(groupby_agg.agg_dict) > 1
-        has_any_multi_func = any(isinstance(f, (list, tuple)) for f in groupby_agg.agg_dict.values())
-        is_single_col_agg = getattr(groupby_agg, 'single_column_agg', False)
+        has_any_multi_func = any(
+            isinstance(f, (list, tuple)) for f in groupby_agg.agg_dict.values()
+        )
+        is_single_col_agg = getattr(groupby_agg, "single_column_agg", False)
 
         # Check for function name conflicts across columns
         # This only matters when a single column has multiple funcs and those func names conflict
@@ -525,7 +550,7 @@ def build_groupby_select_fields(
         func = groupby_agg.agg_func
         sql_func = map_agg_func(func)
 
-        if func == 'size':
+        if func == "size":
             # size() counts ALL rows including NULL -> COUNT(*)
             select_fields.append(AggregateFunction(sql_func, Star()))
         elif all_columns:
@@ -534,9 +559,15 @@ def build_groupby_select_fields(
             # If selected_columns is set, only aggregate those columns (excluding groupby keys)
             if groupby_agg.selected_columns:
                 # Filter out groupby columns from selected_columns
-                cols_to_agg = [c for c in groupby_agg.selected_columns if c not in groupby_agg.groupby_cols]
+                cols_to_agg = [
+                    c
+                    for c in groupby_agg.selected_columns
+                    if c not in groupby_agg.groupby_cols
+                ]
             else:
-                cols_to_agg = [c for c in all_columns if c not in groupby_agg.groupby_cols]
+                cols_to_agg = [
+                    c for c in all_columns if c not in groupby_agg.groupby_cols
+                ]
             for col in cols_to_agg:
                 # Check if this alias conflicts with WHERE columns
                 temp_alias = f"__agg_{col}__"
@@ -550,7 +581,7 @@ def build_groupby_select_fields(
                 select_fields.append(agg_expr)
         else:
             # Fallback: if we don't know columns, use COUNT(*) for count, otherwise skip
-            if func == 'count':
+            if func == "count":
                 select_fields.append(AggregateFunction(sql_func, Star()))
 
     return groupby_fields, select_fields
@@ -578,7 +609,7 @@ class SQLExecutionEngine:
     duplicated in _execute() and _build_execution_sql() methods.
     """
 
-    def __init__(self, datastore: 'DataStore'):
+    def __init__(self, datastore: "DataStore"):
         self.ds = datastore
         self.quote_char = datastore.quote_char
         self._logger = get_logger()
@@ -601,8 +632,8 @@ class SQLExecutionEngine:
         rowNumberInAllBlocks() for other sources.
         """
         if self.is_python_table_function():
-            return '_row_id'
-        return 'rowNumberInAllBlocks()'
+            return "_row_id"
+        return "rowNumberInAllBlocks()"
 
     def source_preserves_row_order(self) -> bool:
         """
@@ -659,11 +690,14 @@ class SQLExecutionEngine:
         parts = []
 
         # SELECT (with optional DISTINCT)
-        distinct_keyword = 'DISTINCT ' if distinct else ''
+        distinct_keyword = "DISTINCT " if distinct else ""
         select_fields = select_fields or clauses.select_fields
 
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             if self.ds._select_star:
                 parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
             else:
@@ -677,14 +711,18 @@ class SQLExecutionEngine:
             # Add alias when joins are present
             if self.ds._joins:
                 alias = self.ds._get_table_alias()
-                parts.append(f"FROM {table_source} AS {format_identifier(alias, self.quote_char)}")
+                parts.append(
+                    f"FROM {table_source} AS {format_identifier(alias, self.quote_char)}"
+                )
             else:
                 parts.append(f"FROM {table_source}")
 
         # JOIN clauses
         if self.ds._joins:
             for other_ds, join_type, join_condition in self.ds._joins:
-                parts.append(self._build_join_clause(other_ds, join_type, join_condition))
+                parts.append(
+                    self._build_join_clause(other_ds, join_type, join_condition)
+                )
 
         # WHERE
         if clauses.where_conditions:
@@ -695,17 +733,23 @@ class SQLExecutionEngine:
 
         # GROUP BY
         if groupby_fields:
-            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            groupby_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
+            )
             parts.append(f"GROUP BY {groupby_sql}")
 
         # HAVING
         if having_condition:
-            parts.append(f"HAVING {having_condition.to_sql(quote_char=self.quote_char)}")
+            parts.append(
+                f"HAVING {having_condition.to_sql(quote_char=self.quote_char)}"
+            )
 
         # ORDER BY
         if clauses.orderby_fields:
             orderby_sql = build_orderby_clause(
-                clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+                clauses.orderby_fields,
+                self.quote_char,
+                stable=is_stable_sort(clauses.orderby_kind),
             )
             parts.append(f"ORDER BY {orderby_sql}")
 
@@ -717,9 +761,11 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             parts.append(f"OFFSET {clauses.offset_value}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
-    def build_nested_sql(self, layers: List[List[LazyOp]], base_clauses: ExtractedClauses = None) -> str:
+    def build_nested_sql(
+        self, layers: List[List[LazyOp]], base_clauses: ExtractedClauses = None
+    ) -> str:
         """
         Build nested subquery SQL for complex patterns.
 
@@ -783,12 +829,18 @@ class SQLExecutionEngine:
 
         # Use layer's ORDER BY if present, otherwise use preserved ORDER BY from inner layers
         # This ensures patterns like (ORDER BY + LIMIT) + WHERE maintain consistent row ordering
-        orderby_to_use = clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
-        orderby_kind_to_use = clauses.orderby_kind if clauses.orderby_fields else preserved_orderby_kind
+        orderby_to_use = (
+            clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
+        )
+        orderby_kind_to_use = (
+            clauses.orderby_kind if clauses.orderby_fields else preserved_orderby_kind
+        )
 
         if orderby_to_use:
             orderby_sql = build_orderby_clause(
-                orderby_to_use, self.quote_char, stable=is_stable_sort(orderby_kind_to_use)
+                orderby_to_use,
+                self.quote_char,
+                stable=is_stable_sort(orderby_kind_to_use),
             )
             outer_parts.append(f"ORDER BY {orderby_sql}")
 
@@ -798,33 +850,41 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             outer_parts.append(f"OFFSET {clauses.offset_value}")
 
-        return ' '.join(outer_parts)
+        return " ".join(outer_parts)
 
-    def _build_join_clause(self, other_ds: 'DataStore', join_type, join_condition) -> str:
+    def _build_join_clause(
+        self, other_ds: "DataStore", join_type, join_condition
+    ) -> str:
         """Build a JOIN clause."""
         from .enums import JoinType
 
         # Generate JOIN keyword
-        join_keyword = join_type.value if hasattr(join_type, 'value') and join_type.value else ''
+        join_keyword = (
+            join_type.value if hasattr(join_type, "value") and join_type.value else ""
+        )
         if join_keyword:
             join_clause = f"{join_keyword} JOIN"
         else:
             join_clause = "JOIN"
 
         # Handle subquery joins
-        if hasattr(other_ds, '_is_subquery') and other_ds._is_subquery:
+        if hasattr(other_ds, "_is_subquery") and other_ds._is_subquery:
             other_table = other_ds.to_sql(quote_char=self.quote_char, as_subquery=True)
-        elif hasattr(other_ds, '_table_function') and other_ds._table_function:
+        elif hasattr(other_ds, "_table_function") and other_ds._table_function:
             table_func_sql = other_ds._table_function.to_sql(quote_char=self.quote_char)
             alias = other_ds._get_table_alias()
-            other_table = f"{table_func_sql} AS {format_identifier(alias, self.quote_char)}"
+            other_table = (
+                f"{table_func_sql} AS {format_identifier(alias, self.quote_char)}"
+            )
         else:
             other_table = format_identifier(other_ds.table_name, self.quote_char)
 
         # Handle USING vs ON syntax
-        if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
+        if isinstance(join_condition, tuple) and join_condition[0] == "USING":
             columns = join_condition[1]
-            using_cols = ', '.join(format_identifier(c, self.quote_char) for c in columns)
+            using_cols = ", ".join(
+                format_identifier(c, self.quote_char) for c in columns
+            )
             return f"{join_clause} {other_table} USING ({using_cols})"
         else:
             condition_sql = join_condition.to_sql(quote_char=self.quote_char)
@@ -861,7 +921,10 @@ class SQLExecutionEngine:
         # Build outer query with WHERE and ORDER BY __orig_row_num__
         sql_parts = []
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             if include_star:
                 # For computed columns, need to include all original columns plus computed
                 sql_parts.append(f"SELECT * EXCEPT(__orig_row_num__), {fields_sql}")
@@ -879,7 +942,9 @@ class SQLExecutionEngine:
             sql_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
         if groupby_fields:
-            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            groupby_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
+            )
             sql_parts.append(f"GROUP BY {groupby_sql}")
 
         sql_parts.append("ORDER BY __orig_row_num__")
@@ -890,7 +955,7 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             sql_parts.append(f"OFFSET {clauses.offset_value}")
 
-        return ' '.join(sql_parts)
+        return " ".join(sql_parts)
 
     def build_sql_with_case_when_subquery(
         self,
@@ -919,7 +984,9 @@ class SQLExecutionEngine:
             SQL query string
         """
         table_source = self.get_table_source()
-        needs_row_order = clauses.needs_row_order() and not self.source_preserves_row_order()
+        needs_row_order = (
+            clauses.needs_row_order() and not self.source_preserves_row_order()
+        )
         row_num_expr = self.get_row_number_expr()
 
         # Build SQL based on whether we need WHERE subquery
@@ -928,7 +995,9 @@ class SQLExecutionEngine:
                 # Step 0: Capture original row number BEFORE filtering
                 # This is critical for stable row order - row number expression must be
                 # called on the source table, not after WHERE filtering
-                innermost_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                innermost_sql = (
+                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                )
 
                 # Step 1: Build query with WHERE (no CASE WHEN yet)
                 combined = clauses.where_conditions[0]
@@ -938,7 +1007,9 @@ class SQLExecutionEngine:
 
                 # Step 2: Build middle query with CASE WHEN using temp aliases
                 # Need to include __orig_row_num__ in the select
-                middle_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                middle_select = ", ".join(
+                    f.to_sql(quote_char=self.quote_char) for f in case_when_select
+                )
                 middle_sql = f"SELECT {middle_select}, __orig_row_num__ FROM ({inner_sql}) AS __filter_subq__"
             else:
                 # No row order needed - simpler structure
@@ -948,22 +1019,32 @@ class SQLExecutionEngine:
                     combined = combined & cond
                 inner_sql += f" WHERE {combined.to_sql(quote_char=self.quote_char)}"
 
-                middle_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
-                middle_sql = f"SELECT {middle_select} FROM ({inner_sql}) AS __filter_subq__"
+                middle_select = ", ".join(
+                    f.to_sql(quote_char=self.quote_char) for f in case_when_select
+                )
+                middle_sql = (
+                    f"SELECT {middle_select} FROM ({inner_sql}) AS __filter_subq__"
+                )
         else:
             # No WHERE - just CASE WHEN on source table
             if needs_row_order:
                 # Still need to capture row order
-                innermost_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
-                inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                innermost_sql = (
+                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                )
+                inner_select = ", ".join(
+                    f.to_sql(quote_char=self.quote_char) for f in case_when_select
+                )
                 middle_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({innermost_sql}) AS __rownum_subq__"
             else:
-                inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in case_when_select)
+                inner_select = ", ".join(
+                    f.to_sql(quote_char=self.quote_char) for f in case_when_select
+                )
                 middle_sql = f"SELECT {inner_select} FROM {table_source}"
 
         # Step 3: Build outer query to rename temp aliases back
-        outer_select = ', '.join(
-            f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
+        outer_select = ", ".join(
+            f"{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}"
             for temp, orig in temp_alias_columns
         )
 
@@ -974,7 +1055,9 @@ class SQLExecutionEngine:
 
             # Order by original row number (captured before WHERE)
             if clauses.orderby_fields:
-                orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+                orderby_sql = build_orderby_clause(
+                    clauses.orderby_fields, self.quote_char, stable=False
+                )
                 sql_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
             else:
                 sql_parts.append("ORDER BY __orig_row_num__ ASC")
@@ -984,7 +1067,9 @@ class SQLExecutionEngine:
 
             if clauses.orderby_fields:
                 orderby_sql = build_orderby_clause(
-                    clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+                    clauses.orderby_fields,
+                    self.quote_char,
+                    stable=is_stable_sort(clauses.orderby_kind),
                 )
                 sql_parts.append(f"ORDER BY {orderby_sql}")
 
@@ -994,7 +1079,7 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             sql_parts.append(f"OFFSET {clauses.offset_value}")
 
-        return '\n'.join(sql_parts)
+        return "\n".join(sql_parts)
 
     def build_sql_with_stable_sort_subquery(
         self,
@@ -1031,14 +1116,21 @@ class SQLExecutionEngine:
 
         # Build middle query with columns and WHERE
         middle_parts = []
-        distinct_keyword = 'DISTINCT ' if distinct else ''
+        distinct_keyword = "DISTINCT " if distinct else ""
 
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             if self.ds._select_star:
-                middle_parts.append(f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__")
+                middle_parts.append(
+                    f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__"
+                )
             else:
-                middle_parts.append(f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__")
+                middle_parts.append(
+                    f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__"
+                )
         else:
             middle_parts.append(f"SELECT {distinct_keyword}*, __orig_row_num__")
 
@@ -1050,7 +1142,7 @@ class SQLExecutionEngine:
                 combined = combined & cond
             middle_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        middle_sql = ' '.join(middle_parts)
+        middle_sql = " ".join(middle_parts)
 
         # Build outer query with ORDER BY using __orig_row_num__ as tie-breaker
         outer_parts = []
@@ -1059,7 +1151,9 @@ class SQLExecutionEngine:
 
         if clauses.orderby_fields:
             orderby_sql = build_orderby_clause(
-                clauses.orderby_fields, self.quote_char, stable=False  # Don't add rowNumberInAllBlocks()
+                clauses.orderby_fields,
+                self.quote_char,
+                stable=False,  # Don't add rowNumberInAllBlocks()
             )
             outer_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
 
@@ -1069,9 +1163,11 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             outer_parts.append(f"OFFSET {clauses.offset_value}")
 
-        return ' '.join(outer_parts)
+        return " ".join(outer_parts)
 
-    def build_sql_from_plan(self, plan: 'QueryPlan', schema: Dict[str, str] = None) -> SQLBuildResult:
+    def build_sql_from_plan(
+        self, plan: "QueryPlan", schema: Dict[str, str] = None
+    ) -> SQLBuildResult:
         """
         Build SQL from a QueryPlan.
 
@@ -1093,7 +1189,9 @@ class SQLExecutionEngine:
 
         # Collect LazyColumnAssignments for potential SQLBuilder handling
         column_assignments = [
-            op for op in plan.sql_ops if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
+            op
+            for op in plan.sql_ops
+            if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
         ]
 
         # Check if we need SQLBuilder for complex column assignment scenarios
@@ -1119,11 +1217,13 @@ class SQLExecutionEngine:
         has_select_star = False  # Track if '*' was in SELECT fields
         for op in plan.sql_ops:
             if isinstance(op, LazyRelationalOp):
-                if op.op_type == 'SELECT' and op.fields:
+                if op.op_type == "SELECT" and op.fields:
                     for f in op.fields:
                         if isinstance(f, str):
-                            if f == '*':
-                                has_select_star = True  # Record that we need all columns
+                            if f == "*":
+                                has_select_star = (
+                                    True  # Record that we need all columns
+                                )
                             else:
                                 sql_select_fields.append(Field(f))
                         else:
@@ -1149,7 +1249,9 @@ class SQLExecutionEngine:
                 has_column_assignments,
             )
         else:
-            sql = self._build_nested_query_from_plan(layers, sql_select_fields, has_column_assignments)
+            sql = self._build_nested_query_from_plan(
+                layers, sql_select_fields, has_column_assignments
+            )
 
         return SQLBuildResult(
             sql=sql,
@@ -1216,18 +1318,18 @@ class SQLExecutionEngine:
         # Check if any computed column is referenced in WHERE, ORDER BY, or where()/mask() conditions
         for op in sql_ops:
             if isinstance(op, LazyRelationalOp):
-                if op.op_type == 'WHERE' and op.condition:
+                if op.op_type == "WHERE" and op.condition:
                     referenced = self._extract_column_references(op.condition)
                     if referenced & assigned_columns:
                         return True
-                elif op.op_type == 'ORDER BY' and op.fields:
+                elif op.op_type == "ORDER BY" and op.fields:
                     for f in op.fields:
                         if isinstance(f, Field):
-                            col_name = f.name.strip('"\'')
+                            col_name = f.name.strip("\"'")
                             if col_name in assigned_columns:
                                 return True
                         elif isinstance(f, str):
-                            if f.strip('"\'') in assigned_columns:
+                            if f.strip("\"'") in assigned_columns:
                                 return True
             # Check LazyWhere/LazyMask conditions for computed column references
             elif isinstance(op, (LazyWhere, LazyMask)):
@@ -1246,7 +1348,7 @@ class SQLExecutionEngine:
         # Check if there's a column selection (SELECT) with computed columns
         # This requires a subquery to first materialize computed columns
         for op in sql_ops:
-            if isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT':
+            if isinstance(op, LazyRelationalOp) and op.op_type == "SELECT":
                 if op.fields:
                     # Has explicit column selection with computed columns - need subquery
                     return True
@@ -1269,37 +1371,37 @@ class SQLExecutionEngine:
             return columns
 
         if isinstance(expr, Field):
-            name = expr.name.strip('"\'')
+            name = expr.name.strip("\"'")
             columns.add(name)
 
-        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+        elif hasattr(expr, "left") and hasattr(expr, "right"):
             columns.update(self._extract_column_references(expr.left))
             columns.update(self._extract_column_references(expr.right))
 
-        elif hasattr(expr, 'condition'):
+        elif hasattr(expr, "condition"):
             columns.update(self._extract_column_references(expr.condition))
 
-        elif hasattr(expr, 'expression'):
+        elif hasattr(expr, "expression"):
             columns.update(self._extract_column_references(expr.expression))
 
-        elif hasattr(expr, 'args'):
+        elif hasattr(expr, "args"):
             for arg in expr.args:
                 columns.update(self._extract_column_references(arg))
 
-        elif hasattr(expr, '_expr'):
+        elif hasattr(expr, "_expr"):
             # ColumnExpr
             columns.update(self._extract_column_references(expr._expr))
 
-        elif hasattr(expr, 'nodes'):
+        elif hasattr(expr, "nodes"):
             # Expression with nodes() method
             for node in expr.nodes():
                 if isinstance(node, Field):
-                    name = node.name.strip('"\'')
+                    name = node.name.strip("\"'")
                     columns.add(name)
 
         return columns
 
-    def _build_sql_with_builder(self, plan: 'QueryPlan', schema: Dict[str, str]) -> str:
+    def _build_sql_with_builder(self, plan: "QueryPlan", schema: Dict[str, str]) -> str:
         """
         Build SQL using SQLBuilder for complex column assignment scenarios.
 
@@ -1329,18 +1431,18 @@ class SQLExecutionEngine:
                 # Get the expression from ColumnAssignment
                 expr = op.get_sql_expression()
                 # Remove alias from expression (SQLBuilder will add it)
-                if hasattr(expr, 'alias'):
+                if hasattr(expr, "alias"):
                     expr.alias = None
                 builder.add_computed_column(op.column, expr)
 
             elif isinstance(op, LazyRelationalOp):
-                if op.op_type == 'WHERE' and op.condition:
+                if op.op_type == "WHERE" and op.condition:
                     builder.add_filter(op.condition)
-                elif op.op_type == 'ORDER BY' and op.fields:
+                elif op.op_type == "ORDER BY" and op.fields:
                     has_explicit_orderby = True
                     orderby_fields = []
                     ascending_list = normalize_ascending(
-                        op.ascending if hasattr(op, 'ascending') else True,
+                        op.ascending if hasattr(op, "ascending") else True,
                         len(op.fields),
                     )
                     for f, asc in zip(op.fields, ascending_list):
@@ -1349,19 +1451,19 @@ class SQLExecutionEngine:
                         else:
                             orderby_fields.append((f, asc))
                     builder.add_orderby(orderby_fields)
-                elif op.op_type == 'LIMIT' and hasattr(op, 'limit_value'):
+                elif op.op_type == "LIMIT" and hasattr(op, "limit_value"):
                     builder.add_limit(op.limit_value)
-                elif op.op_type == 'OFFSET' and hasattr(op, 'offset_value'):
+                elif op.op_type == "OFFSET" and hasattr(op, "offset_value"):
                     builder.add_offset(op.offset_value)
-                elif op.op_type == 'SELECT' and op.fields:
+                elif op.op_type == "SELECT" and op.fields:
                     # Column selection
                     columns = []
                     for f in op.fields:
                         if isinstance(f, str):
-                            if f != '*':
+                            if f != "*":
                                 columns.append(f)
                         elif isinstance(f, Field):
-                            columns.append(f.name.strip('"\''))
+                            columns.append(f.name.strip("\"'"))
                     if columns:
                         builder.select_columns(columns)
 
@@ -1379,7 +1481,7 @@ class SQLExecutionEngine:
     def _append_settings(self, sql: str) -> str:
         """Append timezone settings to SQL if needed."""
         # Check if SETTINGS already present
-        if 'SETTINGS' not in sql:
+        if "SETTINGS" not in sql:
             sql = f"{sql} SETTINGS session_timezone='UTC'"
         return sql
 
@@ -1400,7 +1502,9 @@ class SQLExecutionEngine:
         clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
 
         # Apply alias renames to ORDER BY
-        clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, alias_renames)
+        clauses.orderby_fields = apply_alias_renames_to_orderby(
+            clauses.orderby_fields, alias_renames
+        )
 
         # Handle LazyWhere/LazyMask SQL pushdown (CASE WHEN)
         where_needs_subquery = False
@@ -1420,7 +1524,7 @@ class SQLExecutionEngine:
                         col,
                         where_ops,
                         self.quote_char,
-                        schema.get(col, 'Unknown'),
+                        schema.get(col, "Unknown"),
                         alias=f"__tmp_{col}__",
                     )
                     for col in all_columns
@@ -1444,7 +1548,7 @@ class SQLExecutionEngine:
                 for f in clauses.select_fields:
                     if isinstance(f, Field):
                         all_cols.append(f.name)
-                    elif hasattr(f, 'alias') and f.alias:
+                    elif hasattr(f, "alias") and f.alias:
                         all_cols.append(f.alias)
                     else:
                         all_cols.append(str(f))
@@ -1454,48 +1558,72 @@ class SQLExecutionEngine:
                 for f in sql_select_fields:
                     if isinstance(f, Field):
                         all_cols.append(f.name)
-                    elif hasattr(f, 'alias') and f.alias:
+                    elif hasattr(f, "alias") and f.alias:
                         all_cols.append(f.alias)
                     else:
                         all_cols.append(str(f))
             else:
                 # Fall back to all source columns
-                all_cols = self.ds._get_all_column_names() if hasattr(self.ds, '_get_all_column_names') else None
+                all_cols = (
+                    self.ds._get_all_column_names()
+                    if hasattr(self.ds, "_get_all_column_names")
+                    else None
+                )
             # Get computed columns for expanding assign() columns in aggregations
-            computed_cols = getattr(self.ds, '_computed_columns', None) or {}
+            computed_cols = getattr(self.ds, "_computed_columns", None) or {}
             groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(
-                groupby_agg_op, alias_renames, all_columns=all_cols, computed_columns=computed_cols
+                groupby_agg_op,
+                alias_renames,
+                all_columns=all_cols,
+                computed_columns=computed_cols,
             )
             # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
             # This handles cases like ORDER BY value where value is aggregated (sum(value) AS __agg_value__)
-            clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, alias_renames)
+            clauses.orderby_fields = apply_alias_renames_to_orderby(
+                clauses.orderby_fields, alias_renames
+            )
             if groupby_agg_op.sort and not clauses.orderby_fields:
-                clauses.orderby_fields = [(Field(col), True) for col in groupby_agg_op.groupby_cols]
+                clauses.orderby_fields = [
+                    (Field(col), True) for col in groupby_agg_op.groupby_cols
+                ]
 
         # Determine if row order preservation is needed
         # Skip row order preservation if source already preserves order (e.g., Parquet with preserve_order)
         needs_row_order = (
-            clauses.needs_row_order(has_groupby=groupby_agg_op is not None) and not self.source_preserves_row_order()
+            clauses.needs_row_order(has_groupby=groupby_agg_op is not None)
+            and not self.source_preserves_row_order()
         )
 
         # Build SQL based on complexity
         if where_needs_subquery:
-            return self.build_sql_with_case_when_subquery(clauses, select_fields_for_sql, where_temp_alias_columns)
+            return self.build_sql_with_case_when_subquery(
+                clauses, select_fields_for_sql, where_temp_alias_columns
+            )
         elif where_needs_temp_alias and where_temp_alias_columns:
             return self._build_temp_alias_query(
-                clauses, select_fields_for_sql, where_temp_alias_columns, needs_row_order
+                clauses,
+                select_fields_for_sql,
+                where_temp_alias_columns,
+                needs_row_order,
             )
         elif needs_row_order and clauses.where_conditions and not self.ds._joins:
             # Only use row order subquery when there are no JOINs
             # JOINs require the full _build_sql_from_state path
             return self.build_sql_with_row_order_subquery(
-                clauses, select_fields_for_sql, groupby_fields_for_sql, include_star=has_column_assignments
+                clauses,
+                select_fields_for_sql,
+                groupby_fields_for_sql,
+                include_star=has_column_assignments,
             )
         else:
             # Simple case - use assemble_sql
             effective_orderby = clauses.orderby_fields
-            if needs_row_order and not clauses.orderby_fields and (clauses.where_conditions or self.ds._joins):
-                effective_orderby = [('__rowNumberInAllBlocks__', True)]
+            if (
+                needs_row_order
+                and not clauses.orderby_fields
+                and (clauses.where_conditions or self.ds._joins)
+            ):
+                effective_orderby = [("__rowNumberInAllBlocks__", True)]
 
             return self.assemble_sql(
                 select_fields_for_sql,
@@ -1524,12 +1652,16 @@ class SQLExecutionEngine:
         """
         table_source = self.get_table_source()
         row_num_expr = self.get_row_number_expr()
-        inner_select = ', '.join(f.to_sql(quote_char=self.quote_char) for f in select_fields)
+        inner_select = ", ".join(
+            f.to_sql(quote_char=self.quote_char) for f in select_fields
+        )
 
         if needs_row_order:
             if clauses.where_conditions:
                 # Capture row number before WHERE filtering
-                rownum_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                rownum_sql = (
+                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                )
 
                 # Build WHERE on top of row number subquery
                 combined = clauses.where_conditions[0]
@@ -1539,7 +1671,9 @@ class SQLExecutionEngine:
                 inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__ WHERE {combined.to_sql(quote_char=self.quote_char)}"
             else:
                 # No WHERE but still need row order - simpler structure
-                rownum_sql = f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                rownum_sql = (
+                    f"SELECT *, {row_num_expr} AS __orig_row_num__ FROM {table_source}"
+                )
                 inner_sql = f"SELECT {inner_select}, __orig_row_num__ FROM ({rownum_sql}) AS __rownum_subq__"
         else:
             # No row order needed - use original simple structure
@@ -1561,8 +1695,8 @@ class SQLExecutionEngine:
                 inner_sql = f"SELECT {inner_select} FROM {table_source}"
 
         # Build outer query to rename temp aliases back
-        outer_select = ', '.join(
-            f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
+        outer_select = ", ".join(
+            f"{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}"
             for temp, orig in temp_alias_columns
         )
 
@@ -1572,12 +1706,16 @@ class SQLExecutionEngine:
         if clauses.orderby_fields:
             if needs_row_order:
                 # Use __orig_row_num__ as tie-breaker (no need for rowNumberInAllBlocks())
-                orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+                orderby_sql = build_orderby_clause(
+                    clauses.orderby_fields, self.quote_char, stable=False
+                )
                 sql_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
             else:
                 # Respect user's stable sort setting
                 orderby_sql = build_orderby_clause(
-                    clauses.orderby_fields, self.quote_char, stable=is_stable_sort(clauses.orderby_kind)
+                    clauses.orderby_fields,
+                    self.quote_char,
+                    stable=is_stable_sort(clauses.orderby_kind),
                 )
                 sql_parts.append(f"ORDER BY {orderby_sql}")
         elif needs_row_order:
@@ -1589,10 +1727,13 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             sql_parts.append(f"OFFSET {clauses.offset_value}")
 
-        return '\n'.join(sql_parts)
+        return "\n".join(sql_parts)
 
     def _build_nested_query_from_plan(
-        self, layers: List[List[LazyOp]], sql_select_fields: List[Expression], has_column_assignments: bool = False
+        self,
+        layers: List[List[LazyOp]],
+        sql_select_fields: List[Expression],
+        has_column_assignments: bool = False,
     ) -> str:
         """Build nested subquery SQL for complex patterns."""
         # Build innermost query (layer 0)
@@ -1675,7 +1816,9 @@ class SQLExecutionEngine:
         # post-filter row numbers, not original row numbers. We need a subquery to preserve
         # the original row order.
         needs_stable_sort = orderby_fields and is_stable_sort(self.ds._orderby_kind)
-        needs_subquery_for_stable = needs_stable_sort and where_conditions and not groupby_fields and not joins
+        needs_subquery_for_stable = (
+            needs_stable_sort and where_conditions and not groupby_fields and not joins
+        )
 
         if needs_subquery_for_stable:
             # Use stable sort subquery
@@ -1686,18 +1829,25 @@ class SQLExecutionEngine:
                 limit_value=limit_value,
                 offset_value=offset_value,
             )
-            return self.build_sql_with_stable_sort_subquery(clauses, select_fields, distinct)
+            return self.build_sql_with_stable_sort_subquery(
+                clauses, select_fields, distinct
+            )
 
         parts = []
 
         # SELECT (with optional DISTINCT)
-        distinct_keyword = 'DISTINCT ' if distinct else ''
+        distinct_keyword = "DISTINCT " if distinct else ""
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             # Check if we need to prepend '*' (SELECT *, computed_col)
             # IMPORTANT: Don't use SELECT * with GROUP BY - only groupby columns and aggregates are valid
             # Use include_star if explicitly set, otherwise fall back to self.ds._select_star
-            use_star = include_star if include_star is not None else self.ds._select_star
+            use_star = (
+                include_star if include_star is not None else self.ds._select_star
+            )
             if use_star and not groupby_fields:
                 parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
             else:
@@ -1708,14 +1858,16 @@ class SQLExecutionEngine:
         # FROM (with alias if joins present)
         if self.ds._table_function:
             # Handle table function objects
-            if hasattr(self.ds._table_function, 'to_sql'):
+            if hasattr(self.ds._table_function, "to_sql"):
                 table_sql = self.ds._table_function.to_sql()
             else:
                 table_sql = str(self.ds._table_function)
             # Add alias when joins are present (required by ClickHouse for disambiguation)
             if joins:
                 alias = self.ds._get_table_alias()
-                parts.append(f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}")
+                parts.append(
+                    f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}"
+                )
             else:
                 parts.append(f"FROM {table_sql}")
         elif self.ds.table_name:
@@ -1724,7 +1876,9 @@ class SQLExecutionEngine:
         # JOIN clauses
         if joins:
             for other_ds, join_type, join_condition in joins:
-                parts.append(self._build_join_clause(other_ds, join_type, join_condition))
+                parts.append(
+                    self._build_join_clause(other_ds, join_type, join_condition)
+                )
 
         # WHERE
         if where_conditions:
@@ -1735,7 +1889,9 @@ class SQLExecutionEngine:
 
         # GROUP BY
         if groupby_fields:
-            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            groupby_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
+            )
             parts.append(f"GROUP BY {groupby_sql}")
 
         # HAVING
@@ -1747,13 +1903,19 @@ class SQLExecutionEngine:
         if orderby_fields:
             # Check for special row order marker (must be a string, not a Field object)
             first_field = orderby_fields[0][0]
-            if len(orderby_fields) == 1 and isinstance(first_field, str) and first_field == '__rowNumberInAllBlocks__':
+            if (
+                len(orderby_fields) == 1
+                and isinstance(first_field, str)
+                and first_field == "__rowNumberInAllBlocks__"
+            ):
                 # Special case: use appropriate row number expression for row order preservation
                 row_num_expr = self.get_row_number_expr()
                 parts.append(f"ORDER BY {row_num_expr}")
             else:
                 orderby_sql = build_orderby_clause(
-                    orderby_fields, self.quote_char, stable=is_stable_sort(self.ds._orderby_kind)
+                    orderby_fields,
+                    self.quote_char,
+                    stable=is_stable_sort(self.ds._orderby_kind),
                 )
                 parts.append(f"ORDER BY {orderby_sql}")
 
@@ -1765,12 +1927,12 @@ class SQLExecutionEngine:
         if offset_value is not None:
             parts.append(f"OFFSET {offset_value}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def execute_sql_on_dataframe(
         self,
         df: pd.DataFrame,
-        plan: 'QueryPlan',
+        plan: "QueryPlan",
         schema: Dict[str, str] = None,
     ) -> pd.DataFrame:
         """
@@ -1794,7 +1956,10 @@ class SQLExecutionEngine:
         # Build SQL query using Python() table function
         sql = self._build_sql_for_dataframe(df, plan, schema)
 
-        self._logger.debug("  [SQL on DataFrame] Executing: %s", sql[:200] + "..." if len(sql) > 200 else sql)
+        self._logger.debug(
+            "  [SQL on DataFrame] Executing: %s",
+            sql[:200] + "..." if len(sql) > 200 else sql,
+        )
 
         # Determine if row order preservation is needed
         # Only preserve order when there are WHERE conditions (filter) or explicit ORDER BY
@@ -1804,7 +1969,9 @@ class SQLExecutionEngine:
         has_nested_queries = bool(plan.layers and len(plan.layers) > 1)
         # For SQL on DataFrame, always preserve order unless its a simple LIMIT-only operation
         # Column assignments, select operations, etc. all need deterministic row order
-        has_column_assignments = any(isinstance(op, LazyColumnAssignment) for op in plan.sql_ops)
+        has_column_assignments = any(
+            isinstance(op, LazyColumnAssignment) for op in plan.sql_ops
+        )
         is_simple_limit_only = bool(
             clauses.limit_value
             and not clauses.offset_value
@@ -1817,12 +1984,14 @@ class SQLExecutionEngine:
         needs_order_preservation = not is_simple_limit_only
         # Execute via chDB using Python() table function
         executor = get_executor()
-        result_df = executor.query_dataframe(sql, df, '__df__', preserve_order=needs_order_preservation)
+        result_df = executor.query_dataframe(
+            sql, df, "__df__", preserve_order=needs_order_preservation
+        )
 
         # Handle empty column selection: return DataFrame with 0 columns but correct row count
-        if getattr(plan, '_empty_column_select', False):
+        if getattr(plan, "_empty_column_select", False):
             # Remove _row_id and return empty column DataFrame
-            result_df = result_df.drop(columns=['_row_id'], errors='ignore')
+            result_df = result_df.drop(columns=["_row_id"], errors="ignore")
             # Return DataFrame with correct index but no columns
             return result_df[[]]
 
@@ -1831,15 +2000,21 @@ class SQLExecutionEngine:
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
             # Don't set index if as_index=False (user wants group keys as columns)
-            as_index = getattr(plan.groupby_agg, 'as_index', True)
+            as_index = getattr(plan.groupby_agg, "as_index", True)
             if as_index:
                 if all(col in result_df.columns for col in groupby_cols):
                     result_df = result_df.set_index(groupby_cols)
-                    self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
+                    self._logger.debug(
+                        "  Set groupby columns as index: %s", groupby_cols
+                    )
 
         # Handle alias renames
         if plan.alias_renames:
-            rename_back = {temp: orig for temp, orig in plan.alias_renames.items() if temp in result_df.columns}
+            rename_back = {
+                temp: orig
+                for temp, orig in plan.alias_renames.items()
+                if temp in result_df.columns
+            }
             if rename_back:
                 result_df = result_df.rename(columns=rename_back)
                 self._logger.debug("  Renamed temp aliases: %s", rename_back)
@@ -1847,9 +2022,15 @@ class SQLExecutionEngine:
         # Convert flat column names to MultiIndex for pandas compatibility
         # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))
         # When each column has single func, pandas returns flat column names, so we should too
-        if plan.groupby_agg and plan.groupby_agg.agg_dict is not None and isinstance(plan.groupby_agg.agg_dict, dict):
-            is_single_col_agg = getattr(plan.groupby_agg, 'single_column_agg', False)
-            has_any_multi_func = any(isinstance(f, (list, tuple)) for f in plan.groupby_agg.agg_dict.values())
+        if (
+            plan.groupby_agg
+            and plan.groupby_agg.agg_dict is not None
+            and isinstance(plan.groupby_agg.agg_dict, dict)
+        ):
+            is_single_col_agg = getattr(plan.groupby_agg, "single_column_agg", False)
+            has_any_multi_func = any(
+                isinstance(f, (list, tuple)) for f in plan.groupby_agg.agg_dict.values()
+            )
 
             # Only convert to MultiIndex when there are multiple funcs per column
             if not is_single_col_agg and has_any_multi_func:
@@ -1868,7 +2049,7 @@ class SQLExecutionEngine:
                         if c in col_rename_map:
                             new_columns.append(col_rename_map[c])
                         else:
-                            new_columns.append((c, ''))
+                            new_columns.append((c, ""))
                     result_df.columns = pd.MultiIndex.from_tuples(new_columns)
                     self._logger.debug("  Converted flat columns to MultiIndex")
 
@@ -1881,7 +2062,7 @@ class SQLExecutionEngine:
         self,
         result_df: pd.DataFrame,
         input_df: pd.DataFrame,
-        plan: 'QueryPlan',
+        plan: "QueryPlan",
     ) -> pd.DataFrame:
         """
         Apply dtype corrections for SQL results where chDB returns different types than pandas.
@@ -1911,12 +2092,14 @@ class SQLExecutionEngine:
             return result_df
 
         # Apply corrections using the registry
-        return dtype_registry.apply_corrections_to_dataframe(result_df, input_df, operations)
+        return dtype_registry.apply_corrections_to_dataframe(
+            result_df, input_df, operations
+        )
 
     def _build_sql_for_dataframe(
         self,
         df: pd.DataFrame,
-        plan: 'QueryPlan',
+        plan: "QueryPlan",
         schema: Dict[str, str] = None,
     ) -> str:
         """
@@ -1948,7 +2131,9 @@ class SQLExecutionEngine:
 
         # Apply alias renames to ORDER BY
         if plan.alias_renames and clauses.orderby_fields:
-            clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, plan.alias_renames)
+            clauses.orderby_fields = apply_alias_renames_to_orderby(
+                clauses.orderby_fields, plan.alias_renames
+            )
 
         # Handle GroupBy and CASE WHEN ops (these apply to final result)
         groupby_fields = []
@@ -1958,13 +2143,18 @@ class SQLExecutionEngine:
             # Pass all_columns for count() to generate COUNT(col) per column
             df_columns = list(df.columns)
             # Get computed columns for expanding assign() columns in aggregations
-            computed_cols = getattr(self.ds, '_computed_columns', None) or {}
+            computed_cols = getattr(self.ds, "_computed_columns", None) or {}
             groupby_fields, select_fields = build_groupby_select_fields(
-                plan.groupby_agg, plan.alias_renames, all_columns=df_columns, computed_columns=computed_cols
+                plan.groupby_agg,
+                plan.alias_renames,
+                all_columns=df_columns,
+                computed_columns=computed_cols,
             )
             # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
             if plan.alias_renames and clauses.orderby_fields:
-                clauses.orderby_fields = apply_alias_renames_to_orderby(clauses.orderby_fields, plan.alias_renames)
+                clauses.orderby_fields = apply_alias_renames_to_orderby(
+                    clauses.orderby_fields, plan.alias_renames
+                )
 
         # Track temp alias mapping for where_ops (CASE WHEN)
         # chDB has alias conflict quirks: if a CASE WHEN uses "col" as alias and
@@ -1977,17 +2167,23 @@ class SQLExecutionEngine:
             for col in all_columns:
                 col_type = schema.get(col, str(df[col].dtype))
                 temp_alias = f"__tmp_{col}__"
-                case_expr = CaseWhenExpr(col, plan.where_ops, self.quote_char, col_type, alias=temp_alias)
+                case_expr = CaseWhenExpr(
+                    col, plan.where_ops, self.quote_char, col_type, alias=temp_alias
+                )
                 select_fields.append(case_expr)
                 where_temp_alias_map[temp_alias] = col
 
         # Pre-calculate column assignments and override columns for use in multiple places
         # This is needed to detect when WHERE references columns that will be overridden
         _all_column_assignments = [
-            op for op in plan.sql_ops if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
+            op
+            for op in plan.sql_ops
+            if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
         ]
         _df_columns_set = set(df.columns)
-        _override_columns = {op.column for op in _all_column_assignments if op.column in _df_columns_set}
+        _override_columns = {
+            op.column for op in _all_column_assignments if op.column in _df_columns_set
+        }
 
         # Analyze WHERE conditions and their relationship with column assignments
         # We need to identify which WHERE conditions come BEFORE assignments (need subquery)
@@ -2008,7 +2204,11 @@ class SQLExecutionEngine:
                 # Categorize each WHERE condition based on its position relative to the assignment
                 where_op_indices = []
                 for i, op in enumerate(plan.sql_ops):
-                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+                    if (
+                        isinstance(op, LazyRelationalOp)
+                        and op.op_type == "WHERE"
+                        and op.condition
+                    ):
                         # Check if this WHERE references any override columns
                         refs = self._extract_column_references(op.condition)
                         if refs & _override_columns:
@@ -2029,11 +2229,14 @@ class SQLExecutionEngine:
         if clauses.empty_column_select:
             # Empty column selection: df[[]] - return DataFrame with 0 columns
             # We use _row_id for row tracking (built-in virtual column in chDB v4.0.0b5+)
-            select_sql = '_row_id'
+            select_sql = "_row_id"
             # Mark that we want to return empty columns (handled in post-processing)
             plan._empty_column_select = True
         elif select_fields:
-            select_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            select_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             # No need to add _row_id here - connection.query_df handles it automatically
         elif clauses.select_fields:
             # Check if SELECT * was specified (need all original columns + computed columns)
@@ -2048,14 +2251,18 @@ class SQLExecutionEngine:
             # Also check if we have LazyColumnAssignment - these need * plus computed columns
             # BUT only if there's no explicit column selection (SELECT col1, col2, ...)
             column_assignments = [
-                op for op in plan.sql_ops if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
+                op
+                for op in plan.sql_ops
+                if isinstance(op, LazyColumnAssignment) and op.can_push_to_sql()
             ]
             has_column_assignments = bool(column_assignments)
 
             # Check for column overrides (assigned column already exists in DataFrame)
             df_columns_ordered = list(df.columns)
             df_columns_set = set(df_columns_ordered)
-            override_columns = {op.column for op in column_assignments if op.column in df_columns_set}
+            override_columns = {
+                op.column for op in column_assignments if op.column in df_columns_set
+            }
 
             if (self.ds._select_star and not has_explicit_columns) or (
                 has_column_assignments and not has_explicit_columns
@@ -2064,34 +2271,50 @@ class SQLExecutionEngine:
                     # Build explicit column list to preserve column order when overriding
                     # For each column: if it's being overridden, use the computed expression
                     # Otherwise, just select the original column
-                    assignment_map = {op.column: op for op in column_assignments if op.column in override_columns}
+                    assignment_map = {
+                        op.column: op
+                        for op in column_assignments
+                        if op.column in override_columns
+                    }
                     select_parts = []
                     for col in df_columns_ordered:
                         if col in assignment_map:
                             # Use the computed expression for overridden column
                             op = assignment_map[col]
                             expr = op.get_sql_expression()
-                            select_parts.append(expr.to_sql(quote_char=self.quote_char, with_alias=True))
+                            select_parts.append(
+                                expr.to_sql(quote_char=self.quote_char, with_alias=True)
+                            )
                         else:
-                            select_parts.append(f'{self.quote_char}{col}{self.quote_char}')
+                            select_parts.append(
+                                f"{self.quote_char}{col}{self.quote_char}"
+                            )
                     # Add new columns (not overrides)
-                    new_columns = [op for op in column_assignments if op.column not in override_columns]
+                    new_columns = [
+                        op
+                        for op in column_assignments
+                        if op.column not in override_columns
+                    ]
                     for op in new_columns:
                         expr = op.get_sql_expression()
-                        select_parts.append(expr.to_sql(quote_char=self.quote_char, with_alias=True))
-                    select_sql = ', '.join(select_parts)
+                        select_parts.append(
+                            expr.to_sql(quote_char=self.quote_char, with_alias=True)
+                        )
+                    select_sql = ", ".join(select_parts)
                 else:
-                    fields_sql = ', '.join(
-                        f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields
+                    fields_sql = ", ".join(
+                        f.to_sql(quote_char=self.quote_char, with_alias=True)
+                        for f in clauses.select_fields
                     )
-                    select_sql = '*, ' + fields_sql
+                    select_sql = "*, " + fields_sql
             else:
-                fields_sql = ', '.join(
-                    f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields
+                fields_sql = ", ".join(
+                    f.to_sql(quote_char=self.quote_char, with_alias=True)
+                    for f in clauses.select_fields
                 )
                 select_sql = fields_sql
         else:
-            select_sql = '*'
+            select_sql = "*"
 
         # Standard case: Build simple SQL - row order is preserved by executor
         from_sql = "__df__"
@@ -2106,13 +2329,15 @@ class SQLExecutionEngine:
                 combined = clauses.where_conditions[0]
                 for cond in clauses.where_conditions[1:]:
                     combined = combined & cond
-                inner_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
+                inner_parts.append(
+                    f"WHERE {combined.to_sql(quote_char=self.quote_char)}"
+                )
 
-            inner_sql = ' '.join(inner_parts)
+            inner_sql = " ".join(inner_parts)
 
             # Outer query to rename temp aliases back to original names
-            outer_select = ', '.join(
-                f'{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}'
+            outer_select = ", ".join(
+                f"{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}"
                 for temp, orig in where_temp_alias_map.items()
             )
             # _row_id is added automatically by connection.query_df
@@ -2141,36 +2366,38 @@ class SQLExecutionEngine:
 
         # GROUP BY clause
         if groupby_fields:
-            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            groupby_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
+            )
             parts.append(f"GROUP BY {groupby_sql}")
 
             # Handle dropna for groupby: add WHERE ... IS NOT NULL for groupby columns
             # when dropna=True (pandas default). This must be added BEFORE GROUP BY.
-            if plan.groupby_agg and getattr(plan.groupby_agg, 'dropna', True):
+            if plan.groupby_agg and getattr(plan.groupby_agg, "dropna", True):
                 # Build IS NOT NULL conditions for groupby columns
                 dropna_conditions = []
                 for col in plan.groupby_agg.groupby_cols:
                     dropna_conditions.append(f'"{col}" IS NOT NULL')
                 if dropna_conditions:
-                    dropna_filter = ' AND '.join(dropna_conditions)
+                    dropna_filter = " AND ".join(dropna_conditions)
                     # Find WHERE clause index in parts and add to it, or insert new WHERE
                     where_idx = None
                     for i, part in enumerate(parts):
-                        if part.startswith('WHERE '):
+                        if part.startswith("WHERE "):
                             where_idx = i
                             break
                     if where_idx is not None:
                         # Append to existing WHERE
-                        parts[where_idx] = parts[where_idx] + f' AND {dropna_filter}'
+                        parts[where_idx] = parts[where_idx] + f" AND {dropna_filter}"
                     else:
                         # Find GROUP BY and insert WHERE before it
                         groupby_idx = None
                         for i, part in enumerate(parts):
-                            if part.startswith('GROUP BY'):
+                            if part.startswith("GROUP BY"):
                                 groupby_idx = i
                                 break
                         if groupby_idx is not None:
-                            parts.insert(groupby_idx, f'WHERE {dropna_filter}')
+                            parts.insert(groupby_idx, f"WHERE {dropna_filter}")
 
         # ORDER BY clause
         # Use chDB's built-in _row_id virtual column (available in v4.0.0b5+) to preserve row order
@@ -2178,12 +2405,16 @@ class SQLExecutionEngine:
         # to ensure consistent behavior across all platforms
         if clauses.orderby_fields:
             # Build ORDER BY without stable sort modifier
-            orderby_sql = build_orderby_clause(clauses.orderby_fields, self.quote_char, stable=False)
+            orderby_sql = build_orderby_clause(
+                clauses.orderby_fields, self.quote_char, stable=False
+            )
             parts.append(f"ORDER BY {orderby_sql}")
         elif plan.groupby_agg and plan.groupby_agg.sort:
             # GroupBy with sort=True (default): order by group keys
             orderby_cols = [(Field(col), True) for col in plan.groupby_agg.groupby_cols]
-            orderby_sql = build_orderby_clause(orderby_cols, self.quote_char, stable=False)
+            orderby_sql = build_orderby_clause(
+                orderby_cols, self.quote_char, stable=False
+            )
             parts.append(f"ORDER BY {orderby_sql}")
         elif not plan.groupby_agg and clauses.where_conditions:
             # No explicit ORDER BY, no GROUP BY, but has WHERE: preserve original row order
@@ -2198,7 +2429,7 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             parts.append(f"OFFSET {clauses.offset_value}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def _check_limit_before_where(self, ops: List[LazyOp]) -> bool:
         """
@@ -2221,9 +2452,9 @@ class SQLExecutionEngine:
 
         for i, op in enumerate(ops):
             if isinstance(op, LazyRelationalOp):
-                if op.op_type == 'LIMIT' and limit_idx is None:
+                if op.op_type == "LIMIT" and limit_idx is None:
                     limit_idx = i
-                elif op.op_type == 'WHERE' and where_idx is None:
+                elif op.op_type == "WHERE" and where_idx is None:
                     where_idx = i
 
         # LIMIT before WHERE if both exist and LIMIT comes first
@@ -2270,7 +2501,10 @@ class SQLExecutionEngine:
 
             # Each layer also needs deterministic ordering for LIMIT/OFFSET
             sql = self._assemble_simple_sql(
-                f"({sql}) AS {subq_alias}", layer_clauses, add_row_order=True, preserved_orderby=preserved_orderby
+                f"({sql}) AS {subq_alias}",
+                layer_clauses,
+                add_row_order=True,
+                preserved_orderby=preserved_orderby,
             )
 
         return sql
@@ -2297,7 +2531,10 @@ class SQLExecutionEngine:
         """
         # Build SELECT clause - include computed columns if present
         if clauses.select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in clauses.select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in clauses.select_fields
+            )
             parts = [f"SELECT *, {fields_sql}"]
         else:
             parts = ["SELECT *"]
@@ -2311,10 +2548,14 @@ class SQLExecutionEngine:
 
         # Add ORDER BY - either explicit, preserved from inner, or _row_id for row order preservation
         # Priority: explicit ORDER BY > preserved ORDER BY > _row_id fallback
-        orderby_to_use = clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
+        orderby_to_use = (
+            clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
+        )
 
         if orderby_to_use:
-            orderby_sql = build_orderby_clause(orderby_to_use, self.quote_char, stable=False)
+            orderby_sql = build_orderby_clause(
+                orderby_to_use, self.quote_char, stable=False
+            )
             parts.append(f"ORDER BY {orderby_sql}")
         elif add_row_order:
             # Add ORDER BY _row_id to preserve pandas-like row order
@@ -2328,4 +2569,4 @@ class SQLExecutionEngine:
         if clauses.offset_value is not None:
             parts.append(f"OFFSET {clauses.offset_value}")
 
-        return ' '.join(parts)
+        return " ".join(parts)

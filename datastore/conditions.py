@@ -10,13 +10,13 @@ from .utils import format_alias
 from .exceptions import ValidationError
 
 __all__ = [
-    'Condition',
-    'BinaryCondition',
-    'CompoundCondition',
-    'UnaryCondition',
-    'InCondition',
-    'BetweenCondition',
-    'LikeCondition',
+    "Condition",
+    "BinaryCondition",
+    "CompoundCondition",
+    "UnaryCondition",
+    "InCondition",
+    "BetweenCondition",
+    "LikeCondition",
 ]
 
 
@@ -30,27 +30,27 @@ class Condition(Expression):
 
         if isinstance(other, ColumnExpr):
             # Convert boolean ColumnExpr (like isNull()) to condition: expr = 1
-            return BinaryCondition('=', other._expr, Literal(1))
+            return BinaryCondition("=", other._expr, Literal(1))
         return other
 
-    def __and__(self, other: 'Condition') -> 'CompoundCondition':
+    def __and__(self, other: "Condition") -> "CompoundCondition":
         """Combine conditions with AND."""
-        return CompoundCondition('AND', self, self._convert_to_condition(other))
+        return CompoundCondition("AND", self, self._convert_to_condition(other))
 
-    def __or__(self, other: 'Condition') -> 'CompoundCondition':
+    def __or__(self, other: "Condition") -> "CompoundCondition":
         """Combine conditions with OR."""
-        return CompoundCondition('OR', self, self._convert_to_condition(other))
+        return CompoundCondition("OR", self, self._convert_to_condition(other))
 
-    def __xor__(self, other: 'Condition') -> 'CompoundCondition':
+    def __xor__(self, other: "Condition") -> "CompoundCondition":
         """Combine conditions with XOR."""
-        return CompoundCondition('XOR', self, self._convert_to_condition(other))
+        return CompoundCondition("XOR", self, self._convert_to_condition(other))
 
-    def __invert__(self) -> 'NotCondition':
+    def __invert__(self) -> "NotCondition":
         """Negate condition with NOT."""
         return NotCondition(self)
 
     @staticmethod
-    def all(conditions: List['Condition']) -> Optional['Condition']:
+    def all(conditions: List["Condition"]) -> Optional["Condition"]:
         """Combine multiple conditions with AND."""
         if not conditions:
             return None
@@ -63,7 +63,7 @@ class Condition(Expression):
         return result
 
     @staticmethod
-    def any(conditions: List['Condition']) -> Optional['Condition']:
+    def any(conditions: List["Condition"]) -> Optional["Condition"]:
         """Combine multiple conditions with OR."""
         if not conditions:
             return None
@@ -85,9 +85,15 @@ class BinaryCondition(Condition):
         >>> Field('price') > 100  # Uses operator overloading
     """
 
-    OPERATORS = {'=', '!=', '<>', '>', '>=', '<', '<=', 'LIKE', 'ILIKE', 'IN', 'IS'}
+    OPERATORS = {"=", "!=", "<>", ">", ">=", "<", "<=", "LIKE", "ILIKE", "IN", "IS"}
 
-    def __init__(self, operator: str, left: Expression, right: Expression, alias: Optional[str] = None):
+    def __init__(
+        self,
+        operator: str,
+        left: Expression,
+        right: Expression,
+        alias: Optional[str] = None,
+    ):
         super().__init__(alias)
 
         if operator.upper() not in self.OPERATORS:
@@ -108,8 +114,8 @@ class BinaryCondition(Condition):
     # pandas follows IEEE 754: comparisons with NaN/NULL return bool, not NULL
     # - For =, >, >=, <, <=: NULL comparison returns False in pandas
     # - For !=, <>: NULL comparison returns True in pandas
-    _NULL_TO_FALSE_OPS = {'=', '>', '>=', '<', '<='}
-    _NULL_TO_TRUE_OPS = {'!=', '<>'}
+    _NULL_TO_FALSE_OPS = {"=", ">", ">=", "<", "<="}
+    _NULL_TO_TRUE_OPS = {"!=", "<>"}
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for binary condition."""
@@ -119,13 +125,15 @@ class BinaryCondition(Condition):
         sql = f"{left_sql} {self.operator} {right_sql}"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
 
     def __copy__(self):
-        return BinaryCondition(self.operator, copy(self.left), copy(self.right), self.alias)
+        return BinaryCondition(
+            self.operator, copy(self.left), copy(self.right), self.alias
+        )
 
 
 class NullSafeCondition(Condition):
@@ -167,7 +175,7 @@ class NullSafeCondition(Condition):
             sql = inner_sql
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -205,9 +213,15 @@ class CompoundCondition(Condition):
         >>> (Field('age') > 18) & (Field('city') == 'NYC')
     """
 
-    OPERATORS = {'AND', 'OR', 'XOR'}
+    OPERATORS = {"AND", "OR", "XOR"}
 
-    def __init__(self, operator: str, left: Condition, right: Condition, alias: Optional[str] = None):
+    def __init__(
+        self,
+        operator: str,
+        left: Condition,
+        right: Condition,
+        alias: Optional[str] = None,
+    ):
         super().__init__(alias)
 
         if operator.upper() not in self.OPERATORS:
@@ -232,13 +246,15 @@ class CompoundCondition(Condition):
         sql = f"({left_sql} {self.operator} {right_sql})"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
 
     def __copy__(self):
-        return CompoundCondition(self.operator, copy(self.left), copy(self.right), self.alias)
+        return CompoundCondition(
+            self.operator, copy(self.left), copy(self.right), self.alias
+        )
 
 
 class NotCondition(Condition):
@@ -277,7 +293,7 @@ class NotCondition(Condition):
         sql = f"ifNull(NOT ({cond_sql}), 1)"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -295,9 +311,11 @@ class UnaryCondition(Condition):
         >>> # Generates: "name" IS NULL
     """
 
-    OPERATORS = {'IS NULL', 'IS NOT NULL'}
+    OPERATORS = {"IS NULL", "IS NOT NULL"}
 
-    def __init__(self, operator: str, expression: Expression, alias: Optional[str] = None):
+    def __init__(
+        self, operator: str, expression: Expression, alias: Optional[str] = None
+    ):
         super().__init__(alias)
 
         if operator.upper() not in self.OPERATORS:
@@ -317,7 +335,7 @@ class UnaryCondition(Condition):
         sql = f"{expr_sql} {self.operator}"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -335,11 +353,17 @@ class InCondition(Condition):
         >>> # Generates: "id" IN (1,2,3)
     """
 
-    def __init__(self, expression: Expression, values, negate: bool = False, alias: Optional[str] = None):
+    def __init__(
+        self,
+        expression: Expression,
+        values,
+        negate: bool = False,
+        alias: Optional[str] = None,
+    ):
         super().__init__(alias)
         self.expression = expression
         # Check if values is a subquery (DataStore) - don't convert to list
-        if hasattr(values, 'to_sql') and hasattr(values, 'table_name'):
+        if hasattr(values, "to_sql") and hasattr(values, "table_name"):
             self.values = values  # Subquery
         else:
             self.values = values if isinstance(values, (list, tuple)) else [values]
@@ -358,10 +382,10 @@ class InCondition(Condition):
 
         # Check if values is a subquery (DataStore object)
         # We need to avoid circular import, so check for method existence
-        if hasattr(self.values, 'to_sql') and hasattr(self.values, 'table_name'):
+        if hasattr(self.values, "to_sql") and hasattr(self.values, "table_name"):
             # This is a DataStore subquery
             values_sql = self.values.to_sql(quote_char=quote_char)
-            operator = 'NOT IN' if self.negate else 'IN'
+            operator = "NOT IN" if self.negate else "IN"
             sql = f"{expr_sql} {operator} ({values_sql})"
         else:
             # Convert values to SQL
@@ -370,14 +394,16 @@ class InCondition(Condition):
                 if isinstance(val, Expression):
                     value_sqls.append(val.to_sql(quote_char=quote_char, **kwargs))
                 else:
-                    value_sqls.append(Literal(val).to_sql(quote_char=quote_char, **kwargs))
+                    value_sqls.append(
+                        Literal(val).to_sql(quote_char=quote_char, **kwargs)
+                    )
 
-            values_sql = ','.join(value_sqls)
-            operator = 'NOT IN' if self.negate else 'IN'
+            values_sql = ",".join(value_sqls)
+            operator = "NOT IN" if self.negate else "IN"
             sql = f"{expr_sql} {operator} ({values_sql})"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -402,7 +428,7 @@ class BetweenCondition(Condition):
         expression: Expression,
         lower: Expression,
         upper: Expression,
-        inclusive: str = 'both',
+        inclusive: str = "both",
         alias: Optional[str] = None,
     ):
         super().__init__(alias)
@@ -425,27 +451,34 @@ class BetweenCondition(Condition):
         upper_sql = self.upper.to_sql(quote_char=quote_char, **kwargs)
 
         # Handle different inclusive modes
-        if self.inclusive == 'both':
+        if self.inclusive == "both":
             sql = f"{expr_sql} BETWEEN {lower_sql} AND {upper_sql}"
-        elif self.inclusive == 'neither':
+        elif self.inclusive == "neither":
             sql = f"({expr_sql} > {lower_sql} AND {expr_sql} < {upper_sql})"
-        elif self.inclusive == 'left':
+        elif self.inclusive == "left":
             sql = f"({expr_sql} >= {lower_sql} AND {expr_sql} < {upper_sql})"
-        elif self.inclusive == 'right':
+        elif self.inclusive == "right":
             sql = f"({expr_sql} > {lower_sql} AND {expr_sql} <= {upper_sql})"
         else:
             raise ValueError(
-                f"Invalid inclusive value: {self.inclusive}. " f"Valid options are: 'both', 'neither', 'left', 'right'"
+                f"Invalid inclusive value: {self.inclusive}. "
+                f"Valid options are: 'both', 'neither', 'left', 'right'"
             )
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
 
     def __copy__(self):
-        return BetweenCondition(copy(self.expression), copy(self.lower), copy(self.upper), self.inclusive, self.alias)
+        return BetweenCondition(
+            copy(self.expression),
+            copy(self.lower),
+            copy(self.upper),
+            self.inclusive,
+            self.alias,
+        )
 
 
 class LikeCondition(Condition):
@@ -485,17 +518,23 @@ class LikeCondition(Condition):
 
         # Determine operator
         if self.case_sensitive:
-            operator = 'NOT LIKE' if self.negate else 'LIKE'
+            operator = "NOT LIKE" if self.negate else "LIKE"
         else:
-            operator = 'NOT ILIKE' if self.negate else 'ILIKE'
+            operator = "NOT ILIKE" if self.negate else "ILIKE"
 
         sql = f"{expr_sql} {operator} {pattern_sql}"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
 
     def __copy__(self):
-        return LikeCondition(copy(self.expression), self.pattern, self.negate, self.case_sensitive, self.alias)
+        return LikeCondition(
+            copy(self.expression),
+            self.pattern,
+            self.negate,
+            self.case_sensitive,
+            self.alias,
+        )

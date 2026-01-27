@@ -66,7 +66,7 @@ if sys.version_info[:2] >= (3, 7):
 else:
     raise NotImplementedError("Python 3.6 or lower version is not supported")
 
-chdb_version = tuple(__version__.split('.'))
+chdb_version = tuple(__version__.split("."))
 
 
 # return pyarrow table

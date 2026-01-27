@@ -34,9 +34,17 @@ import pandas as pd
 # =============================================================================
 
 # Type Support
-# NOTE: Categorical/Timedelta work for read-only access but fail during SQL execution
-chdb_category_type = pytest.mark.xfail(
-    reason="chDB does not support CATEGORY numpy type in SQL operations",
+# NOTE: Timedelta works for read-only access but fails during SQL execution
+# FIXED (chDB v4.x): Categorical type now works in SQL operations
+def chdb_category_type(func):
+    """FIXED (chDB v4.x): Categorical type now works in SQL operations."""
+    return func
+
+
+# Dtype Difference: chDB converts categorical to object after SQL execution
+# Values are CORRECT, only dtype differs from pandas (category -> object)
+chdb_category_to_object = pytest.mark.xfail(
+    reason="chDB converts categorical dtype to object after SQL execution - VALUES ARE CORRECT, dtype differs",
     strict=True,
 )
 
@@ -386,8 +394,9 @@ MARKER_REGISTRY = {
     # chDB Engine Limitations (cannot fix in DataStore)
     # =========================================================================
     # Type Support
-    # NOTE: These types work for read-only access but fail during SQL execution
-    "chdb_category_type": ("chdb", None, "CATEGORY type fails in SQL operations (read-only works)"),
+    # NOTE: Timedelta works for read-only access but fails during SQL execution
+    "chdb_category_type": ("fixed", "chDB v4.x", "CATEGORY type now works in SQL operations - FIXED"),
+    "chdb_category_to_object": ("chdb", None, "chDB converts categorical to object dtype after SQL (values correct)"),
     "chdb_timedelta_type": ("chdb", None, "TIMEDELTA type fails in SQL operations (read-only works)"),
     "chdb_array_nullable": ("chdb", None, "Array cannot be inside Nullable type"),
     "chdb_array_string_conversion": ("chdb", None, "numpy arrays may be converted to strings in SQL operations"),

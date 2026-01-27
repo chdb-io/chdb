@@ -27,11 +27,11 @@ if TYPE_CHECKING:
     from .functions import Function
 
 __all__ = [
-    'FunctionType',
-    'FunctionCategory',
-    'FunctionSpec',
-    'FunctionRegistry',
-    'register_function',
+    "FunctionType",
+    "FunctionCategory",
+    "FunctionSpec",
+    "FunctionRegistry",
+    "register_function",
 ]
 
 
@@ -148,7 +148,7 @@ class FunctionSpec:
         """Get all names including aliases."""
         return {self.name} | set(self.aliases)
 
-    def build(self, *args, **kwargs) -> 'Function':
+    def build(self, *args, **kwargs) -> "Function":
         """
         Build a function expression using the sql_builder.
 
@@ -407,10 +407,12 @@ class FunctionRegistry:
     def stats(cls) -> Dict[str, Any]:
         """Get registry statistics."""
         return {
-            'total_functions': len(cls._functions),
-            'total_aliases': len(cls._alias_map),
-            'by_type': {t.name: len(names) for t, names in cls._by_type.items()},
-            'by_category': {c.name: len(names) for c, names in cls._by_category.items()},
+            "total_functions": len(cls._functions),
+            "total_aliases": len(cls._alias_map),
+            "by_type": {t.name: len(names) for t, names in cls._by_type.items()},
+            "by_category": {
+                c.name: len(names) for c, names in cls._by_category.items()
+            },
         }
 
 

@@ -65,7 +65,7 @@ class Executor:
         self,
         sql: str,
         df: pd.DataFrame,
-        df_name: str = '__df__',
+        df_name: str = "__df__",
         preserve_order: bool = True,
     ) -> pd.DataFrame:
         """
@@ -83,7 +83,9 @@ class Executor:
         self._ensure_connected()
         return self.connection.query_df(sql, df, df_name, preserve_order=preserve_order)
 
-    def execute_expression(self, expr_sql: str, df: pd.DataFrame, result_column: str = '__result__') -> pd.Series:
+    def execute_expression(
+        self, expr_sql: str, df: pd.DataFrame, result_column: str = "__result__"
+    ) -> pd.Series:
         """
         Evaluate a SQL expression on a DataFrame and return the result as a Series.
 

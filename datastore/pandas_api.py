@@ -43,7 +43,7 @@ def _get_datastore_class():
 # ========== IO Functions ==========
 
 
-def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
+def read_csv(filepath_or_buffer, sep=",", **kwargs) -> "DataStoreType":
     """
     Read a comma-separated values (CSV) file into DataStore.
 
@@ -116,11 +116,11 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
     DataStore = _get_datastore_class()
 
     # Extract header parameter
-    header = kwargs.get('header', 'infer')
+    header = kwargs.get("header", "infer")
 
     # Check for unsupported iterator parameters FIRST
     # These return TextFileReader instead of DataFrame and are not supported
-    if 'chunksize' in kwargs or 'iterator' in kwargs:
+    if "chunksize" in kwargs or "iterator" in kwargs:
         raise UnsupportedOperationError(
             operation="read_csv(chunksize=...) or read_csv(iterator=True)",
             reason="DataStore does not support chunked reading as it returns TextFileReader instead of DataFrame",
@@ -129,17 +129,17 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
 
     # Parameters that MUST fall back to pandas (chDB cannot handle)
     pandas_required_params = {
-        'names',  # Custom column names (chDB doesn't support renaming on read)
-        'index_col',  # Set index column (pandas concept)
-        'usecols',  # Select specific columns (could use SQL SELECT but behavior differs)
-        'dtype',  # Force type conversion (chDB has different type system)
-        'parse_dates',  # Date parsing with specific format
-        'date_parser',  # Custom date parser function
-        'date_format',  # Date format string
-        'dayfirst',  # Date format preference
-        'converters',  # Custom converter functions
-        'true_values',  # Custom boolean true values (chDB bool_true_representation is for OUTPUT only)
-        'false_values',  # Custom boolean false values (chDB bool_false_representation is for OUTPUT only)
+        "names",  # Custom column names (chDB doesn't support renaming on read)
+        "index_col",  # Set index column (pandas concept)
+        "usecols",  # Select specific columns (could use SQL SELECT but behavior differs)
+        "dtype",  # Force type conversion (chDB has different type system)
+        "parse_dates",  # Date parsing with specific format
+        "date_parser",  # Custom date parser function
+        "date_format",  # Date format string
+        "dayfirst",  # Date format preference
+        "converters",  # Custom converter functions
+        "true_values",  # Custom boolean true values (chDB bool_true_representation is for OUTPUT only)
+        "false_values",  # Custom boolean false values (chDB bool_false_representation is for OUTPUT only)
     }
 
     # Check if we must use pandas
@@ -153,22 +153,23 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
         needs_pandas = True
 
     # Check for file-like objects (chDB needs file path)
-    if hasattr(filepath_or_buffer, 'read'):
+    if hasattr(filepath_or_buffer, "read"):
         needs_pandas = True
 
     # Check for URL (use pandas for HTTP URLs for simplicity)
     if isinstance(filepath_or_buffer, str) and (
-        filepath_or_buffer.startswith('http://') or filepath_or_buffer.startswith('https://')
+        filepath_or_buffer.startswith("http://")
+        or filepath_or_buffer.startswith("https://")
     ):
         needs_pandas = True
 
     # Parameters that can be mapped to chDB settings OR fall back to pandas
     # We try to handle as many as possible with chDB
-    true_values = kwargs.get('true_values')
-    false_values = kwargs.get('false_values')
-    na_values = kwargs.get('na_values')
-    keep_default_na = kwargs.get('keep_default_na', True)
-    na_filter = kwargs.get('na_filter', True)
+    true_values = kwargs.get("true_values")
+    false_values = kwargs.get("false_values")
+    na_values = kwargs.get("na_values")
+    keep_default_na = kwargs.get("keep_default_na", True)
+    na_filter = kwargs.get("na_filter", True)
 
     # These parameters require pandas if na_values is complex
     if na_values is not None and not isinstance(na_values, (str, list)):
@@ -182,30 +183,30 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
 
     # ===== Use chDB SQL engine =====
     # Extract and pop parameters we handle specially
-    compression = kwargs.pop('compression', None)
-    skiprows = kwargs.pop('skiprows', None)
-    nrows = kwargs.pop('nrows', None)
-    skip_blank_lines = kwargs.pop('skip_blank_lines', True)
-    on_bad_lines = kwargs.pop('on_bad_lines', 'error')
-    quotechar = kwargs.pop('quotechar', '"')
-    escapechar = kwargs.pop('escapechar', None)
-    comment = kwargs.pop('comment', None)
-    thousands = kwargs.pop('thousands', None)
-    decimal = kwargs.pop('decimal', '.')
-    encoding = kwargs.pop('encoding', None)
-    skipinitialspace = kwargs.pop('skipinitialspace', False)
-    skipfooter = kwargs.pop('skipfooter', 0)
-    low_memory = kwargs.pop('low_memory', True)
-    memory_map = kwargs.pop('memory_map', False)
-    float_precision = kwargs.pop('float_precision', None)
+    compression = kwargs.pop("compression", None)
+    skiprows = kwargs.pop("skiprows", None)
+    nrows = kwargs.pop("nrows", None)
+    skip_blank_lines = kwargs.pop("skip_blank_lines", True)
+    on_bad_lines = kwargs.pop("on_bad_lines", "error")
+    quotechar = kwargs.pop("quotechar", '"')
+    escapechar = kwargs.pop("escapechar", None)
+    comment = kwargs.pop("comment", None)
+    thousands = kwargs.pop("thousands", None)
+    decimal = kwargs.pop("decimal", ".")
+    encoding = kwargs.pop("encoding", None)
+    skipinitialspace = kwargs.pop("skipinitialspace", False)
+    skipfooter = kwargs.pop("skipfooter", 0)
+    low_memory = kwargs.pop("low_memory", True)
+    memory_map = kwargs.pop("memory_map", False)
+    float_precision = kwargs.pop("float_precision", None)
 
     # Remove handled params from kwargs
-    kwargs.pop('header', None)
-    kwargs.pop('true_values', None)
-    kwargs.pop('false_values', None)
-    kwargs.pop('na_values', None)
-    kwargs.pop('keep_default_na', None)
-    kwargs.pop('na_filter', None)
+    kwargs.pop("header", None)
+    kwargs.pop("true_values", None)
+    kwargs.pop("false_values", None)
+    kwargs.pop("na_values", None)
+    kwargs.pop("keep_default_na", None)
+    kwargs.pop("na_filter", None)
 
     # Some params require pandas but we haven't checked yet
     if skipfooter > 0 or comment is not None or thousands is not None:
@@ -240,7 +241,7 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
 
     # For custom delimiters other than tab, fall back to pandas
     # ClickHouse's CSV format with custom delimiter has schema inference issues
-    if sep != ',' and sep != '\t':
+    if sep != "," and sep != "\t":
         pandas_df = _pd.read_csv(
             filepath_or_buffer,
             sep=sep,
@@ -268,14 +269,14 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
 
     # Determine format based on header and delimiter
     # For tab delimiter, use TSV format which natively supports tabs
-    if sep == '\t':
-        csv_format = 'TSVWithNames' if header != None else 'TSV'
+    if sep == "\t":
+        csv_format = "TSVWithNames" if header != None else "TSV"
     else:
         # header=0 or 'infer': first row is column names (CSVWithNames)
         # header=None: no header row, generate column names (CSV)
-        csv_format = 'CSVWithNames'  # Default: first row is header
+        csv_format = "CSVWithNames"  # Default: first row is header
         if header is None:
-            csv_format = 'CSV'  # No header row
+            csv_format = "CSV"  # No header row
 
     ds = DataStore.from_file(
         filepath_or_buffer,
@@ -287,16 +288,18 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
     settings = {}
 
     # Delimiter
-    if sep != ',':
-        settings['format_csv_delimiter'] = sep
+    if sep != ",":
+        settings["format_csv_delimiter"] = sep
 
     # Skip rows (after header)
     if skiprows:
         if isinstance(skiprows, int):
-            settings['input_format_csv_skip_first_lines'] = skiprows
+            settings["input_format_csv_skip_first_lines"] = skiprows
         else:
             # Complex skiprows (callable, list) requires pandas
-            pandas_df = _pd.read_csv(filepath_or_buffer, sep=sep, skiprows=skiprows, **kwargs)
+            pandas_df = _pd.read_csv(
+                filepath_or_buffer, sep=sep, skiprows=skiprows, **kwargs
+            )
             return DataStore.from_df(pandas_df)
 
     # Note: true_values/false_values now fall back to pandas
@@ -306,36 +309,36 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
     # NA/NULL handling
     if na_values is not None:
         if isinstance(na_values, str):
-            settings['format_csv_null_representation'] = na_values
+            settings["format_csv_null_representation"] = na_values
         elif isinstance(na_values, list) and len(na_values) > 0:
             # Use the first value (chDB supports only one null representation)
-            settings['format_csv_null_representation'] = str(na_values[0])
+            settings["format_csv_null_representation"] = str(na_values[0])
 
     # Whitespace handling
     if skipinitialspace:
-        settings['input_format_csv_trim_whitespaces'] = 1
+        settings["input_format_csv_trim_whitespaces"] = 1
 
     # Quote handling
     if quotechar == '"':
-        settings['format_csv_allow_double_quotes'] = 1
+        settings["format_csv_allow_double_quotes"] = 1
     elif quotechar == "'":
-        settings['format_csv_allow_single_quotes'] = 1
+        settings["format_csv_allow_single_quotes"] = 1
 
     # Skip blank lines (default True in pandas)
     if skip_blank_lines:
-        settings['input_format_csv_skip_trailing_empty_lines'] = 1
+        settings["input_format_csv_skip_trailing_empty_lines"] = 1
 
     # Error handling
-    if on_bad_lines == 'skip' or on_bad_lines == 'warn':
-        settings['input_format_csv_use_default_on_bad_values'] = 1
-        settings['input_format_allow_errors_num'] = 10000  # Allow many errors
-        settings['input_format_allow_errors_ratio'] = 0.1  # Up to 10% errors
+    if on_bad_lines == "skip" or on_bad_lines == "warn":
+        settings["input_format_csv_use_default_on_bad_values"] = 1
+        settings["input_format_allow_errors_num"] = 10000  # Allow many errors
+        settings["input_format_allow_errors_ratio"] = 0.1  # Up to 10% errors
 
     # Schema inference settings for better type detection
-    settings['input_format_csv_use_best_effort_in_schema_inference'] = 1
-    settings['input_format_try_infer_integers'] = 1
-    settings['input_format_try_infer_dates'] = 1
-    settings['input_format_try_infer_datetimes'] = 1
+    settings["input_format_csv_use_best_effort_in_schema_inference"] = 1
+    settings["input_format_try_infer_integers"] = 1
+    settings["input_format_try_infer_dates"] = 1
+    settings["input_format_try_infer_datetimes"] = 1
 
     # Apply settings
     if settings:
@@ -348,7 +351,7 @@ def read_csv(filepath_or_buffer, sep=',', **kwargs) -> 'DataStoreType':
     return ds
 
 
-def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
+def read_parquet(path, columns=None, **kwargs) -> "DataStoreType":
     """
     Read a Parquet file into DataStore.
 
@@ -376,12 +379,12 @@ def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
 
     # Parameters that require pandas
     pandas_only_params = {
-        'engine',  # Specific parquet engine
-        'use_nullable_dtypes',  # Nullable dtypes
-        'dtype_backend',  # Dtype backend selection
-        'filesystem',  # Custom filesystem
-        'filters',  # Row group filters (pyarrow specific)
-        'storage_options',  # Storage options for remote
+        "engine",  # Specific parquet engine
+        "use_nullable_dtypes",  # Nullable dtypes
+        "dtype_backend",  # Dtype backend selection
+        "filesystem",  # Custom filesystem
+        "filters",  # Row group filters (pyarrow specific)
+        "storage_options",  # Storage options for remote
     }
 
     needs_pandas = any(param in kwargs for param in pandas_only_params)
@@ -391,11 +394,13 @@ def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
         needs_pandas = True
 
     # File-like objects need pandas
-    if hasattr(path, 'read'):
+    if hasattr(path, "read"):
         needs_pandas = True
 
     # HTTP URLs - use pandas for simplicity
-    if isinstance(path, str) and (path.startswith('http://') or path.startswith('https://')):
+    if isinstance(path, str) and (
+        path.startswith("http://") or path.startswith("https://")
+    ):
         needs_pandas = True
 
     if needs_pandas:
@@ -403,10 +408,10 @@ def read_parquet(path, columns=None, **kwargs) -> 'DataStoreType':
         return DataStore.from_df(pandas_df)
     else:
         # Use chDB SQL engine
-        return DataStore.from_file(path, format='Parquet')
+        return DataStore.from_file(path, format="Parquet")
 
 
-def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> 'DataStoreType':
+def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> "DataStoreType":
     """
     Read a JSON file into DataStore.
 
@@ -447,26 +452,28 @@ def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> 'DataStoreType
 
     # Parameters that require pandas
     pandas_only_params = {
-        'typ',  # Object type (frame vs series)
-        'dtype',  # Type conversion
-        'convert_axes',  # Axes conversion
-        'convert_dates',  # Date parsing
-        'precise_float',  # Float precision
-        'encoding',  # Encoding
-        'date_unit',  # Date unit
-        'encoding_errors',  # Encoding error handling
-        'chunksize',  # Chunked reading
-        'nrows',  # Row limit (pandas specific handling)
+        "typ",  # Object type (frame vs series)
+        "dtype",  # Type conversion
+        "convert_axes",  # Axes conversion
+        "convert_dates",  # Date parsing
+        "precise_float",  # Float precision
+        "encoding",  # Encoding
+        "date_unit",  # Date unit
+        "encoding_errors",  # Encoding error handling
+        "chunksize",  # Chunked reading
+        "nrows",  # Row limit (pandas specific handling)
     }
 
     needs_pandas = any(param in kwargs for param in pandas_only_params)
 
     # File-like objects need pandas
-    if hasattr(path_or_buf, 'read'):
+    if hasattr(path_or_buf, "read"):
         needs_pandas = True
 
     # HTTP URLs - use pandas for simplicity
-    if isinstance(path_or_buf, str) and (path_or_buf.startswith('http://') or path_or_buf.startswith('https://')):
+    if isinstance(path_or_buf, str) and (
+        path_or_buf.startswith("http://") or path_or_buf.startswith("https://")
+    ):
         needs_pandas = True
 
     # chDB only supports JSONEachRow (lines=True) format well
@@ -479,11 +486,13 @@ def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> 'DataStoreType
         return DataStore.from_df(pandas_df)
     else:
         # Use chDB SQL engine for JSON Lines format
-        compression = kwargs.pop('compression', None)
-        return DataStore.from_file(path_or_buf, format='JSONEachRow', compression=compression)
+        compression = kwargs.pop("compression", None)
+        return DataStore.from_file(
+            path_or_buf, format="JSONEachRow", compression=compression
+        )
 
 
-def read_excel(io, sheet_name=0, **kwargs) -> 'DataStoreType':
+def read_excel(io, sheet_name=0, **kwargs) -> "DataStoreType":
     """
     Read an Excel file into DataStore.
 
@@ -507,7 +516,7 @@ def read_excel(io, sheet_name=0, **kwargs) -> 'DataStoreType':
     return DataStore.from_df(pandas_df)
 
 
-def read_sql(sql, con, **kwargs) -> 'DataStoreType':
+def read_sql(sql, con, **kwargs) -> "DataStoreType":
     """
     Read SQL query into DataStore.
 
@@ -530,7 +539,7 @@ def read_sql(sql, con, **kwargs) -> 'DataStoreType':
     return DataStore.from_df(pandas_df)
 
 
-def read_table(filepath_or_buffer, sep='\t', **kwargs) -> 'DataStoreType':
+def read_table(filepath_or_buffer, sep="\t", **kwargs) -> "DataStoreType":
     """
     Read general delimited file into DataStore.
 
@@ -564,7 +573,7 @@ def read_table(filepath_or_buffer, sep='\t', **kwargs) -> 'DataStoreType':
     return read_csv(filepath_or_buffer, sep=sep, **kwargs)
 
 
-def read_feather(path, columns=None, **kwargs) -> 'DataStoreType':
+def read_feather(path, columns=None, **kwargs) -> "DataStoreType":
     """
     Read a Feather file into DataStore.
 
@@ -589,9 +598,9 @@ def read_feather(path, columns=None, **kwargs) -> 'DataStoreType':
 
     # Parameters that require pandas
     pandas_only_params = {
-        'use_threads',  # Threading control
-        'storage_options',  # Storage options
-        'dtype_backend',  # Dtype backend selection
+        "use_threads",  # Threading control
+        "storage_options",  # Storage options
+        "dtype_backend",  # Dtype backend selection
     }
 
     needs_pandas = any(param in kwargs for param in pandas_only_params)
@@ -601,7 +610,7 @@ def read_feather(path, columns=None, **kwargs) -> 'DataStoreType':
         needs_pandas = True
 
     # File-like objects need pandas
-    if hasattr(path, 'read'):
+    if hasattr(path, "read"):
         needs_pandas = True
 
     if needs_pandas:
@@ -609,10 +618,10 @@ def read_feather(path, columns=None, **kwargs) -> 'DataStoreType':
         return DataStore.from_df(pandas_df)
     else:
         # Use chDB SQL engine (Arrow format)
-        return DataStore.from_file(path, format='Arrow')
+        return DataStore.from_file(path, format="Arrow")
 
 
-def read_orc(path, columns=None, **kwargs) -> 'DataStoreType':
+def read_orc(path, columns=None, **kwargs) -> "DataStoreType":
     """
     Read an ORC file into DataStore.
 
@@ -637,8 +646,8 @@ def read_orc(path, columns=None, **kwargs) -> 'DataStoreType':
 
     # Parameters that require pandas
     pandas_only_params = {
-        'dtype_backend',  # Dtype backend selection
-        'filesystem',  # Custom filesystem
+        "dtype_backend",  # Dtype backend selection
+        "filesystem",  # Custom filesystem
     }
 
     needs_pandas = any(param in kwargs for param in pandas_only_params)
@@ -648,7 +657,7 @@ def read_orc(path, columns=None, **kwargs) -> 'DataStoreType':
         needs_pandas = True
 
     # File-like objects need pandas
-    if hasattr(path, 'read'):
+    if hasattr(path, "read"):
         needs_pandas = True
 
     if needs_pandas:
@@ -656,10 +665,10 @@ def read_orc(path, columns=None, **kwargs) -> 'DataStoreType':
         return DataStore.from_df(pandas_df)
     else:
         # Use chDB SQL engine
-        return DataStore.from_file(path, format='ORC')
+        return DataStore.from_file(path, format="ORC")
 
 
-def read_pickle(filepath_or_buffer, **kwargs) -> 'DataStoreType':
+def read_pickle(filepath_or_buffer, **kwargs) -> "DataStoreType":
     """
     Read a pickled pandas DataFrame into DataStore.
 
@@ -681,7 +690,9 @@ def read_pickle(filepath_or_buffer, **kwargs) -> 'DataStoreType':
     return DataStore.from_df(pandas_df)
 
 
-def read_fwf(filepath_or_buffer, colspecs='infer', widths=None, **kwargs) -> 'DataStoreType':
+def read_fwf(
+    filepath_or_buffer, colspecs="infer", widths=None, **kwargs
+) -> "DataStoreType":
     """
     Read a table of fixed-width formatted lines into DataStore.
 
@@ -699,12 +710,22 @@ def read_fwf(filepath_or_buffer, colspecs='infer', widths=None, **kwargs) -> 'Da
         >>> df = ds.read_fwf("data.txt", widths=[10, 10, 5])
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_fwf(filepath_or_buffer, colspecs=colspecs, widths=widths, **kwargs)
+    pandas_df = pd.read_fwf(
+        filepath_or_buffer, colspecs=colspecs, widths=widths, **kwargs
+    )
     return DataStore.from_df(pandas_df)
 
 
 def read_html(
-    io, match='.+', flavor=None, header=None, index_col=None, skiprows=None, attrs=None, parse_dates=False, **kwargs
+    io,
+    match=".+",
+    flavor=None,
+    header=None,
+    index_col=None,
+    skiprows=None,
+    attrs=None,
+    parse_dates=False,
+    **kwargs,
 ):
     """
     Read HTML tables into a list of DataStore objects.
@@ -743,8 +764,13 @@ def read_html(
 
 
 def read_xml(
-    path_or_buffer, xpath='./*', namespaces=None, elems_only=False, attrs_only=False, **kwargs
-) -> 'DataStoreType':
+    path_or_buffer,
+    xpath="./*",
+    namespaces=None,
+    elems_only=False,
+    attrs_only=False,
+    **kwargs,
+) -> "DataStoreType":
     """
     Read XML document into DataStore.
 
@@ -765,12 +791,17 @@ def read_xml(
     """
     DataStore = _get_datastore_class()
     pandas_df = pd.read_xml(
-        path_or_buffer, xpath=xpath, namespaces=namespaces, elems_only=elems_only, attrs_only=attrs_only, **kwargs
+        path_or_buffer,
+        xpath=xpath,
+        namespaces=namespaces,
+        elems_only=elems_only,
+        attrs_only=attrs_only,
+        **kwargs,
     )
     return DataStore.from_df(pandas_df)
 
 
-def read_stata(filepath_or_buffer, **kwargs) -> 'DataStoreType':
+def read_stata(filepath_or_buffer, **kwargs) -> "DataStoreType":
     """
     Read Stata file into DataStore.
 
@@ -790,7 +821,9 @@ def read_stata(filepath_or_buffer, **kwargs) -> 'DataStoreType':
     return DataStore.from_df(pandas_df)
 
 
-def read_sas(filepath_or_buffer, format=None, index=None, encoding=None, **kwargs) -> 'DataStoreType':
+def read_sas(
+    filepath_or_buffer, format=None, index=None, encoding=None, **kwargs
+) -> "DataStoreType":
     """
     Read SAS file into DataStore.
 
@@ -809,11 +842,15 @@ def read_sas(filepath_or_buffer, format=None, index=None, encoding=None, **kwarg
         >>> df = ds.read_sas("data.sas7bdat")
     """
     DataStore = _get_datastore_class()
-    pandas_df = pd.read_sas(filepath_or_buffer, format=format, index=index, encoding=encoding, **kwargs)
+    pandas_df = pd.read_sas(
+        filepath_or_buffer, format=format, index=index, encoding=encoding, **kwargs
+    )
     return DataStore.from_df(pandas_df)
 
 
-def read_spss(path, usecols=None, convert_categoricals=True, dtype_backend=None) -> 'DataStoreType':
+def read_spss(
+    path, usecols=None, convert_categoricals=True, dtype_backend=None
+) -> "DataStoreType":
     """
     Read SPSS file into DataStore.
 
@@ -832,12 +869,15 @@ def read_spss(path, usecols=None, convert_categoricals=True, dtype_backend=None)
     """
     DataStore = _get_datastore_class()
     pandas_df = pd.read_spss(
-        path, usecols=usecols, convert_categoricals=convert_categoricals, dtype_backend=dtype_backend
+        path,
+        usecols=usecols,
+        convert_categoricals=convert_categoricals,
+        dtype_backend=dtype_backend,
     )
     return DataStore.from_df(pandas_df)
 
 
-def read_hdf(path_or_buf, key=None, mode='r', **kwargs) -> 'DataStoreType':
+def read_hdf(path_or_buf, key=None, mode="r", **kwargs) -> "DataStoreType":
     """
     Read HDF5 file into DataStore.
 
@@ -860,8 +900,16 @@ def read_hdf(path_or_buf, key=None, mode='r', **kwargs) -> 'DataStoreType':
 
 
 def read_sql_query(
-    sql, con, index_col=None, coerce_float=True, params=None, parse_dates=None, chunksize=None, dtype=None, **kwargs
-) -> 'DataStoreType':
+    sql,
+    con,
+    index_col=None,
+    coerce_float=True,
+    params=None,
+    parse_dates=None,
+    chunksize=None,
+    dtype=None,
+    **kwargs,
+) -> "DataStoreType":
     """
     Read SQL query into DataStore.
 
@@ -908,7 +956,7 @@ def read_sql_table(
     columns=None,
     chunksize=None,
     **kwargs,
-) -> 'DataStoreType':
+) -> "DataStoreType":
     """
     Read SQL database table into DataStore.
 
@@ -948,7 +996,7 @@ def read_sql_table(
 # ========== Data Manipulation Functions ==========
 
 
-def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs):
+def concat(objs, axis=0, join="outer", ignore_index=False, keys=None, **kwargs):
     """
     Concatenate DataStore/DataFrame objects along a particular axis.
 
@@ -978,13 +1026,15 @@ def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs):
         if isinstance(obj, DataStore):
             has_datastore = True
             dfs.append(obj.to_df())
-        elif hasattr(obj, 'to_df') and not isinstance(obj, _pd.DataFrame):
+        elif hasattr(obj, "to_df") and not isinstance(obj, _pd.DataFrame):
             has_datastore = True
             dfs.append(obj.to_df())
         else:
             dfs.append(obj)
 
-    result = _pd.concat(dfs, axis=axis, join=join, ignore_index=ignore_index, keys=keys, **kwargs)
+    result = _pd.concat(
+        dfs, axis=axis, join=join, ignore_index=ignore_index, keys=keys, **kwargs
+    )
 
     # Only wrap in DataStore if the user passed DataStore objects
     # This allows pandas internal code to work correctly
@@ -996,13 +1046,13 @@ def concat(objs, axis=0, join='outer', ignore_index=False, keys=None, **kwargs):
 def merge(
     left,
     right,
-    how='inner',
+    how="inner",
     on=None,
     left_on=None,
     right_on=None,
     left_index=False,
     right_index=False,
-    suffixes=('_x', '_y'),
+    suffixes=("_x", "_y"),
     **kwargs,
 ):
     """
@@ -1037,7 +1087,7 @@ def merge(
     # Convert to DataFrames
     if isinstance(left, DataStore):
         left_df = left.to_df()
-    elif hasattr(left, 'to_df') and not isinstance(left, _pd.DataFrame):
+    elif hasattr(left, "to_df") and not isinstance(left, _pd.DataFrame):
         has_datastore = True
         left_df = left.to_df()
     else:
@@ -1045,7 +1095,7 @@ def merge(
 
     if isinstance(right, DataStore):
         right_df = right.to_df()
-    elif hasattr(right, 'to_df') and not isinstance(right, _pd.DataFrame):
+    elif hasattr(right, "to_df") and not isinstance(right, _pd.DataFrame):
         has_datastore = True
         right_df = right.to_df()
     else:
@@ -1081,11 +1131,11 @@ def merge_asof(
     by=None,
     left_by=None,
     right_by=None,
-    suffixes=('_x', '_y'),
+    suffixes=("_x", "_y"),
     tolerance=None,
     allow_exact_matches=True,
-    direction='backward',
-) -> 'DataStoreType':
+    direction="backward",
+) -> "DataStoreType":
     """
     Merge by nearest key rather than equal keys.
 
@@ -1117,8 +1167,8 @@ def merge_asof(
         >>> ds.merge_asof(left, right, on='a')
     """
     DataStore = _get_datastore_class()
-    left_df = left.to_df() if hasattr(left, 'to_df') else left
-    right_df = right.to_df() if hasattr(right, 'to_df') else right
+    left_df = left.to_df() if hasattr(left, "to_df") else left
+    right_df = right.to_df() if hasattr(right, "to_df") else right
 
     result = pd.merge_asof(
         left_df,
@@ -1148,9 +1198,9 @@ def merge_ordered(
     left_by=None,
     right_by=None,
     fill_method=None,
-    suffixes=('_x', '_y'),
-    how='outer',
-) -> 'DataStoreType':
+    suffixes=("_x", "_y"),
+    how="outer",
+) -> "DataStoreType":
     """
     Merge with optional filling/interpolation for ordered data.
 
@@ -1176,8 +1226,8 @@ def merge_ordered(
         >>> ds.merge_ordered(left, right, on='key')
     """
     DataStore = _get_datastore_class()
-    left_df = left.to_df() if hasattr(left, 'to_df') else left
-    right_df = right.to_df() if hasattr(right, 'to_df') else right
+    left_df = left.to_df() if hasattr(left, "to_df") else left
+    right_df = right.to_df() if hasattr(right, "to_df") else right
 
     result = pd.merge_ordered(
         left_df,
@@ -1288,7 +1338,15 @@ def notnull(obj):
 # ========== Type Conversion Functions ==========
 
 
-def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False, utc=False, format=None, **kwargs):
+def to_datetime(
+    arg,
+    errors="raise",
+    dayfirst=False,
+    yearfirst=False,
+    utc=False,
+    format=None,
+    **kwargs,
+):
     """
     Convert argument to datetime.
 
@@ -1314,10 +1372,18 @@ def to_datetime(arg, errors='raise', dayfirst=False, yearfirst=False, utc=False,
         >>> ds.to_datetime(['2024-01-15', '2024-02-20'])
         DatetimeIndex(['2024-01-15', '2024-02-20'], dtype='datetime64[ns]', freq=None)
     """
-    return pd.to_datetime(arg, errors=errors, dayfirst=dayfirst, yearfirst=yearfirst, utc=utc, format=format, **kwargs)
+    return pd.to_datetime(
+        arg,
+        errors=errors,
+        dayfirst=dayfirst,
+        yearfirst=yearfirst,
+        utc=utc,
+        format=format,
+        **kwargs,
+    )
 
 
-def to_numeric(arg, errors='raise', downcast=None):
+def to_numeric(arg, errors="raise", downcast=None):
     """
     Convert argument to a numeric type.
 
@@ -1339,7 +1405,7 @@ def to_numeric(arg, errors='raise', downcast=None):
     return pd.to_numeric(arg, errors=errors, downcast=downcast)
 
 
-def to_timedelta(arg, unit=None, errors='raise'):
+def to_timedelta(arg, unit=None, errors="raise"):
     """
     Convert argument to timedelta.
 
@@ -1365,7 +1431,15 @@ def to_timedelta(arg, unit=None, errors='raise'):
 
 
 def date_range(
-    start=None, end=None, periods=None, freq=None, tz=None, normalize=False, name=None, inclusive='both', **kwargs
+    start=None,
+    end=None,
+    periods=None,
+    freq=None,
+    tz=None,
+    normalize=False,
+    name=None,
+    inclusive="both",
+    **kwargs,
 ):
     """
     Return a fixed frequency DatetimeIndex.
@@ -1406,13 +1480,13 @@ def bdate_range(
     start=None,
     end=None,
     periods=None,
-    freq='B',
+    freq="B",
     tz=None,
     normalize=True,
     name=None,
     weekmask=None,
     holidays=None,
-    inclusive='both',
+    inclusive="both",
     **kwargs,
 ):
     """
@@ -1475,7 +1549,9 @@ def period_range(start=None, end=None, periods=None, freq=None, name=None):
     return pd.period_range(start=start, end=end, periods=periods, freq=freq, name=name)
 
 
-def timedelta_range(start=None, end=None, periods=None, freq=None, name=None, closed=None):
+def timedelta_range(
+    start=None, end=None, periods=None, freq=None, name=None, closed=None
+):
     """
     Return a fixed frequency TimedeltaIndex.
 
@@ -1495,10 +1571,14 @@ def timedelta_range(start=None, end=None, periods=None, freq=None, name=None, cl
         >>> ds.timedelta_range('1 day', periods=3, freq='12h')
         TimedeltaIndex(['1 days 00:00:00', '1 days 12:00:00', '2 days 00:00:00'], ...)
     """
-    return pd.timedelta_range(start=start, end=end, periods=periods, freq=freq, name=name, closed=closed)
+    return pd.timedelta_range(
+        start=start, end=end, periods=periods, freq=freq, name=name, closed=closed
+    )
 
 
-def interval_range(start=None, end=None, periods=None, freq=None, name=None, closed='right'):
+def interval_range(
+    start=None, end=None, periods=None, freq=None, name=None, closed="right"
+):
     """
     Return a fixed frequency IntervalIndex.
 
@@ -1518,14 +1598,24 @@ def interval_range(start=None, end=None, periods=None, freq=None, name=None, clo
         >>> ds.interval_range(start=0, end=5)
         IntervalIndex([(0, 1], (1, 2], (2, 3], (3, 4], (4, 5]], ...)
     """
-    return pd.interval_range(start=start, end=end, periods=periods, freq=freq, name=name, closed=closed)
+    return pd.interval_range(
+        start=start, end=end, periods=periods, freq=freq, name=name, closed=closed
+    )
 
 
 # ========== Data Binning and Categorization Functions ==========
 
 
 def cut(
-    x, bins, right=True, labels=None, retbins=False, precision=3, include_lowest=False, duplicates='raise', ordered=True
+    x,
+    bins,
+    right=True,
+    labels=None,
+    retbins=False,
+    precision=3,
+    include_lowest=False,
+    duplicates="raise",
+    ordered=True,
 ):
     """
     Bin values into discrete intervals.
@@ -1566,7 +1656,7 @@ def cut(
     )
 
 
-def qcut(x, q, labels=None, retbins=False, precision=3, duplicates='raise'):
+def qcut(x, q, labels=None, retbins=False, precision=3, duplicates="raise"):
     """
     Quantile-based discretization function.
 
@@ -1589,11 +1679,20 @@ def qcut(x, q, labels=None, retbins=False, precision=3, duplicates='raise'):
         >>> ds.qcut(range(10), 4)  # Quartiles
         [(-0.001, 2.25], (-0.001, 2.25], (-0.001, 2.25], (2.25, 4.5], ...]
     """
-    return pd.qcut(x, q, labels=labels, retbins=retbins, precision=precision, duplicates=duplicates)
+    return pd.qcut(
+        x, q, labels=labels, retbins=retbins, precision=precision, duplicates=duplicates
+    )
 
 
 def get_dummies(
-    data, prefix=None, prefix_sep='_', dummy_na=False, columns=None, sparse=False, drop_first=False, dtype=None
+    data,
+    prefix=None,
+    prefix_sep="_",
+    dummy_na=False,
+    columns=None,
+    sparse=False,
+    drop_first=False,
+    dtype=None,
 ):
     """
     Convert categorical variable into dummy/indicator variables.
@@ -1624,7 +1723,7 @@ def get_dummies(
     DataStore = _get_datastore_class()
 
     # Convert DataStore to DataFrame (pandas uses isinstance check internally)
-    if hasattr(data, 'to_df'):
+    if hasattr(data, "to_df"):
         data = data.to_df()
 
     result = pd.get_dummies(
@@ -1667,7 +1766,9 @@ def factorize(values, sort=False, use_na_sentinel=True, size_hint=None):
 
     if isinstance(values, (list, tuple)):
         values = np.array(values)
-    return pd.factorize(values, sort=sort, use_na_sentinel=use_na_sentinel, size_hint=size_hint)
+    return pd.factorize(
+        values, sort=sort, use_na_sentinel=use_na_sentinel, size_hint=size_hint
+    )
 
 
 def unique(values):
@@ -1688,7 +1789,9 @@ def unique(values):
     return pd.unique(values)
 
 
-def value_counts(values, sort=True, ascending=False, normalize=False, bins=None, dropna=True):
+def value_counts(
+    values, sort=True, ascending=False, normalize=False, bins=None, dropna=True
+):
     """
     Return a Series containing counts of unique values.
 
@@ -1713,15 +1816,23 @@ def value_counts(values, sort=True, ascending=False, normalize=False, bins=None,
     # Use pd.Series().value_counts() as pd.value_counts() is deprecated
     if not isinstance(values, pd.Series):
         values = pd.Series(values)
-    return values.value_counts(sort=sort, ascending=ascending, normalize=normalize, bins=bins, dropna=dropna)
+    return values.value_counts(
+        sort=sort, ascending=ascending, normalize=normalize, bins=bins, dropna=dropna
+    )
 
 
 # ========== Reshaping Functions ==========
 
 
 def melt(
-    frame, id_vars=None, value_vars=None, var_name=None, value_name='value', col_level=None, ignore_index=True
-) -> 'DataStoreType':
+    frame,
+    id_vars=None,
+    value_vars=None,
+    var_name=None,
+    value_name="value",
+    col_level=None,
+    ignore_index=True,
+) -> "DataStoreType":
     """
     Unpivot a DataFrame from wide to long format.
 
@@ -1743,7 +1854,7 @@ def melt(
         >>> ds.melt(df, id_vars=['A'], value_vars=['B', 'C'])
     """
     DataStore = _get_datastore_class()
-    if hasattr(frame, 'to_df'):
+    if hasattr(frame, "to_df"):
         frame = frame.to_df()
     result = pd.melt(
         frame,
@@ -1757,7 +1868,7 @@ def melt(
     return DataStore.from_df(result)
 
 
-def pivot(data, *, columns, index=None, values=None) -> 'DataStoreType':
+def pivot(data, *, columns, index=None, values=None) -> "DataStoreType":
     """
     Return reshaped DataFrame organized by given index / column values.
 
@@ -1776,7 +1887,7 @@ def pivot(data, *, columns, index=None, values=None) -> 'DataStoreType':
         >>> ds.pivot(df, columns='B', index='A', values='C')
     """
     DataStore = _get_datastore_class()
-    if hasattr(data, 'to_df'):
+    if hasattr(data, "to_df"):
         data = data.to_df()
     result = pd.pivot(data, columns=columns, index=index, values=values)
     return DataStore.from_df(result)
@@ -1787,14 +1898,14 @@ def pivot_table(
     values=None,
     index=None,
     columns=None,
-    aggfunc='mean',
+    aggfunc="mean",
     fill_value=None,
     margins=False,
     dropna=True,
-    margins_name='All',
+    margins_name="All",
     observed=False,
     sort=True,
-) -> 'DataStoreType':
+) -> "DataStoreType":
     """
     Create a spreadsheet-style pivot table as a DataFrame.
 
@@ -1819,7 +1930,7 @@ def pivot_table(
         >>> ds.pivot_table(df, values='D', index=['A'], columns=['C'], aggfunc='sum')
     """
     DataStore = _get_datastore_class()
-    if hasattr(data, 'to_df'):
+    if hasattr(data, "to_df"):
         data = data.to_df()
     result = pd.pivot_table(
         data,
@@ -1845,10 +1956,10 @@ def crosstab(
     colnames=None,
     aggfunc=None,
     margins=False,
-    margins_name='All',
+    margins_name="All",
     dropna=True,
     normalize=False,
-) -> 'DataStoreType':
+) -> "DataStoreType":
     """
     Compute a simple cross tabulation of two (or more) factors.
 
@@ -1878,7 +1989,7 @@ def crosstab(
     # Execute ColumnExpr to pd.Series to preserve name attribute
     # pd.crosstab needs Series with name to set correct index/column names
     def _to_series_if_needed(obj):
-        if hasattr(obj, '_execute'):
+        if hasattr(obj, "_execute"):
             return obj._execute()
         return obj
 
@@ -1902,7 +2013,7 @@ def crosstab(
     return DataStore.from_df(result)
 
 
-def wide_to_long(df, stubnames, i, j, sep='', suffix=r'\d+') -> 'DataStoreType':
+def wide_to_long(df, stubnames, i, j, sep="", suffix=r"\d+") -> "DataStoreType":
     """
     Unpivot a DataFrame from wide to long format.
 
@@ -1923,7 +2034,7 @@ def wide_to_long(df, stubnames, i, j, sep='', suffix=r'\d+') -> 'DataStoreType':
         >>> ds.wide_to_long(df, stubnames=['A', 'B'], i='id', j='year')
     """
     DataStore = _get_datastore_class()
-    if hasattr(df, 'to_df'):
+    if hasattr(df, "to_df"):
         df = df.to_df()
     result = pd.wide_to_long(df, stubnames, i, j, sep=sep, suffix=suffix)
     return DataStore.from_df(result)
@@ -1952,8 +2063,15 @@ def infer_freq(index):
 
 
 def json_normalize(
-    data, record_path=None, meta=None, meta_prefix=None, record_prefix=None, errors='raise', sep='.', max_level=None
-) -> 'DataStoreType':
+    data,
+    record_path=None,
+    meta=None,
+    meta_prefix=None,
+    record_prefix=None,
+    errors="raise",
+    sep=".",
+    max_level=None,
+) -> "DataStoreType":
     """
     Normalize semi-structured JSON data into a flat table.
 
@@ -2039,7 +2157,7 @@ def reset_option(pat):
     pd.reset_option(pat)
 
 
-def describe_option(pat='', _print_desc=True):
+def describe_option(pat="", _print_desc=True):
     """
     Print the description of one or more options.
 
@@ -2142,7 +2260,9 @@ def DataFrame(data=None, index=None, columns=None, dtype=None, copy=None):
         >>> df['A'].sum()  # Returns lazy result
     """
     DataStore = _get_datastore_class()
-    pandas_df = _pd.DataFrame(data=data, index=index, columns=columns, dtype=dtype, copy=copy)
+    pandas_df = _pd.DataFrame(
+        data=data, index=index, columns=columns, dtype=dtype, copy=copy
+    )
     return DataStore.from_df(pandas_df)
 
 
@@ -2226,106 +2346,106 @@ NamedAgg = _pd.NamedAgg
 
 __all__ = [
     # DataFrame/Series Creation
-    'DataFrame',
-    'Series',
-    'make_datastore',  # Explicit factory for creating DataStore objects
+    "DataFrame",
+    "Series",
+    "make_datastore",  # Explicit factory for creating DataStore objects
     # Pandas Core Types (re-exported)
-    'Index',
-    'MultiIndex',
-    'RangeIndex',
-    'DatetimeIndex',
-    'TimedeltaIndex',
-    'PeriodIndex',
-    'IntervalIndex',
-    'CategoricalIndex',
-    'Timestamp',
-    'Timedelta',
-    'Period',
-    'Interval',
-    'Categorical',
-    'CategoricalDtype',
-    'DatetimeTZDtype',
-    'IntervalDtype',
-    'PeriodDtype',
-    'SparseDtype',
-    'StringDtype',
-    'BooleanDtype',
-    'Int8Dtype',
-    'Int16Dtype',
-    'Int32Dtype',
-    'Int64Dtype',
-    'UInt8Dtype',
-    'UInt16Dtype',
-    'UInt32Dtype',
-    'UInt64Dtype',
-    'Float32Dtype',
-    'Float64Dtype',
-    'NA',
-    'NaT',
-    'Grouper',
-    'NamedAgg',
+    "Index",
+    "MultiIndex",
+    "RangeIndex",
+    "DatetimeIndex",
+    "TimedeltaIndex",
+    "PeriodIndex",
+    "IntervalIndex",
+    "CategoricalIndex",
+    "Timestamp",
+    "Timedelta",
+    "Period",
+    "Interval",
+    "Categorical",
+    "CategoricalDtype",
+    "DatetimeTZDtype",
+    "IntervalDtype",
+    "PeriodDtype",
+    "SparseDtype",
+    "StringDtype",
+    "BooleanDtype",
+    "Int8Dtype",
+    "Int16Dtype",
+    "Int32Dtype",
+    "Int64Dtype",
+    "UInt8Dtype",
+    "UInt16Dtype",
+    "UInt32Dtype",
+    "UInt64Dtype",
+    "Float32Dtype",
+    "Float64Dtype",
+    "NA",
+    "NaT",
+    "Grouper",
+    "NamedAgg",
     # IO Functions
-    'read_csv',
-    'read_parquet',
-    'read_json',
-    'read_excel',
-    'read_sql',
-    'read_table',
-    'read_feather',
-    'read_orc',
-    'read_pickle',
-    'read_fwf',
-    'read_html',
-    'read_xml',
-    'read_stata',
-    'read_sas',
-    'read_spss',
-    'read_hdf',
-    'read_sql_query',
-    'read_sql_table',
+    "read_csv",
+    "read_parquet",
+    "read_json",
+    "read_excel",
+    "read_sql",
+    "read_table",
+    "read_feather",
+    "read_orc",
+    "read_pickle",
+    "read_fwf",
+    "read_html",
+    "read_xml",
+    "read_stata",
+    "read_sas",
+    "read_spss",
+    "read_hdf",
+    "read_sql_query",
+    "read_sql_table",
     # Data Manipulation Functions
-    'concat',
-    'merge',
-    'merge_asof',
-    'merge_ordered',
+    "concat",
+    "merge",
+    "merge_asof",
+    "merge_ordered",
     # Missing Value Functions
-    'isna',
-    'isnull',
-    'notna',
-    'notnull',
+    "isna",
+    "isnull",
+    "notna",
+    "notnull",
     # Type Conversion Functions
-    'to_datetime',
-    'to_numeric',
-    'to_timedelta',
+    "to_datetime",
+    "to_numeric",
+    "to_timedelta",
     # Date Range Functions
-    'date_range',
-    'bdate_range',
-    'period_range',
-    'timedelta_range',
-    'interval_range',
+    "date_range",
+    "bdate_range",
+    "period_range",
+    "timedelta_range",
+    "interval_range",
     # Data Binning and Categorization Functions
-    'cut',
-    'qcut',
-    'get_dummies',
-    'factorize',
-    'unique',
-    'value_counts',
+    "cut",
+    "qcut",
+    "get_dummies",
+    "factorize",
+    "unique",
+    "value_counts",
     # Reshaping Functions
-    'melt',
-    'pivot',
-    'pivot_table',
-    'crosstab',
-    'wide_to_long',
+    "melt",
+    "pivot",
+    "pivot_table",
+    "crosstab",
+    "wide_to_long",
     # Utility Functions
-    'infer_freq',
-    'json_normalize',
+    "infer_freq",
+    "json_normalize",
     # Configuration Functions
-    'set_option',
-    'get_option',
-    'reset_option',
-    'describe_option',
-    'option_context',
-    'show_versions',
+    "set_option",
+    "get_option",
+    "reset_option",
+    "describe_option",
+    "option_context",
+    "show_versions",
     # Array Creation
-    'array',
+    "array",
 ]

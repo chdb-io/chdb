@@ -49,7 +49,7 @@ class LazyCondition:
         >>> ds[cond.to_pandas()]  # Pandas-style boolean indexing
     """
 
-    def __init__(self, condition: 'Condition', datastore: 'DataStore'):
+    def __init__(self, condition: "Condition", datastore: "DataStore"):
         """
         Initialize a LazyCondition.
 
@@ -62,7 +62,7 @@ class LazyCondition:
         self._cached_result = None
 
     @property
-    def condition(self) -> 'Condition':
+    def condition(self) -> "Condition":
         """Get the underlying Condition object."""
         return self._condition
 
@@ -112,7 +112,7 @@ class LazyCondition:
         """HTML representation for Jupyter notebooks."""
         try:
             result = self._execute()
-            if hasattr(result, '_repr_html_'):
+            if hasattr(result, "_repr_html_"):
                 return result._repr_html_()
             return f"<pre>{repr(result)}</pre>"
         except Exception as e:
@@ -120,19 +120,19 @@ class LazyCondition:
 
     # ========== Boolean Operations ==========
 
-    def __and__(self, other: 'LazyCondition') -> 'LazyCondition':
+    def __and__(self, other: "LazyCondition") -> "LazyCondition":
         """Combine conditions with AND."""
         if isinstance(other, LazyCondition):
             return LazyCondition(self._condition & other._condition, self._datastore)
         return LazyCondition(self._condition & other, self._datastore)
 
-    def __or__(self, other: 'LazyCondition') -> 'LazyCondition':
+    def __or__(self, other: "LazyCondition") -> "LazyCondition":
         """Combine conditions with OR."""
         if isinstance(other, LazyCondition):
             return LazyCondition(self._condition | other._condition, self._datastore)
         return LazyCondition(self._condition | other, self._datastore)
 
-    def __invert__(self) -> 'LazyCondition':
+    def __invert__(self) -> "LazyCondition":
         """Negate condition with NOT."""
         return LazyCondition(~self._condition, self._datastore)
 
@@ -142,7 +142,7 @@ class LazyCondition:
     def values(self) -> np.ndarray:
         """Return values as numpy array."""
         result = self._execute()
-        if hasattr(result, 'values'):
+        if hasattr(result, "values"):
             return result.values
         return np.array(result)
 
@@ -150,7 +150,7 @@ class LazyCondition:
     def index(self):
         """Return index of result."""
         result = self._execute()
-        if hasattr(result, 'index'):
+        if hasattr(result, "index"):
             return result.index
         return None
 
@@ -158,7 +158,7 @@ class LazyCondition:
     def dtype(self):
         """Return dtype of result."""
         result = self._execute()
-        if hasattr(result, 'dtype'):
+        if hasattr(result, "dtype"):
             return result.dtype
         return type(result)
 
@@ -166,7 +166,7 @@ class LazyCondition:
     def name(self):
         """Return name of result."""
         result = self._execute()
-        if hasattr(result, 'name'):
+        if hasattr(result, "name"):
             return result.name
         return None
 
@@ -174,9 +174,9 @@ class LazyCondition:
     def shape(self):
         """Return shape of result."""
         result = self._execute()
-        if hasattr(result, 'shape'):
+        if hasattr(result, "shape"):
             return result.shape
-        return (len(result),) if hasattr(result, '__len__') else ()
+        return (len(result),) if hasattr(result, "__len__") else ()
 
     # ========== Array Protocol ==========
 
@@ -198,7 +198,7 @@ class LazyCondition:
     def __array__(self, dtype=None, copy=None):
         """Support numpy array protocol."""
         result = self._execute()
-        if hasattr(result, 'to_numpy'):
+        if hasattr(result, "to_numpy"):
             arr = result.to_numpy()
         else:
             arr = np.array(result)
@@ -245,11 +245,11 @@ class LazySeries:
 
     def __init__(
         self,
-        column_expr: 'ColumnExpr' = None,
+        column_expr: "ColumnExpr" = None,
         method_name: str = None,
         *args,
         executor: Callable[[], Any] = None,
-        datastore: 'DataStore' = None,
+        datastore: "DataStore" = None,
         # Operation descriptor fields (new pattern to avoid recursion)
         op_type: str = None,  # 'groupby_size' | 'groupby_cumcount' | etc.
         op_groupby_cols: list = None,
@@ -304,14 +304,14 @@ class LazySeries:
     @classmethod
     def from_op(
         cls,
-        datastore: 'DataStore',
+        datastore: "DataStore",
         op_type: str,
         op_groupby_cols: list = None,
         op_sort: bool = True,
         op_dropna: bool = True,
         op_args: tuple = (),
         op_kwargs: dict = None,
-    ) -> 'LazySeries':
+    ) -> "LazySeries":
         """
         Create a LazySeries with operation descriptor (recursion-safe).
 
@@ -341,7 +341,7 @@ class LazySeries:
         )
 
     @property
-    def _datastore(self) -> Optional['DataStore']:
+    def _datastore(self) -> Optional["DataStore"]:
         """Get the DataStore reference."""
         if self._explicit_datastore is not None:
             return self._explicit_datastore
@@ -385,9 +385,9 @@ class LazySeries:
         # When _column_expr has _groupby_fields, we need to do groupby first, then agg
         if (
             isinstance(self._column_expr, ColumnExpr)
-            and hasattr(self._column_expr, '_groupby_fields')
+            and hasattr(self._column_expr, "_groupby_fields")
             and self._column_expr._groupby_fields
-            and self._method_name in ('agg', 'aggregate')
+            and self._method_name in ("agg", "aggregate")
         ):
             # Get groupby column names
             groupby_col_names = []
@@ -408,7 +408,7 @@ class LazySeries:
             df = self._column_expr._datastore._execute()
 
             # Filter out 'axis' from kwargs - pandas groupby agg doesn't accept axis
-            agg_kwargs = {k: v for k, v in kwargs.items() if k != 'axis'}
+            agg_kwargs = {k: v for k, v in kwargs.items() if k != "axis"}
 
             # Perform groupby and agg
             if col_name and col_name in df.columns:
@@ -426,13 +426,13 @@ class LazySeries:
         series = self._column_expr._execute()
 
         # Handle special _dt_* methods for datetime operations (pandas fallback)
-        if self._method_name.startswith('_dt_'):
+        if self._method_name.startswith("_dt_"):
             dt_attr = self._method_name[4:]  # Remove '_dt_' prefix
             # Convert to datetime if needed
             if not pd.api.types.is_datetime64_any_dtype(series):
-                if series.dtype == 'object' or pd.api.types.is_string_dtype(series):
+                if series.dtype == "object" or pd.api.types.is_string_dtype(series):
                     try:
-                        series = pd.to_datetime(series, errors='coerce')
+                        series = pd.to_datetime(series, errors="coerce")
                     except Exception:
                         pass
             # Access .dt accessor
@@ -474,7 +474,7 @@ class LazySeries:
         op_args = self._op_args
         op_kwargs = self._op_kwargs
 
-        if op_type == 'groupby_size':
+        if op_type == "groupby_size":
             # Check if we can use SQL pushdown
             if ds._table_function or ds.table_name:
                 # Use SQL GROUP BY for performance
@@ -484,10 +484,10 @@ class LazySeries:
                 # Build SELECT fields: groupby cols + COUNT(*)
                 select_parts = [f'"{col}"' for col in cols]
                 select_parts.append('COUNT(*) AS "size"')
-                select_sql = ', '.join(select_parts)
+                select_sql = ", ".join(select_parts)
 
                 # Build GROUP BY
-                groupby_sql = ', '.join(f'"{col}"' for col in cols)
+                groupby_sql = ", ".join(f'"{col}"' for col in cols)
 
                 # Get base table SQL
                 if ds._table_function:
@@ -496,51 +496,57 @@ class LazySeries:
                     table_sql = f'"{ds.table_name}"'
 
                 # Build WHERE clause from lazy ops if any
-                where_sql = ''
+                where_sql = ""
                 from .lazy_ops import LazyRelationalOp
 
                 where_conditions = []
                 for op in ds._lazy_ops:
-                    if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+                    if (
+                        isinstance(op, LazyRelationalOp)
+                        and op.op_type == "WHERE"
+                        and op.condition
+                    ):
                         where_conditions.append(op.condition.to_sql(quote_char='"'))
                 if where_conditions:
-                    where_sql = ' WHERE ' + ' AND '.join(where_conditions)
+                    where_sql = " WHERE " + " AND ".join(where_conditions)
 
                 # Add ORDER BY for sorted groupby (pandas default: sort=True)
-                orderby_sql = ''
+                orderby_sql = ""
                 if sort:
-                    orderby_sql = ' ORDER BY ' + ', '.join(f'"{col}"' for col in cols)
+                    orderby_sql = " ORDER BY " + ", ".join(f'"{col}"' for col in cols)
 
                 # When dropna=True, filter out NULL groups in the WHERE clause
                 if dropna:
                     null_filter_conditions = [f'"{col}" IS NOT NULL' for col in cols]
                     if where_sql:
-                        where_sql = where_sql + ' AND ' + ' AND '.join(null_filter_conditions)
+                        where_sql = (
+                            where_sql + " AND " + " AND ".join(null_filter_conditions)
+                        )
                     else:
-                        where_sql = ' WHERE ' + ' AND '.join(null_filter_conditions)
+                        where_sql = " WHERE " + " AND ".join(null_filter_conditions)
 
-                sql = f'SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}'
+                sql = f"SELECT {select_sql} FROM {table_sql}{where_sql} GROUP BY {groupby_sql}{orderby_sql}"
                 result_df = ds._executor.execute(sql).to_df()
 
                 # Convert to Series with groupby col as index
                 if len(cols) == 1:
-                    series = result_df.set_index(cols[0])['size']
+                    series = result_df.set_index(cols[0])["size"]
                 else:
-                    series = result_df.set_index(cols)['size']
+                    series = result_df.set_index(cols)["size"]
 
                 # Convert uint64 to int64 to match pandas behavior
-                if series.dtype == 'uint64':
-                    series = series.astype('int64')
+                if series.dtype == "uint64":
+                    series = series.astype("int64")
                 return series
             else:
                 # Fall back to pandas - get DataFrame directly (safe)
                 df = ds._get_df()
                 return df.groupby(cols, dropna=dropna).size()
 
-        elif op_type == 'groupby_cumcount':
+        elif op_type == "groupby_cumcount":
             # Execute using pandas - get DataFrame directly (safe)
             df = ds._get_df()
-            ascending = op_kwargs.get('ascending', True)
+            ascending = op_kwargs.get("ascending", True)
             return df.groupby(cols, sort=sort).cumcount(ascending=ascending)
 
         else:
@@ -568,7 +574,7 @@ class LazySeries:
             result = self._execute()
             return repr(result)
         except Exception as e:
-            name = self._method_name or 'executor'
+            name = self._method_name or "executor"
             return f"LazySeries({name}) [Error: {e}]"
 
     def __str__(self) -> str:
@@ -577,14 +583,14 @@ class LazySeries:
             result = self._execute()
             return str(result)
         except Exception:
-            name = self._method_name or 'executor'
+            name = self._method_name or "executor"
             return f"LazySeries({name})"
 
     def _repr_html_(self) -> str:
         """HTML representation for Jupyter notebooks."""
         try:
             result = self._execute()
-            if hasattr(result, '_repr_html_'):
+            if hasattr(result, "_repr_html_"):
                 return result._repr_html_()
             return f"<pre>{repr(result)}</pre>"
         except Exception as e:
@@ -592,13 +598,13 @@ class LazySeries:
 
     # ========== Chaining Methods ==========
 
-    def head(self, n: int = 5) -> 'LazySeries':
+    def head(self, n: int = 5) -> "LazySeries":
         """Return the first n elements (lazy)."""
-        return LazySeries(self, 'head', n)
+        return LazySeries(self, "head", n)
 
-    def tail(self, n: int = 5) -> 'LazySeries':
+    def tail(self, n: int = 5) -> "LazySeries":
         """Return the last n elements (lazy)."""
-        return LazySeries(self, 'tail', n)
+        return LazySeries(self, "tail", n)
 
     # ========== Conversion Methods ==========
 
@@ -609,14 +615,14 @@ class LazySeries:
     def to_numpy(self) -> np.ndarray:
         """Execute and return as numpy array."""
         result = self._execute()
-        if hasattr(result, 'to_numpy'):
+        if hasattr(result, "to_numpy"):
             return result.to_numpy()
         return np.array(result)
 
     def to_list(self) -> list:
         """Execute and return as list."""
         result = self._execute()
-        if hasattr(result, 'tolist'):
+        if hasattr(result, "tolist"):
             return result.tolist()
         return list(result)
 
@@ -644,7 +650,7 @@ class LazySeries:
     def __array__(self, dtype=None, copy=None):
         """Support numpy array protocol."""
         result = self._execute()
-        if hasattr(result, 'to_numpy'):
+        if hasattr(result, "to_numpy"):
             arr = result.to_numpy()
         else:
             arr = np.array(result)
@@ -660,7 +666,7 @@ class LazySeries:
     def values(self) -> np.ndarray:
         """Return values as numpy array."""
         result = self._execute()
-        if hasattr(result, 'values'):
+        if hasattr(result, "values"):
             return result.values
         return np.array(result)
 
@@ -668,7 +674,7 @@ class LazySeries:
     def index(self):
         """Return index of result."""
         result = self._execute()
-        if hasattr(result, 'index'):
+        if hasattr(result, "index"):
             return result.index
         return None
 
@@ -676,7 +682,7 @@ class LazySeries:
     def dtype(self):
         """Return dtype of result."""
         result = self._execute()
-        if hasattr(result, 'dtype'):
+        if hasattr(result, "dtype"):
             return result.dtype
         return type(result)
 
@@ -684,7 +690,7 @@ class LazySeries:
     def name(self):
         """Return name of result."""
         result = self._execute()
-        if hasattr(result, 'name'):
+        if hasattr(result, "name"):
             return result.name
         return None
 
@@ -692,15 +698,15 @@ class LazySeries:
     def shape(self):
         """Return shape of result."""
         result = self._execute()
-        if hasattr(result, 'shape'):
+        if hasattr(result, "shape"):
             return result.shape
-        return (len(result),) if hasattr(result, '__len__') else ()
+        return (len(result),) if hasattr(result, "__len__") else ()
 
     @property
     def columns(self):
         """Return columns of result (if DataFrame)."""
         result = self._execute()
-        if hasattr(result, 'columns'):
+        if hasattr(result, "columns"):
             return result.columns
         raise AttributeError(f"'{type(result).__name__}' has no 'columns' attribute")
 
@@ -717,7 +723,7 @@ class LazySeries:
         elif isinstance(result, pd.Series):
             return result.to_frame()
         else:
-            return pd.DataFrame({'value': [result]})
+            return pd.DataFrame({"value": [result]})
 
     # ========== Plotting Support ==========
 
@@ -725,7 +731,7 @@ class LazySeries:
     def plot(self):
         """Access plot accessor for visualization."""
         result = self._execute()
-        if hasattr(result, 'plot'):
+        if hasattr(result, "plot"):
             return result.plot
         raise AttributeError(f"'{type(result).__name__}' has no 'plot' attribute")
 
@@ -733,92 +739,92 @@ class LazySeries:
 
     def __eq__(self, other):
         """Element-wise equality (lazy)."""
-        return LazySeries(self, '__eq__', other)
+        return LazySeries(self, "__eq__", other)
 
     def __ne__(self, other):
         """Element-wise not-equal (lazy)."""
-        return LazySeries(self, '__ne__', other)
+        return LazySeries(self, "__ne__", other)
 
     def __lt__(self, other):
         """Element-wise less-than (lazy)."""
-        return LazySeries(self, '__lt__', other)
+        return LazySeries(self, "__lt__", other)
 
     def __le__(self, other):
         """Element-wise less-than-or-equal (lazy)."""
-        return LazySeries(self, '__le__', other)
+        return LazySeries(self, "__le__", other)
 
     def __gt__(self, other):
         """Element-wise greater-than (lazy)."""
-        return LazySeries(self, '__gt__', other)
+        return LazySeries(self, "__gt__", other)
 
     def __ge__(self, other):
         """Element-wise greater-than-or-equal (lazy)."""
-        return LazySeries(self, '__ge__', other)
+        return LazySeries(self, "__ge__", other)
 
     # ========== Chaining Methods (lazy - return LazySeries) ==========
     # These methods return LazySeries to maintain lazy evaluation chain
 
     def sort_index(self, **kwargs):
         """Sort by index (lazy)."""
-        return LazySeries(self, 'sort_index', **kwargs)
+        return LazySeries(self, "sort_index", **kwargs)
 
     def sort_values(self, **kwargs):
         """Sort by values (lazy)."""
-        return LazySeries(self, 'sort_values', **kwargs)
+        return LazySeries(self, "sort_values", **kwargs)
 
     def reset_index(self, **kwargs):
         """Reset index (lazy)."""
-        return LazySeries(self, 'reset_index', **kwargs)
+        return LazySeries(self, "reset_index", **kwargs)
 
     def astype(self, dtype):
         """Cast to dtype (lazy)."""
-        return LazySeries(self, 'astype', dtype)
+        return LazySeries(self, "astype", dtype)
 
     def copy(self, deep=True):
         """Return copy of result (lazy)."""
-        return LazySeries(self, 'copy', deep=deep)
+        return LazySeries(self, "copy", deep=deep)
 
     def dropna(self, **kwargs):
         """Remove missing values (lazy)."""
-        return LazySeries(self, 'dropna', **kwargs)
+        return LazySeries(self, "dropna", **kwargs)
 
     def fillna(self, value=None, **kwargs):
         """Fill missing values (lazy)."""
-        return LazySeries(self, 'fillna', value, **kwargs)
+        return LazySeries(self, "fillna", value, **kwargs)
 
     def drop_duplicates(self, **kwargs):
         """Remove duplicate values (lazy)."""
-        return LazySeries(self, 'drop_duplicates', **kwargs)
+        return LazySeries(self, "drop_duplicates", **kwargs)
 
     def clip(self, lower=None, upper=None, **kwargs):
         """Clip values at thresholds (lazy)."""
-        return LazySeries(self, 'clip', lower=lower, upper=upper, **kwargs)
+        return LazySeries(self, "clip", lower=lower, upper=upper, **kwargs)
 
     def abs(self):
         """Return absolute value (lazy)."""
-        return LazySeries(self, 'abs')
+        return LazySeries(self, "abs")
 
     def round(self, decimals=0):
         """Round to given number of decimals (lazy)."""
-        return LazySeries(self, 'round', decimals)
+        return LazySeries(self, "round", decimals)
 
     def replace(self, to_replace=None, value=None, **kwargs):
         """Replace values (lazy)."""
-        return LazySeries(self, 'replace', to_replace=to_replace, value=value, **kwargs)
+        return LazySeries(self, "replace", to_replace=to_replace, value=value, **kwargs)
 
     def where(self, cond, other=None, **kwargs):
         """Replace values where condition is False (lazy)."""
-        return LazySeries(self, 'where', cond, other=other, **kwargs)
+        return LazySeries(self, "where", cond, other=other, **kwargs)
 
     def mask(self, cond, other=None, **kwargs):
         """Replace values where condition is True (lazy)."""
-        return LazySeries(self, 'mask', cond, other=other, **kwargs)
+        return LazySeries(self, "mask", cond, other=other, **kwargs)
 
     def equals(self, other):
         """Test equality with another object."""
         result = self._execute()
-        if hasattr(result, 'equals'):
-            if hasattr(other, '_execute'):
+        if hasattr(result, "equals"):
+            if hasattr(other, "_execute"):
                 other = other._execute()
             return result.equals(other)
         return result == other
@@ -827,71 +833,71 @@ class LazySeries:
 
     def __add__(self, other):
         """Addition (lazy)."""
-        return LazySeries(self, '__add__', other)
+        return LazySeries(self, "__add__", other)
 
     def __radd__(self, other):
         """Right addition (lazy)."""
-        return LazySeries(self, '__radd__', other)
+        return LazySeries(self, "__radd__", other)
 
     def __sub__(self, other):
         """Subtraction (lazy)."""
-        return LazySeries(self, '__sub__', other)
+        return LazySeries(self, "__sub__", other)
 
     def __rsub__(self, other):
         """Right subtraction (lazy)."""
-        return LazySeries(self, '__rsub__', other)
+        return LazySeries(self, "__rsub__", other)
 
     def __mul__(self, other):
         """Multiplication (lazy)."""
-        return LazySeries(self, '__mul__', other)
+        return LazySeries(self, "__mul__", other)
 
     def __rmul__(self, other):
         """Right multiplication (lazy)."""
-        return LazySeries(self, '__rmul__', other)
+        return LazySeries(self, "__rmul__", other)
 
     def __truediv__(self, other):
         """Division (lazy)."""
-        return LazySeries(self, '__truediv__', other)
+        return LazySeries(self, "__truediv__", other)
 
     def __rtruediv__(self, other):
         """Right division (lazy)."""
-        return LazySeries(self, '__rtruediv__', other)
+        return LazySeries(self, "__rtruediv__", other)
 
     def __floordiv__(self, other):
         """Floor division (lazy)."""
-        return LazySeries(self, '__floordiv__', other)
+        return LazySeries(self, "__floordiv__", other)
 
     def __rfloordiv__(self, other):
         """Right floor division (lazy)."""
-        return LazySeries(self, '__rfloordiv__', other)
+        return LazySeries(self, "__rfloordiv__", other)
 
     def __mod__(self, other):
         """Modulo (lazy)."""
-        return LazySeries(self, '__mod__', other)
+        return LazySeries(self, "__mod__", other)
 
     def __rmod__(self, other):
         """Right modulo (lazy)."""
-        return LazySeries(self, '__rmod__', other)
+        return LazySeries(self, "__rmod__", other)
 
     def __pow__(self, other):
         """Power (lazy)."""
-        return LazySeries(self, '__pow__', other)
+        return LazySeries(self, "__pow__", other)
 
     def __rpow__(self, other):
         """Right power (lazy)."""
-        return LazySeries(self, '__rpow__', other)
+        return LazySeries(self, "__rpow__", other)
 
     def __neg__(self):
         """Negation (lazy)."""
-        return LazySeries(self, '__neg__')
+        return LazySeries(self, "__neg__")
 
     def __pos__(self):
         """Positive (lazy)."""
-        return LazySeries(self, '__pos__')
+        return LazySeries(self, "__pos__")
 
     def __abs__(self):
         """Absolute value (lazy)."""
-        return LazySeries(self, '__abs__')
+        return LazySeries(self, "__abs__")
 
     # ========== Numeric Conversions (trigger execution) ==========
 
@@ -928,32 +934,32 @@ class LazySeries:
 
     def sum(self, *args, **kwargs):
         """Compute sum of the result (lazy)."""
-        return LazySeries(self, 'sum', *args, **kwargs)
+        return LazySeries(self, "sum", *args, **kwargs)
 
     def mean(self, *args, **kwargs):
         """Compute mean of the result (lazy)."""
-        return LazySeries(self, 'mean', *args, **kwargs)
+        return LazySeries(self, "mean", *args, **kwargs)
 
     def min(self, *args, **kwargs):
         """Compute min of the result (lazy)."""
-        return LazySeries(self, 'min', *args, **kwargs)
+        return LazySeries(self, "min", *args, **kwargs)
 
     def max(self, *args, **kwargs):
         """Compute max of the result (lazy)."""
-        return LazySeries(self, 'max', *args, **kwargs)
+        return LazySeries(self, "max", *args, **kwargs)
 
     def std(self, *args, **kwargs):
         """Compute standard deviation of the result (lazy)."""
-        return LazySeries(self, 'std', *args, **kwargs)
+        return LazySeries(self, "std", *args, **kwargs)
 
     def var(self, *args, **kwargs):
         """Compute variance of the result (lazy)."""
-        return LazySeries(self, 'var', *args, **kwargs)
+        return LazySeries(self, "var", *args, **kwargs)
 
     def median(self, *args, **kwargs):
         """Compute median of the result (lazy)."""
-        return LazySeries(self, 'median', *args, **kwargs)
+        return LazySeries(self, "median", *args, **kwargs)
 
     def count(self, *args, **kwargs):
         """Count non-NA values (lazy)."""
-        return LazySeries(self, 'count', *args, **kwargs)
+        return LazySeries(self, "count", *args, **kwargs)

@@ -48,17 +48,17 @@ class ColumnInfo:
     """
 
     name: str
-    source: Literal['original', 'computed']
+    source: Literal["original", "computed"]
     expression: Optional[Expression] = None
     referenced_columns: frozenset = field(default_factory=frozenset)
 
     def is_computed(self) -> bool:
         """Check if this column is computed."""
-        return self.source == 'computed'
+        return self.source == "computed"
 
     def is_original(self) -> bool:
         """Check if this column is from the original source."""
-        return self.source == 'original'
+        return self.source == "original"
 
 
 @dataclass
@@ -87,7 +87,7 @@ class SchemaState:
     schema_known: bool = False
 
     @classmethod
-    def from_columns(cls, column_names: List[str]) -> 'SchemaState':
+    def from_columns(cls, column_names: List[str]) -> "SchemaState":
         """
         Create SchemaState from a list of known column names.
 
@@ -97,11 +97,13 @@ class SchemaState:
         Returns:
             New SchemaState instance with known schema
         """
-        columns = {name: ColumnInfo(name=name, source='original') for name in column_names}
+        columns = {
+            name: ColumnInfo(name=name, source="original") for name in column_names
+        }
         return cls(columns=columns, pending_computed=set(), schema_known=True)
 
     @classmethod
-    def from_schema_dict(cls, schema_dict: Dict[str, str]) -> 'SchemaState':
+    def from_schema_dict(cls, schema_dict: Dict[str, str]) -> "SchemaState":
         """
         Create SchemaState from a schema dictionary.
 
@@ -111,11 +113,14 @@ class SchemaState:
         Returns:
             New SchemaState instance with known schema
         """
-        columns = {name: ColumnInfo(name=name, source='original') for name in schema_dict.keys()}
+        columns = {
+            name: ColumnInfo(name=name, source="original")
+            for name in schema_dict.keys()
+        }
         return cls(columns=columns, pending_computed=set(), schema_known=True)
 
     @classmethod
-    def unknown(cls) -> 'SchemaState':
+    def unknown(cls) -> "SchemaState":
         """
         Create SchemaState for unknown schema scenario.
 
@@ -124,7 +129,7 @@ class SchemaState:
         """
         return cls(columns={}, pending_computed=set(), schema_known=False)
 
-    def copy(self) -> 'SchemaState':
+    def copy(self) -> "SchemaState":
         """Create a copy of this state."""
         return SchemaState(
             columns=dict(self.columns),
@@ -137,7 +142,7 @@ class SchemaState:
         name: str,
         expression: Expression,
         referenced_columns: Set[str] = None,
-    ) -> 'SchemaState':
+    ) -> "SchemaState":
         """
         Add a computed column to the schema.
 
@@ -157,14 +162,14 @@ class SchemaState:
 
         new_state.columns[name] = ColumnInfo(
             name=name,
-            source='computed',
+            source="computed",
             expression=expression,
             referenced_columns=refs,
         )
         new_state.pending_computed.add(name)
         return new_state
 
-    def materialize_pending(self) -> 'SchemaState':
+    def materialize_pending(self) -> "SchemaState":
         """
         Materialize pending computed columns.
 
@@ -183,7 +188,7 @@ class SchemaState:
                 old_info = new_state.columns[name]
                 new_state.columns[name] = ColumnInfo(
                     name=name,
-                    source='original',  # Now materialized
+                    source="original",  # Now materialized
                     expression=None,
                     referenced_columns=frozenset(),
                 )
@@ -191,7 +196,7 @@ class SchemaState:
         new_state.pending_computed = set()
         return new_state
 
-    def select_columns(self, columns: List[str]) -> 'SchemaState':
+    def select_columns(self, columns: List[str]) -> "SchemaState":
         """
         Apply column selection, keeping only specified columns.
 
@@ -202,7 +207,9 @@ class SchemaState:
             New SchemaState with only selected columns
         """
         new_state = self.copy()
-        new_state.columns = {name: info for name, info in new_state.columns.items() if name in columns}
+        new_state.columns = {
+            name: info for name, info in new_state.columns.items() if name in columns
+        }
         new_state.pending_computed &= set(columns)
         return new_state
 
@@ -285,7 +292,7 @@ class SchemaState:
         """
         return column_name in self.pending_computed
 
-    def merge(self, other: 'SchemaState') -> 'SchemaState':
+    def merge(self, other: "SchemaState") -> "SchemaState":
         """
         Merge another SchemaState into this one.
 
@@ -306,8 +313,12 @@ class SchemaState:
     def __repr__(self) -> str:
         cols = list(self.columns.keys())[:5]
         if len(self.columns) > 5:
-            cols.append('...')
+            cols.append("...")
         pending = list(self.pending_computed)[:3]
         if len(self.pending_computed) > 3:
-            pending.append('...')
-        return f"SchemaState(columns={cols}, " f"pending={pending}, " f"known={self.schema_known})"
+            pending.append("...")
+        return (
+            f"SchemaState(columns={cols}, "
+            f"pending={pending}, "
+            f"known={self.schema_known})"
+        )

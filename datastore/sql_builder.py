@@ -68,7 +68,7 @@ class SQLLayer:
     """
 
     # Data source: table function/name OR inner SQLLayer
-    source: Union[str, 'SQLLayer']
+    source: Union[str, "SQLLayer"]
 
     # Computed columns: (column_name, expression)
     computed_columns: List[Tuple[str, Expression]] = field(default_factory=list)
@@ -124,7 +124,9 @@ class SQLLayer:
 
         # === GROUP BY clause ===
         if self.groupby_fields:
-            groupby_sql = ', '.join(f.to_sql(quote_char=quote_char) for f in self.groupby_fields)
+            groupby_sql = ", ".join(
+                f.to_sql(quote_char=quote_char) for f in self.groupby_fields
+            )
             parts.append(f"GROUP BY {groupby_sql}")
 
         # === ORDER BY clause ===
@@ -141,7 +143,7 @@ class SQLLayer:
         if self.offset_value is not None:
             parts.append(f"OFFSET {self.offset_value}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def _build_select_items(self, quote_char: str) -> List[str]:
         """Build SELECT clause items."""
@@ -150,7 +152,7 @@ class SQLLayer:
         if self.explicit_columns is not None:
             # Explicit column selection mode
             for col in self.explicit_columns:
-                select_items.append(f'{quote_char}{col}{quote_char}')
+                select_items.append(f"{quote_char}{col}{quote_char}")
         else:
             # Build computed column lookup for in-place replacement
             computed_by_name = {name: expr for name, expr in self.computed_columns}
@@ -163,30 +165,36 @@ class SQLLayer:
                         # This column is being overridden - use the expression
                         expr = computed_by_name[col]
                         expr_sql = expr.to_sql(quote_char=quote_char)
-                        select_items.append(f'({expr_sql}) AS {quote_char}{col}{quote_char}')
+                        select_items.append(
+                            f"({expr_sql}) AS {quote_char}{col}{quote_char}"
+                        )
                     else:
                         # Original column - keep as-is
-                        select_items.append(f'{quote_char}{col}{quote_char}')
+                        select_items.append(f"{quote_char}{col}{quote_char}")
 
                 # Add any NEW computed columns (not in original order) at the end
                 for name, expr in self.computed_columns:
                     if name not in self.known_column_order:
                         expr_sql = expr.to_sql(quote_char=quote_char)
-                        select_items.append(f'({expr_sql}) AS {quote_char}{name}{quote_char}')
+                        select_items.append(
+                            f"({expr_sql}) AS {quote_char}{name}{quote_char}"
+                        )
 
                 return select_items
             elif self.except_columns:
                 # Fallback: use EXCEPT when column order is unknown
                 # Note: This may change column order
-                except_list = ', '.join(f'{quote_char}{c}{quote_char}' for c in sorted(self.except_columns))
-                select_items.append(f'* EXCEPT({except_list})')
+                except_list = ", ".join(
+                    f"{quote_char}{c}{quote_char}" for c in sorted(self.except_columns)
+                )
+                select_items.append(f"* EXCEPT({except_list})")
             else:
-                select_items.append('*')
+                select_items.append("*")
 
         # Append computed columns
         for name, expr in self.computed_columns:
             expr_sql = expr.to_sql(quote_char=quote_char)
-            select_items.append(f'({expr_sql}) AS {quote_char}{name}{quote_char}')
+            select_items.append(f"({expr_sql}) AS {quote_char}{name}{quote_char}")
 
         return select_items
 
@@ -214,14 +222,18 @@ class SQLLayer:
             orderby_items.append(f"{f_sql} {'ASC' if asc else 'DESC'}")
         return f"ORDER BY {', '.join(orderby_items)}"
 
-    def copy(self) -> 'SQLLayer':
+    def copy(self) -> "SQLLayer":
         """Create a shallow copy of this layer."""
         return SQLLayer(
             source=self.source,
             computed_columns=list(self.computed_columns),
             except_columns=set(self.except_columns),
-            explicit_columns=list(self.explicit_columns) if self.explicit_columns else None,
-            known_column_order=list(self.known_column_order) if self.known_column_order else None,
+            explicit_columns=(
+                list(self.explicit_columns) if self.explicit_columns else None
+            ),
+            known_column_order=(
+                list(self.known_column_order) if self.known_column_order else None
+            ),
             where_conditions=list(self.where_conditions),
             orderby_fields=list(self.orderby_fields),
             limit_value=self.limit_value,
@@ -270,12 +282,12 @@ class SQLBuilder:
         self.current_layer.known_column_order = self._known_column_order
         self._preserve_row_order = False
 
-    def set_preserve_row_order(self, value: bool) -> 'SQLBuilder':
+    def set_preserve_row_order(self, value: bool) -> "SQLBuilder":
         """Set whether to preserve row order in the final output."""
         self._preserve_row_order = value
         return self
 
-    def add_computed_column(self, name: str, expr: Expression) -> 'SQLBuilder':
+    def add_computed_column(self, name: str, expr: Expression) -> "SQLBuilder":
         """
         Add a computed column.
 
@@ -342,7 +354,7 @@ class SQLBuilder:
             columns.update(self._extract_referenced_columns(condition))
         return columns
 
-    def add_filter(self, condition: Condition) -> 'SQLBuilder':
+    def add_filter(self, condition: Condition) -> "SQLBuilder":
         """
         Add a filter condition.
 
@@ -365,7 +377,7 @@ class SQLBuilder:
         self.current_layer.where_conditions.append(condition)
         return self
 
-    def add_orderby(self, fields: List[Tuple[Field, bool]]) -> 'SQLBuilder':
+    def add_orderby(self, fields: List[Tuple[Field, bool]]) -> "SQLBuilder":
         """
         Add ORDER BY clause.
 
@@ -389,22 +401,22 @@ class SQLBuilder:
         self.current_layer.orderby_fields = fields
         return self
 
-    def add_limit(self, value: int) -> 'SQLBuilder':
+    def add_limit(self, value: int) -> "SQLBuilder":
         """Add LIMIT clause."""
         self.current_layer.limit_value = value
         return self
 
-    def add_offset(self, value: int) -> 'SQLBuilder':
+    def add_offset(self, value: int) -> "SQLBuilder":
         """Add OFFSET clause."""
         self.current_layer.offset_value = value
         return self
 
-    def add_groupby(self, fields: List[Field]) -> 'SQLBuilder':
+    def add_groupby(self, fields: List[Field]) -> "SQLBuilder":
         """Add GROUP BY clause."""
         self.current_layer.groupby_fields = fields
         return self
 
-    def select_columns(self, columns: List[str]) -> 'SQLBuilder':
+    def select_columns(self, columns: List[str]) -> "SQLBuilder":
         """
         Set explicit column selection for the output.
 
@@ -439,7 +451,11 @@ class SQLBuilder:
         self._known_columns = new_known
         # Update column order - add new computed columns to the end
         if self._known_column_order is not None:
-            new_cols = [c for c in self.current_layer.get_computed_column_names() if c not in self._known_column_order]
+            new_cols = [
+                c
+                for c in self.current_layer.get_computed_column_names()
+                if c not in self._known_column_order
+            ]
             self._known_column_order = self._known_column_order + new_cols
 
         # Create new outer layer with current layer as source
@@ -503,23 +519,23 @@ class SQLBuilder:
         elif isinstance(expr, UnaryCondition):
             columns.update(self._extract_referenced_columns(expr.expression))
 
-        elif hasattr(expr, 'expression'):
+        elif hasattr(expr, "expression"):
             # Generic expression wrapper
             columns.update(self._extract_referenced_columns(expr.expression))
 
-        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+        elif hasattr(expr, "left") and hasattr(expr, "right"):
             # Arithmetic expression or similar
             columns.update(self._extract_referenced_columns(expr.left))
             columns.update(self._extract_referenced_columns(expr.right))
 
-        elif hasattr(expr, 'nodes'):
+        elif hasattr(expr, "nodes"):
             # Expression with nodes() method (like ArithmeticExpression)
             for node in expr.nodes():
                 if isinstance(node, Field):
                     name = node.name.strip('"').strip("'")
                     columns.add(name)
 
-        elif hasattr(expr, 'args'):
+        elif hasattr(expr, "args"):
             # Function with args
             for arg in expr.args:
                 columns.update(self._extract_referenced_columns(arg))

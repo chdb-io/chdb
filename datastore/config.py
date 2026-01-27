@@ -29,7 +29,7 @@ def _get_formatter() -> logging.Formatter:
     """Get formatter based on current format setting."""
     fmt = LOG_FORMATS.get(_log_format, LOG_FORMATS["simple"])
     if _log_format == "verbose":
-        return logging.Formatter(fmt, datefmt='%Y-%m-%d %H:%M:%S')
+        return logging.Formatter(fmt, datefmt="%Y-%m-%d %H:%M:%S")
     return logging.Formatter(fmt)
 
 
@@ -469,12 +469,12 @@ config = DataStoreConfig()
 class ProfileStep:
     """A single profiled step with timing information."""
 
-    def __init__(self, name: str, parent: Optional['ProfileStep'] = None):
+    def __init__(self, name: str, parent: Optional["ProfileStep"] = None):
         self.name = name
         self.parent = parent
         self.start_time: float = 0.0
         self.end_time: float = 0.0
-        self.children: List['ProfileStep'] = []
+        self.children: List["ProfileStep"] = []
         self.metadata: Dict[str, any] = {}
 
     @property
@@ -576,10 +576,18 @@ class Profiler:
 
             # Calculate percentage of parent/total
             if step.parent:
-                pct = (step.duration_ms / step.parent.duration_ms * 100) if step.parent.duration_ms > 0 else 0
+                pct = (
+                    (step.duration_ms / step.parent.duration_ms * 100)
+                    if step.parent.duration_ms > 0
+                    else 0
+                )
                 pct_str = f"({pct:>5.1f}%)"
             else:
-                pct = (step.duration_ms / self.total_duration_ms * 100) if self.total_duration_ms > 0 else 0
+                pct = (
+                    (step.duration_ms / self.total_duration_ms * 100)
+                    if self.total_duration_ms > 0
+                    else 0
+                )
                 pct_str = f"({pct:>5.1f}%)"
 
             # Add metadata if present

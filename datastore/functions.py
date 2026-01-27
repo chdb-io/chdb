@@ -10,20 +10,20 @@ from .utils import format_alias
 from .exceptions import ValidationError
 
 __all__ = [
-    'Function',
-    'AggregateFunction',
-    'WindowFunction',
-    'CustomFunction',
-    'CastFunction',
-    'F',  # Function namespace
-    'Sum',
-    'Count',
-    'Avg',
-    'Min',
-    'Max',
-    'Upper',
-    'Lower',
-    'Concat',
+    "Function",
+    "AggregateFunction",
+    "WindowFunction",
+    "CustomFunction",
+    "CastFunction",
+    "F",  # Function namespace
+    "Sum",
+    "Count",
+    "Avg",
+    "Min",
+    "Max",
+    "Upper",
+    "Lower",
+    "Concat",
 ]
 
 
@@ -73,37 +73,39 @@ class Function(Expression):
     _UINT64_FUNCTIONS = frozenset(
         {
             # String length functions
-            'length',
-            'char_length',
-            'octet_length',
-            'lengthutf8',
+            "length",
+            "char_length",
+            "octet_length",
+            "lengthutf8",
             # String position functions (pandas str.find returns int64)
-            'position',
-            'locate',
-            'positionutf8',
-            'positioncaseinsensitive',
-            'positioncaseinsensitiveutf8',
+            "position",
+            "locate",
+            "positionutf8",
+            "positioncaseinsensitive",
+            "positioncaseinsensitiveutf8",
             # String count functions (pandas str.count returns int64)
-            'countsubstrings',
-            'countsubstringscaseinsensitive',
-            'countsubstringscaseinsensitiveutf8',
-            'countmatches',
-            'countmatchescaseinsensitive',
+            "countsubstrings",
+            "countsubstringscaseinsensitive",
+            "countsubstringscaseinsensitiveutf8",
+            "countmatches",
+            "countmatchescaseinsensitive",
             # Count/aggregation functions
-            'count',
-            'countif',
-            'countdistinct',
-            'uniq',
-            'uniqexact',
-            'uniqcombined',
-            'uniqhll12',
+            "count",
+            "countif",
+            "countdistinct",
+            "uniq",
+            "uniqexact",
+            "uniqcombined",
+            "uniqhll12",
         }
     )
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for function call."""
         # Generate arguments SQL
-        args_sql = ','.join(arg.to_sql(quote_char=quote_char, **kwargs) for arg in self.args)
+        args_sql = ",".join(
+            arg.to_sql(quote_char=quote_char, **kwargs) for arg in self.args
+        )
 
         # Get special parameters
         special_params = self.get_special_params_sql(quote_char=quote_char, **kwargs)
@@ -119,7 +121,7 @@ class Function(Expression):
             sql = f"toInt64({sql})"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -155,82 +157,82 @@ class Function(Expression):
 
         # Common ClickHouse built-in functions that may not be registered
         common_sql_functions = {
-            'if',
-            'multiif',
-            'case',
-            'coalesce',
-            'nullif',
-            'cast',
-            'tostring',
-            'toint64',
-            'tofloat64',
-            'greatest',
-            'least',
-            'abs',
-            'sign',
-            'round',
-            'floor',
-            'ceil',
-            'exp',
-            'log',
-            'log2',
-            'log10',
-            'sqrt',
-            'pow',
-            'power',
-            'sin',
-            'cos',
-            'tan',
-            'asin',
-            'acos',
-            'atan',
-            'atan2',
-            'concat',
-            'substring',
-            'replace',
-            'replaceall',
-            'replaceone',
-            'lower',
-            'upper',
-            'trim',
-            'trimleft',
-            'trimright',
-            'ltrim',
-            'rtrim',
-            'length',
-            'char_length',
-            'lengthutf8',
-            'position',
-            'locate',
-            'like',
-            'notlike',
-            'match',
-            'now',
-            'today',
-            'yesterday',
-            'todatetime',
-            'todate',
-            'datename',
-            'datepart',
-            'datediff',
-            'dateadd',
-            'tostring',
-            'tostringuuid',
-            'cityhash64',
-            'siphash64',
-            'md5',
-            'sha1',
-            'sha256',
-            'rownumberinallblocks',
-            'rownumber',
-            'rank',
-            'denserank',
-            'plus',
-            'minus',
-            'multiply',
-            'divide',
-            'intdiv',
-            'modulo',
+            "if",
+            "multiif",
+            "case",
+            "coalesce",
+            "nullif",
+            "cast",
+            "tostring",
+            "toint64",
+            "tofloat64",
+            "greatest",
+            "least",
+            "abs",
+            "sign",
+            "round",
+            "floor",
+            "ceil",
+            "exp",
+            "log",
+            "log2",
+            "log10",
+            "sqrt",
+            "pow",
+            "power",
+            "sin",
+            "cos",
+            "tan",
+            "asin",
+            "acos",
+            "atan",
+            "atan2",
+            "concat",
+            "substring",
+            "replace",
+            "replaceall",
+            "replaceone",
+            "lower",
+            "upper",
+            "trim",
+            "trimleft",
+            "trimright",
+            "ltrim",
+            "rtrim",
+            "length",
+            "char_length",
+            "lengthutf8",
+            "position",
+            "locate",
+            "like",
+            "notlike",
+            "match",
+            "now",
+            "today",
+            "yesterday",
+            "todatetime",
+            "todate",
+            "datename",
+            "datepart",
+            "datediff",
+            "dateadd",
+            "tostring",
+            "tostringuuid",
+            "cityhash64",
+            "siphash64",
+            "md5",
+            "sha1",
+            "sha256",
+            "rownumberinallblocks",
+            "rownumber",
+            "rank",
+            "denserank",
+            "plus",
+            "minus",
+            "multiply",
+            "divide",
+            "intdiv",
+            "modulo",
         }
 
         if func_name in common_sql_functions:
@@ -298,7 +300,7 @@ class WindowFunction(Function):
         partition_by=None,
         order_by=None,
         frame: Optional[str] = None,
-    ) -> 'WindowFunction':
+    ) -> "WindowFunction":
         """
         Add OVER clause to the window function.
 
@@ -360,17 +362,17 @@ class WindowFunction(Function):
 
     def _format_over_item(self, item, quote_char: str) -> str:
         """Format a single partition_by or order_by item."""
-        if hasattr(item, 'to_sql'):
+        if hasattr(item, "to_sql"):
             return item.to_sql(quote_char=quote_char)
         # String: could be 'column' or 'column DESC'
         item_str = str(item)
         parts = item_str.split()
         if len(parts) == 1:
             # Just column name, quote it
-            return f'{quote_char}{item_str}{quote_char}'
-        elif len(parts) == 2 and parts[1].upper() in ('ASC', 'DESC'):
+            return f"{quote_char}{item_str}{quote_char}"
+        elif len(parts) == 2 and parts[1].upper() in ("ASC", "DESC"):
             # Column with direction
-            return f'{quote_char}{parts[0]}{quote_char} {parts[1].upper()}'
+            return f"{quote_char}{parts[0]}{quote_char} {parts[1].upper()}"
         else:
             # Complex expression, use as-is
             return item_str
@@ -378,13 +380,13 @@ class WindowFunction(Function):
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for window function with OVER clause."""
         # Build base function call (without alias for now)
-        kwargs_no_alias = {**kwargs, 'with_alias': False}
+        kwargs_no_alias = {**kwargs, "with_alias": False}
         base_sql = super().to_sql(quote_char=quote_char, **kwargs_no_alias)
 
         # If no OVER clause parts, return just the function
         if not self._partition_by and not self._order_by and not self._frame:
             # Add alias if present and requested
-            if kwargs.get('with_alias', False) and self.alias:
+            if kwargs.get("with_alias", False) and self.alias:
                 return format_alias(base_sql, self.alias, quote_char)
             return base_sql
 
@@ -392,27 +394,33 @@ class WindowFunction(Function):
         over_parts = []
 
         if self._partition_by:
-            partition_items = [self._format_over_item(item, quote_char) for item in self._partition_by]
+            partition_items = [
+                self._format_over_item(item, quote_char) for item in self._partition_by
+            ]
             over_parts.append(f"PARTITION BY {', '.join(partition_items)}")
 
         if self._order_by:
-            order_items = [self._format_over_item(item, quote_char) for item in self._order_by]
+            order_items = [
+                self._format_over_item(item, quote_char) for item in self._order_by
+            ]
             over_parts.append(f"ORDER BY {', '.join(order_items)}")
 
         if self._frame:
             over_parts.append(self._frame)
 
-        over_clause = ' '.join(over_parts)
+        over_clause = " ".join(over_parts)
         result = f"{base_sql} OVER ({over_clause})"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(result, self.alias, quote_char)
 
         return result
 
     def __copy__(self):
-        result = WindowFunction(self.name, *[copy(arg) for arg in self.args], alias=self.alias)
+        result = WindowFunction(
+            self.name, *[copy(arg) for arg in self.args], alias=self.alias
+        )
         result._partition_by = list(self._partition_by)
         result._order_by = list(self._order_by)
         result._frame = self._frame
@@ -431,7 +439,7 @@ class WindowFunction(Function):
         if self.alias:
             parts.append(f", alias='{self.alias}'")
         parts.append(")")
-        return ''.join(parts)
+        return "".join(parts)
 
 
 class CustomFunction:
@@ -456,7 +464,7 @@ class CustomFunction:
                 f"({', '.join(self.params)}), but {len(args)} were provided"
             )
 
-        return Function(self.name, *args, alias=kwargs.get('alias'))
+        return Function(self.name, *args, alias=kwargs.get("alias"))
 
 
 # ========== Common Aggregate Functions ==========
@@ -466,28 +474,32 @@ class Sum(AggregateFunction):
     """SUM aggregate function."""
 
     def __init__(self, expr: Expression, alias: Optional[str] = None):
-        super().__init__('SUM', expr, alias=alias)
+        super().__init__("SUM", expr, alias=alias)
 
 
 class Count(AggregateFunction):
     """COUNT aggregate function."""
 
-    def __init__(self, expr: Any = '*', alias: Optional[str] = None):
+    def __init__(self, expr: Any = "*", alias: Optional[str] = None):
         # Check if it's the string '*' (COUNT(*))
-        if isinstance(expr, str) and expr == '*':
+        if isinstance(expr, str) and expr == "*":
             # COUNT(*) - use a special marker
             from .expressions import Literal
 
-            expr = Literal('*')
-        super().__init__('COUNT', expr, alias=alias)
+            expr = Literal("*")
+        super().__init__("COUNT", expr, alias=alias)
 
     def __copy__(self):
         """Preserve Count type when copying (e.g., for .as_() method)."""
         # Reconstruct with the original argument
         from .expressions import Literal
 
-        if len(self.args) == 1 and isinstance(self.args[0], Literal) and self.args[0].value == '*':
-            return Count('*', alias=self.alias)
+        if (
+            len(self.args) == 1
+            and isinstance(self.args[0], Literal)
+            and self.args[0].value == "*"
+        ):
+            return Count("*", alias=self.alias)
         return Count(copy(self.args[0]), alias=self.alias)
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
@@ -496,10 +508,10 @@ class Count(AggregateFunction):
         if len(self.args) == 1:
             from .expressions import Literal
 
-            if isinstance(self.args[0], Literal) and self.args[0].value == '*':
+            if isinstance(self.args[0], Literal) and self.args[0].value == "*":
                 # Wrap in toInt64() to match pandas int64 dtype
                 sql = "toInt64(COUNT(*))"
-                if kwargs.get('with_alias', False) and self.alias:
+                if kwargs.get("with_alias", False) and self.alias:
                     return format_alias(sql, self.alias, quote_char)
                 return sql
 
@@ -510,21 +522,21 @@ class Avg(AggregateFunction):
     """AVG aggregate function."""
 
     def __init__(self, expr: Expression, alias: Optional[str] = None):
-        super().__init__('AVG', expr, alias=alias)
+        super().__init__("AVG", expr, alias=alias)
 
 
 class Min(AggregateFunction):
     """MIN aggregate function."""
 
     def __init__(self, expr: Expression, alias: Optional[str] = None):
-        super().__init__('MIN', expr, alias=alias)
+        super().__init__("MIN", expr, alias=alias)
 
 
 class Max(AggregateFunction):
     """MAX aggregate function."""
 
     def __init__(self, expr: Expression, alias: Optional[str] = None):
-        super().__init__('MAX', expr, alias=alias)
+        super().__init__("MAX", expr, alias=alias)
 
 
 # ========== Common String Functions ==========
@@ -534,21 +546,21 @@ class Upper(Function):
     """UPPER string function."""
 
     def __init__(self, expr: Expression, alias: Optional[str] = None):
-        super().__init__('UPPER', expr, alias=alias)
+        super().__init__("UPPER", expr, alias=alias)
 
 
 class Lower(Function):
     """LOWER string function."""
 
     def __init__(self, expr: Expression, alias: Optional[str] = None):
-        super().__init__('LOWER', expr, alias=alias)
+        super().__init__("LOWER", expr, alias=alias)
 
 
 class Concat(Function):
     """CONCAT string function."""
 
     def __init__(self, *exprs: Expression, alias: Optional[str] = None):
-        super().__init__('CONCAT', *exprs, alias=alias)
+        super().__init__("CONCAT", *exprs, alias=alias)
 
 
 # ========== Cast Function ==========
@@ -564,7 +576,7 @@ class CastFunction(Function):
     """
 
     def __init__(self, expr: Expression, target_type: str, alias: Optional[str] = None):
-        super().__init__('CAST', expr, alias=alias)
+        super().__init__("CAST", expr, alias=alias)
         self.target_type = target_type
 
     def get_special_params_sql(self, **kwargs) -> str:
@@ -624,7 +636,9 @@ class F:
         return CastFunction(Expression.wrap(expr), target_type, alias=alias)
 
     @staticmethod
-    def json_extract(json, path: str, type_name: str = None, alias: str = None) -> Function:
+    def json_extract(
+        json, path: str, type_name: str = None, alias: str = None
+    ) -> Function:
         """
         Extract value from JSON.
 
@@ -638,8 +652,16 @@ class F:
         from .expressions import Expression, Literal
 
         if type_name:
-            return Function('JSONExtract', Expression.wrap(json), Literal(path), Literal(type_name), alias=alias)
-        return Function('JSONExtractRaw', Expression.wrap(json), Literal(path), alias=alias)
+            return Function(
+                "JSONExtract",
+                Expression.wrap(json),
+                Literal(path),
+                Literal(type_name),
+                alias=alias,
+            )
+        return Function(
+            "JSONExtractRaw", Expression.wrap(json), Literal(path), alias=alias
+        )
 
 
 # =============================================================================

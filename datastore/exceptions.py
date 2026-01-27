@@ -3,15 +3,15 @@ Exception classes for DataStore
 """
 
 __all__ = [
-    'DataStoreError',
-    'ConnectionError',
-    'SchemaError',
-    'QueryError',
-    'ExecutionError',
-    'ValidationError',
-    'UnsupportedOperationError',
-    'ImmutableError',
-    'ColumnNotFoundError',
+    "DataStoreError",
+    "ConnectionError",
+    "SchemaError",
+    "QueryError",
+    "ExecutionError",
+    "ValidationError",
+    "UnsupportedOperationError",
+    "ImmutableError",
+    "ColumnNotFoundError",
 ]
 
 

@@ -19,14 +19,14 @@ if TYPE_CHECKING:
     from .accessors.geo import GeoAccessor
 
 __all__ = [
-    'Node',
-    'Expression',
-    'Field',
-    'Literal',
-    'ArithmeticExpression',
-    'col',
-    'DateTimePropertyExpr',
-    'DateTimeMethodExpr',
+    "Node",
+    "Expression",
+    "Field",
+    "Literal",
+    "ArithmeticExpression",
+    "col",
+    "DateTimePropertyExpr",
+    "DateTimeMethodExpr",
 ]
 
 
@@ -36,11 +36,11 @@ class Node:
     Provides tree traversal capabilities.
     """
 
-    def nodes(self) -> Iterator['Node']:
+    def nodes(self) -> Iterator["Node"]:
         """Iterate over all nodes in the expression tree."""
         yield self
 
-    def find(self, node_type: Type['Node']) -> List['Node']:
+    def find(self, node_type: Type["Node"]) -> List["Node"]:
         """Find all nodes of a specific type."""
         return [node for node in self.nodes() if isinstance(node, node_type)]
 
@@ -61,12 +61,12 @@ class Expression(Node):
         self.alias = alias
 
     @immutable
-    def as_(self, alias: str) -> 'Expression':
+    def as_(self, alias: str) -> "Expression":
         """Set an alias for this expression."""
         self.alias = alias
 
     @staticmethod
-    def wrap(value: Any) -> 'Expression':
+    def wrap(value: Any) -> "Expression":
         """
         Intelligently wrap a value as an Expression.
 
@@ -94,51 +94,51 @@ class Expression(Node):
 
     # ========== Comparison Operators ==========
 
-    def __eq__(self, other: Any) -> 'Condition':
+    def __eq__(self, other: Any) -> "Condition":
         from .conditions import BinaryCondition
 
         # pandas semantics: col == None returns False for ALL rows
         # This is element-wise comparison with Python singleton None,
         # NOT a check for NA values (use .isna() for that)
         if other is None:
-            return BinaryCondition('=', Literal(0), Literal(1))  # Always False
+            return BinaryCondition("=", Literal(0), Literal(1))  # Always False
 
-        return BinaryCondition('=', self, self.wrap(other))
+        return BinaryCondition("=", self, self.wrap(other))
 
-    def __ne__(self, other: Any) -> 'Condition':
+    def __ne__(self, other: Any) -> "Condition":
         from .conditions import BinaryCondition
 
         # pandas semantics: col != None returns True for ALL rows
         # This is element-wise comparison with Python singleton None,
         # NOT a check for non-NA values (use .notna() for that)
         if other is None:
-            return BinaryCondition('=', Literal(1), Literal(1))  # Always True
+            return BinaryCondition("=", Literal(1), Literal(1))  # Always True
 
-        return BinaryCondition('!=', self, self.wrap(other))
+        return BinaryCondition("!=", self, self.wrap(other))
 
-    def __gt__(self, other: Any) -> 'BinaryCondition':
+    def __gt__(self, other: Any) -> "BinaryCondition":
         from .conditions import BinaryCondition
 
-        return BinaryCondition('>', self, self.wrap(other))
+        return BinaryCondition(">", self, self.wrap(other))
 
-    def __ge__(self, other: Any) -> 'BinaryCondition':
+    def __ge__(self, other: Any) -> "BinaryCondition":
         from .conditions import BinaryCondition
 
-        return BinaryCondition('>=', self, self.wrap(other))
+        return BinaryCondition(">=", self, self.wrap(other))
 
-    def __lt__(self, other: Any) -> 'BinaryCondition':
+    def __lt__(self, other: Any) -> "BinaryCondition":
         from .conditions import BinaryCondition
 
-        return BinaryCondition('<', self, self.wrap(other))
+        return BinaryCondition("<", self, self.wrap(other))
 
-    def __le__(self, other: Any) -> 'BinaryCondition':
+    def __le__(self, other: Any) -> "BinaryCondition":
         from .conditions import BinaryCondition
 
-        return BinaryCondition('<=', self, self.wrap(other))
+        return BinaryCondition("<=", self, self.wrap(other))
 
     # ========== Advanced Condition Methods ==========
 
-    def isnull(self) -> 'Condition':
+    def isnull(self) -> "Condition":
         """
         Create IS NULL condition.
 
@@ -148,9 +148,9 @@ class Expression(Node):
         """
         from .conditions import UnaryCondition
 
-        return UnaryCondition('IS NULL', self)
+        return UnaryCondition("IS NULL", self)
 
-    def notnull(self) -> 'Condition':
+    def notnull(self) -> "Condition":
         """
         Create IS NOT NULL condition.
 
@@ -160,9 +160,9 @@ class Expression(Node):
         """
         from .conditions import UnaryCondition
 
-        return UnaryCondition('IS NOT NULL', self)
+        return UnaryCondition("IS NOT NULL", self)
 
-    def isin(self, values) -> 'Condition':
+    def isin(self, values) -> "Condition":
         """
         Create IN condition.
 
@@ -177,7 +177,7 @@ class Expression(Node):
 
         return InCondition(self, values, negate=False)
 
-    def notin(self, values) -> 'Condition':
+    def notin(self, values) -> "Condition":
         """
         Create NOT IN condition.
 
@@ -192,7 +192,7 @@ class Expression(Node):
 
         return InCondition(self, values, negate=True)
 
-    def between(self, lower, upper, inclusive: str = 'both') -> 'Condition':
+    def between(self, lower, upper, inclusive: str = "both") -> "Condition":
         """
         Create BETWEEN condition.
 
@@ -213,9 +213,11 @@ class Expression(Node):
         """
         from .conditions import BetweenCondition
 
-        return BetweenCondition(self, self.wrap(lower), self.wrap(upper), inclusive=inclusive)
+        return BetweenCondition(
+            self, self.wrap(lower), self.wrap(upper), inclusive=inclusive
+        )
 
-    def like(self, pattern: str) -> 'Condition':
+    def like(self, pattern: str) -> "Condition":
         """
         Create LIKE condition.
 
@@ -230,7 +232,7 @@ class Expression(Node):
 
         return LikeCondition(self, pattern, negate=False, case_sensitive=True)
 
-    def notlike(self, pattern: str) -> 'Condition':
+    def notlike(self, pattern: str) -> "Condition":
         """
         Create NOT LIKE condition.
 
@@ -245,7 +247,7 @@ class Expression(Node):
 
         return LikeCondition(self, pattern, negate=True, case_sensitive=True)
 
-    def ilike(self, pattern: str) -> 'Condition':
+    def ilike(self, pattern: str) -> "Condition":
         """
         Create ILIKE condition (case-insensitive).
 
@@ -262,52 +264,52 @@ class Expression(Node):
 
     # ========== Arithmetic Operators ==========
 
-    def __add__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('+', self, self.wrap(other))
+    def __add__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("+", self, self.wrap(other))
 
-    def __sub__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('-', self, self.wrap(other))
+    def __sub__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("-", self, self.wrap(other))
 
-    def __mul__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('*', self, self.wrap(other))
+    def __mul__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("*", self, self.wrap(other))
 
-    def __truediv__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('/', self, self.wrap(other))
+    def __truediv__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("/", self, self.wrap(other))
 
-    def __floordiv__(self, other: Any) -> 'ArithmeticExpression':
+    def __floordiv__(self, other: Any) -> "ArithmeticExpression":
         # Floor division: a // b  == intDiv(a, b) in ClickHouse
-        return ArithmeticExpression('//', self, self.wrap(other))
+        return ArithmeticExpression("//", self, self.wrap(other))
 
-    def __mod__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('%', self, self.wrap(other))
+    def __mod__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("%", self, self.wrap(other))
 
-    def __pow__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('**', self, self.wrap(other))
+    def __pow__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("**", self, self.wrap(other))
 
     # ========== Reverse Arithmetic Operators ==========
 
-    def __radd__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('+', self.wrap(other), self)
+    def __radd__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("+", self.wrap(other), self)
 
-    def __rsub__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('-', self.wrap(other), self)
+    def __rsub__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("-", self.wrap(other), self)
 
-    def __rmul__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('*', self.wrap(other), self)
+    def __rmul__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("*", self.wrap(other), self)
 
-    def __rtruediv__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('/', self.wrap(other), self)
+    def __rtruediv__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("/", self.wrap(other), self)
 
-    def __rfloordiv__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('//', self.wrap(other), self)
+    def __rfloordiv__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("//", self.wrap(other), self)
 
-    def __rpow__(self, other: Any) -> 'ArithmeticExpression':
-        return ArithmeticExpression('**', self.wrap(other), self)
+    def __rpow__(self, other: Any) -> "ArithmeticExpression":
+        return ArithmeticExpression("**", self.wrap(other), self)
 
     # ========== Unary Operators ==========
 
-    def __neg__(self) -> 'ArithmeticExpression':
-        return ArithmeticExpression('-', Literal(0), self)
+    def __neg__(self) -> "ArithmeticExpression":
+        return ArithmeticExpression("-", Literal(0), self)
 
     # ========== String/Utility Methods ==========
 
@@ -320,7 +322,7 @@ class Expression(Node):
     # ========== Accessor Properties ==========
 
     @property
-    def str(self) -> 'StringAccessor':
+    def str(self) -> "StringAccessor":
         """
         Accessor for string functions.
 
@@ -340,7 +342,7 @@ class Expression(Node):
         return StringAccessor(self)
 
     @property
-    def dt(self) -> 'DateTimeAccessor':
+    def dt(self) -> "DateTimeAccessor":
         """
         Accessor for date/time functions.
 
@@ -361,7 +363,7 @@ class Expression(Node):
         return DateTimeAccessor(self)
 
     @property
-    def arr(self) -> 'ArrayAccessor':
+    def arr(self) -> "ArrayAccessor":
         """
         Accessor for array functions.
 
@@ -381,7 +383,7 @@ class Expression(Node):
         return ArrayAccessor(self)
 
     @property
-    def json(self) -> 'JsonAccessor':
+    def json(self) -> "JsonAccessor":
         """
         Accessor for JSON functions.
 
@@ -400,7 +402,7 @@ class Expression(Node):
         return JsonAccessor(self)
 
     @property
-    def url(self) -> 'UrlAccessor':
+    def url(self) -> "UrlAccessor":
         """
         Accessor for URL functions.
 
@@ -419,7 +421,7 @@ class Expression(Node):
         return UrlAccessor(self)
 
     @property
-    def ip(self) -> 'IpAccessor':
+    def ip(self) -> "IpAccessor":
         """
         Accessor for IP address functions.
 
@@ -438,7 +440,7 @@ class Expression(Node):
         return IpAccessor(self)
 
     @property
-    def geo(self) -> 'GeoAccessor':
+    def geo(self) -> "GeoAccessor":
         """
         Accessor for geo/distance functions.
 
@@ -464,7 +466,7 @@ class Expression(Node):
     # Methods like cast(), to_int(), to_float() that have special logic are
     # defined below. Standard functions are injected via the registry.
 
-    def cast(self, target_type: str, alias: str = None) -> 'Expression':
+    def cast(self, target_type: str, alias: str = None) -> "Expression":
         """
         Cast to specified type.
 
@@ -484,7 +486,7 @@ class Expression(Node):
 
         return CastFunction(self, target_type, alias=alias)
 
-    def to_int(self, bits: int = 64, alias: str = None) -> 'Expression':
+    def to_int(self, bits: int = 64, alias: str = None) -> "Expression":
         """
         Convert to integer type.
 
@@ -498,9 +500,9 @@ class Expression(Node):
         """
         from .functions import Function
 
-        return Function(f'toInt{bits}', self, alias=alias)
+        return Function(f"toInt{bits}", self, alias=alias)
 
-    def to_float(self, bits: int = 64, alias: str = None) -> 'Expression':
+    def to_float(self, bits: int = 64, alias: str = None) -> "Expression":
         """
         Convert to float type.
 
@@ -514,9 +516,9 @@ class Expression(Node):
         """
         from .functions import Function
 
-        return Function(f'toFloat{bits}', self, alias=alias)
+        return Function(f"toFloat{bits}", self, alias=alias)
 
-    def quantile(self, level: float, alias: str = None) -> 'Expression':
+    def quantile(self, level: float, alias: str = None) -> "Expression":
         """
         Quantile at specified level.
 
@@ -531,7 +533,7 @@ class Expression(Node):
         from .functions import Function
 
         # ClickHouse uses quantile(level)(column) syntax
-        return Function(f'quantile({level})', self, alias=alias)
+        return Function(f"quantile({level})", self, alias=alias)
 
 
 class Field(Expression):
@@ -543,7 +545,9 @@ class Field(Expression):
         >>> Field('age', table='customers')
     """
 
-    def __init__(self, name: str, table: Optional[str] = None, alias: Optional[str] = None):
+    def __init__(
+        self, name: str, table: Optional[str] = None, alias: Optional[str] = None
+    ):
         super().__init__(alias)
         self.name = name
         self.table = table
@@ -557,10 +561,10 @@ class Field(Expression):
             parts.append(format_identifier(self.table, quote_char))
 
         parts.append(format_identifier(self.name, quote_char))
-        field_sql = '.'.join(parts)
+        field_sql = ".".join(parts)
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(field_sql, self.alias, quote_char)
 
         return field_sql
@@ -583,10 +587,10 @@ class Star(Expression):
 
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
         """Generate SQL for star (*)."""
-        return '*'
+        return "*"
 
     def __repr__(self):
-        return 'Star()'
+        return "Star()"
 
 
 class Literal(Expression):
@@ -618,9 +622,9 @@ class Literal(Expression):
 
         # Convert Python value to SQL literal
         if self.value is None:
-            sql = 'NULL'
+            sql = "NULL"
         elif isinstance(self.value, bool):
-            sql = 'TRUE' if self.value else 'FALSE'
+            sql = "TRUE" if self.value else "FALSE"
         elif isinstance(self.value, (int, float)):
             sql = str(self.value)
         elif isinstance(self.value, str):
@@ -651,7 +655,7 @@ class Literal(Expression):
                 sql = f"'{repr(self.value)}'"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -669,9 +673,15 @@ class ArithmeticExpression(Expression):
         >>> Field('price') * Literal(1.1)  # 10% increase
     """
 
-    OPERATORS = {'+', '-', '*', '/', '//', '%', '**'}
+    OPERATORS = {"+", "-", "*", "/", "//", "%", "**"}
 
-    def __init__(self, operator: str, left: Expression, right: Expression, alias: Optional[str] = None):
+    def __init__(
+        self,
+        operator: str,
+        left: Expression,
+        right: Expression,
+        alias: Optional[str] = None,
+    ):
         super().__init__(alias)
 
         if operator not in self.OPERATORS:
@@ -693,17 +703,17 @@ class ArithmeticExpression(Expression):
         right_sql = self.right.to_sql(quote_char=quote_char, **kwargs)
 
         # Handle operators that need special SQL translation
-        if self.operator == '**':
+        if self.operator == "**":
             # Python ** -> SQL POW()
             sql = f"POW({left_sql},{right_sql})"
-        elif self.operator == '//':
+        elif self.operator == "//":
             # Python // (floor division) -> SQL floor(a/b)
             # NOTE: We use floor(a/b) instead of intDiv(a,b) because:
             # - Python // is floor division (rounds toward negative infinity)
             # - intDiv is truncation (rounds toward zero)
             # For negative numbers: -10 // 3 = -4 (Python), intDiv(-10,3) = -3 (ClickHouse)
             sql = f"floor({left_sql}/{right_sql})"
-        elif self.operator == '+' and self._involves_string_operand():
+        elif self.operator == "+" and self._involves_string_operand():
             # String concatenation: chDB/ClickHouse doesn't support '+' for strings
             # Must use concat() function instead
             sql = f"concat({left_sql},{right_sql})"
@@ -711,7 +721,7 @@ class ArithmeticExpression(Expression):
             sql = f"({left_sql}{self.operator}{right_sql})"
 
         # Add alias if present and requested
-        if kwargs.get('with_alias', False) and self.alias:
+        if kwargs.get("with_alias", False) and self.alias:
             return format_alias(sql, self.alias, quote_char)
 
         return sql
@@ -728,7 +738,7 @@ class ArithmeticExpression(Expression):
         This enables automatic conversion of '+' to concat() for string concatenation.
         """
         # First check if this expression itself is marked as string type
-        if getattr(self, '_is_string_type', False):
+        if getattr(self, "_is_string_type", False):
             return True
 
         def is_string_expr(expr) -> bool:
@@ -736,7 +746,7 @@ class ArithmeticExpression(Expression):
             if isinstance(expr, Literal):
                 return isinstance(expr.value, str)
             # Check if expression has been marked as string type
-            if getattr(expr, '_is_string_type', False):
+            if getattr(expr, "_is_string_type", False):
                 return True
             # Recursively check nested ArithmeticExpression (for chained concatenation)
             if isinstance(expr, ArithmeticExpression):
@@ -746,9 +756,11 @@ class ArithmeticExpression(Expression):
         return is_string_expr(self.left) or is_string_expr(self.right)
 
     def __copy__(self):
-        result = ArithmeticExpression(self.operator, copy(self.left), copy(self.right), self.alias)
+        result = ArithmeticExpression(
+            self.operator, copy(self.left), copy(self.right), self.alias
+        )
         # Preserve string type marker for string concatenation support
-        if getattr(self, '_is_string_type', False):
+        if getattr(self, "_is_string_type", False):
             result._is_string_type = True
         return result
 
@@ -802,22 +814,24 @@ class DateTimePropertyExpr(Expression):
 
     # Mapping from property name to chDB function name
     CHDB_FUNCTION_MAP = {
-        'year': 'toYear',
-        'month': 'toMonth',
-        'day': 'toDayOfMonth',
-        'hour': 'toHour',
-        'minute': 'toMinute',
-        'second': 'toSecond',
-        'dayofweek': 'toDayOfWeek',
-        'weekday': 'toDayOfWeek',
-        'dayofyear': 'toDayOfYear',
-        'week': 'toISOWeek',
-        'weekofyear': 'toISOWeek',
-        'quarter': 'toQuarter',
-        'date': 'toDate',
+        "year": "toYear",
+        "month": "toMonth",
+        "day": "toDayOfMonth",
+        "hour": "toHour",
+        "minute": "toMinute",
+        "second": "toSecond",
+        "dayofweek": "toDayOfWeek",
+        "weekday": "toDayOfWeek",
+        "dayofyear": "toDayOfYear",
+        "week": "toISOWeek",
+        "weekofyear": "toISOWeek",
+        "quarter": "toQuarter",
+        "date": "toDate",
     }
 
-    def __init__(self, source_expr: Expression, property_name: str, alias: Optional[str] = None):
+    def __init__(
+        self, source_expr: Expression, property_name: str, alias: Optional[str] = None
+    ):
         """
         Args:
             source_expr: The datetime column expression
@@ -831,18 +845,18 @@ class DateTimePropertyExpr(Expression):
     # Datetime properties that should be cast to Int32 to match pandas dtype
     _INT32_PROPERTIES = frozenset(
         {
-            'year',
-            'month',
-            'day',
-            'hour',
-            'minute',
-            'second',
-            'dayofweek',
-            'weekday',
-            'dayofyear',
-            'quarter',
-            'week',
-            'weekofyear',
+            "year",
+            "month",
+            "day",
+            "hour",
+            "minute",
+            "second",
+            "dayofweek",
+            "weekday",
+            "dayofyear",
+            "quarter",
+            "week",
+            "weekofyear",
         }
     )
 
@@ -850,12 +864,14 @@ class DateTimePropertyExpr(Expression):
         """Generate SQL using chDB function."""
         ch_func = self.CHDB_FUNCTION_MAP.get(self.property_name)
         if not ch_func:
-            raise ValueError(f"No chDB function mapping for datetime property: {self.property_name}")
+            raise ValueError(
+                f"No chDB function mapping for datetime property: {self.property_name}"
+            )
 
         source_sql = self.source_expr.to_sql(quote_char=quote_char, **kwargs)
 
         # Handle dayofweek adjustment (chDB is 1-7 Monday, pandas is 0-6 Monday)
-        if self.property_name in ('dayofweek', 'weekday'):
+        if self.property_name in ("dayofweek", "weekday"):
             result = f"({ch_func}({source_sql}) - 1)"
         else:
             result = f"{ch_func}({source_sql})"
@@ -870,7 +886,7 @@ class DateTimePropertyExpr(Expression):
             return f"{result} AS {format_identifier(self.alias, quote_char)}"
         return result
 
-    def nodes(self) -> Iterator['Node']:
+    def nodes(self) -> Iterator["Node"]:
         yield self
         yield from self.source_expr.nodes()
 
@@ -884,44 +900,44 @@ class DateTimeMethodExpr(Expression):
 
     # Mapping from method name to chDB function name
     CHDB_FUNCTION_MAP = {
-        'strftime': 'formatDateTime',
-        'floor_dt': 'FLOOR_DT',  # Special marker for floor datetime
-        'ceil_dt': 'CEIL_DT',  # Special marker for ceil datetime
-        'round_dt': 'ROUND_DT',  # Special marker for round datetime
-        'normalize': 'toStartOfDay',  # Normalize = start of day
-        'day_name': 'dateName',  # dateName('weekday', date) -> 'Monday', etc.
-        'month_name': 'dateName',  # dateName('month', date) -> 'January', etc.
+        "strftime": "formatDateTime",
+        "floor_dt": "FLOOR_DT",  # Special marker for floor datetime
+        "ceil_dt": "CEIL_DT",  # Special marker for ceil datetime
+        "round_dt": "ROUND_DT",  # Special marker for round datetime
+        "normalize": "toStartOfDay",  # Normalize = start of day
+        "day_name": "dateName",  # dateName('weekday', date) -> 'Monday', etc.
+        "month_name": "dateName",  # dateName('month', date) -> 'January', etc.
     }
 
     # Mapping from pandas frequency to ClickHouse floor function
     FREQ_TO_FLOOR_FUNC = {
-        'h': 'toStartOfHour',
-        'H': 'toStartOfHour',
-        'min': 'toStartOfMinute',
-        'T': 'toStartOfMinute',
-        's': 'toStartOfSecond',
-        'S': 'toStartOfSecond',
-        'd': 'toStartOfDay',
-        'D': 'toStartOfDay',
+        "h": "toStartOfHour",
+        "H": "toStartOfHour",
+        "min": "toStartOfMinute",
+        "T": "toStartOfMinute",
+        "s": "toStartOfSecond",
+        "S": "toStartOfSecond",
+        "d": "toStartOfDay",
+        "D": "toStartOfDay",
     }
 
     # Mapping from pandas frequency to ClickHouse add function and interval
     FREQ_TO_ADD_FUNC = {
-        'h': ('addHours', 1, 1800),  # (add_func, amount, half_interval_seconds)
-        'H': ('addHours', 1, 1800),
-        'min': ('addMinutes', 1, 30),
-        'T': ('addMinutes', 1, 30),
-        's': ('addSeconds', 1, 0.5),
-        'S': ('addSeconds', 1, 0.5),
-        'd': ('addDays', 1, 43200),  # 12 hours
-        'D': ('addDays', 1, 43200),
+        "h": ("addHours", 1, 1800),  # (add_func, amount, half_interval_seconds)
+        "H": ("addHours", 1, 1800),
+        "min": ("addMinutes", 1, 30),
+        "T": ("addMinutes", 1, 30),
+        "s": ("addSeconds", 1, 0.5),
+        "S": ("addSeconds", 1, 0.5),
+        "d": ("addDays", 1, 43200),  # 12 hours
+        "D": ("addDays", 1, 43200),
     }
 
     # Mapping from Python strftime format codes to ClickHouse formatDateTime codes
     # Python: https://docs.python.org/3/library/datetime.html#strftime-and-strptime-format-codes
     # ClickHouse: https://clickhouse.com/docs/en/sql-reference/functions/date-time-functions#formatDateTime
     STRFTIME_FORMAT_MAP = {
-        '%M': '%i',  # Python %M = minute (00-59), ClickHouse %i = minute
+        "%M": "%i",  # Python %M = minute (00-59), ClickHouse %i = minute
         # ClickHouse %M = full month name (January, etc.) - different meaning!
     }
 
@@ -951,25 +967,27 @@ class DateTimeMethodExpr(Expression):
         """Generate SQL using chDB function."""
         ch_func = self.CHDB_FUNCTION_MAP.get(self.method_name)
         if not ch_func:
-            raise ValueError(f"No chDB function mapping for datetime method: {self.method_name}")
+            raise ValueError(
+                f"No chDB function mapping for datetime method: {self.method_name}"
+            )
 
         source_sql = self.source_expr.to_sql(quote_char=quote_char, **kwargs)
 
-        if self.method_name == 'strftime' and self.args:
+        if self.method_name == "strftime" and self.args:
             fmt = self._convert_strftime_format(self.args[0])
             result = f"{ch_func}({source_sql}, '{fmt}')"
-        elif self.method_name == 'floor_dt':
+        elif self.method_name == "floor_dt":
             result = self._build_floor_sql(source_sql)
-        elif self.method_name == 'ceil_dt':
+        elif self.method_name == "ceil_dt":
             result = self._build_ceil_sql(source_sql)
-        elif self.method_name == 'round_dt':
+        elif self.method_name == "round_dt":
             result = self._build_round_sql(source_sql)
-        elif self.method_name == 'normalize':
+        elif self.method_name == "normalize":
             result = f"{ch_func}({source_sql})"
-        elif self.method_name == 'day_name':
+        elif self.method_name == "day_name":
             # dateName('weekday', date) returns 'Monday', 'Tuesday', etc.
             result = f"{ch_func}('weekday', {source_sql})"
-        elif self.method_name == 'month_name':
+        elif self.method_name == "month_name":
             # dateName('month', date) returns 'January', 'February', etc.
             result = f"{ch_func}('month', {source_sql})"
         else:
@@ -981,8 +999,8 @@ class DateTimeMethodExpr(Expression):
 
     def _build_floor_sql(self, source_sql: str) -> str:
         """Build SQL for floor operation."""
-        freq = self.args[0] if self.args else 'D'
-        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
+        freq = self.args[0] if self.args else "D"
+        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, "toStartOfDay")
         return f"{floor_func}({source_sql})"
 
     def _build_ceil_sql(self, source_sql: str) -> str:
@@ -990,9 +1008,9 @@ class DateTimeMethodExpr(Expression):
 
         ceil = if(floor(x) == x, x, floor(x) + 1 unit)
         """
-        freq = self.args[0] if self.args else 'D'
-        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
-        add_info = self.FREQ_TO_ADD_FUNC.get(freq, ('addDays', 1, 43200))
+        freq = self.args[0] if self.args else "D"
+        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, "toStartOfDay")
+        add_info = self.FREQ_TO_ADD_FUNC.get(freq, ("addDays", 1, 43200))
         add_func, amount, _ = add_info
 
         floor_expr = f"{floor_func}({source_sql})"
@@ -1006,9 +1024,9 @@ class DateTimeMethodExpr(Expression):
         round = if(time_to_next_boundary <= half_interval, ceil, floor)
         For simplicity, we use: if the fractional part >= 0.5, ceil; else floor
         """
-        freq = self.args[0] if self.args else 'D'
-        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, 'toStartOfDay')
-        add_info = self.FREQ_TO_ADD_FUNC.get(freq, ('addDays', 1, 43200))
+        freq = self.args[0] if self.args else "D"
+        floor_func = self.FREQ_TO_FLOOR_FUNC.get(freq, "toStartOfDay")
+        add_info = self.FREQ_TO_ADD_FUNC.get(freq, ("addDays", 1, 43200))
         add_func, amount, half_seconds = add_info
 
         floor_expr = f"{floor_func}({source_sql})"
@@ -1020,7 +1038,7 @@ class DateTimeMethodExpr(Expression):
         # If diff >= half_interval, round up (ceil), else round down (floor)
         return f"if({diff_seconds} >= {half_seconds}, {ceil_expr}, {floor_expr})"
 
-    def nodes(self) -> Iterator['Node']:
+    def nodes(self) -> Iterator["Node"]:
         yield self
         yield from self.source_expr.nodes()
 
@@ -1035,12 +1053,14 @@ class IsoCalendarComponentExpr(Expression):
 
     # Mapping from component name to chDB function
     CHDB_FUNCTION_MAP = {
-        'year': 'toISOYear',
-        'week': 'toISOWeek',
-        'day': 'toDayOfWeek',  # with mode 1 for Monday=1
+        "year": "toISOYear",
+        "week": "toISOWeek",
+        "day": "toDayOfWeek",  # with mode 1 for Monday=1
     }
 
-    def __init__(self, source_expr: Expression, component: str, alias: Optional[str] = None):
+    def __init__(
+        self, source_expr: Expression, component: str, alias: Optional[str] = None
+    ):
         """
         Args:
             source_expr: The datetime column expression
@@ -1061,7 +1081,7 @@ class IsoCalendarComponentExpr(Expression):
 
         # toDayOfWeek needs mode=0 for Monday=1 (ISO standard: 1-7)
         # mode=1 would return Monday=0 (0-6)
-        if self.component == 'day':
+        if self.component == "day":
             result = f"{ch_func}({source_sql}, 0)"
         else:
             result = f"{ch_func}({source_sql})"
@@ -1073,7 +1093,7 @@ class IsoCalendarComponentExpr(Expression):
             return f"{result} AS {format_identifier(self.alias, quote_char)}"
         return result
 
-    def nodes(self) -> Iterator['Node']:
+    def nodes(self) -> Iterator["Node"]:
         yield self
         yield from self.source_expr.nodes()
 

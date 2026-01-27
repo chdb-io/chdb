@@ -70,12 +70,16 @@ class QueryPlan:
     sql_ops: List[LazyOp] = field(default_factory=list)
     df_ops: List[LazyOp] = field(default_factory=list)
     groupby_agg: Optional[LazyGroupByAgg] = None
-    where_ops: List[LazyOp] = field(default_factory=list)  # LazyWhere/LazyMask for SQL CASE WHEN
+    where_ops: List[LazyOp] = field(
+        default_factory=list
+    )  # LazyWhere/LazyMask for SQL CASE WHEN
     layers: List[List[LazyOp]] = field(default_factory=list)
     has_sql_source: bool = False
     first_df_op_idx: Optional[int] = None
     where_columns: Set[str] = field(default_factory=set)
-    alias_renames: Dict[str, str] = field(default_factory=dict)  # temp_alias -> original_alias
+    alias_renames: Dict[str, str] = field(
+        default_factory=dict
+    )  # temp_alias -> original_alias
 
     def has_two_phases(self) -> bool:
         """Check if execution requires both SQL and DataFrame phases."""
@@ -120,11 +124,11 @@ class ExecutionSegment:
 
     def is_sql(self) -> bool:
         """Check if this is a SQL segment."""
-        return self.segment_type == 'sql'
+        return self.segment_type == "sql"
 
     def is_pandas(self) -> bool:
         """Check if this is a Pandas segment."""
-        return self.segment_type == 'pandas'
+        return self.segment_type == "pandas"
 
     def describe(self) -> str:
         """Return a human-readable description of this segment."""
@@ -200,7 +204,12 @@ class QueryPlanner:
     def __init__(self):
         self._logger = get_logger()
 
-    def plan(self, lazy_ops: List[LazyOp], has_sql_source: bool, schema: Dict[str, str] = None) -> QueryPlan:
+    def plan(
+        self,
+        lazy_ops: List[LazyOp],
+        has_sql_source: bool,
+        schema: Dict[str, str] = None,
+    ) -> QueryPlan:
         """
         Analyze LazyOp chain and produce an execution plan.
 
@@ -222,8 +231,10 @@ class QueryPlanner:
         plan.where_columns = self._collect_where_columns(lazy_ops)
 
         # Find the SQL/DataFrame boundary
-        plan.first_df_op_idx, plan.groupby_agg, plan.where_ops, plan.alias_renames = self._find_sql_boundary(
-            lazy_ops, has_sql_source, plan.where_columns, schema
+        plan.first_df_op_idx, plan.groupby_agg, plan.where_ops, plan.alias_renames = (
+            self._find_sql_boundary(
+                lazy_ops, has_sql_source, plan.where_columns, schema
+            )
         )
 
         # Split operations
@@ -236,11 +247,17 @@ class QueryPlanner:
 
         # Remove GroupByAgg and converted LazyApply from sql_ops if being pushed separately
         if plan.groupby_agg:
-            plan.sql_ops = [op for op in plan.sql_ops if not isinstance(op, (LazyGroupByAgg, LazyApply))]
+            plan.sql_ops = [
+                op
+                for op in plan.sql_ops
+                if not isinstance(op, (LazyGroupByAgg, LazyApply))
+            ]
 
         # Remove LazyWhere/LazyMask from sql_ops if they're being pushed separately
         if plan.where_ops:
-            plan.sql_ops = [op for op in plan.sql_ops if not isinstance(op, (LazyWhere, LazyMask))]
+            plan.sql_ops = [
+                op for op in plan.sql_ops if not isinstance(op, (LazyWhere, LazyMask))
+            ]
 
         # Build layers for nested subqueries (LIMIT-before-WHERE patterns)
         if has_sql_source:
@@ -270,7 +287,11 @@ class QueryPlanner:
         where_columns = set()
 
         for op in ops:
-            if isinstance(op, LazyRelationalOp) and op.op_type == 'WHERE' and op.condition:
+            if (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "WHERE"
+                and op.condition
+            ):
                 try:
                     cond_sql = op.condition.to_sql(quote_char='"')
                     # Extract quoted column names
@@ -281,7 +302,11 @@ class QueryPlanner:
         return where_columns
 
     def _find_sql_boundary(
-        self, ops: List[LazyOp], has_sql_source: bool, where_columns: Set[str], schema: Dict[str, str] = None
+        self,
+        ops: List[LazyOp],
+        has_sql_source: bool,
+        where_columns: Set[str],
+        schema: Dict[str, str] = None,
     ) -> Tuple[Optional[int], Optional[LazyGroupByAgg], List[LazyOp], Dict[str, str]]:
         """
         Find the first operation that cannot be pushed to SQL.
@@ -313,11 +338,15 @@ class QueryPlanner:
                 if has_sql_source and op.can_push_to_sql():
                     # Track this as a pending computed column for subsequent ops
                     pending_computed_columns.add(op.column)
-                    self._logger.debug("  [ColumnAssignment] Can push to SQL: %s", op.column)
+                    self._logger.debug(
+                        "  [ColumnAssignment] Can push to SQL: %s", op.column
+                    )
                     continue  # Include in SQL, continue looking
                 else:
                     # Cannot push to SQL - this operation breaks the SQL chain
-                    self._logger.debug("  [ColumnAssignment] Cannot push to SQL: %s", op.column)
+                    self._logger.debug(
+                        "  [ColumnAssignment] Cannot push to SQL: %s", op.column
+                    )
                     first_df_op_idx = i
                     break
 
@@ -330,9 +359,11 @@ class QueryPlanner:
                 # before ORDER BY, making the sort order meaningless for SQL aggregation.
                 # In pandas, sort_values().groupby().first() returns the first row per
                 # group based on the sort order, but SQL's any()/argMax() doesn't respect this.
-                if can_push and op.agg_func in ('first', 'last'):
+                if can_push and op.agg_func in ("first", "last"):
                     has_preceding_orderby = any(
-                        isinstance(prev_op, LazyRelationalOp) and prev_op.op_type == 'ORDER BY' for prev_op in ops[:i]
+                        isinstance(prev_op, LazyRelationalOp)
+                        and prev_op.op_type == "ORDER BY"
+                        for prev_op in ops[:i]
                     )
                     if has_preceding_orderby:
                         can_push = False
@@ -384,25 +415,35 @@ class QueryPlanner:
                         as_index=True,
                         dropna=True,
                     )
-                    self._logger.debug("  [Apply] Converted to GroupByAgg: %s -> %s", op.describe(), agg_func)
+                    self._logger.debug(
+                        "  [Apply] Converted to GroupByAgg: %s -> %s",
+                        op.describe(),
+                        agg_func,
+                    )
                     continue  # Include in SQL, continue looking
                 else:
                     # Cannot push to SQL - breaks the chain
-                    self._logger.debug("  [Apply] Cannot push to SQL: %s", op.describe())
+                    self._logger.debug(
+                        "  [Apply] Cannot push to SQL: %s", op.describe()
+                    )
                     first_df_op_idx = i
                     break
 
             elif isinstance(op, (LazyWhere, LazyMask)):
                 # Check if LazyWhere/LazyMask can be pushed to SQL
                 # Pass schema and pending computed columns for type-aware checking
-                if has_sql_source and op.can_push_to_sql(schema, pending_computed_columns):
+                if has_sql_source and op.can_push_to_sql(
+                    schema, pending_computed_columns
+                ):
                     where_ops.append(op)
                     self._logger.debug("  [Where/Mask] Can push to SQL: CASE WHEN")
                     continue  # Include in SQL, continue looking
                 else:
                     # Cannot push to SQL - breaks the chain
                     # (either function_config or type incompatibility)
-                    self._logger.debug("  [Where/Mask] Falling back to Pandas (type incompatibility or config)")
+                    self._logger.debug(
+                        "  [Where/Mask] Falling back to Pandas (type incompatibility or config)"
+                    )
                     first_df_op_idx = i
                     break
 
@@ -418,7 +459,9 @@ class QueryPlanner:
 
         return first_df_op_idx, groupby_agg_op, where_ops, alias_renames
 
-    def _get_agg_aliases(self, op: LazyGroupByAgg, schema: Dict[str, str] = None) -> Set[str]:
+    def _get_agg_aliases(
+        self, op: LazyGroupByAgg, schema: Dict[str, str] = None
+    ) -> Set[str]:
         """
         Get alias names that would be created by a GroupByAgg operation.
 
@@ -437,7 +480,7 @@ class QueryPlanner:
                     agg_aliases.update(funcs)  # Function names as aliases
                 else:
                     agg_aliases.add(col)  # Column name as alias for single func
-        elif op.agg_func == 'count' and schema:
+        elif op.agg_func == "count" and schema:
             # count() creates aliases for all non-groupby columns
             non_groupby_cols = [c for c in schema.keys() if c not in op.groupby_cols]
             agg_aliases.update(non_groupby_cols)
@@ -474,17 +517,17 @@ class QueryPlanner:
             if isinstance(op, LazyRelationalOp):
                 needs_new_layer = False
 
-                if op.op_type == 'WHERE' and (seen_limit or seen_offset):
+                if op.op_type == "WHERE" and (seen_limit or seen_offset):
                     # WHERE after LIMIT/OFFSET - start new layer
                     needs_new_layer = True
-                elif op.op_type == 'ORDER BY' and (seen_limit or seen_offset):
+                elif op.op_type == "ORDER BY" and (seen_limit or seen_offset):
                     # ORDER BY after LIMIT/OFFSET - start new layer
                     needs_new_layer = True
-                elif op.op_type == 'OFFSET' and seen_limit:
+                elif op.op_type == "OFFSET" and seen_limit:
                     # OFFSET after LIMIT means chained slices like [10:50][5:20]
                     # The second slice operates on the result of the first
                     needs_new_layer = True
-                elif op.op_type == 'LIMIT' and seen_limit:
+                elif op.op_type == "LIMIT" and seen_limit:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
                     needs_new_layer = True
@@ -498,8 +541,8 @@ class QueryPlanner:
 
                     layers.append(current_layer)
                     current_layer = [op]
-                    seen_limit = op.op_type == 'LIMIT'
-                    seen_offset = op.op_type == 'OFFSET'
+                    seen_limit = op.op_type == "LIMIT"
+                    seen_offset = op.op_type == "OFFSET"
                     computed_columns_after_limit = set()  # Reset for new layer
                 else:
                     # Add pending column assignments to current layer first
@@ -508,9 +551,9 @@ class QueryPlanner:
                         pending_column_assignments = []
 
                     current_layer.append(op)
-                    if op.op_type == 'LIMIT':
+                    if op.op_type == "LIMIT":
                         seen_limit = True
-                    elif op.op_type == 'OFFSET':
+                    elif op.op_type == "OFFSET":
                         seen_offset = True
 
             elif isinstance(op, LazyColumnAssignment):
@@ -587,7 +630,7 @@ class QueryPlanner:
                 for arg in e.args:
                     _extract(arg)
 
-            elif hasattr(e, 'expr') and e.expr is not None:
+            elif hasattr(e, "expr") and e.expr is not None:
                 # Wrapper types with an 'expr' attribute
                 _extract(e.expr)
 
@@ -607,7 +650,10 @@ class QueryPlanner:
         return len(plan.df_ops) == 0 and plan.has_sql_source
 
     def plan_segments(
-        self, lazy_ops: List[LazyOp], has_sql_source: bool, schema: Dict[str, str] = None
+        self,
+        lazy_ops: List[LazyOp],
+        has_sql_source: bool,
+        schema: Dict[str, str] = None,
     ) -> ExecutionPlan:
         """
         Analyze LazyOp chain and produce a segmented execution plan.
@@ -640,7 +686,7 @@ class QueryPlanner:
             # to read the data (SELECT *)
             if has_sql_source:
                 segment = ExecutionSegment(
-                    segment_type='sql',
+                    segment_type="sql",
                     ops=[],
                     is_first_segment=True,
                 )
@@ -660,11 +706,22 @@ class QueryPlanner:
             # LazyColumnSelection: df[["col1", "col2"]]
             # LazyRelationalOp SELECT: also used for column selection
             if isinstance(op, LazyColumnSelection) and effective_schema:
-                effective_schema = {col: effective_schema[col] for col in op.columns if col in effective_schema}
-                self._logger.debug("  [Schema] After LazyColumnSelection: %s", list(effective_schema.keys()))
-            elif isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and effective_schema:
+                effective_schema = {
+                    col: effective_schema[col]
+                    for col in op.columns
+                    if col in effective_schema
+                }
+                self._logger.debug(
+                    "  [Schema] After LazyColumnSelection: %s",
+                    list(effective_schema.keys()),
+                )
+            elif (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and effective_schema
+            ):
                 # LazyRelationalOp SELECT stores columns in fields (as Field objects or strings)
-                if hasattr(op, 'fields') and op.fields:
+                if hasattr(op, "fields") and op.fields:
                     # Extract column names from fields
                     selected_cols = []
                     for f in op.fields:
@@ -672,20 +729,24 @@ class QueryPlanner:
                             selected_cols.append(f)
                         elif isinstance(f, Field):
                             # Field.name is the column name (may have quotes)
-                            col_name = f.name.strip('"\'')
+                            col_name = f.name.strip("\"'")
                             selected_cols.append(col_name)
                     if selected_cols:
                         effective_schema = {
-                            col: effective_schema[col] for col in selected_cols if col in effective_schema
+                            col: effective_schema[col]
+                            for col in selected_cols
+                            if col in effective_schema
                         }
-                        self._logger.debug("  [Schema] After SELECT: %s", list(effective_schema.keys()))
+                        self._logger.debug(
+                            "  [Schema] After SELECT: %s", list(effective_schema.keys())
+                        )
 
             # Pass preceding operations to allow context-aware decisions
             preceding_ops = lazy_ops[: lazy_ops.index(op)] if op in lazy_ops else []
             if self._can_push_op_to_sql(op, effective_schema, preceding_ops):
-                op_types.append(('sql', op))
+                op_types.append(("sql", op))
             else:
-                op_types.append(('pandas', op))
+                op_types.append(("pandas", op))
 
         # Group consecutive operations of the same type into segments
         # Special case: when multiple LazyColumnAssignment ops target the same column,
@@ -700,12 +761,13 @@ class QueryPlanner:
         for op_type, op in op_types:
             # Check if this is a column assignment that conflicts with previous ones in segment
             needs_new_segment = False
-            if op_type == 'sql' and isinstance(op, LazyColumnAssignment):
+            if op_type == "sql" and isinstance(op, LazyColumnAssignment):
                 if op.column in assigned_columns_in_segment:
                     # Same column being assigned again - need a new segment
                     needs_new_segment = True
                     self._logger.debug(
-                        "  [Segment Split] Column '%s' already assigned in current segment, splitting", op.column
+                        "  [Segment Split] Column '%s' already assigned in current segment, splitting",
+                        op.column,
                     )
                 else:
                     # Check if this assignment references any column that was assigned
@@ -727,7 +789,9 @@ class QueryPlanner:
             if op_type != current_type or needs_new_segment:
                 # Save previous segment
                 if current_ops:
-                    segment = self._create_segment(current_type, current_ops, is_first, has_sql_source, schema)
+                    segment = self._create_segment(
+                        current_type, current_ops, is_first, has_sql_source, schema
+                    )
                     exec_plan.segments.append(segment)
                     is_first = False
                 # Start new segment
@@ -744,7 +808,9 @@ class QueryPlanner:
 
         # Save last segment
         if current_ops:
-            segment = self._create_segment(current_type, current_ops, is_first, has_sql_source, schema)
+            segment = self._create_segment(
+                current_type, current_ops, is_first, has_sql_source, schema
+            )
             exec_plan.segments.append(segment)
 
         self._logger.debug(
@@ -757,7 +823,10 @@ class QueryPlanner:
         return exec_plan
 
     def _can_push_op_to_sql(
-        self, op: LazyOp, schema: Dict[str, str] = None, preceding_ops: List[LazyOp] = None
+        self,
+        op: LazyOp,
+        schema: Dict[str, str] = None,
+        preceding_ops: List[LazyOp] = None,
     ) -> bool:
         """
         Check if a single operation can be pushed to SQL.
@@ -782,7 +851,7 @@ class QueryPlanner:
         if isinstance(op, LazyRelationalOp):
             # Most relational ops (WHERE, SELECT, ORDER BY, LIMIT, OFFSET) can be pushed
             # But PANDAS_FILTER is for method-mode ColumnExpr that cannot be converted to SQL
-            if op.op_type == 'PANDAS_FILTER':
+            if op.op_type == "PANDAS_FILTER":
                 return False
             return True
 
@@ -797,9 +866,11 @@ class QueryPlanner:
             # the sort order meaningless for SQL aggregation functions like any().
             # In pandas, sort_values().groupby().first() returns the first row per
             # group based on the sort order, but SQL cannot express this semantics.
-            if op.agg_func in ('first', 'last') and preceding_ops:
+            if op.agg_func in ("first", "last") and preceding_ops:
                 has_preceding_orderby = any(
-                    isinstance(prev_op, LazyRelationalOp) and prev_op.op_type == 'ORDER BY' for prev_op in preceding_ops
+                    isinstance(prev_op, LazyRelationalOp)
+                    and prev_op.op_type == "ORDER BY"
+                    for prev_op in preceding_ops
                 )
                 if has_preceding_orderby:
                     self._logger.debug(
@@ -865,7 +936,7 @@ class QueryPlanner:
             is_first_segment=is_first,
         )
 
-        if segment_type == 'sql':
+        if segment_type == "sql":
             # Create a QueryPlan for this SQL segment
             # The segment can use SQL if:
             # - It's the first segment and has_sql_source is True, OR

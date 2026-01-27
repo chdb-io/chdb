@@ -63,7 +63,7 @@ def _needs_memory_copy(df: pd.DataFrame) -> bool:
     # which chDB's Python() table function cannot read correctly
     for col in numeric_cols:
         col_values = df[col].values
-        if hasattr(col_values, 'flags') and not col_values.flags['C_CONTIGUOUS']:
+        if hasattr(col_values, "flags") and not col_values.flags["C_CONTIGUOUS"]:
             return True
 
     return False
@@ -88,7 +88,7 @@ class LazyOp(ABC):
         self._logger = get_logger()
 
     @abstractmethod
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """
         Execute this operation on a DataFrame.
 
@@ -123,7 +123,7 @@ class LazyOp(ABC):
             This method enables explain() to accurately report execution engines.
             Subclasses should override this if they can use chDB.
         """
-        return 'Pandas'  # Default: most LazyOps use Pandas
+        return "Pandas"  # Default: most LazyOps use Pandas
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """
@@ -169,7 +169,7 @@ class LazyColumnAssignment(LazyOp):
             return columns + [self.column]
         return columns
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute column assignment using unified ExpressionEvaluator."""
         from .expression_evaluator import ExpressionEvaluator
 
@@ -248,7 +248,7 @@ class LazyColumnAssignment(LazyOp):
 
         if isinstance(expr, CastFunction):
             # CastFunction always uses chDB
-            return 'chDB'
+            return "chDB"
 
         elif isinstance(expr, CaseWhenExpr):
             # CaseWhenExpr - delegate to its own execution_engine method
@@ -257,42 +257,46 @@ class LazyColumnAssignment(LazyOp):
         elif isinstance(expr, DateTimePropertyExpr):
             # DateTime property - check function_config for engine selection
             if function_config.should_use_pandas(expr.property_name):
-                return 'Pandas'
+                return "Pandas"
             else:
-                return 'chDB'
+                return "chDB"
 
         elif isinstance(expr, DateTimeMethodExpr):
             # DateTime method - check function_config for engine selection
             if function_config.should_use_pandas(expr.method_name):
-                return 'Pandas'
+                return "Pandas"
             else:
-                return 'chDB'
+                return "chDB"
 
         elif isinstance(expr, Function):
             # Check function config
             # Use pandas_name if available (for functions where SQL name differs from user-facing name)
-            func_name = (getattr(expr, 'pandas_name', None) or expr.name).lower()
-            if function_config.should_use_pandas(func_name) and function_config.has_pandas_implementation(func_name):
-                return 'Pandas'
+            func_name = (getattr(expr, "pandas_name", None) or expr.name).lower()
+            if function_config.should_use_pandas(
+                func_name
+            ) and function_config.has_pandas_implementation(func_name):
+                return "Pandas"
             else:
-                return 'chDB'
+                return "chDB"
 
         elif isinstance(expr, ArithmeticExpression):
             # Check both sides
             left_engine = self._determine_engine(expr.left)
             right_engine = self._determine_engine(expr.right)
-            if left_engine == 'chDB' or right_engine == 'chDB':
-                return 'chDB'  # If any part uses chDB, the whole thing does
-            return 'Pandas'
+            if left_engine == "chDB" or right_engine == "chDB":
+                return "chDB"  # If any part uses chDB, the whole thing does
+            return "Pandas"
 
         elif isinstance(expr, (Field, Literal)):
-            return 'Pandas'
+            return "Pandas"
 
         else:
             # Scalar value, Series, etc.
-            return 'Pandas'
+            return "Pandas"
 
-    def can_push_to_sql(self, existing_columns: list = None, computed_columns: set = None) -> bool:
+    def can_push_to_sql(
+        self, existing_columns: list = None, computed_columns: set = None
+    ) -> bool:
         """
         Check if this column assignment can be pushed to SQL as a SELECT expression.
 
@@ -378,7 +382,7 @@ class LazyColumnAssignment(LazyOp):
         elif isinstance(expr, ArithmeticExpression):
             # Certain arithmetic operators cause dtype differences in SQL
             # ** (power), // (floor div), % (modulo) return different types in ClickHouse
-            if expr.operator in {'**', '//', '%'}:
+            if expr.operator in {"**", "//", "%"}:
                 return True
             # Recursively check operands
             if self._is_pandas_only_function(expr.left):
@@ -386,7 +390,7 @@ class LazyColumnAssignment(LazyOp):
             if self._is_pandas_only_function(expr.right):
                 return True
 
-        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+        elif hasattr(expr, "left") and hasattr(expr, "right"):
             # Other binary expressions (BinaryCondition)
             left = expr.left
             right = expr.right
@@ -419,14 +423,14 @@ class LazyColumnAssignment(LazyOp):
             if expr.pandas_kwargs:
                 # 'na' parameter especially affects NULL handling
                 # SQL NULLs behave differently than pandas NA handling
-                if 'na' in expr.pandas_kwargs and expr.pandas_kwargs['na'] is not None:
+                if "na" in expr.pandas_kwargs and expr.pandas_kwargs["na"] is not None:
                     return True
             # Recursively check function arguments
             for arg in expr.args:
                 if self._has_pandas_only_kwargs(arg):
                     return True
 
-        elif hasattr(expr, 'left') and hasattr(expr, 'right'):
+        elif hasattr(expr, "left") and hasattr(expr, "right"):
             # Binary expressions (ArithmeticExpression, BinaryCondition)
             # Make sure left/right are not methods
             left = expr.left
@@ -496,7 +500,7 @@ class LazyColumnSelection(LazyOp):
         """Return only the selected columns (preserving order)."""
         return [c for c in self.columns if c in columns or c in self.columns]
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("ColumnSelection", f"columns={self.columns}")
         result = df[self.columns]
         self._logger.debug("      -> DataFrame shape after selection: %s", result.shape)
@@ -521,7 +525,7 @@ class LazyDropColumns(LazyOp):
         """Remove the dropped columns."""
         return [c for c in columns if c not in self.columns]
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("DropColumns", f"columns={self.columns}")
         result = df.drop(columns=self.columns)
         self._logger.debug("      -> DataFrame shape after drop: %s", result.shape)
@@ -547,14 +551,15 @@ class LazyRenameColumns(LazyOp):
         """Apply the rename mapping to column names."""
         return [self.mapping.get(c, c) for c in columns]
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("RenameColumns", f"mapping={self.mapping}")
 
         # Check if we have MultiIndex columns that need renaming to flat strings
         # This happens when user does: ds.columns = ['flat_name1', 'flat_name2', ...]
         # after a groupby().agg() which creates MultiIndex columns
         has_multiindex_to_flat = any(
-            isinstance(old, tuple) and isinstance(new, str) for old, new in self.mapping.items()
+            isinstance(old, tuple) and isinstance(new, str)
+            for old, new in self.mapping.items()
         )
 
         if has_multiindex_to_flat:
@@ -576,7 +581,7 @@ class LazyRenameColumns(LazyOp):
         return result
 
     def describe(self) -> str:
-        renames = ', '.join(f"{old}→{new}" for old, new in self.mapping.items())
+        renames = ", ".join(f"{old}→{new}" for old, new in self.mapping.items())
         return f"Rename columns: {renames}"
 
 
@@ -591,7 +596,7 @@ class LazyAddPrefix(LazyOp):
         """Add prefix to all column names."""
         return [f"{self.prefix}{c}" for c in columns]
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("AddPrefix", f"prefix='{self.prefix}'")
         result = df.add_prefix(self.prefix)
         self._logger.debug("      -> New columns: %s", list(result.columns))
@@ -612,7 +617,7 @@ class LazyAddSuffix(LazyOp):
         """Add suffix to all column names."""
         return [f"{c}{self.suffix}" for c in columns]
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("AddSuffix", f"suffix='{self.suffix}'")
         result = df.add_suffix(self.suffix)
         self._logger.debug("      -> New columns: %s", list(result.columns))
@@ -630,7 +635,7 @@ class LazyFillNA(LazyOp):
         self.value = value
         self.method = method
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("FillNA", f"value={self.value}, method={self.method}")
         result = df.fillna(value=self.value, method=self.method)
         return result
@@ -644,17 +649,20 @@ class LazyFillNA(LazyOp):
 class LazyDropNA(LazyOp):
     """Drop rows with NA values."""
 
-    def __init__(self, how='any', subset=None):
+    def __init__(self, how="any", subset=None):
         super().__init__()
         self.how = how
         self.subset = subset
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("DropNA", f"how='{self.how}', subset={self.subset}")
         rows_before = len(df)
         result = df.dropna(how=self.how, subset=self.subset)
         self._logger.debug(
-            "[Pandas]   -> Dropped %d rows (from %d to %d)", rows_before - len(result), rows_before, len(result)
+            "[Pandas]   -> Dropped %d rows (from %d to %d)",
+            rows_before - len(result),
+            rows_before,
+            len(result),
         )
         return result
 
@@ -668,12 +676,12 @@ class LazyDropNA(LazyOp):
 class LazyDistinct(LazyOp):
     """Drop duplicate rows: df.drop_duplicates()"""
 
-    def __init__(self, subset=None, keep='first'):
+    def __init__(self, subset=None, keep="first"):
         super().__init__()
         self.subset = subset
         self.keep = keep
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("Distinct", f"subset={self.subset}, keep='{self.keep}'")
         rows_before = len(df)
         result = df.drop_duplicates(subset=self.subset, keep=self.keep)
@@ -702,7 +710,7 @@ class LazyAsType(LazyOp):
         super().__init__()
         self.dtype = dtype
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("AsType", f"dtype={self.dtype}")
         result = df.astype(self.dtype)
         self._logger.debug("      -> New dtypes: %s", dict(result.dtypes))
@@ -739,7 +747,7 @@ class LazyRelationalOp(LazyOp):
         ascending=True,
         limit_value=None,
         offset_value=None,
-        kind='quicksort',
+        kind="quicksort",
     ):
         """
         Args:
@@ -764,17 +772,17 @@ class LazyRelationalOp(LazyOp):
 
     def transform_columns(self, columns: List[str]) -> List[str]:
         """Transform columns based on the operation type."""
-        if self.op_type == 'SELECT' and self.fields:
+        if self.op_type == "SELECT" and self.fields:
             # SELECT operation: return only selected columns
             selected = []
             for f in self.fields:
                 if isinstance(f, str):
-                    if f != '*':
+                    if f != "*":
                         selected.append(f)
-                elif hasattr(f, 'alias') and f.alias:
+                elif hasattr(f, "alias") and f.alias:
                     # Expression with alias takes priority (e.g., as_())
                     selected.append(f.alias)
-                elif hasattr(f, 'name'):
+                elif hasattr(f, "name"):
                     # Field object - strip quotes from name
                     name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
                     selected.append(name)
@@ -785,45 +793,53 @@ class LazyRelationalOp(LazyOp):
 
     # Map SQL op_type to pandas terminology for logging
     _PANDAS_OP_NAMES = {
-        'WHERE': 'filter',
-        'SELECT': 'select',
-        'ORDER BY': 'sort_values',
-        'LIMIT': 'head',
-        'OFFSET': 'iloc',
+        "WHERE": "filter",
+        "SELECT": "select",
+        "ORDER BY": "sort_values",
+        "LIMIT": "head",
+        "OFFSET": "iloc",
     }
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute this filter/transform operation on a DataFrame using pandas."""
         pandas_op = self._PANDAS_OP_NAMES.get(self.op_type, self.op_type)
         self._log_execute(f"Pandas {pandas_op}", self.description)
         rows_before = len(df)
 
-        if self.op_type == 'SELECT' and self.fields:
+        if self.op_type == "SELECT" and self.fields:
             # Select specific columns, handling '*' to mean all existing columns
-            has_star = '*' in self.fields
+            has_star = "*" in self.fields
             if has_star:
                 # Start with all existing columns
                 selected_cols = list(df.columns)
                 # Add any additional columns (expressions with aliases)
                 for f in self.fields:
-                    if f == '*':
+                    if f == "*":
                         continue
                     if isinstance(f, str):
                         if f not in selected_cols and f in df.columns:
                             selected_cols.append(f)
-                    elif hasattr(f, 'alias') and f.alias:
+                    elif hasattr(f, "alias") and f.alias:
                         # Expression with alias - this is a computed column
                         # It should already exist in df if SQL was executed
                         if f.alias not in selected_cols and f.alias in df.columns:
                             selected_cols.append(f.alias)
-                    elif hasattr(f, 'name'):
-                        name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
+                    elif hasattr(f, "name"):
+                        name = (
+                            f.name.strip('"')
+                            if isinstance(f.name, str)
+                            else str(f.name)
+                        )
                         if name not in selected_cols and name in df.columns:
                             selected_cols.append(name)
             else:
                 # No star - select specific columns
                 cols = [
-                    f if isinstance(f, str) else (f.alias if hasattr(f, 'alias') and f.alias else f.name)
+                    (
+                        f
+                        if isinstance(f, str)
+                        else (f.alias if hasattr(f, "alias") and f.alias else f.name)
+                    )
                     for f in self.fields
                 ]
                 # Handle Field objects - strip quotes
@@ -837,7 +853,7 @@ class LazyRelationalOp(LazyOp):
                 self._logger.debug("      -> Selected columns: %s", selected_cols)
                 return result
             return df
-        elif self.op_type == 'WHERE' and self.condition is not None:
+        elif self.op_type == "WHERE" and self.condition is not None:
             # Log the condition (executed via pandas boolean mask)
             try:
                 condition_sql = self.condition.to_sql(quote_char='"')
@@ -846,9 +862,11 @@ class LazyRelationalOp(LazyOp):
                 pass
             # Apply filter condition on DataFrame using pandas
             result = self._apply_condition(df, self.condition, context)
-            self._logger.debug("      -> df[mask]: %d -> %d rows", rows_before, len(result))
+            self._logger.debug(
+                "      -> df[mask]: %d -> %d rows", rows_before, len(result)
+            )
             return result
-        elif self.op_type == 'PANDAS_FILTER' and self.condition is not None:
+        elif self.op_type == "PANDAS_FILTER" and self.condition is not None:
             # Method-mode ColumnExpr condition (e.g., cumsum() > 6, rank() > 3)
             # Execute the condition to get boolean Series
             from .column_expr import ColumnExpr
@@ -866,48 +884,64 @@ class LazyRelationalOp(LazyOp):
                 else:
                     # Try to align by index
                     result = df.loc[bool_series.index[bool_series]]
-                self._logger.debug("      -> Pandas filter (method-mode): %d -> %d rows", rows_before, len(result))
+                self._logger.debug(
+                    "      -> Pandas filter (method-mode): %d -> %d rows",
+                    rows_before,
+                    len(result),
+                )
                 return result
             return df
-        elif self.op_type == 'ORDER BY' and self.fields:
+        elif self.op_type == "ORDER BY" and self.fields:
             # Sort DataFrame
             cols = [f if isinstance(f, str) else f.name for f in self.fields]
             existing_cols = [c for c in cols if c in df.columns]
             # Log sort info
             try:
-                direction = 'ascending' if self.ascending else 'descending'
+                direction = "ascending" if self.ascending else "descending"
                 self._logger.debug(
-                    "      -> df.sort_values(by=%s, ascending=%s, kind=%s)", existing_cols, self.ascending, self.kind
+                    "      -> df.sort_values(by=%s, ascending=%s, kind=%s)",
+                    existing_cols,
+                    self.ascending,
+                    self.kind,
                 )
             except Exception:
                 pass
             if existing_cols:
-                result = df.sort_values(by=existing_cols, ascending=self.ascending, kind=self.kind)
-                self._logger.debug("      -> Sorted by: %s (%s, kind=%s)", existing_cols, direction, self.kind)
+                result = df.sort_values(
+                    by=existing_cols, ascending=self.ascending, kind=self.kind
+                )
+                self._logger.debug(
+                    "      -> Sorted by: %s (%s, kind=%s)",
+                    existing_cols,
+                    direction,
+                    self.kind,
+                )
                 return result
             return df
-        elif self.op_type == 'LIMIT' and self.limit_value is not None:
+        elif self.op_type == "LIMIT" and self.limit_value is not None:
             self._logger.debug("      -> df.head(%d)", self.limit_value)
             result = df.head(self.limit_value)
             self._logger.debug("      -> Limited to %d rows", self.limit_value)
             return result
-        elif self.op_type == 'OFFSET' and self.offset_value is not None:
+        elif self.op_type == "OFFSET" and self.offset_value is not None:
             self._logger.debug("      -> df.iloc[%d:]", self.offset_value)
             result = df.iloc[self.offset_value :]
             self._logger.debug("      -> Offset by %d rows", self.offset_value)
             return result
         return df
 
-    def _apply_condition(self, df: pd.DataFrame, condition, context: 'DataStore') -> pd.DataFrame:
+    def _apply_condition(
+        self, df: pd.DataFrame, condition, context: "DataStore"
+    ) -> pd.DataFrame:
         """Apply a condition to filter a DataFrame."""
         from .conditions import Condition, CompoundCondition, NotCondition
 
         if isinstance(condition, CompoundCondition):
-            if condition.operator == 'AND':
+            if condition.operator == "AND":
                 # Apply both conditions
                 result = self._apply_condition(df, condition.left, context)
                 return self._apply_condition(result, condition.right, context)
-            elif condition.operator == 'OR':
+            elif condition.operator == "OR":
                 # Get masks for both and combine with OR
                 left_mask = self._get_condition_mask(df, condition.left, context)
                 right_mask = self._get_condition_mask(df, condition.right, context)
@@ -920,9 +954,14 @@ class LazyRelationalOp(LazyOp):
             return df[mask]
         return df
 
-    def _get_condition_mask(self, df: pd.DataFrame, condition, context: 'DataStore'):
+    def _get_condition_mask(self, df: pd.DataFrame, condition, context: "DataStore"):
         """Get a boolean mask for a condition."""
-        from .conditions import Condition, BinaryCondition, CompoundCondition, NotCondition
+        from .conditions import (
+            Condition,
+            BinaryCondition,
+            CompoundCondition,
+            NotCondition,
+        )
         from .conditions import InCondition, BetweenCondition, UnaryCondition
 
         if not isinstance(condition, Condition):
@@ -931,9 +970,9 @@ class LazyRelationalOp(LazyOp):
         if isinstance(condition, CompoundCondition):
             left_mask = self._get_condition_mask(df, condition.left, context)
             right_mask = self._get_condition_mask(df, condition.right, context)
-            if condition.operator == 'AND':
+            if condition.operator == "AND":
                 return left_mask & right_mask
-            elif condition.operator == 'OR':
+            elif condition.operator == "OR":
                 return left_mask | right_mask
             return left_mask
 
@@ -945,27 +984,27 @@ class LazyRelationalOp(LazyOp):
             right = self._evaluate_operand(df, condition.right, context)
 
             op = condition.operator
-            if op == '=':
+            if op == "=":
                 return left == right
-            elif op in ('!=', '<>'):
+            elif op in ("!=", "<>"):
                 return left != right
-            elif op == '>':
+            elif op == ">":
                 return left > right
-            elif op == '>=':
+            elif op == ">=":
                 return left >= right
-            elif op == '<':
+            elif op == "<":
                 return left < right
-            elif op == '<=':
+            elif op == "<=":
                 return left <= right
-            elif op == 'LIKE':
+            elif op == "LIKE":
                 # Convert SQL LIKE to regex
-                pattern = str(right).replace('%', '.*').replace('_', '.')
-                return left.astype(str).str.match(f'^{pattern}$', case=True)
-            elif op == 'IN':
+                pattern = str(right).replace("%", ".*").replace("_", ".")
+                return left.astype(str).str.match(f"^{pattern}$", case=True)
+            elif op == "IN":
                 return left.isin(right if isinstance(right, (list, tuple)) else [right])
-            elif op == 'IS':
+            elif op == "IS":
                 # Handle IS NULL
-                if right is None or str(right).upper() == 'NULL':
+                if right is None or str(right).upper() == "NULL":
                     return left.isna()
                 return left == right
             return pd.Series([True] * len(df), index=df.index)
@@ -986,14 +1025,14 @@ class LazyRelationalOp(LazyOp):
 
         if isinstance(condition, UnaryCondition):
             field = self._evaluate_operand(df, condition.expression, context)
-            if condition.operator == 'IS NULL':
+            if condition.operator == "IS NULL":
                 return field.isna()
-            elif condition.operator == 'IS NOT NULL':
+            elif condition.operator == "IS NOT NULL":
                 return field.notna()
 
         return pd.Series([True] * len(df), index=df.index)
 
-    def _evaluate_operand(self, df: pd.DataFrame, operand, context: 'DataStore'):
+    def _evaluate_operand(self, df: pd.DataFrame, operand, context: "DataStore"):
         """
         Evaluate an operand using unified ExpressionEvaluator.
 
@@ -1071,7 +1110,7 @@ class LazyGroupByAgg(LazyOp):
         self.selected_columns = selected_columns
         self.kwargs = kwargs
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute groupby aggregation on DataFrame."""
         self._log_execute(
             "GroupByAgg",
@@ -1085,7 +1124,12 @@ class LazyGroupByAgg(LazyOp):
             df = df[cols_to_keep]
 
         # Pass sort, as_index, and dropna parameters to pandas groupby
-        grouped = df.groupby(self.groupby_cols, sort=self.sort, as_index=self.as_index, dropna=self.dropna)
+        grouped = df.groupby(
+            self.groupby_cols,
+            sort=self.sort,
+            as_index=self.as_index,
+            dropna=self.dropna,
+        )
 
         if self.named_agg is not None:
             # Pandas named aggregation: agg(alias=('col', 'func'))
@@ -1096,9 +1140,9 @@ class LazyGroupByAgg(LazyOp):
         elif self.agg_dict is not None:
             # Pandas-style: agg({'col': 'func'})
             result = grouped.agg(self.agg_dict, **self.kwargs)
-        elif self.agg_func == 'size':
+        elif self.agg_func == "size":
             # size() returns Series, convert to DataFrame
-            result = grouped.size().to_frame('size')
+            result = grouped.size().to_frame("size")
             if not self.as_index:
                 result = result.reset_index()
         else:
@@ -1132,7 +1176,7 @@ class LazyGroupByAgg(LazyOp):
 
     def execution_engine(self) -> str:
         """Return which engine this operation should use."""
-        return 'SQL'
+        return "SQL"
 
 
 class LazyDataFrameSource(LazyOp):
@@ -1153,12 +1197,14 @@ class LazyDataFrameSource(LazyOp):
         # Check for problematic memory layout that causes chDB Python() corruption
         if _needs_memory_copy(df):
             self._logger = get_logger()
-            self._logger.debug("DataFrame has shared memory layout incompatible with chDB; copying")
+            self._logger.debug(
+                "DataFrame has shared memory layout incompatible with chDB; copying"
+            )
             self._df = df.copy()
         else:
             self._df = df
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Return the stored DataFrame, ignoring the input."""
         self._log_execute("DataFrameSource", f"shape={self._df.shape}")
         return self._df
@@ -1194,7 +1240,9 @@ class LazySQLQuery(LazyOp):
         ds = ds.add_prefix('result_')
     """
 
-    def __init__(self, query: str, df_alias: str = '__df__', is_raw_query: bool = False):
+    def __init__(
+        self, query: str, df_alias: str = "__df__", is_raw_query: bool = False
+    ):
         """
         Args:
             query: SQL query or condition. Can be:
@@ -1228,11 +1276,11 @@ class LazySQLQuery(LazyOp):
         query_upper = query.upper().strip()
 
         # Check if it's already a full SQL statement
-        if query_upper.startswith('SELECT') or 'FROM' in query_upper:
+        if query_upper.startswith("SELECT") or "FROM" in query_upper:
             return query
 
         # Check if it starts with a clause (WHERE, ORDER BY, LIMIT, OFFSET, GROUP BY, HAVING)
-        clause_starters = ('WHERE', 'ORDER BY', 'LIMIT', 'OFFSET', 'GROUP BY', 'HAVING')
+        clause_starters = ("WHERE", "ORDER BY", "LIMIT", "OFFSET", "GROUP BY", "HAVING")
         for clause in clause_starters:
             if query_upper.startswith(clause):
                 return f"SELECT * FROM __df__ {query}"
@@ -1240,7 +1288,7 @@ class LazySQLQuery(LazyOp):
         # Otherwise, treat as a WHERE condition
         return f"SELECT * FROM __df__ WHERE {query}"
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute the SQL query using chDB via centralized Executor."""
         from .executor import get_executor
 
@@ -1253,7 +1301,7 @@ class LazySQLQuery(LazyOp):
             # Execute raw SQL directly
             result = executor.execute(self.query)
             # Convert QueryResult to DataFrame
-            if hasattr(result, 'to_df'):
+            if hasattr(result, "to_df"):
                 return result.to_df()
             if isinstance(result, pd.DataFrame):
                 return result
@@ -1267,16 +1315,20 @@ class LazySQLQuery(LazyOp):
 
             # Use centralized executor
             executor = get_executor()
-            result = executor.query_dataframe(self.query, df, '__df__')
+            result = executor.query_dataframe(self.query, df, "__df__")
             return result
 
     def describe(self) -> str:
         # Show original query for brevity, but indicate if it was expanded
         if self.original_query != self.query:
-            display = self.original_query if len(self.original_query) <= 50 else self.original_query[:47] + '...'
+            display = (
+                self.original_query
+                if len(self.original_query) <= 50
+                else self.original_query[:47] + "..."
+            )
             return f"SQL: {display} (expanded)"
         else:
-            display = self.query if len(self.query) <= 60 else self.query[:57] + '...'
+            display = self.query if len(self.query) <= 60 else self.query[:57] + "..."
             return f"SQL Query: {display}"
 
     def can_push_to_sql(self) -> bool:
@@ -1285,7 +1337,7 @@ class LazySQLQuery(LazyOp):
 
     def execution_engine(self) -> str:
         """LazySQLQuery always uses chDB."""
-        return 'chDB'
+        return "chDB"
 
 
 class LazyFilter(LazyOp):
@@ -1312,7 +1364,7 @@ class LazyFilter(LazyOp):
         self.func = func
         self.groupby_cols = groupby_cols
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute groupby filter on DataFrame."""
         self._log_execute("Filter", f"groupby={self.groupby_cols}")
         rows_before = len(df)
@@ -1323,7 +1375,7 @@ class LazyFilter(LazyOp):
         return result
 
     def describe(self) -> str:
-        func_name = getattr(self.func, '__name__', '<lambda>')
+        func_name = getattr(self.func, "__name__", "<lambda>")
         return f"GroupBy({self.groupby_cols}).filter({func_name})"
 
     def can_push_to_sql(self) -> bool:
@@ -1331,7 +1383,7 @@ class LazyFilter(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 class LazyTransform(LazyOp):
@@ -1349,7 +1401,14 @@ class LazyTransform(LazyOp):
         ds.transform(lambda x: x * 2)  # Future use
     """
 
-    def __init__(self, func, *args, groupby_cols: List[str] = None, columns: List[str] = None, **kwargs):
+    def __init__(
+        self,
+        func,
+        *args,
+        groupby_cols: List[str] = None,
+        columns: List[str] = None,
+        **kwargs,
+    ):
         """
         Args:
             func: Function to apply (callable or string like 'mean', 'sum')
@@ -1365,12 +1424,18 @@ class LazyTransform(LazyOp):
         self.args = args
         self.kwargs = kwargs
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute transform on DataFrame."""
-        func_desc = self.func if isinstance(self.func, str) else getattr(self.func, '__name__', '<callable>')
+        func_desc = (
+            self.func
+            if isinstance(self.func, str)
+            else getattr(self.func, "__name__", "<callable>")
+        )
 
         if self.groupby_cols:
-            self._log_execute("Transform", f"groupby={self.groupby_cols}, func={func_desc}")
+            self._log_execute(
+                "Transform", f"groupby={self.groupby_cols}, func={func_desc}"
+            )
             # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
             # For transform operations, we use the default dropna=True behavior
             grouped = df.groupby(self.groupby_cols, dropna=True)
@@ -1379,7 +1444,9 @@ class LazyTransform(LazyOp):
                 result = df.copy()
                 for col in self.columns:
                     if col in df.columns:
-                        result[col] = grouped[col].transform(self.func, *self.args, **self.kwargs)
+                        result[col] = grouped[col].transform(
+                            self.func, *self.args, **self.kwargs
+                        )
             else:
                 result = grouped.transform(self.func, *self.args, **self.kwargs)
         else:
@@ -1388,7 +1455,9 @@ class LazyTransform(LazyOp):
                 result = df.copy()
                 for col in self.columns:
                     if col in df.columns:
-                        result[col] = df[col].transform(self.func, *self.args, **self.kwargs)
+                        result[col] = df[col].transform(
+                            self.func, *self.args, **self.kwargs
+                        )
             else:
                 result = df.transform(self.func, *self.args, **self.kwargs)
 
@@ -1396,7 +1465,11 @@ class LazyTransform(LazyOp):
         return result
 
     def describe(self) -> str:
-        func_name = self.func if isinstance(self.func, str) else getattr(self.func, '__name__', '<callable>')
+        func_name = (
+            self.func
+            if isinstance(self.func, str)
+            else getattr(self.func, "__name__", "<callable>")
+        )
         cols_desc = f"[{', '.join(self.columns)}]" if self.columns else "all"
         if self.groupby_cols:
             return f"GroupBy({self.groupby_cols}).transform({func_name}, columns={cols_desc})"
@@ -1406,11 +1479,21 @@ class LazyTransform(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 # Aggregation functions that can be pushed to SQL
-SQL_PUSHABLE_AGGS = {'sum', 'mean', 'max', 'min', 'count', 'std', 'var', 'first', 'last'}
+SQL_PUSHABLE_AGGS = {
+    "sum",
+    "mean",
+    "max",
+    "min",
+    "count",
+    "std",
+    "var",
+    "first",
+    "last",
+}
 
 
 class _AggregationProbe:
@@ -1439,7 +1522,7 @@ class _AggregationProbe:
 
     def __getattr__(self, name):
         """Intercept attribute access and return a callable that records the call."""
-        if name.startswith('_'):
+        if name.startswith("_"):
             raise AttributeError(name)
 
         def method_proxy(*args, **kwargs):
@@ -1540,18 +1623,20 @@ class LazyApply(LazyOp):
         """Return the detected aggregation function name if this is a simple aggregation."""
         return self._detected_agg_func if self._is_simple_agg else None
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute apply on DataFrame."""
-        func_name = getattr(self.func, '__name__', '<callable>')
+        func_name = getattr(self.func, "__name__", "<callable>")
 
         if self.groupby_cols:
             self._log_execute("Apply", f"groupby={self.groupby_cols}, func={func_name}")
             # Note: groupby_dropna should be passed from LazyGroupBy but is not available here
             # For apply operations, we use the default dropna=True behavior
             apply_kwargs = dict(self.kwargs)
-            apply_kwargs['include_groups'] = False
+            apply_kwargs["include_groups"] = False
 
-            result = df.groupby(self.groupby_cols, dropna=True).apply(self.func, *self.args, **apply_kwargs)
+            result = df.groupby(self.groupby_cols, dropna=True).apply(
+                self.func, *self.args, **apply_kwargs
+            )
             # Keep the MultiIndex result as-is to match pandas behavior exactly
             # Users can call .reset_index() if they need flat columns
         else:
@@ -1564,7 +1649,7 @@ class LazyApply(LazyOp):
         return result
 
     def describe(self) -> str:
-        func_name = getattr(self.func, '__name__', '<callable>')
+        func_name = getattr(self.func, "__name__", "<callable>")
         if self._is_simple_agg:
             func_name = f"{func_name} [SQL: {self._detected_agg_func}]"
         if self.groupby_cols:
@@ -1591,8 +1676,8 @@ class LazyApply(LazyOp):
     def execution_engine(self) -> str:
         """Return which engine this operation should use."""
         if self.can_push_to_sql():
-            return 'SQL'
-        return 'Pandas'
+            return "SQL"
+        return "Pandas"
 
 
 # Aliases for backward compatibility
@@ -1614,7 +1699,9 @@ class LazyNth(LazyOp):
         ds.groupby('category').nth([0, 2])  # First and third rows from each group
     """
 
-    def __init__(self, n: Union[int, List[int]], groupby_cols: List[str], dropna: str = None):
+    def __init__(
+        self, n: Union[int, List[int]], groupby_cols: List[str], dropna: str = None
+    ):
         """
         Args:
             n: Integer or list of integers indicating which row(s) to select from each group.
@@ -1627,7 +1714,7 @@ class LazyNth(LazyOp):
         self.groupby_cols = groupby_cols
         self.dropna = dropna
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute groupby nth on DataFrame."""
         n_desc = self.n if isinstance(self.n, int) else list(self.n)
         self._log_execute("Nth", f"groupby={self.groupby_cols}, n={n_desc}")
@@ -1657,7 +1744,7 @@ class LazyNth(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 class LazyHead(LazyOp):
@@ -1681,7 +1768,7 @@ class LazyHead(LazyOp):
         self.n = n
         self.groupby_cols = groupby_cols
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute groupby head on DataFrame."""
         self._log_execute("Head", f"groupby={self.groupby_cols}, n={self.n}")
 
@@ -1703,7 +1790,7 @@ class LazyHead(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 class LazyTail(LazyOp):
@@ -1727,7 +1814,7 @@ class LazyTail(LazyOp):
         self.n = n
         self.groupby_cols = groupby_cols
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute groupby tail on DataFrame."""
         self._log_execute("Tail", f"groupby={self.groupby_cols}, n={self.n}")
 
@@ -1749,7 +1836,7 @@ class LazyTail(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 class LazyWhere(LazyOp):
@@ -1784,7 +1871,7 @@ class LazyWhere(LazyOp):
         self.columns = columns
         self._is_mask = False  # Subclass sets this to True
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute where operation on DataFrame."""
         from .expression_evaluator import ExpressionEvaluator
         from .column_expr import ColumnExpr
@@ -1826,7 +1913,7 @@ class LazyWhere(LazyOp):
         # Describe condition
         cond = self.condition
         if isinstance(cond, ColumnExpr):
-            cond_str = str(cond._expr) if hasattr(cond, '_expr') else str(cond)
+            cond_str = str(cond._expr) if hasattr(cond, "_expr") else str(cond)
         elif isinstance(cond, Condition):
             try:
                 cond_str = cond.to_sql(quote_char='"')
@@ -1837,7 +1924,9 @@ class LazyWhere(LazyOp):
 
         return f"{op_name}({cond_str}, other={self.other})"
 
-    def can_push_to_sql(self, schema: Dict[str, str] = None, pending_computed_columns: set = None) -> bool:
+    def can_push_to_sql(
+        self, schema: Dict[str, str] = None, pending_computed_columns: set = None
+    ) -> bool:
         """
         Check if this where can be pushed to SQL.
 
@@ -1861,14 +1950,14 @@ class LazyWhere(LazyOp):
         from .function_executor import function_config
 
         # Check function_config - respect user's engine preference
-        func_name = 'mask' if self._is_mask else 'where'
+        func_name = "mask" if self._is_mask else "where"
         if not function_config.should_use_chdb(func_name):
             return False
 
         # Check if condition is SQL-compatible
         cond = self.condition
         if isinstance(cond, ColumnExpr):
-            cond = cond._expr if hasattr(cond, '_expr') else None
+            cond = cond._expr if hasattr(cond, "_expr") else None
 
         if not isinstance(cond, Condition):
             return False
@@ -1931,13 +2020,15 @@ class LazyWhere(LazyOp):
 
         for col_type in schema.values():
             col_type_lower = col_type.lower()
-            if any(t in col_type_lower for t in ('string', 'fixedstring', 'enum', 'uuid')):
+            if any(
+                t in col_type_lower for t in ("string", "fixedstring", "enum", "uuid")
+            ):
                 has_string_col = True
-            elif any(t in col_type_lower for t in ('float', 'double', 'decimal')):
+            elif any(t in col_type_lower for t in ("float", "double", "decimal")):
                 has_float_col = True
-            elif any(t in col_type_lower for t in ('int', 'uint')):
+            elif any(t in col_type_lower for t in ("int", "uint")):
                 has_int_col = True
-            elif 'bool' in col_type_lower:
+            elif "bool" in col_type_lower:
                 has_bool_col = True
 
         # Case 1: String 'other' - incompatible with numeric columns
@@ -1958,8 +2049,14 @@ class LazyWhere(LazyOp):
         # which changes both the value and the dtype.
         # Pandas keeps the actual int value and uses object dtype for mixed types.
         # Type correctness is more important than performance.
-        if has_bool_col and isinstance(other, (int, float)) and not isinstance(other, bool):
-            return False  # Always fall back to Pandas for bool columns with numeric other
+        if (
+            has_bool_col
+            and isinstance(other, (int, float))
+            and not isinstance(other, bool)
+        ):
+            return (
+                False  # Always fall back to Pandas for bool columns with numeric other
+            )
 
         return True
 
@@ -1981,23 +2078,25 @@ class LazyWhere(LazyOp):
         from .expressions import Field
 
         # Try to extract columns from condition
-        if hasattr(condition, 'left'):
+        if hasattr(condition, "left"):
             columns.update(self._extract_condition_columns(condition.left))
-        if hasattr(condition, 'right'):
+        if hasattr(condition, "right"):
             columns.update(self._extract_condition_columns(condition.right))
-        if hasattr(condition, 'field') and isinstance(condition.field, Field):
-            columns.add(condition.field.name.strip('"\''))
+        if hasattr(condition, "field") and isinstance(condition.field, Field):
+            columns.add(condition.field.name.strip("\"'"))
         if isinstance(condition, Field):
-            columns.add(condition.name.strip('"\''))
+            columns.add(condition.name.strip("\"'"))
 
         # Handle nested conditions
-        if hasattr(condition, 'conditions'):
+        if hasattr(condition, "conditions"):
             for cond in condition.conditions:
                 columns.update(self._extract_condition_columns(cond))
 
         return columns
 
-    def get_sql_case_when(self, columns: List[str], quote_char: str = '"') -> Dict[str, str]:
+    def get_sql_case_when(
+        self, columns: List[str], quote_char: str = '"'
+    ) -> Dict[str, str]:
         """
         Generate SQL CASE WHEN expressions for each column.
 
@@ -2014,7 +2113,7 @@ class LazyWhere(LazyOp):
         # Get condition SQL
         cond = self.condition
         if isinstance(cond, ColumnExpr):
-            cond = cond._expr if hasattr(cond, '_expr') else cond
+            cond = cond._expr if hasattr(cond, "_expr") else cond
 
         if isinstance(cond, Condition):
             cond_sql = cond.to_sql(quote_char=quote_char)
@@ -2028,7 +2127,9 @@ class LazyWhere(LazyOp):
         # Format other value
         if isinstance(self.other, str):
             other_sql = f"'{self.other}'"
-        elif self.other is None or (isinstance(self.other, float) and pd.isna(self.other)):
+        elif self.other is None or (
+            isinstance(self.other, float) and pd.isna(self.other)
+        ):
             other_sql = "NULL"
         else:
             other_sql = str(self.other)
@@ -2043,7 +2144,7 @@ class LazyWhere(LazyOp):
 
     def execution_engine(self) -> str:
         """Return execution engine based on pushdown capability."""
-        return 'chDB' if self.can_push_to_sql() else 'Pandas'
+        return "chDB" if self.can_push_to_sql() else "Pandas"
 
 
 class LazyMask(LazyWhere):
@@ -2073,7 +2174,7 @@ class LazyJoin(LazyOp):
         ds1.join(ds2, on='user_id', how='inner')
     """
 
-    def __init__(self, right, on=None, how='inner', left_on=None, right_on=None):
+    def __init__(self, right, on=None, how="inner", left_on=None, right_on=None):
         """
         Args:
             right: Right DataFrame or DataStore to join with (lazy - executed when needed)
@@ -2089,13 +2190,13 @@ class LazyJoin(LazyOp):
         self.left_on = left_on
         self.right_on = right_on
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute pandas merge."""
         self._log_execute("Join", f"how='{self.how}', on={self.on}")
         left_rows = len(df)
 
         # Lazily execute the right side if it's a DataStore
-        if hasattr(self.right, '_execute'):
+        if hasattr(self.right, "_execute"):
             right_df = self.right._execute()
         else:
             right_df = self.right
@@ -2111,11 +2212,18 @@ class LazyJoin(LazyOp):
             right_on=self.right_on,
         )
 
-        self._logger.debug("    [Pandas] -> Joined: left(%d) x right(%d) = %d rows", left_rows, right_rows, len(result))
+        self._logger.debug(
+            "    [Pandas] -> Joined: left(%d) x right(%d) = %d rows",
+            left_rows,
+            right_rows,
+            len(result),
+        )
         return result
 
     def describe(self) -> str:
-        on_desc = self.on if self.on else f"left_on={self.left_on}, right_on={self.right_on}"
+        on_desc = (
+            self.on if self.on else f"left_on={self.left_on}, right_on={self.right_on}"
+        )
         return f"Join (how='{self.how}', on={on_desc})"
 
     def can_push_to_sql(self) -> bool:
@@ -2123,7 +2231,7 @@ class LazyJoin(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 class LazyUnion(LazyOp):
@@ -2146,13 +2254,13 @@ class LazyUnion(LazyOp):
         self.other = other  # Can be DataFrame or DataStore
         self.all = all
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute pandas concat."""
         self._log_execute("Union", f"all={self.all}")
         left_rows = len(df)
 
         # Lazily execute the other side if it's a DataStore
-        if hasattr(self.other, '_execute'):
+        if hasattr(self.other, "_execute"):
             other_df = self.other._execute()
         else:
             other_df = self.other
@@ -2165,7 +2273,12 @@ class LazyUnion(LazyOp):
             # UNION (without ALL) removes duplicates
             result = result.drop_duplicates()
 
-        self._logger.debug("    [Pandas] -> Union: %d + %d = %d rows", left_rows, right_rows, len(result))
+        self._logger.debug(
+            "    [Pandas] -> Union: %d + %d = %d rows",
+            left_rows,
+            right_rows,
+            len(result),
+        )
         return result
 
     def describe(self) -> str:
@@ -2175,7 +2288,7 @@ class LazyUnion(LazyOp):
         return False
 
     def execution_engine(self) -> str:
-        return 'Pandas'
+        return "Pandas"
 
 
 class LazyBooleanMask(LazyOp):
@@ -2198,7 +2311,7 @@ class LazyBooleanMask(LazyOp):
         super().__init__()
         self.mask = mask
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute boolean mask filtering using pandas loc."""
         self._log_execute("BooleanMask", f"mask length={len(self.mask)}")
         rows_before = len(df)
@@ -2247,16 +2360,23 @@ class LazySliceStep(LazyOp):
         self.stop = stop
         self.step = step
 
-    def execute(self, df: pd.DataFrame, context: 'DataStore') -> pd.DataFrame:
+    def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         """Execute slice with step using pandas iloc."""
-        self._log_execute("SliceStep", f"start={self.start}, stop={self.stop}, step={self.step}")
+        self._log_execute(
+            "SliceStep", f"start={self.start}, stop={self.stop}, step={self.step}"
+        )
         rows_before = len(df)
 
         # Use pandas iloc for slicing with step
         result = df.iloc[self.start : self.stop : self.step]
 
         self._logger.debug(
-            "      -> df.iloc[%s:%s:%s]: %d -> %d rows", self.start, self.stop, self.step, rows_before, len(result)
+            "      -> df.iloc[%s:%s:%s]: %d -> %d rows",
+            self.start,
+            self.stop,
+            self.step,
+            rows_before,
+            len(result),
         )
         return result
 
@@ -2285,10 +2405,10 @@ class LazySliceStep(LazyOp):
 
     def execution_engine(self) -> str:
         if self.can_push_to_sql():
-            return 'chDB'
-        return 'Pandas'
+            return "chDB"
+        return "Pandas"
 
-    def to_sql_condition(self, row_num_col: str = '__row_num__') -> str:
+    def to_sql_condition(self, row_num_col: str = "__row_num__") -> str:
         """
         Generate SQL WHERE condition for step slicing.
 

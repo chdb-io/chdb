@@ -16,7 +16,7 @@ test:
 
 test-datastore:
 	@echo "Testing DataStore..."
-	cd chdb/datastore && python3 -m pytest tests/ -v --tb=short
+	cd datastore && python3 -m pytest tests/ -v --tb=short --import-mode=importlib
 
 test-all: test test-datastore
 	@echo "All tests completed."
