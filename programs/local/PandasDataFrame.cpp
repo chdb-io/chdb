@@ -222,46 +222,35 @@ void PandasDataFrame::fillColumn(
         }
     }
 
-    py::array array = series.attr("values");
-    column.row_count = py::len(series);
-    chassert(py::hasattr(array, "strides"));
-    column.stride = array.attr("strides").attr("__getitem__")(0).cast<size_t>();
-
-    if (column.row_count > 0)
-    {
-        auto elem_type = series.attr("iloc").attr("__getitem__")(0).attr("__class__").attr("__name__").cast<std::string>();
-        if (elem_type == "str" || elem_type == "unicode")
-        {
-            column.data = array;
-            column.buf = const_cast<void *>(array.data());
-            return;
-        }
-
-        if (elem_type == "bytes" || elem_type == "object")
-        {
-            auto str_obj = series.attr("astype")(py::dtype("str"));
-            array = str_obj.attr("values");
-            column.data = array;
-            column.tmp = array;
-            column.tmp.inc_ref();
-            column.buf = const_cast<void *>(array.data());
-            return;
-        }
-    }
-
     py::object underlying_array = series.attr("array");
-    if (py::hasattr(underlying_array, "_data") && py::hasattr(underlying_array, "_mask"))
+    column.row_count = py::len(series);
+
+    if (py::hasattr(underlying_array, "_mask"))
     {
-        py::array data_array = underlying_array.attr("_data");
         py::array mask_array = underlying_array.attr("_mask");
-        column.data = data_array;
-        column.buf = const_cast<void *>(data_array.data());
-        column.stride = data_array.attr("strides").attr("__getitem__")(0).cast<size_t>();
         column.mask_stride = mask_array.attr("strides").attr("__getitem__")(0).cast<size_t>();
         column.registered_array = std::make_unique<DB::RegisteredArray>(mask_array);
-        return;
     }
 
+    py::array array;
+    if (py::hasattr(underlying_array, "_data"))
+    {
+        array = underlying_array.attr("_data");
+    }
+    else if (py::hasattr(underlying_array, "asi8"))
+    {
+        /// DatetimeArray, TimedeltaArray use asi8 to get int64 representation
+        array = py::array(underlying_array.attr("asi8"));
+    }
+    else
+    {
+        array = underlying_array.attr("to_numpy")();
+    }
+
+    chassert(py::hasattr(array, "strides"));
+    column.tmp = array;
+    column.tmp.inc_ref();
+    column.stride = array.attr("strides").attr("__getitem__")(0).cast<size_t>();
     column.data = array;
     column.buf = const_cast<void *>(array.data());
 }

@@ -10,6 +10,8 @@ import numpy as np
 import datetime
 from datetime import date, timedelta
 
+STRING_DTYPE = "str" if pd.__version__ >= "3" else "object"
+
 
 class TestDataFrameColumnTypesTwo(unittest.TestCase):
 
@@ -211,13 +213,13 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(ret.iloc[2]["dynamic_object"], '42')
         self.assertEqual(ret.iloc[2]["dynamic_null"], "nested_value")
 
-        # Data type validation - Dynamic types may be mapped to object in pandas
+        # Data type validation - Dynamic types may be mapped to object/str in pandas
         expected_types = {
-            "dynamic_string": "object",
-            "dynamic_number": "object",
-            "dynamic_array": "object",
-            "dynamic_object": "object",
-            "dynamic_null": "object"
+            "dynamic_string": STRING_DTYPE,
+            "dynamic_number": STRING_DTYPE,
+            "dynamic_array": STRING_DTYPE,
+            "dynamic_object": STRING_DTYPE,
+            "dynamic_null": STRING_DTYPE
         }
 
         for col, expected_type in expected_types.items():
@@ -1092,10 +1094,10 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(ret.iloc[2]["lc_int8"], 1)  # Same as row 0
         self.assertEqual(ret.iloc[2]["lc_int32"], 100)  # Same as row 0
 
-        # Data type validation - LowCardinality should typically be object for strings, specific types for numbers
+        # Data type validation - LowCardinality should typically be object/str for strings, specific types for numbers
         expected_lc_types = {
             "row_id": "uint8",
-            "lc_string": "object",
+            "lc_string": STRING_DTYPE,
             "lc_int8": "int8",
             "lc_int32": "int32",
             "lc_uint16": "uint16",
@@ -1335,8 +1337,8 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
             "nullable_float64": "float64",
             "nullable_decimal32": "Float64",
             "nullable_decimal64": "Float64",
-            "nullable_string": "object",
-            "nullable_fixed_string": "object",
+            "nullable_string": STRING_DTYPE,
+            "nullable_fixed_string": STRING_DTYPE,
             "nullable_date": "datetime64[s]",
             "nullable_datetime": "datetime64[s, Asia/Shanghai]",
             "nullable_datetime64": "datetime64[ns, Asia/Shanghai]",
@@ -1364,7 +1366,11 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         })
         result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
         self.assertEqual(df['dt'].tolist(), result['dt'].tolist())
-        self.assertEqual(df['dt'].dtype, result['dt'].dtype)
+        # pandas 3.0+ defaults to datetime64[us], but chdb always outputs datetime64[ns]
+        if pd.__version__ >= "3":
+            self.assertEqual(result['dt'].dtype, np.dtype('datetime64[ns]'))
+        else:
+            self.assertEqual(df['dt'].dtype, result['dt'].dtype)
 
     def test_float_with_nan(self):
         """Test that float64 with NaN preserves dtype and values"""
