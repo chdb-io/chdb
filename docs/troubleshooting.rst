@@ -7,13 +7,13 @@ Installation Issues
 Platform Compatibility
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-chDB currently supports Python 3.8+ on **macOS and Linux** (x86_64 and ARM64). Windows support is not available yet.
+chDB currently supports Python 3.9+ on **macOS and Linux** (x86_64 and ARM64). Windows support is not available yet.
 
 **Supported Platforms:**
 
 - macOS (x86_64 and ARM64)
 - Linux (x86_64 and ARM64)
-- Python 3.8, 3.9, 3.10, 3.11, 3.12+
+- Python 3.9, 3.10, 3.11, 3.12, 3.13, 3.14
 
 Import Errors
 ~~~~~~~~~~~~~
@@ -57,7 +57,7 @@ If you get Python version compatibility errors:
 
 .. code-block:: text
 
-   ERROR: chdb requires Python >=3.8
+   ERROR: chdb requires Python >=3.9
 
 **Solution**: Upgrade your Python version:
 
@@ -66,8 +66,8 @@ If you get Python version compatibility errors:
    # Check current Python version
    python --version
    
-   # Use Python 3.8+ explicitly
-   python3.8 -m pip install chdb
+   # Use Python 3.9+ explicitly
+   python3.9 -m pip install chdb
 
 Query Execution Issues
 ----------------------
@@ -506,14 +506,14 @@ Explicitly specify file format and schema in your queries.
 Reinstall chDB: ``pip uninstall chdb && pip install chdb``
 
 **"Python version not supported"**
-chDB requires Python 3.8+. Upgrade your Python installation.
+chDB requires Python 3.9+. Upgrade your Python installation.
 
 Frequently Asked Questions
 --------------------------
 
 **Q: What platforms does chDB support?**
 
-A: chDB supports Python 3.8+ on macOS and Linux (x86_64 and ARM64). Windows support is not available yet.
+A: chDB supports Python 3.9+ on macOS and Linux (x86_64 and ARM64). Windows support is not available yet.
 
 **Q: Can chDB work with large datasets?**
 

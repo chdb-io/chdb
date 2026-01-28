@@ -34,7 +34,7 @@
 </div>
 
 ## 安装方式
-目前，chDB 只支持在 macOS（x86_64 和 ARM64）和 Linux 上的 Python 3.8+。
+目前，chDB 只支持在 macOS（x86_64 和 ARM64）和 Linux 上的 Python 3.9+。
 ```bash
 pip install chdb
 ```

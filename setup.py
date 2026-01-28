@@ -67,6 +67,7 @@ def get_latest_git_tag(minor_ver_auto=False):
         print(e)
         raise
 
+
 # Update version in pyproject.toml
 def update_pyproject_version(version):
     pyproject_file = os.path.join(script_dir, "pyproject.toml")
@@ -140,7 +141,7 @@ if __name__ == "__main__":
                 libraries=[],
                 library_dirs=[libdir],
                 extra_objects=[chdb_so],
-                define_macros=[("Py_LIMITED_API", "0x03080000")],
+                define_macros=[("Py_LIMITED_API", "0x03090000")],
                 py_limited_api=True,
             ),
         ]
@@ -159,31 +160,47 @@ if __name__ == "__main__":
                 if file.endswith(".py"):
                     pkg_files.append(os.path.join(root, file))
                 # Include pybind11 nonlimitedapi libraries for all Python versions
-                elif file.startswith("libpybind11nonlimitedapi_chdb_") and (file.endswith(".dylib") or file.endswith(".so")):
+                elif file.startswith("libpybind11nonlimitedapi_chdb_") and (
+                    file.endswith(".dylib") or file.endswith(".so")
+                ):
                     pkg_files.append(os.path.join(root, file))
                 # Include pybind11 stub library
-                elif file.startswith("libpybind11nonlimitedapi_stubs") and (file.endswith(".dylib") or file.endswith(".so")):
+                elif file.startswith("libpybind11nonlimitedapi_stubs") and (
+                    file.endswith(".dylib") or file.endswith(".so")
+                ):
                     pkg_files.append(os.path.join(root, file))
 
         pkg_files.append(chdb_so)
 
+        # Find all datastore subpackages
+        datastore_packages = ["datastore"]
+        datastore_dir = os.path.join(script_dir, "datastore")
+        for root, dirs, files in os.walk(datastore_dir):
+            if "__pycache__" in root:
+                continue
+            if "__init__.py" in files:
+                rel_path = os.path.relpath(root, script_dir)
+                pkg_name = rel_path.replace(os.sep, ".")
+                if pkg_name != "datastore":
+                    datastore_packages.append(pkg_name)
+
         setup(
-            packages=["chdb"],
+            packages=["chdb"] + datastore_packages,
             version=versionStr,
             include_package_data=False,
             package_data={"chdb": pkg_files},
             ext_modules=ext_modules,
-            python_requires=">=3.8",
+            python_requires=">=3.9",
             install_requires=[
                 "pyarrow>=13.0.0",
-                "pandas>=2.0.0",
+                "pandas>=2.1.0,<3.0.0",
             ],
             cmdclass={"build_ext": BuildExt},
             test_suite="tests",
             zip_safe=False,
             options={
                 "bdist_wheel": {
-                    "py_limited_api": "cp38",
+                    "py_limited_api": "cp39",
                 }
             },
         )
