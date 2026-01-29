@@ -49,24 +49,24 @@ detect_platform() {
 }
 
 # Get download URL for ClickHouse binary
-# Using official ClickHouse 25.12 release builds
+# Using official ClickHouse builds from builds.clickhouse.com
+# These are single static binaries that work out of the box
 get_download_url() {
     local platform=$1
-    local version="25.12.4.35"
-    local base_url="https://github.com/ClickHouse/ClickHouse/releases/download/v${version}-stable"
+    local base_url="https://builds.clickhouse.com/master"
     
     case "$platform" in
         macos-amd64)
-            echo "${base_url}/clickhouse-macos"
+            echo "${base_url}/macos/clickhouse"
             ;;
         macos-aarch64)
-            echo "${base_url}/clickhouse-macos-aarch64"
+            echo "${base_url}/macos-aarch64/clickhouse"
             ;;
         linux-amd64)
-            echo "${base_url}/clickhouse-linux-amd64"
+            echo "${base_url}/amd64/clickhouse"
             ;;
         linux-aarch64)
-            echo "${base_url}/clickhouse-linux-aarch64"
+            echo "${base_url}/aarch64/clickhouse"
             ;;
         *)
             echo "Unknown platform: $platform" >&2
