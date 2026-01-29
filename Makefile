@@ -16,8 +16,7 @@ test:
 
 test-datastore:
 	@echo "Testing DataStore..."
-	cd datastore && python3 -m pytest tests/ -v --tb=short
-
+	python3 datastore/scripts/run_tests.py
 test-all: test test-datastore
 	@echo "All tests completed."
 
