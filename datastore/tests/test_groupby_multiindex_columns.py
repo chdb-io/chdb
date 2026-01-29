@@ -448,3 +448,203 @@ class TestMultiIndexColumnMerge(unittest.TestCase):
         self.assertEqual(user3_row[('amount', 'mean')].values[0], 300.0)
         self.assertEqual(user3_row[('amount', 'min')].values[0], 300)
         self.assertEqual(user3_row[('amount', 'max')].values[0], 300)
+
+
+class TestNamedAggAsIndexBehavior(unittest.TestCase):
+    """
+    Regression tests for named aggregation as_index behavior.
+
+    These tests verify that:
+    1. With as_index=True (default), groupby keys remain in the index
+    2. With as_index=False, groupby keys become regular columns
+    3. The behavior matches pandas exactly (no erroneous reset_index())
+
+    This test class was added to prevent regression of the bug where
+    LazyGroupByAgg.execute() incorrectly called reset_index() when
+    as_index=True with named aggregation.
+    """
+
+    def setUp(self):
+        """Set up test data."""
+        self.df = pd.DataFrame({
+            'category': ['foo', 'foo', 'bar', 'bar', 'baz'],
+            'subcategory': ['X', 'Y', 'X', 'Y', 'X'],
+            'value': [1, 2, 3, 4, 5],
+            'count': [10, 20, 30, 40, 50]
+        })
+
+    def test_named_agg_as_index_true_groupby_key_in_index(self):
+        """
+        With as_index=True (default), groupby key MUST remain in index.
+
+        This tests the fix for the bug where reset_index() was incorrectly
+        called on named aggregation results.
+        """
+        pd_result = self.df.groupby('category').agg(
+            total=('value', 'sum'),
+            average=('count', 'mean')
+        )
+        ds = DataStore.from_dataframe(self.df)
+        ds_result = ds.groupby('category').agg(
+            total=('value', 'sum'),
+            average=('count', 'mean')
+        ).to_df()
+
+        # CRITICAL: Index must match pandas
+        self.assertEqual(pd_result.index.name, 'category')
+        self.assertEqual(ds_result.index.name, 'category')
+        self.assertEqual(pd_result.index.tolist(), ds_result.index.tolist())
+
+        # category should NOT be in columns when as_index=True
+        self.assertNotIn('category', pd_result.columns)
+        self.assertNotIn('category', ds_result.columns)
+
+        # Columns should only contain aggregation results
+        self.assertEqual(pd_result.columns.tolist(), ['total', 'average'])
+        self.assertEqual(ds_result.columns.tolist(), ['total', 'average'])
+
+        # Values should match
+        assert_frame_equal(ds_result.sort_index(), pd_result.sort_index())
+
+    def test_named_agg_as_index_false_groupby_key_in_columns(self):
+        """With as_index=False, groupby key should be a regular column."""
+        pd_result = self.df.groupby('category', as_index=False).agg(
+            total=('value', 'sum'),
+            average=('count', 'mean')
+        )
+        ds = DataStore.from_dataframe(self.df)
+        ds_result = ds.groupby('category', as_index=False).agg(
+            total=('value', 'sum'),
+            average=('count', 'mean')
+        ).to_df()
+
+        # Index should be default RangeIndex
+        self.assertIsNone(pd_result.index.name)
+        self.assertIsNone(ds_result.index.name)
+
+        # category SHOULD be in columns when as_index=False
+        self.assertIn('category', pd_result.columns)
+        self.assertIn('category', ds_result.columns)
+
+        # Check column order matches
+        self.assertEqual(pd_result.columns.tolist(), ['category', 'total', 'average'])
+        self.assertEqual(ds_result.columns.tolist(), ['category', 'total', 'average'])
+
+        # Values should match
+        assert_frame_equal(
+            ds_result.sort_values('category').reset_index(drop=True),
+            pd_result.sort_values('category').reset_index(drop=True)
+        )
+
+    def test_named_agg_multiple_groupby_keys_as_index_true(self):
+        """Multiple groupby keys with as_index=True should create MultiIndex."""
+        pd_result = self.df.groupby(['category', 'subcategory']).agg(
+            total=('value', 'sum')
+        )
+        ds = DataStore.from_dataframe(self.df)
+        ds_result = ds.groupby(['category', 'subcategory']).agg(
+            total=('value', 'sum')
+        ).to_df()
+
+        # Should have MultiIndex
+        self.assertTrue(isinstance(pd_result.index, pd.MultiIndex))
+        self.assertTrue(isinstance(ds_result.index, pd.MultiIndex))
+
+        # Index names should match
+        self.assertEqual(pd_result.index.names, ['category', 'subcategory'])
+        self.assertEqual(ds_result.index.names, ['category', 'subcategory'])
+
+        # Columns should only contain aggregation results
+        self.assertEqual(pd_result.columns.tolist(), ['total'])
+        self.assertEqual(ds_result.columns.tolist(), ['total'])
+
+        # Values should match
+        assert_frame_equal(ds_result.sort_index(), pd_result.sort_index())
+
+    def test_named_agg_multiple_groupby_keys_as_index_false(self):
+        """Multiple groupby keys with as_index=False should be regular columns."""
+        pd_result = self.df.groupby(['category', 'subcategory'], as_index=False).agg(
+            total=('value', 'sum')
+        )
+        ds = DataStore.from_dataframe(self.df)
+        ds_result = ds.groupby(['category', 'subcategory'], as_index=False).agg(
+            total=('value', 'sum')
+        ).to_df()
+
+        # Should NOT have MultiIndex
+        self.assertFalse(isinstance(pd_result.index, pd.MultiIndex))
+        self.assertFalse(isinstance(ds_result.index, pd.MultiIndex))
+
+        # Both groupby columns should be in columns
+        self.assertIn('category', pd_result.columns)
+        self.assertIn('subcategory', pd_result.columns)
+        self.assertIn('category', ds_result.columns)
+        self.assertIn('subcategory', ds_result.columns)
+
+        # Values should match
+        assert_frame_equal(
+            ds_result.sort_values(['category', 'subcategory']).reset_index(drop=True),
+            pd_result.sort_values(['category', 'subcategory']).reset_index(drop=True)
+        )
+
+    def test_lazy_groupby_agg_execute_named_agg_as_index_true(self):
+        """
+        Direct test of LazyGroupByAgg.execute() with named_agg and as_index=True.
+
+        This is a targeted regression test for the specific bug location.
+        """
+        from datastore.lazy_ops import LazyGroupByAgg
+
+        op = LazyGroupByAgg(
+            groupby_cols=['category'],
+            named_agg={'total': ('value', 'sum'), 'average': ('count', 'mean')},
+            as_index=True
+        )
+        result = op.execute(self.df, None)
+
+        # Reference pandas behavior
+        pd_result = self.df.groupby('category').agg(
+            total=('value', 'sum'),
+            average=('count', 'mean')
+        )
+
+        # Index should match pandas
+        self.assertEqual(result.index.name, 'category')
+        self.assertEqual(result.index.tolist(), pd_result.index.tolist())
+
+        # category should NOT be in columns
+        self.assertNotIn('category', result.columns)
+
+        # Values should match
+        assert_frame_equal(result.sort_index(), pd_result.sort_index())
+
+    def test_lazy_groupby_agg_execute_named_agg_as_index_false(self):
+        """
+        Direct test of LazyGroupByAgg.execute() with named_agg and as_index=False.
+        """
+        from datastore.lazy_ops import LazyGroupByAgg
+
+        op = LazyGroupByAgg(
+            groupby_cols=['category'],
+            named_agg={'total': ('value', 'sum'), 'average': ('count', 'mean')},
+            as_index=False
+        )
+        result = op.execute(self.df, None)
+
+        # Reference pandas behavior
+        pd_result = self.df.groupby('category', as_index=False).agg(
+            total=('value', 'sum'),
+            average=('count', 'mean')
+        )
+
+        # Index should be RangeIndex
+        self.assertIsNone(result.index.name)
+
+        # category SHOULD be in columns
+        self.assertIn('category', result.columns)
+
+        # Values should match
+        assert_frame_equal(
+            result.sort_values('category').reset_index(drop=True),
+            pd_result.sort_values('category').reset_index(drop=True)
+        )
