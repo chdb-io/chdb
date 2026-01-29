@@ -384,6 +384,64 @@ class TestGroupBy:
         np.testing.assert_allclose(ds_result_df.values, pd_result.values, rtol=1e-5)
 
 
+    def test_groupby_agg_nunique(self, groupby_df):
+        """Test groupby().agg() with nunique function.
+        
+        This verifies the fix for: 'nunique' function name not mapped to SQL 'uniqExact()'.
+        Previously, groupby().agg({'col': 'nunique'}) would fail with:
+        "Code: 46. DB::Exception: Function with name 'nunique' does not exist"
+        """
+        pd_df = pd.DataFrame(groupby_df)
+        ds_df = ds.DataStore.from_df(pd.DataFrame(groupby_df))
+
+        # Test agg with dict syntax
+        pd_result = pd_df.groupby('category', sort=True).agg({'value': 'nunique'})
+        ds_result = ds_df.groupby('category', sort=True).agg({'value': 'nunique'})
+
+        ds_result_df = get_dataframe(ds_result)
+        assert list(ds_result_df.columns) == list(pd_result.columns)
+        np.testing.assert_array_equal(ds_result_df.values, pd_result.values)
+
+    def test_groupby_agg_nunique_multiple_cols(self):
+        """Test groupby().agg() with nunique on multiple columns."""
+        pd_df = pd.DataFrame({
+            'group': ['A', 'A', 'A', 'B', 'B', 'B'],
+            'value1': [1, 1, 2, 3, 3, 3],
+            'value2': ['x', 'x', 'y', 'x', 'y', 'z']
+        })
+        ds_df = ds.DataStore.from_df(pd_df)
+
+        # Test agg with multiple columns
+        pd_result = pd_df.groupby('group', sort=True).agg({
+            'value1': 'nunique',
+            'value2': 'nunique'
+        })
+        ds_result = ds_df.groupby('group', sort=True).agg({
+            'value1': 'nunique',
+            'value2': 'nunique'
+        })
+
+        ds_result_df = get_dataframe(ds_result)
+        assert list(ds_result_df.columns) == list(pd_result.columns)
+        np.testing.assert_array_equal(ds_result_df.values, pd_result.values)
+
+    def test_groupby_agg_mixed_with_nunique(self):
+        """Test groupby().agg() mixing nunique with other agg functions."""
+        pd_df = pd.DataFrame({
+            'group': ['A', 'A', 'A', 'B', 'B', 'B'],
+            'value': [1, 2, 2, 3, 3, 3]
+        })
+        ds_df = ds.DataStore.from_df(pd_df)
+
+        # Test agg with list of functions including nunique
+        pd_result = pd_df.groupby('group', sort=True)['value'].agg(['sum', 'nunique', 'count'])
+        ds_result = ds_df.groupby('group', sort=True)['value'].agg(['sum', 'nunique', 'count'])
+
+        ds_result_df = get_dataframe(ds_result)
+        assert list(ds_result_df.columns) == list(pd_result.columns)
+        np.testing.assert_array_equal(ds_result_df.values, pd_result.values)
+
+
 # ============================================================================
 # Category 7: Sorting
 # ============================================================================

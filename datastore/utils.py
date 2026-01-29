@@ -269,6 +269,7 @@ SQL_AGG_FUNC_MAP = {
     'first': 'any',
     'last': 'anyLast',
     'size': 'count',
+    'nunique': 'uniqExact',
 }
 
 
