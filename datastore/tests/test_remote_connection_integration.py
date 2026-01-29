@@ -96,29 +96,36 @@ class TestClickHouseQuery:
 
 
 class TestClickHouseTableSelection:
-    """Test table selection via __getitem__."""
+    """Test table selection via table() method."""
 
-    def test_select_table_creates_working_datastore(self, clickhouse_connection):
-        """ds["system.one"] creates usable DataStore."""
-        one = clickhouse_connection["system.one"]
+    def test_table_method_creates_working_datastore(self, clickhouse_connection):
+        """table("system", "one") creates usable DataStore."""
+        one = clickhouse_connection.table("system", "one")
 
         # Should be able to execute
         df = one._execute()
         assert len(df) == 1
 
-    def test_select_table_with_use(self, clickhouse_connection):
-        """Table selection works with use()."""
+    def test_table_with_dot_notation(self, clickhouse_connection):
+        """table("system.one") works with dot notation."""
+        one = clickhouse_connection.table("system.one")
+
+        df = one._execute()
+        assert len(df) == 1
+
+    def test_table_method_with_use(self, clickhouse_connection):
+        """Table selection works with use() + table(table_name)."""
         clickhouse_connection.use("system")
-        tables = clickhouse_connection["tables"]
+        tables = clickhouse_connection.table("tables")
 
         df = tables.head()._execute()
         assert len(df) > 0
 
-    def test_select_and_filter(self, clickhouse_connection):
-        """Can filter after table selection."""
-        tables = clickhouse_connection["system.tables"]
+    def test_table_then_filter(self, clickhouse_connection):
+        """Can filter after table() selection - no ambiguity with pandas filter."""
+        tables = clickhouse_connection.table("system", "tables")
 
-        # Filter to just system database tables
+        # Filter to just system database tables (pandas-style, unambiguous)
         filtered = tables[tables["database"] == "system"]
         df = filtered.head(10)._execute()
 
@@ -186,10 +193,15 @@ class TestTestDatabase:
         assert "total" in df.columns
 
     def test_pandas_style_operations(self, clickhouse_connection):
-        """Test pandas-style operations on selected table."""
-        users = clickhouse_connection["test_db.users"]
+        """Test pandas-style operations on selected table.
+        
+        Demonstrates the clear separation:
+        - table() for table selection
+        - [...] for pandas-style filtering (no ambiguity)
+        """
+        users = clickhouse_connection.table("test_db", "users")
 
-        # Filter
+        # Filter (pandas-style, unambiguous)
         adults = users[users["age"] >= 25]
         df = adults._execute()
         assert len(df) > 0
@@ -291,14 +303,14 @@ class TestCrossDatabaseQueries:
 class TestChainedOperationsIntegration:
     """Test chained operations with real server."""
 
-    def test_use_then_getitem_then_filter(self, clickhouse_connection):
-        """use(db) -> ds["table"] -> filter should work."""
+    def test_use_then_table_then_filter(self, clickhouse_connection):
+        """use(db) -> table(table) -> filter should work."""
         clickhouse_connection.use("system")
 
-        # Select table after use()
-        tables = clickhouse_connection["tables"]
+        # Select table after use() using table() method
+        tables = clickhouse_connection.table("tables")
 
-        # Apply filter
+        # Apply filter (pandas-style, unambiguous)
         system_tables = tables[tables["database"] == "system"]
 
         df = system_tables.head(10)._execute()
@@ -316,7 +328,7 @@ class TestChainedOperationsIntegration:
         """
         )
 
-        # Chain further operations on SQL result
+        # Chain further operations on SQL result (pandas-style filter)
         filtered = result[result["engine"] == "SystemNumbers"]
 
         # This may or may not have results depending on ClickHouse version
@@ -327,9 +339,9 @@ class TestChainedOperationsIntegration:
         if len(df) > 0:
             assert all(df["engine"] == "SystemNumbers")
 
-    def test_getitem_preserves_connection_params(self, clickhouse_connection):
-        """Table selection should preserve connection for further queries."""
-        one = clickhouse_connection["system.one"]
+    def test_table_preserves_connection_params(self, clickhouse_connection):
+        """table() should preserve connection for further queries."""
+        one = clickhouse_connection.table("system", "one")
 
         # Should be able to execute
         df = one._execute()
@@ -428,11 +440,11 @@ class TestTestDatabaseAdvanced:
         # After use(db, table), we're in table mode
         assert clickhouse_connection._connection_mode == "table"
 
-    def test_getitem_after_use_database(self, clickhouse_connection):
-        """ds["table"] after use(db) should work."""
+    def test_table_after_use_database(self, clickhouse_connection):
+        """table(table) after use(db) should work."""
         clickhouse_connection.use("test_db")
 
-        users = clickhouse_connection["users"]
+        users = clickhouse_connection.table("users")
 
         df = users._execute()
         assert len(df) > 0

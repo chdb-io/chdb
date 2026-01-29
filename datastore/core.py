@@ -5785,9 +5785,59 @@ class DataStore(PandasCompatMixin):
                 f"DataStore indices must be slices, strings, lists, or conditions, not {type(key).__name__}"
             )
 
+    def table(self, *args) -> "DataStore":
+        """
+        Select a database/table and return a NEW DataStore (immutable operation).
+
+        This method provides an unambiguous way to select tables, avoiding confusion
+        with pandas-style column selection (ds["col"]) and row filtering (ds[condition]).
+
+        Args:
+            Single argument:
+                table("db.table") - database and table in dot notation
+                table("table") - just table name (uses default database from use())
+            Two arguments:
+                table("database", "table") - database and table separately
+            Three arguments:
+                table("schema", "database", "table") - full qualified name
+
+        Returns:
+            New DataStore bound to the specified table
+
+        Raises:
+            DataStoreError: If database cannot be determined
+
+        Example:
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", user="default", password="")
+            >>> users = ds.table("production", "users")
+            >>> # Or with dot notation:
+            >>> users = ds.table("production.users")
+            >>> # After use():
+            >>> ds.use("production")
+            >>> users = ds.table("users")
+        """
+        if len(args) == 1:
+            # Single string: "table", "db.table", or "schema.db.table"
+            return self._select_table(args[0])
+        elif len(args) == 2:
+            # database, table
+            database, table = args
+            return self._select_table(f"{database}.{table}")
+        elif len(args) == 3:
+            # schema, database, table
+            schema, database, table = args
+            return self._select_table(f"{schema}.{database}.{table}")
+        else:
+            raise ValueError(
+                "table() takes 1, 2, or 3 arguments: "
+                'table("db.table"), table("db", "table"), or table("schema", "db", "table")'
+            )
+
     def _select_table(self, key: str) -> "DataStore":
         """
         Select a database/table and return a NEW DataStore (immutable operation).
+
+        Internal method - use table() for the public API.
 
         Args:
             key: Table reference in format "table", "db.table", or "schema.db.table"
@@ -5814,7 +5864,7 @@ class DataStore(PandasCompatMixin):
             if database is None:
                 raise DataStoreError(
                     f"No database specified for table '{table}'.\n"
-                    f'Hint: Use ds["{table}"] after ds.use("mydb"), or use ds["mydb.{table}"] format.'
+                    f'Hint: Use ds.table("{table}") after ds.use("mydb"), or use ds.table("mydb", "{table}") format.'
                 )
         elif len(parts) == 2:
             database, table = parts
