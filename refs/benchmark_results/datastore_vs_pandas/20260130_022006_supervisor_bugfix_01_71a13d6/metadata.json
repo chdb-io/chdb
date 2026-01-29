@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-01-30T02:20:06.547235",
+  "timestamp_unix": 1769710806.547235,
+  "git_branch": "supervisor/bugfix_01",
+  "git_commit_hash": "71a13d689770b3b79f9adb5c084d0df352c837df",
+  "git_commit_short": "71a13d6",
+  "git_commit_message": "fix(test): use JUnit XML to determine test success despite chDB cleanup SIGABRT",
+  "git_is_dirty": false,
+  "output_dir": "/Users/auxten/Codes/go/src/github.com/auxten/chdb/refs/benchmark_results/datastore_vs_pandas/20260130_022006_supervisor_bugfix_01_71a13d6",
+  "config": {
+    "data_sizes": [
+      100000
+    ],
+    "n_runs": 3
+  }
+}

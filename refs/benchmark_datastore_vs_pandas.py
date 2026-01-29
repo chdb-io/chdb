@@ -522,7 +522,7 @@ class Benchmark:
 
     def datastore_sort_single(self) -> pd.DataFrame:
         ds = self._fresh_ds()
-        return ds.sort_values('int_col').to_df()
+        return ds.sort_values('int_col', kind='stable').to_df()  # Match pandas kind='stable'
 
     def pandas_sort_multiple(self) -> pd.DataFrame:
         df = pd.read_parquet(self.parquet_path)
@@ -530,7 +530,7 @@ class Benchmark:
 
     def datastore_sort_multiple(self) -> pd.DataFrame:
         ds = self._fresh_ds()
-        return ds.sort_values(['str_col', 'int_col'], ascending=[True, False]).to_df()
+        return ds.sort_values(['str_col', 'int_col'], ascending=[True, False], kind='stable').to_df()  # Match pandas kind='stable'
 
     # ==================== GroupBy Operations ====================
 
