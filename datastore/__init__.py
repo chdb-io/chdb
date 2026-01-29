@@ -167,6 +167,13 @@ from .table_functions import (  # noqa: E402
     NumbersTableFunction,
     GenerateRandomTableFunction,
 )
+from .adapters import (  # noqa: E402
+    SourceAdapter,
+    ClickHouseAdapter,
+    MySQLAdapter,
+    PostgreSQLAdapter,
+    get_adapter,
+)
 
 # ========== Pandas-Compatible Module-Level Functions ==========
 # Import all pandas-compatible functions from pandas_api module
@@ -487,4 +494,10 @@ __all__ = [
     'HudiTableFunction',
     'NumbersTableFunction',
     'GenerateRandomTableFunction',
+    # Source Adapters
+    'SourceAdapter',
+    'ClickHouseAdapter',
+    'MySQLAdapter',
+    'PostgreSQLAdapter',
+    'get_adapter',
 ]
