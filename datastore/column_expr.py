@@ -2529,6 +2529,26 @@ class ColumnExpr:
         # Unary + is identity - return the same expression
         return self._derive_expr(self._expr)
 
+    def __abs__(self) -> "ColumnExpr":
+        """
+        Support Python's built-in abs() function.
+
+        Returns a ColumnExpr with the absolute value of each element.
+        This enables `abs(ds['col'])` syntax which is equivalent to `ds['col'].abs()`.
+
+        Returns:
+            ColumnExpr: SQL expression for abs(column)
+
+        Example:
+            >>> store = ds.DataFrame({'a': [-1, 2, -3, 4, -5]})
+            >>> result = store[abs(store['a']) > 2]  # Filter by absolute value
+        """
+        from .functions import Function
+
+        if self._exec_mode != "expr" or self._expr is None:
+            return ColumnExpr(source=self, method_name="__abs__")
+        return self._derive_expr(Function("abs", self._expr))
+
     def __round__(self, ndigits: Optional[int] = None) -> "ColumnExpr":
         """
         Support Python's built-in round() function.
