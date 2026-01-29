@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-01-16T12:21:57.294402",
+  "timestamp_unix": 1768537317.294402,
+  "git_branch": "main",
+  "git_commit_hash": "dc83af81fbe4a38ec3675f2379ce63f4f6f3aa74",
+  "git_commit_short": "dc83af8",
+  "git_commit_message": "feat(benchmark): add cross-DataStore operations benchmark",
+  "git_is_dirty": false,
+  "output_dir": "/Users/auxten/Codes/go/src/github.com/auxten/chdb-ds/refs/benchmark_results/datastore_vs_pandas/20260116_122157_main_dc83af8",
+  "config": {
+    "data_sizes": [
+      100000
+    ],
+    "n_runs": 1
+  }
+}
