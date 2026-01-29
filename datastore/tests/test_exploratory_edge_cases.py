@@ -538,6 +538,16 @@ class TestIsinOperation(unittest.TestCase):
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
+    def test_notin_empty_list(self):
+        """Test negated isin with empty list (should return all rows)."""
+        pd_df = pd.DataFrame({'A': [1, 2, 3, 4, 5]})
+        ds_df = ds.DataFrame({'A': [1, 2, 3, 4, 5]})
+
+        pd_result = pd_df[~pd_df['A'].isin([])]
+        ds_result = ds_df[~ds_df['A'].isin([])]
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
 
 class TestNlargestNsmallest(unittest.TestCase):
     """Test nlargest and nsmallest operations."""
@@ -717,13 +727,3 @@ class TestClipOperation(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
-
-    def test_notin_empty_list(self):
-        """Test negated isin with empty list (should return all rows)."""
-        pd_df = pd.DataFrame({'A': [1, 2, 3, 4, 5]})
-        ds_df = ds.DataFrame({'A': [1, 2, 3, 4, 5]})
-
-        pd_result = pd_df[~pd_df['A'].isin([])]
-        ds_result = ds_df[~ds_df['A'].isin([])]
-
-        assert_datastore_equals_pandas(ds_result, pd_result)
