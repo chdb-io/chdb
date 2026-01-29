@@ -255,3 +255,130 @@ class TestGroupByMultiIndexFromFile(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestMultiIndexColumnMerge(unittest.TestCase):
+    """Test merging DataFrames with MultiIndex columns.
+    
+    pandas merge() doesn't support merging DataFrames with different column
+    index levels. DataStore auto-flattens MultiIndex columns to enable merge.
+    """
+
+    def setUp(self):
+        """Set up test data."""
+        self.users = pd.DataFrame({
+            'user_id': [1, 2, 3],
+            'name': ['Alice', 'Bob', 'Charlie']
+        })
+        self.orders = pd.DataFrame({
+            'order_id': [1, 2, 3, 4, 5],
+            'user_id': [1, 1, 2, 2, 3],
+            'amount': [100, 200, 150, 250, 300]
+        })
+
+    def test_multiindex_merge_with_flat_dataframe(self):
+        """Test merging MultiIndex columns DataFrame with flat DataFrame."""
+        # Create user stats with MultiIndex columns via groupby().agg()
+        pd_orders = self.orders.copy()
+        pd_user_stats = pd_orders.groupby('user_id').agg({'amount': ['sum', 'mean', 'count']})
+        
+        # pandas doesn't support this merge directly - it raises MergeError
+        # DataStore should auto-flatten and succeed
+        ds_users = DataStore(self.users)
+        ds_orders = DataStore(self.orders)
+        ds_user_stats = ds_orders.groupby('user_id').agg({'amount': ['sum', 'mean', 'count']})
+        
+        # Module-level merge
+        from datastore import merge
+        result = merge(ds_users, ds_user_stats, left_on='user_id', right_index=True)
+        result_df = result.to_df()
+        
+        # Expected: flattened columns
+        expected_columns = ['user_id', 'name', 'amount_sum', 'amount_mean', 'amount_count']
+        self.assertEqual(result_df.columns.tolist(), expected_columns)
+        
+        # Check data is correct
+        self.assertEqual(len(result_df), 3)
+        # Alice: sum=300, mean=150, count=2
+        alice_row = result_df[result_df['name'] == 'Alice'].iloc[0]
+        self.assertEqual(alice_row['amount_sum'], 300)
+        self.assertEqual(alice_row['amount_mean'], 150.0)
+        self.assertEqual(alice_row['amount_count'], 2)
+
+    def test_multiindex_merge_instance_method(self):
+        """Test instance method merge with MultiIndex columns."""
+        ds_users = DataStore(self.users)
+        ds_orders = DataStore(self.orders)
+        ds_user_stats = ds_orders.groupby('user_id').agg({'amount': ['sum', 'mean', 'count']})
+        
+        # Instance method merge
+        result = ds_users.merge(ds_user_stats, left_on='user_id', right_index=True)
+        result_df = result.to_df()
+        
+        # Expected: flattened columns
+        expected_columns = ['user_id', 'name', 'amount_sum', 'amount_mean', 'amount_count']
+        self.assertEqual(result_df.columns.tolist(), expected_columns)
+        
+        # Check data is correct
+        self.assertEqual(len(result_df), 3)
+        # Bob: sum=400, mean=200, count=2
+        bob_row = result_df[result_df['name'] == 'Bob'].iloc[0]
+        self.assertEqual(bob_row['amount_sum'], 400)
+        self.assertEqual(bob_row['amount_mean'], 200.0)
+        self.assertEqual(bob_row['amount_count'], 2)
+
+    def test_multiindex_merge_after_reset_index(self):
+        """Test merge after reset_index() which preserves MultiIndex columns."""
+        ds_users = DataStore(self.users)
+        ds_orders = DataStore(self.orders)
+        ds_user_stats = ds_orders.groupby('user_id').agg({'amount': ['sum', 'mean', 'count']})
+        
+        # reset_index converts index to column but keeps MultiIndex columns
+        ds_user_stats_reset = ds_user_stats.reset_index()
+        
+        # Merge on column instead of index
+        from datastore import merge
+        result = merge(ds_users, ds_user_stats_reset, on='user_id')
+        result_df = result.to_df()
+        
+        # Should still work with flattened columns
+        self.assertIn('user_id', result_df.columns.tolist())
+        self.assertIn('name', result_df.columns.tolist())
+        self.assertEqual(len(result_df), 3)
+
+    def test_flat_columns_merge_unchanged(self):
+        """Verify that merges with flat columns still work correctly."""
+        # This should work exactly as before
+        ds_users = DataStore(self.users)
+        ds_orders = DataStore(self.orders)
+        
+        # Simple aggregation produces flat columns
+        ds_user_stats = ds_orders.groupby('user_id').agg({'amount': 'sum'})
+        
+        from datastore import merge
+        result = merge(ds_users, ds_user_stats, left_on='user_id', right_index=True)
+        result_df = result.to_df()
+        
+        # Columns should be flat strings
+        self.assertEqual(result_df.columns.tolist(), ['user_id', 'name', 'amount'])
+        self.assertEqual(len(result_df), 3)
+
+    def test_both_multiindex_same_levels(self):
+        """Test merge when both DataFrames have MultiIndex columns with same levels."""
+        # Create two DataFrames with MultiIndex columns
+        ds_orders = DataStore(self.orders)
+        stats1 = ds_orders.groupby('user_id').agg({'amount': ['sum', 'mean']})
+        stats2 = ds_orders.groupby('user_id').agg({'amount': ['min', 'max']})
+        
+        # Merge two MultiIndex column DataFrames
+        from datastore import merge
+        result = merge(stats1.reset_index(), stats2.reset_index(), on='user_id')
+        result_df = result.to_df()
+        
+        # Both should keep MultiIndex columns (same nlevels, no flattening needed)
+        # Actually, the flattening should only happen when levels differ
+        self.assertEqual(len(result_df), 3)
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1216,12 +1216,31 @@ class PandasCompatMixin:
         validate=None,
     ):
         """Merge DataFrame objects."""
+        import pandas as _pd
+        
         # Convert right to DataFrame if it's a DataStore
         if hasattr(right, '_get_df'):
-            right = right._get_df()
+            right_df = right._get_df()
+        else:
+            right_df = right
+        
+        left_df = self._get_df()
+        
+        # Handle MultiIndex columns - flatten if column levels differ
+        # pandas merge doesn't support merging DataFrames with different column nlevels
+        left_nlevels = getattr(left_df.columns, 'nlevels', 1)
+        right_nlevels = getattr(right_df.columns, 'nlevels', 1)
+        if left_nlevels != right_nlevels:
+            if left_nlevels > 1:
+                left_df = left_df.copy()
+                left_df.columns = ['_'.join(map(str, col)).strip('_') for col in left_df.columns.values]
+            if right_nlevels > 1:
+                right_df = right_df.copy()
+                right_df.columns = ['_'.join(map(str, col)).strip('_') for col in right_df.columns.values]
+        
         return self._wrap_result(
-            self._get_df().merge(
-                right,
+            left_df.merge(
+                right_df,
                 how=how,
                 on=on,
                 left_on=left_on,
