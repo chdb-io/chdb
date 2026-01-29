@@ -388,19 +388,29 @@ class InCondition(Condition):
             operator = "NOT IN" if self.negate else "IN"
             sql = f"{expr_sql} {operator} ({values_sql})"
         else:
-            # Convert values to SQL
-            value_sqls = []
-            for val in self.values:
-                if isinstance(val, Expression):
-                    value_sqls.append(val.to_sql(quote_char=quote_char, **kwargs))
+            # Handle empty list: IN () is always false, NOT IN () is always true
+            # SQL doesn't support empty IN lists, so we need to use a constant expression
+            if len(self.values) == 0:
+                if self.negate:
+                    # NOT IN () - always true (nothing to exclude)
+                    sql = "1 = 1"
                 else:
-                    value_sqls.append(
-                        Literal(val).to_sql(quote_char=quote_char, **kwargs)
-                    )
+                    # IN () - always false (nothing to match)
+                    sql = "1 = 0"
+            else:
+                # Convert values to SQL
+                value_sqls = []
+                for val in self.values:
+                    if isinstance(val, Expression):
+                        value_sqls.append(val.to_sql(quote_char=quote_char, **kwargs))
+                    else:
+                        value_sqls.append(
+                            Literal(val).to_sql(quote_char=quote_char, **kwargs)
+                        )
 
-            values_sql = ",".join(value_sqls)
-            operator = "NOT IN" if self.negate else "IN"
-            sql = f"{expr_sql} {operator} ({values_sql})"
+                values_sql = ",".join(value_sqls)
+                operator = "NOT IN" if self.negate else "IN"
+                sql = f"{expr_sql} {operator} ({values_sql})"
 
         # Add alias if present and requested
         if kwargs.get("with_alias", False) and self.alias:

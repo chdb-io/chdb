@@ -54,9 +54,24 @@ class InConditionDataTypesTests(unittest.TestCase):
         self.assertEqual('"id" IN (42)', cond.to_sql())
 
     def test_in_empty_list(self):
-        """Test IN with empty list"""
+        """Test IN with empty list.
+        
+        IN () is invalid SQL - when checking membership in an empty set,
+        nothing can match, so we return a constant false expression (1 = 0).
+        """
         cond = Field("id").isin([])
-        self.assertEqual('"id" IN ()', cond.to_sql())
+        # Empty IN should return always-false condition
+        self.assertEqual('1 = 0', cond.to_sql())
+    
+    def test_notin_empty_list(self):
+        """Test NOT IN with empty list.
+        
+        NOT IN () is invalid SQL - when checking non-membership in an empty set,
+        everything matches, so we return a constant true expression (1 = 1).
+        """
+        cond = Field("id").notin([])
+        # Empty NOT IN should return always-true condition
+        self.assertEqual('1 = 1', cond.to_sql())
 
 
 class NotInConditionTests(unittest.TestCase):
