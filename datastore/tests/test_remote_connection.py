@@ -273,11 +273,116 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._connection_mode, "table")
 
 
+class TestTableMethod(unittest.TestCase):
+    """Test table() method for explicit table selection.
+    
+    The table() method is the recommended way to select tables, as it avoids
+    ambiguity with pandas-style ds["column"] and ds[condition] syntax.
+    """
+
+    def test_table_with_dot_notation(self):
+        """table("db.table") creates new DataStore."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        users = ds.table("production.users")
+
+        self.assertIsInstance(users, DataStore)
+        self.assertIsNot(users, ds)
+        self.assertEqual(users._connection_mode, "table")
+
+    def test_table_with_two_args(self):
+        """table(database, table) creates new DataStore."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        users = ds.table("production", "users")
+
+        self.assertIsInstance(users, DataStore)
+        self.assertEqual(users._connection_mode, "table")
+
+    def test_table_with_three_args(self):
+        """table(schema, database, table) creates new DataStore."""
+        ds = DataStore.from_postgresql(
+            host="localhost:5432", user="postgres", password=""
+        )
+        users = ds.table("public", "mydb", "users")
+
+        self.assertIsInstance(users, DataStore)
+        self.assertEqual(users._connection_mode, "table")
+        self.assertEqual(users._default_schema, "public")
+
+    def test_table_single_arg_with_default_database(self):
+        """table(table) uses default database from use()."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        ds.use("production")
+        
+        users = ds.table("users")
+
+        self.assertIsInstance(users, DataStore)
+        self.assertEqual(users._connection_mode, "table")
+
+    def test_table_single_arg_without_database_raises_error(self):
+        """table(table) without default database raises error."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+
+        with self.assertRaises(DataStoreError) as ctx:
+            ds.table("users")
+
+        error_msg = str(ctx.exception).lower()
+        self.assertIn("database", error_msg)
+
+    def test_table_preserves_connection_params(self):
+        """table() preserves connection params in new DataStore."""
+        ds = DataStore.from_clickhouse(
+            host="analytics.example.com:9000", user="analyst", password="secret123"
+        )
+        users = ds.table("production", "users")
+
+        self.assertEqual(users._remote_params["host"], "analytics.example.com:9000")
+        self.assertEqual(users._remote_params["user"], "analyst")
+        self.assertEqual(users._remote_params["password"], "secret123")
+
+    def test_table_original_unchanged(self):
+        """table() does not modify original DataStore."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        original_mode = ds._connection_mode
+
+        users = ds.table("production", "users")
+
+        self.assertEqual(ds._connection_mode, original_mode)
+        self.assertIsNone(ds._default_table)
+
+    def test_table_invalid_args_raises_error(self):
+        """table() with wrong number of args raises ValueError."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+
+        with self.assertRaises(ValueError):
+            ds.table("a", "b", "c", "d")  # Too many args
+
+        with self.assertRaises((ValueError, TypeError)):
+            ds.table()  # No args
+
+
 class TestGetItemTableSelection(unittest.TestCase):
-    """Test __getitem__ for table selection in connection mode."""
+    """Test __getitem__ for table selection in connection mode.
+    
+    NOTE: Using ds["db.table"] for table selection is legacy behavior.
+    The recommended approach is to use ds.table("db", "table") which is
+    unambiguous and doesn't conflict with pandas-style column/row selection.
+    These tests are kept for backward compatibility verification.
+    """
 
     def test_getitem_database_table_format(self):
-        """ds["db.table"] creates new DataStore."""
+        """ds["db.table"] creates new DataStore (legacy behavior)."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
@@ -291,7 +396,7 @@ class TestGetItemTableSelection(unittest.TestCase):
         self.assertEqual(users._connection_mode, "table")
 
     def test_getitem_table_only_with_default_database(self):
-        """ds["db.table"] uses dot notation to select table."""
+        """ds["db.table"] uses dot notation to select table (legacy)."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
@@ -317,7 +422,7 @@ class TestGetItemTableSelection(unittest.TestCase):
         self.assertIn("database", error_msg.lower())
 
     def test_getitem_original_unchanged(self):
-        """ds["db.table"] does not modify original."""
+        """ds["db.table"] does not modify original (legacy behavior)."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
@@ -330,7 +435,7 @@ class TestGetItemTableSelection(unittest.TestCase):
         self.assertIsNone(ds._default_table)
 
     def test_getitem_preserves_connection_params(self):
-        """ds["db.table"] preserves connection params in new DataStore."""
+        """ds["db.table"] preserves connection params (legacy behavior)."""
         ds = DataStore.from_clickhouse(
             host="analytics.example.com:9000", user="analyst", password="secret123"
         )
@@ -878,60 +983,60 @@ class TestSmartErrorMessages(unittest.TestCase):
 
 
 class TestChainedTableSelection(unittest.TestCase):
-    """Test chained table selection via __getitem__.
+    """Test chained table selection via table() method.
 
     Design doc Section 3: Select Database/Table
+    
+    NOTE: This class tests the recommended table() method.
+    Legacy __getitem__ tests are in TestGetItemTableSelection.
     """
 
-    def test_getitem_database_returns_database_mode(self):
-        """ds["database"] should return DataStore in database mode."""
+    def test_table_method_creates_new_datastore(self):
+        """table(db, table) creates new DataStore."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
 
-        # Select just database
-        db_ds = ds["production."]  # Note: trailing dot indicates database-only
+        users = ds.table("production", "users")
 
-        # Implementation may vary - test the core concept
-        # If implementation uses "db." format for database selection:
-        self.assertIsInstance(db_ds, DataStore)
-        self.assertIsNot(db_ds, ds)  # Should be a new DataStore
+        self.assertIsInstance(users, DataStore)
+        self.assertIsNot(users, ds)
+        self.assertEqual(users._connection_mode, "table")
 
-    def test_chained_selection_database_then_table(self):
-        """ds["db.table"] chain should work."""
+    def test_table_with_dot_notation(self):
+        """table("db.table") works with dot notation."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
 
-        # Direct db.table selection
-        users = ds["production.users"]
+        users = ds.table("production.users")
 
         self.assertIsInstance(users, DataStore)
         self.assertEqual(users._connection_mode, "table")
 
-    def test_use_then_getitem_table_only(self):
-        """After use(db), ds["table"] should work."""
+    def test_use_then_table_method(self):
+        """After use(db), table(table) should work."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
         ds.use("production")
 
         # Now table-only selection should work
-        users = ds["users"]
+        users = ds.table("users")
 
         self.assertIsInstance(users, DataStore)
         self.assertEqual(users._connection_mode, "table")
 
-    def test_getitem_preserves_original_connection_mode(self):
-        """Original DataStore should remain unchanged after __getitem__."""
+    def test_table_preserves_original_connection_mode(self):
+        """Original DataStore should remain unchanged after table()."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
         original_mode = ds._connection_mode
         original_db = ds._default_database
 
-        # Select table
-        _ = ds["production.users"]
+        # Select table using table() method
+        _ = ds.table("production", "users")
 
         # Original should be unchanged
         self.assertEqual(ds._connection_mode, original_mode)
