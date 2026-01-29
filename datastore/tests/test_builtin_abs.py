@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 import numpy as np
 from datastore import DataStore
-from tests.test_utils import assert_series_equal, assert_frame_equal
+from datastore.tests.test_utils import assert_series_equal, assert_frame_equal, assert_datastore_equals_pandas
 
 
 class TestBuiltinAbs:
@@ -78,10 +78,7 @@ class TestBuiltinAbs:
         ds_result = ds[abs(ds['a']) > 2]
 
         # Compare
-        assert_frame_equal(
-            ds_result._get_df().reset_index(drop=True),
-            pd_result.reset_index(drop=True)
-        )
+        assert_datastore_equals_pandas(ds_result, pd_result)
 
     def test_abs_in_complex_filter(self, sample_data):
         """Test abs() combined with other conditions."""
@@ -94,10 +91,7 @@ class TestBuiltinAbs:
         ds_result = ds[(abs(ds['a']) > 2) & (ds['b'] > 0)]
 
         # Compare
-        assert_frame_equal(
-            ds_result._get_df().reset_index(drop=True),
-            pd_result.reset_index(drop=True)
-        )
+        assert_datastore_equals_pandas(ds_result, pd_result)
 
     def test_abs_equivalent_to_method(self, sample_data):
         """Verify abs(col) is equivalent to col.abs()."""
@@ -122,12 +116,8 @@ class TestBuiltinAbs:
         # DataStore
         ds_result = ds.assign(abs_a=abs(ds['a']))
 
-        # Compare - check_dtype=False due to chDB returning uint64 for abs
-        assert_frame_equal(
-            ds_result._get_df().reset_index(drop=True),
-            pd_result.reset_index(drop=True),
-            check_dtype=False
-        )
+        # Compare
+        assert_datastore_equals_pandas(ds_result, pd_result)
 
     def test_abs_chained_operations(self, sample_data):
         """Test abs() can be chained with other operations."""
