@@ -1,0 +1,16 @@
+{
+  "timestamp": "2026-01-16T16:55:08.007697",
+  "timestamp_unix": 1768553708.007697,
+  "git_branch": "supervisor/perf_04",
+  "git_commit_hash": "929b25d25c538326cd8096787736d35d2c86cd11",
+  "git_commit_short": "929b25d",
+  "git_commit_message": "test(exploratory): add batch 85-86 for deep chains and complex edge cases",
+  "git_is_dirty": true,
+  "output_dir": "/Users/auxten/Codes/go/src/github.com/auxten/chdb-ds/refs/benchmark_results/datastore_vs_pandas/20260116_165508_supervisor_perf_04_929b25d_dirty",
+  "config": {
+    "data_sizes": [
+      1000000
+    ],
+    "n_runs": 1
+  }
+}
