@@ -102,7 +102,7 @@ ds = DataStore.uri("https://raw.githubusercontent.com/user/repo/main/data.parque
 ```python
 from datastore import DataStore
 
-# MySQL
+# MySQL - bind to specific table
 ds = DataStore.uri("mysql://user:pass@localhost:3306/mydb/users")
 
 # PostgreSQL
@@ -113,6 +113,33 @@ ds = DataStore.uri("sqlite:///path/to/db.db?table=users")
 
 # ClickHouse
 ds = DataStore.uri("clickhouse://host:9000/database/table")
+```
+
+**Connection-level mode** (explore databases dynamically):
+
+```python
+from datastore import DataStore
+
+# Connect without specifying database/table
+ds = DataStore.from_clickhouse(
+    host="analytics.company.com:9440",
+    user="analyst",
+    password="secret",
+    secure=True
+)
+
+# Discover metadata
+ds.databases()                      # ['production', 'staging', 'ml']
+ds.tables("production")             # ['users', 'orders', 'events']
+ds.describe("production", "users")  # Table schema
+
+# Execute SQL queries
+ds.use("production")
+result = ds.sql("SELECT * FROM users WHERE age > 25")
+
+# Or select table for pandas-style operations
+users = ds["production.users"]
+result = users.filter(users['age'] > 25).head(10)
 ```
 
 ### Data Lakes

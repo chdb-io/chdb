@@ -16,8 +16,19 @@ if TYPE_CHECKING:
 
 from .expressions import Field, Expression, Literal, Star
 from .conditions import Condition
-from .utils import immutable, ignore_copy, format_identifier, normalize_ascending, map_agg_func
-from .exceptions import QueryError, ConnectionError, ExecutionError, UnsupportedOperationError
+from .utils import (
+    immutable,
+    ignore_copy,
+    format_identifier,
+    normalize_ascending,
+    map_agg_func,
+)
+from .exceptions import (
+    QueryError,
+    ConnectionError,
+    ExecutionError,
+    UnsupportedOperationError,
+)
 from .connection import Connection, QueryResult
 from .executor import Executor
 from .table_functions import create_table_function, TableFunction
@@ -41,8 +52,9 @@ from .config import (
     get_profiler,
     is_profiling_enabled,
 )
+from .adapters import get_adapter, SourceAdapter
 
-__all__ = ['DataStore']
+__all__ = ["DataStore"]
 
 # Sentinel value to distinguish "no argument passed" from "None passed explicitly"
 _MISSING = object()
@@ -65,6 +77,21 @@ class DataStore(PandasCompatMixin):
 
     # Class-level config for all DataStore instances
     config: DataStoreConfig = _global_config
+
+    # Sensitive fields to mask in repr/str output
+    _SENSITIVE_FIELDS = frozenset(
+        {
+            "password",
+            "secret",
+            "token",
+            "key",
+            "api_key",
+            "secret_key",
+            "access_key",
+            "secret_access_key",
+        }
+    )
+    _MASKED_VALUE = "***"
 
     def __init__(
         self,
@@ -115,23 +142,23 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore(table="my_table")
         """
         # Handle backward compatibility: source_type keyword argument
-        if 'source_type' in kwargs:
+        if "source_type" in kwargs:
             if source is None:
-                source = kwargs.pop('source_type')
+                source = kwargs.pop("source_type")
             else:
                 # If both provided, just remove from kwargs to avoid passing to connection
-                kwargs.pop('source_type')
+                kwargs.pop("source_type")
 
         # Extract DataFrame constructor kwargs (index, columns, dtype) before other processing
         # These should be passed to pd.DataFrame() when creating from dict/list/etc
         df_constructor_kwargs = {}
-        for key in ['index', 'columns', 'dtype']:
+        for key in ["index", "columns", "dtype"]:
             if key in kwargs:
                 df_constructor_kwargs[key] = kwargs.pop(key)
 
         # Handle columns-only construction: DataStore(columns=['A', 'B', 'C'])
         # This creates an empty DataFrame with specified columns
-        if source is None and 'columns' in df_constructor_kwargs:
+        if source is None and "columns" in df_constructor_kwargs:
             df = pd.DataFrame(**df_constructor_kwargs)
             self._init_from_dataframe(df, database, connection, **kwargs)
             return
@@ -141,8 +168,8 @@ class DataStore(PandasCompatMixin):
             df = source.to_frame()
             if df_constructor_kwargs:
                 # Apply any index override
-                if 'index' in df_constructor_kwargs:
-                    df.index = df_constructor_kwargs['index']
+                if "index" in df_constructor_kwargs:
+                    df.index = df_constructor_kwargs["index"]
             self._init_from_dataframe(df, database, connection, **kwargs)
             return
 
@@ -175,47 +202,57 @@ class DataStore(PandasCompatMixin):
         import os
 
         if isinstance(source, str) and source not in (
-            'chdb',
-            'file',
-            's3',
-            'gcs',
-            'http',
-            'https',
-            'mysql',
-            'postgresql',
-            'postgres',
-            'clickhouse',
-            'remote',
-            'mongodb',
-            'mongo',
-            'sqlite',
-            'redis',
-            'azure',
-            'azureblob',
-            'hdfs',
-            'iceberg',
-            'hudi',
-            'delta',
-            'deltalake',
-            'numbers',
-            'generaterandom',
-            'python',
-            'url',
-            'remotesecure',
+            "chdb",
+            "file",
+            "s3",
+            "gcs",
+            "http",
+            "https",
+            "mysql",
+            "postgresql",
+            "postgres",
+            "clickhouse",
+            "remote",
+            "mongodb",
+            "mongo",
+            "sqlite",
+            "redis",
+            "azure",
+            "azureblob",
+            "hdfs",
+            "iceberg",
+            "hudi",
+            "delta",
+            "deltalake",
+            "numbers",
+            "generaterandom",
+            "python",
+            "url",
+            "remotesecure",
         ):
             # Check if it looks like a file path (has extension or path separators)
             if (
-                '/' in source
-                or '\\' in source
+                "/" in source
+                or "\\" in source
                 or source.endswith(
-                    ('.parquet', '.csv', '.tsv', '.json', '.jsonl', '.arrow', '.feather', '.orc', '.avro')
+                    (
+                        ".parquet",
+                        ".csv",
+                        ".tsv",
+                        ".json",
+                        ".jsonl",
+                        ".arrow",
+                        ".feather",
+                        ".orc",
+                        ".avro",
+                    )
                 )
             ):
                 # Auto-convert file path to proper format
-                kwargs['path'] = source
-                source = 'file'
+                kwargs["path"] = source
+                source = "file"
 
-        self.source_type = source or 'chdb'
+        self.source_type = source or "chdb"
         self.table_name = table
         self.connection_params = kwargs
 
@@ -230,32 +267,32 @@ class DataStore(PandasCompatMixin):
         # Determine if this is a table function source (external data sources)
         # These sources use table functions and should always use :memory: for chDB
         table_function_sources = [
-            'file',
-            's3',
-            'gcs',
-            'http',
-            'https',
-            'url',
-            'mysql',
-            'postgresql',
-            'postgres',
-            'clickhouse',
-            'remote',
-            'remotesecure',
-            'mongodb',
-            'mongo',
-            'sqlite',
-            'redis',
-            'azure',
-            'azureblob',
-            'hdfs',
-            'iceberg',
-            'hudi',
-            'delta',
-            'deltalake',
-            'numbers',
-            'generaterandom',
-            'python',
+            "file",
+            "s3",
+            "gcs",
+            "http",
+            "https",
+            "url",
+            "mysql",
+            "postgresql",
+            "postgres",
+            "clickhouse",
+            "remote",
+            "remotesecure",
+            "mongodb",
+            "mongo",
+            "sqlite",
+            "redis",
+            "azure",
+            "azureblob",
+            "hdfs",
+            "iceberg",
+            "hudi",
+            "delta",
+            "deltalake",
+            "numbers",
+            "generaterandom",
+            "python",
         ]
         is_table_function_source = source and source.lower() in table_function_sources
 
@@ -268,20 +305,20 @@ class DataStore(PandasCompatMixin):
             self.database = database
 
         # Create table function if source is specified
-        if source and source.lower() != 'chdb':
+        if source and source.lower() != "chdb":
             try:
                 # For database sources with explicit table, pass table name
                 if table and source.lower() in [
-                    'clickhouse',
-                    'remote',
-                    'mysql',
-                    'postgresql',
-                    'postgres',
-                    'mongodb',
-                    'mongo',
-                    'sqlite',
+                    "clickhouse",
+                    "remote",
+                    "mysql",
+                    "postgresql",
+                    "postgres",
+                    "mongodb",
+                    "mongo",
+                    "sqlite",
                 ]:
-                    kwargs['table'] = table
+                    kwargs["table"] = table
 
                 # For database sources, pass the database name to the table function
                 # (this is the REMOTE database, not the local chDB path)
@@ -289,9 +326,18 @@ class DataStore(PandasCompatMixin):
                     database
                     and database != ":memory:"
                     and source.lower()
-                    in ['clickhouse', 'remote', 'mysql', 'postgresql', 'postgres', 'mongodb', 'mongo', 'sqlite']
+                    in [
+                        "clickhouse",
+                        "remote",
+                        "mysql",
+                        "postgresql",
+                        "postgres",
+                        "mongodb",
+                        "mongo",
+                        "sqlite",
+                    ]
                 ):
-                    kwargs['database'] = database
+                    kwargs["database"] = database
 
                 self._table_function = create_table_function(source, **kwargs)
             except Exception:
@@ -301,13 +347,17 @@ class DataStore(PandasCompatMixin):
 
         # Query state
         self._select_fields: List[Expression] = []
-        self._select_star: bool = False  # True when SELECT * is used (possibly with additional computed columns)
+        self._select_star: bool = (
+            False  # True when SELECT * is used (possibly with additional computed columns)
+        )
         self._where_condition: Optional[Condition] = None
-        self._joins: List[tuple] = []  # [(table/datastore, join_type, on_condition), ...]
+        self._joins: List[tuple] = (
+            []
+        )  # [(table/datastore, join_type, on_condition), ...]
         self._groupby_fields: List[Expression] = []
         self._having_condition: Optional[Condition] = None
         self._orderby_fields: List[tuple] = []  # [(field, ascending), ...]
-        self._orderby_kind: str = 'quicksort'  # Sort algorithm (matches pandas default)
+        self._orderby_kind: str = "quicksort"  # Sort algorithm (matches pandas default)
         self._limit_value: Optional[int] = None
         self._offset_value: Optional[int] = None
         self._distinct: bool = False
@@ -315,7 +365,7 @@ class DataStore(PandasCompatMixin):
         # INSERT/UPDATE/DELETE state
         self._insert_columns: List[str] = []
         self._insert_values: List[List[Any]] = []
-        self._insert_select: Optional['DataStore'] = None
+        self._insert_select: Optional["DataStore"] = None
         self._update_fields: List[tuple] = []  # [(field, value), ...]
         self._delete_flag: bool = False
 
@@ -342,7 +392,9 @@ class DataStore(PandasCompatMixin):
 
         # Operation tracking for explain()
         self._operation_history: List[Dict[str, Any]] = []
-        self._original_source_desc: Optional[str] = None  # Preserve original data source for explain()
+        self._original_source_desc: Optional[str] = (
+            None  # Preserve original data source for explain()
+        )
 
         # Logger instance
         self._logger = get_logger()
@@ -366,6 +418,50 @@ class DataStore(PandasCompatMixin):
         # Format: {'name': index_name, 'names': [names_for_multiindex]} or None
         self._index_info: Optional[Dict[str, Any]] = None
 
+        # Remote connection mode support
+        # 'connection' = only host/user/password, no db/table
+        # 'database' = has database but no table
+        # 'table' = has both (normal mode, existing behavior)
+        self._connection_mode: str = "table"  # default
+
+        # Default context for queries (set via use())
+        self._default_schema: Optional[str] = None
+        self._default_database: Optional[str] = None
+        self._default_table: Optional[str] = None
+
+        # Remote connection parameters (for metadata operations)
+        self._remote_params: Dict[str, Any] = {}
+
+        # Detect connection mode for remote database sources
+        remote_db_sources = [
+            "clickhouse",
+            "remote",
+            "remotesecure",
+            "mysql",
+            "postgresql",
+            "postgres",
+        ]
+        if source and source.lower() in remote_db_sources:
+            # Store remote params for metadata operations
+            self._remote_params = {
+                "host": kwargs.get("host"),
+                "user": kwargs.get("user"),
+                "password": kwargs.get("password", ""),
+                "secure": kwargs.get("secure", False),
+            }
+
+            # Determine connection mode
+            has_database = database and database != ":memory:"
+            has_table = table is not None
+
+            if not has_database and not has_table:
+                self._connection_mode = "connection"
+            elif has_database and not has_table:
+                self._connection_mode = "database"
+                self._default_database = database
+            else:
+                self._connection_mode = "table"
+
     def _init_from_dataframe(
         self,
         df: pd.DataFrame,
@@ -384,7 +480,7 @@ class DataStore(PandasCompatMixin):
             raise TypeError(f"Expected pandas DataFrame, got {type(df).__name__}")
 
         # Basic setup
-        self.source_type = 'dataframe'
+        self.source_type = "dataframe"
         self.table_name = None
         self.database = database
         self.connection_params = kwargs
@@ -405,7 +501,7 @@ class DataStore(PandasCompatMixin):
         self._groupby_fields: List[Expression] = []
         self._having_condition: Optional[Condition] = None
         self._orderby_fields: List[tuple] = []
-        self._orderby_kind: str = 'quicksort'
+        self._orderby_kind: str = "quicksort"
         self._limit_value: Optional[int] = None
         self._offset_value: Optional[int] = None
         self._distinct: bool = False
@@ -413,7 +509,7 @@ class DataStore(PandasCompatMixin):
         # INSERT/UPDATE/DELETE state
         self._insert_columns: List[str] = []
         self._insert_values: List[List[Any]] = []
-        self._insert_select: Optional['DataStore'] = None
+        self._insert_select: Optional["DataStore"] = None
         self._update_fields: List[tuple] = []
         self._delete_flag: bool = False
 
@@ -426,7 +522,9 @@ class DataStore(PandasCompatMixin):
         self._executor: Optional[Executor] = None
 
         # Build schema from DataFrame dtypes
-        self._schema: Optional[Dict[str, str]] = {col: str(dtype) for col, dtype in df.dtypes.items()}
+        self._schema: Optional[Dict[str, str]] = {
+            col: str(dtype) for col, dtype in df.dtypes.items()
+        }
 
         # Configuration
         self.quote_char = '"'
@@ -440,9 +538,11 @@ class DataStore(PandasCompatMixin):
         self._df_var_name: str = f"__ds_df_{uuid.uuid4().hex}__"
 
         # Set source description for explain()
-        name = kwargs.get('name')
+        name = kwargs.get("name")
         shape_str = f"{df.shape[0]} rows x {df.shape[1]} cols"
-        self._original_source_desc: Optional[str] = f"DataFrame({name or 'unnamed'}, {shape_str})"
+        self._original_source_desc: Optional[str] = (
+            f"DataFrame({name or 'unnamed'}, {shape_str})"
+        )
 
         # Operation tracking
         self._operation_history: List[Dict[str, Any]] = []
@@ -463,9 +563,18 @@ class DataStore(PandasCompatMixin):
         # Tracks index info when DataFrame has a custom index (from set_index())
         self._index_info: Optional[Dict[str, Any]] = None
 
+        # Remote connection mode support (not applicable for DataFrame sources, but initialized for consistency)
+        self._connection_mode: str = "table"
+        self._default_schema: Optional[str] = None
+        self._default_database: Optional[str] = None
+        self._default_table: Optional[str] = None
+        self._remote_params: Dict[str, Any] = {}
+
     # ========== Operation Tracking for explain() ==========
 
-    def _track_operation(self, op_type: str, description: str, details: Dict[str, Any] = None):
+    def _track_operation(
+        self, op_type: str, description: str, details: Dict[str, Any] = None
+    ):
         """
         Track an operation for explain() output.
 
@@ -475,18 +584,18 @@ class DataStore(PandasCompatMixin):
             details: Additional details about the operation
         """
         operation = {
-            'type': op_type,
-            'description': description,
-            'details': details or {},
-            'is_on_dataframe': op_type == 'pandas',
-            'executed_at_call': False,
+            "type": op_type,
+            "description": description,
+            "details": details or {},
+            "is_on_dataframe": op_type == "pandas",
+            "executed_at_call": False,
         }
         self._operation_history.append(operation)
 
     def _get_data_source_description(self):
         """Get a description of the data source."""
         # Return cached description if available
-        if hasattr(self, '_original_source_desc') and self._original_source_desc:
+        if hasattr(self, "_original_source_desc") and self._original_source_desc:
             return self._original_source_desc
 
         # Generate and cache description
@@ -502,7 +611,9 @@ class DataStore(PandasCompatMixin):
             desc = f"Data Source: Table '{self.table_name}'"
 
         # Cache for future use (survives execution)
-        if desc and (not hasattr(self, '_original_source_desc') or not self._original_source_desc):
+        if desc and (
+            not hasattr(self, "_original_source_desc") or not self._original_source_desc
+        ):
             self._original_source_desc = desc
 
         return desc
@@ -513,7 +624,14 @@ class DataStore(PandasCompatMixin):
             return [], None, []
 
         # Find the execution point
-        mat_idx = next((i for i, op in enumerate(self._operation_history) if op['type'] == 'execute'), None)
+        mat_idx = next(
+            (
+                i
+                for i, op in enumerate(self._operation_history)
+                if op["type"] == "execute"
+            ),
+            None,
+        )
 
         if mat_idx is not None:
             # Explicit execution operation present
@@ -524,11 +642,15 @@ class DataStore(PandasCompatMixin):
             )
 
         # No explicit execution - split by is_on_dataframe flag
-        lazy = [op for op in self._operation_history if not op.get('is_on_dataframe', False)]
-        executed = [op for op in self._operation_history if op.get('is_on_dataframe', False)]
+        lazy = [
+            op for op in self._operation_history if not op.get("is_on_dataframe", False)
+        ]
+        executed = [
+            op for op in self._operation_history if op.get("is_on_dataframe", False)
+        ]
 
         # If there are only executed ops, the first one becomes the implicit execution point
-        if executed and not lazy and executed[0]['type'] in ['pandas', 'execute']:
+        if executed and not lazy and executed[0]["type"] in ["pandas", "execute"]:
             return [], executed[0], executed[1:]
 
         # If both exist, the first executed operation is the implicit execution point
@@ -541,15 +663,15 @@ class DataStore(PandasCompatMixin):
         """Render a list of operations."""
         lines = []
         for i, op in enumerate(operations, start_num):
-            icon = {'sql': '🔍', 'pandas': '🐼', 'execute': '🔄'}.get(op['type'], '📝')
+            icon = {"sql": "🔍", "pandas": "🐼", "execute": "🔄"}.get(op["type"], "📝")
             desc = (
                 f"SQL on DataFrame: {op['description']}"
-                if op['type'] == 'sql' and op.get('is_on_dataframe')
+                if op["type"] == "sql" and op.get("is_on_dataframe")
                 else f"{op['type'].upper()}: {op['description']}"
             )
             lines.append(f" [{i}] {icon} {desc}")
-            if verbose and op.get('details'):
-                for k, v in op['details'].items():
+            if verbose and op.get("details"):
+                for k, v in op["details"].items():
                     lines.append(f"     └─ {k}: {v}")
         return lines
 
@@ -578,7 +700,7 @@ class DataStore(PandasCompatMixin):
         from .query_planner import QueryPlanner
 
         # Ensure data source description is cached before analysis
-        if not hasattr(self, '_original_source_desc') or not self._original_source_desc:
+        if not hasattr(self, "_original_source_desc") or not self._original_source_desc:
             self._get_data_source_description()
 
         lines = []
@@ -598,9 +720,13 @@ class DataStore(PandasCompatMixin):
         # Use plan_segments() for accurate SQL-Pandas-SQL interleaving analysis
         if self._lazy_ops:
             planner = QueryPlanner()
-            has_sql_source = bool(self._table_function or self.table_name or self._source_df is not None)
+            has_sql_source = bool(
+                self._table_function or self.table_name or self._source_df is not None
+            )
             schema = self.schema() if has_sql_source else self._schema
-            exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
+            exec_plan = planner.plan_segments(
+                self._lazy_ops, has_sql_source, schema=schema
+            )
 
             lines.append("\nOperations:")
             lines.append("─" * 80)
@@ -617,7 +743,11 @@ class DataStore(PandasCompatMixin):
                     start_op = op_idx + 2
                     end_op = op_idx + len(segment.ops) + 1
                     engine = "chDB" if segment.is_sql() else "Pandas"
-                    source_info = "(from source)" if segment.is_first_segment else "(on DataFrame)"
+                    source_info = (
+                        "(from source)"
+                        if segment.is_first_segment
+                        else "(on DataFrame)"
+                    )
                     if segment.ops:
                         segment_summaries.append(
                             f"    ️  Segment {seg_idx + 1} [{engine}] {source_info}: Operations {start_op}-{end_op}"
@@ -626,7 +756,9 @@ class DataStore(PandasCompatMixin):
 
                 for summary in segment_summaries:
                     lines.append(summary)
-                lines.append("    ️  Note: SQL operations after Pandas ops use Python() table function")
+                lines.append(
+                    "    ️  Note: SQL operations after Pandas ops use Python() table function"
+                )
                 lines.append("")
 
             # Build op -> segment mapping for accurate engine display
@@ -634,7 +766,11 @@ class DataStore(PandasCompatMixin):
             op_idx = 0
             for seg_idx, segment in enumerate(exec_plan.segments):
                 for _ in segment.ops:
-                    op_to_segment[op_idx] = (seg_idx, segment.is_sql(), segment.is_first_segment)
+                    op_to_segment[op_idx] = (
+                        seg_idx,
+                        segment.is_sql(),
+                        segment.is_first_segment,
+                    )
                     op_idx += 1
 
             for i, op in enumerate(self._lazy_ops):
@@ -648,7 +784,7 @@ class DataStore(PandasCompatMixin):
                         lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
                     else:
                         engine = op.execution_engine()
-                        if engine == 'chDB':
+                        if engine == "chDB":
                             lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
                         else:
                             # Even in SQL segment, some ops use Pandas
@@ -659,13 +795,15 @@ class DataStore(PandasCompatMixin):
                         lines.append(f" [{counter}] 🐼 [Pandas] {op.describe_pandas()}")
                     else:
                         engine = op.execution_engine()
-                        if engine == 'chDB':
+                        if engine == "chDB":
                             lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
                         else:
                             lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
 
         # ========== Legacy operation history (for pandas compat operations) ==========
-        history_lazy_ops, mat_op, history_executed_ops = self._analyze_execution_phases()
+        history_lazy_ops, mat_op, history_executed_ops = (
+            self._analyze_execution_phases()
+        )
 
         if mat_op:
             lines.append("\nExecution Point:")
@@ -673,24 +811,30 @@ class DataStore(PandasCompatMixin):
             counter += 1
             lines.append(f" [{counter}] 🔄 {mat_op['description']}")
             lines.append("     └─> Executes SQL query and caches result as DataFrame")
-            if verbose and mat_op.get('details'):
-                for k, v in mat_op['details'].items():
+            if verbose and mat_op.get("details"):
+                for k, v in mat_op["details"].items():
                     lines.append(f"         • {k}: {v}")
 
         if history_executed_ops:
             lines.append("\nPost-Execution Operations:")
             lines.append("─" * 80)
-            lines.extend(self._render_operations(history_executed_ops, counter + 1, verbose))
+            lines.extend(
+                self._render_operations(history_executed_ops, counter + 1, verbose)
+            )
             counter += len(history_executed_ops)
 
         # ========== Final State ==========
         lines.append("\n" + "─" * 80)
         if self._lazy_ops or self._has_sql_state():
             lines.append("Final State: 📊 Pending (lazy, not yet executed)")
-            lines.append("             └─> Will execute when print(), .to_df(), .execute() is called")
+            lines.append(
+                "             └─> Will execute when print(), .to_df(), .execute() is called"
+            )
         else:
             lines.append("Final State: 📊 No operations recorded")
-            lines.append("             └─> Start by loading data or defining operations")
+            lines.append(
+                "             └─> Start by loading data or defining operations"
+            )
 
         # ========== Generated SQL Query ==========
         if self._has_sql_state():
@@ -704,7 +848,9 @@ class DataStore(PandasCompatMixin):
                     lines.append(f"\n{sql}\n")
                 else:
                     lines.append(f"\n{sql[:500]}...")
-                    lines.append("[Query truncated. Use explain(verbose=True) for full query]\n")
+                    lines.append(
+                        "[Query truncated. Use explain(verbose=True) for full query]\n"
+                    )
             except Exception as e:
                 lines.append(f"\nError generating SQL: {e}\n")
 
@@ -766,7 +912,7 @@ class DataStore(PandasCompatMixin):
             return None  # No restriction
 
         # If there are joins, we can't restrict columns since joins add new columns
-        if hasattr(self, '_joins') and self._joins:
+        if hasattr(self, "_joins") and self._joins:
             return None
 
         # Build list of accessible columns from select fields (order matters for transforms)
@@ -774,10 +920,10 @@ class DataStore(PandasCompatMixin):
         for f in self._select_fields:
             if isinstance(f, str):
                 accessible.append(f)
-            elif hasattr(f, 'alias') and f.alias:
+            elif hasattr(f, "alias") and f.alias:
                 # Expression with alias takes priority (e.g., computed columns, as_())
                 accessible.append(f.alias)
-            elif hasattr(f, 'name'):
+            elif hasattr(f, "name"):
                 # Field or similar with name attribute
                 name = f.name.strip('"') if isinstance(f.name, str) else str(f.name)
                 accessible.append(name)
@@ -793,12 +939,12 @@ class DataStore(PandasCompatMixin):
             elif isinstance(op, LazyColumnAssignment):
                 # Add new computed column
                 accessible.append(op.column)
-            elif hasattr(op, 'transform_columns'):
+            elif hasattr(op, "transform_columns"):
                 # Apply column name transformation (add_prefix, add_suffix, rename)
                 accessible = op.transform_columns(accessible)
 
         # Add any columns from _computed_columns tracking
-        if hasattr(self, '_computed_columns'):
+        if hasattr(self, "_computed_columns"):
             for col in self._computed_columns.keys():
                 if col not in accessible:
                     accessible.append(col)
@@ -840,7 +986,9 @@ class DataStore(PandasCompatMixin):
         # Check version match (cache invalidated if operations were added)
         if self._cached_at_version != self._cache_version:
             self._logger.debug(
-                "Cache invalid: version mismatch (cached=%d, current=%d)", self._cached_at_version, self._cache_version
+                "Cache invalid: version mismatch (cached=%d, current=%d)",
+                self._cached_at_version,
+                self._cache_version,
             )
             return False
 
@@ -849,7 +997,9 @@ class DataStore(PandasCompatMixin):
         if ttl > 0 and self._cache_timestamp is not None:
             age = time.time() - self._cache_timestamp
             if age > ttl:
-                self._logger.debug("Cache invalid: TTL expired (age=%.2fs, ttl=%.2fs)", age, ttl)
+                self._logger.debug(
+                    "Cache invalid: TTL expired (age=%.2fs, ttl=%.2fs)", age, ttl
+                )
                 return False
 
         return True
@@ -924,7 +1074,9 @@ class DataStore(PandasCompatMixin):
             # Check cache first
             with profiler.step("Cache Check"):
                 if self._is_cache_valid():
-                    self._logger.debug("Using cached result (version=%d)", self._cached_at_version)
+                    self._logger.debug(
+                        "Using cached result (version=%d)", self._cached_at_version
+                    )
                     if is_profiling_enabled():
                         profiler.log_report()
                     return self._cached_result
@@ -935,7 +1087,9 @@ class DataStore(PandasCompatMixin):
 
             # Log all lazy operations
             if self._lazy_ops:
-                self._logger.debug("Lazy operations chain (%d operations):", len(self._lazy_ops))
+                self._logger.debug(
+                    "Lazy operations chain (%d operations):", len(self._lazy_ops)
+                )
                 for i, op in enumerate(self._lazy_ops):
                     self._logger.debug("  [%d] %s", i + 1, op.describe())
             else:
@@ -944,9 +1098,15 @@ class DataStore(PandasCompatMixin):
             # Segmented planning phase
             with profiler.step("Query Planning", ops_count=len(self._lazy_ops)):
                 planner = QueryPlanner()
-                has_sql_source = bool(self._table_function or self.table_name or self._source_df is not None)
+                has_sql_source = bool(
+                    self._table_function
+                    or self.table_name
+                    or self._source_df is not None
+                )
                 schema = self.schema() if has_sql_source else self._schema
-                exec_plan = planner.plan_segments(self._lazy_ops, has_sql_source, schema=schema)
+                exec_plan = planner.plan_segments(
+                    self._lazy_ops, has_sql_source, schema=schema
+                )
 
                 self._logger.debug(exec_plan.describe())
 
@@ -957,19 +1117,28 @@ class DataStore(PandasCompatMixin):
             for seg_idx, segment in enumerate(exec_plan.segments):
                 seg_num = seg_idx + 1
                 self._logger.debug("-" * 70)
-                self._logger.debug("Segment %d/%d: %s", seg_num, len(exec_plan.segments), segment.describe())
+                self._logger.debug(
+                    "Segment %d/%d: %s",
+                    seg_num,
+                    len(exec_plan.segments),
+                    segment.describe(),
+                )
                 self._logger.debug("-" * 70)
 
                 if segment.is_sql():
                     with profiler.step(f"SQL Segment {seg_num}", ops=len(segment.ops)):
                         df = self._execute_sql_segment(segment, df, schema, profiler)
                 else:
-                    with profiler.step(f"Pandas Segment {seg_num}", ops=len(segment.ops)):
+                    with profiler.step(
+                        f"Pandas Segment {seg_num}", ops=len(segment.ops)
+                    ):
                         df = self._execute_pandas_segment(segment, df, profiler)
                         has_executed_pandas = True
 
             self._logger.debug("=" * 70)
-            self._logger.debug("Execution complete. Final DataFrame shape: %s", df.shape)
+            self._logger.debug(
+                "Execution complete. Final DataFrame shape: %s", df.shape
+            )
             self._logger.debug("=" * 70)
 
             # Cache the result if caching is enabled
@@ -980,7 +1149,9 @@ class DataStore(PandasCompatMixin):
 
                     # Checkpoint if we executed any Pandas operations or multiple SQL segments
                     # This enables incremental execution for future operations
-                    needs_checkpoint = has_executed_pandas or exec_plan.sql_segment_count() > 1
+                    needs_checkpoint = (
+                        has_executed_pandas or exec_plan.sql_segment_count() > 1
+                    )
 
                     if needs_checkpoint:
                         from .lazy_ops import LazyDataFrameSource
@@ -1001,7 +1172,9 @@ class DataStore(PandasCompatMixin):
                         self._offset_value = None
                         self._distinct = False
 
-                        self._logger.debug("Pipeline checkpointed: lazy_ops replaced with DataFrame source")
+                        self._logger.debug(
+                            "Pipeline checkpointed: lazy_ops replaced with DataFrame source"
+                        )
                     else:
                         self._logger.debug("Pure SQL execution: SQL state preserved")
 
@@ -1014,17 +1187,19 @@ class DataStore(PandasCompatMixin):
         # Restore index if we tracked index info during _ensure_sql_source
         # Skip if DataFrame already has the correct index (e.g., from set_index(drop=False))
         if self._index_info is not None and not df.empty:
-            if self._index_info.get('is_multiindex'):
+            if self._index_info.get("is_multiindex"):
                 # Restore MultiIndex
-                index_names = self._index_info['names']
+                index_names = self._index_info["names"]
                 # Check if DataFrame already has this MultiIndex
-                current_index_names = list(df.index.names) if isinstance(df.index, pd.MultiIndex) else []
+                current_index_names = (
+                    list(df.index.names) if isinstance(df.index, pd.MultiIndex) else []
+                )
                 if current_index_names != index_names:
                     # Check if all index columns exist in the result
                     existing_index_cols = [n for n in index_names if n in df.columns]
                     if existing_index_cols:
                         df = df.set_index(existing_index_cols)
-            elif self._index_info.get('is_noncontiguous'):
+            elif self._index_info.get("is_noncontiguous"):
                 # Non-contiguous index was reset for SQL execution
                 # The result already has correct row order via _row_id handling in query_df
                 # Just ensure the DataFrame has a clean RangeIndex (which it should have)
@@ -1032,7 +1207,7 @@ class DataStore(PandasCompatMixin):
                     df = df.reset_index(drop=True)
             else:
                 # Restore single index
-                index_name = self._index_info.get('name')
+                index_name = self._index_info.get("name")
                 # Check if DataFrame already has this index
                 if index_name is not None and df.index.name != index_name:
                     if index_name in df.columns:
@@ -1042,7 +1217,7 @@ class DataStore(PandasCompatMixin):
 
     def _execute_sql_segment(
         self,
-        segment: 'ExecutionSegment',
+        segment: "ExecutionSegment",
         df: pd.DataFrame,
         schema: Dict[str, str],
         profiler,
@@ -1098,7 +1273,9 @@ class DataStore(PandasCompatMixin):
                         settings_parts.append(f"{key}={value}")
                 sql = f"{sql} SETTINGS {', '.join(settings_parts)}"
 
-            self._logger.debug("  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql)
+            self._logger.debug(
+                "  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql
+            )
 
             # For PythonTableFunction, use query_df to ensure row order preservation
             # (chDB's parallel execution can cause non-deterministic row ordering)
@@ -1106,16 +1283,23 @@ class DataStore(PandasCompatMixin):
             # from nested subqueries), skip query_df's additional _row_id processing
             from .table_functions import PythonTableFunction
 
-            sql_has_row_order_handling = '__orig_row_num__' in sql or 'ORDER BY _row_id' in sql
+            sql_has_row_order_handling = (
+                "__orig_row_num__" in sql or "ORDER BY _row_id" in sql
+            )
 
-            if isinstance(self._table_function, PythonTableFunction) and not sql_has_row_order_handling:
+            if (
+                isinstance(self._table_function, PythonTableFunction)
+                and not sql_has_row_order_handling
+            ):
                 with profiler.step("SQL Execution (query_df)"):
                     # Use executor.query_dataframe which calls connection.query_df
                     # with preserve_order=True for deterministic row ordering
                     from .executor import get_executor
 
                     executor = get_executor()
-                    df = executor.query_dataframe(sql, self._table_function._df, '__df__', preserve_order=True)
+                    df = executor.query_dataframe(
+                        sql, self._table_function._df, "__df__", preserve_order=True
+                    )
                     df = self._postprocess_sql_result(df, plan)
             else:
                 # For non-Python table functions (file, URL, etc.), or SQL that already
@@ -1145,27 +1329,29 @@ class DataStore(PandasCompatMixin):
                 select_cols = None
                 computed_cols = []
                 for op in plan.sql_ops or []:
-                    if hasattr(op, 'op_type') and op.op_type == 'SELECT':
-                        if hasattr(op, 'fields') and op.fields:
+                    if hasattr(op, "op_type") and op.op_type == "SELECT":
+                        if hasattr(op, "fields") and op.fields:
                             select_cols = []
                             has_star = False
                             for f in op.fields:
                                 if isinstance(f, str):
                                     col = f.strip('"')
-                                    if col == '*':
+                                    if col == "*":
                                         has_star = True
                                     else:
                                         select_cols.append(col)
-                                elif hasattr(f, 'alias') and f.alias:
+                                elif hasattr(f, "alias") and f.alias:
                                     select_cols.append(f.alias)
-                                elif hasattr(f, 'name'):
+                                elif hasattr(f, "name"):
                                     select_cols.append(f.name.strip('"'))
                                 # Skip fields without identifiable names
                             # If '*' was in fields, expand it to all existing columns
                             if has_star:
-                                select_cols = list(df.columns) + [c for c in select_cols if c not in df.columns]
+                                select_cols = list(df.columns) + [
+                                    c for c in select_cols if c not in df.columns
+                                ]
                     # Also check LazyColumnAssignment for computed columns
-                    elif hasattr(op, 'column') and hasattr(op, 'can_push_to_sql'):
+                    elif hasattr(op, "column") and hasattr(op, "can_push_to_sql"):
                         # LazyColumnAssignment
                         if op.can_push_to_sql():
                             computed_cols.append(op.column)
@@ -1174,8 +1360,8 @@ class DataStore(PandasCompatMixin):
                 # e.g., assign() creates SELECT *, expression AS alias
                 has_new_expressions = False
                 for op in plan.sql_ops or []:
-                    if hasattr(op, 'op_type') and op.op_type == 'SELECT':
-                        if hasattr(op, 'fields') and op.fields:
+                    if hasattr(op, "op_type") and op.op_type == "SELECT":
+                        if hasattr(op, "fields") and op.fields:
                             for f in op.fields:
                                 if not isinstance(f, str):
                                     # Non-string field = expression (need SQL execution)
@@ -1185,7 +1371,9 @@ class DataStore(PandasCompatMixin):
                 # If we have computed columns or new expressions, execute SQL for correct dtypes
                 # chDB can correctly infer output types even for empty DataFrames
                 if computed_cols or has_new_expressions:
-                    self._logger.debug("  Empty df has computed columns/expressions, executing SQL for correct dtypes")
+                    self._logger.debug(
+                        "  Empty df has computed columns/expressions, executing SQL for correct dtypes"
+                    )
                     # Fall through to execute SQL below
                 else:
                     # No computed columns, just apply column selection if present
@@ -1193,7 +1381,9 @@ class DataStore(PandasCompatMixin):
                         existing_cols = [c for c in select_cols if c in df.columns]
                         if existing_cols:
                             df = df[existing_cols]
-                        self._logger.debug("  Applied column selection to empty df: %s", select_cols)
+                        self._logger.debug(
+                            "  Applied column selection to empty df: %s", select_cols
+                        )
                     return df
 
             # If we have a source but no DataFrame yet, load raw data first
@@ -1204,7 +1394,7 @@ class DataStore(PandasCompatMixin):
                 if self._table_function:
                     table_sql = self._table_function.to_sql()
                 else:
-                    table_sql = f'{self.quote_char}{self.table_name}{self.quote_char}'
+                    table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
                 load_sql = f"SELECT * FROM {table_sql}"
                 # Append format settings if present
                 if self._format_settings:
@@ -1235,7 +1425,7 @@ class DataStore(PandasCompatMixin):
 
     def _execute_pandas_segment(
         self,
-        segment: 'ExecutionSegment',
+        segment: "ExecutionSegment",
         df: pd.DataFrame,
         profiler,
     ) -> pd.DataFrame:
@@ -1258,12 +1448,14 @@ class DataStore(PandasCompatMixin):
             if self._table_function:
                 table_sql = self._table_function.to_sql()
             else:
-                table_sql = f'{self.quote_char}{self.table_name}{self.quote_char}'
+                table_sql = f"{self.quote_char}{self.table_name}{self.quote_char}"
 
             # Build FROM clause with optional alias for joins
             if self._joins:
                 alias = self._get_table_alias()
-                from_clause = f"{table_sql} AS {self.quote_char}{alias}{self.quote_char}"
+                from_clause = (
+                    f"{table_sql} AS {self.quote_char}{alias}{self.quote_char}"
+                )
             else:
                 from_clause = table_sql
 
@@ -1273,7 +1465,9 @@ class DataStore(PandasCompatMixin):
             if self._joins:
                 sql_engine = SQLExecutionEngine(self)
                 for other_ds, join_type, join_condition in self._joins:
-                    join_clause = sql_engine._build_join_clause(other_ds, join_type, join_condition)
+                    join_clause = sql_engine._build_join_clause(
+                        other_ds, join_type, join_condition
+                    )
                     load_sql = f"{load_sql} {join_clause}"
 
             # Append format settings if present
@@ -1288,17 +1482,23 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("  Load SQL for Pandas: %s", load_sql)
             result = self._executor.execute(load_sql)
             df = result.to_df()
-            self._logger.debug("  Loaded raw data from source for Pandas: %s rows", len(df))
+            self._logger.debug(
+                "  Loaded raw data from source for Pandas: %s rows", len(df)
+            )
 
         for i, op in enumerate(segment.ops, 1):
-            self._logger.debug("  [%d/%d] Executing: %s", i, len(segment.ops), op.describe())
+            self._logger.debug(
+                "  [%d/%d] Executing: %s", i, len(segment.ops), op.describe()
+            )
             op_name = op.__class__.__name__
             with profiler.step(op_name):
                 df = op.execute(df, self)
 
         return df
 
-    def _postprocess_sql_result(self, df: pd.DataFrame, plan: 'QueryPlan') -> pd.DataFrame:
+    def _postprocess_sql_result(
+        self, df: pd.DataFrame, plan: "QueryPlan"
+    ) -> pd.DataFrame:
         """
         Post-process SQL result: handle alias renames, groupby index, etc.
 
@@ -1311,7 +1511,11 @@ class DataStore(PandasCompatMixin):
         """
         # Rename temp aliases back to original names
         if plan.alias_renames:
-            rename_back = {temp: orig for temp, orig in plan.alias_renames.items() if temp in df.columns}
+            rename_back = {
+                temp: orig
+                for temp, orig in plan.alias_renames.items()
+                if temp in df.columns
+            }
             if rename_back:
                 df = df.rename(columns=rename_back)
                 self._logger.debug("  Renamed temp aliases: %s", rename_back)
@@ -1320,7 +1524,7 @@ class DataStore(PandasCompatMixin):
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
             # Check as_index: only set index if as_index=True (default)
-            as_index = getattr(plan.groupby_agg, 'as_index', True)
+            as_index = getattr(plan.groupby_agg, "as_index", True)
             if as_index and all(col in df.columns for col in groupby_cols):
                 df = df.set_index(groupby_cols)
                 self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
@@ -1328,7 +1532,9 @@ class DataStore(PandasCompatMixin):
             # Convert flat column names to MultiIndex for pandas compatibility
             # Skip for single_column_agg which should return flat column names
             if plan.groupby_agg.agg_dict:
-                is_single_col_agg = getattr(plan.groupby_agg, 'single_column_agg', False)
+                is_single_col_agg = getattr(
+                    plan.groupby_agg, "single_column_agg", False
+                )
                 if not is_single_col_agg:
                     col_rename_map = {}
                     for col, funcs in plan.groupby_agg.agg_dict.items():
@@ -1345,7 +1551,7 @@ class DataStore(PandasCompatMixin):
                             if c in col_rename_map:
                                 new_columns.append(col_rename_map[c])
                             else:
-                                new_columns.append((c, ''))
+                                new_columns.append((c, ""))
                         df.columns = pd.MultiIndex.from_tuples(new_columns)
                         self._logger.debug("  Converted flat columns to MultiIndex")
 
@@ -1410,7 +1616,9 @@ class DataStore(PandasCompatMixin):
         # post-filter row numbers, not original row numbers. We need a subquery to preserve
         # the original row order.
         needs_stable_sort = orderby_fields and is_stable_sort(self._orderby_kind)
-        needs_subquery_for_stable = needs_stable_sort and where_conditions and not groupby_fields and not joins
+        needs_subquery_for_stable = (
+            needs_stable_sort and where_conditions and not groupby_fields and not joins
+        )
 
         if needs_subquery_for_stable:
             return self._build_sql_with_stable_sort_subquery(
@@ -1425,9 +1633,12 @@ class DataStore(PandasCompatMixin):
         parts = []
 
         # SELECT (with optional DISTINCT)
-        distinct_keyword = 'DISTINCT ' if distinct else ''
+        distinct_keyword = "DISTINCT " if distinct else ""
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             # Check if we need to prepend '*' (SELECT *, computed_col)
             if self._select_star:
                 parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
@@ -1439,14 +1650,16 @@ class DataStore(PandasCompatMixin):
         # FROM (with alias if joins present)
         if self._table_function:
             # Handle table function objects
-            if hasattr(self._table_function, 'to_sql'):
+            if hasattr(self._table_function, "to_sql"):
                 table_sql = self._table_function.to_sql()
             else:
                 table_sql = str(self._table_function)
             # Add alias when joins are present (required by ClickHouse for disambiguation)
             if joins:
                 alias = self._get_table_alias()
-                parts.append(f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}")
+                parts.append(
+                    f"FROM {table_sql} AS {format_identifier(alias, self.quote_char)}"
+                )
             else:
                 parts.append(f"FROM {table_sql}")
         elif self.table_name:
@@ -1456,7 +1669,7 @@ class DataStore(PandasCompatMixin):
         if joins:
             for other_ds, join_type, join_condition in joins:
                 # Generate JOIN clause
-                join_keyword = join_type.value if join_type.value else ''
+                join_keyword = join_type.value if join_type.value else ""
                 if join_keyword:
                     join_clause = f"{join_keyword} JOIN"
                 else:
@@ -1464,20 +1677,28 @@ class DataStore(PandasCompatMixin):
 
                 # Handle subquery joins
                 if isinstance(other_ds, DataStore) and other_ds._is_subquery:
-                    other_table = other_ds.to_sql(quote_char=self.quote_char, as_subquery=True)
+                    other_table = other_ds.to_sql(
+                        quote_char=self.quote_char, as_subquery=True
+                    )
                 elif isinstance(other_ds, DataStore) and other_ds._table_function:
                     # Use table function for the joined table with alias
-                    table_func_sql = other_ds._table_function.to_sql(quote_char=self.quote_char)
+                    table_func_sql = other_ds._table_function.to_sql(
+                        quote_char=self.quote_char
+                    )
                     alias = other_ds._get_table_alias()
                     other_table = f"{table_func_sql} AS {format_identifier(alias, self.quote_char)}"
                 else:
-                    other_table = format_identifier(other_ds.table_name, self.quote_char)
+                    other_table = format_identifier(
+                        other_ds.table_name, self.quote_char
+                    )
 
                 # Handle USING vs ON syntax
-                if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
+                if isinstance(join_condition, tuple) and join_condition[0] == "USING":
                     # USING (col1, col2, ...) syntax
                     columns = join_condition[1]
-                    using_cols = ', '.join(format_identifier(c, self.quote_char) for c in columns)
+                    using_cols = ", ".join(
+                        format_identifier(c, self.quote_char) for c in columns
+                    )
                     parts.append(f"{join_clause} {other_table} USING ({using_cols})")
                 else:
                     # ON condition syntax
@@ -1493,7 +1714,9 @@ class DataStore(PandasCompatMixin):
 
         # GROUP BY
         if groupby_fields:
-            groupby_sql = ', '.join(f.to_sql(quote_char=self.quote_char) for f in groupby_fields)
+            groupby_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char) for f in groupby_fields
+            )
             parts.append(f"GROUP BY {groupby_sql}")
 
         # HAVING
@@ -1505,12 +1728,18 @@ class DataStore(PandasCompatMixin):
         if orderby_fields:
             # Check for special row order marker (must be a string, not a Field object)
             first_field = orderby_fields[0][0]
-            if len(orderby_fields) == 1 and isinstance(first_field, str) and first_field == '__rowNumberInAllBlocks__':
+            if (
+                len(orderby_fields) == 1
+                and isinstance(first_field, str)
+                and first_field == "__rowNumberInAllBlocks__"
+            ):
                 # Special case: use rowNumberInAllBlocks() for row order preservation
                 parts.append("ORDER BY rowNumberInAllBlocks()")
             else:
                 orderby_sql = build_orderby_clause(
-                    orderby_fields, self.quote_char, stable=is_stable_sort(self._orderby_kind)
+                    orderby_fields,
+                    self.quote_char,
+                    stable=is_stable_sort(self._orderby_kind),
                 )
                 parts.append(f"ORDER BY {orderby_sql}")
 
@@ -1522,7 +1751,7 @@ class DataStore(PandasCompatMixin):
         if offset_value is not None:
             parts.append(f"OFFSET {offset_value}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def _build_sql_with_stable_sort_subquery(
         self,
@@ -1552,7 +1781,7 @@ class DataStore(PandasCompatMixin):
 
         # Build the inner query: SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM source
         if self._table_function:
-            if hasattr(self._table_function, 'to_sql'):
+            if hasattr(self._table_function, "to_sql"):
                 table_sql = self._table_function.to_sql()
             else:
                 table_sql = str(self._table_function)
@@ -1561,18 +1790,27 @@ class DataStore(PandasCompatMixin):
         else:
             table_sql = "source"
 
-        inner_sql = f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_sql}"
+        inner_sql = (
+            f"SELECT *, rowNumberInAllBlocks() AS __orig_row_num__ FROM {table_sql}"
+        )
 
         # Build middle query: SELECT columns FROM (inner) WHERE conditions
         middle_parts = []
-        distinct_keyword = 'DISTINCT ' if distinct else ''
+        distinct_keyword = "DISTINCT " if distinct else ""
 
         if select_fields:
-            fields_sql = ', '.join(f.to_sql(quote_char=self.quote_char, with_alias=True) for f in select_fields)
+            fields_sql = ", ".join(
+                f.to_sql(quote_char=self.quote_char, with_alias=True)
+                for f in select_fields
+            )
             if self._select_star:
-                middle_parts.append(f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__")
+                middle_parts.append(
+                    f"SELECT {distinct_keyword}*, {fields_sql}, __orig_row_num__"
+                )
             else:
-                middle_parts.append(f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__")
+                middle_parts.append(
+                    f"SELECT {distinct_keyword}{fields_sql}, __orig_row_num__"
+                )
         else:
             middle_parts.append(f"SELECT {distinct_keyword}*, __orig_row_num__")
 
@@ -1585,7 +1823,7 @@ class DataStore(PandasCompatMixin):
                 combined = combined & cond
             middle_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        middle_sql = ' '.join(middle_parts)
+        middle_sql = " ".join(middle_parts)
 
         # Build outer query: SELECT * EXCEPT(__orig_row_num__) FROM (middle) ORDER BY ... LIMIT
         outer_parts = []
@@ -1595,7 +1833,9 @@ class DataStore(PandasCompatMixin):
         # ORDER BY with __orig_row_num__ as tie-breaker instead of rowNumberInAllBlocks()
         if orderby_fields:
             orderby_sql = build_orderby_clause(
-                orderby_fields, self.quote_char, stable=False  # Don't add rowNumberInAllBlocks()
+                orderby_fields,
+                self.quote_char,
+                stable=False,  # Don't add rowNumberInAllBlocks()
             )
             outer_parts.append(f"ORDER BY {orderby_sql}, __orig_row_num__ ASC")
 
@@ -1607,14 +1847,19 @@ class DataStore(PandasCompatMixin):
         if offset_value is not None:
             outer_parts.append(f"OFFSET {offset_value}")
 
-        return ' '.join(outer_parts)
+        return " ".join(outer_parts)
 
     # ========== Static Factory Methods for Data Sources ==========
 
     @classmethod
     def from_file(
-        cls, path: str, format: str = None, structure: str = None, compression: str = None, **kwargs
-    ) -> 'DataStore':
+        cls,
+        path: str,
+        format: str = None,
+        structure: str = None,
+        compression: str = None,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from local file.
 
@@ -1638,16 +1883,23 @@ class DataStore(PandasCompatMixin):
 
             format = _infer_format_from_path(path)
 
-        ds = cls("file", path=path, format=format, structure=structure, compression=compression, **kwargs)
+        ds = cls(
+            "file",
+            path=path,
+            format=format,
+            structure=structure,
+            compression=compression,
+            **kwargs,
+        )
 
         # Use UTC timezone to ensure datetime values match pandas (which uses naive UTC)
         # New versions of chDB may apply system timezone, causing value shifts
-        ds._format_settings['session_timezone'] = 'UTC'
+        ds._format_settings["session_timezone"] = "UTC"
 
         # For Parquet files, enable row order preservation to match pandas behavior
         # chDB may read row groups in parallel which can reorder rows
-        if format and format.lower() == 'parquet':
-            ds._format_settings['input_format_parquet_preserve_order'] = 1
+        if format and format.lower() == "parquet":
+            ds._format_settings["input_format_parquet_preserve_order"] = 1
 
         return ds
 
@@ -1660,7 +1912,7 @@ class DataStore(PandasCompatMixin):
         format: str = None,
         nosign: bool = False,
         **kwargs,
-    ) -> 'DataStore':
+    ) -> "DataStore":
         """
         Create DataStore from S3.
 
@@ -1689,7 +1941,9 @@ class DataStore(PandasCompatMixin):
         )
 
     @classmethod
-    def from_hdfs(cls, uri: str, format: str = None, structure: str = None, **kwargs) -> 'DataStore':
+    def from_hdfs(
+        cls, uri: str, format: str = None, structure: str = None, **kwargs
+    ) -> "DataStore":
         """
         Create DataStore from HDFS.
 
@@ -1705,69 +1959,117 @@ class DataStore(PandasCompatMixin):
         return cls("hdfs", uri=uri, format=format, structure=structure, **kwargs)
 
     @classmethod
-    def from_mysql(cls, host: str, database: str, table: str, user: str, password: str = "", **kwargs) -> 'DataStore':
+    def from_mysql(
+        cls,
+        host: str,
+        database: str = None,
+        table: str = None,
+        user: str = None,
+        password: str = "",
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from MySQL database.
 
         Args:
             host: MySQL server address (host:port)
-            database: Database name
-            table: Table name
+            database: Database name (optional - can be set later with use())
+            table: Table name (optional - can be set later with ds["db.table"])
             user: Username
             password: Password
             **kwargs: Additional parameters
 
-        Example:
+        Examples:
+            >>> # Connection level - browse metadata
+            >>> ds = DataStore.from_mysql("localhost:3306", user="root", password="pass")
+            >>> ds.databases()  # ['db1', 'db2', ...]
+            >>> ds.tables("mydb")  # ['users', 'orders', ...]
+
+            >>> # Table level - ready for queries
             >>> ds = DataStore.from_mysql("localhost:3306", "mydb", "users",
             ...                           user="root", password="pass")
         """
-        return cls("mysql", host=host, database=database, table=table, user=user, password=password, **kwargs)
+        return cls(
+            "mysql",
+            host=host,
+            database=database,
+            table=table,
+            user=user,
+            password=password,
+            **kwargs,
+        )
 
     @classmethod
     def from_postgresql(
-        cls, host: str, database: str, table: str, user: str, password: str = "", **kwargs
-    ) -> 'DataStore':
+        cls,
+        host: str,
+        database: str = None,
+        table: str = None,
+        user: str = None,
+        password: str = "",
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from PostgreSQL database.
 
         Args:
             host: PostgreSQL server address (host:port)
-            database: Database name
-            table: Table name (can include schema like 'schema.table')
+            database: Database name (optional - can be set later with use())
+            table: Table name (can include schema like 'schema.table', optional)
             user: Username
             password: Password
             **kwargs: Additional parameters
 
-        Example:
+        Examples:
+            >>> # Connection level - browse metadata
+            >>> ds = DataStore.from_postgresql("localhost:5432", user="postgres", password="pass")
+            >>> ds.databases()  # ['db1', 'db2', ...]
+            >>> ds.tables("mydb")  # ['users', 'orders', ...]
+
+            >>> # Table level - ready for queries
             >>> ds = DataStore.from_postgresql("localhost:5432", "mydb", "users",
             ...                                user="postgres", password="pass")
         """
-        return cls("postgresql", host=host, database=database, table=table, user=user, password=password, **kwargs)
+        return cls(
+            "postgresql",
+            host=host,
+            database=database,
+            table=table,
+            user=user,
+            password=password,
+            **kwargs,
+        )
 
     @classmethod
     def from_clickhouse(
         cls,
         host: str,
-        database: str,
-        table: str,
+        database: str = None,
+        table: str = None,
         user: str = "default",
         password: str = "",
         secure: bool = False,
         **kwargs,
-    ) -> 'DataStore':
+    ) -> "DataStore":
         """
         Create DataStore from remote ClickHouse server.
 
         Args:
             host: ClickHouse server address (host:port)
-            database: Database name
-            table: Table name
+            database: Database name (optional - can be set later with use())
+            table: Table name (optional - can be set later with ds["db.table"])
             user: Username (default: 'default')
             password: Password
             secure: Use secure connection (remoteSecure)
             **kwargs: Additional parameters
 
-        Example:
+        Examples:
+            >>> # Connection level - browse metadata
+            >>> ds = DataStore.from_clickhouse("localhost:9000", user="default", password="")
+            >>> ds.databases()  # ['default', 'system', ...]
+            >>> ds.tables("default")  # ['events', 'users', ...]
+
+            >>> # Table level - ready for queries
             >>> ds = DataStore.from_clickhouse("localhost:9000", "default", "events")
             >>> ds_secure = DataStore.from_clickhouse("server:9440", "default", "events",
             ...                                       secure=True)
@@ -1785,8 +2087,14 @@ class DataStore(PandasCompatMixin):
 
     @classmethod
     def from_mongodb(
-        cls, host: str, database: str, collection: str, user: str, password: str = "", **kwargs
-    ) -> 'DataStore':
+        cls,
+        host: str,
+        database: str,
+        collection: str,
+        user: str,
+        password: str = "",
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from MongoDB (read-only).
 
@@ -1803,13 +2111,24 @@ class DataStore(PandasCompatMixin):
             ...                             user="admin", password="pass")
         """
         return cls(
-            "mongodb", host=host, database=database, collection=collection, user=user, password=password, **kwargs
+            "mongodb",
+            host=host,
+            database=database,
+            collection=collection,
+            user=user,
+            password=password,
+            **kwargs,
         )
 
     @classmethod
     def from_url(
-        cls, url: str, format: str = None, structure: str = None, headers: List[str] = None, **kwargs
-    ) -> 'DataStore':
+        cls,
+        url: str,
+        format: str = None,
+        structure: str = None,
+        headers: List[str] = None,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from HTTP/HTTPS URL.
 
@@ -1828,10 +2147,17 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_url("https://example.com/data.json",
             ...                         format="JSONEachRow")
         """
-        return cls("url", url=url, format=format, structure=structure, headers=headers, **kwargs)
+        return cls(
+            "url",
+            url=url,
+            format=format,
+            structure=structure,
+            headers=headers,
+            **kwargs,
+        )
 
     @classmethod
-    def from_sqlite(cls, database_path: str, table: str, **kwargs) -> 'DataStore':
+    def from_sqlite(cls, database_path: str, table: str, **kwargs) -> "DataStore":
         """
         Create DataStore from SQLite database (read-only).
 
@@ -1846,7 +2172,13 @@ class DataStore(PandasCompatMixin):
         return cls("sqlite", database_path=database_path, table=table, **kwargs)
 
     @classmethod
-    def from_iceberg(cls, url: str, access_key_id: str = None, secret_access_key: str = None, **kwargs) -> 'DataStore':
+    def from_iceberg(
+        cls,
+        url: str,
+        access_key_id: str = None,
+        secret_access_key: str = None,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from Apache Iceberg table (read-only).
 
@@ -1861,10 +2193,22 @@ class DataStore(PandasCompatMixin):
             ...                             access_key_id="KEY",
             ...                             secret_access_key="SECRET")
         """
-        return cls("iceberg", url=url, access_key_id=access_key_id, secret_access_key=secret_access_key, **kwargs)
+        return cls(
+            "iceberg",
+            url=url,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            **kwargs,
+        )
 
     @classmethod
-    def from_delta(cls, url: str, access_key_id: str = None, secret_access_key: str = None, **kwargs) -> 'DataStore':
+    def from_delta(
+        cls,
+        url: str,
+        access_key_id: str = None,
+        secret_access_key: str = None,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from Delta Lake table (read-only).
 
@@ -1879,10 +2223,18 @@ class DataStore(PandasCompatMixin):
             ...                           access_key_id="KEY",
             ...                           secret_access_key="SECRET")
         """
-        return cls("delta", url=url, access_key_id=access_key_id, secret_access_key=secret_access_key, **kwargs)
+        return cls(
+            "delta",
+            url=url,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            **kwargs,
+        )
 
     @classmethod
-    def from_numbers(cls, count: int, start: int = None, step: int = None, **kwargs) -> 'DataStore':
+    def from_numbers(
+        cls, count: int, start: int = None, step: int = None, **kwargs
+    ) -> "DataStore":
         """
         Create DataStore that generates number sequence.
 
@@ -1901,8 +2253,13 @@ class DataStore(PandasCompatMixin):
 
     @classmethod
     def from_azure(
-        cls, connection_string: str, container: str, path: str = "", format: str = None, **kwargs
-    ) -> 'DataStore':
+        cls,
+        connection_string: str,
+        container: str,
+        path: str = "",
+        format: str = None,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from Azure Blob Storage.
 
@@ -1921,13 +2278,24 @@ class DataStore(PandasCompatMixin):
             ... )
         """
         return cls(
-            "azure", connection_string=connection_string, container=container, path=path, format=format, **kwargs
+            "azure",
+            connection_string=connection_string,
+            container=container,
+            path=path,
+            format=format,
+            **kwargs,
         )
 
     @classmethod
     def from_gcs(
-        cls, url: str, hmac_key: str = None, hmac_secret: str = None, format: str = None, nosign: bool = False, **kwargs
-    ) -> 'DataStore':
+        cls,
+        url: str,
+        hmac_key: str = None,
+        hmac_secret: str = None,
+        format: str = None,
+        nosign: bool = False,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from Google Cloud Storage.
 
@@ -1946,12 +2314,26 @@ class DataStore(PandasCompatMixin):
             ...     hmac_secret="SECRET"
             ... )
         """
-        return cls("gcs", url=url, hmac_key=hmac_key, hmac_secret=hmac_secret, format=format, nosign=nosign, **kwargs)
+        return cls(
+            "gcs",
+            url=url,
+            hmac_key=hmac_key,
+            hmac_secret=hmac_secret,
+            format=format,
+            nosign=nosign,
+            **kwargs,
+        )
 
     @classmethod
     def from_redis(
-        cls, host: str, key: str, structure: str, password: str = None, db_index: int = 0, **kwargs
-    ) -> 'DataStore':
+        cls,
+        host: str,
+        key: str,
+        structure: str,
+        password: str = None,
+        db_index: int = 0,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from Redis key-value store.
 
@@ -1970,10 +2352,24 @@ class DataStore(PandasCompatMixin):
             ...     structure="key String, value String, score UInt32"
             ... )
         """
-        return cls("redis", host=host, key=key, structure=structure, password=password, db_index=db_index, **kwargs)
+        return cls(
+            "redis",
+            host=host,
+            key=key,
+            structure=structure,
+            password=password,
+            db_index=db_index,
+            **kwargs,
+        )
 
     @classmethod
-    def from_hudi(cls, url: str, access_key_id: str = None, secret_access_key: str = None, **kwargs) -> 'DataStore':
+    def from_hudi(
+        cls,
+        url: str,
+        access_key_id: str = None,
+        secret_access_key: str = None,
+        **kwargs,
+    ) -> "DataStore":
         """
         Create DataStore from Apache Hudi table (read-only).
 
@@ -1990,7 +2386,13 @@ class DataStore(PandasCompatMixin):
             ...     secret_access_key="SECRET"
             ... )
         """
-        return cls("hudi", url=url, access_key_id=access_key_id, secret_access_key=secret_access_key, **kwargs)
+        return cls(
+            "hudi",
+            url=url,
+            access_key_id=access_key_id,
+            secret_access_key=secret_access_key,
+            **kwargs,
+        )
 
     @classmethod
     def from_random(
@@ -2000,7 +2402,7 @@ class DataStore(PandasCompatMixin):
         max_string_length: int = None,
         max_array_length: int = None,
         **kwargs,
-    ) -> 'DataStore':
+    ) -> "DataStore":
         """
         Create DataStore that generates random data for testing.
 
@@ -2027,7 +2429,7 @@ class DataStore(PandasCompatMixin):
         )
 
     @classmethod
-    def from_df(cls, df, name: str = None) -> 'DataStore':
+    def from_df(cls, df, name: str = None) -> "DataStore":
         """
                 Create DataStore from a pandas DataFrame.
 
@@ -2098,7 +2500,7 @@ class DataStore(PandasCompatMixin):
         return new_ds
 
     @classmethod
-    def from_dataframe(cls, df, name: str = None) -> 'DataStore':
+    def from_dataframe(cls, df, name: str = None) -> "DataStore":
         """
                 Create DataStore from a pandas DataFrame.
 
@@ -2121,7 +2523,7 @@ class DataStore(PandasCompatMixin):
         return cls.from_df(df, name=name)
 
     @classmethod
-    def uri(cls, uri: str, **kwargs) -> 'DataStore':
+    def uri(cls, uri: str, **kwargs) -> "DataStore":
         """
         Create DataStore from a URI string with automatic type inference.
 
@@ -2177,14 +2579,14 @@ class DataStore(PandasCompatMixin):
         final_kwargs = {**parsed_kwargs, **kwargs}
 
         # Extract table name if present (for database sources)
-        table = final_kwargs.pop('table', None)
+        table = final_kwargs.pop("table", None)
 
         # Create and return DataStore
         return cls(source=source_type, table=table, **final_kwargs)
 
     # ========== Data Source Operations ==========
 
-    def with_format_settings(self, **settings) -> 'DataStore':
+    def with_format_settings(self, **settings) -> "DataStore":
         """
         Add format-specific settings for table functions.
 
@@ -2214,7 +2616,7 @@ class DataStore(PandasCompatMixin):
             new_ds._table_function.with_settings(**settings)
         return new_ds
 
-    def connect(self, test_connection: bool = True) -> 'DataStore':
+    def connect(self, test_connection: bool = True) -> "DataStore":
         """
         Connect to the data source using chdb.
 
@@ -2238,7 +2640,9 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("Created connection for table function")
             else:
                 self._connection = Connection(self.database, **self.connection_params)
-                self._logger.debug("Created connection with params: %s", self.connection_params)
+                self._logger.debug(
+                    "Created connection with params: %s", self.connection_params
+                )
 
         try:
             self._connection.connect()
@@ -2341,7 +2745,9 @@ class DataStore(PandasCompatMixin):
                 if settings_parts:
                     describe_sql += " SETTINGS " + ", ".join(settings_parts)
 
-            self._logger.debug("Discovering schema for table function: %s", describe_sql)
+            self._logger.debug(
+                "Discovering schema for table function: %s", describe_sql
+            )
             result = self._executor.execute(describe_sql)
 
             # Build schema dictionary from DESCRIBE result
@@ -2352,7 +2758,9 @@ class DataStore(PandasCompatMixin):
                 col_type = row[1]
                 self._schema[col_name] = col_type
 
-            self._logger.debug("Data source is accessible, schema discovered: %s", self._schema)
+            self._logger.debug(
+                "Data source is accessible, schema discovered: %s", self._schema
+            )
         except Exception as e:
             self._logger.error("Data source not accessible: %s", e)
             raise ConnectionError(f"Data source not accessible: {e}")
@@ -2364,9 +2772,9 @@ class DataStore(PandasCompatMixin):
         For file table functions, extracts filename without extension.
         For other table functions, uses table name or a generic name.
         """
-        if self._table_function and hasattr(self._table_function, 'params'):
+        if self._table_function and hasattr(self._table_function, "params"):
             # Try to get a meaningful alias from path
-            path = self._table_function.params.get('path')
+            path = self._table_function.params.get("path")
             if path:
                 import os
 
@@ -2376,19 +2784,23 @@ class DataStore(PandasCompatMixin):
                 return name_without_ext
 
             # For other table functions, try to use table name
-            table = self._table_function.params.get('table')
+            table = self._table_function.params.get("table")
             if table:
                 return table
 
             # For numbers or other generators
-            if hasattr(self._table_function, '__class__'):
-                class_name = self._table_function.__class__.__name__.replace('TableFunction', '').lower()
+            if hasattr(self._table_function, "__class__"):
+                class_name = self._table_function.__class__.__name__.replace(
+                    "TableFunction", ""
+                ).lower()
                 return class_name
 
         # Fallback to table name or generic
-        return self.table_name if self.table_name else 'tbl'
+        return self.table_name if self.table_name else "tbl"
 
-    def _resolve_expr_dependencies(self, expr: 'Expression', _visited: set = None) -> 'Expression':
+    def _resolve_expr_dependencies(
+        self, expr: "Expression", _visited: set = None
+    ) -> "Expression":
         """
         Recursively resolve computed column references in an expression.
 
@@ -2423,8 +2835,11 @@ class DataStore(PandasCompatMixin):
 
         # If it's a Field that references a computed column, expand it
         if isinstance(expr, Field):
-            col_name = expr.name.strip('"\'')  # Remove quotes if present
-            if hasattr(self, '_computed_columns') and col_name in self._computed_columns:
+            col_name = expr.name.strip("\"'")  # Remove quotes if present
+            if (
+                hasattr(self, "_computed_columns")
+                and col_name in self._computed_columns
+            ):
                 # Check for circular reference to prevent infinite recursion
                 # This happens when overwriting a column: a = a + 1, then a = a * 2
                 # In this case, we should NOT expand the reference - just use the Field as-is
@@ -2434,7 +2849,9 @@ class DataStore(PandasCompatMixin):
                 _visited.add(col_name)
                 try:
                     # Recursively resolve the computed column's expression
-                    resolved = self._resolve_expr_dependencies(self._computed_columns[col_name], _visited)
+                    resolved = self._resolve_expr_dependencies(
+                        self._computed_columns[col_name], _visited
+                    )
                     # Preserve any alias from the original Field
                     if expr.alias:
                         resolved = copy(resolved)
@@ -2452,12 +2869,16 @@ class DataStore(PandasCompatMixin):
             # Only create new expression if something changed
             if resolved_left is expr.left and resolved_right is expr.right:
                 return expr
-            result = ArithmeticExpression(expr.operator, resolved_left, resolved_right, expr.alias)
+            result = ArithmeticExpression(
+                expr.operator, resolved_left, resolved_right, expr.alias
+            )
             return result
 
         # For Function, recursively resolve all arguments
         if isinstance(expr, Function):
-            resolved_args = [self._resolve_expr_dependencies(arg, _visited) for arg in expr.args]
+            resolved_args = [
+                self._resolve_expr_dependencies(arg, _visited) for arg in expr.args
+            ]
             # Only create new function if something changed
             if all(r is o for r, o in zip(resolved_args, expr.args)):
                 return expr
@@ -2465,8 +2886,8 @@ class DataStore(PandasCompatMixin):
                 expr.name,
                 *resolved_args,
                 alias=expr.alias,
-                pandas_name=getattr(expr, 'pandas_name', None),
-                pandas_kwargs=getattr(expr, 'pandas_kwargs', {}),
+                pandas_name=getattr(expr, "pandas_name", None),
+                pandas_kwargs=getattr(expr, "pandas_kwargs", {}),
             )
             return result
 
@@ -2478,7 +2899,9 @@ class DataStore(PandasCompatMixin):
             resolved_right = self._resolve_expr_dependencies(expr.right, _visited)
             if resolved_left is expr.left and resolved_right is expr.right:
                 return expr
-            result = BinaryCondition(expr.operator, resolved_left, resolved_right, expr.alias)
+            result = BinaryCondition(
+                expr.operator, resolved_left, resolved_right, expr.alias
+            )
             return result
 
         # For CompoundCondition (AND, OR), resolve both sides
@@ -2514,7 +2937,11 @@ class DataStore(PandasCompatMixin):
         # Check if we have a cached DataFrame from from_df()
         if self._source_df is not None:
             from .table_functions import PythonTableFunction
-            from .lazy_ops import LazyDataFrameSource, LazyRelationalOp, LazyColumnSelection
+            from .lazy_ops import (
+                LazyDataFrameSource,
+                LazyRelationalOp,
+                LazyColumnSelection,
+            )
 
             # Use the unified column tracking method to get current columns
             # This handles SELECT, drop, rename, and other column-changing operations
@@ -2523,7 +2950,9 @@ class DataStore(PandasCompatMixin):
 
             # Check if columns have changed from the source
             df_to_use = self._source_df
-            columns_changed = set(current_cols) != set(source_cols) or current_cols != source_cols
+            columns_changed = (
+                set(current_cols) != set(source_cols) or current_cols != source_cols
+            )
 
             if columns_changed and current_cols:
                 # Apply column selection to the DataFrame
@@ -2537,24 +2966,29 @@ class DataStore(PandasCompatMixin):
             has_custom_index = (
                 df_to_use.index.name is not None
                 or isinstance(df_to_use.index, pd.MultiIndex)
-                or (hasattr(df_to_use.index, 'names') and any(n is not None for n in df_to_use.index.names))
+                or (
+                    hasattr(df_to_use.index, "names")
+                    and any(n is not None for n in df_to_use.index.names)
+                )
             )
 
             # Also check for non-contiguous index (e.g., after dropna, filter, etc.)
             # chDB's Python() table function requires contiguous 0..n-1 index for correct data access
-            has_noncontiguous_index = len(df_to_use) > 0 and not df_to_use.index.equals(pd.RangeIndex(len(df_to_use)))
+            has_noncontiguous_index = len(df_to_use) > 0 and not df_to_use.index.equals(
+                pd.RangeIndex(len(df_to_use))
+            )
 
             if has_custom_index:
                 # Store index info for restoration after SQL execution
                 if isinstance(df_to_use.index, pd.MultiIndex):
                     self._index_info = {
-                        'names': list(df_to_use.index.names),
-                        'is_multiindex': True,
+                        "names": list(df_to_use.index.names),
+                        "is_multiindex": True,
                     }
                 else:
                     self._index_info = {
-                        'name': df_to_use.index.name,
-                        'is_multiindex': False,
+                        "name": df_to_use.index.name,
+                        "is_multiindex": False,
                     }
                 # Reset index to include it as a column for SQL processing
                 df_to_use = df_to_use.reset_index()
@@ -2562,14 +2996,16 @@ class DataStore(PandasCompatMixin):
                 # Non-contiguous index without a name (e.g., from dropna/filter)
                 # Store original index for potential restoration
                 self._index_info = {
-                    'original_index': df_to_use.index.copy(),
-                    'is_noncontiguous': True,
+                    "original_index": df_to_use.index.copy(),
+                    "is_noncontiguous": True,
                 }
                 # Reset index to contiguous 0..n-1 for chDB compatibility
                 df_to_use = df_to_use.reset_index(drop=True)
 
             # Create PythonTableFunction on-demand with the (possibly filtered) DataFrame
-            self._table_function = PythonTableFunction(df=df_to_use, name=self._source_df_name)
+            self._table_function = PythonTableFunction(
+                df=df_to_use, name=self._source_df_name
+            )
 
             # Remove lazy ops that have been "baked" into the DataFrame:
             # - LazyDataFrameSource (will use SQL instead)
@@ -2579,7 +3015,11 @@ class DataStore(PandasCompatMixin):
                 op
                 for op in self._lazy_ops
                 if not isinstance(op, LazyDataFrameSource)
-                and not (isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and columns_changed)
+                and not (
+                    isinstance(op, LazyRelationalOp)
+                    and op.op_type == "SELECT"
+                    and columns_changed
+                )
                 and not (isinstance(op, LazyColumnSelection) and columns_changed)
             ]
             return True
@@ -2593,7 +3033,9 @@ class DataStore(PandasCompatMixin):
 
         try:
             # Query system tables for schema info
-            sql = f"DESCRIBE TABLE {format_identifier(self.table_name, self.quote_char)}"
+            sql = (
+                f"DESCRIBE TABLE {format_identifier(self.table_name, self.quote_char)}"
+            )
             result = self._executor.execute(sql)
 
             # Build schema dictionary
@@ -2646,7 +3088,7 @@ class DataStore(PandasCompatMixin):
             List of column names, or empty list if unavailable
         """
         # Try cached schema first (only if it has real types)
-        if self._schema and not all(v == 'Unknown' for v in self._schema.values()):
+        if self._schema and not all(v == "Unknown" for v in self._schema.values()):
             return list(self._schema.keys())
 
         # Try to discover schema
@@ -2664,7 +3106,7 @@ class DataStore(PandasCompatMixin):
                 columns = []
                 for row in result.rows:
                     col_name = row[0]
-                    col_type = row[1] if len(row) > 1 else 'Unknown'
+                    col_type = row[1] if len(row) > 1 else "Unknown"
                     columns.append(col_name)
                     self._schema[col_name] = col_type
                 self._logger.debug("Schema discovered via DESCRIBE: %s", self._schema)
@@ -2681,7 +3123,7 @@ class DataStore(PandasCompatMixin):
                 columns = []
                 for row in result.rows:
                     col_name = row[0]
-                    col_type = row[1] if len(row) > 1 else 'Unknown'
+                    col_type = row[1] if len(row) > 1 else "Unknown"
                     columns.append(col_name)
                     self._schema[col_name] = col_type
                 return columns
@@ -2702,7 +3144,7 @@ class DataStore(PandasCompatMixin):
             df = result.to_df()
             columns = list(df.columns)
             # Cache for future use (without type info)
-            self._schema = {col: 'Unknown' for col in columns}
+            self._schema = {col: "Unknown" for col in columns}
             return columns
         except Exception as e:
             self._logger.debug("LIMIT 0 query failed: %s", e)
@@ -2784,7 +3226,7 @@ class DataStore(PandasCompatMixin):
         """
         return self.to_df()
 
-    def to_dict(self, orient: str = 'dict', *, into=dict, index: bool = True):
+    def to_dict(self, orient: str = "dict", *, into=dict, index: bool = True):
         """
         Convert the DataFrame to a dictionary.
 
@@ -2865,37 +3307,59 @@ class DataStore(PandasCompatMixin):
         new_ds.table_name = None
         return new_ds
 
-    def describe(self, percentiles=None, include=None, exclude=None):
+    def describe(self, *args, percentiles=None, include=None, exclude=None, **kwargs):
         """
-        Generate descriptive statistics of the data.
-        Convenience method that combines execute(), to_df(), and describe().
+        Describe data - works for both local statistics and remote table schema.
 
-        Works correctly with both SQL queries and executed DataFrames.
+        **For local DataFrames (table mode):**
+        Generate descriptive statistics (count, mean, std, min, max, percentiles).
+
+        **For remote connections (connection/database mode):**
+        Get remote table schema (columns and types) when database/table args provided.
 
         Args:
-            percentiles: List of percentiles to include (default: [.25, .5, .75])
-            include: Data types to include ('all', None, or list of dtypes)
-            exclude: Data types to exclude (None or list of dtypes)
+            For local stats:
+                percentiles: List of percentiles to include (default: [.25, .5, .75])
+                include: Data types to include ('all', None, or list of dtypes)
+                exclude: Data types to exclude (None or list of dtypes)
+            For remote schema:
+                database (str): Database name
+                table (str): Table name
 
         Returns:
-            DataStore with descriptive statistics
+            DataStore with descriptive statistics (local) or DataFrame with schema (remote)
 
-        Example:
+        Example (local):
             >>> ds = DataStore.from_file("data.csv")
-            >>> stats = ds.select("*").describe()
-            >>> # With custom percentiles
-            >>> stats = ds.describe(percentiles=[.1, .5, .9])
+            >>> stats = ds.describe()
+
+        Example (remote):
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", ...)
+            >>> schema = ds.describe("mydb", "users")
         """
+        # Check if called with database/table args for remote schema
+        if (
+            args
+            and self._connection_mode in ("connection", "database")
+            and self._remote_params
+        ):
+            database = args[0] if len(args) > 0 else kwargs.get("database")
+            table = args[1] if len(args) > 1 else kwargs.get("table")
+            return self._remote_describe(database, table)
+
+        # Local DataFrame statistics
         # Use pandas compat layer if available, otherwise fallback
-        if hasattr(self, '_get_df'):
+        if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
             df = self.to_df()
-        result_df = df.describe(percentiles=percentiles, include=include, exclude=exclude)
+        result_df = df.describe(
+            percentiles=percentiles, include=include, exclude=exclude
+        )
 
         # Wrap result in DataStore
-        if hasattr(self, '_wrap_result'):
-            return self._wrap_result(result_df, 'describe()')
+        if hasattr(self, "_wrap_result"):
+            return self._wrap_result(result_df, "describe()")
         else:
             return self._wrap_result_fallback(result_df)
 
@@ -2947,14 +3411,14 @@ class DataStore(PandasCompatMixin):
         else:
             # Negative n: need to exclude last |n| rows
             # Must execute to know total count, then use pandas
-            if hasattr(self, '_get_df'):
+            if hasattr(self, "_get_df"):
                 df = self._get_df()
             else:
                 df = self.to_df()
             result_df = df.head(n)
 
-            if hasattr(self, '_wrap_result'):
-                return self._wrap_result(result_df, f'head({n})')
+            if hasattr(self, "_wrap_result"):
+                return self._wrap_result(result_df, f"head({n})")
             else:
                 return self._wrap_result_fallback(result_df)
 
@@ -2979,15 +3443,15 @@ class DataStore(PandasCompatMixin):
             >>> ds.tail(-2)  # Returns all except first 2 rows (last 3 rows)
         """
         # Use _get_df if available (handles caching properly)
-        if hasattr(self, '_get_df'):
+        if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
             df = self.to_df()
         result_df = df.tail(n)
 
         # Wrap result in DataStore
-        if hasattr(self, '_wrap_result'):
-            return self._wrap_result(result_df, f'tail({n})')
+        if hasattr(self, "_wrap_result"):
+            return self._wrap_result(result_df, f"tail({n})")
         else:
             return self._wrap_result_fallback(result_df)
 
@@ -3025,7 +3489,7 @@ class DataStore(PandasCompatMixin):
             >>> sample_replace = ds.sample(n=150, replace=True)
         """
         # Use _get_df if available (handles caching properly)
-        if hasattr(self, '_get_df'):
+        if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
             df = self.to_df()
@@ -3040,8 +3504,8 @@ class DataStore(PandasCompatMixin):
         )
 
         # Wrap result in DataStore
-        sample_desc = f'sample(n={n})' if n is not None else f'sample(frac={frac})'
-        if hasattr(self, '_wrap_result'):
+        sample_desc = f"sample(n={n})" if n is not None else f"sample(frac={frac})"
+        if hasattr(self, "_wrap_result"):
             return self._wrap_result(result_df, sample_desc)
         else:
             return self._wrap_result_fallback(result_df)
@@ -3061,7 +3525,7 @@ class DataStore(PandasCompatMixin):
             >>> rows, cols = ds.select("*").shape
         """
         # Use _get_df if available (handles caching properly)
-        if hasattr(self, '_get_df'):
+        if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
             df = self.to_df()
@@ -3082,7 +3546,7 @@ class DataStore(PandasCompatMixin):
             >>> cols = ds.select("*").columns
         """
         # Use _get_df if available (handles caching properly)
-        if hasattr(self, '_get_df'):
+        if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
             df = self.to_df()
@@ -3112,11 +3576,16 @@ class DataStore(PandasCompatMixin):
         new_columns = list(new_columns)
 
         if len(new_columns) != len(current_columns):
-            raise ValueError(f"Length mismatch: Expected {len(current_columns)} columns, " f"got {len(new_columns)}")
+            raise ValueError(
+                f"Length mismatch: Expected {len(current_columns)} columns, "
+                f"got {len(new_columns)}"
+            )
 
         # Build rename mapping
         rename_mapping = {
-            old: new for old, new in zip(current_columns, new_columns) if old != new  # Only rename if different
+            old: new
+            for old, new in zip(current_columns, new_columns)
+            if old != new  # Only rename if different
         }
 
         if rename_mapping:
@@ -3157,8 +3626,10 @@ class DataStore(PandasCompatMixin):
 
         if has_non_sql_ops:
             # Fall back to execution for non-SQL operations
-            self._logger.debug("count() falling back to execution due to non-SQL operations")
-            if hasattr(self, '_get_df'):
+            self._logger.debug(
+                "count() falling back to execution due to non-SQL operations"
+            )
+            if hasattr(self, "_get_df"):
                 df = self._get_df()
             else:
                 df = self.to_df()
@@ -3184,7 +3655,7 @@ class DataStore(PandasCompatMixin):
 
             if not column_names:
                 # No columns found, return empty Series
-                return pd.Series(dtype='int64')
+                return pd.Series(dtype="int64")
 
             # Step 2: Build COUNT query for each column
             # SELECT COUNT(col1) AS col1, COUNT(col2) AS col2, ... FROM (subquery)
@@ -3209,7 +3680,9 @@ class DataStore(PandasCompatMixin):
 
             if result.rows and result.rows[0]:
                 # Build Series from result
-                counts = {col: int(val) for col, val in zip(column_names, result.rows[0])}
+                counts = {
+                    col: int(val) for col, val in zip(column_names, result.rows[0])
+                }
                 return pd.Series(counts)
             else:
                 # Return Series with zeros
@@ -3218,7 +3691,7 @@ class DataStore(PandasCompatMixin):
         except Exception as e:
             # Fall back to execution on any error
             self._logger.debug("count() falling back to execution due to error: %s", e)
-            if hasattr(self, '_get_df'):
+            if hasattr(self, "_get_df"):
                 df = self._get_df()
             else:
                 df = self.to_df()
@@ -3263,7 +3736,9 @@ class DataStore(PandasCompatMixin):
 
         if has_non_sql_ops:
             # Fall back to execution for non-SQL operations
-            self._logger.debug("count_rows() falling back to execution due to non-SQL operations")
+            self._logger.debug(
+                "count_rows() falling back to execution due to non-SQL operations"
+            )
             return len(self._execute())
 
         # If LIMIT is applied, execute with LIMIT and return actual count
@@ -3279,8 +3754,10 @@ class DataStore(PandasCompatMixin):
         count_ds = copy(self)
 
         # Replace SELECT fields with COUNT(*)
-        count_ds._select_fields = [Count('*')]
-        count_ds._select_star = False  # Must clear _select_star to avoid "SELECT *, COUNT(*)"
+        count_ds._select_fields = [Count("*")]
+        count_ds._select_star = (
+            False  # Must clear _select_star to avoid "SELECT *, COUNT(*)"
+        )
 
         # Clear ORDER BY (not needed for COUNT)
         count_ds._orderby_fields = []
@@ -3305,7 +3782,9 @@ class DataStore(PandasCompatMixin):
             return int(result.rows[0][0])
         return 0
 
-    def info(self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None):
+    def info(
+        self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None
+    ):
         """
         Print concise summary of the query result.
 
@@ -3323,13 +3802,24 @@ class DataStore(PandasCompatMixin):
             >>> ds.select("*").info()
         """
         # Use _get_df if available (handles caching properly)
-        if hasattr(self, '_get_df'):
+        if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
             df = self.to_df()
-        return df.info(verbose=verbose, buf=buf, max_cols=max_cols, memory_usage=memory_usage, show_counts=show_counts)
+        return df.info(
+            verbose=verbose,
+            buf=buf,
+            max_cols=max_cols,
+            memory_usage=memory_usage,
+            show_counts=show_counts,
+        )
 
-    def create_table(self, schema: Dict[str, str], engine: str = "Memory", drop_if_exists: bool = False) -> 'DataStore':
+    def create_table(
+        self,
+        schema: Dict[str, str],
+        engine: str = "Memory",
+        drop_if_exists: bool = False,
+    ) -> "DataStore":
         """
         Create a table in chdb.
 
@@ -3358,7 +3848,12 @@ class DataStore(PandasCompatMixin):
             self._executor.execute(drop_sql)
 
         # Build CREATE TABLE statement
-        columns = ", ".join([f"{format_identifier(name, self.quote_char)} {dtype}" for name, dtype in schema.items()])
+        columns = ", ".join(
+            [
+                f"{format_identifier(name, self.quote_char)} {dtype}"
+                for name, dtype in schema.items()
+            ]
+        )
 
         table_ident = format_identifier(self.table_name, self.quote_char)
         sql = f"CREATE TABLE IF NOT EXISTS {table_ident} ({columns}) ENGINE = {engine}"
@@ -3368,7 +3863,14 @@ class DataStore(PandasCompatMixin):
 
         return self
 
-    def insert(self, loc_or_data=None, column=None, value=None, allow_duplicates=False, **columns) -> None:
+    def insert(
+        self,
+        loc_or_data=None,
+        column=None,
+        value=None,
+        allow_duplicates=False,
+        **columns,
+    ) -> None:
         """
         Insert column or rows into the DataStore.
 
@@ -3443,7 +3945,9 @@ class DataStore(PandasCompatMixin):
 
         # Get column names from first row
         col_names = list(data[0].keys())
-        columns_sql = ", ".join([format_identifier(col, self.quote_char) for col in col_names])
+        columns_sql = ", ".join(
+            [format_identifier(col, self.quote_char) for col in col_names]
+        )
 
         # Build values
         values_list = []
@@ -3494,7 +3998,7 @@ class DataStore(PandasCompatMixin):
     # ========== INSERT/UPDATE/DELETE Query Building ==========
 
     @immutable
-    def insert_into(self, *columns: str) -> 'DataStore':
+    def insert_into(self, *columns: str) -> "DataStore":
         """
         Start building an INSERT query (ClickHouse style).
 
@@ -3511,7 +4015,7 @@ class DataStore(PandasCompatMixin):
         self._insert_columns = list(columns)
 
     @immutable
-    def insert_values(self, *rows) -> 'DataStore':
+    def insert_values(self, *rows) -> "DataStore":
         """
         Add VALUES clause to INSERT query.
 
@@ -3541,7 +4045,7 @@ class DataStore(PandasCompatMixin):
             self._insert_values.append(list(rows))
 
     @immutable
-    def select_from(self, subquery: 'DataStore') -> 'DataStore':
+    def select_from(self, subquery: "DataStore") -> "DataStore":
         """
         Add SELECT subquery to INSERT query (INSERT INTO ... SELECT ...).
 
@@ -3562,7 +4066,7 @@ class DataStore(PandasCompatMixin):
         self._insert_select = subquery
 
     @immutable
-    def update_set(self, **fields) -> 'DataStore':
+    def update_set(self, **fields) -> "DataStore":
         """
         Build an UPDATE query (ClickHouse style: ALTER TABLE ... UPDATE ...).
 
@@ -3580,7 +4084,7 @@ class DataStore(PandasCompatMixin):
             self._update_fields.append((field_name, value))
 
     @immutable
-    def delete_rows(self) -> 'DataStore':
+    def delete_rows(self) -> "DataStore":
         """
         Build a DELETE query (ClickHouse style: ALTER TABLE ... DELETE).
 
@@ -3596,7 +4100,7 @@ class DataStore(PandasCompatMixin):
     # ========== Query Building Methods ==========
 
     @immutable
-    def select(self, *fields: Union[str, Expression]) -> 'DataStore':
+    def select(self, *fields: Union[str, Expression]) -> "DataStore":
         """
         Select specific columns.
 
@@ -3617,7 +4121,10 @@ class DataStore(PandasCompatMixin):
         # Check if any field is a SQL expression (Function, Expression, ColumnExpr with expression)
         has_sql_expr = any(
             isinstance(f, (Function, Expression))
-            or (isinstance(f, ColumnExpr) and isinstance(f._expr, (Function, Expression)))
+            or (
+                isinstance(f, ColumnExpr)
+                and isinstance(f._expr, (Function, Expression))
+            )
             for f in fields
             if not isinstance(f, str)
         )
@@ -3627,14 +4134,14 @@ class DataStore(PandasCompatMixin):
             self._ensure_sql_source()
 
         # Track operation
-        field_names = ', '.join([str(f) for f in fields]) if fields else '*'
+        field_names = ", ".join([str(f) for f in fields]) if fields else "*"
 
         # Build SQL SELECT (lazy)
-        self._track_operation('sql', f"SELECT {field_names}", {'lazy': True})
+        self._track_operation("sql", f"SELECT {field_names}", {"lazy": True})
 
         # Record in lazy ops for correct execution order in explain()
         # Store fields for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp('SELECT', field_names, fields=list(fields)))
+        self._add_lazy_op(LazyRelationalOp("SELECT", field_names, fields=list(fields)))
 
         for field in fields:
             if isinstance(field, str):
@@ -3656,8 +4163,13 @@ class DataStore(PandasCompatMixin):
 
     @immutable
     def filter(
-        self, condition: Union[Condition, str, 'ColumnExpr', None] = None, items=None, like=None, regex=None, axis=None
-    ) -> 'DataStore':
+        self,
+        condition: Union[Condition, str, "ColumnExpr", None] = None,
+        items=None,
+        like=None,
+        regex=None,
+        axis=None,
+    ) -> "DataStore":
         """
         Filter rows or columns.
 
@@ -3731,11 +4243,17 @@ class DataStore(PandasCompatMixin):
         if isinstance(condition, ColumnExpr):
             # Check if this is a method-mode ColumnExpr (e.g., cumsum() > 6, rank() > 3)
             # These cannot be converted to SQL and need pandas-based filtering
-            if condition._exec_mode == 'method' or condition._expr is None:
+            if condition._exec_mode == "method" or condition._expr is None:
                 # For method-mode ColumnExpr, we need to execute it and use pandas filtering
                 # Add as a pandas filter operation
-                self._track_operation('pandas', f"filter(method_mode_condition)", {'lazy': True})
-                self._add_lazy_op(LazyRelationalOp('PANDAS_FILTER', 'method_mode', condition=condition))
+                self._track_operation(
+                    "pandas", f"filter(method_mode_condition)", {"lazy": True}
+                )
+                self._add_lazy_op(
+                    LazyRelationalOp(
+                        "PANDAS_FILTER", "method_mode", condition=condition
+                    )
+                )
                 return self
 
             if isinstance(condition._expr, Condition):
@@ -3745,8 +4263,11 @@ class DataStore(PandasCompatMixin):
                 # Check if this is a computed column that stores a Condition
                 # e.g., ds.assign(is_high=ds['x'] > 100) then ds[ds['is_high']]
                 if isinstance(condition._expr, Field):
-                    col_name = condition._expr.name.strip('"\'')
-                    if hasattr(self, '_computed_columns') and col_name in self._computed_columns:
+                    col_name = condition._expr.name.strip("\"'")
+                    if (
+                        hasattr(self, "_computed_columns")
+                        and col_name in self._computed_columns
+                    ):
                         computed_expr = self._computed_columns[col_name]
                         if isinstance(computed_expr, Condition):
                             # Resolve any dependencies in the condition and use it directly
@@ -3754,14 +4275,14 @@ class DataStore(PandasCompatMixin):
                         else:
                             # Non-condition computed column, convert to truthy check
                             resolved = self._resolve_expr_dependencies(computed_expr)
-                            condition = BinaryCondition('=', resolved, Literal(1))
+                            condition = BinaryCondition("=", resolved, Literal(1))
                     else:
                         # Regular column, convert to truthy check: expr = 1
-                        condition = BinaryCondition('=', condition._expr, Literal(1))
+                        condition = BinaryCondition("=", condition._expr, Literal(1))
                 else:
                     # Non-condition ColumnExpr (e.g., boolean function result)
                     # Convert to truthy check: expr = 1
-                    condition = BinaryCondition('=', condition._expr, Literal(1))
+                    condition = BinaryCondition("=", condition._expr, Literal(1))
 
         # Convert condition to string for tracking
         if isinstance(condition, str):
@@ -3770,11 +4291,11 @@ class DataStore(PandasCompatMixin):
             condition_str = condition.to_sql(quote_char=self.quote_char)
 
         # Build SQL WHERE clause (lazy)
-        self._track_operation('sql', f"WHERE {condition_str}", {'lazy': True})
+        self._track_operation("sql", f"WHERE {condition_str}", {"lazy": True})
 
         # Record in lazy ops for correct execution order in explain()
         # Store condition object for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp('WHERE', condition_str, condition=condition))
+        self._add_lazy_op(LazyRelationalOp("WHERE", condition_str, condition=condition))
 
         if isinstance(condition, str):
             # TODO: Parse string conditions
@@ -3792,7 +4313,9 @@ class DataStore(PandasCompatMixin):
 
         return self
 
-    def where(self, condition: Union[Condition, str], other=_MISSING, **kwargs) -> 'DataStore':
+    def where(
+        self, condition: Union[Condition, str], other=_MISSING, **kwargs
+    ) -> "DataStore":
         """
         Filter rows or replace values conditionally.
 
@@ -3824,14 +4347,17 @@ class DataStore(PandasCompatMixin):
         # Note: DataStore boolean condition must use pandas-style where (CASE WHEN semantics),
         # not SQL WHERE (row filtering)
         is_pandas_style = (
-            isinstance(condition, ColumnExpr) or isinstance(condition, DataStore) or other is not _MISSING or kwargs
+            isinstance(condition, ColumnExpr)
+            or isinstance(condition, DataStore)
+            or other is not _MISSING
+            or kwargs
         )
 
         if is_pandas_style:
             # Convert _MISSING to None for pandas compatibility
             actual_other = None if other is _MISSING else other
             # Pandas-style where() - delegate to mixin
-            if hasattr(super(), 'where'):
+            if hasattr(super(), "where"):
                 return super().where(condition, other=actual_other, **kwargs)
             # Fallback if no mixin
             raise UnsupportedOperationError(
@@ -3843,7 +4369,7 @@ class DataStore(PandasCompatMixin):
         # SQL-style filter (simple Condition or string, no other args)
         return self.filter(condition)
 
-    def when(self, condition: Any, value: Any) -> 'CaseWhenBuilder':
+    def when(self, condition: Any, value: Any) -> "CaseWhenBuilder":
         """
         Start building a CASE WHEN expression.
 
@@ -3896,7 +4422,7 @@ class DataStore(PandasCompatMixin):
         return builder.when(condition, value)
 
     @classmethod
-    def run_sql(cls, query: str) -> 'DataStore':
+    def run_sql(cls, query: str) -> "DataStore":
         """
         Execute a raw SQL query directly against chDB.
 
@@ -3926,63 +4452,40 @@ class DataStore(PandasCompatMixin):
         new_ds._lazy_ops = [lazy_op]
         return new_ds
 
-    def sql(self, query: str) -> 'DataStore':
+    def sql(self, query: str) -> "DataStore":
         """
-        Execute a SQL query on the current DataFrame using chDB's SQL engine.
+        Execute a SQL query - works for both local DataFrames and remote databases.
 
-        This enables true SQL-Pandas-SQL interleaving within the lazy pipeline.
+        **For local DataFrames (table mode):**
+        Executes SQL on the current DataFrame using chDB's SQL engine.
+        Supports short form (auto-adds SELECT * FROM __df__) and full SQL form.
 
-        Supports two syntaxes:
-        1. **Short form** (auto-adds SELECT * FROM __df__):
-           - Condition only: `ds.sql("value > 100")`
-           - With ORDER BY: `ds.sql("value > 100 ORDER BY id")`
-           - Clauses only: `ds.sql("ORDER BY id LIMIT 5")`
-
-        2. **Full SQL form** (when query contains SELECT/FROM/GROUP BY):
-           - `ds.sql("SELECT id, SUM(value) FROM __df__ GROUP BY id")`
+        **For remote connections (connection/database mode):**
+        Executes SQL against the remote database. Table names in FROM/JOIN
+        clauses are automatically resolved to table functions.
 
         Args:
             query: SQL query or condition. Examples:
-                   - "value > 100" → becomes SELECT * FROM __df__ WHERE value > 100
-                   - "ORDER BY id LIMIT 5" → becomes SELECT * FROM __df__ ORDER BY id LIMIT 5
-                   - "SELECT id, name FROM __df__ WHERE age > 20" → used as-is
+                   Local: "value > 100", "SELECT * FROM __df__ WHERE age > 20"
+                   Remote: "SELECT * FROM users WHERE age > 25"
 
         Returns:
             A new DataStore with the SQL query result.
 
-        Example:
+        Example (local):
             >>> ds = DataStore.from_file('users.csv')
-            >>> ds = ds.filter(ds.age > 20)
-            >>> ds['doubled'] = ds['age'] * 2
-            >>>
-            >>> # Short form - just the condition! (auto-adds SELECT * FROM __df__ WHERE)
-            >>> ds = ds.sql("doubled > 50 ORDER BY age DESC LIMIT 10")
-            >>>
-            >>> # Continue with pandas operations
-            >>> ds = ds.add_prefix('result_')
+            >>> ds = ds.sql("age > 20 ORDER BY name")
 
-        Advanced Examples:
-            >>> # SQL aggregation (full form needed for GROUP BY)
-            >>> ds = ds.sql('''
-            ...     SELECT category, COUNT(*) as cnt, SUM(value) as total
-            ...     FROM __df__
-            ...     GROUP BY category
-            ... ''')
-
-            >>> # SQL window functions (full form)
-            >>> ds = ds.sql('''
-            ...     SELECT *, ROW_NUMBER() OVER (PARTITION BY category ORDER BY value DESC) as rank
-            ...     FROM __df__
-            ... ''')
-
-            >>> # Simple filter and sort (short form)
-            >>> ds = ds.sql("age > 18 AND status = 'active' ORDER BY created_at DESC")
-
-        Note:
-            - The query is executed via chDB's Python() table function
-            - This forces execution of all pending operations before executing the SQL
-            - The result is a new DataFrame that can be used for subsequent operations
+        Example (remote):
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", ...)
+            >>> ds.use("mydb")
+            >>> result = ds.sql("SELECT * FROM users WHERE age > 25")
         """
+        # Check if this is a remote connection without bound data
+        if self._connection_mode in ("connection", "database") and self._remote_params:
+            return self._remote_sql(query)
+
+        # Local DataFrame SQL execution
         from copy import copy
 
         from .lazy_ops import LazySQLQuery
@@ -3991,15 +4494,20 @@ class DataStore(PandasCompatMixin):
         new_ds = copy(self)
 
         # Record the SQL query operation on the copy
-        lazy_op = LazySQLQuery(query, df_alias='__df__')
+        lazy_op = LazySQLQuery(query, df_alias="__df__")
         new_ds._add_lazy_op(lazy_op)
 
         return new_ds
 
     @immutable
     def join(
-        self, other: 'DataStore', on=None, how: str = 'inner', left_on: str = None, right_on: str = None
-    ) -> 'DataStore':
+        self,
+        other: "DataStore",
+        on=None,
+        how: str = "inner",
+        left_on: str = None,
+        right_on: str = None,
+    ) -> "DataStore":
         """
         Join with another DataStore.
 
@@ -4024,12 +4532,12 @@ class DataStore(PandasCompatMixin):
 
         # Convert how string to JoinType
         join_type_map = {
-            'inner': JoinType.inner,
-            'left': JoinType.left,
-            'right': JoinType.right,
-            'outer': JoinType.outer,
-            'full': JoinType.full_outer,
-            'cross': JoinType.cross,
+            "inner": JoinType.inner,
+            "left": JoinType.left,
+            "right": JoinType.right,
+            "outer": JoinType.outer,
+            "full": JoinType.full_outer,
+            "cross": JoinType.cross,
         }
 
         if how.lower() not in join_type_map:
@@ -4046,11 +4554,11 @@ class DataStore(PandasCompatMixin):
         if on is not None:
             if isinstance(on, str):
                 # String -> USING (column) syntax for SQL, on= for pandas
-                join_condition = ('USING', [on])
+                join_condition = ("USING", [on])
                 pandas_on = on
             elif isinstance(on, (list, tuple)) and all(isinstance(c, str) for c in on):
                 # List of strings -> USING (col1, col2, ...) syntax
-                join_condition = ('USING', list(on))
+                join_condition = ("USING", list(on))
                 pandas_on = list(on)
             else:
                 # Condition object -> ON clause (SQL only, need to extract columns for pandas)
@@ -4059,14 +4567,20 @@ class DataStore(PandasCompatMixin):
         elif left_on and right_on:
             # Create condition from column names
             # Use table alias for table functions
-            left_table = self._get_table_alias() if self._table_function else self.table_name
-            right_table = other._get_table_alias() if other._table_function else other.table_name
+            left_table = (
+                self._get_table_alias() if self._table_function else self.table_name
+            )
+            right_table = (
+                other._get_table_alias() if other._table_function else other.table_name
+            )
 
             left_field = Field(left_on, table=left_table)
             right_field = Field(right_on, table=right_table)
             join_condition = left_field == right_field
         else:
-            raise QueryError("Either 'on' or both 'left_on' and 'right_on' must be specified")
+            raise QueryError(
+                "Either 'on' or both 'left_on' and 'right_on' must be specified"
+            )
 
         # Determine execution path based on source type
         has_sql_source = bool(self._table_function or self.table_name)
@@ -4089,7 +4603,7 @@ class DataStore(PandasCompatMixin):
         # Note: Don't return self - @immutable decorator will return the copy
 
     @immutable
-    def union(self, other: 'DataStore', all: bool = False) -> 'DataStore':
+    def union(self, other: "DataStore", all: bool = False) -> "DataStore":
         """
         Union with another DataStore (vertical concatenation).
 
@@ -4111,7 +4625,7 @@ class DataStore(PandasCompatMixin):
         # Note: Don't return self - @immutable decorator will return the copy
 
     @immutable
-    def with_column(self, name: str, expr: Union[Expression, Any]) -> 'DataStore':
+    def with_column(self, name: str, expr: Union[Expression, Any]) -> "DataStore":
         """
         Add a new column with the given name and expression.
 
@@ -4137,7 +4651,7 @@ class DataStore(PandasCompatMixin):
         as_index: bool = True,
         dropna: bool = True,
         **kwargs,
-    ) -> 'LazyGroupBy':
+    ) -> "LazyGroupBy":
         """
         Group by columns.
 
@@ -4197,7 +4711,9 @@ class DataStore(PandasCompatMixin):
                 if isinstance(f._expr, Field):
                     return f._expr
                 # Complex expression - assign to temp column
-                temp_name = f"__groupby_temp_{temp_column_counter}_{uuid.uuid4().hex[:8]}"
+                temp_name = (
+                    f"__groupby_temp_{temp_column_counter}_{uuid.uuid4().hex[:8]}"
+                )
                 temp_column_counter += 1
                 # Create a copy if we haven't already
                 if target_ds is self:
@@ -4206,7 +4722,9 @@ class DataStore(PandasCompatMixin):
                 return Field(temp_name)
             elif isinstance(f, LazySeries):
                 # LazySeries - similar handling
-                temp_name = f"__groupby_temp_{temp_column_counter}_{uuid.uuid4().hex[:8]}"
+                temp_name = (
+                    f"__groupby_temp_{temp_column_counter}_{uuid.uuid4().hex[:8]}"
+                )
                 temp_column_counter += 1
                 # Create a copy if we haven't already
                 if target_ds is self:
@@ -4229,11 +4747,15 @@ class DataStore(PandasCompatMixin):
         # the explicitly selected columns, not all columns from the source
         selected_columns = None
         for op in reversed(target_ds._lazy_ops):
-            if isinstance(op, LazyRelationalOp) and op.op_type == 'SELECT' and op.fields:
+            if (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and op.fields
+            ):
                 # Found a SELECT operation - extract column names
                 selected_columns = []
                 for f in op.fields:
-                    if isinstance(f, str) and f != '*':
+                    if isinstance(f, str) and f != "*":
                         selected_columns.append(f)
                     elif isinstance(f, Field):
                         selected_columns.append(f.name)
@@ -4244,11 +4766,16 @@ class DataStore(PandasCompatMixin):
 
         # Return a GroupBy wrapper that references target_ds
         return LazyGroupBy(
-            target_ds, groupby_fields, sort=sort, as_index=as_index, dropna=dropna, selected_columns=selected_columns
+            target_ds,
+            groupby_fields,
+            sort=sort,
+            as_index=as_index,
+            dropna=dropna,
+            selected_columns=selected_columns,
         )
 
     @immutable
-    def agg(self, func=None, axis=0, *args, **kwargs) -> 'DataStore':
+    def agg(self, func=None, axis=0, *args, **kwargs) -> "DataStore":
         """
         Aggregate using one or more operations.
 
@@ -4282,7 +4809,10 @@ class DataStore(PandasCompatMixin):
         from .lazy_ops import LazySQLQuery
 
         # Check if we have SQL-style keyword arguments with expressions
-        has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())
+        has_sql_agg = any(
+            isinstance(v, (Expression, ColumnExpr, AggregateFunction))
+            for v in kwargs.values()
+        )
 
         if has_sql_agg or (func is None and kwargs and not args):
             # SQL-style aggregation: agg(alias=col("x").sum(), ...)
@@ -4332,22 +4862,24 @@ class DataStore(PandasCompatMixin):
             # Build complete SQL query with GROUP BY
             select_parts = []
             for f in select_fields:
-                if hasattr(f, 'alias') and f.alias:
+                if hasattr(f, "alias") and f.alias:
                     select_parts.append(f'{f.to_sql()} AS "{f.alias}"')
                 else:
                     select_parts.append(f.to_sql())
 
-            select_clause = ', '.join(select_parts)
+            select_clause = ", ".join(select_parts)
 
             # Build GROUP BY clause
             groupby_parts = [gf.to_sql() for gf in self._groupby_fields]
-            groupby_clause = ', '.join(groupby_parts) if groupby_parts else ''
+            groupby_clause = ", ".join(groupby_parts) if groupby_parts else ""
 
             # Build full SQL
             if groupby_clause:
-                full_sql = f'SELECT {select_clause} FROM __df__ GROUP BY {groupby_clause}'
+                full_sql = (
+                    f"SELECT {select_clause} FROM __df__ GROUP BY {groupby_clause}"
+                )
             else:
-                full_sql = f'SELECT {select_clause} FROM __df__'
+                full_sql = f"SELECT {select_clause} FROM __df__"
 
             # Use LazySQLQuery for proper execution
             self._add_lazy_op(LazySQLQuery(full_sql))
@@ -4359,7 +4891,7 @@ class DataStore(PandasCompatMixin):
             return super().agg(func, axis, *args, **kwargs)
 
     @immutable
-    def assign(self, **kwargs) -> 'DataStore':
+    def assign(self, **kwargs) -> "DataStore":
         """
         Assign new columns to a DataStore.
 
@@ -4434,7 +4966,7 @@ class DataStore(PandasCompatMixin):
         result = self
 
         # Ensure _computed_columns is a fresh copy (not shared due to shallow copy from @immutable)
-        if not hasattr(result, '_computed_columns') or result._computed_columns is None:
+        if not hasattr(result, "_computed_columns") or result._computed_columns is None:
             result._computed_columns = {}
         else:
             result._computed_columns = result._computed_columns.copy()
@@ -4448,11 +4980,14 @@ class DataStore(PandasCompatMixin):
             # If the last SELECT op has specific columns (not just '*'), preserve them
             existing_select_fields = None
             for op in reversed(result._lazy_ops):
-                if hasattr(op, 'op_type') and op.op_type == 'SELECT':
-                    if hasattr(op, 'fields') and op.fields:
+                if hasattr(op, "op_type") and op.op_type == "SELECT":
+                    if hasattr(op, "fields") and op.fields:
                         # Check if this SELECT has specific columns vs '*'
                         # A SELECT with just '*' has no fields, or has '*' string in fields
-                        has_star = any(f == '*' or (isinstance(f, str) and f.strip() == '*') for f in op.fields)
+                        has_star = any(
+                            f == "*" or (isinstance(f, str) and f.strip() == "*")
+                            for f in op.fields
+                        )
                         if not has_star:
                             # We have specific columns selected, preserve them
                             existing_select_fields = op.fields
@@ -4463,7 +4998,7 @@ class DataStore(PandasCompatMixin):
                 # Preserve the existing column selection and add new columns
                 select_items = list(existing_select_fields)
             else:
-                select_items = ['*']
+                select_items = ["*"]
 
             # Get list of aliases being assigned
             aliases_to_assign = set(sql_kwargs.keys())
@@ -4496,7 +5031,7 @@ class DataStore(PandasCompatMixin):
 
             if columns_to_overwrite:
                 # When overwriting, expand '*' and replace columns in-place to preserve order
-                if select_items == ['*']:
+                if select_items == ["*"]:
                     # Build select items preserving order, replacing overwrites in-place
                     new_select_items = []
                     for col in existing_columns:
@@ -4510,7 +5045,11 @@ class DataStore(PandasCompatMixin):
                     # Replace overwritten columns in existing selection
                     new_select_items = []
                     for item in select_items:
-                        col_name = item if isinstance(item, str) else getattr(item, '_alias', None)
+                        col_name = (
+                            item
+                            if isinstance(item, str)
+                            else getattr(item, "_alias", None)
+                        )
                         if col_name in columns_to_overwrite:
                             new_select_items.append(expr_map[col_name])
                         else:
@@ -4552,21 +5091,24 @@ class DataStore(PandasCompatMixin):
             return True
 
         # Check if expression has aggregate function in its tree
-        if hasattr(expr, '_func_name'):
+        if hasattr(expr, "_func_name"):
             # Check registry for aggregate function
             from .function_registry import get_function_registry
 
             registry = get_function_registry()
             func_def = registry.get(expr._func_name)
-            if func_def and func_def.func_type.name == 'AGGREGATE':
+            if func_def and func_def.func_type.name == "AGGREGATE":
                 return True
 
         return False
 
     @immutable
     def sort(
-        self, *fields: Union[str, Expression], ascending: Union[bool, List[bool]] = True, kind: str = 'quicksort'
-    ) -> 'DataStore':
+        self,
+        *fields: Union[str, Expression],
+        ascending: Union[bool, List[bool]] = True,
+        kind: str = "quicksort",
+    ) -> "DataStore":
         """
         Sort results (ORDER BY clause).
 
@@ -4597,8 +5139,8 @@ class DataStore(PandasCompatMixin):
             if isinstance(f, str):
                 return f
             if isinstance(f, ColumnExpr):
-                return f._expr.to_sql() if hasattr(f._expr, 'to_sql') else str(f._expr)
-            if hasattr(f, 'to_sql'):
+                return f._expr.to_sql() if hasattr(f._expr, "to_sql") else str(f._expr)
+            if hasattr(f, "to_sql"):
                 return f.to_sql()
             return str(f)
 
@@ -4608,19 +5150,27 @@ class DataStore(PandasCompatMixin):
         else:
             ascending_list = list(ascending)
             if len(ascending_list) != len(fields):
-                raise ValueError(f"Length of ascending ({len(ascending_list)}) != length of fields ({len(fields)})")
+                raise ValueError(
+                    f"Length of ascending ({len(ascending_list)}) != length of fields ({len(fields)})"
+                )
 
         # Build description for explain()
         parts = []
         for f, asc in zip(fields, ascending_list):
-            direction = 'ASC' if asc else 'DESC'
+            direction = "ASC" if asc else "DESC"
             parts.append(f"{field_to_sql(f)} {direction}")
-        description = ', '.join(parts)
+        description = ", ".join(parts)
 
         # Record in lazy ops for correct execution order in explain()
         # Store fields, ascending (as list), and kind for DataFrame execution
         self._add_lazy_op(
-            LazyRelationalOp('ORDER BY', description, fields=list(fields), ascending=ascending_list, kind=kind)
+            LazyRelationalOp(
+                "ORDER BY",
+                description,
+                fields=list(fields),
+                ascending=ascending_list,
+                kind=kind,
+            )
         )
 
         for field, asc in zip(fields, ascending_list):
@@ -4641,7 +5191,12 @@ class DataStore(PandasCompatMixin):
         return self
 
     @immutable
-    def orderby(self, *fields: Union[str, Expression], ascending: bool = True, kind: str = 'quicksort') -> 'DataStore':
+    def orderby(
+        self,
+        *fields: Union[str, Expression],
+        ascending: bool = True,
+        kind: str = "quicksort",
+    ) -> "DataStore":
         """
         Sort results (ORDER BY clause). Alias for sort().
 
@@ -4662,24 +5217,24 @@ class DataStore(PandasCompatMixin):
     order_by = orderby
 
     @immutable
-    def limit(self, n: int) -> 'DataStore':
+    def limit(self, n: int) -> "DataStore":
         """Limit number of results."""
         # Record in lazy ops for correct execution order in explain()
         # Store limit_value for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp('LIMIT', str(n), limit_value=n))
+        self._add_lazy_op(LazyRelationalOp("LIMIT", str(n), limit_value=n))
         self._limit_value = n
         return self
 
     @immutable
-    def offset(self, n: int) -> 'DataStore':
+    def offset(self, n: int) -> "DataStore":
         """Skip first n results."""
         # Record in lazy ops for correct execution order in explain()
         # Store offset_value for DataFrame execution
-        self._add_lazy_op(LazyRelationalOp('OFFSET', str(n), offset_value=n))
+        self._add_lazy_op(LazyRelationalOp("OFFSET", str(n), offset_value=n))
         self._offset_value = n
 
     @immutable
-    def distinct(self, subset=None, keep='first') -> 'DataStore':
+    def distinct(self, subset=None, keep="first") -> "DataStore":
         """
         Remove duplicate rows from the DataStore.
 
@@ -4703,7 +5258,7 @@ class DataStore(PandasCompatMixin):
         self._add_lazy_op(LazyDistinct(subset=subset, keep=keep))
 
     @immutable
-    def having(self, condition: Union[Condition, str]) -> 'DataStore':
+    def having(self, condition: Union[Condition, str]) -> "DataStore":
         """
         Add HAVING clause for filtering aggregated results.
 
@@ -4727,7 +5282,7 @@ class DataStore(PandasCompatMixin):
             self._having_condition = self._having_condition & condition
 
     @immutable
-    def as_(self, alias: str) -> 'DataStore':
+    def as_(self, alias: str) -> "DataStore":
         """
         Set an alias for this DataStore (for use as subquery).
 
@@ -4744,7 +5299,225 @@ class DataStore(PandasCompatMixin):
         self._alias = alias
         self._is_subquery = True
 
-    def __getitem__(self, key: Union[int, slice, str, List[str]]) -> Union['DataStore', 'ColumnExpr', Any]:
+    def use(self, *args) -> "DataStore":
+        """
+        Set default schema, database, and/or table context.
+
+        This sets defaults for subsequent operations like query() and ds["table"].
+        Mutates the current DataStore and returns self for chaining.
+
+        Args:
+            With 1 arg: use(database) - set default database
+            With 2 args: use(database, table) - set database and table
+            With 3 args: use(schema, database, table) - set all three
+
+        Returns:
+            self for method chaining
+
+        Examples:
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", user="default", password="")
+            >>> ds.use("production")
+            >>> ds.query("SELECT * FROM users")  # uses production.users
+
+            >>> ds.use("production", "users")  # set both
+            >>> ds.columns  # now works
+
+        Raises:
+            ValueError: If wrong number of arguments provided
+        """
+        if len(args) == 0:
+            raise ValueError("use() requires at least 1 argument")
+        elif len(args) == 1:
+            self._default_database = args[0]
+        elif len(args) == 2:
+            self._default_database = args[0]
+            self._default_table = args[1]
+            # Update connection mode if we now have table
+            if self._connection_mode == "connection":
+                self._connection_mode = "database"
+            if args[1]:
+                self._connection_mode = "table"
+        elif len(args) == 3:
+            self._default_schema = args[0]
+            self._default_database = args[1]
+            self._default_table = args[2]
+            if args[2]:
+                self._connection_mode = "table"
+        else:
+            raise ValueError(
+                "use() takes 1, 2, or 3 arguments (database), (database, table), or (schema, database, table)"
+            )
+
+        return self
+
+    def databases(self) -> List[str]:
+        """
+        List all databases on the remote server.
+
+        Returns:
+            List of database names
+
+        Raises:
+            DataStoreError: If connection info is missing or source doesn't support metadata
+
+        Example:
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", user="default", password="")
+            >>> ds.databases()
+            ['default', 'system', 'test_db']
+        """
+        adapter = self._get_adapter()
+        sql = adapter.list_databases_sql()
+        self._logger.debug(f"Listing databases: {sql}")
+        result = self._execute_metadata_query(sql)
+        return result["name"].tolist()
+
+    def tables(self, database: str = None) -> List[str]:
+        """
+        List all tables in the specified database.
+
+        Args:
+            database: Database name. Uses default database if not specified.
+
+        Returns:
+            List of table names
+
+        Raises:
+            DataStoreError: If database is not specified and no default is set
+
+        Example:
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", user="default", password="")
+            >>> ds.tables("system")
+            ['tables', 'databases', 'columns', ...]
+
+            >>> ds.use("test_db")
+            >>> ds.tables()  # uses default database
+            ['users', 'orders']
+        """
+        adapter = self._get_adapter()
+
+        # Use provided database or default
+        database = database or self._default_database
+        if database is None:
+            from .exceptions import DataStoreError
+
+            raise DataStoreError(
+                "No database specified.\n"
+                'Hint: Provide database argument: ds.tables("mydb"), '
+                'or set default: ds.use("mydb")'
+            )
+
+        sql = adapter.list_tables_sql(database)
+        self._logger.debug(f"Listing tables in {database}: {sql}")
+        result = self._execute_metadata_query(sql)
+        return result["name"].tolist()
+
+    def _remote_describe(self, database: str = None, table: str = None) -> pd.DataFrame:
+        """
+        Get a remote table's schema (internal method).
+        """
+        adapter = self._get_adapter()
+
+        database = database or self._default_database
+        table = table or self._default_table
+
+        if database is None:
+            from .exceptions import DataStoreError
+
+            raise DataStoreError(
+                "No database specified.\n"
+                'Hint: ds.describe("mydb", "mytable") or set default with ds.use("mydb")'
+            )
+        if table is None:
+            from .exceptions import DataStoreError
+
+            raise DataStoreError(
+                "No table specified.\n"
+                'Hint: ds.describe("mydb", "mytable") or set default with ds.use("mydb", "mytable")'
+            )
+
+        sql = adapter.describe_table_sql(database, table)
+        self._logger.debug(f"Getting schema for {database}.{table}: {sql}")
+        return self._execute_metadata_query(sql)
+
+    def _remote_sql(self, query: str) -> "DataStore":
+        """
+        Execute SQL query against the remote database (internal method).
+
+        Table names in FROM/JOIN clauses are automatically resolved to table functions.
+        """
+        self._require_connection_params()
+
+        # Rewrite table references to table functions
+        rewritten_sql = self._rewrite_table_references(query)
+        self._logger.debug(f"Original SQL: {query}")
+        self._logger.debug(f"Rewritten SQL: {rewritten_sql}")
+
+        # Execute and wrap in DataStore
+        import chdb
+
+        result_df = chdb.query(rewritten_sql, output_format="DataFrame")
+
+        # Return a new DataStore wrapping the result
+        return DataStore(result_df)
+
+    def _rewrite_table_references(self, sql: str) -> str:
+        """
+        Rewrite table references in SQL to use table functions.
+
+        Uses regex to find FROM/JOIN table references and replaces them
+        with appropriate table function calls.
+
+        Args:
+            sql: Original SQL query
+
+        Returns:
+            SQL with table references replaced by table functions
+        """
+        import re
+
+        adapter = self._get_adapter()
+
+        # Pattern to match table references after FROM/JOIN
+        # Matches: FROM table, FROM db.table, FROM schema.db.table
+        # Excludes: FROM func(...), FROM (subquery), FROM "quoted"
+        pattern = r'\b(FROM|JOIN)\s+(?![\w]+\s*\()(?!\()(?!")([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){0,2})(\s+(?:AS\s+)?([a-zA-Z_][\w]*))?'
+
+        def replace_table_ref(match):
+            keyword = match.group(1)  # FROM or JOIN
+            table_ref = match.group(2)  # table reference
+            alias_part = match.group(3) or ""  # optional alias (e.g., " AS u" or " u")
+
+            parts = table_ref.split(".")
+
+            if len(parts) == 1:
+                # Just table name - use default database
+                table = parts[0]
+                database = self._default_database
+                if database is None:
+                    from .exceptions import DataStoreError
+
+                    raise DataStoreError(
+                        f"No database specified for table '{table}' in query.\n"
+                        f'Hint: Use fully qualified name (db.table) or call ds.use("mydb") first.'
+                    )
+            elif len(parts) == 2:
+                database, table = parts
+            elif len(parts) == 3:
+                # schema.db.table - combine schema.table for some DBs
+                schema, database, table = parts
+                table = f"{schema}.{table}"
+            else:
+                # Don't rewrite if we can't parse
+                return match.group(0)
+
+            table_func = adapter.build_table_function(database, table)
+            return f"{keyword} {table_func}{alias_part}"
+
+        return re.sub(pattern, replace_table_ref, sql, flags=re.IGNORECASE)
+
+    def __getitem__(
+        self, key: Union[int, slice, str, List[str]]
+    ) -> Union["DataStore", "ColumnExpr", Any]:
         """
         Support various indexing operations for lazy evaluation.
 
@@ -4762,10 +5535,20 @@ class DataStore(PandasCompatMixin):
             >>> ds[['col1', 'col2']]  # Select multiple columns (lazy, returns copy)
             >>> ds[ds['age'] > 18]    # Boolean indexing (filter, returns copy)
             >>> ds[(ds['a'] > 0) & (ds['b'] > 0)]  # Compound condition
+
+        For remote connections in connection/database mode:
+            >>> ds['mydb.users']  # Returns new DataStore bound to mydb.users table
+            >>> ds['users']       # Returns new DataStore bound to users table (uses default db)
         """
         from .column_expr import ColumnExpr
         from .conditions import Condition
         from copy import copy
+
+        # Handle table selection in connection/database mode
+        if isinstance(key, str) and self._connection_mode in ("connection", "database"):
+            # Check if this looks like a table reference (contains dot or we're in connection mode)
+            if "." in key or self._connection_mode == "connection":
+                return self._select_table(key)
 
         if isinstance(key, str):
             # Check if column is accessible (respects select() restrictions)
@@ -4816,7 +5599,7 @@ class DataStore(PandasCompatMixin):
                 # Boolean mask indexing: df[[True, False, True, ...]]
                 from .lazy_ops import LazyBooleanMask
 
-                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                result = copy(self) if getattr(self, "is_immutable", True) else self
                 if result is not self:
                     result._cached_result = None
                     result._cache_version = 0
@@ -4827,20 +5610,24 @@ class DataStore(PandasCompatMixin):
 
             # Check for empty list - return DataFrame with no columns
             if len(key) == 0:
-                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                result = copy(self) if getattr(self, "is_immutable", True) else self
                 if result is not self:
                     result._cached_result = None
                     result._cache_version = 0
                     result._cached_at_version = -1
                     result._cache_timestamp = None
                 result._select_star = False
-                result._add_lazy_op(LazyRelationalOp(op_type='SELECT', description="Select no columns", fields=[]))
+                result._add_lazy_op(
+                    LazyRelationalOp(
+                        op_type="SELECT", description="Select no columns", fields=[]
+                    )
+                )
                 return result
 
             # Multi-column selection: use LazyRelationalOp(SELECT) for SQL pushdown
             # Create a copy to avoid modifying the original DataStore's _lazy_ops
             # This fixes the bug where df[['col1', 'col2']].head() would modify df
-            result = copy(self) if getattr(self, 'is_immutable', True) else self
+            result = copy(self) if getattr(self, "is_immutable", True) else self
             if result is not self:
                 # Reset cache state for the new copy
                 result._cached_result = None
@@ -4856,7 +5643,11 @@ class DataStore(PandasCompatMixin):
             fields = [Field(str(col) if isinstance(col, int) else col) for col in key]
             col_names = [str(col) if isinstance(col, int) else col for col in key]
             result._add_lazy_op(
-                LazyRelationalOp(op_type='SELECT', description=f"Select columns: {', '.join(col_names)}", fields=fields)
+                LazyRelationalOp(
+                    op_type="SELECT",
+                    description=f"Select columns: {', '.join(col_names)}",
+                    fields=fields,
+                )
             )
             return result
 
@@ -4865,7 +5656,7 @@ class DataStore(PandasCompatMixin):
             # Create a copy to avoid modifying the original DataStore (pandas-like behavior)
             start, stop, step = key.start, key.stop, key.step
 
-            result = copy(self) if getattr(self, 'is_immutable', True) else self
+            result = copy(self) if getattr(self, "is_immutable", True) else self
             if result is not self:
                 # Reset cache state for the new copy
                 result._cached_result = None
@@ -4893,22 +5684,34 @@ class DataStore(PandasCompatMixin):
                     limit_val = stop - start if stop > start else stop
                     result._offset_value = start
                     result._limit_value = limit_val
-                    result._add_lazy_op(LazyRelationalOp('OFFSET', f'OFFSET {start}', offset_value=start))
-                    result._add_lazy_op(LazyRelationalOp('LIMIT', f'LIMIT {limit_val}', limit_value=limit_val))
+                    result._add_lazy_op(
+                        LazyRelationalOp(
+                            "OFFSET", f"OFFSET {start}", offset_value=start
+                        )
+                    )
+                    result._add_lazy_op(
+                        LazyRelationalOp(
+                            "LIMIT", f"LIMIT {limit_val}", limit_value=limit_val
+                        )
+                    )
                 else:
                     # ds[:stop] -> LIMIT stop
                     result._limit_value = stop
-                    result._add_lazy_op(LazyRelationalOp('LIMIT', f'LIMIT {stop}', limit_value=stop))
+                    result._add_lazy_op(
+                        LazyRelationalOp("LIMIT", f"LIMIT {stop}", limit_value=stop)
+                    )
             elif start is not None:
                 # ds[start:] -> OFFSET start
                 result._offset_value = start
-                result._add_lazy_op(LazyRelationalOp('OFFSET', f'OFFSET {start}', offset_value=start))
+                result._add_lazy_op(
+                    LazyRelationalOp("OFFSET", f"OFFSET {start}", offset_value=start)
+                )
             return result
 
         elif isinstance(key, (Condition, ColumnExpr)):
             # Boolean indexing: filter rows like pandas df[condition]
             # Create a copy to avoid modifying the original DataStore
-            result = copy(self) if getattr(self, 'is_immutable', True) else self
+            result = copy(self) if getattr(self, "is_immutable", True) else self
             if result is not self:
                 # Reset cache state for the new copy
                 result._cached_result = None
@@ -4919,10 +5722,10 @@ class DataStore(PandasCompatMixin):
 
         elif isinstance(key, pd.Series):
             # Boolean Series indexing: df[pd.Series([True, False, True])]
-            if key.dtype == bool or key.dtype == 'boolean':
+            if key.dtype == bool or key.dtype == "boolean":
                 from .lazy_ops import LazyBooleanMask
 
-                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                result = copy(self) if getattr(self, "is_immutable", True) else self
                 if result is not self:
                     result._cached_result = None
                     result._cache_version = 0
@@ -4931,14 +5734,16 @@ class DataStore(PandasCompatMixin):
                 result._add_lazy_op(LazyBooleanMask(key.tolist()))
                 return result
             else:
-                raise TypeError(f"Boolean Series indexing requires boolean dtype, got {key.dtype}")
+                raise TypeError(
+                    f"Boolean Series indexing requires boolean dtype, got {key.dtype}"
+                )
 
         elif isinstance(key, np.ndarray):
             # Boolean ndarray indexing: df[np.array([True, False, True])]
             if key.dtype == bool or key.dtype == np.bool_:
                 from .lazy_ops import LazyBooleanMask
 
-                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                result = copy(self) if getattr(self, "is_immutable", True) else self
                 if result is not self:
                     result._cached_result = None
                     result._cache_version = 0
@@ -4947,7 +5752,9 @@ class DataStore(PandasCompatMixin):
                 result._add_lazy_op(LazyBooleanMask(key.tolist()))
                 return result
             else:
-                raise TypeError(f"Boolean ndarray indexing requires boolean dtype, got {key.dtype}")
+                raise TypeError(
+                    f"Boolean ndarray indexing requires boolean dtype, got {key.dtype}"
+                )
 
         elif isinstance(key, int):
             # Integer column name access: df[0] when column name is 0
@@ -4966,7 +5773,7 @@ class DataStore(PandasCompatMixin):
 
             if isinstance(key, LazyCondition):
                 # Boolean indexing with LazyCondition
-                result = copy(self) if getattr(self, 'is_immutable', True) else self
+                result = copy(self) if getattr(self, "is_immutable", True) else self
                 if result is not self:
                     result._cached_result = None
                     result._cache_version = 0
@@ -4977,6 +5784,116 @@ class DataStore(PandasCompatMixin):
             raise TypeError(
                 f"DataStore indices must be slices, strings, lists, or conditions, not {type(key).__name__}"
             )
+
+    def _select_table(self, key: str) -> "DataStore":
+        """
+        Select a database/table and return a NEW DataStore (immutable operation).
+
+        Args:
+            key: Table reference in format "table", "db.table", or "schema.db.table"
+
+        Returns:
+            New DataStore bound to the specified table
+
+        Raises:
+            DataStoreError: If database cannot be determined
+        """
+        from .exceptions import DataStoreError
+
+        parts = key.split(".")
+
+        schema = None
+        database = None
+        table = None
+
+        if len(parts) == 1:
+            # Just table name - need default database
+            table = parts[0]
+            database = self._default_database
+            schema = self._default_schema
+            if database is None:
+                raise DataStoreError(
+                    f"No database specified for table '{table}'.\n"
+                    f'Hint: Use ds["{table}"] after ds.use("mydb"), or use ds["mydb.{table}"] format.'
+                )
+        elif len(parts) == 2:
+            database, table = parts
+            schema = self._default_schema
+        elif len(parts) == 3:
+            schema, database, table = parts
+        else:
+            raise DataStoreError(
+                f"Invalid table reference: '{key}'. Expected 'table', 'db.table', or 'schema.db.table'."
+            )
+
+        # Create new DataStore with table bound
+        # Copy remote params and set database/table
+        new_ds = DataStore(
+            source=self.source_type,
+            table=table,
+            database=database,
+            host=self._remote_params.get("host"),
+            user=self._remote_params.get("user"),
+            password=self._remote_params.get("password", ""),
+            secure=self._remote_params.get("secure", False),
+        )
+
+        # Copy schema if present
+        if schema:
+            new_ds._default_schema = schema
+
+        return new_ds
+
+    def _require_connection_params(self):
+        """
+        Raise error if connection parameters are missing.
+
+        Raises:
+            DataStoreError: If host is not specified
+        """
+        if not self._remote_params.get("host"):
+            from .exceptions import DataStoreError
+
+            raise DataStoreError(
+                "Cannot perform metadata operation - no connection info.\n"
+                'Hint: DataStore(source="clickhouse", host="...", user="...", password="...")'
+            )
+
+    def _get_adapter(self) -> "SourceAdapter":
+        """
+        Get the appropriate adapter for the current source type.
+
+        Returns:
+            SourceAdapter instance for metadata operations
+
+        Raises:
+            DataStoreError: If source type doesn't support metadata operations
+        """
+        self._require_connection_params()
+        return get_adapter(
+            self.source_type,
+            host=self._remote_params.get("host"),
+            user=self._remote_params.get("user"),
+            password=self._remote_params.get("password", ""),
+            secure=self._remote_params.get("secure", False),
+        )
+
+    def _execute_metadata_query(self, sql: str) -> pd.DataFrame:
+        """
+        Execute a metadata query and return DataFrame.
+
+        Uses chdb to execute the query with table functions.
+
+        Args:
+            sql: SQL query string (typically using table functions)
+
+        Returns:
+            pandas DataFrame with query results
+        """
+        import chdb
+
+        result = chdb.query(sql, output_format="DataFrame")
+        return result
 
     def __iter__(self):
         """
@@ -4992,7 +5909,12 @@ class DataStore(PandasCompatMixin):
 
     # ========== SQL Generation ==========
 
-    def to_sql(self, quote_char: str = None, as_subquery: bool = False, execution_format: bool = False) -> str:
+    def to_sql(
+        self,
+        quote_char: str = None,
+        as_subquery: bool = False,
+        execution_format: bool = False,
+    ) -> str:
         """
         Generate SQL query.
 
@@ -5016,7 +5938,11 @@ class DataStore(PandasCompatMixin):
             sql = self._generate_update_sql(quote_char)
         elif self._insert_columns:
             sql = self._generate_insert_sql(quote_char)
-        elif execution_format and self._lazy_ops and (self._table_function or self.table_name):
+        elif (
+            execution_format
+            and self._lazy_ops
+            and (self._table_function or self.table_name)
+        ):
             # Use unified SQL generation for lazy operations
             # This returns the exact SQL that _execute() would run
             sql = self._build_execution_sql()
@@ -5039,16 +5965,17 @@ class DataStore(PandasCompatMixin):
 
         # SELECT clause
         if self._select_fields:
-            fields_sql = ', '.join(
-                field.to_sql(quote_char=quote_char, with_alias=True) for field in self._select_fields
+            fields_sql = ", ".join(
+                field.to_sql(quote_char=quote_char, with_alias=True)
+                for field in self._select_fields
             )
             # If _select_star is True, prepend '*' to include all existing columns
             if self._select_star:
                 fields_sql = f"*, {fields_sql}"
         else:
-            fields_sql = '*'
+            fields_sql = "*"
 
-        distinct_keyword = 'DISTINCT ' if self._distinct else ''
+        distinct_keyword = "DISTINCT " if self._distinct else ""
         parts.append(f"SELECT {distinct_keyword}{fields_sql}")
 
         # FROM clause
@@ -5057,7 +5984,9 @@ class DataStore(PandasCompatMixin):
             table_func_sql = self._table_function.to_sql(quote_char=quote_char)
             # Add alias for table function (required by ClickHouse for JOINs)
             alias = self._get_table_alias()
-            parts.append(f"FROM {table_func_sql} AS {format_identifier(alias, quote_char)}")
+            parts.append(
+                f"FROM {table_func_sql} AS {format_identifier(alias, quote_char)}"
+            )
         elif self.table_name:
             parts.append(f"FROM {format_identifier(self.table_name, quote_char)}")
 
@@ -5065,7 +5994,7 @@ class DataStore(PandasCompatMixin):
         if self._joins:
             for other_ds, join_type, join_condition in self._joins:
                 # Generate JOIN clause
-                join_keyword = join_type.value if join_type.value else ''
+                join_keyword = join_type.value if join_type.value else ""
                 if join_keyword:
                     join_clause = f"{join_keyword} JOIN"
                 else:
@@ -5073,20 +6002,28 @@ class DataStore(PandasCompatMixin):
 
                 # Handle subquery joins
                 if isinstance(other_ds, DataStore) and other_ds._is_subquery:
-                    other_table = other_ds.to_sql(quote_char=quote_char, as_subquery=True)
+                    other_table = other_ds.to_sql(
+                        quote_char=quote_char, as_subquery=True
+                    )
                 elif isinstance(other_ds, DataStore) and other_ds._table_function:
                     # Use table function for the joined table with alias
-                    table_func_sql = other_ds._table_function.to_sql(quote_char=quote_char)
+                    table_func_sql = other_ds._table_function.to_sql(
+                        quote_char=quote_char
+                    )
                     alias = other_ds._get_table_alias()
-                    other_table = f"{table_func_sql} AS {format_identifier(alias, quote_char)}"
+                    other_table = (
+                        f"{table_func_sql} AS {format_identifier(alias, quote_char)}"
+                    )
                 else:
                     other_table = format_identifier(other_ds.table_name, quote_char)
 
                 # Handle USING vs ON syntax
-                if isinstance(join_condition, tuple) and join_condition[0] == 'USING':
+                if isinstance(join_condition, tuple) and join_condition[0] == "USING":
                     # USING (col1, col2, ...) syntax
                     columns = join_condition[1]
-                    using_cols = ', '.join(format_identifier(c, quote_char) for c in columns)
+                    using_cols = ", ".join(
+                        format_identifier(c, quote_char) for c in columns
+                    )
                     parts.append(f"{join_clause} {other_table} USING ({using_cols})")
                 else:
                     # ON condition syntax
@@ -5100,7 +6037,9 @@ class DataStore(PandasCompatMixin):
 
         # GROUP BY clause
         if self._groupby_fields:
-            groupby_sql = ', '.join(field.to_sql(quote_char=quote_char) for field in self._groupby_fields)
+            groupby_sql = ", ".join(
+                field.to_sql(quote_char=quote_char) for field in self._groupby_fields
+            )
             parts.append(f"GROUP BY {groupby_sql}")
 
         # HAVING clause
@@ -5113,7 +6052,7 @@ class DataStore(PandasCompatMixin):
             orderby_parts = []
             for field, ascending in self._orderby_fields:
                 field_sql = field.to_sql(quote_char=quote_char)
-                direction = 'ASC' if ascending else 'DESC'
+                direction = "ASC" if ascending else "DESC"
                 orderby_parts.append(f"{field_sql} {direction}")
             parts.append(f"ORDER BY {', '.join(orderby_parts)}")
 
@@ -5135,7 +6074,7 @@ class DataStore(PandasCompatMixin):
                     settings_parts.append(f"{key}={value}")
             parts.append(f"SETTINGS {', '.join(settings_parts)}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def _generate_insert_sql(self, quote_char: str) -> str:
         """Generate INSERT SQL (ClickHouse style)."""
@@ -5146,7 +6085,9 @@ class DataStore(PandasCompatMixin):
                     f"Table function '{self.source_type}' does not support writing. "
                     f"Read-only table functions: mongodb, sqlite, iceberg, deltaLake, hudi, numbers, generateRandom"
                 )
-            target = f"TABLE FUNCTION {self._table_function.to_sql(quote_char=quote_char)}"
+            target = (
+                f"TABLE FUNCTION {self._table_function.to_sql(quote_char=quote_char)}"
+            )
         elif self.table_name:
             target = format_identifier(self.table_name, quote_char)
         else:
@@ -5156,7 +6097,9 @@ class DataStore(PandasCompatMixin):
 
         # Columns
         if self._insert_columns:
-            columns_sql = ', '.join(format_identifier(col, quote_char) for col in self._insert_columns)
+            columns_sql = ", ".join(
+                format_identifier(col, quote_char) for col in self._insert_columns
+            )
             parts.append(f"({columns_sql})")
 
         # VALUES or SELECT
@@ -5171,9 +6114,9 @@ class DataStore(PandasCompatMixin):
                 row_values = []
                 for value in row:
                     if value is None:
-                        row_values.append('NULL')
+                        row_values.append("NULL")
                     elif isinstance(value, bool):
-                        row_values.append('1' if value else '0')
+                        row_values.append("1" if value else "0")
                     elif isinstance(value, str):
                         escaped = value.replace("'", "''")
                         row_values.append(f"'{escaped}'")
@@ -5186,7 +6129,7 @@ class DataStore(PandasCompatMixin):
         else:
             raise QueryError("INSERT query requires either VALUES or SELECT")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def _generate_update_sql(self, quote_char: str) -> str:
         """Generate UPDATE SQL (ClickHouse style: ALTER TABLE ... UPDATE ...)."""
@@ -5204,9 +6147,9 @@ class DataStore(PandasCompatMixin):
             field_sql = format_identifier(field_name, quote_char)
 
             if value is None:
-                value_sql = 'NULL'
+                value_sql = "NULL"
             elif isinstance(value, bool):
-                value_sql = '1' if value else '0'
+                value_sql = "1" if value else "0"
             elif isinstance(value, str):
                 escaped = value.replace("'", "''")
                 value_sql = f"'{escaped}'"
@@ -5224,7 +6167,7 @@ class DataStore(PandasCompatMixin):
             where_sql = self._where_condition.to_sql(quote_char=quote_char)
             parts.append(f"WHERE {where_sql}")
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     def _generate_delete_sql(self, quote_char: str) -> str:
         """Generate DELETE SQL (ClickHouse style: ALTER TABLE ... DELETE WHERE ...)."""
@@ -5239,32 +6182,34 @@ class DataStore(PandasCompatMixin):
             where_sql = self._where_condition.to_sql(quote_char=quote_char)
             parts.append(f"WHERE {where_sql}")
         else:
-            raise QueryError("ClickHouse DELETE requires WHERE clause. Use WHERE 1=1 to delete all rows.")
+            raise QueryError(
+                "ClickHouse DELETE requires WHERE clause. Use WHERE 1=1 to delete all rows."
+            )
 
-        return ' '.join(parts)
+        return " ".join(parts)
 
     # ========== Dynamic Field Access ==========
 
     # List of special attribute names that should not be treated as column names
     _RESERVED_ATTRS = frozenset(
         {
-            'is_immutable',
-            'is_mutable',
-            'is_copy',
-            'is_view',
-            'config',
-            'index',
-            'columns',
-            'values',
-            'dtypes',
-            'shape',
-            'size',
-            'ndim',
-            'empty',
-            'T',
-            'axes',
-            'to_pandas',  # Prevent being treated as column name
-            'to_df',
+            "is_immutable",
+            "is_mutable",
+            "is_copy",
+            "is_view",
+            "config",
+            "index",
+            "columns",
+            "values",
+            "dtypes",
+            "shape",
+            "size",
+            "ndim",
+            "empty",
+            "T",
+            "axes",
+            "to_pandas",  # Prevent being treated as column name
+            "to_df",
         }
     )
 
@@ -5288,19 +6233,23 @@ class DataStore(PandasCompatMixin):
         from .column_expr import ColumnExpr
 
         # Avoid infinite recursion for private attributes
-        if name.startswith('_'):
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if name.startswith("_"):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
 
         # Don't treat reserved/special attributes as column names
         if name in self._RESERVED_ATTRS:
-            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
 
         # Return ColumnExpr that wraps a Field and can execute
         return ColumnExpr(Field(name), self)
 
     # ========== Copy Support ==========
 
-    def __copy__(self) -> 'DataStore':
+    def __copy__(self) -> "DataStore":
         """Create a shallow copy (note: less important now without strict immutability)."""
         new_ds = type(self).__new__(type(self))
         new_ds.__dict__.update(self.__dict__)
@@ -5317,7 +6266,7 @@ class DataStore(PandasCompatMixin):
         new_ds._lazy_ops = self._lazy_ops.copy()  # Copy lazy operations
 
         # Copy operation history
-        if hasattr(self, '_operation_history'):
+        if hasattr(self, "_operation_history"):
             new_ds._operation_history = self._operation_history.copy()
 
         # Share connection, executor, and table_function (not deep copied)
@@ -5437,7 +6386,16 @@ class DataStore(PandasCompatMixin):
 
         This is called in Jupyter/REPL when displaying the object.
         If we have operations, executes and shows the DataFrame.
+        For connection-level DataStore, shows connection info with masked password.
         """
+        # Connection-level mode - show connection info
+        if (
+            self._connection_mode in ("connection", "database")
+            and not self._has_sql_state()
+            and not self._lazy_ops
+        ):
+            return self._connection_repr()
+
         # If we have operations, execute and show the DataFrame
         if self._has_sql_state() or self._lazy_ops:
             try:
@@ -5462,6 +6420,16 @@ class DataStore(PandasCompatMixin):
 
         This method is automatically called by Jupyter when displaying the object.
         """
+        import html
+
+        # Connection-level mode - show connection info
+        if (
+            self._connection_mode in ("connection", "database")
+            and not self._has_sql_state()
+            and not self._lazy_ops
+        ):
+            return f"<pre>{html.escape(self._connection_repr())}</pre>"
+
         # If we have operations, execute and show the DataFrame
         if self._has_sql_state() or self._lazy_ops:
             try:
@@ -5469,14 +6437,43 @@ class DataStore(PandasCompatMixin):
                 return df._repr_html_()
             except Exception as e:
                 # If execution fails, show error in HTML
-                return f"<div><strong>DataStore</strong> (execution failed: {e})</div>"
+                return f"<div><strong>DataStore</strong> (execution failed: {html.escape(str(e))})</div>"
 
         # Fallback: show basic info in HTML
-        html = "<div><strong>DataStore</strong><br>"
-        html += f"Source type: {self.source_type}<br>"
+        info_html = "<div><strong>DataStore</strong><br>"
+        info_html += f"Source type: {html.escape(self.source_type or '')}<br>"
         if self.table_name:
-            html += f"Table: {self.table_name}<br>"
+            info_html += f"Table: {html.escape(self.table_name)}<br>"
         if self._table_function:
-            html += "Using table function<br>"
-        html += "</div>"
-        return html
+            info_html += "Using table function<br>"
+        info_html += "</div>"
+        return info_html
+
+    def _connection_repr(self) -> str:
+        """
+        Generate repr string for connection-level DataStore with masked sensitive fields.
+
+        Returns:
+            String like: DataStore(source='clickhouse', host='localhost:9000', user='default', password='***')
+        """
+        parts = [f"DataStore(source={self.source_type!r}"]
+
+        # Add remote params with masking
+        for key, value in self._remote_params.items():
+            if value is not None:
+                # Mask sensitive fields
+                if key.lower() in self._SENSITIVE_FIELDS:
+                    parts.append(f", {key}={self._MASKED_VALUE!r}")
+                else:
+                    parts.append(f", {key}={value!r}")
+
+        # Show default database if set
+        if self._default_database:
+            parts.append(f", database={self._default_database!r}")
+
+        # Show default table if set
+        if self._default_table:
+            parts.append(f", table={self._default_table!r}")
+
+        parts.append(")")
+        return "".join(parts)
