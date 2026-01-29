@@ -57,6 +57,10 @@ build-backend = "setuptools.build_meta"
 build-frontend = "pip"
 build-verbosity = 1
 
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests", "datastore/tests"]
+
 [tool.pyright]
 include = ["chdb", "datastore"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
