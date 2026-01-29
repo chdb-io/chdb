@@ -20,7 +20,11 @@ import pandas as pd
 import pytest
 
 from datastore import DataStore
-from datastore.tests.test_utils import assert_series_equal, assert_frame_equal
+from datastore.tests.test_utils import (
+    assert_series_equal,
+    assert_frame_equal,
+    assert_datastore_equals_pandas,
+)
 
 
 class TestUnicodeStringOperations:
@@ -125,7 +129,7 @@ class TestUnicodeStringOperations:
     @pytest.mark.xfail(reason="chDB trimBoth bug with Unicode via Python() table function")
     def test_str_strip_with_unicode(self):
         """str.strip() should handle Unicode whitespace.
-        
+
         This fails due to a chDB bug: trimBoth() on Unicode strings via Python()
         table function doesn't correctly trim right-side whitespace and adds
         null bytes to the result.
@@ -182,15 +186,12 @@ class TestMixedTypeOperations:
         ds_df = DataStore(pd_df.copy())
 
         # Filter
-        pd_filtered = pd_df[pd_df['a'] > 2].copy()
+        pd_filtered = pd_df[pd_df['a'] > 2]
         ds_filtered = ds_df[ds_df['a'] > 2]
 
-        # For DataStore, verify we can get filtered result
-        ds_result = ds_filtered.to_df()
-
-        # Compare filtered shape
-        assert ds_result.shape[0] == pd_filtered.shape[0], "Row count mismatch"
-        assert list(ds_result.columns) == list(pd_filtered.columns), "Column mismatch"
+        # Use assert_datastore_equals_pandas for complete comparison
+        # including values, not just shape
+        assert_datastore_equals_pandas(ds_filtered, pd_filtered)
 
     def test_empty_result_operations(self):
         """Operations on empty filtered results should work like pandas."""
@@ -204,9 +205,8 @@ class TestMixedTypeOperations:
         pd_empty = pd_df[pd_df['x'] > 100]
         ds_empty = ds_df[ds_df['x'] > 100]
 
-        # Check shape
-        assert len(ds_empty.to_df()) == len(pd_empty)
-        assert ds_empty.to_df().shape == pd_empty.shape
+        # Use assert_datastore_equals_pandas for complete comparison
+        assert_datastore_equals_pandas(ds_empty, pd_empty)
 
     def test_chained_filter_operations(self):
         """Chained filters should work correctly."""
@@ -220,8 +220,8 @@ class TestMixedTypeOperations:
         pd_result = pd_df[pd_df['a'] > 2][pd_df['a'] < 8][pd_df['b'].isin(['b', 'c', 'd'])]
         ds_result = ds_df[ds_df['a'] > 2][ds_df['a'] < 8][ds_df['b'].isin(['b', 'c', 'd'])]
 
-        assert_frame_equal(ds_result.to_df().reset_index(drop=True),
-                          pd_result.reset_index(drop=True))
+        # Use assert_datastore_equals_pandas for complete comparison
+        assert_datastore_equals_pandas(ds_result, pd_result)
 
 
 class TestGroupByEdgeCases:
@@ -310,17 +310,9 @@ class TestIlocEdgeCases:
         pd_result = pd_df.iloc[-2:]
         ds_result = ds_df.iloc[-2:]
 
-        # ds_result should be a DataStore or DataFrame
-        if hasattr(ds_result, 'to_df'):
-            ds_result_df = ds_result.to_df()
-        elif isinstance(ds_result, pd.DataFrame):
-            ds_result_df = ds_result
-        else:
-            # Try to convert
-            ds_result_df = pd.DataFrame(ds_result)
-
-        assert_frame_equal(ds_result_df.reset_index(drop=True),
-                          pd_result.reset_index(drop=True))
+        # Use assert_datastore_equals_pandas for complete comparison
+        # Duck typing: access columns property to trigger execution
+        assert_datastore_equals_pandas(ds_result, pd_result)
 
 
 class TestWhereAndMask:
