@@ -191,6 +191,10 @@ ColumnPtr PandasScan::scanColumn(
     case TypeIndex::DateTime64:
         innerScanDateTime64(cursor, count, static_cast<const Int64 *>(col_wrap.buf), column, col_wrap.stride);
         break;
+    case TypeIndex::Interval:
+        // Interval uses Int64 storage, same as DateTime64. pandas timedelta64[ns] is also Int64 (nanoseconds)
+        innerScanDateTime64(cursor, count, static_cast<const Int64 *>(col_wrap.buf), column, col_wrap.stride);
+        break;
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported target type: {}", which.idx);
 	}
