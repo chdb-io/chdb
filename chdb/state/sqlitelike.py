@@ -1091,6 +1091,12 @@ def connect(connection_string: str = ":memory:") -> Connection:
             Special parameter handling:
 
             - "mode=ro" becomes "--readonly=1" (read-only mode)
+            - "progress=tty" enables progress bar (TTY output)
+            - "progress=err" enables progress bar (stderr output)
+            - "progress=off" disables progress bar
+            - "progress-table=tty" enables progress table (TTY output)
+            - "progress-table=err" enables progress table (stderr output)
+            - "progress-table=off" disables progress table
             - "verbose" enables verbose logging
             - "log-level=test" sets logging level
 
@@ -1123,6 +1129,8 @@ def connect(connection_string: str = ":memory:") -> Connection:
         >>> # With parameters
         >>> conn = connect("data.db?mode=ro")  # Read-only mode
         >>> conn = connect(":memory:?verbose&log-level=debug")  # Debug logging
+        >>> conn = connect(":memory:?progress=tty")  # Progress bar
+        >>> conn = connect(":memory:?progress-table=tty")  # Progress table
         >>>
         >>> # Using context manager for automatic cleanup
         >>> with connect("data.db") as conn:

@@ -1593,7 +1593,7 @@ void ClientBase::onProfileEvents(Block & block)
     if (rows == 0)
         return;
 
-    if (getName() == "local" || isEmbeeddedClient() || server_revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS)
+    if (getName() == "chdb" || isEmbeeddedClient() || server_revision >= DBMS_MIN_PROTOCOL_VERSION_WITH_INCREMENTAL_PROFILE_EVENTS)
     {
         const auto & array_thread_id = typeid_cast<const ColumnUInt64 &>(*block.getByName("thread_id").column).getData();
         const auto & names = typeid_cast<const ColumnString &>(*block.getByName("name").column);

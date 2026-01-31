@@ -36,6 +36,14 @@ ChdbClient::ChdbClient(EmbeddedServer & server_ref)
     configuration = ConfigHelper::createEmpty();
     layered_configuration = new Poco::Util::LayeredConfiguration();
     layered_configuration->addWriteable(configuration, 0);
+    if (server.config().has("progress"))
+        configuration->setString("progress", server.config().getString("progress"));
+    if (server.config().has("progress-table"))
+        configuration->setString("progress-table", server.config().getString("progress-table"));
+    if (server.config().has("enable-progress-table-toggle"))
+        configuration->setBool("enable-progress-table-toggle", server.config().getBool("enable-progress-table-toggle"));
+    if (!configuration->has("enable-progress-table-toggle"))
+        configuration->setBool("enable-progress-table-toggle", false);
     session = std::make_unique<Session>(server.getGlobalContext(), ClientInfo::Interface::LOCAL);
 #if USE_PYTHON
     python_table_cache = std::make_shared<CHDB::PythonTableCache>();
@@ -52,6 +60,9 @@ ChdbClient::ChdbClient(EmbeddedServer & server_ref)
     ignore_error = false;
     echo_queries = false;
     print_stack_trace = false;
+    initTTYBuffer(toProgressOption(getClientConfiguration().getString("progress", "default")),
+        toProgressOption(getClientConfiguration().getString("progress-table", "default")));
+    initKeystrokeInterceptor();
 }
 
 std::unique_ptr<ChdbClient> ChdbClient::create(EmbeddedServer & server_ref)
@@ -87,6 +98,11 @@ void ChdbClient::cleanup()
 
 void ChdbClient::connect()
 {
+    initTTYBuffer(toProgressOption(getClientConfiguration().getString("progress", "default")),
+        toProgressOption(getClientConfiguration().getString("progress-table", "default")));
+    initKeystrokeInterceptor();
+    const bool send_progress = need_render_progress || need_render_progress_table;
+    const bool send_profile_events = need_render_progress_table;
     connection_parameters = ConnectionParameters::createForEmbedded(
         session->sessionContext()->getUserName(),
         "default");
@@ -94,8 +110,8 @@ void ChdbClient::connect()
         connection_parameters,
         std::move(session),
         std_in.get(),
-        false,
-        false,
+        send_progress,
+        send_profile_events,
         server_display_name);
         connection->setDefaultDatabase("default");
 }
