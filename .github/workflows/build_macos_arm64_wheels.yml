@@ -26,8 +26,8 @@ on:
       - '**/*.md'
 
 env:
-  # Force DEBUG_MODE off for main branch pushes, otherwise use input value
-  EFFECTIVE_DEBUG_MODE: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'false' || inputs.DEBUG_MODE }}
+  # DEBUG_MODE disabled for all builds
+  EFFECTIVE_DEBUG_MODE: 'false'
 
 jobs:
   build_universal_wheel_on_linux:
