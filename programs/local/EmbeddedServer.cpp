@@ -274,6 +274,9 @@ static DatabasePtr createMemoryDatabaseIfNotExists(ContextPtr context, const Str
     {
         /// TODO: add attachTableDelayed into DatabaseMemory to speedup loading
         system_database = std::make_shared<DatabaseMemory>(database_name, context);
+        /// Lock the UUID before attaching the database to avoid assertion failure in addUUIDMapping
+        if (UUID uuid = system_database->getUUID(); uuid != UUIDHelpers::Nil)
+            DatabaseCatalog::instance().addUUIDMapping(uuid);
         DatabaseCatalog::instance().attachDatabase(database_name, system_database);
     }
     return system_database;
