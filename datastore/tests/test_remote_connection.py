@@ -273,6 +273,84 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._connection_mode, "table")
 
 
+class TestUseDatabaseMethod(unittest.TestCase):
+    """Test use_database() method for explicit database selection."""
+
+    def test_use_database_sets_default_database(self):
+        """use_database(database) sets default database."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        result = ds.use_database("production")
+
+        self.assertIs(result, ds)  # Returns self
+        self.assertEqual(ds._default_database, "production")
+
+    def test_use_database_updates_connection_mode(self):
+        """use_database() updates mode from connection to database."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        self.assertEqual(ds._connection_mode, "connection")
+
+        ds.use_database("mydb")
+        self.assertEqual(ds._connection_mode, "database")
+        self.assertEqual(ds._default_database, "mydb")
+
+    def test_use_database_returns_self_for_chaining(self):
+        """use_database() returns self for method chaining."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        result = ds.use_database("db1").use_database("db2")
+
+        self.assertIs(result, ds)
+        self.assertEqual(ds._default_database, "db2")
+
+    def test_use_database_chain_with_table(self):
+        """use_database().table() chain works correctly."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        users = ds.use_database("production").table("users")
+
+        # Original ds should have database set
+        self.assertEqual(ds._default_database, "production")
+        self.assertEqual(ds._connection_mode, "database")
+
+        # New DataStore should be in table mode
+        self.assertIsInstance(users, DataStore)
+        self.assertEqual(users._connection_mode, "table")
+
+    def test_use_database_none_raises_error(self):
+        """use_database(None) raises ValueError."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        with self.assertRaises(ValueError):
+            ds.use_database(None)
+
+    def test_use_database_empty_string_raises_error(self):
+        """use_database('') raises ValueError."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        with self.assertRaises(ValueError):
+            ds.use_database("")
+
+    def test_use_database_does_not_affect_table(self):
+        """use_database() should not change _default_table."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        ds._default_table = "existing_table"  # Set a table first
+
+        ds.use_database("newdb")
+
+        self.assertEqual(ds._default_database, "newdb")
+        self.assertEqual(ds._default_table, "existing_table")  # Unchanged
+
+
 class TestTableMethod(unittest.TestCase):
     """Test table() method for explicit table selection.
 

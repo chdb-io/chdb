@@ -5350,6 +5350,43 @@ class DataStore(PandasCompatMixin):
 
         return self
 
+    def use_database(self, database: str) -> "DataStore":
+        """
+        Set the default database context.
+
+        This is a more explicit alternative to use(database). Sets the default
+        database for subsequent operations like tables(), query(), and table selection.
+        Mutates the current DataStore and returns self for chaining.
+
+        Args:
+            database: The database name to use as default
+
+        Returns:
+            self for method chaining
+
+        Examples:
+            >>> ds = DataStore.from_clickhouse(host="localhost:9000", user="default", password="")
+            >>> ds.use_database("production")
+            >>> ds.tables()  # lists tables in production database
+            ['users', 'orders', ...]
+
+            >>> ds.use_database("staging").table("users")  # chaining
+            <DataStore table=staging.users>
+
+        Raises:
+            ValueError: If database is None or empty string
+        """
+        if not database:
+            raise ValueError("database cannot be None or empty")
+
+        self._default_database = database
+
+        # Update connection mode if we're in pure connection mode
+        if self._connection_mode == "connection":
+            self._connection_mode = "database"
+
+        return self
+
     def databases(self) -> List[str]:
         """
         List all databases on the remote server.
