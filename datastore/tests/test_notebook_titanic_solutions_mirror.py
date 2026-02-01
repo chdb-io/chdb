@@ -604,15 +604,18 @@ class TestGroupBySorted:
 
         From notebook: train_df[["SibSp", "Survived"]].groupby(['SibSp'], as_index=False).mean()
                        .sort_values(by='Survived', ascending=False)
+
+        Note: Uses kind='stable' because SibSp=5 and SibSp=8 both have Survived=0.0,
+        creating a tie. Without stable sort, the order is platform-dependent.
         """
         # pandas
         pd_result = titanic_pd_df[["SibSp", "Survived"]].groupby(['SibSp'], as_index=False).mean()
-        pd_result = pd_result.sort_values(by='Survived', ascending=False)
+        pd_result = pd_result.sort_values(by='Survived', ascending=False, kind='stable')
 
         # DataStore
         ds = DataStore.from_file(dataset_path("Titanic-Dataset.csv"))
         ds_result = ds[["SibSp", "Survived"]].groupby(['SibSp'], as_index=False).mean()
-        ds_result = ds_result.sort_values(by='Survived', ascending=False)
+        ds_result = ds_result.sort_values(by='Survived', ascending=False, kind='stable')
 
         assert_datastore_equals_pandas(ds_result, pd_result, check_row_order=True)
 
@@ -624,18 +627,21 @@ class TestGroupBySorted:
         dataset['FamilySize'] = dataset['SibSp'] + dataset['Parch'] + 1
         train_df[['FamilySize', 'Survived']].groupby(['FamilySize'], as_index=False).mean()
             .sort_values(by='Survived', ascending=False)
+
+        Note: Uses kind='stable' because FamilySize=8 and FamilySize=11 both have Survived=0.0,
+        creating a tie. Without stable sort, the order is platform-dependent.
         """
         # pandas
         pd_df = titanic_pd_df.copy()
         pd_df['FamilySize'] = pd_df['SibSp'] + pd_df['Parch'] + 1
         pd_result = pd_df[['FamilySize', 'Survived']].groupby(['FamilySize'], as_index=False).mean()
-        pd_result = pd_result.sort_values(by='Survived', ascending=False)
+        pd_result = pd_result.sort_values(by='Survived', ascending=False, kind='stable')
 
         # DataStore
         ds = DataStore.from_file(dataset_path("Titanic-Dataset.csv"))
         ds['FamilySize'] = ds['SibSp'] + ds['Parch'] + 1
         ds_result = ds[['FamilySize', 'Survived']].groupby(['FamilySize'], as_index=False).mean()
-        ds_result = ds_result.sort_values(by='Survived', ascending=False)
+        ds_result = ds_result.sort_values(by='Survived', ascending=False, kind='stable')
 
         assert_datastore_equals_pandas(ds_result, pd_result, check_row_order=True)
 
