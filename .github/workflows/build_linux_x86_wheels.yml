@@ -26,6 +26,10 @@ on:
       - '**/*.md'
 
 
+env:
+  # Force DEBUG_MODE off for main branch pushes, otherwise use input value
+  EFFECTIVE_DEBUG_MODE: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'false' || inputs.DEBUG_MODE }}
+
 jobs:
   build_universal_wheel:
     name: Build & Test Universal Wheel (Linux x86_64)
@@ -203,7 +207,7 @@ jobs:
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
           # Use Debug for crash analysis when DEBUG_MODE is enabled
-          if [ "${{ inputs.DEBUG_MODE }}" == "true" ]; then
+          if [ "${{ env.EFFECTIVE_DEBUG_MODE }}" == "true" ]; then
             bash ./chdb/build.sh Debug
           else
             bash ./chdb/build.sh
@@ -212,7 +216,7 @@ jobs:
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Run chdb/build/build_static_lib.sh
-        if: inputs.DEBUG_MODE != true
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         timeout-minutes: 600
         run: |
           export CC=/usr/bin/clang
@@ -304,7 +308,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           
-          DEBUG_MODE="${{ inputs.DEBUG_MODE }}"
+          DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
           
           # Install lldb for debugging when DEBUG_MODE is enabled
           if [ "$DEBUG_MODE" == "true" ]; then
@@ -364,7 +368,7 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.11
           
-          DEBUG_MODE="${{ inputs.DEBUG_MODE }}"
+          DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
           
           python -m pip install dist/*.whl --force-reinstall
           python -m pip install pytest pytest-cov
@@ -420,6 +424,7 @@ jobs:
           pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -467,7 +472,7 @@ jobs:
           cp programs/local/chdb.hpp chdb.hpp
           tar -czvf linux-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
       - name: Package libchdb.a
-        if: inputs.DEBUG_MODE != true
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           cp programs/local/chdb.h chdb.h
           cp programs/local/chdb.hpp chdb.hpp
@@ -479,7 +484,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v') && inputs.DEBUG_MODE != true
+        if: startsWith(github.ref, 'refs/tags/v') && env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           gh release upload ${{ github.ref_name }} linux-x86_64-libchdb-static.tar.gz --clobber
         env:

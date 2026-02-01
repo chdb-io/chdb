@@ -25,6 +25,10 @@ on:
     paths-ignore:
       - '**/*.md'
 
+env:
+  # Force DEBUG_MODE off for main branch pushes, otherwise use input value
+  EFFECTIVE_DEBUG_MODE: ${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && 'false' || inputs.DEBUG_MODE }}
+
 jobs:
   build_universal_wheel_on_linux:
     name: Build on Linux (cross-compile for macOS arm64)
@@ -95,14 +99,14 @@ jobs:
         run: |
           source ~/.cargo/env
           # Use Debug for crash analysis when DEBUG_MODE is enabled
-          if [ "${{ inputs.DEBUG_MODE }}" == "true" ]; then
+          if [ "${{ env.EFFECTIVE_DEBUG_MODE }}" == "true" ]; then
             bash ./chdb/build_mac_on_linux.sh arm64 Debug
           else
             bash ./chdb/build_mac_on_linux.sh arm64
           fi
         continue-on-error: false
       - name: Run chdb/build/build_static_lib_mac_on_linux.sh
-        if: inputs.DEBUG_MODE != true
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         timeout-minutes: 600
         run: |
           source ~/.cargo/env
@@ -263,7 +267,7 @@ jobs:
           bash gen_manifest.sh
           bash -x ./chdb/test_smoke.sh cross-compile
       - name: Run chdb/build/test_go_example.sh
-        if: inputs.DEBUG_MODE != true
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         timeout-minutes: 600
         run: |
           bash ./chdb/build/test_go_example.sh ${{ github.workspace }}/libchdb.a
@@ -301,7 +305,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           
-          DEBUG_MODE="${{ inputs.DEBUG_MODE }}"
+          DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
           
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
@@ -355,7 +359,7 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.11
           
-          DEBUG_MODE="${{ inputs.DEBUG_MODE }}"
+          DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
           
           python -m pip install dist/*.whl --force-reinstall --no-cache-dir
           python -m pip install pytest pytest-cov pytest-timeout
@@ -409,6 +413,7 @@ jobs:
           pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -451,7 +456,7 @@ jobs:
           cp programs/local/chdb.hpp chdb.hpp
           tar -czvf macos-arm64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
       - name: Package libchdb.a
-        if: inputs.DEBUG_MODE != true
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           cp programs/local/chdb.h chdb.h
           cp programs/local/chdb.hpp chdb.hpp
@@ -463,7 +468,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v') && inputs.DEBUG_MODE != true
+        if: startsWith(github.ref, 'refs/tags/v') && env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           gh release upload ${{ github.ref_name }} macos-arm64-libchdb-static.tar.gz --clobber
         env:
