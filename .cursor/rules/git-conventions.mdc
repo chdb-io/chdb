@@ -1,0 +1,32 @@
+---
+alwaysApply: true
+---
+
+## Git and PR Conventions for chdb
+
+### PR Title Format
+
+Use simple, descriptive titles without conventional commit prefixes:
+
+**Good examples:**
+- `Add timedelta64 type support for pandas DataFrame input`
+- `Fix memory leak in session cleanup`
+- `Update documentation for remote connection`
+- `Improve query performance for large datasets`
+
+**Avoid:**
+- `feat: add timedelta64 type support` (no conventional commit prefix)
+- `[Feature] Add timedelta64 support` (no brackets)
+- `feat(datastore): add timedelta support` (no scope notation)
+
+### Commit Messages
+
+For commits within a PR, you can use more detailed messages, but keep the main commit message clear and descriptive.
+
+### Branch Naming
+
+Use descriptive branch names with category prefix:
+- `fix/timedelta-support` - for bug fixes
+- `feat/datastore-session` - for new features
+- `docs/update-readme` - for documentation
+- `refactor/cleanup-imports` - for refactoring
