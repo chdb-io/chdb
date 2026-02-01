@@ -396,54 +396,64 @@ void EmbeddedServer::cleanup()
     /// (which can happen during Python interpreter exit).
     setShuttingDown();
 
+    /// Clear JIT cache BEFORE shutting down context to avoid use-after-free.
+#if USE_EMBEDDED_COMPILER
     try
     {
-        /// Clear JIT cache BEFORE shutting down context to avoid use-after-free.
-        /// The CompiledExpressionCache holds CompiledFunctionHolder objects that
-        /// reference static CHJIT instances. If we don't clear the cache first,
-        /// the holders' destructors may try to access already-destroyed CHJIT
-        /// instances when the program exits.
-#if USE_EMBEDDED_COMPILER
         if (auto * cache = CompiledExpressionCacheFactory::instance().tryGetCache())
             cache->clear();
+    }
+    catch (const std::exception & e)
+    {
+        std::cerr << "Exception clearing JIT cache: " << e.what() << std::endl;
+    }
+    catch (...) {}
 #endif
 
+    try
+    {
         EventNotifier::shutdown();
+    }
+    catch (...) {}
+
+    try
+    {
         if (global_context)
         {
             global_context->shutdown();
             global_context.reset();
         }
-        status.reset();
+    }
+    catch (const std::exception & e)
+    {
+        /// During Python interpreter exit, mutexes may be in invalid state
+        /// due to static object destruction order. This is expected and harmless.
+        /// Only print error for unexpected exceptions.
+        std::string_view msg = e.what();
+        if (msg.find("mutex") == std::string_view::npos &&
+            msg.find("Invalid argument") == std::string_view::npos)
+        {
+            std::cerr << "Exception in global_context->shutdown(): " << e.what() << std::endl;
+        }
+    }
+    catch (...) {}
 
-        // Delete the temporary directory if needed.
+    try
+    {
+        status.reset();
+    }
+    catch (...) {}
+
+    // Delete the temporary directory if needed.
+    try
+    {
         if (temporary_directory_to_delete)
         {
-            /// Note: Avoid logging here during cleanup - Poco::Logger may already be destroyed
-            /// during Python interpreter exit, causing EXC_BAD_ACCESS.
             fs::remove_all(*temporary_directory_to_delete);
             temporary_directory_to_delete.reset();
         }
     }
-    catch (const std::exception & e)
-    {
-        /// During Python interpreter exit, Poco::Logger may already be destroyed.
-        /// Avoid calling tryLogCurrentException() to prevent use-after-free crashes.
-        /// Write to stderr instead as a last resort.
-        try
-        {
-            std::cerr << "Exception during EmbeddedServer cleanup: " << e.what() << std::endl;
-        }
-        catch (...) {} // Ignore any errors writing to stderr
-    }
-    catch (...)
-    {
-        try
-        {
-            std::cerr << "Unknown exception during EmbeddedServer cleanup" << std::endl;
-        }
-        catch (...) {} // Ignore any errors writing to stderr
-    }
+    catch (...) {}
 }
 
 static ConfigurationPtr getConfigurationFromXMLString(const char * xml_data)
