@@ -398,6 +398,16 @@ void EmbeddedServer::cleanup()
 
     try
     {
+        /// Clear JIT cache BEFORE shutting down context to avoid use-after-free.
+        /// The CompiledExpressionCache holds CompiledFunctionHolder objects that
+        /// reference static CHJIT instances. If we don't clear the cache first,
+        /// the holders' destructors may try to access already-destroyed CHJIT
+        /// instances when the program exits.
+#if USE_EMBEDDED_COMPILER
+        if (auto * cache = CompiledExpressionCacheFactory::instance().tryGetCache())
+            cache->clear();
+#endif
+
         EventNotifier::shutdown();
         if (global_context)
         {
