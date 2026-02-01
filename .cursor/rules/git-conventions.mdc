@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 ## Git and PR Conventions for chdb
 
 ### PR Title Format
