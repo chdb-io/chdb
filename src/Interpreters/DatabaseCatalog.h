@@ -137,6 +137,7 @@ public:
 
     static DatabaseCatalog & init(ContextMutablePtr global_context_);
     static DatabaseCatalog & instance();
+    static bool isAvailable();  /// Check if catalog is initialized and not being destroyed
     static void shutdown(std::function<void()> shutdown_system_logs);
 
     void createBackgroundTasks();

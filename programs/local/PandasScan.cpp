@@ -3,6 +3,7 @@
 #include "PythonImporter.h"
 #include "ColumnVectorHelper.h"
 
+#include <Columns/ColumnDecimal.h>
 #include <Columns/ColumnLowCardinality.h>
 #include <Columns/ColumnNullable.h>
 #include <Columns/ColumnObject.h>
@@ -192,8 +193,9 @@ ColumnPtr PandasScan::scanColumn(
         innerScanDateTime64(cursor, count, static_cast<const Int64 *>(col_wrap.buf), column, col_wrap.stride);
         break;
     case TypeIndex::Interval:
-        // Interval uses Int64 storage, same as DateTime64. pandas timedelta64[ns] is also Int64 (nanoseconds)
-        innerScanDateTime64(cursor, count, static_cast<const Int64 *>(col_wrap.buf), column, col_wrap.stride);
+        // Interval uses ColumnVector<Int64> storage (different from DateTime64 which uses ColumnDecimal)
+        // pandas timedelta64[ns] is also Int64 (nanoseconds)
+        innerScanInterval(cursor, count, static_cast<const Int64 *>(col_wrap.buf), column, col_wrap.stride);
         break;
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported target type: {}", which.idx);
@@ -531,6 +533,45 @@ void PandasScan::innerScanDateTime64(
     }
     else
     {
+        // DateTime64 uses ColumnDecimal<DateTime64>, which has the same memory layout as Int64
+        auto & container = assert_cast<ColumnDecimal<DateTime64> &>(*data_column).getData();
+        const auto * base_ptr = reinterpret_cast<const char *>(ptr);
+        for (size_t i = cursor; i < cursor + count; ++i)
+        {
+            Int64 value = *reinterpret_cast<const Int64 *>(base_ptr + i * stride);
+            container.push_back(DateTime64(value));
+            bool is_nat = value <= std::numeric_limits<Int64>::min();
+            null_map.push_back(is_nat ? 1 : 0);
+        }
+    }
+}
+
+void PandasScan::innerScanInterval(
+    const size_t cursor,
+    const size_t count,
+    const Int64 * ptr,
+    DB::MutableColumnPtr & column,
+    size_t stride)
+{
+    auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+    auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+    auto & null_map = nullable_column.getNullMapData();
+
+    if (stride == 0 || stride == sizeof(Int64))
+    {
+        ColumnVectorHelper * helper = static_cast<ColumnVectorHelper *>(data_column.get());
+        const Int64 * start = ptr + cursor;
+        helper->appendRawData<sizeof(Int64)>(reinterpret_cast<const char *>(start), count);
+
+        for (size_t i = 0; i < count; ++i)
+        {
+            bool is_nat = start[i] <= std::numeric_limits<Int64>::min();
+            null_map.push_back(is_nat ? 1 : 0);
+        }
+    }
+    else
+    {
+        // Interval uses ColumnVector<Int64>
         auto & container = assert_cast<ColumnVector<Int64> &>(*data_column).getData();
         const auto * base_ptr = reinterpret_cast<const char *>(ptr);
         for (size_t i = cursor; i < cursor + count; ++i)

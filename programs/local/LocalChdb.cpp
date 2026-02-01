@@ -15,6 +15,10 @@
 #    include <Common/memory.h>
 #endif
 
+#if USE_EMBEDDED_COMPILER
+#    include <Interpreters/JIT/CompiledExpressionCache.h>
+#endif
+
 #if USE_CLIENT_AI
 #    include "AIQueryProcessor.h"
 #endif
@@ -651,9 +655,31 @@ void cursor_wrapper::execute(const std::string & query_str)
 }
 
 
+/// Cleanup function to be called before Python interpreter exits.
+/// This ensures JIT cache is cleared before static CHJIT instances are destroyed.
+static void chdb_cleanup_at_exit()
+{
+#if USE_EMBEDDED_COMPILER
+    try
+    {
+        if (auto * cache = DB::CompiledExpressionCacheFactory::instance().tryGetCache())
+            cache->clear();
+    }
+    catch (...)
+    {
+        // Ignore errors during cleanup at exit
+    }
+#endif
+}
+
 PYBIND11_MODULE(_chdb, m)
 {
     m.doc() = "chDB module for query function";
+
+    /// Register atexit handler to clean up JIT cache before interpreter exits.
+    /// This prevents use-after-free when CompiledFunctionHolder destructors
+    /// try to access already-destroyed static CHJIT instances.
+    py::module_::import("atexit").attr("register")(py::cpp_function(&chdb_cleanup_at_exit));
 
     py::class_<memoryview_wrapper>(m, "memoryview_wrapper")
         .def(py::init<std::shared_ptr<local_result_wrapper>>(), py::return_value_policy::take_ownership)
