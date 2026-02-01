@@ -247,8 +247,8 @@ LIBCHDB_DIR=${BUILD_DIR}/
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
+if [ ${build_type} == "Debug" ] || [ ${build_type} == "RelWithDebInfo" ]; then
+    echo -e "\n${build_type} build, skip strip"
 else
     echo -e "\nStrip the binary:"
     # macOS MachO format requires different strip options than Linux ELF

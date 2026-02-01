@@ -275,7 +275,7 @@ class TestUseMethod(unittest.TestCase):
 
 class TestTableMethod(unittest.TestCase):
     """Test table() method for explicit table selection.
-    
+
     The table() method is the recommended way to select tables, as it avoids
     ambiguity with pandas-style ds["column"] and ds[condition] syntax.
     """
@@ -318,7 +318,7 @@ class TestTableMethod(unittest.TestCase):
             host="localhost:9000", user="default", password=""
         )
         ds.use("production")
-        
+
         users = ds.table("users")
 
         self.assertIsInstance(users, DataStore)
@@ -374,7 +374,7 @@ class TestTableMethod(unittest.TestCase):
 
 class TestGetItemTableSelection(unittest.TestCase):
     """Test __getitem__ for table selection in connection mode.
-    
+
     NOTE: Using ds["db.table"] for table selection is legacy behavior.
     The recommended approach is to use ds.table("db", "table") which is
     unambiguous and doesn't conflict with pandas-style column/row selection.
@@ -986,7 +986,7 @@ class TestChainedTableSelection(unittest.TestCase):
     """Test chained table selection via table() method.
 
     Design doc Section 3: Select Database/Table
-    
+
     NOTE: This class tests the recommended table() method.
     Legacy __getitem__ tests are in TestGetItemTableSelection.
     """
