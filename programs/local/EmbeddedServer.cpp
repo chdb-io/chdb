@@ -391,6 +391,11 @@ void EmbeddedServer::tryInitPath()
 
 void EmbeddedServer::cleanup()
 {
+    /// Mark that we're shutting down to prevent logging operations from
+    /// crashing when Poco::Logger's internal data structures are destroyed
+    /// (which can happen during Python interpreter exit).
+    setShuttingDown();
+
     try
     {
         EventNotifier::shutdown();
@@ -404,14 +409,30 @@ void EmbeddedServer::cleanup()
         // Delete the temporary directory if needed.
         if (temporary_directory_to_delete)
         {
-            LOG_DEBUG(&logger(), "Removing temporary directory: {}", temporary_directory_to_delete->string());
+            /// Note: Avoid logging here during cleanup - Poco::Logger may already be destroyed
+            /// during Python interpreter exit, causing EXC_BAD_ACCESS.
             fs::remove_all(*temporary_directory_to_delete);
             temporary_directory_to_delete.reset();
         }
     }
+    catch (const std::exception & e)
+    {
+        /// During Python interpreter exit, Poco::Logger may already be destroyed.
+        /// Avoid calling tryLogCurrentException() to prevent use-after-free crashes.
+        /// Write to stderr instead as a last resort.
+        try
+        {
+            std::cerr << "Exception during EmbeddedServer cleanup: " << e.what() << std::endl;
+        }
+        catch (...) {} // Ignore any errors writing to stderr
+    }
     catch (...)
     {
-        tryLogCurrentException(__PRETTY_FUNCTION__);
+        try
+        {
+            std::cerr << "Unknown exception during EmbeddedServer cleanup" << std::endl;
+        }
+        catch (...) {} // Ignore any errors writing to stderr
     }
 }
 

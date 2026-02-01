@@ -302,6 +302,12 @@ using Exceptions = std::vector<std::exception_ptr>;
   */
 /// TODO: Logger leak constexpr overload
 void tryLogCurrentException(const char * log_name, const std::string & start_of_message = "", LogsLevel level = LogsLevel::error);
+
+/// Functions to manage shutdown state for safe logging.
+/// Call setShuttingDown() before cleanup to prevent crashes when
+/// Poco::Logger may have been destroyed (e.g., during Python interpreter exit).
+void setShuttingDown();
+bool isShuttingDown();
 void tryLogCurrentException(Poco::Logger * logger, const std::string & start_of_message = "", LogsLevel level = LogsLevel::error);
 void tryLogCurrentException(LoggerPtr logger, const std::string & start_of_message = "", LogsLevel level = LogsLevel::error);
 void tryLogCurrentException(const AtomicLogger & logger, const std::string & start_of_message = "", LogsLevel level = LogsLevel::error);

@@ -30,6 +30,22 @@ namespace fs = std::filesystem;
 namespace DB
 {
 
+/// Global flag to indicate that the process is shutting down.
+/// When this is set, logging operations are skipped to avoid crashes
+/// when Poco::Logger's internal data structures have already been destroyed
+/// (which can happen during Python interpreter exit).
+static std::atomic<bool> g_is_shutting_down{false};
+
+void setShuttingDown()
+{
+    g_is_shutting_down.store(true, std::memory_order_release);
+}
+
+bool isShuttingDown()
+{
+    return g_is_shutting_down.load(std::memory_order_acquire);
+}
+
 namespace ErrorCodes
 {
     extern const int POCO_EXCEPTION;
@@ -314,6 +330,11 @@ catch (...) // NOLINT(bugprone-empty-catch)
 
 static void tryLogCurrentExceptionImpl(Poco::Logger * logger, const std::string & start_of_message, LogsLevel level)
 {
+    /// During shutdown, Poco::Logger's internal hash table may already be destroyed,
+    /// causing EXC_BAD_ACCESS when trying to log. Skip logging in this case.
+    if (isShuttingDown())
+        return;
+
     try
     {
         PreformattedMessage message = getCurrentExceptionMessageAndPattern(true);
