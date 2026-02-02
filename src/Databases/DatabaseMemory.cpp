@@ -21,8 +21,19 @@ namespace ErrorCodes
 }
 
 DatabaseMemory::DatabaseMemory(const String & name_, ContextPtr context_)
+    : DatabaseMemory(
+          name_,
+          /// TEMPORARY_DATABASE must have Nil UUID (this is expected by the codebase)
+          /// Other databases get a generated UUID to satisfy the assertion in DatabaseWithOwnTablesBase::shutdown()
+          name_ == DatabaseCatalog::TEMPORARY_DATABASE ? UUIDHelpers::Nil : UUIDHelpers::generateV4(),
+          context_)
+{
+}
+
+DatabaseMemory::DatabaseMemory(const String & name_, UUID uuid, ContextPtr context_)
     : DatabaseWithOwnTablesBase(name_, "DatabaseMemory(" + name_ + ")", context_)
     , data_path("data/" + escapeForFileName(database_name) + "/")
+    , db_uuid(uuid)
 {
     /// Temporary database should not have any data on the moment of its creation
     /// In case of sudden server shutdown remove database folder of temporary database

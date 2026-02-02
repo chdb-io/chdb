@@ -21,10 +21,16 @@ class TestColumnExprRankSQLPushdown:
 
     @pytest.fixture
     def sample_df(self):
-        """Sample data with ties for testing rank behavior."""
+        """Sample data with ties for testing rank behavior.
+        
+        Use larger dataset (10000 rows) for stable testing - small datasets
+        may not reliably expose non-deterministic row order issues.
+        """
+        np.random.seed(42)
+        n = 10000
         return pd.DataFrame({
-            'value': [30, 10, 20, 20, 40],
-            'category': ['A', 'B', 'A', 'B', 'A']
+            'value': np.random.randint(10, 50, size=n),
+            'category': np.random.choice(['A', 'B', 'C'], size=n)
         })
 
     def test_rank_method_first_sql(self, sample_df):
@@ -116,9 +122,15 @@ class TestColumnExprRankWithTies:
 
     @pytest.fixture
     def ties_df(self):
-        """Data with multiple tie scenarios."""
+        """Data with multiple tie scenarios.
+        
+        Use larger dataset (10000 rows) for stable testing.
+        """
+        np.random.seed(42)
+        # Generate data with many ties (only 5 distinct values in 10000 rows)
+        values = np.random.choice([10, 20, 30, 40, 50], size=10000)
         return pd.DataFrame({
-            'value': [10, 10, 20, 20, 20, 30]
+            'value': values
         })
 
     def test_rank_first_with_ties(self, ties_df):
@@ -156,10 +168,15 @@ class TestGroupbyRank:
 
     @pytest.fixture
     def grouped_df(self):
-        """Data for groupby rank tests."""
+        """Data for groupby rank tests.
+        
+        Use larger dataset (10000 rows) for stable testing.
+        """
+        np.random.seed(42)
+        n = 10000
         return pd.DataFrame({
-            'category': ['A', 'A', 'B', 'B', 'A'],
-            'value': [10, 20, 15, 25, 30]
+            'category': np.random.choice(['A', 'B', 'C'], size=n),
+            'value': np.random.randint(10, 50, size=n)
         })
 
     def test_groupby_rank_default(self, grouped_df):
@@ -204,8 +221,11 @@ class TestRankWithAssign:
 
     @pytest.fixture
     def sample_df(self):
+        """Use larger dataset (10000 rows) for stable testing."""
+        np.random.seed(42)
+        n = 10000
         return pd.DataFrame({
-            'value': [30, 10, 20, 20, 40]
+            'value': np.random.randint(10, 50, size=n)
         })
 
     def test_assign_rank_first(self, sample_df):
@@ -258,9 +278,12 @@ class TestRankWithExpressions:
 
     @pytest.fixture
     def sample_df(self):
+        """Use larger dataset (10000 rows) for stable testing."""
+        np.random.seed(42)
+        n = 10000
         return pd.DataFrame({
-            'a': [1, 2, 3, 4, 5],
-            'b': [10, 20, 30, 40, 50]
+            'a': np.random.randint(1, 20, size=n),
+            'b': np.random.randint(10, 100, size=n)
         })
 
     def test_rank_on_arithmetic_expression(self, sample_df):

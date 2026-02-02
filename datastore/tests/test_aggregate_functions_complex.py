@@ -60,18 +60,18 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_avg_execution_verify_value(self):
         """Test AVG calculation with exact value verification."""
         ds = DataStore(table="stat_data")
-        sql = ds.select(F.avg(ds.value).as_("avg")).filter(ds.category == 'A').to_sql()
+        sql = ds.select(F.avg(ds.value).as_("avg")).filter(ds.category == "A").to_sql()
         result = self._execute(sql)
         # Average of 10,20,30,40,50 = 150/5 = 30
         self.assertEqual(float(result), 30.0)
@@ -79,7 +79,11 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
     def test_stddev_pop_execution_verify_value(self):
         """Test stddevPop calculation with exact value verification."""
         ds = DataStore(table="stat_data")
-        sql = ds.select(F.stddev_pop(ds.value).as_("std")).filter(ds.category == 'A').to_sql()
+        sql = (
+            ds.select(F.stddev_pop(ds.value).as_("std"))
+            .filter(ds.category == "A")
+            .to_sql()
+        )
         result = self._execute(sql)
         # Standard deviation of 10,20,30,40,50:
         # mean = 30, deviations = -20,-10,0,10,20
@@ -90,7 +94,11 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
     def test_stddev_samp_execution_verify_value(self):
         """Test stddevSamp (sample std) calculation with exact value verification."""
         ds = DataStore(table="stat_data")
-        sql = ds.select(F.stddev_samp(ds.value).as_("std")).filter(ds.category == 'A').to_sql()
+        sql = (
+            ds.select(F.stddev_samp(ds.value).as_("std"))
+            .filter(ds.category == "A")
+            .to_sql()
+        )
         result = self._execute(sql)
         # Sample std: sqrt((400+100+0+100+400)/(5-1)) = sqrt(250) ≈ 15.811
         self.assertAlmostEqual(float(result), 15.811, places=2)
@@ -98,7 +106,11 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
     def test_var_pop_execution_verify_value(self):
         """Test varPop calculation with exact value verification."""
         ds = DataStore(table="stat_data")
-        sql = ds.select(F.var_pop(ds.value).as_("var")).filter(ds.category == 'A').to_sql()
+        sql = (
+            ds.select(F.var_pop(ds.value).as_("var"))
+            .filter(ds.category == "A")
+            .to_sql()
+        )
         result = self._execute(sql)
         # Variance of 10,20,30,40,50 = 200
         self.assertEqual(float(result), 200.0)
@@ -106,7 +118,11 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
     def test_var_samp_execution_verify_value(self):
         """Test varSamp (sample variance) calculation with exact value verification."""
         ds = DataStore(table="stat_data")
-        sql = ds.select(F.var_samp(ds.value).as_("var")).filter(ds.category == 'A').to_sql()
+        sql = (
+            ds.select(F.var_samp(ds.value).as_("var"))
+            .filter(ds.category == "A")
+            .to_sql()
+        )
         result = self._execute(sql)
         # Sample variance = 1000/(5-1) = 250
         self.assertEqual(float(result), 250.0)
@@ -114,7 +130,9 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
     def test_median_execution_verify_value(self):
         """Test median calculation with exact value verification."""
         ds = DataStore(table="stat_data")
-        sql = ds.select(F.median(ds.value).as_("med")).filter(ds.category == 'A').to_sql()
+        sql = (
+            ds.select(F.median(ds.value).as_("med")).filter(ds.category == "A").to_sql()
+        )
         result = self._execute(sql)
         # Median of 10,20,30,40,50 = 30
         self.assertAlmostEqual(float(result), 30.0, places=1)
@@ -128,11 +146,11 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
                 F.max(ds.value).as_("max_val"),
                 (F.max(ds.value) - F.min(ds.value)).as_("range"),
             )
-            .filter(ds.category == 'B')
+            .filter(ds.category == "B")
             .to_sql()
         )
         result = self._execute(sql)
-        values = result.split(',')
+        values = result.split(",")
         # B: min=100, max=300, range=200
         self.assertEqual(float(values[0]), 100.0)
         self.assertEqual(float(values[1]), 300.0)
@@ -154,27 +172,27 @@ class TestStatisticalAggregatesExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Category A: avg=30, min=10, max=50, count=5
-        a_values = lines[0].replace('"', '').split(',')
-        self.assertEqual(a_values[0], 'A')
+        a_values = lines[0].replace('"', "").split(",")
+        self.assertEqual(a_values[0], "A")
         self.assertEqual(float(a_values[1]), 30.0)
         self.assertEqual(float(a_values[2]), 10.0)
         self.assertEqual(float(a_values[3]), 50.0)
         self.assertEqual(int(a_values[4]), 5)
 
         # Category B: avg=200, min=100, max=300, count=3
-        b_values = lines[1].replace('"', '').split(',')
-        self.assertEqual(b_values[0], 'B')
+        b_values = lines[1].replace('"', "").split(",")
+        self.assertEqual(b_values[0], "B")
         self.assertEqual(float(b_values[1]), 200.0)
         self.assertEqual(float(b_values[2]), 100.0)
         self.assertEqual(float(b_values[3]), 300.0)
         self.assertEqual(int(b_values[4]), 3)
 
         # Category C: avg=10, min=5, max=15, count=2
-        c_values = lines[2].replace('"', '').split(',')
-        self.assertEqual(c_values[0], 'C')
+        c_values = lines[2].replace('"', "").split(",")
+        self.assertEqual(c_values[0], "C")
         self.assertEqual(float(c_values[1]), 10.0)
         self.assertEqual(float(c_values[2]), 5.0)
         self.assertEqual(float(c_values[3]), 15.0)
@@ -228,13 +246,13 @@ class TestDistinctCountExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_uniq_users_verify_count(self):
         """Test counting unique users with exact value."""
@@ -284,28 +302,28 @@ class TestDistinctCountExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # user 101: 2 unique actions (view, click), 3 events
-        u101 = lines[0].split(',')
+        u101 = lines[0].split(",")
         self.assertEqual(int(u101[0]), 101)
         self.assertEqual(int(u101[1]), 2)
         self.assertEqual(int(u101[2]), 3)
 
         # user 102: 2 unique actions (view, click), 2 events
-        u102 = lines[1].split(',')
+        u102 = lines[1].split(",")
         self.assertEqual(int(u102[0]), 102)
         self.assertEqual(int(u102[1]), 2)
         self.assertEqual(int(u102[2]), 2)
 
         # user 103: 3 unique actions (view, scroll, click), 3 events
-        u103 = lines[2].split(',')
+        u103 = lines[2].split(",")
         self.assertEqual(int(u103[0]), 103)
         self.assertEqual(int(u103[1]), 3)
         self.assertEqual(int(u103[2]), 3)
 
         # user 104: 1 unique action (view), 2 events
-        u104 = lines[3].split(',')
+        u104 = lines[3].split(",")
         self.assertEqual(int(u104[0]), 104)
         self.assertEqual(int(u104[1]), 1)
         self.assertEqual(int(u104[2]), 2)
@@ -313,7 +331,11 @@ class TestDistinctCountExecution(unittest.TestCase):
     def test_uniq_with_filter_verify_value(self):
         """Test uniq with filter condition."""
         ds = DataStore(table="event_data")
-        sql = ds.select(F.uniq(ds.user_id).as_("cnt")).filter(ds.action == 'click').to_sql()
+        sql = (
+            ds.select(F.uniq(ds.user_id).as_("cnt"))
+            .filter(ds.action == "click")
+            .to_sql()
+        )
         result = self._execute(sql)
         # Users who clicked: 101, 102, 103 = 3
         self.assertEqual(int(result), 3)
@@ -348,13 +370,13 @@ class TestArrayAggregationExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_group_array_count_elements(self):
         """Test groupArray collects correct number of elements."""
@@ -370,22 +392,22 @@ class TestArrayAggregationExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Alpha: 3 rows (Alice, Bob, Alice)
-        self.assertIn('Alpha', lines[0])
-        self.assertIn('3', lines[0])
-        self.assertIn('Alice', lines[0])
-        self.assertIn('Bob', lines[0])
+        self.assertIn("Alpha", lines[0])
+        self.assertIn("3", lines[0])
+        self.assertIn("Alice", lines[0])
+        self.assertIn("Bob", lines[0])
 
         # Beta: 3 rows (Charlie, David, Eve)
-        self.assertIn('Beta', lines[1])
-        self.assertIn('3', lines[1])
+        self.assertIn("Beta", lines[1])
+        self.assertIn("3", lines[1])
 
         # Gamma: 1 row (Frank)
-        self.assertIn('Gamma', lines[2])
-        self.assertIn('1', lines[2])
-        self.assertIn('Frank', lines[2])
+        self.assertIn("Gamma", lines[2])
+        self.assertIn("1", lines[2])
+        self.assertIn("Frank", lines[2])
 
     def test_group_uniq_array_unique_elements(self):
         """Test groupUniqArray only collects unique elements."""
@@ -400,13 +422,13 @@ class TestArrayAggregationExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Alpha: unique members = [Alice, Bob] (2 unique)
         alpha_line = lines[0]
-        self.assertIn('Alpha', alpha_line)
+        self.assertIn("Alpha", alpha_line)
         # Alice should appear only once
-        self.assertEqual(alpha_line.count('Alice'), 1)
+        self.assertEqual(alpha_line.count("Alice"), 1)
 
     def test_group_uniq_array_skills_per_team(self):
         """Test groupUniqArray for unique skills per team."""
@@ -422,18 +444,18 @@ class TestArrayAggregationExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Alpha: Python, Java, SQL = 3 unique skills
-        alpha_vals = lines[0].split(',')
+        alpha_vals = lines[0].split(",")
         self.assertEqual(int(alpha_vals[-1]), 3)
 
         # Beta: Python, Go = 2 unique skills (Python appears twice)
-        beta_vals = lines[1].split(',')
+        beta_vals = lines[1].split(",")
         self.assertEqual(int(beta_vals[-1]), 2)
 
         # Gamma: Rust = 1 skill
-        gamma_vals = lines[2].split(',')
+        gamma_vals = lines[2].split(",")
         self.assertEqual(int(gamma_vals[-1]), 1)
 
 
@@ -444,6 +466,9 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         """Create test table for conditional aggregates."""
+        cls.session = chdb.session.Session()
+        # Drop table if exists from previous run
+        cls.session.query("DROP TABLE IF EXISTS sales_data")
         cls.init_sql = """
         CREATE TABLE sales_data (
             id UInt32,
@@ -465,18 +490,18 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
             (9, 'West', 'Electronics', 600.0, 'completed'),
             (10, 'West', 'Clothing', 300.0, 'completed');
         """
-        cls.session = chdb.session.Session()
         cls.session.query(cls.init_sql)
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
+            cls.session.query("DROP TABLE IF EXISTS sales_data")
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_conditional_sum_by_status_verify_exact_values(self):
         """Test conditional sum based on status with exact values."""
@@ -487,7 +512,7 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
             F.sum(F.if_(ds.status == "cancelled", ds.amount, 0)).as_("cancelled_total"),
         ).to_sql()
         result = self._execute(sql)
-        values = result.split(',')
+        values = result.split(",")
 
         # completed: 1000+50+800+100+1200+600+300 = 4050
         self.assertEqual(float(values[0]), 4050.0)
@@ -502,7 +527,9 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
         sql = (
             ds.select(
                 "region",
-                F.sum(F.if_(ds.category == "Electronics", ds.amount, 0)).as_("electronics"),
+                F.sum(F.if_(ds.category == "Electronics", ds.amount, 0)).as_(
+                    "electronics"
+                ),
                 F.sum(F.if_(ds.category == "Books", ds.amount, 0)).as_("books"),
                 F.sum(F.if_(ds.category == "Clothing", ds.amount, 0)).as_("clothing"),
                 F.sum(ds.amount).as_("total"),
@@ -512,35 +539,35 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # East: Electronics=1200, Books=75, Clothing=0, Total=1275
-        east = lines[0].replace('"', '').split(',')
-        self.assertEqual(east[0], 'East')
+        east = lines[0].replace('"', "").split(",")
+        self.assertEqual(east[0], "East")
         self.assertEqual(float(east[1]), 1200.0)
         self.assertEqual(float(east[2]), 75.0)
         self.assertEqual(float(east[3]), 0.0)
         self.assertEqual(float(east[4]), 1275.0)
 
         # North: Electronics=1500, Books=50, Clothing=0, Total=1550
-        north = lines[1].replace('"', '').split(',')
-        self.assertEqual(north[0], 'North')
+        north = lines[1].replace('"', "").split(",")
+        self.assertEqual(north[0], "North")
         self.assertEqual(float(north[1]), 1500.0)
         self.assertEqual(float(north[2]), 50.0)
         self.assertEqual(float(north[3]), 0.0)
         self.assertEqual(float(north[4]), 1550.0)
 
         # South: Electronics=800, Books=100, Clothing=200, Total=1100
-        south = lines[2].replace('"', '').split(',')
-        self.assertEqual(south[0], 'South')
+        south = lines[2].replace('"', "").split(",")
+        self.assertEqual(south[0], "South")
         self.assertEqual(float(south[1]), 800.0)
         self.assertEqual(float(south[2]), 100.0)
         self.assertEqual(float(south[3]), 200.0)
         self.assertEqual(float(south[4]), 1100.0)
 
         # West: Electronics=600, Books=0, Clothing=300, Total=900
-        west = lines[3].replace('"', '').split(',')
-        self.assertEqual(west[0], 'West')
+        west = lines[3].replace('"', "").split(",")
+        self.assertEqual(west[0], "West")
         self.assertEqual(float(west[1]), 600.0)
         self.assertEqual(float(west[2]), 0.0)
         self.assertEqual(float(west[3]), 300.0)
@@ -562,31 +589,31 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # East: completed=1, pending=1, cancelled=0, total=2
-        east = lines[0].replace('"', '').split(',')
+        east = lines[0].replace('"', "").split(",")
         self.assertEqual(int(east[1]), 1)
         self.assertEqual(int(east[2]), 1)
         self.assertEqual(int(east[3]), 0)
         self.assertEqual(int(east[4]), 2)
 
         # North: completed=2, pending=1, cancelled=0, total=3
-        north = lines[1].replace('"', '').split(',')
+        north = lines[1].replace('"', "").split(",")
         self.assertEqual(int(north[1]), 2)
         self.assertEqual(int(north[2]), 1)
         self.assertEqual(int(north[3]), 0)
         self.assertEqual(int(north[4]), 3)
 
         # South: completed=2, pending=0, cancelled=1, total=3
-        south = lines[2].replace('"', '').split(',')
+        south = lines[2].replace('"', "").split(",")
         self.assertEqual(int(south[1]), 2)
         self.assertEqual(int(south[2]), 0)
         self.assertEqual(int(south[3]), 1)
         self.assertEqual(int(south[4]), 3)
 
         # West: completed=2, pending=0, cancelled=0, total=2
-        west = lines[3].replace('"', '').split(',')
+        west = lines[3].replace('"', "").split(",")
         self.assertEqual(int(west[1]), 2)
         self.assertEqual(int(west[2]), 0)
         self.assertEqual(int(west[3]), 0)
@@ -596,7 +623,9 @@ class TestConditionalAggregatesExecution(unittest.TestCase):
         """Test conditional average calculation."""
         ds = DataStore(table="sales_data")
         sql = ds.select(
-            F.avg(F.if_(ds.status == "completed", ds.amount, None)).as_("avg_completed"),
+            F.avg(F.if_(ds.status == "completed", ds.amount, None)).as_(
+                "avg_completed"
+            ),
         ).to_sql()
         result = self._execute(sql)
         # completed amounts: 1000,50,800,100,1200,600,300 = 4050/7 ≈ 578.57
@@ -632,13 +661,13 @@ class TestComplexAggregateExpressionsExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_profit_calculation_verify_exact_values(self):
         """Test profit calculation with exact values per department."""
@@ -655,25 +684,25 @@ class TestComplexAggregateExpressionsExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Engineering: revenue=110000, cost=85000, profit=25000
-        eng = lines[0].replace('"', '').split(',')
-        self.assertEqual(eng[0], 'Engineering')
+        eng = lines[0].replace('"', "").split(",")
+        self.assertEqual(eng[0], "Engineering")
         self.assertEqual(float(eng[1]), 110000.0)
         self.assertEqual(float(eng[2]), 85000.0)
         self.assertEqual(float(eng[3]), 25000.0)
 
         # Marketing: revenue=70000, cost=60000, profit=10000
-        mkt = lines[1].replace('"', '').split(',')
-        self.assertEqual(mkt[0], 'Marketing')
+        mkt = lines[1].replace('"', "").split(",")
+        self.assertEqual(mkt[0], "Marketing")
         self.assertEqual(float(mkt[1]), 70000.0)
         self.assertEqual(float(mkt[2]), 60000.0)
         self.assertEqual(float(mkt[3]), 10000.0)
 
         # Sales: revenue=180000, cost=110000, profit=70000
-        sales = lines[2].replace('"', '').split(',')
-        self.assertEqual(sales[0], 'Sales')
+        sales = lines[2].replace('"', "").split(",")
+        self.assertEqual(sales[0], "Sales")
         self.assertEqual(float(sales[1]), 180000.0)
         self.assertEqual(float(sales[2]), 110000.0)
         self.assertEqual(float(sales[3]), 70000.0)
@@ -684,25 +713,27 @@ class TestComplexAggregateExpressionsExecution(unittest.TestCase):
         sql = (
             ds.select(
                 "department",
-                F.round((Sum(ds.revenue) - Sum(ds.cost)) / Sum(ds.revenue) * Literal(100), 2).as_("margin_pct"),
+                F.round(
+                    (Sum(ds.revenue) - Sum(ds.cost)) / Sum(ds.revenue) * Literal(100), 2
+                ).as_("margin_pct"),
             )
             .groupby("department")
             .sort("department")
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Engineering: margin = 25000/110000*100 = 22.73%
-        eng = lines[0].replace('"', '').split(',')
+        eng = lines[0].replace('"', "").split(",")
         self.assertAlmostEqual(float(eng[1]), 22.73, places=1)
 
         # Marketing: margin = 10000/70000*100 = 14.29%
-        mkt = lines[1].replace('"', '').split(',')
+        mkt = lines[1].replace('"', "").split(",")
         self.assertAlmostEqual(float(mkt[1]), 14.29, places=1)
 
         # Sales: margin = 70000/180000*100 = 38.89%
-        sales = lines[2].replace('"', '').split(',')
+        sales = lines[2].replace('"', "").split(",")
         self.assertAlmostEqual(float(sales[1]), 38.89, places=1)
 
     def test_revenue_per_employee_verify_values(self):
@@ -719,20 +750,20 @@ class TestComplexAggregateExpressionsExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Engineering: 45 employees, 110000/45 = 2444.44
-        eng = lines[0].replace('"', '').split(',')
+        eng = lines[0].replace('"', "").split(",")
         self.assertEqual(int(eng[1]), 45)
         self.assertAlmostEqual(float(eng[2]), 2444.44, places=1)
 
         # Marketing: 9 employees, 70000/9 = 7777.78
-        mkt = lines[1].replace('"', '').split(',')
+        mkt = lines[1].replace('"', "").split(",")
         self.assertEqual(int(mkt[1]), 9)
         self.assertAlmostEqual(float(mkt[2]), 7777.78, places=1)
 
         # Sales: 18 employees, 180000/18 = 10000
-        sales = lines[2].replace('"', '').split(',')
+        sales = lines[2].replace('"', "").split(",")
         self.assertEqual(int(sales[1]), 18)
         self.assertEqual(float(sales[2]), 10000.0)
 
@@ -749,18 +780,18 @@ class TestComplexAggregateExpressionsExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Engineering: 110000/85000 = 1.29
-        eng = lines[0].replace('"', '').split(',')
+        eng = lines[0].replace('"', "").split(",")
         self.assertAlmostEqual(float(eng[1]), 1.29, places=2)
 
         # Marketing: 70000/60000 = 1.17
-        mkt = lines[1].replace('"', '').split(',')
+        mkt = lines[1].replace('"', "").split(",")
         self.assertAlmostEqual(float(mkt[1]), 1.17, places=2)
 
         # Sales: 180000/110000 = 1.64
-        sales = lines[2].replace('"', '').split(',')
+        sales = lines[2].replace('"', "").split(",")
         self.assertAlmostEqual(float(sales[1]), 1.64, places=2)
 
 
@@ -797,13 +828,13 @@ class TestMultipleGroupByExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_year_month_grouping_verify_values(self):
         """Test grouping by year and month with exact values."""
@@ -820,24 +851,24 @@ class TestMultipleGroupByExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # 2023-1: total=2000 (1000+200+800), orders=3
-        ym_2023_1 = lines[0].split(',')
+        ym_2023_1 = lines[0].split(",")
         self.assertEqual(int(ym_2023_1[0]), 2023)
         self.assertEqual(int(ym_2023_1[1]), 1)
         self.assertEqual(float(ym_2023_1[2]), 2000.0)
         self.assertEqual(int(ym_2023_1[3]), 3)
 
         # 2023-2: total=2250 (1200+150+900), orders=3
-        ym_2023_2 = lines[1].split(',')
+        ym_2023_2 = lines[1].split(",")
         self.assertEqual(int(ym_2023_2[0]), 2023)
         self.assertEqual(int(ym_2023_2[1]), 2)
         self.assertEqual(float(ym_2023_2[2]), 2250.0)
         self.assertEqual(int(ym_2023_2[3]), 3)
 
         # 2024-1: total=2900 (1500+1100+300), orders=3
-        ym_2024_1 = lines[2].split(',')
+        ym_2024_1 = lines[2].split(",")
         self.assertEqual(int(ym_2024_1[0]), 2024)
         self.assertEqual(int(ym_2024_1[1]), 1)
         self.assertEqual(float(ym_2024_1[2]), 2900.0)
@@ -857,30 +888,30 @@ class TestMultipleGroupByExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # 2023-North: 1000+200+1200+150 = 2550
-        yr_2023_north = lines[0].replace('"', '').split(',')
+        yr_2023_north = lines[0].replace('"', "").split(",")
         self.assertEqual(int(yr_2023_north[0]), 2023)
-        self.assertEqual(yr_2023_north[1], 'North')
+        self.assertEqual(yr_2023_north[1], "North")
         self.assertEqual(float(yr_2023_north[2]), 2550.0)
 
         # 2023-South: 800+900 = 1700
-        yr_2023_south = lines[1].replace('"', '').split(',')
+        yr_2023_south = lines[1].replace('"', "").split(",")
         self.assertEqual(int(yr_2023_south[0]), 2023)
-        self.assertEqual(yr_2023_south[1], 'South')
+        self.assertEqual(yr_2023_south[1], "South")
         self.assertEqual(float(yr_2023_south[2]), 1700.0)
 
         # 2024-North: 1500
-        yr_2024_north = lines[2].replace('"', '').split(',')
+        yr_2024_north = lines[2].replace('"', "").split(",")
         self.assertEqual(int(yr_2024_north[0]), 2024)
-        self.assertEqual(yr_2024_north[1], 'North')
+        self.assertEqual(yr_2024_north[1], "North")
         self.assertEqual(float(yr_2024_north[2]), 1500.0)
 
         # 2024-South: 1100+300 = 1400
-        yr_2024_south = lines[3].replace('"', '').split(',')
+        yr_2024_south = lines[3].replace('"', "").split(",")
         self.assertEqual(int(yr_2024_south[0]), 2024)
-        self.assertEqual(yr_2024_south[1], 'South')
+        self.assertEqual(yr_2024_south[1], "South")
         self.assertEqual(float(yr_2024_south[2]), 1400.0)
 
     def test_multi_groupby_with_having_verify_filtered_results(self):
@@ -898,15 +929,15 @@ class TestMultipleGroupByExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Only rows with total > 1500: 2023-North=2550, 2023-South=1700
         self.assertEqual(len(lines), 2)
 
         # First (highest): 2023-North = 2550
-        first = lines[0].replace('"', '').split(',')
+        first = lines[0].replace('"', "").split(",")
         self.assertEqual(int(first[0]), 2023)
-        self.assertEqual(first[1], 'North')
+        self.assertEqual(first[1], "North")
         self.assertEqual(float(first[2]), 2550.0)
 
 
@@ -937,13 +968,13 @@ class TestAnyAnyLastExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_any_returns_valid_value(self):
         """Test any() returns a valid value from the group."""
@@ -958,17 +989,17 @@ class TestAnyAnyLastExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # User 101 pages: /home, /products, /cart - any one of them
-        u101 = lines[0].replace('"', '').split(',')
+        u101 = lines[0].replace('"', "").split(",")
         self.assertEqual(int(u101[0]), 101)
-        self.assertIn(u101[1], ['/home', '/products', '/cart'])
+        self.assertIn(u101[1], ["/home", "/products", "/cart"])
 
         # User 102 pages: /home, /checkout - any one of them
-        u102 = lines[1].replace('"', '').split(',')
+        u102 = lines[1].replace('"', "").split(",")
         self.assertEqual(int(u102[0]), 102)
-        self.assertIn(u102[1], ['/home', '/checkout'])
+        self.assertIn(u102[1], ["/home", "/checkout"])
 
     def test_any_last_returns_last_inserted_value(self):
         """Test anyLast() returns the last inserted value."""
@@ -983,17 +1014,17 @@ class TestAnyAnyLastExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # User 101 last page: /cart (id=3)
-        u101 = lines[0].replace('"', '').split(',')
+        u101 = lines[0].replace('"', "").split(",")
         self.assertEqual(int(u101[0]), 101)
-        self.assertEqual(u101[1], '/cart')
+        self.assertEqual(u101[1], "/cart")
 
         # User 102 last page: /checkout (id=5)
-        u102 = lines[1].replace('"', '').split(',')
+        u102 = lines[1].replace('"', "").split(",")
         self.assertEqual(int(u102[0]), 102)
-        self.assertEqual(u102[1], '/checkout')
+        self.assertEqual(u102[1], "/checkout")
 
     def test_uniq_sessions_per_user_verify_values(self):
         """Test unique sessions per user."""
@@ -1008,15 +1039,15 @@ class TestAnyAnyLastExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # User 101: 2 sessions (sess_a, sess_b)
-        u101 = lines[0].split(',')
+        u101 = lines[0].split(",")
         self.assertEqual(int(u101[0]), 101)
         self.assertEqual(int(u101[1]), 2)
 
         # User 102: 1 session (sess_c)
-        u102 = lines[1].split(',')
+        u102 = lines[1].split(",")
         self.assertEqual(int(u102[0]), 102)
         self.assertEqual(int(u102[1]), 1)
 
@@ -1052,13 +1083,13 @@ class TestComplexHavingExecution(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_having_filters_correctly(self):
         """Test HAVING filters groups correctly."""
@@ -1075,7 +1106,7 @@ class TestComplexHavingExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Electronics: qty=225 > 100 ✓, avg_price=633.33 > 20 ✓
         # Books: qty=650 > 100 ✓, avg_price=18.33 > 20 ✗
@@ -1083,10 +1114,10 @@ class TestComplexHavingExecution(unittest.TestCase):
         self.assertEqual(len(lines), 2)
 
         # Should have Clothing and Electronics
-        categories = [line.replace('"', '').split(',')[0] for line in lines]
-        self.assertIn('Clothing', categories)
-        self.assertIn('Electronics', categories)
-        self.assertNotIn('Books', categories)
+        categories = [line.replace('"', "").split(",")[0] for line in lines]
+        self.assertIn("Clothing", categories)
+        self.assertIn("Electronics", categories)
+        self.assertNotIn("Books", categories)
 
     def test_having_with_revenue_calculation_verify_values(self):
         """Test HAVING with calculated revenue filters correctly."""
@@ -1102,7 +1133,7 @@ class TestComplexHavingExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Electronics: 100*500 + 50*1000 + 75*400 = 130000 > 10000 ✓
         # Books: 200*15 + 150*30 + 300*10 = 10500 > 10000 ✓
@@ -1110,13 +1141,13 @@ class TestComplexHavingExecution(unittest.TestCase):
         self.assertEqual(len(lines), 2)
 
         # First is Electronics (highest revenue)
-        first = lines[0].replace('"', '').split(',')
-        self.assertEqual(first[0], 'Electronics')
+        first = lines[0].replace('"', "").split(",")
+        self.assertEqual(first[0], "Electronics")
         self.assertEqual(float(first[1]), 130000.0)
 
         # Second is Books
-        second = lines[1].replace('"', '').split(',')
-        self.assertEqual(second[0], 'Books')
+        second = lines[1].replace('"', "").split(",")
+        self.assertEqual(second[0], "Books")
         self.assertEqual(float(second[1]), 10500.0)
 
     def test_having_with_count_verify_values(self):
@@ -1133,7 +1164,7 @@ class TestComplexHavingExecution(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Electronics: 3 products ✓, Books: 3 products ✓, Clothing: 2 products ✗
         self.assertEqual(len(lines), 2)
@@ -1177,13 +1208,13 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        if hasattr(cls, 'session'):
+        if hasattr(cls, "session"):
             cls.session.cleanup()
 
     def _execute(self, sql):
-        sql_no_quotes = sql.replace('"', '')
-        result = self.session.query(sql_no_quotes, 'CSV')
-        return result.bytes().decode('utf-8').strip()
+        sql_no_quotes = sql.replace('"', "")
+        result = self.session.query(sql_no_quotes, "CSV")
+        return result.bytes().decode("utf-8").strip()
 
     def test_total_revenue_verify_value(self):
         """Test total gross revenue calculation."""
@@ -1201,9 +1232,11 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
         ds = DataStore(table="ecommerce_orders")
         sql = (
             ds.select(
-                Sum(ds.quantity * ds.unit_price * (Literal(1) - ds.discount)).as_("net_revenue"),
+                Sum(ds.quantity * ds.unit_price * (Literal(1) - ds.discount)).as_(
+                    "net_revenue"
+                ),
             )
-            .filter(ds.status == 'completed')
+            .filter(ds.status == "completed")
             .to_sql()
         )
         result = self._execute(sql)
@@ -1225,16 +1258,16 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         status_counts = {}
         for line in lines:
-            parts = line.replace('"', '').split(',')
+            parts = line.replace('"', "").split(",")
             status_counts[parts[0]] = int(parts[1])
 
-        self.assertEqual(status_counts['cancelled'], 1)
-        self.assertEqual(status_counts['completed'], 8)
-        self.assertEqual(status_counts['pending'], 1)
+        self.assertEqual(status_counts["cancelled"], 1)
+        self.assertEqual(status_counts["completed"], 8)
+        self.assertEqual(status_counts["pending"], 1)
 
     def test_unique_customers_by_category_verify_values(self):
         """Test unique customer count per category."""
@@ -1244,28 +1277,28 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
                 "category",
                 F.uniq(ds.customer_id).as_("unique_customers"),
             )
-            .filter(ds.status == 'completed')
+            .filter(ds.status == "completed")
             .groupby("category")
             .sort("category")
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Books: customers 1002 (completed), 1005 = 2 unique (1002 has pending too but it's filtered)
         # Actually 1002's completed order is id=3, so unique = 1002, 1005 = 2
-        books = lines[0].replace('"', '').split(',')
-        self.assertEqual(books[0], 'Books')
+        books = lines[0].replace('"', "").split(",")
+        self.assertEqual(books[0], "Books")
         self.assertEqual(int(books[1]), 2)
 
         # Clothing: customer 1003 = 1 unique
-        clothing = lines[1].replace('"', '').split(',')
-        self.assertEqual(clothing[0], 'Clothing')
+        clothing = lines[1].replace('"', "").split(",")
+        self.assertEqual(clothing[0], "Clothing")
         self.assertEqual(int(clothing[1]), 1)
 
         # Electronics: customers 1001, 1003, 1005, 1006 = 4 unique
-        electronics = lines[2].replace('"', '').split(',')
-        self.assertEqual(electronics[0], 'Electronics')
+        electronics = lines[2].replace('"', "").split(",")
+        self.assertEqual(electronics[0], "Electronics")
         self.assertEqual(int(electronics[1]), 4)
 
     def test_regional_summary_verify_all_values(self):
@@ -1278,31 +1311,31 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
                 Sum(ds.quantity).as_("units"),
                 Sum(ds.quantity * ds.unit_price).as_("revenue"),
             )
-            .filter(ds.status == 'completed')
+            .filter(ds.status == "completed")
             .groupby("region")
             .sort("region")
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # East: orders 3 (6,8,9), units=4+1+10=15, revenue=180+1200+150=1530
-        east = lines[0].replace('"', '').split(',')
-        self.assertEqual(east[0], 'East')
+        east = lines[0].replace('"', "").split(",")
+        self.assertEqual(east[0], "East")
         self.assertEqual(int(east[1]), 3)
         self.assertEqual(int(east[2]), 15)
         self.assertEqual(float(east[3]), 1530.0)
 
         # North: orders 3 (1,2,5), units=2+1+1=4, revenue=1000+1200+500=2700
-        north = lines[1].replace('"', '').split(',')
-        self.assertEqual(north[0], 'North')
+        north = lines[1].replace('"', "").split(",")
+        self.assertEqual(north[0], "North")
         self.assertEqual(int(north[1]), 3)
         self.assertEqual(int(north[2]), 4)
         self.assertEqual(float(north[3]), 2700.0)
 
         # South: orders 2 (3,10), units=5+3=8, revenue=125+900=1025
-        south = lines[2].replace('"', '').split(',')
-        self.assertEqual(south[0], 'South')
+        south = lines[2].replace('"', "").split(",")
+        self.assertEqual(south[0], "South")
         self.assertEqual(int(south[1]), 2)
         self.assertEqual(int(south[2]), 8)
         self.assertEqual(float(south[3]), 1025.0)
@@ -1320,21 +1353,21 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # Books: (0 + 0.05 + 0.1) / 3 * 100 = 5%
-        books = lines[0].replace('"', '').split(',')
-        self.assertEqual(books[0], 'Books')
+        books = lines[0].replace('"', "").split(",")
+        self.assertEqual(books[0], "Books")
         self.assertAlmostEqual(float(books[1]), 5.0, places=1)
 
         # Clothing: (0 + 0.2) / 2 * 100 = 10%
-        clothing = lines[1].replace('"', '').split(',')
-        self.assertEqual(clothing[0], 'Clothing')
+        clothing = lines[1].replace('"', "").split(",")
+        self.assertEqual(clothing[0], "Clothing")
         self.assertAlmostEqual(float(clothing[1]), 10.0, places=1)
 
         # Electronics: (0.1 + 0.15 + 0.1 + 0.1 + 0.05) / 5 * 100 = 10%
-        electronics = lines[2].replace('"', '').split(',')
-        self.assertEqual(electronics[0], 'Electronics')
+        electronics = lines[2].replace('"', "").split(",")
+        self.assertEqual(electronics[0], "Electronics")
         self.assertAlmostEqual(float(electronics[1]), 10.0, places=1)
 
     def test_monthly_trend_verify_values(self):
@@ -1346,22 +1379,22 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
                 Count("*").as_("orders"),
                 Sum(ds.quantity * ds.unit_price).as_("revenue"),
             )
-            .filter(ds.status == 'completed')
+            .filter(ds.status == "completed")
             .groupby(F.month(ds.order_date))
             .sort("month")
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # January (completed): orders 1,2,3 = 3 orders, revenue=1000+1200+125=2325
-        jan = lines[0].split(',')
+        jan = lines[0].split(",")
         self.assertEqual(int(jan[0]), 1)
         self.assertEqual(int(jan[1]), 3)
         self.assertEqual(float(jan[2]), 2325.0)
 
         # February (completed): orders 5,6,8,9,10 = 5 orders, revenue=500+180+1200+150+900=2930
-        feb = lines[1].split(',')
+        feb = lines[1].split(",")
         self.assertEqual(int(feb[0]), 2)
         self.assertEqual(int(feb[1]), 5)
         self.assertEqual(float(feb[2]), 2930.0)
@@ -1376,37 +1409,37 @@ class TestRealWorldAggregateScenarios(unittest.TestCase):
                 F.uniq(ds.category).as_("categories"),
                 Sum(ds.quantity * ds.unit_price).as_("total_spend"),
             )
-            .filter(ds.status == 'completed')
+            .filter(ds.status == "completed")
             .groupby("customer_id")
             .sort("customer_id")
             .to_sql()
         )
         result = self._execute(sql)
-        lines = result.split('\n')
+        lines = result.split("\n")
 
         # customer 1001: 2 orders (1,2), 1 category (Electronics), spend=1000+1200=2200
-        c1001 = lines[0].split(',')
+        c1001 = lines[0].split(",")
         self.assertEqual(int(c1001[0]), 1001)
         self.assertEqual(int(c1001[1]), 2)
         self.assertEqual(int(c1001[2]), 1)
         self.assertEqual(float(c1001[3]), 2200.0)
 
         # customer 1002: 1 order (3), 1 category (Books), spend=125
-        c1002 = lines[1].split(',')
+        c1002 = lines[1].split(",")
         self.assertEqual(int(c1002[0]), 1002)
         self.assertEqual(int(c1002[1]), 1)
         self.assertEqual(int(c1002[2]), 1)
         self.assertEqual(float(c1002[3]), 125.0)
 
         # customer 1003: 2 orders (5,6), 2 categories, spend=500+180=680
-        c1003 = lines[2].split(',')
+        c1003 = lines[2].split(",")
         self.assertEqual(int(c1003[0]), 1003)
         self.assertEqual(int(c1003[1]), 2)
         self.assertEqual(int(c1003[2]), 2)
         self.assertEqual(float(c1003[3]), 680.0)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if CHDB_AVAILABLE:
         print("✅ chDB is available - running execution tests")
     else:

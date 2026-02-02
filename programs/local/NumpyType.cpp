@@ -2,6 +2,7 @@
 #include <memory>
 #include "PythonImporter.h"
 
+#include <Common/IntervalKind.h>
 #include <DataTypes/DataTypeDateTime64.h>
 #include <DataTypes/DataTypeFactory.h>
 #include <DataTypes/DataTypeInterval.h>
@@ -100,8 +101,20 @@ String NumpyType::toString() const
     case NumpyNullableType::DATETIME_S:
 		type_str = "DATETIME_S";
 		break;
-    case NumpyNullableType::TIMEDELTA:
-		type_str = "TIMEDELTA";
+    case NumpyNullableType::TIMEDELTA_NS:
+		type_str = "TIMEDELTA_NS";
+		break;
+    case NumpyNullableType::TIMEDELTA_US:
+		type_str = "TIMEDELTA_US";
+		break;
+    case NumpyNullableType::TIMEDELTA_MS:
+		type_str = "TIMEDELTA_MS";
+		break;
+    case NumpyNullableType::TIMEDELTA_S:
+		type_str = "TIMEDELTA_S";
+		break;
+    case NumpyNullableType::TIMEDELTA_D:
+		type_str = "TIMEDELTA_D";
 		break;
     case NumpyNullableType::CATEGORY:
 		type_str = "CATEGORY";
@@ -160,8 +173,18 @@ static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
 		return NumpyNullableType::DATETIME_MS;
 	if (startsWith(col_type_str, "datetime64[s"))
 		return NumpyNullableType::DATETIME_S;
+    if (startsWith(col_type_str, "timedelta64[ns"))
+		return NumpyNullableType::TIMEDELTA_NS;
+    if (startsWith(col_type_str, "timedelta64[us"))
+		return NumpyNullableType::TIMEDELTA_US;
+    if (startsWith(col_type_str, "timedelta64[ms"))
+		return NumpyNullableType::TIMEDELTA_MS;
+    if (startsWith(col_type_str, "timedelta64[s"))
+		return NumpyNullableType::TIMEDELTA_S;
+    if (startsWith(col_type_str, "timedelta64[D"))
+		return NumpyNullableType::TIMEDELTA_D;
     if (startsWith(col_type_str, "timedelta64["))
-		return NumpyNullableType::TIMEDELTA;
+		return NumpyNullableType::TIMEDELTA_NS;  // Default to nanoseconds
 
 	/// Legacy datetime type indicators
 	if (startsWith(col_type_str, "<M8[ns"))
@@ -237,8 +260,16 @@ std::shared_ptr<IDataType> NumpyToDataType(const NumpyType & col_type)
 		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime64>(0, col_type.timezone));
 	case NumpyNullableType::DATETIME_US:
 		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeDateTime64>(6, col_type.timezone));
-	case NumpyNullableType::TIMEDELTA:
-		/// return std::make_shared<DataTypeInterval>();
+	case NumpyNullableType::TIMEDELTA_NS:
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInterval>(IntervalKind::Kind::Nanosecond));
+	case NumpyNullableType::TIMEDELTA_US:
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInterval>(IntervalKind::Kind::Microsecond));
+	case NumpyNullableType::TIMEDELTA_MS:
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInterval>(IntervalKind::Kind::Millisecond));
+	case NumpyNullableType::TIMEDELTA_S:
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInterval>(IntervalKind::Kind::Second));
+	case NumpyNullableType::TIMEDELTA_D:
+		return std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInterval>(IntervalKind::Kind::Day));
 	case NumpyNullableType::CATEGORY:
 	default:
 		throw Exception(ErrorCodes::LOGICAL_ERROR, "Unknown numpy column type: {}", col_type.toString());

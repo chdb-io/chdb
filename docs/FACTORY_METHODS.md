@@ -97,10 +97,16 @@ def from_hdfs(cls, uri: str, format: str = None,
 
 ### Database Connections
 
+Database factory methods support two modes:
+
+1. **Table-level**: Specify `database` and `table` to bind to a specific table
+2. **Connection-level**: Omit `database`/`table` to explore and query dynamically
+
 #### `DataStore.from_mysql()`
 Create DataStore from MySQL database.
 
 ```python
+# Table-level: bind to specific table
 ds = DataStore.from_mysql(
     host="localhost:3306",
     database="mydb",
@@ -108,70 +114,121 @@ ds = DataStore.from_mysql(
     user="root",
     password="password"
 )
-
-# Query with chaining
 result = ds.select("*").filter(ds.age > 18).execute()
+
+# Connection-level: explore and query dynamically
+ds = DataStore.from_mysql(
+    host="localhost:3306",
+    user="root",
+    password="password"
+)
+ds.databases()                    # List all databases
+ds.tables("mydb")                 # List tables in database
+ds.describe("mydb", "users")      # Get table schema
+result = ds.sql("SELECT * FROM mydb.users WHERE age > 18")
 ```
 
 **Signature**:
 ```python
 @classmethod
-def from_mysql(cls, host: str, database: str, table: str, 
-               user: str, password: str = "", **kwargs) -> 'DataStore'
+def from_mysql(cls, host: str, user: str, password: str = "",
+               database: str = None, table: str = None, **kwargs) -> 'DataStore'
 ```
 
 #### `DataStore.from_postgresql()`
 Create DataStore from PostgreSQL database.
 
 ```python
+# Table-level
 ds = DataStore.from_postgresql(
     host="localhost:5432",
     database="mydb",
-    table="public.users",  # Can include schema
+    table="public.users",
     user="postgres",
     password="password"
 )
-
 result = ds.select("*").execute()
+
+# Connection-level
+ds = DataStore.from_postgresql(
+    host="localhost:5432",
+    user="postgres",
+    password="password"
+)
+ds.databases()
+ds.tables("mydb")
+users = ds["mydb.users"]  # Select table, returns new DataStore
 ```
 
 **Signature**:
 ```python
 @classmethod
-def from_postgresql(cls, host: str, database: str, table: str,
-                    user: str, password: str = "", **kwargs) -> 'DataStore'
+def from_postgresql(cls, host: str, user: str, password: str = "",
+                    database: str = None, table: str = None, **kwargs) -> 'DataStore'
 ```
 
 #### `DataStore.from_clickhouse()`
 Create DataStore from remote ClickHouse server.
 
 ```python
-# Regular connection
+# Table-level: bind to specific table
 ds = DataStore.from_clickhouse(
     host="localhost:9000",
     database="default",
-    table="events"
-)
-
-# Secure connection
-ds = DataStore.from_clickhouse(
-    host="server:9440",
-    database="default",
     table="events",
-    user="default",
-    password="",
-    secure=True  # Uses remoteSecure()
+    user="default"
+)
+result = ds.select("*").filter(ds.date >= '2024-01-01').execute()
+
+# Connection-level: explore and query dynamically
+ds = DataStore.from_clickhouse(
+    host="analytics.company.com:9440",
+    user="analyst",
+    password="secret",
+    secure=True
 )
 
-result = ds.select("*").filter(ds.date >= '2024-01-01').execute()
+# Metadata discovery
+ds.databases()                      # ['default', 'production', 'staging']
+ds.tables("production")             # ['users', 'orders', 'events']
+ds.describe("production", "users")  # Table schema (columns, types)
+
+# Set default database for shorter queries
+ds.use("production")
+result = ds.sql("SELECT * FROM users WHERE age > 25")
+
+# Or select table directly (returns new DataStore)
+users = ds["production.users"]
+result = users.filter(users['age'] > 25).head(10)
 ```
 
 **Signature**:
 ```python
 @classmethod
-def from_clickhouse(cls, host: str, database: str, table: str,
-                    user: str = "default", password: str = "", 
+def from_clickhouse(cls, host: str, user: str = "default", password: str = "",
+                    database: str = None, table: str = None,
                     secure: bool = False, **kwargs) -> 'DataStore'
+```
+
+#### Connection-Level Methods
+
+When creating a connection-level DataStore (without specifying table), these methods are available:
+
+| Method | Description |
+|--------|-------------|
+| `ds.databases()` | List all databases |
+| `ds.tables(database)` | List tables in a database |
+| `ds.describe(database, table)` | Get table schema |
+| `ds.sql(query)` | Execute SQL query |
+| `ds.use(database)` / `ds.use(database, table)` | Set default context |
+| `ds["db.table"]` | Select table (returns new DataStore) |
+
+**Password masking**: Sensitive fields are automatically masked in `repr()`:
+
+```python
+print(ds)
+# DataStore(source='clickhouse', host='analytics.company.com:9440', 
+#           user='analyst', password='***', secure=True)
 ```
 
 #### `DataStore.from_mongodb()`

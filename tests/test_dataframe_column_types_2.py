@@ -1403,5 +1403,118 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(bytes(result['fixed_blob'].iloc[0]), b'\xff\x00\xfe\x01')
 
 
+    def test_timedelta_input_from_pandas(self):
+        """Test timedelta64 input from pandas DataFrame - aligned with pandas behavior"""
+        # Create pandas DataFrame with timedelta columns
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4],
+            'td_ns': pd.to_timedelta(['1 day', '2 hours', '30 minutes', '10 seconds']),
+            'td_with_null': pd.to_timedelta(['1 day', None, '3 hours', '45 minutes']),
+        })
+
+        print("\nInput DataFrame:")
+        print(df)
+        print("\nInput dtypes:")
+        print(df.dtypes)
+
+        # Query using chDB - should handle timedelta input
+        result = self.session.query("SELECT * FROM Python(df) ORDER BY id", 'DataFrame')
+
+        print("\nResult DataFrame:")
+        print(result)
+        print("\nResult dtypes:")
+        print(result.dtypes)
+
+        # Verify row count
+        self.assertEqual(len(result), 4)
+
+        # Verify timedelta values are preserved
+        # Note: ClickHouse Interval type may convert to different precision
+        self.assertEqual(result.iloc[0]['id'], 1)
+        self.assertEqual(result.iloc[1]['id'], 2)
+        self.assertEqual(result.iloc[2]['id'], 3)
+        self.assertEqual(result.iloc[3]['id'], 4)
+
+        # Verify timedelta column values (comparing as timedelta)
+        expected_td = [
+            pd.Timedelta('1 day'),
+            pd.Timedelta('2 hours'),
+            pd.Timedelta('30 minutes'),
+            pd.Timedelta('10 seconds'),
+        ]
+
+        for i, expected in enumerate(expected_td):
+            actual = result.iloc[i]['td_ns']
+            self.assertEqual(actual, expected, f"Row {i}: expected {expected}, got {actual}")
+
+        # Verify NULL handling in timedelta column
+        self.assertEqual(result.iloc[0]['td_with_null'], pd.Timedelta('1 day'))
+        self.assertTrue(pd.isna(result.iloc[1]['td_with_null']), "Row 1 should be NULL")
+        self.assertEqual(result.iloc[2]['td_with_null'], pd.Timedelta('3 hours'))
+        self.assertEqual(result.iloc[3]['td_with_null'], pd.Timedelta('45 minutes'))
+
+    def test_timedelta_various_precisions(self):
+        """Test timedelta with different precisions from pandas"""
+        # pandas timedelta64[ns] is the default
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5],
+            'days': pd.to_timedelta([1, 2, 3, 4, 5], unit='D'),
+            'hours': pd.to_timedelta([1, 2, 3, 4, 5], unit='h'),
+            'minutes': pd.to_timedelta([1, 2, 3, 4, 5], unit='m'),
+            'seconds': pd.to_timedelta([1, 2, 3, 4, 5], unit='s'),
+            'milliseconds': pd.to_timedelta([1, 2, 3, 4, 5], unit='ms'),
+        })
+
+        print("\nInput DataFrame with various timedelta precisions:")
+        print(df)
+        print("\nInput dtypes:")
+        print(df.dtypes)
+
+        result = self.session.query("SELECT * FROM Python(df) ORDER BY id", 'DataFrame')
+
+        print("\nResult DataFrame:")
+        print(result)
+        print("\nResult dtypes:")
+        print(result.dtypes)
+
+        # Verify values
+        self.assertEqual(len(result), 5)
+
+        # Check days column
+        for i in range(5):
+            expected_days = pd.Timedelta(days=i + 1)
+            self.assertEqual(result.iloc[i]['days'], expected_days)
+
+        # Check hours column
+        for i in range(5):
+            expected_hours = pd.Timedelta(hours=i + 1)
+            self.assertEqual(result.iloc[i]['hours'], expected_hours)
+
+        # Check seconds column
+        for i in range(5):
+            expected_seconds = pd.Timedelta(seconds=i + 1)
+            self.assertEqual(result.iloc[i]['seconds'], expected_seconds)
+
+    def test_timedelta_arithmetic_query(self):
+        """Test timedelta values can be used in SQL arithmetic"""
+        df = pd.DataFrame({
+            'id': [1, 2, 3],
+            'duration': pd.to_timedelta(['1 hour', '2 hours', '3 hours']),
+        })
+
+        # Query that uses timedelta in SQL
+        result = self.session.query("""
+            SELECT id, duration FROM Python(df) ORDER BY id
+        """, 'DataFrame')
+
+        print("\nResult from arithmetic query:")
+        print(result)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result.iloc[0]['duration'], pd.Timedelta('1 hour'))
+        self.assertEqual(result.iloc[1]['duration'], pd.Timedelta('2 hours'))
+        self.assertEqual(result.iloc[2]['duration'], pd.Timedelta('3 hours'))
+
+
 if __name__ == '__main__':
     unittest.main()

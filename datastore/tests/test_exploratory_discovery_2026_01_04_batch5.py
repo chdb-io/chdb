@@ -163,7 +163,10 @@ class TestDataFrameMethodVariants:
 
     def test_rank_method_dense(self):
         """rank with method='dense'"""
-        df = pd.DataFrame({'a': [3, 1, 3, 2, 1]})
+        # Use larger dataset for stable testing (non-deterministic row order issues)
+        np.random.seed(42)
+        values = np.random.randint(1, 10, size=10000).tolist()
+        df = pd.DataFrame({'a': values})
         ds = DataStore(df)
 
         pd_result = df['a'].rank(method='dense')
@@ -173,7 +176,11 @@ class TestDataFrameMethodVariants:
 
     def test_rank_method_first(self):
         """rank with method='first'"""
-        df = pd.DataFrame({'a': [3, 1, 3, 2, 1]})
+        # Use larger dataset for stable testing (non-deterministic row order issues)
+        # method='first' requires original row order preservation via _row_id
+        np.random.seed(42)
+        values = np.random.randint(1, 10, size=10000).tolist()
+        df = pd.DataFrame({'a': values})
         ds = DataStore(df)
 
         pd_result = df['a'].rank(method='first')

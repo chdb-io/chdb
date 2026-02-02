@@ -4792,7 +4792,7 @@ class ColumnExpr:
         Example:
             >>> ds['score'].rank()
             >>> ds['score'].rank(method='dense', ascending=False)
-            >>> ds['score'].rank(method='first')  # Uses SQL ROW_NUMBER()
+            >>> ds['score'].rank(method='first')  # Uses SQL ROW_NUMBER() with _row_id tiebreaker
         """
         from .functions import WindowFunction, Function
 
@@ -4824,18 +4824,27 @@ class ColumnExpr:
 
             # Build ORDER BY clause
             order_by_expr = self._expr
+            order_by_items = []
+
             if not ascending:
                 # For descending, append DESC to the order
                 if isinstance(order_by_expr, Field):
-                    order_by = f"{order_by_expr.name} DESC"
+                    order_by_items.append(f"{order_by_expr.name} DESC")
                 else:
                     # For complex expressions, convert to SQL and append DESC
-                    order_by = f"{order_by_expr.to_sql()} DESC"
+                    order_by_items.append(f"{order_by_expr.to_sql()} DESC")
             else:
-                order_by = order_by_expr
+                order_by_items.append(order_by_expr)
 
-            # Create the window function: e.g., row_number() OVER (ORDER BY col)
-            window_func = WindowFunction(sql_func_name).over(order_by=order_by)
+            # For method='first', add rowNumberInAllBlocks() as tiebreaker
+            # to preserve original row order for ties (pandas behavior).
+            # Note: connection.py automatically replaces rowNumberInAllBlocks()
+            # with _row_id for Python() table function (chDB v4.0.0b5+)
+            if method == "first":
+                order_by_items.append("rowNumberInAllBlocks()")
+
+            # Create the window function
+            window_func = WindowFunction(sql_func_name).over(order_by=order_by_items)
 
             # Wrap with toFloat64 to match pandas return type (float64)
             # pandas rank() always returns float64, SQL window functions return integers

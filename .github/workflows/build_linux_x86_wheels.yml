@@ -6,6 +6,11 @@ on:
       TAG_NAME:
         description: 'Release Version Tag'
         required: true
+      DEBUG_MODE:
+        description: 'Enable debug mode (Debug build, lldb tests, skip static lib)'
+        required: false
+        default: 'true'
+        type: boolean
   release:
     types: [created]
   push:
@@ -20,6 +25,10 @@ on:
     paths-ignore:
       - '**/*.md'
 
+
+env:
+  # DEBUG_MODE disabled for all builds
+  EFFECTIVE_DEBUG_MODE: 'false'
 
 jobs:
   build_universal_wheel:
@@ -197,11 +206,17 @@ jobs:
           pyenv shell 3.9
           export CC=/usr/bin/clang
           export CXX=/usr/bin/clang++
-          bash ./chdb/build.sh
+          # Use Debug for crash analysis when DEBUG_MODE is enabled
+          if [ "${{ env.EFFECTIVE_DEBUG_MODE }}" == "true" ]; then
+            bash ./chdb/build.sh Debug
+          else
+            bash ./chdb/build.sh
+          fi
           pyenv shell 3.9
           bash -x ./chdb/test_smoke.sh
         continue-on-error: false
       - name: Run chdb/build/build_static_lib.sh
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         timeout-minutes: 600
         run: |
           export CC=/usr/bin/clang
@@ -289,31 +304,127 @@ jobs:
           ulimit -c unlimited
       - name: Test wheel on all Python versions
         run: |
+          ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          
+          DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
+          
+          # Install lldb for debugging when DEBUG_MODE is enabled
+          if [ "$DEBUG_MODE" == "true" ]; then
+            sudo apt-get install -y lldb-19
+            sudo ln -sf /usr/bin/lldb-19 /usr/bin/lldb || true
+          fi
+          
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-            make test
+            
+            if [ "$DEBUG_MODE" == "true" ]; then
+              # Run tests with lldb to capture all crash signals
+              python -m pip install pytest pytest-cov pytest-timeout
+              REAL_PYTHON=$(pyenv which python)
+              echo "=== Running tests with lldb on Python $version (path: $REAL_PYTHON) ==="
+              LLDB_OUTPUT=$(mktemp)
+              lldb -b \
+                -o "process handle SIGABRT -n true -p true -s true" \
+                -o "process handle SIGSEGV -n true -p true -s true" \
+                -o "process handle SIGBUS -n true -p true -s true" \
+                -o "process handle SIGFPE -n true -p true -s true" \
+                -o "process handle SIGILL -n true -p true -s true" \
+                -o "target stop-hook add --one-liner 'bt all'" \
+                -o "target stop-hook add --one-liner 'quit'" \
+                -o "run -m pytest tests/ -v --tb=short" \
+                -o "bt all" \
+                -o "quit" \
+                -- "$REAL_PYTHON" 2>&1 | tee "$LLDB_OUTPUT"
+              # Check if any crash signal was caught (match actual crash patterns, not config commands)
+              if grep -qE "(stop reason = signal|received signal|hit Breakpoint.*__abort|Process.*exited.*signal)" "$LLDB_OUTPUT"; then
+                echo "ERROR: Crash signal detected!"
+                rm -f "$LLDB_OUTPUT"
+                exit 1
+              fi
+              # Extract process exit code from lldb output
+              EXIT_CODE=$(grep -oE "Process [0-9]+ exited with status = [0-9]+" "$LLDB_OUTPUT" | tail -1 | sed "s/.*= //" || echo "0")
+              rm -f "$LLDB_OUTPUT"
+              if [ "$EXIT_CODE" != "0" ]; then
+                echo "ERROR: Tests failed with exit code $EXIT_CODE"
+                exit $EXIT_CODE
+              fi
+            else
+              # Normal test run (same as main branch)
+              make test
+            fi
+            
             pyenv shell --unset
           done
         continue-on-error: false
       - name: Test DataStore on Python 3.11
         run: |
+          ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.11
+          
+          DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
+          
           python -m pip install dist/*.whl --force-reinstall
           python -m pip install pytest pytest-cov
           echo "Testing DataStore import..."
           python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
+          
           echo "Running DataStore tests..."
-          cd datastore && python -m pytest tests/ -v --tb=short -x
+          cd datastore
+          
+          if [ "$DEBUG_MODE" == "true" ]; then
+            # Run pytest under lldb to capture all crash signals
+            python -m pip install pytest-timeout
+            REAL_PYTHON=$(pyenv which python)
+            echo "Using Python with lldb: $REAL_PYTHON"
+            LLDB_OUTPUT=$(mktemp)
+            lldb -b \
+              -o "process handle SIGABRT -n true -p true -s true" \
+              -o "process handle SIGSEGV -n true -p true -s true" \
+              -o "process handle SIGBUS -n true -p true -s true" \
+              -o "process handle SIGFPE -n true -p true -s true" \
+              -o "process handle SIGILL -n true -p true -s true" \
+              -o "target stop-hook add --one-liner 'bt all'" \
+              -o "target stop-hook add --one-liner 'quit'" \
+              -o "run -m pytest tests/ -v --tb=short -x" \
+              -o "bt all" \
+              -o "quit" \
+              -- "$REAL_PYTHON" 2>&1 | tee "$LLDB_OUTPUT"
+            # Check if any crash signal was caught (match actual crash patterns, not config commands)
+            if grep -qE "(stop reason = signal|received signal|hit Breakpoint.*__abort|Process.*exited.*signal)" "$LLDB_OUTPUT"; then
+              echo "ERROR: Crash signal detected in DataStore tests!"
+              # Also check for core files
+              if ls ../tmp/core/core.* 2>/dev/null; then
+                echo "=== Analyzing core file ==="
+                for corefile in ../tmp/core/core.*; do
+                  lldb python -c "$corefile" -b -o "bt all" -o "quit"
+                done
+              fi
+              rm -f "$LLDB_OUTPUT"
+              exit 1
+            fi
+            # Extract process exit code from lldb output
+            EXIT_CODE=$(grep -oE "Process [0-9]+ exited with status = [0-9]+" "$LLDB_OUTPUT" | tail -1 | sed "s/.*= //" || echo "0")
+            rm -f "$LLDB_OUTPUT"
+            if [ "$EXIT_CODE" != "0" ]; then
+              echo "ERROR: DataStore tests failed with exit code $EXIT_CODE"
+              exit $EXIT_CODE
+            fi
+          else
+            # Normal test run (same as main branch)
+            python -m pytest tests/ -v --tb=short -x
+          fi
+          
           pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -361,6 +472,7 @@ jobs:
           cp programs/local/chdb.hpp chdb.hpp
           tar -czvf linux-x86_64-libchdb.tar.gz libchdb.so chdb.h chdb.hpp
       - name: Package libchdb.a
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           cp programs/local/chdb.h chdb.h
           cp programs/local/chdb.hpp chdb.hpp
@@ -372,7 +484,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       - name: Upload libchdb.a to release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v') && env.EFFECTIVE_DEBUG_MODE != 'true'
         run: |
           gh release upload ${{ github.ref_name }} linux-x86_64-libchdb-static.tar.gz --clobber
         env:
