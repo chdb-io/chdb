@@ -602,13 +602,21 @@ class TestInterpolateOperations:
             'A': [1.0, np.nan, np.nan, 4.0, np.nan],
             'B': [10.0, np.nan, 30.0, np.nan, 50.0]
         })
-        pd_result = pd_df.interpolate(method='ffill')
+        # pandas 3.0 removed interpolate(method='ffill'), use ffill() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.ffill()
+        else:
+            pd_result = pd_df.interpolate(method='ffill')
 
         ds_df = DataStore({
             'A': [1.0, np.nan, np.nan, 4.0, np.nan],
             'B': [10.0, np.nan, 30.0, np.nan, 50.0]
         })
-        ds_result = ds_df.interpolate(method='ffill')
+        if pandas_version >= (3, 0):
+            ds_result = ds_df.ffill()
+        else:
+            ds_result = ds_df.interpolate(method='ffill')
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 

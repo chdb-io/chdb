@@ -653,6 +653,11 @@ class TestFirstLastOffset:
     @pandas_version_first_last_offset_warning
     def test_first_with_offset(self):
         """Test first with DateOffset."""
+        # pandas 3.0 removed first() method
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pytest.skip("DataFrame.first() was removed in pandas 3.0")
+
         pd_df = pd.DataFrame({'a': [1, 2, 3, 4, 5]}, index=pd.date_range('2023-01-01', periods=5, freq='D'))
         ds_df = DataStore(pd_df.copy())
 
@@ -666,6 +671,11 @@ class TestFirstLastOffset:
     @pandas_version_first_last_offset_warning
     def test_last_with_offset(self):
         """Test last with DateOffset."""
+        # pandas 3.0 removed last() method
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pytest.skip("DataFrame.last() was removed in pandas 3.0")
+
         pd_df = pd.DataFrame({'a': [1, 2, 3, 4, 5]}, index=pd.date_range('2023-01-01', periods=5, freq='D'))
         ds_df = DataStore(pd_df.copy())
 

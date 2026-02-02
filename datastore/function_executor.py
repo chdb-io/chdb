@@ -702,9 +702,17 @@ class FunctionExecutorConfig:
         self._pandas_implementations["isnull"] = lambda s: s.isnull()
         self._pandas_implementations["notna"] = lambda s: s.notna()
         self._pandas_implementations["notnull"] = lambda s: s.notnull()
-        self._pandas_implementations["fillna"] = (
-            lambda s, value=None, method=None: s.fillna(value=value, method=method)
-        )
+        # pandas 3.0 removed method parameter, use ffill()/bfill() instead
+        def _fillna_compat(s, value=None, method=None):
+            if method is not None:
+                if method == 'ffill' or method == 'pad':
+                    return s.ffill()
+                elif method == 'bfill' or method == 'backfill':
+                    return s.bfill()
+                else:
+                    raise ValueError(f"Invalid fill method: {method}")
+            return s.fillna(value=value)
+        self._pandas_implementations["fillna"] = _fillna_compat
         self._pandas_implementations["dropna"] = lambda s: s.dropna()
         self._pandas_implementations["ffill"] = lambda s: s.ffill()
         self._pandas_implementations["bfill"] = lambda s: s.bfill()

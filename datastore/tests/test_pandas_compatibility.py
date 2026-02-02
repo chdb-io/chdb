@@ -261,7 +261,12 @@ class TestDataTransformation:
         pd_result = pd_df['age'].astype(str)
         ds_result = ds_df['age'].astype(str)
         # LazySeries implements __array__, numpy can accept it directly
-        np.testing.assert_array_equal(ds_result, pd_result)
+        # Use pandas assert to handle nan comparison properly
+        pd.testing.assert_series_equal(
+            pd.Series(np.asarray(ds_result)),
+            pd.Series(np.asarray(pd_result)),
+            check_names=False
+        )
 
     def test_add_new_column(self, pd_df, ds_df):
         """Add new column."""

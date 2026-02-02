@@ -422,11 +422,15 @@ class TestMapApplymapEdgeCases:
             'B': [4, 5, 6]
         })
 
-        # applymap is deprecated in pandas 2.1+, but we test it for backward compatibility
+        # applymap is deprecated in pandas 2.1+, removed in pandas 3.0
         import warnings
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='DataFrame.applymap has been deprecated')
-            pd_result = pd_df.applymap(lambda x: x ** 2)
+            if pandas_version >= (3, 0):
+                pd_result = pd_df.map(lambda x: x ** 2)
+            else:
+                pd_result = pd_df.applymap(lambda x: x ** 2)
             ds_result = ds_df.applymap(lambda x: x ** 2)
             # Assert inside the block because DataStore is lazy
             assert_datastore_equals_pandas(ds_result, pd_result)
@@ -442,11 +446,15 @@ class TestMapApplymapEdgeCases:
             'B': ['foo', 'bar']
         })
 
-        # applymap is deprecated in pandas 2.1+, but we test it for backward compatibility
+        # applymap is deprecated in pandas 2.1+, removed in pandas 3.0
         import warnings
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='DataFrame.applymap has been deprecated')
-            pd_result = pd_df.applymap(str.upper)
+            if pandas_version >= (3, 0):
+                pd_result = pd_df.map(str.upper)
+            else:
+                pd_result = pd_df.applymap(str.upper)
             ds_result = ds_df.applymap(str.upper)
             # Assert inside the block because DataStore is lazy
             assert_datastore_equals_pandas(ds_result, pd_result)
