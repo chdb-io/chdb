@@ -1,2 +1,3 @@
 # Production dependencies
 pandas>2.1.0,<3.0.0
+pyarrow>=13.0.0

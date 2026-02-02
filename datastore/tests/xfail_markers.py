@@ -48,8 +48,18 @@ chdb_category_to_object = pytest.mark.xfail(
     strict=True,
 )
 
-chdb_timedelta_type = pytest.mark.xfail(
-    reason="chDB does not support TIMEDELTA numpy type in SQL operations",
+# FIXED (chDB v4.x): Timedelta type now works in SQL operations
+def chdb_timedelta_type(func):
+    """FIXED (chDB v4.x): Timedelta type now works in SQL operations."""
+    return func
+
+
+# DataStore limitation: timedelta arithmetic SQL generation
+# NOTE: This is different from chdb_timedelta_type which was about INPUT support.
+# This marker is for cases where DataStore tries to generate SQL for timedelta arithmetic
+# (e.g., date + timedelta) and fails because pd.Timedelta is rendered as string.
+datastore_timedelta_arithmetic = pytest.mark.xfail(
+    reason="DataStore limitation: timedelta arithmetic in SQL generation renders Timedelta as string instead of INTERVAL",
     strict=True,
 )
 
@@ -397,7 +407,7 @@ MARKER_REGISTRY = {
     # NOTE: Timedelta works for read-only access but fails during SQL execution
     "chdb_category_type": ("fixed", "chDB v4.x", "CATEGORY type now works in SQL operations - FIXED"),
     "chdb_category_to_object": ("chdb", None, "chDB converts categorical to object dtype after SQL (values correct)"),
-    "chdb_timedelta_type": ("chdb", None, "TIMEDELTA type fails in SQL operations (read-only works)"),
+    "chdb_timedelta_type": ("fixed", "chDB v4.x", "TIMEDELTA type now works in SQL operations - FIXED"),
     "chdb_array_nullable": ("chdb", None, "Array cannot be inside Nullable type"),
     "chdb_array_string_conversion": ("chdb", None, "numpy arrays may be converted to strings in SQL operations"),
     # Functions

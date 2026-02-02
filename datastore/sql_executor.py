@@ -434,7 +434,7 @@ def build_groupby_select_fields(
     Returns:
         Tuple of (groupby_fields, select_fields)
     """
-    from .functions import AggregateFunction
+    from .functions import AggregateFunction, Function
 
     if alias_renames is None:
         alias_renames = {}
@@ -445,6 +445,29 @@ def build_groupby_select_fields(
         if col_name in computed_columns:
             return computed_columns[col_name]
         return Field(col_name)
+
+    def create_agg_expr(func: str, col_expr: Expression, alias: str) -> AggregateFunction:
+        """
+        Create aggregation expression, handling special cases for first/last.
+
+        For first/last, we use argMin/argMax with rowNumberInAllBlocks() to preserve
+        row order semantics. ClickHouse's any()/anyLast() return arbitrary values,
+        not row-order based first/last.
+
+        NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
+        with _row_id (deterministic) at execution time (chDB v4.0.0b5+).
+        """
+        if func == 'first':
+            # first() -> argMin(col, rowNumberInAllBlocks())
+            row_num_func = Function('rowNumberInAllBlocks')
+            return AggregateFunction('argMin', col_expr, row_num_func, alias=alias)
+        elif func == 'last':
+            # last() -> argMax(col, rowNumberInAllBlocks())
+            row_num_func = Function('rowNumberInAllBlocks')
+            return AggregateFunction('argMax', col_expr, row_num_func, alias=alias)
+        else:
+            sql_func = map_agg_func(func)
+            return AggregateFunction(sql_func, col_expr, alias=alias)
 
     # Build GROUP BY fields
     # Use resolve_column to expand computed columns in groupby keys
@@ -463,8 +486,6 @@ def build_groupby_select_fields(
         # Pandas named aggregation: agg(alias=('col', 'func'))
         # Convert to SQL: SELECT func(col) AS alias ...
         for alias, (col, func) in groupby_agg.named_agg.items():
-            sql_func = map_agg_func(func)
-
             # Check if this alias conflicts with WHERE columns
             temp_alias = f"__agg_{alias}__"
             if temp_alias in alias_renames:
@@ -474,7 +495,7 @@ def build_groupby_select_fields(
 
             # Resolve column - may be a computed column from assign()
             col_expr = resolve_column(col)
-            agg_expr = AggregateFunction(sql_func, col_expr, alias=final_alias)
+            agg_expr = create_agg_expr(func, col_expr, alias=final_alias)
             select_fields.append(agg_expr)
 
     elif groupby_agg.agg_dict is not None and isinstance(groupby_agg.agg_dict, dict):
@@ -521,8 +542,6 @@ def build_groupby_select_fields(
                 funcs = [funcs]
 
             for func in funcs:
-                sql_func = map_agg_func(func)
-
                 # Alias strategy based on context
                 if use_compound_alias:
                     alias = f"{col}_{func}"
@@ -542,16 +561,16 @@ def build_groupby_select_fields(
 
                 # Resolve column - may be a computed column from assign()
                 col_expr = resolve_column(col)
-                agg_expr = AggregateFunction(sql_func, col_expr, alias=alias)
+                agg_expr = create_agg_expr(func, col_expr, alias=alias)
                 select_fields.append(agg_expr)
 
     elif groupby_agg.agg_func:
         # Single function for all numeric columns
         func = groupby_agg.agg_func
-        sql_func = map_agg_func(func)
 
         if func == "size":
             # size() counts ALL rows including NULL -> COUNT(*)
+            sql_func = map_agg_func(func)
             select_fields.append(AggregateFunction(sql_func, Star()))
         elif all_columns:
             # Apply aggregation to non-groupby columns (or only selected columns)
@@ -577,11 +596,12 @@ def build_groupby_select_fields(
                     alias = col
                 # Resolve column - may be a computed column from assign()
                 col_expr = resolve_column(col)
-                agg_expr = AggregateFunction(sql_func, col_expr, alias=alias)
+                agg_expr = create_agg_expr(func, col_expr, alias=alias)
                 select_fields.append(agg_expr)
         else:
             # Fallback: if we don't know columns, use COUNT(*) for count, otherwise skip
             if func == "count":
+                sql_func = map_agg_func(func)
                 select_fields.append(AggregateFunction(sql_func, Star()))
 
     return groupby_fields, select_fields

@@ -512,8 +512,17 @@ void DatabaseWithOwnTablesBase::shutdown()
         kv.second->flushAndShutdown();
         if (table_id.hasUUID())
         {
-            assert(getDatabaseName() == DatabaseCatalog::TEMPORARY_DATABASE || getUUID() != UUIDHelpers::Nil);
-            DatabaseCatalog::instance().removeUUIDMapping(table_id.uuid);
+            /// In embedded mode (chdb), some databases like DatabaseOverlay or DatabaseOrdinary
+            /// may not have a UUID while their tables do. The assertion is relaxed to allow
+            /// UUID cleanup to proceed regardless of whether the database has a UUID.
+            /// The original assertion was:
+            /// assert(getDatabaseName() == DatabaseCatalog::TEMPORARY_DATABASE || getUUID() != UUIDHelpers::Nil);
+            ///
+            /// During shutdown or when DatabaseCatalog is being destroyed, we should not
+            /// attempt to access it. This can happen when databases are destroyed after
+            /// the catalog has already been reset (e.g., during Python interpreter exit).
+            if (DatabaseCatalog::isAvailable())
+                DatabaseCatalog::instance().removeUUIDMapping(table_id.uuid);
         }
     }
 
@@ -530,7 +539,10 @@ DatabaseWithOwnTablesBase::~DatabaseWithOwnTablesBase()
     }
     catch (...)
     {
-        tryLogCurrentException(__PRETTY_FUNCTION__);
+        /// During Python interpreter exit, Poco::Logger may already be destroyed.
+        /// Avoid calling tryLogCurrentException() in destructors to prevent
+        /// use-after-free crashes (EXC_BAD_ACCESS in Logger's hash table).
+        /// The exception is silently ignored here.
     }
 }
 
