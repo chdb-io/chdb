@@ -238,6 +238,9 @@ def _are_dtypes_nullable_equivalent(dtype1, dtype2) -> bool:
     if {str1, str2} == {'uint8', 'bool'}:
         return True
 
+    if {str1, str2} == {'str', 'object'}:
+        return True
+
     return False
 
 
