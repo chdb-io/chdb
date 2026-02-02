@@ -2029,8 +2029,9 @@ class LazyWhere(LazyOp):
 
         for col_type in schema.values():
             col_type_lower = col_type.lower()
+            # Include pandas 'object' dtype (pandas <3.0) and 'str' dtype (pandas 3.0+)
             if any(
-                t in col_type_lower for t in ("string", "fixedstring", "enum", "uuid")
+                t in col_type_lower for t in ("string", "fixedstring", "enum", "uuid", "object", "str")
             ):
                 has_string_col = True
             elif any(t in col_type_lower for t in ("float", "double", "decimal")):

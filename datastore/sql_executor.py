@@ -94,8 +94,9 @@ class WhereMaskCaseExpr(Expression):
     def _is_string_type(self) -> bool:
         """Check if column is a string type."""
         col_type_lower = self.col_type.lower()
-        # Include pandas 'object' dtype which is typically used for strings
-        string_types = ("string", "fixedstring", "enum", "uuid", "object")
+        # Include pandas 'object' dtype (pandas <3.0) and 'str' dtype (pandas 3.0+)
+        # which are typically used for strings
+        string_types = ("string", "fixedstring", "enum", "uuid", "object", "str")
         return any(t in col_type_lower for t in string_types)
 
     def _is_date_type(self) -> bool:
