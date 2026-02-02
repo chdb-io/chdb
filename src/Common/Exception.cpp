@@ -36,9 +36,9 @@ namespace DB
 /// (which can happen during Python interpreter exit).
 static std::atomic<bool> g_is_shutting_down{false};
 
-void setShuttingDown()
+void setShuttingDown(bool value)
 {
-    g_is_shutting_down.store(true, std::memory_order_release);
+    g_is_shutting_down.store(value, std::memory_order_release);
 }
 
 bool isShuttingDown()

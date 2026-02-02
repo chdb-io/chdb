@@ -174,6 +174,8 @@ EmbeddedServer::~EmbeddedServer()
 
 void EmbeddedServer::initialize(Poco::Util::Application & self)
 {
+    setShuttingDown(false);
+
     Poco::Util::Application::initialize(self);
 
     const char * home_path_cstr = getenv("HOME"); // NOLINT(concurrency-mt-unsafe)

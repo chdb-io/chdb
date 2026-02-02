@@ -306,7 +306,7 @@ void tryLogCurrentException(const char * log_name, const std::string & start_of_
 /// Functions to manage shutdown state for safe logging.
 /// Call setShuttingDown() before cleanup to prevent crashes when
 /// Poco::Logger may have been destroyed (e.g., during Python interpreter exit).
-void setShuttingDown();
+void setShuttingDown(bool value = true);
 bool isShuttingDown();
 void tryLogCurrentException(Poco::Logger * logger, const std::string & start_of_message = "", LogsLevel level = LogsLevel::error);
 void tryLogCurrentException(LoggerPtr logger, const std::string & start_of_message = "", LogsLevel level = LogsLevel::error);
