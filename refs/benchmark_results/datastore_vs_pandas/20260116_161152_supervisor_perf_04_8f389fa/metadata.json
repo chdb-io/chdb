@@ -1,0 +1,17 @@
+{
+  "timestamp": "2026-01-16T16:11:52.264782",
+  "timestamp_unix": 1768551112.264782,
+  "git_branch": "supervisor/perf_04",
+  "git_commit_hash": "8f389fa4ae22676064d5ef579faf3a0a86b5508e",
+  "git_commit_short": "8f389fa",
+  "git_commit_message": "test(equals): add semantic tests for equals() and binary operation alignment",
+  "git_is_dirty": false,
+  "output_dir": "/Users/auxten/Codes/go/src/github.com/auxten/chdb-ds/refs/benchmark_results/datastore_vs_pandas/20260116_161152_supervisor_perf_04_8f389fa",
+  "config": {
+    "data_sizes": [
+      100000,
+      1000000
+    ],
+    "n_runs": 3
+  }
+}
