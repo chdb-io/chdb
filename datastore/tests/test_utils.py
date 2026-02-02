@@ -5,21 +5,9 @@ These utilities follow the Mirror Code Pattern and Complete Output Comparison
 principles defined in .cursor/rules/chdb-ds.mdc
 """
 
-import re
 import numpy as np
 import pandas as pd
 from typing import Any
-
-
-def _get_pandas_version() -> tuple:
-    version_str = pd.__version__
-    match = re.match(r'^(\d+)\.(\d+)', version_str)
-    if match:
-        return (int(match.group(1)), int(match.group(2)))
-    return (2, 0)
-
-_PANDAS_VERSION = _get_pandas_version()
-_PANDAS_3_PLUS = _PANDAS_VERSION >= (3, 0)
 
 
 # =============================================================================
@@ -52,7 +40,9 @@ def assert_frame_equal(
     This ensures column names and index names are checked by default.
     All parameters match pd.testing.assert_frame_equal signature.
     """
-    kwargs = dict(
+    pd.testing.assert_frame_equal(
+        left,
+        right,
         check_dtype=check_dtype,
         check_index_type=check_index_type,
         check_column_type=check_column_type,
@@ -60,6 +50,7 @@ def assert_frame_equal(
         check_names=check_names,
         by_blocks=by_blocks,
         check_exact=check_exact,
+        check_datetimelike_compat=check_datetimelike_compat,
         check_categorical=check_categorical,
         check_like=check_like,
         check_freq=check_freq,
@@ -68,9 +59,6 @@ def assert_frame_equal(
         atol=atol,
         obj=obj,
     )
-    if not _PANDAS_3_PLUS:
-        kwargs['check_datetimelike_compat'] = check_datetimelike_compat
-    pd.testing.assert_frame_equal(left, right, **kwargs)
 
 
 def assert_series_equal(
@@ -110,29 +98,27 @@ def assert_series_equal(
     # Both represent missing values and should be treated as equal for our tests
     import warnings
 
-    # Build kwargs, excluding deprecated parameters for pandas 3.0+
-    kwargs = dict(
-        check_dtype=check_dtype,
-        check_index_type=check_index_type,
-        check_series_type=check_series_type,
-        check_names=check_names,
-        check_exact=check_exact,
-        check_categorical=check_categorical,
-        check_category_order=check_category_order,
-        check_freq=check_freq,
-        check_flags=check_flags,
-        rtol=rtol,
-        atol=atol,
-        obj=obj,
-        check_index=check_index,
-        check_like=check_like,
-    )
-    if not _PANDAS_3_PLUS:
-        kwargs['check_datetimelike_compat'] = check_datetimelike_compat
-
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', message='Mismatched null-like values.*found', category=FutureWarning)
-        pd.testing.assert_series_equal(left, right, **kwargs)
+        pd.testing.assert_series_equal(
+            left,
+            right,
+            check_dtype=check_dtype,
+            check_index_type=check_index_type,
+            check_series_type=check_series_type,
+            check_names=check_names,
+            check_exact=check_exact,
+            check_datetimelike_compat=check_datetimelike_compat,
+            check_categorical=check_categorical,
+            check_category_order=check_category_order,
+            check_freq=check_freq,
+            check_flags=check_flags,
+            rtol=rtol,
+            atol=atol,
+            obj=obj,
+            check_index=check_index,
+            check_like=check_like,
+        )
 
 
 # =============================================================================
@@ -211,7 +197,6 @@ def _are_dtypes_nullable_equivalent(dtype1, dtype2) -> bool:
     - bool ↔ boolean (nullable boolean)
     - uint64 ↔ int64 (count operations return uint64 in chDB)
     - uint8 ↔ bool (chDB string operations return uint8 for boolean results)
-    - str ↔ object (pandas 3.0+ use 'str' dtype for string columns)
     """
     str1, str2 = str(dtype1).lower(), str(dtype2).lower()
 
@@ -251,10 +236,6 @@ def _are_dtypes_nullable_equivalent(dtype1, dtype2) -> bool:
 
     # uint8 vs bool (chDB string operations like startswith/endswith return uint8)
     if {str1, str2} == {'uint8', 'bool'}:
-        return True
-
-    # str vs object (pandas 3.0+ uses 'str' dtype)
-    if {str1, str2} == {'str', 'object'}:
         return True
 
     return False
