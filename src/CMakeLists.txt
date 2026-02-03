@@ -647,7 +647,7 @@ if (USE_ORC)
 endif ()
 
 if (USE_UTF8PROC)
-    dbms_target_link_libraries(PUBLIC ch_contrib::utf8proc)
+    target_link_libraries(dbms PUBLIC ch_contrib::utf8proc)
     target_include_directories (clickhouse_common_io SYSTEM BEFORE PUBLIC ${UTF8PROC_INCLUDE_DIR})
     message(STATUS "UTF8PROC_INCLUDE_DIR: ${UTF8PROC_INCLUDE_DIR}")
 endif()
