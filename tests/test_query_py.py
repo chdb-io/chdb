@@ -400,6 +400,19 @@ class TestQueryPy(unittest.TestCase):
         finally:
             os.unlink(path)
 
+    def test_multiple_python_references_in_subquery(self):
+        df = pd.DataFrame({'id': [1, 2, 3], 'value': [10, 20, 30]})
+
+        result = chdb.query('''
+            SELECT id, value + (SELECT SUM(value) FROM Python(df)) AS total
+            FROM Python(df)
+            ORDER BY id
+        ''', "DataFrame")
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result['id'].tolist(), [1, 2, 3])
+        self.assertEqual(result['total'].tolist(), [70, 80, 90])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=3)

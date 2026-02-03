@@ -156,7 +156,21 @@ void StoragePython::prepareColumnCache(
 #endif
 
     auto & data_source = data_source_wrapper->getDataSource();
-    if (column_cache == nullptr)
+
+    bool need_rebuild = (column_cache == nullptr) || (column_cache->size() != names.size());
+    if (!need_rebuild)
+    {
+        for (size_t i = 0; i < names.size(); ++i)
+        {
+            if ((*column_cache)[i].name != names[i])
+            {
+                need_rebuild = true;
+                break;
+            }
+        }
+    }
+
+    if (need_rebuild)
     {
         column_cache = std::make_shared<PyColumnVec>(names.size());
         for (size_t i = 0; i < names.size(); ++i)
