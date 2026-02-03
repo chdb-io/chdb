@@ -749,7 +749,7 @@ catch (DB::Exception & e)
 }
 catch (...)
 {
-    error_message_oss << DB::getCurrentExceptionMessage(true) << '\n'; 
+    error_message_oss << DB::getCurrentExceptionMessage(true) << '\n';
     auto code = DB::getCurrentExceptionCode();
     return static_cast<UInt8>(code) ? code : 1;
 }

@@ -59,6 +59,7 @@ public:
         set(reinterpret_cast<Position>(vector.data()), vector.size());
         finalized = false;
         canceled = false;
+        bytes = 0;
     }
 
 protected:
@@ -86,6 +87,8 @@ protected:
                 vector.resize(logical_size / sizeof(ValueType) + (logical_size % sizeof(ValueType) ? 1 : 0));
             }
         }
+
+        bytes += offset();
 
         /// Prevent further writes.
         set(nullptr, 0);

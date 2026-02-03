@@ -297,7 +297,7 @@ void operator delete[](void * ptr, std::size_t size, std::align_val_t align) noe
 extern "C" void * __wrap_malloc(size_t size) // NOLINT
 {
     AllocationTrace trace;
-    std::size_t actual_size = Memory::trackMemory(size, trace);
+    std::size_t actual_size = Memory::trackMemoryFromC(size, trace);
 #if USE_JEMALLOC
     void * ptr = je_malloc(size);
 #else
@@ -319,7 +319,7 @@ extern "C" void * __wrap_calloc(size_t number_of_members, size_t size) // NOLINT
         return nullptr;
 
     AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(real_size, trace);
+    size_t actual_size = Memory::trackMemoryFromC(real_size, trace);
 #if USE_JEMALLOC
     void * res = je_calloc(number_of_members, size);
 #else
@@ -349,7 +349,7 @@ extern "C" void * __wrap_realloc(void * ptr, size_t size) // NOLINT
         trace.onFree(ptr, actual_size);
     }
     AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(size, trace);
+    size_t actual_size = Memory::trackMemoryFromC(size, trace);
 #if USE_JEMALLOC
     void * res = je_realloc(ptr, size);
 #else
@@ -367,7 +367,7 @@ extern "C" void * __wrap_realloc(void * ptr, size_t size) // NOLINT
 extern "C" int __wrap_posix_memalign(void ** memptr, size_t alignment, size_t size) // NOLINT
 {
     AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(size, trace, static_cast<std::align_val_t>(alignment));
+    size_t actual_size = Memory::trackMemoryFromC(size, trace, static_cast<std::align_val_t>(alignment));
 #if USE_JEMALLOC
     int res = je_posix_memalign(memptr, alignment, size);
 #else
@@ -385,7 +385,7 @@ extern "C" int __wrap_posix_memalign(void ** memptr, size_t alignment, size_t si
 extern "C" void * __wrap_aligned_alloc(size_t alignment, size_t size) // NOLINT
 {
     AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(size, trace, static_cast<std::align_val_t>(alignment));
+    size_t actual_size = Memory::trackMemoryFromC(size, trace, static_cast<std::align_val_t>(alignment));
 #if USE_JEMALLOC
     void * res = je_aligned_alloc(alignment, size);
 #else
@@ -400,32 +400,15 @@ extern "C" void * __wrap_aligned_alloc(size_t alignment, size_t size) // NOLINT
     return res;
 }
 
+#if !defined(OS_FREEBSD)
 extern "C" void * __wrap_valloc(size_t size) // NOLINT
 {
     AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(size, trace);
+    size_t actual_size = Memory::trackMemoryFromC(size, trace);
 #if USE_JEMALLOC
     void * res = je_valloc(size);
 #else
     void * res = __real_valloc(size);
-#endif
-    if (unlikely(!res))
-    {
-        trace = CurrentMemoryTracker::free(actual_size);
-        return nullptr;
-    }
-    trace.onAlloc(res, actual_size);
-    return res;
-}
-
-extern "C" void * __wrap_memalign(size_t alignment, size_t size) // NOLINT
-{
-    AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(size, trace, static_cast<std::align_val_t>(alignment));
-#if USE_JEMALLOC
-    void * res = je_memalign(alignment, size);
-#else
-    void * res = __real_memalign(alignment, size);
 #endif
     if (unlikely(!res))
     {
@@ -464,16 +447,36 @@ extern "C" void __wrap_free(void * ptr) // NOLINT
 #endif
 }
 
+#if !defined(OS_DARWIN) && !defined(OS_FREEBSD)
+extern "C" void * __wrap_memalign(size_t alignment, size_t size) // NOLINT
+{
+    AllocationTrace trace;
+    size_t actual_size = Memory::trackMemoryFromC(size, trace, static_cast<std::align_val_t>(alignment));
+#if USE_JEMALLOC
+    void * res = je_memalign(alignment, size);
+#else
+    void * res = __real_memalign(alignment, size);
+#endif
+    if (unlikely(!res))
+    {
+        trace = CurrentMemoryTracker::free(actual_size);
+        return nullptr;
+    }
+    trace.onAlloc(res, actual_size);
+    return res;
+}
+#endif
+
 #if !defined(USE_MUSL) && defined(OS_LINUX)
 extern "C" void * __wrap_pvalloc(size_t size) // NOLINT
 {
     AllocationTrace trace;
-    size_t actual_size = Memory::trackMemory(size, trace);
-#    if USE_JEMALLOC
+    size_t actual_size = Memory::trackMemoryFromC(size, trace);
+#if USE_JEMALLOC
     void * res = je_pvalloc(size);
-#    else
+#else
     void * res = __real_pvalloc(size);
-#    endif
+#endif
     if (unlikely(!res))
     {
         trace = CurrentMemoryTracker::free(actual_size);
