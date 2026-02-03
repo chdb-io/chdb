@@ -6,19 +6,21 @@
  * public APIs to be prefixed.  This makes it possible, with some care, to use
  * multiple allocators simultaneously.
  */
-#define JEMALLOC_PREFIX "je_"
-#define JEMALLOC_CPREFIX "JE_"
+/* #undef JEMALLOC_PREFIX */
+/* #undef JEMALLOC_CPREFIX */
 
 /*
  * Define overrides for non-standard allocator-related functions if they are
  * present on the system.
  */
-/* #undef JEMALLOC_OVERRIDE___LIBC_CALLOC */
-/* #undef JEMALLOC_OVERRIDE___LIBC_FREE */
-/* #undef JEMALLOC_OVERRIDE___LIBC_MALLOC */
-/* #undef JEMALLOC_OVERRIDE___LIBC_MEMALIGN */
-/* #undef JEMALLOC_OVERRIDE___LIBC_REALLOC */
-/* #undef JEMALLOC_OVERRIDE___LIBC_VALLOC */
+#if !defined(USE_MUSL)
+    #define JEMALLOC_OVERRIDE___LIBC_CALLOC
+    #define JEMALLOC_OVERRIDE___LIBC_FREE
+    #define JEMALLOC_OVERRIDE___LIBC_MALLOC
+    #define JEMALLOC_OVERRIDE___LIBC_MEMALIGN
+    #define JEMALLOC_OVERRIDE___LIBC_REALLOC
+    #define JEMALLOC_OVERRIDE___LIBC_VALLOC
+#endif
 /* #undef JEMALLOC_OVERRIDE___POSIX_MEMALIGN */
 
 /*
@@ -127,7 +129,7 @@
  * Among other things, it must be possible to initialize a mutex without
  * triggering allocation in order for threaded allocation to be safe.
  */
-/* #undef JEMALLOC_THREADED_INIT */
+#define JEMALLOC_THREADED_INIT
 
 /*
  * Defined if the pthreads implementation defines
@@ -137,8 +139,7 @@
 /* #undef JEMALLOC_MUTEX_INIT_CB */
 
 /* Non-empty if the tls_model attribute is supported. */
-// #define JEMALLOC_TLS_MODEL __attribute__((tls_model("initial-exec")))
-#define JEMALLOC_TLS_MODEL
+#define JEMALLOC_TLS_MODEL __attribute__((tls_model("initial-exec")))
 
 /*
  * JEMALLOC_DEBUG enables assertions and other sanity checks, and disables
@@ -321,6 +322,9 @@
  */
 /* #undef JEMALLOC_MADVISE_NOCORE */
 
+/* Defined if process_madvise(2) is available. */
+#undef JEMALLOC_HAVE_PROCESS_MADVISE
+
 /* Defined if mprotect(2) is available. */
 #define JEMALLOC_HAVE_MPROTECT
 
@@ -373,10 +377,10 @@
 #define LG_SIZEOF_INTMAX_T 3
 
 /* glibc malloc hooks (__malloc_hook, __realloc_hook, __free_hook). */
-/* #undef JEMALLOC_GLIBC_MALLOC_HOOK */
+#define JEMALLOC_GLIBC_MALLOC_HOOK
 
 /* glibc memalign hook. */
-/* #undef JEMALLOC_GLIBC_MEMALIGN_HOOK */
+#define JEMALLOC_GLIBC_MEMALIGN_HOOK
 
 /* pthread support */
 #define JEMALLOC_HAVE_PTHREAD
@@ -408,7 +412,7 @@
 #define JEMALLOC_CONFIG_MALLOC_CONF "@JEMALLOC_CONFIG_MALLOC_CONF@"
 
 /* If defined, jemalloc takes the malloc/free/etc. symbol names. */
-/* #undef JEMALLOC_IS_MALLOC */
+#define JEMALLOC_IS_MALLOC
 
 /*
  * Defined if strerror_r returns char * if _GNU_SOURCE is defined.
