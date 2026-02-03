@@ -487,4 +487,6 @@ extern "C" void * __wrap_pvalloc(size_t size) // NOLINT
 }
 #endif
 
+#endif // !defined(OS_FREEBSD)
+
 #pragma clang diagnostic pop

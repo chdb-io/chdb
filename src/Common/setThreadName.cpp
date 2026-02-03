@@ -95,8 +95,11 @@ void setThreadName(ThreadName name)
 #else
     if (0 != prctl(PR_SET_NAME, thread_name_str.data(), 0, 0, 0))
 #endif
-    // if (errno != ENOSYS && errno != EPERM)    /// It's ok if the syscall is unsupported or not allowed in some environments.
-    //    throw DB::ErrnoException(DB::ErrorCodes::PTHREAD_ERROR, "Cannot set thread name with prctl(PR_SET_NAME, ...)");
+    {
+        // Error handling intentionally disabled
+        // if (errno != ENOSYS && errno != EPERM)    /// It's ok if the syscall is unsupported or not allowed in some environments.
+        //    throw DB::ErrnoException(DB::ErrorCodes::PTHREAD_ERROR, "Cannot set thread name with prctl(PR_SET_NAME, ...)");
+    }
 
 #if USE_JEMALLOC
     DB::Jemalloc::setValue("thread.prof.name", thread_name_str.data());

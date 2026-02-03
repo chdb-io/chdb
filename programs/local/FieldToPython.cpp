@@ -61,7 +61,7 @@ py::object convertTimeFieldToPython(const Field & field)
 
     if (time_seconds < 0)
     {
-        return py::str(toString(field));
+        return py::str(field.dump());
     }
 
     /// Handle time overflow (should be within 24 hours)
@@ -79,7 +79,7 @@ py::object convertTimeFieldToPython(const Field & field)
     }
     catch (py::error_already_set &)
     {
-        return py::str(toString(field));
+        return py::str(field.dump());
     }
 }
 
@@ -92,7 +92,7 @@ py::object convertTime64FieldToPython(const Field & field)
 
     if (time64_ticks < 0)
     {
-        return py::str(toString(field));
+        return py::str(field.dump());
     }
 
     UInt32 scale = time64_field.getScale();
@@ -117,7 +117,7 @@ py::object convertTime64FieldToPython(const Field & field)
     }
     catch (py::error_already_set &)
     {
-        return py::str(toString(field));
+        return py::str(field.dump());
     }
 }
 
@@ -186,7 +186,6 @@ static bool canTypeBeUsedAsDictKey(const DataTypePtr & type)
 
 	case TypeIndex::Set:
 	case TypeIndex::JSONPaths:
-	case TypeIndex::ObjectDeprecated:
 	case TypeIndex::Function:
 	case TypeIndex::AggregateFunction:
 	case TypeIndex::LowCardinality:
@@ -208,7 +207,7 @@ static py::object convertLocalDateToPython(const LocalDate & local_date, auto & 
     }
     catch (py::error_already_set &)
     {
-        return py::str(toString(field));
+        return py::str(field.dump());
     }
 }
 
@@ -376,7 +375,7 @@ py::object convertFieldToPython(
             }
             catch (py::error_already_set &)
             {
-                return py::str(toString(field));
+                return py::str(field.dump());
             }
         }
 
@@ -419,7 +418,7 @@ py::object convertFieldToPython(
             }
             catch (py::error_already_set &)
             {
-                return py::str(toString(field));
+                return py::str(field.dump());
             }
         }
 
@@ -449,12 +448,12 @@ py::object convertFieldToPython(
             {
                 const auto & enum_type = typeid_cast<const DataTypeEnum8 &>(*type);
                 auto it = enum_type.findByValue(static_cast<Int8>(field.safeGet<Int64>()));
-                String enum_name(it->second.data, it->second.size);
+                String enum_name(it->second.data(), it->second.size());
                 return py::cast(enum_name);
             }
             catch (...)
             {
-                return py::cast(toString(field));
+                return py::cast(field.dump());
             }
         }
 
@@ -465,12 +464,12 @@ py::object convertFieldToPython(
             {
                 const auto & enum_type = typeid_cast<const DataTypeEnum16 &>(*type);
                 auto it = enum_type.findByValue(static_cast<Int16>(field.safeGet<Int64>()));
-                String enum_name(it->second.data, it->second.size);
+                String enum_name(it->second.data(), it->second.size());
                 return py::cast(enum_name);
             }
             catch (...)
             {
-                return py::cast(toString(field));
+                return py::cast(field.dump());
             }
         }
 
@@ -696,7 +695,7 @@ py::object convertFieldToPython(
             {
                 /// Get data from shared variant and deserialize it
                 auto value = dynamic_column.getSharedVariant().getDataAt(variant_column.offsetAt(index));
-                ReadBufferFromMemory buf(value.data, value.size);
+                ReadBufferFromMemory buf(value.data(), value.size());
                 auto variant_type = decodeDataType(buf);
                 auto tmp_variant_column = variant_type->createColumn();
                 auto variant_serialization = variant_type->getDefaultSerialization();
@@ -747,8 +746,6 @@ py::object convertFieldToPython(
 	case TypeIndex::Set:
 	/// JSONPaths is an internal type used only for JSON schema inference,
 	case TypeIndex::JSONPaths:
-	/// Deprecated type, should not appear in normal data processing
-	case TypeIndex::ObjectDeprecated:
 	/// Function types are not actual data types, should not appear here
 	case TypeIndex::Function:
 	/// Aggregate function types are not actual data types, should not appear here

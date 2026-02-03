@@ -99,7 +99,7 @@ py::object convertObjectToPython(
     size_t index_in_shared_data_values = shared_data_offset;
     for (size_t i = shared_data_offset; i != shared_data_end; ++i)
     {
-        auto path = shared_data_paths->getDataAt(i).toString();
+        auto path = String(shared_data_paths->getDataAt(i));
 
         auto tmp_dynamic_column = ColumnDynamic::create();
         tmp_dynamic_column->reserve(1);

@@ -3105,6 +3105,7 @@ bool ClientBase::processQueryText(const String & text)
 
 bool ClientBase::processStreamingQuery(void * streaming_result_, bool is_canceled)
 {
+    auto processed_rows = std::max(processed_rows_from_blocks, processed_rows_from_progress);
     const auto old_processed_rows = processed_rows;
 
     try
@@ -3137,6 +3138,8 @@ bool ClientBase::processStreamingQuery(void * streaming_result_, bool is_cancele
         processError(streaming_query_context->full_query);
         return false;
     }
+
+    processed_rows = std::max(processed_rows_from_blocks, processed_rows_from_progress);
 
     if (old_processed_rows == processed_rows)
     {
@@ -3207,7 +3210,6 @@ void ClientBase::resetOutputFormat()
 
 void ClientBase::receiveResult(ASTPtr parsed_query, bool is_canceled)
 {
-    // TODO: get the poll_interval from commandline.
     const auto receive_timeout = connection_parameters.timeouts.receive_timeout;
     constexpr size_t default_poll_interval = 1000000; /// in microseconds
     constexpr size_t min_poll_interval = 5000; /// in microseconds
@@ -3229,6 +3231,7 @@ void ClientBase::receiveResult(ASTPtr parsed_query, bool is_canceled)
 
         try
         {
+            auto processed_rows = std::max(processed_rows_from_blocks, processed_rows_from_progress);
             const auto old_processed_rows = processed_rows;
 
             if (!receiveAndProcessPacket(parsed_query, cancelled))
@@ -3237,6 +3240,7 @@ void ClientBase::receiveResult(ASTPtr parsed_query, bool is_canceled)
             if (is_canceled)
                 continue;
 
+            processed_rows = std::max(processed_rows_from_blocks, processed_rows_from_progress);
             if (processed_rows > old_processed_rows)
                 break;
         }
