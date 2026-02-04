@@ -180,6 +180,7 @@ clang-19 chdb_example.cpp -o chdb_example \
     --ld-path=${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld \
     -L. -lchdb -liconv \
     -framework CoreFoundation \
+    -framework Security \
     -Wl,-map,chdb_example.map
 if [ $? -ne 0 ]; then
     echo "Error: Failed to compile chdb_example.cpp"
