@@ -305,15 +305,15 @@ jobs:
           ulimit -c unlimited
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          
+
           DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
-          
+
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
             python -m pip install dist/*.whl --force-reinstall
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
-            
+
             if [ "$DEBUG_MODE" == "true" ]; then
               # Run tests with lldb to capture all crash signals
               python -m pip install pytest pytest-cov pytest-timeout
@@ -346,10 +346,9 @@ jobs:
                 exit $EXIT_CODE
               fi
             else
-              # Normal test run (same as main branch)
               make test
             fi
-            
+
             pyenv shell --unset
           done
         continue-on-error: false
@@ -359,17 +358,17 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.11
-          
+
           DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
-          
+
           python -m pip install dist/*.whl --force-reinstall
           python -m pip install pytest pytest-cov pytest-timeout
           echo "Testing DataStore import..."
           python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
-          
+
           echo "Running DataStore tests..."
           cd datastore
-          
+
           if [ "$DEBUG_MODE" == "true" ]; then
             # Run pytest under lldb to capture all crash signals
             REAL_PYTHON=$(pyenv which python)
@@ -407,10 +406,9 @@ jobs:
               exit $EXIT_CODE
             fi
           else
-            # Normal test run (same as main branch)
             python -m pytest tests/ -v --tb=short -x
           fi
-          
+
           pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests
