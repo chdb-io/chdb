@@ -48,6 +48,10 @@ endif ()
 target_link_libraries (clickhouse PRIVATE clickhouse_common_io ${HARMFUL_LIB})
 target_include_directories (clickhouse PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
+if (TARGET ch_contrib::jemalloc)
+    target_link_libraries(clickhouse PRIVATE ch_contrib::jemalloc)
+endif()
+
 # Link system iconv library on macOS for libxml2 compatibility
 if (APPLE)
     target_link_libraries (clickhouse PRIVATE iconv)
