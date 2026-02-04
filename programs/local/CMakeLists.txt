@@ -131,9 +131,5 @@ if (ENABLE_CLIENT_AI AND TARGET ch_contrib::ai-sdk-cpp)
     target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::ai-sdk-cpp)
 endif()
 
-if (TARGET ch_contrib::jemalloc)
-    target_link_libraries(clickhouse-local-lib PRIVATE ch_contrib::jemalloc)
-endif()
-
 # Always use internal readpassphrase
 target_link_libraries(clickhouse-local-lib PRIVATE readpassphrase)
