@@ -378,3 +378,6 @@
 [submodule "contrib/pybind11"]
 	path = contrib/pybind11
 	url = https://github.com/chdb-io/mrbind-pybind11.git
+[submodule "contrib/utf8proc"]
+	path = contrib/utf8proc
+	url = https://github.com/JuliaStrings/utf8proc.git
