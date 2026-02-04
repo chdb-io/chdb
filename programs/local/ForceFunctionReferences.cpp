@@ -29,6 +29,7 @@ namespace DB
     extern void registerFunctionAddYears(FunctionFactory & factory);
     extern void registerFunctionAge(FunctionFactory & factory);
     extern void registerFunctionAppendTrailingCharIfAbsent(FunctionFactory & factory);
+    extern void registerFunctionArea(FunctionFactory & factory);
     extern void registerFunctionArray(FunctionFactory & factory);
     extern void registerFunctionArrayAUC(FunctionFactory & factory);
     extern void registerFunctionArrayAggregation(FunctionFactory & factory);
@@ -66,6 +67,7 @@ namespace DB
     extern void registerFunctionArrayRandomSample(FunctionFactory & factory);
     extern void registerFunctionArrayReduce(FunctionFactory & factory);
     extern void registerFunctionArrayReduceInRanges(FunctionFactory & factory);
+    extern void registerFunctionArrayRemove(FunctionFactory & factory);
     extern void registerFunctionArrayResize(FunctionFactory & factory);
     extern void registerFunctionArrayReverse(FunctionFactory & factory);
     extern void registerFunctionArrayShiftOrRotate(FunctionFactory & factory);
@@ -85,6 +87,8 @@ namespace DB
     extern void registerFunctionAtan(FunctionFactory & factory);
     extern void registerFunctionAtan2(FunctionFactory & factory);
     extern void registerFunctionAtanh(FunctionFactory & factory);
+    extern void registerFunctionAuthenticatedUser(FunctionFactory & factory);
+    extern void registerFunctionAvg2(FunctionFactory & factory);
     extern void registerFunctionBar(FunctionFactory & factory);
     extern void registerFunctionBase32Decode(FunctionFactory & factory);
     extern void registerFunctionBase32Encode(FunctionFactory & factory);
@@ -136,6 +140,7 @@ namespace DB
     extern void registerFunctionConcat(FunctionFactory & factory);
     extern void registerFunctionConcatWithSeparator(FunctionFactory & factory);
     extern void registerFunctionConnectionId(FunctionFactory & factory);
+    extern void registerFunctionConv(FunctionFactory & factory);
     extern void registerFunctionConversion(FunctionFactory & factory);
     extern void registerFunctionCos(FunctionFactory & factory);
     extern void registerFunctionCosh(FunctionFactory & factory);
@@ -168,6 +173,7 @@ namespace DB
     extern void registerFunctionDefaultValueOfTypeName(FunctionFactory & factory);
     extern void registerFunctionDegrees(FunctionFactory & factory);
     extern void registerFunctionDemangle(FunctionFactory & factory);
+    extern void registerFunctionDictGetKeys(FunctionFactory & factory);
     extern void registerFunctionDisplayName(FunctionFactory & factory);
     extern void registerFunctionDistribution(FunctionFactory & factory);
     extern void registerFunctionDivide(FunctionFactory & factory);
@@ -187,6 +193,8 @@ namespace DB
     extern void registerFunctionEncodeXMLComponent(FunctionFactory & factory);
     extern void registerFunctionEncrypt(FunctionFactory & factory);
     extern void registerFunctionEndsWith(FunctionFactory & factory);
+    extern void registerFunctionEndsWithCaseInsensitive(FunctionFactory & factory);
+    extern void registerFunctionEndsWithCaseInsensitiveUTF8(FunctionFactory & factory);
     extern void registerFunctionEndsWithUTF8(FunctionFactory & factory);
     extern void registerFunctionEquals(FunctionFactory & factory);
     extern void registerFunctionErf(FunctionFactory & factory);
@@ -211,12 +219,15 @@ namespace DB
     extern void registerFunctionFactorial(FunctionFactory & factory);
     extern void registerFunctionFile(FunctionFactory & factory);
     extern void registerFunctionFilesystem(FunctionFactory & factory);
+    extern void registerFunctionFilterContains(FunctionFactory & factory);
     extern void registerFunctionFinalizeAggregation(FunctionFactory & factory);
     extern void registerFunctionFirstLine(FunctionFactory & factory);
+    extern void registerFunctionFirstNonDefault(FunctionFactory & factory);
     extern void registerFunctionFirstSignificantSubdomain(FunctionFactory & factory);
     extern void registerFunctionFirstSignificantSubdomainCustom(FunctionFactory & factory);
     extern void registerFunctionFixedString(FunctionFactory & factory);
     extern void registerFunctionFlattenTuple(FunctionFactory & factory);
+    extern void registerFunctionFlipCoordinates(FunctionFactory & factory);
     extern void registerFunctionFormat(FunctionFactory & factory);
     extern void registerFunctionFormatDateTime(FunctionFactory & factory);
     extern void registerFunctionFormatReadableDecimalSize(FunctionFactory & factory);
@@ -231,7 +242,9 @@ namespace DB
     extern void registerFunctionFromUnixTimestamp64Micro(FunctionFactory & factory);
     extern void registerFunctionFromUnixTimestamp64Milli(FunctionFactory & factory);
     extern void registerFunctionFromUnixTimestamp64Nano(FunctionFactory & factory);
+    extern void registerFunctionFunctionArrayExcept(FunctionFactory & factory);
     extern void registerFunctionFunctionColorOKLCHToSRGB(FunctionFactory & factory);
+    extern void registerFunctionFunctionHMAC(FunctionFactory & factory);
     extern void registerFunctionFunctionIRR(FunctionFactory & factory);
     extern void registerFunctionFunctionNPV(FunctionFactory & factory);
     extern void registerFunctionFunctionXirr(FunctionFactory & factory);
@@ -294,6 +307,7 @@ namespace DB
     extern void registerFunctionH3PointDistKm(FunctionFactory & factory);
     extern void registerFunctionH3PointDistM(FunctionFactory & factory);
     extern void registerFunctionH3PointDistRads(FunctionFactory & factory);
+    extern void registerFunctionH3PolygonToCells(FunctionFactory & factory);
     extern void registerFunctionH3ToCenterChild(FunctionFactory & factory);
     extern void registerFunctionH3ToChildren(FunctionFactory & factory);
     extern void registerFunctionH3ToGeo(FunctionFactory & factory);
@@ -303,7 +317,9 @@ namespace DB
     extern void registerFunctionH3UnidirectionalEdgeIsValid(FunctionFactory & factory);
     extern void registerFunctionHas(FunctionFactory & factory);
     extern void registerFunctionHasAll(FunctionFactory & factory);
+    extern void registerFunctionHasAllTokens(FunctionFactory & factory);
     extern void registerFunctionHasAny(FunctionFactory & factory);
+    extern void registerFunctionHasAnyTokens(FunctionFactory & factory);
     extern void registerFunctionHasColumnInTable(FunctionFactory & factory);
     extern void registerFunctionHasSubstr(FunctionFactory & factory);
     extern void registerFunctionHasThreadFuzzer(FunctionFactory & factory);
@@ -341,6 +357,7 @@ namespace DB
     extern void registerFunctionIntExp2(FunctionFactory & factory);
     extern void registerFunctionIsConstant(FunctionFactory & factory);
     extern void registerFunctionIsDecimalOverflow(FunctionFactory & factory);
+    extern void registerFunctionIsDistinctFrom(FunctionFactory & factory);
     extern void registerFunctionIsFinite(FunctionFactory & factory);
     extern void registerFunctionIsIPAddressContainedIn(FunctionFactory & factory);
     extern void registerFunctionIsInfinite(FunctionFactory & factory);
@@ -349,6 +366,7 @@ namespace DB
     extern void registerFunctionIsNotNull(FunctionFactory & factory);
     extern void registerFunctionIsNull(FunctionFactory & factory);
     extern void registerFunctionIsNullable(FunctionFactory & factory);
+    extern void registerFunctionIsValidASCII(FunctionFactory & factory);
     extern void registerFunctionIsValidUTF8(FunctionFactory & factory);
     extern void registerFunctionIsZeroOrNull(FunctionFactory & factory);
     extern void registerFunctionJSON(FunctionFactory & factory);
@@ -389,6 +407,7 @@ namespace DB
     extern void registerFunctionMaterialize(FunctionFactory & factory);
     extern void registerFunctionMax2(FunctionFactory & factory);
     extern void registerFunctionMergeTreePartInfoTools(FunctionFactory & factory);
+    extern void registerFunctionMidpoint(FunctionFactory & factory);
     extern void registerFunctionMin2(FunctionFactory & factory);
     extern void registerFunctionMinSampleSize(FunctionFactory & factory);
     extern void registerFunctionMinus(FunctionFactory & factory);
@@ -424,6 +443,7 @@ namespace DB
     extern void registerFunctionMultiSearchFirstPositionUTF8(FunctionFactory & factory);
     extern void registerFunctionMultiply(FunctionFactory & factory);
     extern void registerFunctionMultiplyDecimals(FunctionFactory & factory);
+    extern void registerFunctionNaiveBayesClassifier(FunctionFactory & factory);
     extern void registerFunctionNegate(FunctionFactory & factory);
     extern void registerFunctionNeighbor(FunctionFactory & factory);
     extern void registerFunctionNested(FunctionFactory & factory);
@@ -450,6 +470,7 @@ namespace DB
     extern void registerFunctionPatchPartitionID(FunctionFactory & factory);
     extern void registerFunctionPath(FunctionFactory & factory);
     extern void registerFunctionPathFull(FunctionFactory & factory);
+    extern void registerFunctionPerimeter(FunctionFactory & factory);
     extern void registerFunctionPi(FunctionFactory & factory);
     extern void registerFunctionPlus(FunctionFactory & factory);
     extern void registerFunctionPointInEllipses(FunctionFactory & factory);
@@ -498,6 +519,7 @@ namespace DB
     extern void registerFunctionReplaceRegexpOne(FunctionFactory & factory);
     extern void registerFunctionReplicate(FunctionFactory & factory);
     extern void registerFunctionReverse(FunctionFactory & factory);
+    extern void registerFunctionReverseBySeparator(FunctionFactory & factory);
     extern void registerFunctionReverseUTF8(FunctionFactory & factory);
     extern void registerFunctionRevision(FunctionFactory & factory);
     extern void registerFunctionRight(FunctionFactory & factory);
@@ -513,8 +535,6 @@ namespace DB
     extern void registerFunctionRunningDifferenceStartingWithFirstValue(FunctionFactory & factory);
     extern void registerFunctionSQLJSON(FunctionFactory & factory);
     extern void registerFunctionScalarSubqueryResult(FunctionFactory & factory);
-    extern void registerFunctionSearchAll(FunctionFactory & factory);
-    extern void registerFunctionSearchAny(FunctionFactory & factory);
     extern void registerFunctionSerial(FunctionFactory & factory);
     extern void registerFunctionSeriesOutliersDetectTukey(FunctionFactory & factory);
     extern void registerFunctionServerTimezone(FunctionFactory & factory);
@@ -537,6 +557,8 @@ namespace DB
     extern void registerFunctionSplitByWhitespace(FunctionFactory & factory);
     extern void registerFunctionSqrt(FunctionFactory & factory);
     extern void registerFunctionStartsWith(FunctionFactory & factory);
+    extern void registerFunctionStartsWithCaseInsensitive(FunctionFactory & factory);
+    extern void registerFunctionStartsWithCaseInsensitiveUTF8(FunctionFactory & factory);
     extern void registerFunctionStartsWithUTF8(FunctionFactory & factory);
     extern void registerFunctionStringBytesEntropy(FunctionFactory & factory);
     extern void registerFunctionStringBytesUniq(FunctionFactory & factory);
@@ -567,12 +589,21 @@ namespace DB
     extern void registerFunctionThrowIf(FunctionFactory & factory);
     extern void registerFunctionTid(FunctionFactory & factory);
     extern void registerFunctionTimeDiff(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesCopyTag(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesCopyTags(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesExtractTag(FunctionFactory & factory);
     extern void registerFunctionTimeSeriesFromGrid(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesGroupToTags(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesIdToGroup(FunctionFactory & factory);
     extern void registerFunctionTimeSeriesIdToTags(FunctionFactory & factory);
-    extern void registerFunctionTimeSeriesIdToTagsGroup(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesJoinTags(FunctionFactory & factory);
     extern void registerFunctionTimeSeriesRange(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesRemoveAllTagsExcept(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesRemoveTag(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesRemoveTags(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesReplaceTag(FunctionFactory & factory);
     extern void registerFunctionTimeSeriesStoreTags(FunctionFactory & factory);
-    extern void registerFunctionTimeSeriesTagsGroupToTags(FunctionFactory & factory);
+    extern void registerFunctionTimeSeriesTagsToGroup(FunctionFactory & factory);
     extern void registerFunctionTimeSlot(FunctionFactory & factory);
     extern void registerFunctionTimeSlots(FunctionFactory & factory);
     extern void registerFunctionTimeWindow(FunctionFactory & factory);
@@ -674,9 +705,9 @@ namespace DB
     extern void registerFunctionVisitParamExtractString(FunctionFactory & factory);
     extern void registerFunctionVisitParamExtractUInt(FunctionFactory & factory);
     extern void registerFunctionVisitParamHas(FunctionFactory & factory);
+    extern void registerFunctionWKB(FunctionFactory & factory);
+    extern void registerFunctionWKT(FunctionFactory & factory);
     extern void registerFunctionWidthBucket(FunctionFactory & factory);
-    extern void registerFunctionWkb(FunctionFactory & factory);
-    extern void registerFunctionWkt(FunctionFactory & factory);
     extern void registerFunctionYesterday(FunctionFactory & factory);
     extern void registerFunctionZTest(FunctionFactory & factory);
     extern void registerFunctionZooKeeperSessionUptime(FunctionFactory & factory);
@@ -719,6 +750,7 @@ namespace DB
             &registerFunctionAddYears,
             &registerFunctionAge,
             &registerFunctionAppendTrailingCharIfAbsent,
+            &registerFunctionArea,
             &registerFunctionArray,
             &registerFunctionArrayAUC,
             &registerFunctionArrayAggregation,
@@ -756,6 +788,7 @@ namespace DB
             &registerFunctionArrayRandomSample,
             &registerFunctionArrayReduce,
             &registerFunctionArrayReduceInRanges,
+            &registerFunctionArrayRemove,
             &registerFunctionArrayResize,
             &registerFunctionArrayReverse,
             &registerFunctionArrayShiftOrRotate,
@@ -775,6 +808,8 @@ namespace DB
             &registerFunctionAtan,
             &registerFunctionAtan2,
             &registerFunctionAtanh,
+            &registerFunctionAuthenticatedUser,
+            &registerFunctionAvg2,
             &registerFunctionBar,
             &registerFunctionBase32Decode,
             &registerFunctionBase32Encode,
@@ -826,6 +861,7 @@ namespace DB
             &registerFunctionConcat,
             &registerFunctionConcatWithSeparator,
             &registerFunctionConnectionId,
+            &registerFunctionConv,
             &registerFunctionConversion,
             &registerFunctionCos,
             &registerFunctionCosh,
@@ -858,6 +894,7 @@ namespace DB
             &registerFunctionDefaultValueOfTypeName,
             &registerFunctionDegrees,
             &registerFunctionDemangle,
+            &registerFunctionDictGetKeys,
             &registerFunctionDisplayName,
             &registerFunctionDistribution,
             &registerFunctionDivide,
@@ -877,6 +914,8 @@ namespace DB
             &registerFunctionEncodeXMLComponent,
             &registerFunctionEncrypt,
             &registerFunctionEndsWith,
+            &registerFunctionEndsWithCaseInsensitive,
+            &registerFunctionEndsWithCaseInsensitiveUTF8,
             &registerFunctionEndsWithUTF8,
             &registerFunctionEquals,
             &registerFunctionErf,
@@ -901,12 +940,15 @@ namespace DB
             &registerFunctionFactorial,
             &registerFunctionFile,
             &registerFunctionFilesystem,
+            &registerFunctionFilterContains,
             &registerFunctionFinalizeAggregation,
             &registerFunctionFirstLine,
+            &registerFunctionFirstNonDefault,
             &registerFunctionFirstSignificantSubdomain,
             &registerFunctionFirstSignificantSubdomainCustom,
             &registerFunctionFixedString,
             &registerFunctionFlattenTuple,
+            &registerFunctionFlipCoordinates,
             &registerFunctionFormat,
             &registerFunctionFormatDateTime,
             &registerFunctionFormatReadableDecimalSize,
@@ -921,7 +963,9 @@ namespace DB
             &registerFunctionFromUnixTimestamp64Micro,
             &registerFunctionFromUnixTimestamp64Milli,
             &registerFunctionFromUnixTimestamp64Nano,
+            &registerFunctionFunctionArrayExcept,
             &registerFunctionFunctionColorOKLCHToSRGB,
+            &registerFunctionFunctionHMAC,
             &registerFunctionFunctionIRR,
             &registerFunctionFunctionNPV,
             &registerFunctionFunctionXirr,
@@ -984,6 +1028,7 @@ namespace DB
             &registerFunctionH3PointDistKm,
             &registerFunctionH3PointDistM,
             &registerFunctionH3PointDistRads,
+            &registerFunctionH3PolygonToCells,
             &registerFunctionH3ToCenterChild,
             &registerFunctionH3ToChildren,
             &registerFunctionH3ToGeo,
@@ -993,7 +1038,9 @@ namespace DB
             &registerFunctionH3UnidirectionalEdgeIsValid,
             &registerFunctionHas,
             &registerFunctionHasAll,
+            &registerFunctionHasAllTokens,
             &registerFunctionHasAny,
+            &registerFunctionHasAnyTokens,
             &registerFunctionHasColumnInTable,
             &registerFunctionHasSubstr,
             &registerFunctionHasThreadFuzzer,
@@ -1031,6 +1078,7 @@ namespace DB
             &registerFunctionIntExp2,
             &registerFunctionIsConstant,
             &registerFunctionIsDecimalOverflow,
+            &registerFunctionIsDistinctFrom,
             &registerFunctionIsFinite,
             &registerFunctionIsIPAddressContainedIn,
             &registerFunctionIsInfinite,
@@ -1039,6 +1087,7 @@ namespace DB
             &registerFunctionIsNotNull,
             &registerFunctionIsNull,
             &registerFunctionIsNullable,
+            &registerFunctionIsValidASCII,
             &registerFunctionIsValidUTF8,
             &registerFunctionIsZeroOrNull,
             &registerFunctionJSON,
@@ -1079,6 +1128,7 @@ namespace DB
             &registerFunctionMaterialize,
             &registerFunctionMax2,
             &registerFunctionMergeTreePartInfoTools,
+            &registerFunctionMidpoint,
             &registerFunctionMin2,
             &registerFunctionMinSampleSize,
             &registerFunctionMinus,
@@ -1114,6 +1164,7 @@ namespace DB
             &registerFunctionMultiSearchFirstPositionUTF8,
             &registerFunctionMultiply,
             &registerFunctionMultiplyDecimals,
+            &registerFunctionNaiveBayesClassifier,
             &registerFunctionNegate,
             &registerFunctionNeighbor,
             &registerFunctionNested,
@@ -1140,6 +1191,7 @@ namespace DB
             &registerFunctionPatchPartitionID,
             &registerFunctionPath,
             &registerFunctionPathFull,
+            &registerFunctionPerimeter,
             &registerFunctionPi,
             &registerFunctionPlus,
             &registerFunctionPointInEllipses,
@@ -1188,6 +1240,7 @@ namespace DB
             &registerFunctionReplaceRegexpOne,
             &registerFunctionReplicate,
             &registerFunctionReverse,
+            &registerFunctionReverseBySeparator,
             &registerFunctionReverseUTF8,
             &registerFunctionRevision,
             &registerFunctionRight,
@@ -1203,8 +1256,6 @@ namespace DB
             &registerFunctionRunningDifferenceStartingWithFirstValue,
             &registerFunctionSQLJSON,
             &registerFunctionScalarSubqueryResult,
-            &registerFunctionSearchAll,
-            &registerFunctionSearchAny,
             &registerFunctionSerial,
             &registerFunctionSeriesOutliersDetectTukey,
             &registerFunctionServerTimezone,
@@ -1227,6 +1278,8 @@ namespace DB
             &registerFunctionSplitByWhitespace,
             &registerFunctionSqrt,
             &registerFunctionStartsWith,
+            &registerFunctionStartsWithCaseInsensitive,
+            &registerFunctionStartsWithCaseInsensitiveUTF8,
             &registerFunctionStartsWithUTF8,
             &registerFunctionStringBytesEntropy,
             &registerFunctionStringBytesUniq,
@@ -1257,12 +1310,21 @@ namespace DB
             &registerFunctionThrowIf,
             &registerFunctionTid,
             &registerFunctionTimeDiff,
+            &registerFunctionTimeSeriesCopyTag,
+            &registerFunctionTimeSeriesCopyTags,
+            &registerFunctionTimeSeriesExtractTag,
             &registerFunctionTimeSeriesFromGrid,
+            &registerFunctionTimeSeriesGroupToTags,
+            &registerFunctionTimeSeriesIdToGroup,
             &registerFunctionTimeSeriesIdToTags,
-            &registerFunctionTimeSeriesIdToTagsGroup,
+            &registerFunctionTimeSeriesJoinTags,
             &registerFunctionTimeSeriesRange,
+            &registerFunctionTimeSeriesRemoveAllTagsExcept,
+            &registerFunctionTimeSeriesRemoveTag,
+            &registerFunctionTimeSeriesRemoveTags,
+            &registerFunctionTimeSeriesReplaceTag,
             &registerFunctionTimeSeriesStoreTags,
-            &registerFunctionTimeSeriesTagsGroupToTags,
+            &registerFunctionTimeSeriesTagsToGroup,
             &registerFunctionTimeSlot,
             &registerFunctionTimeSlots,
             &registerFunctionTimeWindow,
@@ -1364,9 +1426,9 @@ namespace DB
             &registerFunctionVisitParamExtractString,
             &registerFunctionVisitParamExtractUInt,
             &registerFunctionVisitParamHas,
+            &registerFunctionWKB,
+            &registerFunctionWKT,
             &registerFunctionWidthBucket,
-            &registerFunctionWkb,
-            &registerFunctionWkt,
             &registerFunctionYesterday,
             &registerFunctionZTest,
             &registerFunctionZooKeeperSessionUptime,

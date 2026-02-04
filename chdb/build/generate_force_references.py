@@ -51,7 +51,6 @@ def extract_register_functions(functions_dir):
         'S2CellsIntersect',
         'S2RectIntersection',
         'TryBase64URLDecode',
-        'ULIDStringToDateTime',
         'SeriesPeriodDetectFFT',
         'AddressToLineWithInlines',
         'DetectProgrammingLanguage',
