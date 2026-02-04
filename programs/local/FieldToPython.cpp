@@ -61,7 +61,7 @@ py::object convertTimeFieldToPython(const Field & field)
 
     if (time_seconds < 0)
     {
-        return py::str(field.dump());
+        return py::str(std::to_string(time_seconds));
     }
 
     /// Handle time overflow (should be within 24 hours)
@@ -89,13 +89,28 @@ py::object convertTime64FieldToPython(const Field & field)
     auto time64_field = field.safeGet<DecimalField<Decimal64>>();
     auto time64_value = time64_field.getValue();
     Int64 time64_ticks = time64_value.value;
+    UInt32 scale = time64_field.getScale();
 
     if (time64_ticks < 0)
     {
-        return py::str(field.dump());
-    }
+        Int64 scale_multiplier = DecimalUtils::scaleMultiplier<Decimal64::NativeType>(scale);
+        Int64 abs_ticks = -time64_ticks;
+        Int64 integer_part = abs_ticks / scale_multiplier;
+        Int64 fractional_part = abs_ticks % scale_multiplier;
 
-    UInt32 scale = time64_field.getScale();
+        std::string result = "-" + std::to_string(integer_part);
+        if (fractional_part > 0)
+        {
+            std::string frac_str = std::to_string(fractional_part);
+            while (frac_str.length() < scale)
+                frac_str = "0" + frac_str;
+            while (!frac_str.empty() && frac_str.back() == '0')
+                frac_str.pop_back();
+            if (!frac_str.empty())
+                result += "." + frac_str;
+        }
+        return py::str(result);
+    }
     Int64 scale_multiplier = DecimalUtils::scaleMultiplier<Decimal64::NativeType>(scale);
 
     /// Convert to seconds and fractional part within a day
