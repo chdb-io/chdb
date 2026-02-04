@@ -587,7 +587,7 @@ macro (clickhouse_add_executable target)
             set_property(TARGET ${target} APPEND PROPERTY LINK_OPTIONS -u_zone_register)
         endif()
 
-        if (TARGET ch_contrib::jemalloc)
+        if (ENABLE_JEMALLOC)
             target_link_libraries(${target} PRIVATE ch_contrib::jemalloc)
         endif()
     endif()

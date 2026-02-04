@@ -253,10 +253,6 @@ if (TARGET ch_contrib::azure_sdk)
     target_link_libraries(clickhouse_storages_system PRIVATE ch_contrib::azure_sdk)
 endif()
 
-if (TARGET ch_contrib::jemalloc)
-    target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::jemalloc)
-endif()
-
 target_link_libraries (clickhouse_common_io PUBLIC ch_contrib::sparsehash)
 target_link_libraries (clickhouse_common_io PRIVATE ch_contrib::stringzilla)
 if (TARGET ch_contrib::consistent_hashing)
