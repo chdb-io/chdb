@@ -6,6 +6,13 @@
 namespace DB
 {
     class FunctionFactory;
+}
+
+/// Functions defined in global namespace (upstream bugs)
+extern void registerFunctionIsValidASCII(::DB::FunctionFactory & factory);
+
+namespace DB
+{
 
     /// Forward declarations of function registration functions
     /// These functions have external linkage and can be referenced
@@ -366,7 +373,6 @@ namespace DB
     extern void registerFunctionIsNotNull(FunctionFactory & factory);
     extern void registerFunctionIsNull(FunctionFactory & factory);
     extern void registerFunctionIsNullable(FunctionFactory & factory);
-    extern void registerFunctionIsValidASCII(FunctionFactory & factory);
     extern void registerFunctionIsValidUTF8(FunctionFactory & factory);
     extern void registerFunctionIsZeroOrNull(FunctionFactory & factory);
     extern void registerFunctionJSON(FunctionFactory & factory);
@@ -730,6 +736,7 @@ namespace DB
         /// Create function pointer array to force linking
         static void (*registration_funcs[])(FunctionFactory &) =
         {
+            &::registerFunctionIsValidASCII,
             &registerFunctionAESDecryptMysql,
             &registerFunctionAESEncryptMysql,
             &registerFunctionAbs,
@@ -1087,7 +1094,6 @@ namespace DB
             &registerFunctionIsNotNull,
             &registerFunctionIsNull,
             &registerFunctionIsNullable,
-            &registerFunctionIsValidASCII,
             &registerFunctionIsValidUTF8,
             &registerFunctionIsZeroOrNull,
             &registerFunctionJSON,
