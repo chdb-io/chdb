@@ -710,6 +710,8 @@ if (NATIVE_BUILD_TARGETS
             "-DCMAKE_BUILD_TYPE=Release"
             # Avoid overriding .cargo/config.toml with native toolchain.
             "-DENABLE_RUST=OFF"
+            # ISA-L requires NASM which may not be available in cross-compilation
+            "-DENABLE_ISAL_LIBRARY=OFF"
             "-DENABLE_CLICKHOUSE_SELF_EXTRACTING=${ENABLE_CLICKHOUSE_SELF_EXTRACTING}"
             "-DUSE_BINARY_HASH=${USE_BINARY_HASH}"
         ${PROJECT_SOURCE_DIR}
