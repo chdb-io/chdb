@@ -89,6 +89,17 @@ print(df.groupby('city')['age'].mean())
 | Learning curve | ✅ Easy | ✅ None - same syntax |
 | Performance | ❌ Single-threaded | ✅ ClickHouse engine |
 
+### Architecture
+
+<div align="center">
+  <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/datastore_architecture.png" width="700">
+</div>
+
+DataStore uses **lazy evaluation** with **dual-engine execution**:
+1. **Lazy Operation Chain**: Operations are recorded, not executed immediately
+2. **Smart Engine Selection**: QueryPlanner routes each segment to optimal engine (chDB for SQL, Pandas for complex ops)
+3. **Intermediate Caching**: Results cached at each step for fast iterative exploration
+
 ### Working with Files
 
 ```python
