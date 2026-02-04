@@ -58,6 +58,13 @@ set(SRCS
     "${POSTGRES_SOURCE_DIR}/src/port/path.c"
 )
 
+# Add explicit_bzero for macOS which does not have this function
+if(OS_DARWIN)
+    set(SRCS ${SRCS}
+        "${POSTGRES_SOURCE_DIR}/src/port/explicit_bzero.c"
+    )
+endif()
+
 if(NOT OS_DARWIN)
     set(SRCS ${SRCS}
         "${POSTGRES_SOURCE_DIR}/src/port/strlcat.c"
