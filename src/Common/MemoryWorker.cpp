@@ -245,7 +245,7 @@ MemoryWorker::MemoryWorker(
             static constexpr uint64_t cgroups_memory_usage_tick_ms{50};
 
             const auto [cgroup_path, version] = ICgroupsReader::getCgroupsPath();
-            LOG_INFO(
+            LOG_DEBUG(
                 getLogger("CgroupsReader"),
                 "Will create cgroup reader from '{}' (cgroups version: {})",
                 cgroup_path,
@@ -292,7 +292,7 @@ void MemoryWorker::start()
               page_size)
         : "disabled";
 
-    LOG_INFO(
+    LOG_DEBUG(
         log,
         "Starting background memory thread with period of {}ms, using {} as source, purging dirty pages {}",
         rss_update_period_ms,
