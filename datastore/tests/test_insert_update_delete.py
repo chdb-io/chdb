@@ -199,7 +199,9 @@ class TestInsertExecution(unittest.TestCase):
         self.assertEqual(2, len(result))
 
         rows = result.to_dict(orient='records')
-        self.assertIsNone(rows[0]['email'])
+        # pandas 3.0 may return nan instead of None for missing values
+        import pandas as pd
+        self.assertTrue(pd.isna(rows[0]['email']))
         self.assertEqual('bob@test.com', rows[1]['email'])
 
     def test_insert_with_boolean_execution(self):

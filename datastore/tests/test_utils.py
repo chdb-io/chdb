@@ -238,6 +238,27 @@ def _are_dtypes_nullable_equivalent(dtype1, dtype2) -> bool:
     if {str1, str2} == {'uint8', 'bool'}:
         return True
 
+    if {str1, str2} == {'str', 'object'}:
+        return True
+
+    # datetime64[ns] vs datetime64[us] (pandas 3.0 uses microseconds by default)
+    if str1.startswith('datetime64') and str2.startswith('datetime64'):
+        return True
+
+    # timedelta64 with different resolutions
+    if str1.startswith('timedelta64') and str2.startswith('timedelta64'):
+        return True
+
+    # int32 vs int64, uint32 vs uint64 (common in SQL vs pandas)
+    if str1.replace('32', '64') == str2 or str2.replace('32', '64') == str1:
+        return True
+
+    # period[M] vs int32/int64 (dt.month returns different types)
+    if 'period' in str1 or 'period' in str2:
+        other = str2 if 'period' in str1 else str1
+        if other in ('int32', 'int64', 'uint32', 'uint64'):
+            return True
+
     return False
 
 

@@ -462,14 +462,21 @@ class TestStack:
         pd_df = data
         ds_df = DataStore(data)
 
-        # stack() API is deprecated in pandas; use future_stack=True in newer versions
+        # stack() API is deprecated in pandas; pandas 3.0 removed dropna parameter
         import warnings
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='The previous implementation of stack is deprecated')
-            pd_result = pd_df.stack(dropna=True)
+            if pandas_version >= (3, 0):
+                pd_result = pd_df.stack()
+            else:
+                pd_result = pd_df.stack(dropna=True)
 
         try:
-            ds_result = ds_df.stack(dropna=True)
+            if pandas_version >= (3, 0):
+                ds_result = ds_df.stack()
+            else:
+                ds_result = ds_df.stack(dropna=True)
             ds_pandas = get_dataframe(ds_result)
             assert ds_pandas is not None
         except Exception as e:

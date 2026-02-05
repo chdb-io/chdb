@@ -1266,7 +1266,9 @@ class TestColumnExprPandasProperties(unittest.TestCase):
         """Test dtype property returns correct type."""
         ds = self.create_ds()
         self.assertEqual(ds['value'].dtype, np.dtype('int64'))
-        self.assertEqual(ds['name'].dtype, np.dtype('object'))
+        # pandas 3.0 uses StringDtype for string columns, pandas 2.x uses object
+        name_dtype = str(ds['name'].dtype)
+        self.assertTrue(name_dtype in ('object', 'str', 'string') or 'string' in name_dtype.lower())
 
     def test_dtypes_property(self):
         """Test dtypes property (alias for dtype)."""

@@ -451,6 +451,18 @@ class LazySeries:
             self._cached_result = series
             return self._cached_result
 
+        # pandas 3.0 removed fillna(method=) parameter, use ffill()/bfill() instead
+        if self._method_name == "fillna":
+            method_val = kwargs.pop("method", None)
+            if method_val is not None:
+                if method_val == 'ffill' or method_val == 'pad':
+                    self._cached_result = series.ffill()
+                elif method_val == 'bfill' or method_val == 'backfill':
+                    self._cached_result = series.bfill()
+                else:
+                    raise ValueError(f"Invalid fill method: {method_val}")
+                return self._cached_result
+
         method = getattr(series, self._method_name)
         self._cached_result = method(*args, **kwargs)
 

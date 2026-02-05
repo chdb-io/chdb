@@ -193,7 +193,7 @@ if __name__ == "__main__":
             python_requires=">=3.9",
             install_requires=[
                 "pyarrow>=13.0.0",
-                "pandas>=2.1.0,<3.0.0",
+                "pandas>=2.1.0",
             ],
             cmdclass={"build_ext": BuildExt},
             test_suite="tests",

@@ -167,6 +167,16 @@ class ExpressionEvaluator:
                     return None
                 # Call the method
                 if hasattr(source_series, method_name):
+                    # pandas 3.0 removed fillna(method=) parameter
+                    if method_name == "fillna":
+                        method_val = kwargs.pop("method", None)
+                        if method_val is not None:
+                            if method_val == 'ffill' or method_val == 'pad':
+                                return source_series.ffill()
+                            elif method_val == 'bfill' or method_val == 'backfill':
+                                return source_series.bfill()
+                            else:
+                                raise ValueError(f"Invalid fill method: {method_val}")
                     method = getattr(source_series, method_name)
                     return method(*args, **kwargs)
                 # Try numpy function as fallback for _chain_ methods
@@ -463,6 +473,16 @@ class ExpressionEvaluator:
 
         elif op_type == 'method':
             # Direct method operation (e.g., fillna, replace)
+            # pandas 3.0 removed fillna(method=) parameter
+            if op_method == "fillna":
+                method_val = op_kwargs.pop("method", None)
+                if method_val is not None:
+                    if method_val == 'ffill' or method_val == 'pad':
+                        return source_result.ffill()
+                    elif method_val == 'bfill' or method_val == 'backfill':
+                        return source_result.bfill()
+                    else:
+                        raise ValueError(f"Invalid fill method: {method_val}")
             method = getattr(source_result, op_method)
             return method(*op_args, **op_kwargs)
 

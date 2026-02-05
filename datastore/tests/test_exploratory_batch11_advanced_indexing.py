@@ -279,12 +279,18 @@ class TestAdvancedInterpolate:
         assert_datastore_equals_pandas(ds_result, pd_result)
 
     def test_interpolate_pad(self):
-        """interpolate with pad method."""
+        """interpolate with pad method (use ffill in pandas 3.0+)."""
         pd_df = pd.DataFrame({'A': [1.0, np.nan, np.nan, 4.0, np.nan]})
         ds_df = DataStore(pd_df)
 
-        pd_result = pd_df.interpolate(method='pad')
-        ds_result = ds_df.interpolate(method='pad')
+        # pandas 3.0 removed interpolate(method='pad'), use ffill() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.ffill()
+            ds_result = ds_df.ffill()
+        else:
+            pd_result = pd_df.interpolate(method='pad')
+            ds_result = ds_df.interpolate(method='pad')
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 

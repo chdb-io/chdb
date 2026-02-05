@@ -637,7 +637,16 @@ class LazyFillNA(LazyOp):
 
     def execute(self, df: pd.DataFrame, context: "DataStore") -> pd.DataFrame:
         self._log_execute("FillNA", f"value={self.value}, method={self.method}")
-        result = df.fillna(value=self.value, method=self.method)
+        # pandas 3.0 removed method parameter, use ffill()/bfill() instead
+        if self.method is not None:
+            if self.method == 'ffill' or self.method == 'pad':
+                result = df.ffill()
+            elif self.method == 'bfill' or self.method == 'backfill':
+                result = df.bfill()
+            else:
+                raise ValueError(f"Invalid fill method: {self.method}")
+        else:
+            result = df.fillna(value=self.value)
         return result
 
     def describe(self) -> str:
@@ -2020,8 +2029,9 @@ class LazyWhere(LazyOp):
 
         for col_type in schema.values():
             col_type_lower = col_type.lower()
+            # Include pandas 'object' dtype (pandas <3.0) and 'str' dtype (pandas 3.0+)
             if any(
-                t in col_type_lower for t in ("string", "fixedstring", "enum", "uuid")
+                t in col_type_lower for t in ("string", "fixedstring", "enum", "uuid", "object", "str")
             ):
                 has_string_col = True
             elif any(t in col_type_lower for t in ("float", "double", "decimal")):

@@ -210,8 +210,14 @@ class TestStack:
         pd_df = pd.DataFrame({"a": [1, None, 3], "b": [4, 5, None]})
         ds_df = DataStore({"a": [1, None, 3], "b": [4, 5, None]})
 
-        pd_result = pd_df.stack(dropna=True)
-        ds_result = ds_df.stack(dropna=True)
+        # pandas 3.0 removed dropna parameter from stack()
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.stack()
+            ds_result = ds_df.stack()
+        else:
+            pd_result = pd_df.stack(dropna=True)
+            ds_result = ds_df.stack(dropna=True)
 
         assert_series_equal(ds_result, pd_result, check_names=False)
 
@@ -220,8 +226,14 @@ class TestStack:
         pd_df = pd.DataFrame({"a": [1.0, None, 3.0], "b": [4.0, 5.0, None]})
         ds_df = DataStore({"a": [1.0, None, 3.0], "b": [4.0, 5.0, None]})
 
-        pd_result = pd_df.stack(dropna=False)
-        ds_result = ds_df.stack(dropna=False)
+        # pandas 3.0 removed dropna parameter from stack()
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.stack()
+            ds_result = ds_df.stack()
+        else:
+            pd_result = pd_df.stack(dropna=False)
+            ds_result = ds_df.stack(dropna=False)
 
         assert_series_equal(ds_result, pd_result, check_names=False)
 

@@ -595,7 +595,12 @@ class TestMapApplymap:
     def test_applymap_basic(self):
         """Basic applymap operation."""
         pd_df = pd.DataFrame({'a': [1, 2], 'b': [3, 4]})
-        pd_result = pd_df.applymap(lambda x: x * 10)
+        # pandas 3.0 renamed applymap to map for DataFrame
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.map(lambda x: x * 10)
+        else:
+            pd_result = pd_df.applymap(lambda x: x * 10)
 
         ds_df = ds.DataStore({'a': [1, 2], 'b': [3, 4]})
         ds_result = ds_df.applymap(lambda x: x * 10)
@@ -605,7 +610,12 @@ class TestMapApplymap:
     def test_applymap_with_na_action(self):
         """Applymap with na_action parameter."""
         pd_df = pd.DataFrame({'a': [1, np.nan, 3], 'b': [4, 5, np.nan]})
-        pd_result = pd_df.applymap(lambda x: x * 2, na_action='ignore')
+        # pandas 3.0 renamed applymap to map for DataFrame
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.map(lambda x: x * 2, na_action='ignore')
+        else:
+            pd_result = pd_df.applymap(lambda x: x * 2, na_action='ignore')
 
         ds_df = ds.DataStore({'a': [1, np.nan, 3], 'b': [4, 5, np.nan]})
         ds_result = ds_df.applymap(lambda x: x * 2, na_action='ignore')

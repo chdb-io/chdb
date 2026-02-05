@@ -711,8 +711,9 @@ class TestAstypeEdgeCases:
         ds_result = ds.astype({'a': 'str'})
         pd_result = pd_df.astype({'a': 'str'})
 
-        # Should be string type
-        assert ds_result['a'].dtype == object or ds_result['a'].dtype.name == 'string'
+        # Should be string type (pandas 3.0 uses 'str' dtype name)
+        dtype_name = ds_result['a'].dtype.name
+        assert ds_result['a'].dtype == object or dtype_name in ('string', 'str')
 
     def test_astype_string_to_int(self):
         """Test converting string to int."""
