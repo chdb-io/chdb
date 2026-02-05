@@ -29,6 +29,12 @@ if (OS_FREEBSD)
     message (FATAL_ERROR "Using internal parquet library on FreeBSD is not supported")
 endif()
 
+if (TARGET ch_contrib::jemalloc)
+    set (ARROW_JEMALLOC ON)
+    add_definitions(-DARROW_JEMALLOC=1)
+    message(STATUS "Using jemalloc in arrow lib")
+endif()
+
 set (CMAKE_CXX_STANDARD 17)
 
 set(ARROW_VERSION "11.0.0")
@@ -205,6 +211,9 @@ target_link_libraries(_orc PRIVATE
 target_include_directories(_orc SYSTEM BEFORE PUBLIC
     ${ORC_INCLUDE_DIR}
     "${ClickHouse_SOURCE_DIR}/contrib/arrow-cmake/cpp/src/orc/c++/include")
+if (TARGET ch_contrib::jemalloc)
+    target_link_libraries(_orc PRIVATE ch_contrib::jemalloc)
+endif ()
 target_compile_options(_orc PRIVATE
     -include "${ClickHouse_SOURCE_DIR}/contrib/google-protobuf/src/google/protobuf/stubs/port.h"
 )
@@ -220,8 +229,6 @@ target_include_directories(_orc SYSTEM PRIVATE
 
 set(LIBRARY_DIR "${ClickHouse_SOURCE_DIR}/contrib/arrow/cpp/src/arrow")
 
-set(ARROW_GENERATED_SRC_DIR ${CMAKE_CURRENT_BINARY_DIR}/cpp/src)
-configure_file(${LIBRARY_DIR}/util/config.h.cmake ${ARROW_GENERATED_SRC_DIR}/arrow/util/config.h)
 
 
 # arrow/cpp/src/arrow/CMakeLists.txt (ARROW_SRCS + ARROW_COMPUTE + ARROW_IPC)
@@ -442,6 +449,10 @@ set(ARROW_SRCS
         "${ARROW_SRC_DIR}/arrow/adapters/orc/options.cc"
         )
 
+if (TARGET ch_contrib::jemalloc)
+    SET(ARROW_SRCS "${LIBRARY_DIR}/memory_pool_jemalloc.cc" ${ARROW_SRCS})
+endif()
+
 add_definitions(-DARROW_WITH_LZ4)
 SET(ARROW_SRCS "${LIBRARY_DIR}/util/compression_lz4.cc" ${ARROW_SRCS})
 
@@ -459,7 +470,6 @@ SET(ARROW_SRCS "${LIBRARY_DIR}/util/compression_brotli.cc" ${ARROW_SRCS})
 
 
 add_library(_arrow ${ARROW_SRCS})
-add_library(ch_contrib::arrow ALIAS _arrow)
 
 target_link_libraries(_arrow PRIVATE
     boost::filesystem
@@ -474,6 +484,10 @@ target_link_libraries(_arrow PRIVATE
     ch_contrib::zstd
     ch_contrib::brotli
 )
+if (TARGET ch_contrib::jemalloc)
+    target_link_libraries(_arrow PRIVATE ch_contrib::jemalloc)
+endif ()
+
 target_link_libraries(_arrow PUBLIC _orc)
 
 add_dependencies(_arrow protoc)
@@ -481,11 +495,9 @@ add_dependencies(_arrow protoc)
 target_include_directories(_arrow SYSTEM BEFORE PUBLIC ${ARROW_SRC_DIR})
 target_include_directories(_arrow SYSTEM BEFORE PUBLIC "${ClickHouse_SOURCE_DIR}/contrib/arrow-cmake/cpp/src")
 
+target_include_directories(_arrow SYSTEM PRIVATE ${ARROW_SRC_DIR})
 target_include_directories(_arrow SYSTEM PRIVATE ${HDFS_INCLUDE_DIR})
 
-# === arrow flight
-
-include(flight.cmake)
 
 # === parquet
 
@@ -559,6 +571,10 @@ target_link_libraries(_parquet
         boost::headers_only
         boost::regex
         OpenSSL::Crypto OpenSSL::SSL)
+
+if (TARGET ch_contrib::jemalloc)
+    target_link_libraries(_parquet PRIVATE ch_contrib::jemalloc)
+endif ()
 
 if (SANITIZE STREQUAL "undefined")
     target_compile_options(_parquet PRIVATE -fno-sanitize=undefined)
