@@ -102,7 +102,7 @@ echo "Copied chdb.h and libchdb.a to cpp-example directory"
 echo "Compiling chdb_example.cpp..."
 if [ "$(uname)" == "Darwin" ]; then
     CLANG_CMD="$(brew --prefix llvm@19)/bin/clang"
-    ${CLANG_CMD} chdb_example.cpp -o chdb_example -mmacosx-version-min=10.15 -L. -lchdb -liconv -framework CoreFoundation -Wl,-map,chdb_example.map
+    ${CLANG_CMD} chdb_example.cpp -o chdb_example -mmacosx-version-min=10.15 -L. -lchdb -liconv -framework CoreFoundation -framework Security -Wl,-map,chdb_example.map
 else
     CLANG_CMD="clang"
     ${CLANG_CMD} chdb_example.cpp -o chdb_example -L. -lchdb -lpthread -ldl -lc -lm -lrt -Wl,-Map=chdb_example.map -Wl,--allow-multiple-definition

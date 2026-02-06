@@ -8,7 +8,7 @@
 
 // NOLINTBEGIN
 
-#if defined(SANITIZER) || defined(SANITIZE_COVERAGE) || defined(OS_DARWIN) || defined(OS_FREEBSD) || (!USE_JEMALLOC && !defined(USE_MUSL))
+#if defined(SANITIZER) || defined(SANITIZE_COVERAGE) || defined(OS_DARWIN) || defined(OS_FREEBSD) || defined(OS_SUNOS) || (!USE_JEMALLOC && !defined(USE_MUSL))
 
 #define __real_malloc(size) ::malloc(size)
 #define __real_calloc(nmemb, size) ::calloc(nmemb, size)
@@ -22,6 +22,7 @@
 #define __real_memalign(alignment, size) ::memalign(alignment, size)
 #endif
 #define __real_free ::free
+
 #if !defined(USE_MUSL) && defined(OS_LINUX)
 #define __real_pvalloc(size) ::pvalloc(size)
 #endif

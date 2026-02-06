@@ -22,7 +22,6 @@
 #include <Parsers/ParserCreateFunctionQuery.h>
 
 #include <Poco/DirectoryIterator.h>
-#include <Poco/Logger.h>
 
 #include <filesystem>
 

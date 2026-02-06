@@ -1,4 +1,4 @@
-option(ENABLE_CASSANDRA "Enable Cassandra" 0)
+option(ENABLE_CASSANDRA "Enable Cassandra" ${ENABLE_LIBRARIES})
 
 if (NOT ENABLE_CASSANDRA)
     message(STATUS "Not using cassandra")
