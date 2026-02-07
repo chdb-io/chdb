@@ -101,7 +101,7 @@ void ChdbClient::connect()
     initTTYBuffer(toProgressOption(getClientConfiguration().getString("progress", "default")),
         toProgressOption(getClientConfiguration().getString("progress-table", "default")));
     initKeystrokeInterceptor();
-    const bool send_progress = need_render_progress || need_render_progress_table;
+    const bool send_progress = need_render_progress || need_render_progress_table || hasProgressCallback() || hasProgressValuesCallback();
     const bool send_profile_events = need_render_progress_table;
     connection_parameters = ConnectionParameters::createForEmbedded(
         session->sessionContext()->getUserName(),

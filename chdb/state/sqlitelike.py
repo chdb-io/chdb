@@ -1,5 +1,13 @@
 from typing import Optional, Any
+import sys
+from urllib.parse import parse_qsl
 from chdb import _chdb
+from chdb.progress_display import (
+    get_notebook_display as _get_notebook_display,
+    is_notebook as _is_notebook,
+    get_marimo_output as _get_marimo_output,
+    create_auto_progress_callback as _create_auto_progress_callback,
+)
 
 # try import pyarrow if failed, raise ImportError with suggestion
 try:
@@ -368,7 +376,42 @@ class Connection:
     def __init__(self, connection_string: str):
         # print("Connection", connection_string)
         self._cursor: Optional[Cursor] = None
+        connection_string, progress_mode = self._strip_progress_mode(connection_string)
         self._conn = _chdb.connect(connection_string)
+        self._auto_progress = False
+        self._notebook_display = None
+        self._marimo_replace = None
+        self._progress_mode = progress_mode
+        if progress_mode == "auto":
+            self._auto_progress = True
+            self._marimo_replace = _get_marimo_output()
+            self._notebook_display = _get_notebook_display()
+
+    @staticmethod
+    def _strip_progress_mode(connection_string: str) -> tuple[str, Optional[str]]:
+        if "?" not in connection_string:
+            return connection_string, None
+        query = connection_string.split("?", 1)[1]
+        progress_mode = None
+        kept_parts = []
+        for key, value in parse_qsl(query, keep_blank_values=True):
+            lower_key = key.lower()
+            if lower_key == "progress":
+                lower_value = value.lower()
+                if lower_value == "tqdm":
+                    continue
+                if lower_value == "auto":
+                    progress_mode = lower_value
+                    if lower_value == "auto" and not _is_notebook() and (sys.stdout.isatty() or sys.stderr.isatty()):
+                        kept_parts.append("progress=tty")
+                    continue
+            if value == "":
+                kept_parts.append(f"{key}")
+            else:
+                kept_parts.append(f"{key}={value}")
+        if not kept_parts:
+            return connection_string.split("?", 1)[0], progress_mode
+        return f"{connection_string.split('?', 1)[0]}?{'&'.join(kept_parts)}", progress_mode
 
     def cursor(self) -> "Cursor":
         """Create a cursor object for executing queries.
@@ -462,11 +505,25 @@ class Connection:
         if lower_output_format in _arrow_format:
             format = "Arrow"
 
-        if lower_output_format == "dataframe":
-            result = self._conn.query_df(query, params=params or {})
-        else:
-            result = self._conn.query(query, format, params=params or {})
-        return result_func(result)
+        progress_text_callback = None
+        if self._auto_progress:
+            progress_text_callback = _create_auto_progress_callback(
+                marimo_replace=self._marimo_replace,
+                notebook_display=self._notebook_display,
+            )
+            if progress_text_callback is not None:
+                self._conn.set_progress_callback(progress_text_callback)
+
+        try:
+            if lower_output_format == "dataframe":
+                result = self._conn.query_df(query, params=params or {})
+            else:
+                result = self._conn.query(query, format, params=params or {})
+            return result_func(result)
+        finally:
+            if progress_text_callback is not None:
+                progress_text_callback.close()
+                self._conn.set_progress_callback(None)
 
     def generate_sql(self, prompt: str) -> str:
         """Generate SQL text from a natural language prompt using the configured AI provider."""
@@ -1094,6 +1151,7 @@ def connect(connection_string: str = ":memory:") -> Connection:
             - "progress=tty" enables progress bar (TTY output)
             - "progress=err" enables progress bar (stderr output)
             - "progress=off" disables progress bar
+            - "progress=auto" uses TTY progress when available, otherwise uses notebook text if possible
             - "progress-table=tty" enables progress table (TTY output)
             - "progress-table=err" enables progress table (stderr output)
             - "progress-table=off" disables progress table
@@ -1130,6 +1188,7 @@ def connect(connection_string: str = ":memory:") -> Connection:
         >>> conn = connect("data.db?mode=ro")  # Read-only mode
         >>> conn = connect(":memory:?verbose&log-level=debug")  # Debug logging
         >>> conn = connect(":memory:?progress=tty")  # Progress bar
+        >>> conn = connect(":memory:?progress=auto")  # Auto progress (TTY or notebook text)
         >>> conn = connect(":memory:?progress-table=tty")  # Progress table
         >>>
         >>> # Using context manager for automatic cleanup

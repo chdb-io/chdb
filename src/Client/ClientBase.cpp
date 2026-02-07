@@ -1517,6 +1517,34 @@ bool ClientBase::receiveAndProcessPacket(ASTPtr parsed_query, bool cancelled_)
     }
 }
 
+void ClientBase::setProgressCallback(ProgressCallback callback)
+{
+    std::lock_guard lock(progress_callback_mutex);
+    progress_callback = std::move(callback);
+}
+
+bool ClientBase::hasProgressCallback() const
+{
+    std::lock_guard lock(progress_callback_mutex);
+    return static_cast<bool>(progress_callback);
+}
+
+void ClientBase::setProgressValuesCallback(ProgressValuesCallback callback)
+{
+    std::lock_guard lock(progress_values_callback_mutex);
+    progress_values_callback = std::move(callback);
+    if (!progress_values_callback)
+    {
+        std::lock_guard accumulated_lock(progress_values_accumulated_mutex);
+        progress_values_accumulated.reset();
+    }
+}
+
+bool ClientBase::hasProgressValuesCallback() const
+{
+    std::lock_guard lock(progress_values_callback_mutex);
+    return static_cast<bool>(progress_values_callback);
+}
 
 void ClientBase::onProgress(const Progress & value)
 {
@@ -1528,6 +1556,31 @@ void ClientBase::onProgress(const Progress & value)
 
     if (output_format)
         output_format->onProgress(value);
+
+    ProgressCallback callback;
+    {
+        std::lock_guard lock(progress_callback_mutex);
+        callback = progress_callback;
+    }
+    if (callback)
+        callback(value);
+
+    ProgressValuesCallback values_callback;
+    {
+        std::lock_guard lock(progress_values_callback_mutex);
+        values_callback = progress_values_callback;
+    }
+    if (values_callback)
+    {
+        ProgressValues accumulated_values;
+        {
+            std::lock_guard lock(progress_values_accumulated_mutex);
+            progress_values_accumulated.incrementPiecewiseAtomically(value);
+            accumulated_values = progress_values_accumulated.getValues();
+        }
+        auto elapsed_ns = static_cast<UInt64>(progress_indication.elapsedSeconds() * 1000000000.0);
+        values_callback(accumulated_values, elapsed_ns);
+    }
 
     if (need_render_progress && tty_buf)
     {
@@ -2312,6 +2365,10 @@ void ClientBase::processParsedSingleQuery(
     processed_bytes = 0;
     written_first_block = false;
     progress_indication.resetProgress();
+    {
+        std::lock_guard lock(progress_values_accumulated_mutex);
+        progress_values_accumulated.reset();
+    }
     progress_table.resetTable();
     profile_events.watch.restart();
 

@@ -264,6 +264,39 @@ print(df)
 # 1 2025-01-02
 ```
 
+### Query progress (`progress=auto`)
+```python
+import chdb
+
+# Connection API
+conn = chdb.connect(":memory:?progress=auto")
+conn.query("SELECT sum(number) FROM numbers_mt(1e10) GROUP BY number % 10 SETTINGS max_threads=4")
+```
+
+```python
+import chdb
+
+# One-shot API
+res = chdb.query(
+    "SELECT sum(number) FROM numbers_mt(1e10) GROUP BY number % 10 SETTINGS max_threads=4",
+    options={"progress": "auto"},
+)
+```
+
+`progress=auto` behavior:
+- In terminal runs: show textual progress updates in the terminal.
+- Jupyter/Marimo notebook: render progress bar in notebook output.
+
+Other progress options:
+- Progress bar:
+  - `progress=tty`: write progress to terminal TTY.
+  - `progress=err`: write progress to `stderr`.
+  - `progress=off`: disable progress bar output.
+- Progress table (terminal output):
+  - `progress-table=tty`: write progress table to terminal TTY.
+  - `progress-table=err`: write progress table to `stderr`.
+  - `progress-table=off`: disable progress table output.
+
 ### Pandas dataframe output
 ```python
 # See more in https://clickhouse.com/docs/en/interfaces/formats

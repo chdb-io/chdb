@@ -8,6 +8,7 @@
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
+#include <IO/Progress.h>
 #include <Poco/String.h>
 #include <Common/logger_useful.h>
 #include <vector>
@@ -345,12 +346,67 @@ connection_wrapper::~connection_wrapper()
 
 void connection_wrapper::close()
 {
+    if (conn && !progress_callback.is_none())
+        set_progress_callback(py::none());
     {
         py::gil_scoped_release release;
         chdb_close_conn(conn);
     }
     // Ensure that if a new connection is created before this object is destroyed that we don't try to close it.
     conn = nullptr;
+}
+
+void connection_wrapper::set_progress_callback(const py::object & callback)
+{
+    auto * client = getChdbClient(*conn);
+    if (!client)
+        return;
+
+    if (callback.is_none())
+    {
+        progress_callback = py::none();
+        client->setProgressValuesCallback(nullptr);
+        return;
+    }
+
+    if (!PyCallable_Check(callback.ptr()))
+        throw std::runtime_error("progress callback must be callable");
+
+    progress_callback = callback;
+    auto * callback_ptr = callback.ptr();
+    Py_INCREF(callback_ptr);
+    auto callback_holder = std::shared_ptr<void>(
+        callback_ptr,
+        [](void * ptr)
+        {
+            py::gil_scoped_acquire acquire;
+            Py_DECREF(reinterpret_cast<PyObject *>(ptr));
+        });
+    client->setProgressValuesCallback(
+        [callback_holder](const DB::ProgressValues & values, UInt64 elapsed_ns)
+        {
+            py::gil_scoped_acquire acquire;
+            try
+            {
+                py::dict payload;
+                payload["read_rows"] = py::int_(values.read_rows);
+                payload["read_bytes"] = py::int_(values.read_bytes);
+                payload["total_rows_to_read"] = py::int_(values.total_rows_to_read);
+                payload["total_bytes_to_read"] = py::int_(values.total_bytes_to_read);
+                payload["elapsed_ns"] = py::int_(elapsed_ns);
+                payload["written_rows"] = py::int_(values.written_rows);
+                payload["written_bytes"] = py::int_(values.written_bytes);
+                payload["result_rows"] = py::int_(values.result_rows);
+                payload["result_bytes"] = py::int_(values.result_bytes);
+
+                py::handle callback_obj(reinterpret_cast<PyObject *>(callback_holder.get()));
+                callback_obj(payload);
+            }
+            catch (const py::error_already_set &)
+            {
+                PyErr_Print();
+            }
+        });
 }
 
 cursor_wrapper * connection_wrapper::cursor()
@@ -736,6 +792,11 @@ PYBIND11_MODULE(_chdb, m)
         .def("execute", &connection_wrapper::query)
         .def("commit", &connection_wrapper::commit)
         .def("close", &connection_wrapper::close)
+        .def(
+            "set_progress_callback",
+            &connection_wrapper::set_progress_callback,
+            py::arg("callback") = py::none(),
+            "Register a progress callback to receive progress values during query execution")
         .def(
             "query",
             &connection_wrapper::query,
