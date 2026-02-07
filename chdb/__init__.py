@@ -110,9 +110,14 @@ def to_arrowTable(res):
 # global connection lock, for multi-threading use of legacy chdb.query()
 g_conn_lock = threading.Lock()
 
+from .progress_display import (
+    is_notebook as _is_notebook,
+    create_auto_progress_callback as _create_auto_progress_callback,
+)
+
 
 # wrap _chdb functions
-def query(sql, output_format="CSV", path="", udf_path="", params=None):
+def query(sql, output_format="CSV", path="", udf_path="", params=None, options=None):
     """Execute SQL query using chDB engine.
 
     This is the main query function that executes SQL statements using the embedded
@@ -137,6 +142,10 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None):
         udf_path (str, optional): Path to User-Defined Functions directory. Defaults to "".
         params (dict, optional): Named query parameters matching placeholders like ``{key:Type}``.
             Values are converted to strings and passed to the engine without manual escaping.
+        options (dict, optional): Connection options passed through to ClickHouse as
+            startup arguments (e.g. {"progress": "tty", "progress-table": "tty"}).
+            Special values:
+            - progress="auto": use TTY progress when available, otherwise a notebook text progress if possible
 
     Returns:
         Query result in the specified format:
@@ -167,27 +176,39 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None):
 
         >>> # Query with UDF
         >>> result = chdb.query("SELECT my_udf('test')", udf_path="/path/to/udfs")
+
+        >>> # Query with progress bar
+        >>> result = chdb.query("SELECT 1", options={"progress": "tty"})
+        >>> # Query with auto progress (TTY or notebook text)
+        >>> result = chdb.query("SELECT 1", options={"progress": "auto"})
     """
     global g_udf_path
     params = params or {}
+    options = dict(options or {})
     if udf_path != "":
         g_udf_path = udf_path
-    conn_str = ""
-    if path == "":
-        conn_str = ":memory:"
-    else:
-        conn_str = f"{path}"
+    conn_str = ":memory:" if path == "" else f"{path}"
     if g_udf_path != "":
-        if "?" in conn_str:
-            conn_str = f"{conn_str}&udf_path={g_udf_path}"
-        else:
-            conn_str = f"{conn_str}?udf_path={g_udf_path}"
+        options["udf_path"] = g_udf_path
     if output_format == "Debug":
         output_format = "CSV"
-        if "?" in conn_str:
-            conn_str = f"{conn_str}&verbose&log-level=test"
-        else:
-            conn_str = f"{conn_str}?verbose&log-level=test"
+        options.setdefault("verbose", "")
+        options.setdefault("log-level", "test")
+    progress_mode = options.get("progress")
+    if isinstance(progress_mode, str):
+        progress_mode = progress_mode.lower()
+    if progress_mode == "auto":
+        options.pop("progress", None)
+        if not _is_notebook() and (sys.stdout.isatty() or sys.stderr.isatty()):
+            options["progress"] = "tty"
+    if options:
+        parts = []
+        for key, value in options.items():
+            if value == "":
+                parts.append(f"{key}")
+            else:
+                parts.append(f"{key}={value}")
+        conn_str = f"{conn_str}?{'&'.join(parts)}"
 
     lower_output_format = output_format.lower()
     result_func = _process_result_format_funs.get(lower_output_format, lambda x: x)
@@ -196,19 +217,27 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None):
 
     with g_conn_lock:
         conn = _chdb.connect(conn_str)
+        progress_callback = None
+        if progress_mode == "auto":
+            progress_callback = _create_auto_progress_callback()
+            if progress_callback is not None:
+                conn.set_progress_callback(progress_callback)
 
-        if lower_output_format == "dataframe":
-            res = conn.query_df(sql, params=params)
+        try:
+            if lower_output_format == "dataframe":
+                res = conn.query_df(sql, params=params)
+                return res
+
+            res = conn.query(sql, output_format, params=params)
+
+            if res.has_error():
+                raise ChdbError(res.error_message())
+            return result_func(res)
+        finally:
+            if progress_callback is not None:
+                progress_callback.close()
+                conn.set_progress_callback(None)
             conn.close()
-            return res
-
-        res = conn.query(sql, output_format, params=params)
-
-        if res.has_error():
-            conn.close()
-            raise ChdbError(res.error_message())
-        conn.close()
-    return result_func(res)
 
 
 # alias for query

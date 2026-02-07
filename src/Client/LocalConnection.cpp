@@ -77,7 +77,6 @@ LocalConnection::LocalConnection(
     , server_display_name(server_display_name_)
     , in(in_)
 {
-    send_progress = false;
 }
 
 LocalConnection::~LocalConnection()
@@ -154,8 +153,17 @@ void LocalConnection::sendQuery(
 
     if (send_progress)
     {
-        query_context->setProgressCallback([this] (const Progress & value) { this->updateProgress(value); });
-        query_context->setFileProgressCallback([this](const FileProgress & value) { this->updateProgress(Progress(value)); });
+        query_context->setProgressCallback([this] (const Progress & value)
+        {
+            this->updateProgress(value);
+            this->updateCHDBProgress(value);
+        });
+        query_context->setFileProgressCallback([this](const FileProgress & value)
+        {
+            const Progress progress(value);
+            this->updateProgress(progress);
+            this->updateCHDBProgress(progress);
+        });
     }
     else
     {
