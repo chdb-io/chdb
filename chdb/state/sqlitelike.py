@@ -379,6 +379,7 @@ class Connection:
         connection_string, progress_mode = self._strip_progress_mode(connection_string)
         self._conn = _chdb.connect(connection_string)
         self._auto_progress = False
+        self._user_progress_callback = False
         self._notebook_display = None
         self._notebook_replace_output = None
         self._progress_mode = progress_mode
@@ -443,7 +444,7 @@ class Connection:
         return self._cursor
 
     def _setup_auto_progress_callback(self):
-        if not self._auto_progress:
+        if not self._auto_progress or self._user_progress_callback:
             return None
 
         progress_callback = _create_auto_progress_callback(
@@ -459,6 +460,15 @@ class Connection:
             return
         progress_callback.close()
         self._conn.set_progress_callback(None)
+
+    def set_progress_callback(self, callback) -> None:
+        """Set a user-defined progress callback.
+
+        When a user callback is set, auto notebook progress rendering is disabled
+        for this connection until the callback is cleared with None.
+        """
+        self._conn.set_progress_callback(callback)
+        self._user_progress_callback = callback is not None
 
     def query(self, query: str, format: str = "CSV", params=None) -> Any:
         """Execute a SQL query and return the complete results.
