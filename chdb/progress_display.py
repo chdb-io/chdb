@@ -165,7 +165,7 @@ class MarimoProgressStructuredCallback:
 
 
 def create_auto_progress_callback(
-    marimo_replace=None,
+    notebook_replace_output=None,
     notebook_display=None,
 ):
     """Create a progress callback for progress=auto mode.
@@ -181,10 +181,10 @@ def create_auto_progress_callback(
     if not in_notebook and is_tty:
         return None
 
-    if marimo_replace is None:
-        marimo_replace = get_marimo_output()
-    if marimo_replace is not None:
-        return MarimoProgressStructuredCallback(marimo_replace)
+    if notebook_replace_output is None:
+        notebook_replace_output = get_marimo_output()
+    if notebook_replace_output is not None:
+        return MarimoProgressStructuredCallback(notebook_replace_output)
 
     if notebook_display is None:
         notebook_display = get_notebook_display()

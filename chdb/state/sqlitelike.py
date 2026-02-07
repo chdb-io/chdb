@@ -380,11 +380,11 @@ class Connection:
         self._conn = _chdb.connect(connection_string)
         self._auto_progress = False
         self._notebook_display = None
-        self._marimo_replace = None
+        self._notebook_replace_output = None
         self._progress_mode = progress_mode
         if progress_mode == "auto":
             self._auto_progress = True
-            self._marimo_replace = _get_marimo_output()
+            self._notebook_replace_output = _get_marimo_output()
             self._notebook_display = _get_notebook_display()
 
     @staticmethod
@@ -398,8 +398,6 @@ class Connection:
             lower_key = key.lower()
             if lower_key == "progress":
                 lower_value = value.lower()
-                if lower_value == "tqdm":
-                    continue
                 if lower_value == "auto":
                     progress_mode = lower_value
                     if lower_value == "auto" and not _is_notebook() and (sys.stdout.isatty() or sys.stderr.isatty()):
@@ -443,6 +441,24 @@ class Connection:
         """
         self._cursor = Cursor(self._conn)
         return self._cursor
+
+    def _setup_auto_progress_callback(self):
+        if not self._auto_progress:
+            return None
+
+        progress_callback = _create_auto_progress_callback(
+            notebook_replace_output=self._notebook_replace_output,
+            notebook_display=self._notebook_display,
+        )
+        if progress_callback is not None:
+            self._conn.set_progress_callback(progress_callback)
+        return progress_callback
+
+    def _cleanup_auto_progress_callback(self, progress_callback):
+        if progress_callback is None:
+            return
+        progress_callback.close()
+        self._conn.set_progress_callback(None)
 
     def query(self, query: str, format: str = "CSV", params=None) -> Any:
         """Execute a SQL query and return the complete results.
@@ -505,14 +521,7 @@ class Connection:
         if lower_output_format in _arrow_format:
             format = "Arrow"
 
-        progress_text_callback = None
-        if self._auto_progress:
-            progress_text_callback = _create_auto_progress_callback(
-                marimo_replace=self._marimo_replace,
-                notebook_display=self._notebook_display,
-            )
-            if progress_text_callback is not None:
-                self._conn.set_progress_callback(progress_text_callback)
+        progress_callback = self._setup_auto_progress_callback()
 
         try:
             if lower_output_format == "dataframe":
@@ -521,9 +530,7 @@ class Connection:
                 result = self._conn.query(query, format, params=params or {})
             return result_func(result)
         finally:
-            if progress_text_callback is not None:
-                progress_text_callback.close()
-                self._conn.set_progress_callback(None)
+            self._cleanup_auto_progress_callback(progress_callback)
 
     def generate_sql(self, prompt: str) -> str:
         """Generate SQL text from a natural language prompt using the configured AI provider."""
