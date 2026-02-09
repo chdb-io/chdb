@@ -11,7 +11,7 @@ authors = [
 keywords = ["chdb", "clickhouse", "olap", "analytics", "database", "sql"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Environment :: Plugins",
+    "Environment :: Plugins", 
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: MacOS :: MacOS X",
@@ -29,7 +29,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "pandas>=2.1.0",
+    "pandas>=2.1.0,<3.0.0",
     "pyarrow>=13.0.0"
 ]
 
