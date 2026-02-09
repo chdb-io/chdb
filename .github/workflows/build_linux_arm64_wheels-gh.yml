@@ -376,6 +376,16 @@ jobs:
             pyenv shell --unset
           done
         continue-on-error: false
+      - name: Test torch compatibility on Python 3.11
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          pyenv shell 3.11
+          python -m pip install dist/*.whl --force-reinstall
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pytest tests/test_torch_compatibility.py -v
+          pyenv shell --unset
+        continue-on-error: false
       - name: Test DataStore on Python 3.11
         run: |
           ulimit -c unlimited

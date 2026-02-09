@@ -60,6 +60,7 @@ endif()
 target_include_directories(pybind11_stubs PRIVATE ${PYBIND11_INCLUDE_DIR})
 target_include_directories(pybind11_stubs PRIVATE ${Python_INCLUDE_DIRS})
 target_compile_definitions(pybind11_stubs PUBLIC
+    PYBIND11_INTERNALS_KIND="_chdb"
     PYBIND11_NONLIMITEDAPI_LIB_SUFFIX_FOR_MODULE="${PYBIND11_LIB_SUFFIX}"
     Py_LIMITED_API=0x03090000
 )
