@@ -359,7 +359,8 @@ jobs:
           eval "$(pyenv init -)"
           pyenv shell 3.11
           python -m pip install dist/*.whl --force-reinstall --no-cache-dir
-          python -m pip install pytest torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install pytest
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
           python -m pytest tests/test_torch_compatibility.py -v
           pyenv shell --unset
         continue-on-error: false
