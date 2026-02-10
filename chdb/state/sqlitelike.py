@@ -84,6 +84,20 @@ class StreamingResult:
         self._exhausted = False
         self._supports_record_batch = supports_record_batch
         self._is_dataframe = is_dataframe
+        self._progress_callback = None
+        self._cleanup_progress_callback = None
+        self._progress_callback_cleaned = False
+
+    def _bind_progress_cleanup(self, progress_callback, cleanup_progress_callback):
+        self._progress_callback = progress_callback
+        self._cleanup_progress_callback = cleanup_progress_callback
+
+    def _cleanup_progress_callback_once(self):
+        if self._progress_callback_cleaned:
+            return
+        self._progress_callback_cleaned = True
+        if self._cleanup_progress_callback is not None:
+            self._cleanup_progress_callback(self._progress_callback)
 
     def fetch(self):
         """Fetch the next chunk of streaming results.
@@ -123,15 +137,18 @@ class StreamingResult:
                 result = self._conn.streaming_fetch_df(self._result)
                 if result is None or result.empty:
                     self._exhausted = True
+                    self._cleanup_progress_callback_once()
                     return None
             else:
                 result = self._conn.streaming_fetch_result(self._result)
                 if result is None or result.rows_read() == 0:
                     self._exhausted = True
+                    self._cleanup_progress_callback_once()
                     return None
             return self._result_func(result)
         except Exception as e:
             self._exhausted = True
+            self._cleanup_progress_callback_once()
             raise RuntimeError(f"Streaming query failed: {str(e)}") from e
 
     def __iter__(self):
@@ -206,6 +223,10 @@ class StreamingResult:
                 self._conn.streaming_cancel_query(self._result)
             except Exception as e:
                 raise RuntimeError(f"Failed to cancel streaming query: {str(e)}") from e
+            finally:
+                self._cleanup_progress_callback_once()
+        else:
+            self._cleanup_progress_callback_once()
 
     def record_batch(self, rows_per_batch: int = 1000000) -> pa.RecordBatchReader:
         """
@@ -637,15 +658,26 @@ class Connection:
         if lower_output_format in _arrow_format:
             format = "Arrow"
 
-        c_stream_result = self._conn.send_query(query, format, params=params or {})
+        progress_callback = self._setup_auto_progress_callback()
+        try:
+            c_stream_result = self._conn.send_query(query, format, params=params or {})
+        except Exception:
+            self._cleanup_auto_progress_callback(progress_callback)
+            raise
+
         is_dataframe = lower_output_format == "dataframe"
-        return StreamingResult(
+        stream_result = StreamingResult(
             c_stream_result,
             self._conn,
             result_func,
             supports_record_batch,
             is_dataframe,
         )
+        stream_result._bind_progress_cleanup(
+            progress_callback,
+            self._cleanup_auto_progress_callback,
+        )
+        return stream_result
 
     def __enter__(self):
         """Enter the context manager and return the connection.
