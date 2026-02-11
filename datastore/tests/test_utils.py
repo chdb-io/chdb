@@ -725,3 +725,64 @@ def get_value(ds_result):
 
     # Return as-is if nothing else works
     return ds_result
+
+
+# =============================================================================
+# Performance mode comparison utilities
+# =============================================================================
+
+
+def assert_values_match_ignoring_order(
+    ds_result,
+    pd_result,
+    sort_by=None,
+    check_dtype=False,
+    msg="",
+):
+    """
+    Compare DataStore and pandas results ignoring row order.
+
+    Both sides are converted to DataFrames, indexes are flattened to columns,
+    and both are sorted by the specified columns (or all columns) before comparison.
+
+    This is the primary comparison method for performance mode tests where
+    row order is not guaranteed but the result set should be identical.
+
+    Args:
+        ds_result: DataStore result (DataStore, DataFrame, Series, etc.)
+        pd_result: Pandas result (DataFrame, Series, etc.)
+        sort_by: Column(s) to sort by before comparison. If None, sorts by all columns.
+        check_dtype: Whether to check dtypes (default False for performance mode).
+        msg: Additional message on failure.
+    """
+    ds_df = get_dataframe(ds_result).reset_index(drop=False)
+    pd_df = get_dataframe(pd_result).reset_index(drop=False)
+
+    # Ensure same column set (order-independent)
+    ds_cols = set(ds_df.columns)
+    pd_cols = set(pd_df.columns)
+    assert ds_cols == pd_cols, (
+        f"Column mismatch: DataStore has {ds_cols}, pandas has {pd_cols}. {msg}"
+    )
+
+    # Use common column order
+    common_cols = sorted(ds_cols)
+    ds_df = ds_df[common_cols]
+    pd_df = pd_df[common_cols]
+
+    if sort_by is None:
+        sort_by = common_cols
+
+    if isinstance(sort_by, str):
+        sort_by = [sort_by]
+
+    ds_sorted = ds_df.sort_values(sort_by, ignore_index=True)
+    pd_sorted = pd_df.sort_values(sort_by, ignore_index=True)
+
+    pd.testing.assert_frame_equal(
+        ds_sorted,
+        pd_sorted,
+        check_dtype=check_dtype,
+        check_names=False,
+        obj=f"DataStore vs Pandas (sorted by {sort_by}). {msg}",
+    )

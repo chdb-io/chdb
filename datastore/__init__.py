@@ -145,6 +145,13 @@ from .config import (  # noqa: E402
     is_profiling_enabled,
     Profiler,
     ProfileStep,
+    # Compatibility mode
+    CompatMode,
+    set_compat_mode,
+    get_compat_mode,
+    is_performance_mode,
+    use_performance_mode,
+    use_pandas_compat,
 )
 from .table_functions import (  # noqa: E402
     TableFunction,

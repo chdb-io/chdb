@@ -201,7 +201,10 @@ def build_orderby_clause(orderby_fields: list, quote_char: str = '"', stable: bo
         order_parts.append(f"{field_sql} {direction}")
 
     # Add tie-breaker for stable sort (always ASC to preserve original row order)
-    if stable:
+    # In performance mode, skip tiebreaker for throughput
+    from .config import is_performance_mode
+
+    if stable and not is_performance_mode():
         order_parts.append(STABLE_SORT_TIEBREAKER)
 
     return ', '.join(order_parts)

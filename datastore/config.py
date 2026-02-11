@@ -261,6 +261,76 @@ def use_auto() -> None:
 
 
 # =============================================================================
+# COMPATIBILITY MODE CONFIGURATION
+# =============================================================================
+
+
+class CompatMode:
+    """Compatibility mode options.
+
+    Controls whether DataStore reshapes output and execution for pandas
+    compatibility, or optimizes purely for SQL performance.
+
+    - PANDAS (default): Full pandas behavior compatibility (row order preservation,
+      MultiIndex, set_index, dtype corrections, skipna wrappers, etc.)
+    - PERFORMANCE: SQL-first execution with no pandas compatibility overhead.
+      Disables row-order preservation, stable sort tiebreakers, _row_id injection,
+      __orig_row_num__ subqueries, groupby auto-sort/dropna/set_index,
+      MultiIndex columns, dtype corrections, and -If/isNaN wrappers.
+      Operations like first()/last() use any()/anyLast() (non-deterministic).
+      Results may have different row order than pandas equivalents.
+    """
+
+    PANDAS = "pandas"
+    PERFORMANCE = "performance"
+
+
+_compat_mode: str = CompatMode.PANDAS
+
+
+def get_compat_mode() -> str:
+    """Get current compatibility mode setting."""
+    return _compat_mode
+
+
+def set_compat_mode(mode: str) -> None:
+    """
+    Set the compatibility mode.
+
+    Args:
+        mode: One of 'pandas', 'performance'
+
+    Example:
+        >>> from datastore import config
+        >>> config.set_compat_mode('performance')  # SQL-first, max throughput
+        >>> config.set_compat_mode('pandas')  # Full pandas compat (default)
+    """
+    global _compat_mode
+    valid = {CompatMode.PANDAS, CompatMode.PERFORMANCE}
+    if mode not in valid:
+        raise ValueError(f"Invalid compat mode: {mode}. Use one of {valid}")
+    _compat_mode = mode
+    # Performance mode implies chDB execution engine
+    if mode == CompatMode.PERFORMANCE:
+        set_execution_engine(ExecutionEngine.CHDB)
+
+
+def is_performance_mode() -> bool:
+    """Check if performance mode is active (SQL-first, no pandas compat overhead)."""
+    return _compat_mode == CompatMode.PERFORMANCE
+
+
+def use_performance_mode() -> None:
+    """Enable performance mode (SQL-first, no pandas compat overhead)."""
+    set_compat_mode(CompatMode.PERFORMANCE)
+
+
+def use_pandas_compat() -> None:
+    """Enable pandas compatibility mode (default)."""
+    set_compat_mode(CompatMode.PANDAS)
+
+
+# =============================================================================
 # CROSS-DATASTORE OPERATION CONFIGURATION
 # =============================================================================
 
@@ -379,6 +449,30 @@ class DataStoreConfig:
     def use_auto(self) -> None:
         """Use auto-selection."""
         use_auto()
+
+    # ========== Compatibility Mode ==========
+
+    @property
+    def compat_mode(self) -> str:
+        """Get current compatibility mode ('pandas' or 'performance')."""
+        return get_compat_mode()
+
+    @compat_mode.setter
+    def compat_mode(self, mode: str) -> None:
+        """Set compatibility mode ('pandas' or 'performance')."""
+        set_compat_mode(mode)
+
+    def set_compat_mode(self, mode: str) -> None:
+        """Set compatibility mode."""
+        set_compat_mode(mode)
+
+    def use_performance_mode(self) -> None:
+        """Enable performance mode (SQL-first, no pandas compat overhead)."""
+        use_performance_mode()
+
+    def use_pandas_compat(self) -> None:
+        """Enable pandas compatibility mode (default)."""
+        use_pandas_compat()
 
     # ========== Cross-DataStore Engine ==========
 
