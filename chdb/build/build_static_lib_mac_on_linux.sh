@@ -3,7 +3,7 @@
 set -e
 
 TARGET_ARCH=${1:-x86_64}
-build_type=${2:-Release}
+build_type=${2:-RelWithDebInfo}
 MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 . ${MY_DIR}/../vars.sh cross-compile
 
@@ -209,12 +209,12 @@ if [ $? -ne 0 ]; then
 fi
 
 # Strip the libchdb_minimal.a
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
-else
-    echo -e "\nStrip the libchdb_minimal.a:"
-    ${STRIP} -S libchdb_minimal.a
-fi
+# if [ ${build_type} == "Debug" ]; then
+#     echo -e "\nDebug build, skip strip"
+# else
+#     echo -e "\nStrip the libchdb_minimal.a:"
+#     ${STRIP} -S libchdb_minimal.a
+# fi
 
 # Copy final library to project root
 echo "Copying libchdb_minimal.a to project root as libchdb.a..."
