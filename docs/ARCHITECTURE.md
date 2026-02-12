@@ -8,6 +8,16 @@ This document describes the core architecture, design principles, and developmen
 
 DataStore bridges the gap between pandas' intuitive API and SQL's powerful query optimization. Users get the best of both worlds without changing their coding habits.
 
+### Architecture Overview
+
+![DataStore Architecture](_static/datastore_architecture.png)
+
+The diagram above shows the four-layer architecture:
+1. **User API**: pandas-like interface that returns lazy objects
+2. **Lazy Operation Chain**: Operations are recorded, not executed
+3. **Execution Trigger & Planning**: Natural triggers invoke QueryPlanner to create execution segments
+4. **Segmented Execution**: Each segment routes to optimal engine (chDB or Pandas), with intermediate results cached
+
 ## Philosophy
 
 ### Respect Pandas Experience

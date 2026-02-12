@@ -393,7 +393,7 @@ class TestJsonArrayExtraction:
         )
         ds = DataStore.from_df(df)
         ds['hobbies'] = ds['data'].json.json_extract_array_raw('user.hobbies')
-        result = ds.to_df()
+        result = ds.to_df().sort_values('id')
 
         assert isinstance(result['hobbies'].iloc[0], list)
         assert result['hobbies'].iloc[0] == ['reading', 'coding']

@@ -305,19 +305,31 @@ class DataStore(PandasCompatMixin):
             self.database = database
 
         # Create table function if source is specified
-        if source and source.lower() != "chdb":
+        # For remote database sources (clickhouse, mysql, etc.), only create
+        # the table function when a table is specified. Connection-level
+        # DataStore (no table) should NOT have a table function — metadata
+        # operations like databases()/tables() work via adapters instead.
+        remote_db_table_sources = [
+            "clickhouse",
+            "remote",
+            "mysql",
+            "postgresql",
+            "postgres",
+            "mongodb",
+            "mongo",
+            "sqlite",
+        ]
+        is_remote_db_source = source and source.lower() in remote_db_table_sources
+        # For MongoDB, 'collection' serves the same role as 'table'
+        has_table_equivalent = table or (
+            source and source.lower() in ("mongodb", "mongo") and kwargs.get("collection")
+        )
+        skip_table_function = is_remote_db_source and not has_table_equivalent
+
+        if source and source.lower() != "chdb" and not skip_table_function:
             try:
                 # For database sources with explicit table, pass table name
-                if table and source.lower() in [
-                    "clickhouse",
-                    "remote",
-                    "mysql",
-                    "postgresql",
-                    "postgres",
-                    "mongodb",
-                    "mongo",
-                    "sqlite",
-                ]:
+                if table and is_remote_db_source:
                     kwargs["table"] = table
 
                 # For database sources, pass the database name to the table function
@@ -325,17 +337,7 @@ class DataStore(PandasCompatMixin):
                 if (
                     database
                     and database != ":memory:"
-                    and source.lower()
-                    in [
-                        "clickhouse",
-                        "remote",
-                        "mysql",
-                        "postgresql",
-                        "postgres",
-                        "mongodb",
-                        "mongo",
-                        "sqlite",
-                    ]
+                    and is_remote_db_source
                 ):
                     kwargs["database"] = database
 
@@ -442,9 +444,16 @@ class DataStore(PandasCompatMixin):
             "postgres",
         ]
         if source and source.lower() in remote_db_sources:
+            # Merge port into host if provided separately
+            host_val = kwargs.get("host", "")
+            port_val = kwargs.get("port")
+            if port_val is not None and host_val and ":" not in str(host_val):
+                host_val = f"{host_val}:{port_val}"
+                kwargs["host"] = host_val  # update kwargs so table function also gets it
+
             # Store remote params for metadata operations
             self._remote_params = {
-                "host": kwargs.get("host"),
+                "host": host_val,
                 "user": kwargs.get("user"),
                 "password": kwargs.get("password", ""),
                 "secure": kwargs.get("secure", False),
@@ -889,6 +898,42 @@ class DataStore(PandasCompatMixin):
             or self.table_name
         )
 
+    def _require_table_context(self, operation: str) -> None:
+        """
+        Raise a helpful error if this DataStore is in connection/database mode
+        without a bound table.
+
+        Called by properties and methods that only make sense when a table is
+        selected (e.g. ``columns``, ``head()``, ``groupby()``).
+
+        Args:
+            operation: Description of the attempted operation for the error msg.
+
+        Raises:
+            DataStoreError: When no table is bound.
+        """
+        if (
+            self._connection_mode in ("connection", "database")
+            and not self._has_sql_state()
+            and not self._lazy_ops
+        ):
+            from .exceptions import DataStoreError
+
+            if self._connection_mode == "connection":
+                hint = (
+                    'Use ds.table("database", "table") to select a table, '
+                    "or specify table= when creating DataStore."
+                )
+            else:
+                db = self._default_database or "?"
+                hint = (
+                    f'Use ds.table("{db}", "table") to select a table, '
+                    "or specify table= when creating DataStore."
+                )
+            raise DataStoreError(
+                f"Cannot perform {operation} — no table specified.\nHint: {hint}"
+            )
+
     def _get_accessible_columns(self) -> Optional[set]:
         """
         Get the set of columns that are accessible for column access operations.
@@ -1186,7 +1231,14 @@ class DataStore(PandasCompatMixin):
 
         # Restore index if we tracked index info during _ensure_sql_source
         # Skip if DataFrame already has the correct index (e.g., from set_index(drop=False))
-        if self._index_info is not None and not df.empty:
+        # In performance mode, skip index preservation entirely
+        from .config import is_performance_mode as _is_perf_mode
+
+        if (
+            not _is_perf_mode()
+            and self._index_info is not None
+            and not df.empty
+        ):
             if self._index_info.get("is_multiindex"):
                 # Restore MultiIndex
                 index_names = self._index_info["names"]
@@ -1293,12 +1345,17 @@ class DataStore(PandasCompatMixin):
             ):
                 with profiler.step("SQL Execution (query_df)"):
                     # Use executor.query_dataframe which calls connection.query_df
-                    # with preserve_order=True for deterministic row ordering
+                    # with preserve_order for deterministic row ordering
+                    # In performance mode, skip row-order preservation for throughput
                     from .executor import get_executor
+                    from .config import is_performance_mode
 
                     executor = get_executor()
                     df = executor.query_dataframe(
-                        sql, self._table_function._df, "__df__", preserve_order=True
+                        sql,
+                        self._table_function._df,
+                        "__df__",
+                        preserve_order=not is_performance_mode(),
                     )
                     df = self._postprocess_sql_result(df, plan)
             else:
@@ -1521,17 +1578,25 @@ class DataStore(PandasCompatMixin):
                 self._logger.debug("  Renamed temp aliases: %s", rename_back)
 
         # For GroupBy SQL pushdown: set group keys as index
+        from .config import is_performance_mode
+
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
             # Check as_index: only set index if as_index=True (default)
+            # In performance mode, skip set_index -- group keys stay as columns
             as_index = getattr(plan.groupby_agg, "as_index", True)
-            if as_index and all(col in df.columns for col in groupby_cols):
+            if (
+                not is_performance_mode()
+                and as_index
+                and all(col in df.columns for col in groupby_cols)
+            ):
                 df = df.set_index(groupby_cols)
                 self._logger.debug("  Set groupby columns as index: %s", groupby_cols)
 
             # Convert flat column names to MultiIndex for pandas compatibility
             # Skip for single_column_agg which should return flat column names
-            if plan.groupby_agg.agg_dict:
+            # In performance mode, skip MultiIndex conversion -- keep flat column names
+            if plan.groupby_agg.agg_dict and not is_performance_mode():
                 is_single_col_agg = getattr(
                     plan.groupby_agg, "single_column_agg", False
                 )
@@ -1894,12 +1959,16 @@ class DataStore(PandasCompatMixin):
 
         # Use UTC timezone to ensure datetime values match pandas (which uses naive UTC)
         # New versions of chDB may apply system timezone, causing value shifts
-        ds._format_settings["session_timezone"] = "UTC"
+        from .config import is_performance_mode
+
+        if not is_performance_mode():
+            ds._format_settings["session_timezone"] = "UTC"
 
         # For Parquet files, enable row order preservation to match pandas behavior
         # chDB may read row groups in parallel which can reorder rows
         if format and format.lower() == "parquet":
-            ds._format_settings["input_format_parquet_preserve_order"] = 1
+            if not is_performance_mode():
+                ds._format_settings["input_format_parquet_preserve_order"] = 1
 
         return ds
 
@@ -1966,17 +2035,19 @@ class DataStore(PandasCompatMixin):
         table: str = None,
         user: str = None,
         password: str = "",
+        port: int = None,
         **kwargs,
     ) -> "DataStore":
         """
         Create DataStore from MySQL database.
 
         Args:
-            host: MySQL server address (host:port)
+            host: MySQL server address (host or host:port)
             database: Database name (optional - can be set later with use())
             table: Table name (optional - can be set later with ds["db.table"])
             user: Username
             password: Password
+            port: Server port (optional - can also be included in host as host:port)
             **kwargs: Additional parameters
 
         Examples:
@@ -1989,6 +2060,8 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_mysql("localhost:3306", "mydb", "users",
             ...                           user="root", password="pass")
         """
+        if port is not None and ":" not in str(host):
+            host = f"{host}:{port}"
         return cls(
             "mysql",
             host=host,
@@ -2007,17 +2080,19 @@ class DataStore(PandasCompatMixin):
         table: str = None,
         user: str = None,
         password: str = "",
+        port: int = None,
         **kwargs,
     ) -> "DataStore":
         """
         Create DataStore from PostgreSQL database.
 
         Args:
-            host: PostgreSQL server address (host:port)
+            host: PostgreSQL server address (host or host:port)
             database: Database name (optional - can be set later with use())
             table: Table name (can include schema like 'schema.table', optional)
             user: Username
             password: Password
+            port: Server port (optional - can also be included in host as host:port)
             **kwargs: Additional parameters
 
         Examples:
@@ -2030,6 +2105,8 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_postgresql("localhost:5432", "mydb", "users",
             ...                                user="postgres", password="pass")
         """
+        if port is not None and ":" not in str(host):
+            host = f"{host}:{port}"
         return cls(
             "postgresql",
             host=host,
@@ -2049,18 +2126,20 @@ class DataStore(PandasCompatMixin):
         user: str = "default",
         password: str = "",
         secure: bool = False,
+        port: int = None,
         **kwargs,
     ) -> "DataStore":
         """
         Create DataStore from remote ClickHouse server.
 
         Args:
-            host: ClickHouse server address (host:port)
+            host: ClickHouse server address (host or host:port)
             database: Database name (optional - can be set later with use())
             table: Table name (optional - can be set later with ds["db.table"])
             user: Username (default: 'default')
             password: Password
             secure: Use secure connection (remoteSecure)
+            port: Server port (optional - can also be included in host as host:port)
             **kwargs: Additional parameters
 
         Examples:
@@ -2073,7 +2152,13 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_clickhouse("localhost:9000", "default", "events")
             >>> ds_secure = DataStore.from_clickhouse("server:9440", "default", "events",
             ...                                       secure=True)
+
+            >>> # Port as separate parameter (e.g. ClickHouse Cloud)
+            >>> ds = DataStore.from_clickhouse("xxx.clickhouse.cloud", port=9440,
+            ...                                user="default", password="pass", secure=True)
         """
+        if port is not None and ":" not in str(host):
+            host = f"{host}:{port}"
         return cls(
             "clickhouse",
             host=host,
@@ -3537,6 +3622,7 @@ class DataStore(PandasCompatMixin):
         Return the column names of the query result.
 
         Works correctly with both SQL queries and executed DataFrames.
+        Raises DataStoreError if no table is bound (connection-level DataStore).
 
         Returns:
             pandas Index of column names
@@ -3545,6 +3631,7 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> cols = ds.select("*").columns
         """
+        self._require_table_context("columns")
         # Use _get_df if available (handles caching properly)
         if hasattr(self, "_get_df"):
             df = self._get_df()
@@ -5329,6 +5416,9 @@ class DataStore(PandasCompatMixin):
             raise ValueError("use() requires at least 1 argument")
         elif len(args) == 1:
             self._default_database = args[0]
+            # Update connection mode: we now have a database
+            if self._connection_mode == "connection":
+                self._connection_mode = "database"
         elif len(args) == 2:
             self._default_database = args[0]
             self._default_table = args[1]
@@ -6455,7 +6545,16 @@ class DataStore(PandasCompatMixin):
 
         This is called by print().
         If we have any operations (SQL or lazy), executes and shows the DataFrame.
+        For connection-level DataStore, shows connection info with masked password.
         """
+        # Connection-level mode - show connection info
+        if (
+            self._connection_mode in ("connection", "database")
+            and not self._has_sql_state()
+            and not self._lazy_ops
+        ):
+            return self._connection_repr()
+
         # If we have operations, execute and show the DataFrame
         if self._has_sql_state() or self._lazy_ops:
             try:

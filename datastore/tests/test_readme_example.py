@@ -118,8 +118,14 @@ class TestReadmeExample:
         assert list(ds_result.columns) == list(pd_result.columns)
 
         # Check values - handle numeric and non-numeric columns differently
+        def _is_numeric(dtype):
+            try:
+                return np.issubdtype(dtype, np.number)
+            except TypeError:
+                return False
+
         for col in pd_result.columns:
-            if np.issubdtype(pd_result[col].dtype, np.number):
+            if _is_numeric(pd_result[col].dtype):
                 np.testing.assert_array_almost_equal(
                     ds_result[col].values,
                     pd_result[col].values,
@@ -136,12 +142,15 @@ class TestReadmeExample:
         for col in pd_result.columns:
             ds_dtype = ds_result[col].dtype
             pd_dtype = pd_result[col].dtype
-            if np.issubdtype(pd_dtype, np.number):
-                assert np.issubdtype(ds_dtype, np.number), f"Dtype mismatch in column '{col}': {ds_dtype} vs {pd_dtype}"
+            if _is_numeric(pd_dtype):
+                assert _is_numeric(ds_dtype), f"Dtype mismatch in column '{col}': {ds_dtype} vs {pd_dtype}"
             else:
                 # String columns might have different representations (object vs string)
+                # pandas 3.0 uses StringDtype, so check kind attribute with fallback
+                ds_kind = getattr(ds_dtype, 'kind', str(ds_dtype)[0])
+                pd_kind = getattr(pd_dtype, 'kind', str(pd_dtype)[0])
                 assert (
-                    ds_dtype == pd_dtype or ds_dtype.kind == pd_dtype.kind
+                    ds_dtype == pd_dtype or ds_kind == pd_kind or {str(ds_dtype), str(pd_dtype)} <= {'str', 'object', 'string'}
                 ), f"Dtype mismatch in column '{col}': {ds_dtype} vs {pd_dtype}"
 
     def test_readme_example_groupby_single_agg(self, employee_data):

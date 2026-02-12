@@ -1763,9 +1763,13 @@ def factorize(values, sort=False, use_na_sentinel=True, size_hint=None):
     """
     # Convert list/tuple to ndarray to avoid deprecation warning
     import numpy as np
+    from .column_expr import ColumnExpr
 
     if isinstance(values, (list, tuple)):
         values = np.array(values)
+    # pandas 3.0 requires Series/Index/ndarray, not ColumnExpr
+    if isinstance(values, ColumnExpr):
+        values = values._execute()
     return pd.factorize(
         values, sort=sort, use_na_sentinel=use_na_sentinel, size_hint=size_hint
     )
@@ -1786,6 +1790,11 @@ def unique(values):
         >>> ds.unique([1, 2, 2, 3, 1])
         array([1, 2, 3])
     """
+    from .column_expr import ColumnExpr
+
+    # pandas 3.0 requires Series/Index/ndarray, not ColumnExpr
+    if isinstance(values, ColumnExpr):
+        values = values._execute()
     return pd.unique(values)
 
 

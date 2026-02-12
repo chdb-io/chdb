@@ -161,13 +161,14 @@ class TestGroupByWithNullAndEdgeCases:
         ds_categories = set(ds_result.index.tolist())
 
         # Normalize None/NaN for comparison
+        # pandas 3.0 may use np.nan, pd.NA, or None for missing values
         pd_has_null = any(pd.isna(cat) for cat in pd_categories)
-        ds_has_null = any(cat is None for cat in ds_categories)
+        ds_has_null = any(pd.isna(cat) for cat in ds_categories)
 
         assert pd_has_null == ds_has_null, "NULL category handling mismatch"
         # Compare non-null categories
         pd_non_null = {c for c in pd_categories if not pd.isna(c)}
-        ds_non_null = {c for c in ds_categories if c is not None}
+        ds_non_null = {c for c in ds_categories if not pd.isna(c)}
         assert pd_non_null == ds_non_null
 
     def test_groupby_sum_with_nan_values(self, df_with_nulls):

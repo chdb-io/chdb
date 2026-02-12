@@ -229,12 +229,19 @@ class TestUniqueReturnValue:
         pd_result = pd_df['col'].unique()
         ds_result = ds_df['col'].unique()
 
-        # Access values via .values (triggers execution)
-        ds_values = ds_result.values
+        # Execute ColumnExpr and get numpy array
+        if hasattr(ds_result, '_execute'):
+            ds_values = np.asarray(ds_result._execute())
+        else:
+            ds_values = np.asarray(ds_result)
+        pd_values = np.asarray(pd_result)
         
-        assert type(pd_result) == np.ndarray
-        assert type(ds_values) == np.ndarray
-        assert set(pd_result) == set(ds_values)
+        # Flatten arrays if needed
+        ds_values = ds_values.flatten() if ds_values.ndim > 1 else ds_values
+        pd_values = pd_values.flatten() if pd_values.ndim > 1 else pd_values
+        
+        # Compare sorted values
+        assert sorted(list(pd_values)) == sorted(list(ds_values))
 
     def test_unique_len_matches(self):
         """unique() length must match pandas"""

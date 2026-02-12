@@ -94,8 +94,9 @@ class WhereMaskCaseExpr(Expression):
     def _is_string_type(self) -> bool:
         """Check if column is a string type."""
         col_type_lower = self.col_type.lower()
-        # Include pandas 'object' dtype which is typically used for strings
-        string_types = ("string", "fixedstring", "enum", "uuid", "object")
+        # Include pandas 'object' dtype (pandas <3.0) and 'str' dtype (pandas 3.0+)
+        # which are typically used for strings
+        string_types = ("string", "fixedstring", "enum", "uuid", "object", "str")
         return any(t in col_type_lower for t in string_types)
 
     def _is_date_type(self) -> bool:
@@ -256,9 +257,14 @@ class ExtractedClauses:
 
         chDB may return rows in different order due to parallel processing.
         We need ORDER BY rowNumberInAllBlocks() when:
+        - Not in performance mode
         - No explicit ORDER BY is specified
         - No GROUP BY aggregation (which has its own ordering)
         """
+        from .config import is_performance_mode
+
+        if is_performance_mode():
+            return False
         return not self.has_orderby() and not has_groupby
 
 
@@ -454,14 +460,22 @@ def build_groupby_select_fields(
         row order semantics. ClickHouse's any()/anyLast() return arbitrary values,
         not row-order based first/last.
 
+        In performance mode, use any()/anyLast() directly (faster, non-deterministic).
+
         NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
         with _row_id (deterministic) at execution time (chDB v4.0.0b5+).
         """
+        from .config import is_performance_mode
+
         if func == 'first':
+            if is_performance_mode():
+                return AggregateFunction('any', col_expr, alias=alias)
             # first() -> argMin(col, rowNumberInAllBlocks())
             row_num_func = Function('rowNumberInAllBlocks')
             return AggregateFunction('argMin', col_expr, row_num_func, alias=alias)
         elif func == 'last':
+            if is_performance_mode():
+                return AggregateFunction('anyLast', col_expr, alias=alias)
             # last() -> argMax(col, rowNumberInAllBlocks())
             row_num_func = Function('rowNumberInAllBlocks')
             return AggregateFunction('argMax', col_expr, row_num_func, alias=alias)
@@ -2002,6 +2016,11 @@ class SQLExecutionEngine:
             and not has_nested_queries
         )
         needs_order_preservation = not is_simple_limit_only
+        # In performance mode, skip order preservation for throughput
+        from .config import is_performance_mode as _is_perf_exec
+
+        if _is_perf_exec():
+            needs_order_preservation = False
         # Execute via chDB using Python() table function
         executor = get_executor()
         result_df = executor.query_dataframe(
@@ -2017,11 +2036,14 @@ class SQLExecutionEngine:
 
         # Handle GroupBy SQL pushdown: set group keys as index
         # Exception: when as_index=False, keep columns as regular columns (matching Pandas behavior)
+        # In performance mode, skip set_index -- group keys stay as columns
+        from .config import is_performance_mode as _is_perf
+
         if plan.groupby_agg and plan.groupby_agg.groupby_cols:
             groupby_cols = plan.groupby_agg.groupby_cols
             # Don't set index if as_index=False (user wants group keys as columns)
             as_index = getattr(plan.groupby_agg, "as_index", True)
-            if as_index:
+            if not _is_perf() and as_index:
                 if all(col in result_df.columns for col in groupby_cols):
                     result_df = result_df.set_index(groupby_cols)
                     self._logger.debug(
@@ -2042,8 +2064,10 @@ class SQLExecutionEngine:
         # Convert flat column names to MultiIndex for pandas compatibility
         # Only needed when ANY column has multiple aggregation functions (e.g., agg({'col': ['sum', 'mean']}))
         # When each column has single func, pandas returns flat column names, so we should too
+        # In performance mode, skip MultiIndex conversion -- keep flat column names
         if (
-            plan.groupby_agg
+            not _is_perf()
+            and plan.groupby_agg
             and plan.groupby_agg.agg_dict is not None
             and isinstance(plan.groupby_agg.agg_dict, dict)
         ):
@@ -2074,7 +2098,9 @@ class SQLExecutionEngine:
                     self._logger.debug("  Converted flat columns to MultiIndex")
 
         # Apply dtype corrections for SQL results (e.g., abs() on signed integers)
-        result_df = self._apply_sql_dtype_corrections(result_df, df, plan)
+        # In performance mode, skip dtype corrections -- let SQL return native dtypes
+        if not _is_perf():
+            result_df = self._apply_sql_dtype_corrections(result_df, df, plan)
 
         return result_df
 
@@ -2393,7 +2419,14 @@ class SQLExecutionEngine:
 
             # Handle dropna for groupby: add WHERE ... IS NOT NULL for groupby columns
             # when dropna=True (pandas default). This must be added BEFORE GROUP BY.
-            if plan.groupby_agg and getattr(plan.groupby_agg, "dropna", True):
+            # In performance mode, skip dropna WHERE -- SQL naturally groups NULLs separately
+            from .config import is_performance_mode as _is_perf_mode
+
+            if (
+                not _is_perf_mode()
+                and plan.groupby_agg
+                and getattr(plan.groupby_agg, "dropna", True)
+            ):
                 # Build IS NOT NULL conditions for groupby columns
                 dropna_conditions = []
                 for col in plan.groupby_agg.groupby_cols:
@@ -2431,15 +2464,25 @@ class SQLExecutionEngine:
             parts.append(f"ORDER BY {orderby_sql}")
         elif plan.groupby_agg and plan.groupby_agg.sort:
             # GroupBy with sort=True (default): order by group keys
-            orderby_cols = [(Field(col), True) for col in plan.groupby_agg.groupby_cols]
-            orderby_sql = build_orderby_clause(
-                orderby_cols, self.quote_char, stable=False
-            )
-            parts.append(f"ORDER BY {orderby_sql}")
+            # In performance mode, skip auto ORDER BY for groupby
+            from .config import is_performance_mode
+
+            if not is_performance_mode():
+                orderby_cols = [
+                    (Field(col), True) for col in plan.groupby_agg.groupby_cols
+                ]
+                orderby_sql = build_orderby_clause(
+                    orderby_cols, self.quote_char, stable=False
+                )
+                parts.append(f"ORDER BY {orderby_sql}")
         elif not plan.groupby_agg and clauses.where_conditions:
             # No explicit ORDER BY, no GROUP BY, but has WHERE: preserve original row order
             # For LIMIT-only operations without WHERE, ORDER BY is not needed - source provides natural order
-            parts.append("ORDER BY _row_id")
+            # In performance mode, skip ORDER BY _row_id for throughput
+            from .config import is_performance_mode as _is_perf_mode2
+
+            if not _is_perf_mode2():
+                parts.append("ORDER BY _row_id")
 
         # LIMIT clause
         if clauses.limit_value is not None:

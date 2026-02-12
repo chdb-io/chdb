@@ -64,7 +64,12 @@ class TestAxisManipulation:
     def test_swapaxes_basic(self):
         """Test swapaxes - transpose equivalent."""
         pd_df = pd.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
-        pd_result = pd_df.swapaxes(0, 1)
+        # pandas 3.0 removed swapaxes, use T instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.T
+        else:
+            pd_result = pd_df.swapaxes(0, 1)
         
         ds_df = DataStore(pd_df)
         ds_result = ds_df.swapaxes(0, 1)
