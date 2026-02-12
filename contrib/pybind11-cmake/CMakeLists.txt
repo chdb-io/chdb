@@ -25,11 +25,11 @@ if(CHDB_CROSSCOMPILING)
         # Set include directory based on provided prefix and version
         set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/${Python_VERSION_MAJOR}.${Python_VERSION_MINOR}")
     else()
-        # Default to Python 3.8 if not specified
+        # Default to Python 3.9 if not specified
         set(Python_VERSION_MAJOR 3)
-        set(Python_VERSION_MINOR 8)
-        set(Python_VERSION "3.8")
-        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.8")
+        set(Python_VERSION_MINOR 9)
+        set(Python_VERSION "3.9")
+        set(Python_INCLUDE_DIRS "${CHDB_PYTHON_INCLUDE_DIR_PREFIX}/3.9")
     endif()
 
     message(STATUS "Cross-compiling: Using Python ${Python_VERSION} include directory: ${Python_INCLUDE_DIRS}")
@@ -61,7 +61,7 @@ target_include_directories(pybind11_stubs PRIVATE ${PYBIND11_INCLUDE_DIR})
 target_include_directories(pybind11_stubs PRIVATE ${Python_INCLUDE_DIRS})
 target_compile_definitions(pybind11_stubs PUBLIC
     PYBIND11_NONLIMITEDAPI_LIB_SUFFIX_FOR_MODULE="${PYBIND11_LIB_SUFFIX}"
-    Py_LIMITED_API=0x03080000
+    Py_LIMITED_API=0x03090000
 )
 
 if (OS_LINUX AND Python_VERSION_MAJOR EQUAL 3 AND Python_VERSION_MINOR EQUAL 8)

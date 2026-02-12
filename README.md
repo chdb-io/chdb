@@ -23,31 +23,173 @@
 
 ## Features
 
+* **🐼 Pandas-compatible DataStore API** - Use familiar pandas syntax with ClickHouse performance
 * In-process SQL OLAP Engine, powered by ClickHouse
 * No need to install ClickHouse
 * Minimized data copy from C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
-* Input&Output support Parquet, CSV, JSON, Arrow, ORC and 60+[more](https://clickhouse.com/docs/en/interfaces/formats) formats, [samples](tests/format_output.py)
-* Support Python DB API 2.0, [example](examples/dbapi.py)
-
-
+* Input&Output support Parquet, CSV, JSON, Arrow, ORC and 60+[more](https://clickhouse.com/docs/en/interfaces/formats) formats
+* Support Python DB API 2.0
 
 ## Arch
 <div align="center">
   <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/arch-chdb3.png" width="450">
 </div>
 
-## Get Started
-Get started with **chdb** using our [Installation and Usage Examples](https://clickhouse.com/docs/en/chdb)
-
-<br>
-
 ## Installation
-Currently, chDB supports Python 3.8+ on macOS and Linux (x86_64 and ARM64).
+Currently, chDB supports Python 3.9+ on macOS and Linux (x86_64 and ARM64).
 ```bash
 pip install chdb
 ```
 
-## Usage
+<br>
+
+---
+
+## 🐼 DataStore: Pandas-Compatible API (Recommended)
+
+DataStore provides a **familiar pandas-like API** with automatic SQL generation and ClickHouse performance. Write pandas code, get SQL performance - no learning curve required.
+
+### Quick Start (30 seconds)
+
+Just change your import - use the pandas API you already know:
+
+```python
+import datastore as pd  # That's it! Use pandas API as usual
+
+# Create a DataFrame - works exactly like pandas
+df = pd.DataFrame({
+    'name': ['Alice', 'Bob', 'Charlie', 'Diana'],
+    'age': [25, 30, 35, 28],
+    'city': ['NYC', 'LA', 'NYC', 'LA']
+})
+
+# Filter with familiar pandas syntax
+result = df[df['age'] > 26]
+print(result)
+#       name  age city
+# 1      Bob   30   LA
+# 2  Charlie   35  NYC
+# 3    Diana   28   LA
+
+# GroupBy works too
+print(df.groupby('city')['age'].mean())
+# city
+# LA     29.0
+# NYC    30.0
+```
+
+**✨ Zero code changes required.** All operations are lazy - they're recorded and compiled into optimized SQL, executed only when results are needed.
+
+### Why DataStore?
+
+| Feature | pandas | DataStore |
+|---------|--------|-----------|
+| API | ✅ Familiar | ✅ Same pandas API |
+| Large datasets | ❌ Memory limited | ✅ SQL-optimized |
+| Learning curve | ✅ Easy | ✅ None - same syntax |
+| Performance | ❌ Single-threaded | ✅ ClickHouse engine |
+
+### Architecture
+
+<div align="center">
+  <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/datastore_architecture.png" width="700">
+</div>
+
+DataStore uses **lazy evaluation** with **dual-engine execution**:
+1. **Lazy Operation Chain**: Operations are recorded, not executed immediately
+2. **Smart Engine Selection**: QueryPlanner routes each segment to optimal engine (chDB for SQL, Pandas for complex ops)
+3. **Intermediate Caching**: Results cached at each step for fast iterative exploration
+
+### Working with Files
+
+```python
+from datastore import DataStore
+
+# Load any file format
+ds = DataStore.from_file("data.parquet")  # or CSV, JSON, ORC...
+
+# Explore your data
+print(ds.head())       # Preview first 5 rows
+print(ds.shape)        # (rows, columns)
+print(ds.columns)      # Column names
+
+# Build queries with method chaining
+result = (ds
+    .select("product", "revenue", "date")
+    .filter(ds.revenue > 1000)
+    .sort("revenue", ascending=False)
+    .head(10))
+
+print(result)
+```
+
+### Query Any Data Source
+
+```python
+from datastore import DataStore
+
+# S3 (with anonymous access)
+ds = DataStore.uri("s3://bucket/data.parquet?nosign=true")
+
+# MySQL
+ds = DataStore.uri("mysql://user:pass@localhost:3306/mydb/users")
+
+# PostgreSQL
+ds = DataStore.uri("postgresql://user:pass@localhost:5432/mydb/products")
+
+# And more: SQLite, MongoDB, ClickHouse, HDFS, Azure, GCS...
+```
+
+### Pandas API Coverage
+
+DataStore implements **comprehensive pandas compatibility**:
+
+| Category | Coverage |
+|----------|----------|
+| DataFrame methods | 209 methods |
+| Series.str accessor | 56 methods |
+| Series.dt accessor | 42+ methods |
+| ClickHouse SQL functions | 334 functions |
+
+```python
+# All these pandas methods work:
+df.drop(columns=['unused'])
+df.fillna(0)
+df.assign(revenue=lambda x: x['price'] * x['quantity'])
+df.sort_values('revenue', ascending=False)
+df.groupby('category').agg({'revenue': 'sum', 'quantity': 'mean'})
+df.merge(other_df, on='id')
+df.pivot_table(values='sales', index='date', columns='product')
+# ... and 200+ more
+```
+
+### String and DateTime Operations
+
+```python
+# String operations via .str accessor
+ds['name'].str.upper()
+ds['email'].str.contains('@gmail')
+ds['text'].str.replace('old', 'new')
+
+# DateTime operations via .dt accessor  
+ds['date'].dt.year
+ds['date'].dt.month
+ds['timestamp'].dt.hour
+```
+
+### Documentation
+
+- **[Pandas Compatibility Guide](docs/PANDAS_COMPATIBILITY.md)** - Full list of supported methods
+- **[Function Reference](docs/FUNCTIONS.md)** - 334 ClickHouse SQL functions
+- **[Migration Guide](docs/PANDAS_MIGRATION_GUIDE.md)** - Step-by-step guide for pandas users
+
+---
+
+<br>
+
+## SQL API
+
+For users who prefer SQL or need advanced ClickHouse features:
 
 ### Run in command line
 > `python3 -m chdb SQL [OutputFormat]`
@@ -61,7 +203,7 @@ python3 -m chdb "SELECT 1,'abc'" Pretty
 The following methods are available to access on-disk and in-memory data formats:
 
 <details>
-    <summary><h4>🗂️ Connection based API (recommended)</h4></summary>
+    <summary><h4>🗂️ Connection based API</h4></summary>
 
 ```python
 import chdb
@@ -132,10 +274,6 @@ print(df)
 # 0 2025-01-01
 # 1 2025-01-02
 ```
-
-For more details, see: 
-* [ClickHouse SQL syntax: defining and using query parameters](https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters)
-* [How to Use Query Parameters in ClickHouse](https://clickhouse.com/videos/how-to-use-query-parameters-in-clickhouse)
 
 ### Pandas dataframe output
 ```python
@@ -274,46 +412,9 @@ while True:
     rows_cnt += chunk.rows_read()
 
 print(rows_cnt) # 200000
-
-# Example 3: Early cancellation demo
-rows_cnt = 0
-stream_result = sess.send_query("SELECT * FROM numbers(200000)", "CSV")
-while True:
-    chunk = stream_result.fetch()
-    if chunk is None:
-        break
-    if rows_cnt > 0:
-        stream_result.close()
-        break
-    rows_cnt += chunk.rows_read()
-
-print(rows_cnt) # 65409
-
-# Example 4: Using PyArrow RecordBatchReader for batch export and integration with other libraries
-import pyarrow as pa
-from deltalake import write_deltalake
-
-# Get streaming result in arrow format
-stream_result = sess.send_query("SELECT * FROM numbers(100000)", "Arrow")
-
-# Create RecordBatchReader with custom batch size (default rows_per_batch=1000000)
-batch_reader = stream_result.record_batch(rows_per_batch=10000)
-
-# Use RecordBatchReader with external libraries like Delta Lake
-write_deltalake(
-    table_or_uri="./my_delta_table",
-    data=batch_reader,
-    mode="overwrite"
-)
-
-stream_result.close()
-
-sess.close()
 ```
 
-**Important Note**: When using streaming queries, if the `StreamingResult` is not fully consumed (due to errors or early termination), you must explicitly call `stream_result.close()` to release resources, or use the `with` statement for automatic cleanup. Failure to do so may block subsequent queries.
-
-For more details, see [test_streaming_query.py](tests/test_streaming_query.py) and [test_arrow_record_reader_deltalake.py](tests/test_arrow_record_reader_deltalake.py).
+For more details, see [test_streaming_query.py](tests/test_streaming_query.py).
 </details>
 
 
@@ -329,19 +430,10 @@ df = pd.DataFrame(
     {
         "a": [1, 2, 3, 4, 5, 6],
         "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
-        "dict_col": [
-            {'id': 1, 'tags': ['urgent', 'important'], 'metadata': {'created': '2024-01-01'}},
-            {'id': 2, 'tags': ['normal'], 'metadata': {'created': '2024-02-01'}},
-            {'id': 3, 'name': 'tom'},
-            {'id': 4, 'value': '100'},
-            {'id': 5, 'value': 101},
-            {'id': 6, 'value': 102},
-        ],
     }
 )
 
 chdb.query("SELECT b, sum(a) FROM Python(df) GROUP BY b ORDER BY b").show()
-chdb.query("SELECT dict_col.id FROM Python(df) WHERE dict_col.value='100'").show()
 ```
 
 ### Query on Arrow Table
@@ -353,125 +445,14 @@ arrow_table = pa.table(
     {
         "a": [1, 2, 3, 4, 5, 6],
         "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
-        "dict_col": [
-            {'id': 1, 'value': 'tom'},
-            {'id': 2, 'value': 'jerry'},
-            {'id': 3, 'value': 'auxten'},
-            {'id': 4, 'value': 'tom'},
-            {'id': 5, 'value': 'jerry'},
-            {'id': 6, 'value': 'auxten'},
-        ],
     }
 )
 
 chdb.query("SELECT b, sum(a) FROM Python(arrow_table) GROUP BY b ORDER BY b").show()
-chdb.query("SELECT dict_col.id FROM Python(arrow_table) WHERE dict_col.value='tom'").show()
 ```
 
-### Query on chdb.PyReader class instance
-
-1. You must inherit from chdb.PyReader class and implement the `read` method.
-2. The `read` method should:
-    1. return a list of lists, the first demension is the column, the second dimension is the row, the columns order should be the same as the first arg `col_names` of `read`.
-    1. return an empty list when there is no more data to read.
-    1. be stateful, the cursor should be updated in the `read` method.
-3. An optional `get_schema` method can be implemented to return the schema of the table. The prototype is `def get_schema(self) -> List[Tuple[str, str]]:`, the return value is a list of tuples, each tuple contains the column name and the column type. The column type should be one of the following: https://clickhouse.com/docs/en/sql-reference/data-types
-
-```python
-import chdb
-
-class myReader(chdb.PyReader):
-    def __init__(self, data):
-        self.data = data
-        self.cursor = 0
-        super().__init__(data)
-
-    def read(self, col_names, count):
-        print("Python func read", col_names, count, self.cursor)
-        if self.cursor >= len(self.data["a"]):
-            self.cursor = 0
-            return []
-        block = [self.data[col] for col in col_names]
-        self.cursor += len(block[0])
-        return block
-
-    def get_schema(self):
-        return [
-            ("a", "int"),
-            ("b", "str"),
-            ("dict_col", "json")
-        ]
-
-reader = myReader(
-    {
-        "a": [1, 2, 3, 4, 5, 6],
-        "b": ["tom", "jerry", "auxten", "tom", "jerry", "auxten"],
-        "dict_col": [
-            {'id': 1, 'tags': ['urgent', 'important'], 'metadata': {'created': '2024-01-01'}},
-            {'id': 2, 'tags': ['normal'], 'metadata': {'created': '2024-02-01'}},
-            {'id': 3, 'name': 'tom'},
-            {'id': 4, 'value': '100'},
-            {'id': 5, 'value': 101},
-            {'id': 6, 'value': 102}
-        ],
-    }
-)
-
-chdb.query("SELECT b, sum(a) FROM Python(reader) GROUP BY b ORDER BY b").show()
-chdb.query("SELECT dict_col.id FROM Python(reader) WHERE dict_col.value='100'").show()
-```
-
-see also: [test_query_py.py](tests/test_query_py.py) and [test_query_json.py](tests/test_query_json.py).
-
-### JSON Type Inference
-
-chDB automatically converts Python dictionary objects to ClickHouse JSON types from these sources:
-
-1. **Pandas DataFrame**
-    - Columns with `object` dtype are sampled (default 10,000 rows) to detect JSON structures.
-    - Control sampling via SQL settings:
-      ```sql
-      SET pandas_analyze_sample = 10000  -- Default sampling
-      SET pandas_analyze_sample = 0      -- Force String type
-      SET pandas_analyze_sample = -1     -- Force JSON type
-      ```
-    - Columns are converted to `String` if sampling finds non-dictionary values.
-
-2. **chdb.PyReader**
-    - Implement custom schema mapping in `get_schema()`:
-      ```python
-      def get_schema(self):
-          return [
-              ("c1", "JSON"),  # Explicit JSON mapping
-              ("c2", "String")
-          ]
-      ```
-    - Column types declared as "JSON" will bypass auto-detection.
-
-When converting Python dictionary objects to JSON columns:
-
-1. **Nested Structures**
-    - Recursively process nested dictionaries, lists, tuples and NumPy arrays.
-
-2. **Primitive Types**
-    - Automatic type recognition for basic types such as integers, floats, strings, and booleans, and more.
-
-3. **Complex Objects**
-    - Non-primitive types will be converted to strings.
-
-### Limitations
-
-1. Column types supported: pandas.Series, pyarrow.array, chdb.PyReader
-1. Data types supported: Int, UInt, Float, String, Date, DateTime, Decimal
-1. Python Object type will be converted to String
-1. Pandas DataFrame performance is all of the best, Arrow Table is better than PyReader
-
-
+see also: [test_query_py.py](tests/test_query_py.py).
 </details>
-
-For more examples, see [examples](examples) and [tests](tests).
-
-<br>
 
 <details>
   <summary><h4>🧠 AI-assisted SQL generation</h4></summary>
@@ -482,14 +463,6 @@ chDB can translate natural language prompts into SQL. Configure the AI client th
 - `ai_api_key`: API key; falls back to `AI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` env vars.
 - `ai_base_url`: Custom base URL for OpenAI-compatible endpoints.
 - `ai_model`: Model name (e.g., `gpt-4o-mini`, `claude-3-opus-20240229`).
-- `ai_temperature`: Generation temperature (default `0.0`).
-- `ai_max_tokens`: Maximum tokens to generate (default `1000`).
-- `ai_timeout_seconds`: Request timeout in seconds (default `30`).
-- `ai_system_prompt`: Custom system prompt to steer SQL generation.
-- `ai_max_steps`: Maximum tool-calling steps (default `5`).
-- `ai_enable_schema_access`: Allow the AI to inspect database/table metadata (default `true`).
-
-If AI is not enabled in the build or the provider is misconfigured, `generate_sql`/`ask` raise a `RuntimeError`.
 
 ```python
 import chdb
@@ -503,23 +476,14 @@ sql = conn.generate_sql("Select all rows from nums ordered by n desc")
 print(sql)  # e.g., SELECT * FROM nums ORDER BY n DESC
 
 # ask(): one-call generate + execute
-# `ask()` first calls `generate_sql` then runs `query`; keyword arguments are forwarded to `query`.
 print(conn.ask("List the numbers table", format="Pretty"))
 ```
 
-`Session` objects support the same helpers and defaults; `Session.ask()` forwards keyword arguments to `Session.query`:
-
-```python
-from chdb import session as chs
-
-with chs.Session("file::memory:?ai_provider=openai") as sess:
-    sess.query("CREATE TABLE users (id UInt32, name String) ENGINE = Memory")
-    sess.query("INSERT INTO users VALUES (1), (2), (3)")
-    df = sess.ask("Show all users ordered by id", format="DataFrame")
-    print(df)
-```
-
 </details>
+
+For more examples, see [examples](examples) and [tests](tests).
+
+<br>
 
 ## Demos and Examples
 
@@ -543,6 +507,7 @@ with chs.Session("file::memory:?ai_provider=openai") as sess:
 ## Documentation
 - For chdb specific examples and documentation refer to [chDB docs](https://clickhouse.com/docs/en/chdb)
 - For SQL syntax, please refer to [ClickHouse SQL Reference](https://clickhouse.com/docs/en/sql-reference/syntax)
+- For DataStore API, see [Pandas Compatibility Guide](docs/PANDAS_COMPATIBILITY.md)
 
 
 ## Events

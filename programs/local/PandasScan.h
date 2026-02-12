@@ -67,6 +67,13 @@ private:
         DB::MutableColumnPtr & column,
         size_t stride = 0);
 
+    static void innerScanInterval(
+        const size_t cursor,
+        const size_t count,
+        const Int64 * ptr,
+        DB::MutableColumnPtr & column,
+        size_t stride = 0);
+
     template <typename T, typename IndexType>
     static void innerScanCategory(
         const size_t cursor,

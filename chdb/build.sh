@@ -7,6 +7,13 @@ build_type=${1:-Release}
 
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 
+# Setup LLVM path BEFORE sourcing vars.sh so that llvm tools can be found
+if [ "$(uname)" == "Darwin" ]; then
+    export CXX=$(brew --prefix llvm@19)/bin/clang++
+    export CC=$(brew --prefix llvm@19)/bin/clang
+    export PATH=$(brew --prefix llvm@19)/bin:$PATH
+fi
+
 . ${DIR}/vars.sh
 
 BUILD_DIR=${PROJ_DIR}/buildlib
@@ -16,9 +23,6 @@ MYSQL="-DENABLE_MYSQL=1"
 RUST_FEATURES="-DENABLE_RUST=0"
 # check current os type
 if [ "$(uname)" == "Darwin" ]; then
-    export CXX=$(brew --prefix llvm@19)/bin/clang++
-    export CC=$(brew --prefix llvm@19)/bin/clang
-    export PATH=$(brew --prefix llvm@19)/bin:$PATH
     GLIBC_COMPATIBILITY="-DGLIBC_COMPATIBILITY=0"
     UNWIND="-DUSE_UNWIND=0"
     JEMALLOC="-DENABLE_JEMALLOC=0"
@@ -175,11 +179,7 @@ LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 ls -lh ${LIBCHDB}
 
 # build chdb python module
-py_version="3.8"
-# check current os type and architecture for py_version
-if [ "$(uname)" == "Darwin" ] && [ "$(uname -m)" == "x86_64" ]; then
-    py_version="3.9"
-fi
+py_version="3.9"
 current_py_version=$(python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')")
 if [ "$current_py_version" != "$py_version" ]; then
     echo "Error: Current Python version is $current_py_version, but required version is $py_version"
@@ -247,14 +247,26 @@ LIBCHDB_DIR=${BUILD_DIR}/
 PYCHDB=${LIBCHDB_DIR}/${CHDB_PY_MODULE}
 LIBCHDB=${LIBCHDB_DIR}/${LIBCHDB_SO}
 
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
+if [ ${build_type} == "Debug" ] || [ ${build_type} == "RelWithDebInfo" ]; then
+    echo -e "\n${build_type} build, skip strip"
 else
     echo -e "\nStrip the binary:"
-    ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${PYCHDB}
-    ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    # macOS MachO format requires different strip options than Linux ELF
+    if [ "$(uname)" == "Darwin" ]; then
+        # On macOS, use -x (remove local symbols) for both llvm-strip and native strip
+        ${STRIP} -x ${PYCHDB}
+        ${STRIP} -x ${LIBCHDB}
+    elif echo "${STRIP}" | grep -q "llvm-strip"; then
+        # Linux with llvm-strip
+        ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${PYCHDB}
+        ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    else
+        # Linux GNU strip
+        ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${PYCHDB}
+        ${STRIP} --strip-unneeded --remove-section=.comment --remove-section=.note ${LIBCHDB}
+    fi
 fi
-echo -e "\nStripe the binary:"
+echo -e "\nStripped the binary:"
 
 echo -e "\nPYCHDB: ${PYCHDB}"
 ls -lh ${PYCHDB}

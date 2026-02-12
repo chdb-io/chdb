@@ -174,6 +174,8 @@ EmbeddedServer::~EmbeddedServer()
 
 void EmbeddedServer::initialize(Poco::Util::Application & self)
 {
+    setShuttingDown(false);
+
     Poco::Util::Application::initialize(self);
 
     const char * home_path_cstr = getenv("HOME"); // NOLINT(concurrency-mt-unsafe)
@@ -274,6 +276,9 @@ static DatabasePtr createMemoryDatabaseIfNotExists(ContextPtr context, const Str
     {
         /// TODO: add attachTableDelayed into DatabaseMemory to speedup loading
         system_database = std::make_shared<DatabaseMemory>(database_name, context);
+        /// Lock the UUID before attaching the database to avoid assertion failure in addUUIDMapping
+        if (UUID uuid = system_database->getUUID(); uuid != UUIDHelpers::Nil)
+            DatabaseCatalog::instance().addUUIDMapping(uuid);
         DatabaseCatalog::instance().attachDatabase(database_name, system_database);
     }
     return system_database;
@@ -391,28 +396,69 @@ void EmbeddedServer::tryInitPath()
 
 void EmbeddedServer::cleanup()
 {
+    /// Mark that we're shutting down to prevent logging operations from
+    /// crashing when Poco::Logger's internal data structures are destroyed
+    /// (which can happen during Python interpreter exit).
+    setShuttingDown();
+
+    /// Clear JIT cache BEFORE shutting down context to avoid use-after-free.
+#if USE_EMBEDDED_COMPILER
+    try
+    {
+        if (auto * cache = CompiledExpressionCacheFactory::instance().tryGetCache())
+            cache->clear();
+    }
+    catch (const std::exception & e)
+    {
+        std::cerr << "Exception clearing JIT cache: " << e.what() << std::endl;
+    }
+    catch (...) {}
+#endif
+
     try
     {
         EventNotifier::shutdown();
+    }
+    catch (...) {}
+
+    try
+    {
         if (global_context)
         {
             global_context->shutdown();
             global_context.reset();
         }
-        status.reset();
+    }
+    catch (const std::exception & e)
+    {
+        /// During Python interpreter exit, mutexes may be in invalid state
+        /// due to static object destruction order. This is expected and harmless.
+        /// Only print error for unexpected exceptions.
+        std::string_view msg = e.what();
+        if (msg.find("mutex") == std::string_view::npos &&
+            msg.find("Invalid argument") == std::string_view::npos)
+        {
+            std::cerr << "Exception in global_context->shutdown(): " << e.what() << std::endl;
+        }
+    }
+    catch (...) {}
 
-        // Delete the temporary directory if needed.
+    try
+    {
+        status.reset();
+    }
+    catch (...) {}
+
+    // Delete the temporary directory if needed.
+    try
+    {
         if (temporary_directory_to_delete)
         {
-            LOG_DEBUG(&logger(), "Removing temporary directory: {}", temporary_directory_to_delete->string());
             fs::remove_all(*temporary_directory_to_delete);
             temporary_directory_to_delete.reset();
         }
     }
-    catch (...)
-    {
-        tryLogCurrentException(__PRETTY_FUNCTION__);
-    }
+    catch (...) {}
 }
 
 static ConfigurationPtr getConfigurationFromXMLString(const char * xml_data)

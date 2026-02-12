@@ -1,0 +1,134 @@
+---
+alwaysApply: true
+---
+
+## chdb-ds Design and Testing Principles
+
+### 1. Fully Lazy Execution Architecture
+- **All methods returning DataFrame or Series should return Lazy objects** (such as `DataStore`, `LazySeries`)
+- Defer execution until results are actually needed
+- Preserve the ability to select the optimal execution engine (pandas vs chDB/SQL) at execution stage
+- **API style does not determine execution engine**: pandas-style, Pythonic, SQL terminology should all compile to the same optimized backend execution
+- Final execute stage selects pandas or chDB ExecutionEngine based on config system
+
+### 2. Natural Execution Triggering (Explicit Calls Prohibited)
+- **Prohibit explicit calls to `_execute()` method**
+- **Avoid explicit conversions like `to_df()`, `to_list()`, `to_pandas()` as much as possible**
+- Execution triggered through natural means:
+  - `.columns` - get column names
+  - `len()` - get length
+  - `.index` - get index
+  - `repr()` / `print()` - display results
+  - `__iter__` - iteration
+  - `.equals()` - comparison
+
+### 3. Unified Architecture, Simplicity First
+- **Do not consider backward compatibility**, first priority is architectural simplicity and elegance
+- Don't create split class hierarchies for different execution engines
+- `ColumnExpr` uniformly wraps all expression types
+- Handle lazy execution through unified `LazySeries`, `LazyGroupBy`, etc.
+- `LazyOp` system uniformly manages all lazy operations
+- Avoid duplicate definitions, keep code structure clear with single responsibility
+
+### 4. Testing Principles
+
+**Philosophy:**
+- Discovered problems are opportunities to improve the library
+- **Analyze problems from an architectural perspective**, don't easily modify tests just to pass them
+- Using `reset_index()` in tests to mask problems = **DataStore bug**, not correct test writing
+- Don't obsess over container type differences between DataFrame and DataStore
+
+**FORBIDDEN behaviors:**
+- ❌ Using comments to describe expected behavior without actual assertions
+- ❌ Using `print()` / `logging` without corresponding assertions
+- ❌ Only verifying `len()` without verifying actual values
+- ❌ Writing "verify X" comments but not actually verifying X
+- ❌ Using `# TODO: verify later` or similar postponement
+
+**REQUIRED:**
+
+1. **Mirror Code Pattern (DataStore ↔ Pandas)**
+   
+   Test code must mirror DataStore and pandas operations for easy comparison:
+   ```python
+   # ✅ GOOD - Mirror code pattern
+   # pandas operations
+   pd_df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+   pd_result = pd_df[pd_df['age'] > 20].sort_values('name')
+   
+   # DataStore operations (mirror of pandas)
+   ds_df = DataStore({'name': ['Alice', 'Bob'], 'age': [25, 30]})
+   ds_result = ds_df[ds_df['age'] > 20].sort_values('name')
+   
+   # Compare results
+   assert_datastore_equals_pandas(ds_result, pd_result)
+   ```
+
+2. **Complete Output Comparison (Columns + Data + Order)**
+   
+   Comparison must be complete: column names, data values, row order (if pandas operation preserves or defines order)
+   ```python
+   # Import the utility function
+   from tests.test_utils import assert_datastore_equals_pandas
+   
+   # Full comparison (columns + values + order)
+   assert_datastore_equals_pandas(ds_result, pd_result)
+   
+   # For unordered results (e.g., groupby without sort)
+   assert_datastore_equals_pandas(ds_result, pd_result, check_row_order=False)
+   
+   # Also available:
+   # - assert_column_values_equal(ds_result, pd_result, 'col_name')
+   # - assert_columns_match(ds_result, pd_result)
+   # - assert_row_count_match(ds_result, pd_result)
+   ```
+   
+   ```python
+   # For operations that preserve order (filter, map, etc.)
+   pd_result = pd_df[pd_df['value'] > 10]  # preserves original order
+   ds_result = ds_df[ds_df['value'] > 10]
+   assert_datastore_equals_pandas(ds_result, pd_result)
+   
+   # For operations with explicit sorting
+   pd_result = pd_df.sort_values('name', ascending=False)
+   ds_result = ds_df.sort_values('name', ascending=False)
+   assert_datastore_equals_pandas(ds_result, pd_result)
+   
+   # For operations with undefined order (groupby without sort)
+   pd_result = pd_df.groupby('category').sum()
+   ds_result = ds_df.groupby('category').sum()
+   # Compare as sets or sort both before comparison
+   assert_datastore_equals_pandas(ds_result, pd_result, check_row_order=False)
+   ```
+
+3. **SQL Execution Verification via Logs**
+   ```python
+   # Capture and verify actual SQL executed
+   log_output = log_capture.getvalue()
+   self.assertIn('WHERE "value" > 30', log_output)  # Verify exact SQL clause
+   self.assertIn('Segment 1/', log_output)  # Verify segment execution
+   self.assertIn('[Pandas]', log_output)  # Verify Pandas ops logged
+   ```
+
+4. **Test Name Must Reflect What Is Being Verified**
+   ```python
+   # BAD
+   def test_complex_pipeline(self):
+   
+   # GOOD
+   def test_sql_pandas_sql_segments_exact_values_and_structure(self):
+   ```
+
+**Self-Check Before Submitting Test:**
+- [ ] Does every comment about "expected behavior" have a corresponding assertion?
+- [ ] Are actual data values verified, not just lengths?
+- [ ] Are DataStore and pandas code mirrored (same operations, same style)?
+- [ ] Is column order verified (not just column names as a set)?
+- [ ] Is row order verified for order-preserving operations?
+- [ ] Is segment structure (type, ops, is_first_segment) fully verified?
+- [ ] Are error messages descriptive for debugging?
+- [ ] Would this test catch a real bug, or just pass trivially?
+
+---
+
+**Core Philosophy: Users write familiar pandas-style code, backend automatically selects optimal execution engine.**

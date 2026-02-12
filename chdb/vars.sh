@@ -5,9 +5,9 @@ BUILD_DIR="$PROJ_DIR/buildlib" # build directory
 CHDB_DIR="$PROJ_DIR/chdb" # chdb directory
 CHDB_PY_MOD="_chdb"
 CHDB_PY_MODULE="${CHDB_PY_MOD}.abi3.so"
-pushd ${PROJ_DIR}
-CHDB_VERSION=$(python3 -c 'import setup; print(setup.get_latest_git_tag())')
-popd
+pushd ${PROJ_DIR} > /dev/null
+CHDB_VERSION=$(python3 -c 'import setup; print(setup.get_latest_git_tag())' 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo "0.0.0")
+popd > /dev/null
 
 if [ "$1" == "cross-compile" ]; then
     return
@@ -16,25 +16,38 @@ fi
 # try to use largest llvm-strip version
 # if none of them are found, use llvm-strip or strip
 if [ -z "$STRIP" ]; then
-    STRIP=$(ls -1 /usr/bin/llvm-strip* | sort -V | tail -n 1)
+    STRIP=$(ls -1 /usr/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
 fi
 if [ -z "$STRIP" ]; then
-    STRIP=$(ls -1 /usr/local/bin/llvm-strip* | sort -V | tail -n 1)
+    STRIP=$(ls -1 /usr/local/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
 fi
-# on macOS
+# on macOS Intel
 if [ -z "$STRIP" ]; then
-    STRIP=$(ls -1 /usr/local/Cellar/llvm/*/bin/llvm-strip* | sort -V | tail -n 1)
+    STRIP=$(ls -1 /usr/local/Cellar/llvm/*/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
 fi
 if [ -z "$STRIP" ]; then
-    STRIP=$(ls -1 /usr/local/opt/llvm/bin/llvm-strip* | sort -V | tail -n 1)
+    STRIP=$(ls -1 /usr/local/opt/llvm/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
+fi
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /usr/local/opt/llvm@*/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
+fi
+# on macOS ARM (Apple Silicon) - Homebrew uses /opt/homebrew
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /opt/homebrew/Cellar/llvm/*/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
+fi
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /opt/homebrew/opt/llvm/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
+fi
+if [ -z "$STRIP" ]; then
+    STRIP=$(ls -1 /opt/homebrew/opt/llvm@*/bin/llvm-strip* 2>/dev/null | sort -V | tail -n 1)
 fi
 
 # if none of them are found, use llvm-strip or strip
 if [ -z "$STRIP" ]; then
-    STRIP=$(which llvm-strip)
+    STRIP=$(which llvm-strip 2>/dev/null)
 fi
 if [ -z "$STRIP" ]; then
-    STRIP=$(which strip)
+    STRIP=$(which strip 2>/dev/null)
 fi
 
 echo "STRIP command: $STRIP"
