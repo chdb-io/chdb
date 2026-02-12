@@ -7,6 +7,7 @@
 #include <DataTypes/DataTypeObject.h>
 #include <DataTypes/DataTypeString.h>
 #include <DataTypes/DataTypesNumber.h>
+#include <DataTypes/DataTypeFactory.h>
 #if USE_JEMALLOC
 #include <Common/memory.h>
 #endif
@@ -41,15 +42,24 @@ static bool mergeAnalyzedTypes(DataTypePtr & current, const DataTypePtr & next)
     auto current_idx = getTypeIndex(current);
     auto next_idx = getTypeIndex(next);
 
-	if (current_idx == next_idx)
-        return true;
-
     if (current_idx == TypeIndex::Nothing)
     {
         current = next;
         return true;
     }
     if (next_idx == TypeIndex::Nothing)
+        return true;
+
+	chassert(current && next);
+
+    bool current_is_bool = isBool(current);
+    bool next_is_bool = isBool(next);
+    if (current_is_bool != next_is_bool)
+        return false;
+    if (current_is_bool && next_is_bool)
+        return true;
+
+    if (current_idx == next_idx)
         return true;
 
     if (current_idx == TypeIndex::Object || next_idx == TypeIndex::Object)
@@ -194,11 +204,12 @@ DataTypePtr PandasAnalyzer::getItemType(py::object obj, bool & can_convert)
 				return {};
 			return std::make_shared<DataTypeFloat64>();
 		}
+	case PythonObjectType::Bool:
+		return std::const_pointer_cast<IDataType>(DataTypeFactory::instance().get("Bool"));
 	case PythonObjectType::None:
 		return {};
 	case PythonObjectType::Tuple:
 	case PythonObjectType::List:
-	case PythonObjectType::Bool:
 	case PythonObjectType::Decimal:
 	case PythonObjectType::Datetime:
 	case PythonObjectType::Time:

@@ -414,6 +414,43 @@ void PandasScan::innerScanObject(
             }
             break;
         }
+    case TypeIndex::UInt8:
+        {
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
+
+            auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
+            auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
+            auto & null_map = nullable_column.getNullMapData();
+            auto & container = assert_cast<ColumnVector<UInt8> &>(*data_column).getData();
+
+            for (size_t i = cursor; i < cursor + count; ++i)
+            {
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                auto handle = py::handle(obj_ptr);
+
+                if (isNone(handle) || (isFloat(handle) && std::isnan(PyFloat_AsDouble(handle.ptr()))))
+                {
+                    null_map.push_back(1);
+                    container.push_back(0);
+                    continue;
+                }
+
+                int result = PyObject_IsTrue(obj_ptr);
+                if (result < 0)
+                {
+                    PyErr_Clear();
+                    null_map.push_back(1);
+                    container.push_back(0);
+                    continue;
+                }
+                null_map.push_back(0);
+                container.push_back(result ? 1 : 0);
+            }
+            break;
+        }
     default:
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Unsupported nullable target type: {}", which.idx);
     }
