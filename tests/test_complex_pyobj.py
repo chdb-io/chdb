@@ -2,6 +2,18 @@ import unittest
 import pandas as pd
 import chdb
 
+# pandas 3.0+ returns string dtype instead of object for string columns
+PANDAS_V3 = int(pd.__version__.split('.')[0]) >= 3
+
+
+def is_string_or_object_dtype(dtype):
+    """Check if dtype is string-like (object in pandas<3, StringDtype in pandas>=3)"""
+    if PANDAS_V3:
+        return pd.api.types.is_string_dtype(dtype)
+    else:
+        return dtype == "object"
+
+
 df_with_na = pd.DataFrame(
     {
         "A": [1, 2, 3, pd.NA],
@@ -37,10 +49,10 @@ class TestComplexPyObj(unittest.TestCase):
         )
         self.assertEqual(ret.dtypes["A"], "Int32")
         self.assertEqual(ret.dtypes["B"], "float64")
-        self.assertEqual(ret.dtypes["C"], "boolean")
-        self.assertEqual(ret.dtypes["D"], "object")
-        self.assertEqual(ret.dtypes["E"], "object")
-        self.assertEqual(ret.dtypes["F"], "object")
+        self.assertTrue(ret.dtypes["C"], "boolean")
+        self.assertTrue(is_string_or_object_dtype(ret.dtypes["D"]))
+        self.assertTrue(is_string_or_object_dtype(ret.dtypes["E"]))
+        self.assertTrue(is_string_or_object_dtype(ret.dtypes["F"]))
         self.assertEqual(ret.dtypes["G"], "object")
         self.assertEqual(ret.shape, (4, 7))
 
@@ -90,9 +102,9 @@ class TestComplexPyObj(unittest.TestCase):
         self.assertEqual(ret.dtypes["A"], "int64")
         self.assertEqual(ret.dtypes["B"], "float64")
         self.assertEqual(ret.dtypes["C"], "bool")
-        self.assertEqual(ret.dtypes["D"], "object")
-        self.assertEqual(ret.dtypes["E"], "object")
-        self.assertEqual(ret.dtypes["F"], "object")
+        self.assertTrue(is_string_or_object_dtype(ret.dtypes["D"]))
+        self.assertTrue(is_string_or_object_dtype(ret.dtypes["E"]))
+        self.assertTrue(is_string_or_object_dtype(ret.dtypes["F"]))
         self.assertEqual(ret.dtypes["G"], "object")
 
         self.assertEqual(ret.shape, (4, 7))

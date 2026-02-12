@@ -38,6 +38,25 @@ def _parse_pandas_version():
 # Check if pandas version supports limit_area parameter (added in pandas 2.1.0)
 _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 
+# pandas 3.0 removed axis parameter from rolling(), expanding(), ewm()
+_PANDAS_3_PLUS = _parse_pandas_version() >= (3, 0)
+
+
+def _is_numeric_dtype(dtype) -> bool:
+    """
+    Safely check if a dtype is numeric.
+
+    This handles pandas extension dtypes (like StringDtype) that np.issubdtype
+    cannot process. In pandas 3.0+, string columns use StringDtype which causes
+    np.issubdtype to raise TypeError.
+    """
+    import numpy as np
+    try:
+        return np.issubdtype(dtype, np.number)
+    except TypeError:
+        # pandas extension dtypes (StringDtype, etc.) are not numeric
+        return False
+
 
 class DataStoreLocIndexer:
     """
@@ -819,7 +838,18 @@ class PandasCompatMixin:
         """Fill NA/NaN values."""
         if inplace:
             raise ImmutableError("DataStore")
-        return self._wrap_result(self._get_df().fillna(value=value, method=method, axis=axis, limit=limit))
+        df = self._get_df()
+        # pandas 3.0 removed method parameter, use ffill()/bfill() instead
+        if method is not None:
+            if method == 'ffill' or method == 'pad':
+                result = df.ffill(axis=axis, limit=limit)
+            elif method == 'bfill' or method == 'backfill':
+                result = df.bfill(axis=axis, limit=limit)
+            else:
+                raise ValueError(f"Invalid fill method: {method}")
+        else:
+            result = df.fillna(value=value, axis=axis, limit=limit)
+        return self._wrap_result(result)
 
     def replace(self, to_replace=None, value=None, *, inplace=False, limit=None, regex=False, method=None):
         """
@@ -843,13 +873,18 @@ class PandasCompatMixin:
         # key->value mapping. Passing value=None explicitly changes the behavior.
         is_flat_dict_replace = is_dict_replace and not is_nested_dict
 
+        # pandas 3.0 removed limit parameter from replace()
+        kwargs = dict(regex=regex)
+        if not _PANDAS_3_PLUS:
+            kwargs['limit'] = limit
+
         if is_nested_dict or is_flat_dict_replace:
             # Dict format - no value parameter (dict contains the mappings)
-            return self._wrap_result(self._get_df().replace(to_replace=to_replace, limit=limit, regex=regex))
+            return self._wrap_result(self._get_df().replace(to_replace=to_replace, **kwargs))
         else:
             # Standard format - pass value (for scalar/list replacements)
             return self._wrap_result(
-                self._get_df().replace(to_replace=to_replace, value=value, limit=limit, regex=regex)
+                self._get_df().replace(to_replace=to_replace, value=value, **kwargs)
             )
 
     def interpolate(
@@ -1165,7 +1200,11 @@ class PandasCompatMixin:
 
     def stack(self, level=-1, dropna=True):
         """Stack prescribed level(s) from columns to index."""
-        return self._wrap_result(self._get_df().stack(level=level, dropna=dropna))
+        # pandas 3.0 removed dropna parameter
+        kwargs = dict(level=level)
+        if not _PANDAS_3_PLUS:
+            kwargs['dropna'] = dropna
+        return self._wrap_result(self._get_df().stack(**kwargs))
 
     def unstack(self, level=-1, fill_value=None):
         """Pivot level(s) of the index labels."""
@@ -1289,19 +1328,21 @@ class PandasCompatMixin:
         group_keys=False,
     ):
         """Resample time-series data."""
-        return self._get_df().resample(
-            rule,
-            axis=axis,
+        # pandas 3.0 removed axis and kind parameters
+        kwargs = dict(
             closed=closed,
             label=label,
             convention=convention,
-            kind=kind,
             on=on,
             level=level,
             origin=origin,
             offset=offset,
             group_keys=group_keys,
         )
+        if not _PANDAS_3_PLUS:
+            kwargs['axis'] = axis
+            kwargs['kind'] = kind
+        return self._get_df().resample(rule, **kwargs)
 
     def rolling(
         self,
@@ -1316,21 +1357,27 @@ class PandasCompatMixin:
         method='single',
     ):
         """Provide rolling window calculations."""
-        return self._get_df().rolling(
-            window,
+        # pandas 3.0 removed axis parameter
+        kwargs = dict(
             min_periods=min_periods,
             center=center,
             win_type=win_type,
             on=on,
-            axis=axis,
             closed=closed,
             step=step,
             method=method,
         )
+        if not _PANDAS_3_PLUS:
+            kwargs['axis'] = axis
+        return self._get_df().rolling(window, **kwargs)
 
     def expanding(self, min_periods=1, axis=0, method='single'):
         """Provide expanding window calculations."""
-        return self._get_df().expanding(min_periods=min_periods, axis=axis, method=method)
+        # pandas 3.0 removed axis parameter
+        kwargs = dict(min_periods=min_periods, method=method)
+        if not _PANDAS_3_PLUS:
+            kwargs['axis'] = axis
+        return self._get_df().expanding(**kwargs)
 
     def ewm(
         self,
@@ -1346,7 +1393,8 @@ class PandasCompatMixin:
         method='single',
     ):
         """Provide exponentially weighted window calculations."""
-        return self._get_df().ewm(
+        # pandas 3.0 removed axis parameter
+        kwargs = dict(
             com=com,
             span=span,
             halflife=halflife,
@@ -1354,10 +1402,12 @@ class PandasCompatMixin:
             min_periods=min_periods,
             adjust=adjust,
             ignore_na=ignore_na,
-            axis=axis,
             times=times,
             method=method,
         )
+        if not _PANDAS_3_PLUS:
+            kwargs['axis'] = axis
+        return self._get_df().ewm(**kwargs)
 
     # ========== String Methods ==========
 
@@ -2170,25 +2220,41 @@ class PandasCompatMixin:
         """Backward fill missing values (alias for bfill)."""
         if inplace:
             raise ImmutableError("DataStore")
-        return self._wrap_result(self._get_df().backfill(axis=axis, limit=limit, downcast=downcast))
+        # pandas 3.0 removed downcast parameter
+        kwargs = dict(axis=axis, limit=limit)
+        if not _PANDAS_3_PLUS:
+            kwargs['downcast'] = downcast
+        return self._wrap_result(self._get_df().bfill(**kwargs))
 
     def bfill(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Backward fill missing values."""
         if inplace:
             raise ImmutableError("DataStore")
-        return self._wrap_result(self._get_df().bfill(axis=axis, limit=limit, downcast=downcast))
+        # pandas 3.0 removed downcast parameter
+        kwargs = dict(axis=axis, limit=limit)
+        if not _PANDAS_3_PLUS:
+            kwargs['downcast'] = downcast
+        return self._wrap_result(self._get_df().bfill(**kwargs))
 
     def ffill(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Forward fill missing values."""
         if inplace:
             raise ImmutableError("DataStore")
-        return self._wrap_result(self._get_df().ffill(axis=axis, limit=limit, downcast=downcast))
+        # pandas 3.0 removed downcast parameter
+        kwargs = dict(axis=axis, limit=limit)
+        if not _PANDAS_3_PLUS:
+            kwargs['downcast'] = downcast
+        return self._wrap_result(self._get_df().ffill(**kwargs))
 
     def pad(self, *, axis=None, inplace=False, limit=None, downcast=None):
         """Forward fill missing values (alias for ffill)."""
         if inplace:
             raise ImmutableError("DataStore")
-        return self._wrap_result(self._get_df().pad(axis=axis, limit=limit, downcast=downcast))
+        # pandas 3.0 removed downcast parameter
+        kwargs = dict(axis=axis, limit=limit)
+        if not _PANDAS_3_PLUS:
+            kwargs['downcast'] = downcast
+        return self._wrap_result(self._get_df().ffill(**kwargs))
 
     # ========== Additional Reshaping Methods ==========
 
@@ -2201,8 +2267,15 @@ class PandasCompatMixin:
         return self._wrap_result(self._get_df().swaplevel(i, j, axis=axis))
 
     def swapaxes(self, axis1, axis2, copy=True):
-        """Interchange axes and swap values axes appropriately."""
-        return self._wrap_result(self._get_df().swapaxes(axis1, axis2, copy=copy))
+        """Interchange axes and swap values axes appropriately.
+        
+        Note: swapaxes is removed in pandas 3.0. Use transpose() instead.
+        """
+        df = self._get_df()
+        if _PANDAS_3_PLUS:
+            # swapaxes removed in pandas 3.0, use transpose
+            return self._wrap_result(df.T if axis1 != axis2 else df)
+        return self._wrap_result(df.swapaxes(axis1, axis2, copy=copy))
 
     def reorder_levels(self, order, axis=0):
         """Rearrange index levels using input order."""
@@ -2246,11 +2319,21 @@ class PandasCompatMixin:
 
     def to_period(self, freq=None, axis=0, copy=True):
         """Convert DataFrame to PeriodIndex."""
-        return self._wrap_result(self._get_df().to_period(freq=freq, axis=axis, copy=copy))
+        # pandas 3.0 removed axis and copy parameters
+        kwargs = dict(freq=freq)
+        if not _PANDAS_3_PLUS:
+            kwargs['axis'] = axis
+            kwargs['copy'] = copy
+        return self._wrap_result(self._get_df().to_period(**kwargs))
 
     def to_timestamp(self, freq=None, how='start', axis=0, copy=True):
         """Cast to DatetimeIndex of timestamps."""
-        return self._wrap_result(self._get_df().to_timestamp(freq=freq, how=how, axis=axis, copy=copy))
+        # pandas 3.0 removed axis and copy parameters
+        kwargs = dict(freq=freq, how=how)
+        if not _PANDAS_3_PLUS:
+            kwargs['axis'] = axis
+            kwargs['copy'] = copy
+        return self._wrap_result(self._get_df().to_timestamp(**kwargs))
 
     def tz_convert(self, tz, axis=0, level=None, copy=True):
         """Convert tz-aware axis to target time zone."""
@@ -2862,11 +2945,11 @@ class PandasCompatMixin:
             # Check dtypes if required
             if check_dtype and self_col.dtype != other_col.dtype:
                 # Allow compatible numeric dtypes
-                if not (np.issubdtype(self_col.dtype, np.number) and np.issubdtype(other_col.dtype, np.number)):
+                if not (_is_numeric_dtype(self_col.dtype) and _is_numeric_dtype(other_col.dtype)):
                     return False
 
             # Handle numeric columns with tolerance
-            if np.issubdtype(self_col.dtype, np.number) and np.issubdtype(other_col.dtype, np.number):
+            if _is_numeric_dtype(self_col.dtype) and _is_numeric_dtype(other_col.dtype):
                 # Handle NaN values
                 self_nan = self_col.isna()
                 other_nan = other_col.isna()

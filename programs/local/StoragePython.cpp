@@ -96,7 +96,6 @@ Pipe StoragePython::read(
     }
 
     ArrowTableReaderPtr arrow_table_reader;
-    bool is_pandas_df = false;
     {
         py::gil_scoped_acquire acquire;
         if (PyArrowTable::isPyArrowTable(data_source))
@@ -106,19 +105,15 @@ Pipe StoragePython::read(
                 std::move(arrow_stream), sample_block,
                 format_settings, num_streams, max_block_size);
         }
-        else
-        {
-            is_pandas_df = CHDB::PandasDataFrame::isPandasDataframe(data_source);
-        }
     }
 
     if (!arrow_table_reader)
-        prepareColumnCache(column_names, sample_block, is_pandas_df, is_virtual_column);
+        prepareColumnCache(column_names, sample_block, this->is_pandas_df, is_virtual_column);
 
     Pipes pipes;
     for (size_t stream = 0; stream < num_streams; ++stream)
         pipes.emplace_back(std::make_shared<PythonSource>(
-            data_source_wrapper, false, is_pandas_df, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
+            data_source_wrapper, false, this->is_pandas_df, sample_block, column_cache, data_source_row_count, max_block_size, stream, num_streams, format_settings, arrow_table_reader));
     return Pipe::unitePipes(std::move(pipes));
 }
 
@@ -156,7 +151,21 @@ void StoragePython::prepareColumnCache(
 #endif
 
     auto & data_source = data_source_wrapper->getDataSource();
-    if (column_cache == nullptr)
+
+    bool need_rebuild = (column_cache == nullptr) || (column_cache->size() != names.size());
+    if (!need_rebuild)
+    {
+        for (size_t i = 0; i < names.size(); ++i)
+        {
+            if ((*column_cache)[i].name != names[i])
+            {
+                need_rebuild = true;
+                break;
+            }
+        }
+    }
+
+    if (need_rebuild)
     {
         column_cache = std::make_shared<PyColumnVec>(names.size());
         for (size_t i = 0; i < names.size(); ++i)

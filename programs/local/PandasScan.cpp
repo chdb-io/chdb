@@ -156,7 +156,6 @@ ColumnPtr PandasScan::scanColumn(
         return column;
     }
 
-
     switch (which.idx)
 	{
     case TypeIndex::Float32:
@@ -246,11 +245,6 @@ void PandasScan::innerScanObject(
     WhichDataType which,
     size_t stride)
 {
-    py::gil_scoped_acquire acquire;
-#if USE_JEMALLOC
-    ::Memory::MemoryCheckScope memory_check_scope;
-#endif
-
     const size_t effective_stride = (stride == 0) ? sizeof(PyObject *) : stride;
     const auto * base_ptr = reinterpret_cast<const char *>(objects);
 
@@ -258,6 +252,10 @@ void PandasScan::innerScanObject(
     {
     case TypeIndex::Object:
         {
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
             auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
             auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
             auto & null_map = nullable_column.getNullMapData();
@@ -303,7 +301,7 @@ void PandasScan::innerScanObject(
                 auto handle = py::handle(obj_ptr);
 
                 bool is_null = false;
-                bool is_str = py::isinstance<py::str>(handle);
+                bool is_str = PyUnicode_Check(obj_ptr);
                 if (!is_str)
                 {
                     if (isNone(handle) || (isFloat(handle) && std::isnan(PyFloat_AsDouble(handle.ptr()))))
@@ -328,6 +326,10 @@ void PandasScan::innerScanObject(
         }
     case TypeIndex::Float64:
         {
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
             auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
             auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
             auto & null_map = nullable_column.getNullMapData();
@@ -374,28 +376,51 @@ void PandasScan::innerScanObject(
             break;
         }
     case TypeIndex::Int64:
-        for (size_t i = cursor; i < cursor + count; ++i)
         {
-            auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
-            scanIntegerColumn<Int64>(py::handle(obj_ptr), column);
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
+            for (size_t i = cursor; i < cursor + count; ++i)
+            {
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                scanIntegerColumn<Int64>(py::handle(obj_ptr), column);
+            }
+            break;
         }
-        break;
     case TypeIndex::Int32:
-        for (size_t i = cursor; i < cursor + count; ++i)
         {
-            auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
-            scanIntegerColumn<Int32>(py::handle(obj_ptr), column);
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
+            for (size_t i = cursor; i < cursor + count; ++i)
+            {
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                scanIntegerColumn<Int32>(py::handle(obj_ptr), column);
+            }
+            break;
         }
-        break;
     case TypeIndex::UInt64:
-        for (size_t i = cursor; i < cursor + count; ++i)
         {
-            auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
-            scanIntegerColumn<UInt64>(py::handle(obj_ptr), column);
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
+            for (size_t i = cursor; i < cursor + count; ++i)
+            {
+                auto * obj_ptr = *reinterpret_cast<PyObject * const *>(base_ptr + i * effective_stride);
+                scanIntegerColumn<UInt64>(py::handle(obj_ptr), column);
+            }
+            break;
         }
-        break;
     case TypeIndex::UInt8:
         {
+            py::gil_scoped_acquire acquire;
+#if USE_JEMALLOC
+            ::Memory::MemoryCheckScope memory_check_scope;
+#endif
+
             auto & nullable_column = typeid_cast<ColumnNullable &>(*column);
             auto data_column = nullable_column.getNestedColumnPtr()->assumeMutable();
             auto & null_map = nullable_column.getNullMapData();

@@ -270,24 +270,27 @@ class TestCategorizationFunctions:
     def test_factorize_basic(self):
         """factorize should encode values."""
         data = ['b', 'a', 'c', 'b']
-        codes, uniques = ds.factorize(data)
-        # pd.factorize with list argument is deprecated; will require Series/Index in future
+        # pandas 3.0 requires Series/Index instead of list for factorize
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        data_series = pd.Series(data)
+        codes, uniques = ds.factorize(data_series)
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='factorize with argument that is not')
-            expected_codes, expected_uniques = pd.factorize(data)
+            expected_codes, expected_uniques = pd.factorize(data_series)
         np.testing.assert_array_equal(codes, expected_codes)
         np.testing.assert_array_equal(uniques, expected_uniques)
 
     def test_factorize_sorted(self):
         """factorize should sort when specified."""
         data = ['b', 'a', 'c', 'b']
-        codes, uniques = ds.factorize(data, sort=True)
-        # pd.factorize with list argument is deprecated; will require Series/Index in future
+        # pandas 3.0 requires Series/Index instead of list for factorize
+        data_series = pd.Series(data)
+        codes, uniques = ds.factorize(data_series, sort=True)
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='factorize with argument that is not')
-            expected_codes, expected_uniques = pd.factorize(data, sort=True)
+            expected_codes, expected_uniques = pd.factorize(data_series, sort=True)
         np.testing.assert_array_equal(codes, expected_codes)
         np.testing.assert_array_equal(uniques, expected_uniques)
 
@@ -302,11 +305,15 @@ class TestCategorizationFunctions:
         """value_counts should count values."""
         data = pd.Series(['a', 'b', 'a', 'a'])
         result = ds.value_counts(data)
-        # pd.value_counts is deprecated; use pd.Series(obj).value_counts() instead
+        # pandas 3.0 removed pd.value_counts(), use Series.value_counts() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', message='pandas.value_counts is deprecated')
-            expected = pd.value_counts(data)
+            if pandas_version >= (3, 0):
+                expected = data.value_counts()
+            else:
+                expected = pd.value_counts(data)
         assert_series_equal(result, expected)
 
 

@@ -8,7 +8,7 @@
 #include "PythonImportCacheItem.h"
 #include "UUIDCacheItem.h"
 #include "IPAddressCacheItem.h"
-#include "PytzCacheItem.h"
+#include "ZoneInfoCacheItem.h"
 
 #include <vector>
 
@@ -31,7 +31,7 @@ public:
 	NumpyCacheItem numpy;
 	UUIDCacheItem uuid;
 	IPAddressCacheItem ipaddress;
-	PytzCacheItem pytz;
+	ZoneInfoCacheItem zoneinfo;
 
 	py::handle AddCache(py::object item);
 

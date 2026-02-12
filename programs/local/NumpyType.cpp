@@ -156,6 +156,7 @@ static NumpyNullableType ConvertNumpyTypeInternal(const String & col_type_str)
         {"float64", NumpyNullableType::FLOAT_64},
         {"Float64", NumpyNullableType::FLOAT_64},
         {"string", NumpyNullableType::STRING},
+        {"str", NumpyNullableType::STRING},
         {"object", NumpyNullableType::OBJECT},
         {"category", NumpyNullableType::CATEGORY},
     };

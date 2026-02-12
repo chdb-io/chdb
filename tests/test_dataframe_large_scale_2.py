@@ -11,6 +11,9 @@ import json
 import numpy as np
 from datetime import timedelta
 
+# pandas 3.0+ uses 'str' dtype for string columns, while pandas reads parquet as 'object'
+IS_PANDAS_3 = pd.__version__ >= "3"
+
 
 class TestDataFrameLargeScale(unittest.TestCase):
     """Test DataFrame generation with large scale data (1M rows) and diverse data types"""
@@ -101,11 +104,18 @@ class TestDataFrameLargeScale(unittest.TestCase):
             pandas_dtype = str(df_pandas[col].dtype)
             chdb_dtype = str(df_chdb[col].dtype)
 
+            # In pandas 3.0+, chdb returns 'str' while pandas.read_parquet returns 'object' for string columns
+            # These are semantically equivalent
+            dtypes_match = pandas_dtype == chdb_dtype
+            if not dtypes_match and IS_PANDAS_3:
+                if pandas_dtype == 'object' and chdb_dtype == 'str':
+                    dtypes_match = True
+
             # Print each column's data types
-            match_status = "✓" if pandas_dtype == chdb_dtype else "✗"
+            match_status = "✓" if dtypes_match else "✗"
             print(f"{match_status} {col:<20} | pandas: {pandas_dtype:<20} | chdb: {chdb_dtype:<20}")
 
-            if pandas_dtype != chdb_dtype:
+            if not dtypes_match:
                 dtype_mismatches.append({
                     'column': col,
                     'pandas': pandas_dtype,
