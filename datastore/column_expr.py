@@ -496,12 +496,21 @@ class ColumnExpr:
         # Create SQL window function with ORDER BY rowNumberInAllBlocks() to preserve row order
         # Format: SUM(col) OVER (PARTITION BY groupby_col ORDER BY rowNumberInAllBlocks() ROWS UNBOUNDED PRECEDING)
         # The ORDER BY ensures cumulative operations follow the original row order within each group
-        row_num_func = Function("rowNumberInAllBlocks")
-        window_func = WindowFunction(sql_func, col_field).over(
-            partition_by=partition_by,
-            order_by=[row_num_func],
-            frame="ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
-        )
+        # In performance mode, skip ORDER BY for throughput (undefined order within partition)
+        from .config import is_performance_mode
+
+        if is_performance_mode():
+            window_func = WindowFunction(sql_func, col_field).over(
+                partition_by=partition_by,
+                frame="ROWS UNBOUNDED PRECEDING",
+            )
+        else:
+            row_num_func = Function("rowNumberInAllBlocks")
+            window_func = WindowFunction(sql_func, col_field).over(
+                partition_by=partition_by,
+                order_by=[row_num_func],
+                frame="ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+            )
 
         # Return a new ColumnExpr with the window function expression
         # Preserve groupby context for potential chained operations
@@ -1089,9 +1098,13 @@ class ColumnExpr:
 
     def _execute_groupby_aggregation(self):
         """Execute aggregation with GROUP BY."""
-        from .config import get_execution_engine, ExecutionEngine
+        from .config import get_execution_engine, ExecutionEngine, is_performance_mode
         from .expressions import Field
         from .executor import get_executor
+
+        # In performance mode, use single-SQL path via LazyGroupByAgg injection
+        if is_performance_mode():
+            return self._execute_groupby_aggregation_sql_first()
 
         # Get groupby column names
         groupby_col_names = []
@@ -1158,7 +1171,10 @@ class ColumnExpr:
                 # NOTE: For Python() table function, connection.py replaces rowNumberInAllBlocks()
                 # with _row_id (deterministic) at execution time (chDB v4.0.0b5+)
                 # For file sources (Parquet, CSV), rowNumberInAllBlocks() works correctly as-is
-                if self._agg_func_name == "any":
+                # In performance mode, use any()/anyLast() directly (faster, non-deterministic order)
+                if is_performance_mode() and self._agg_func_name in ("any", "anyLast"):
+                    agg_sql = f"{self._agg_func_name}({col_expr_sql})"
+                elif self._agg_func_name == "any":
                     # first() -> argMin(value, rowNumberInAllBlocks())
                     if self._skipna:
                         agg_sql = f"argMinIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))"
@@ -1170,22 +1186,31 @@ class ColumnExpr:
                         agg_sql = f"argMaxIf({col_expr_sql}, rowNumberInAllBlocks(), NOT {null_check_fn}({col_expr_sql}))"
                     else:
                         agg_sql = f"argMax({col_expr_sql}, rowNumberInAllBlocks())"
-                elif self._skipna:
+                elif self._skipna and not is_performance_mode():
+                    # In pandas compat mode, use -If suffix to skip NaN/NULL
                     agg_sql = f"{self._agg_func_name}If({col_expr_sql}, NOT {null_check_fn}({col_expr_sql}))"
                 else:
+                    # In performance mode or when skipna=False, use plain aggregation
+                    # ClickHouse natively skips NULL in aggregations
                     agg_sql = f"{self._agg_func_name}({col_expr_sql})"
 
                 # Wrap count in toInt64() to match pandas dtype (int64 instead of uint64)
-                if self._agg_func_name == "count":
+                # In performance mode, skip -- let SQL return native dtype
+                if self._agg_func_name == "count" and not is_performance_mode():
                     agg_sql = f"toInt64({agg_sql})"
 
                 # Add ORDER BY if sort=True (pandas default behavior)
-                order_by = f" ORDER BY {groupby_sql}" if sort else ""
+                from .config import is_performance_mode
+
+                if is_performance_mode():
+                    order_by = ""
+                else:
+                    order_by = f" ORDER BY {groupby_sql}" if sort else ""
 
                 # Add WHERE clause for dropna=True (filter out NULL groups)
                 dropna = getattr(self, "_groupby_dropna", True)
                 where_clause = ""
-                if dropna:
+                if dropna and not is_performance_mode():
                     null_filter_conditions = [
                         f'"{name}" IS NOT NULL' for name in groupby_col_names
                     ]
@@ -1199,7 +1224,12 @@ class ColumnExpr:
                 # Fix for sum of all-NaN: SQL returns NULL, pandas returns 0
                 # When using sumIf with skipna=True and all values are NaN,
                 # SQL returns NULL. Convert to 0 to match pandas behavior.
-                if self._agg_func_name == "sum" and self._skipna:
+                # In performance mode, skip -- let SQL return native NULL
+                if (
+                    self._agg_func_name == "sum"
+                    and self._skipna
+                    and not is_performance_mode()
+                ):
                     result_df[col_name] = result_df[col_name].fillna(0)
 
                 if as_index:
@@ -1218,6 +1248,67 @@ class ColumnExpr:
         finally:
             # Restore original groupby fields
             datastore._groupby_fields = original_groupby
+
+    def _execute_groupby_aggregation_sql_first(self):
+        """
+        Execute groupby aggregation via single-SQL path (performance mode).
+
+        Instead of materializing the intermediate DataFrame and running a second SQL query,
+        this injects a LazyGroupByAgg into the DataStore's lazy ops chain, enabling the
+        QueryPlanner to merge filter + groupby into a single SQL query.
+        """
+        from copy import copy
+        from .expressions import Field
+        from .lazy_ops import LazyGroupByAgg
+
+        # Get groupby column names
+        groupby_col_names = []
+        for gf in self._groupby_fields:
+            if isinstance(gf, Field):
+                groupby_col_names.append(gf.name)
+            else:
+                groupby_col_names.append(str(gf))
+
+        col_name = self._get_column_name()
+        as_index = getattr(self, "_groupby_as_index", True)
+        sort = getattr(self, "_groupby_sort", True)
+        dropna = getattr(self, "_groupby_dropna", True)
+
+        # Map ColumnExpr agg func names to pandas-compatible names for LazyGroupByAgg
+        agg_func_name = self._pandas_agg_func
+        if agg_func_name is None:
+            agg_func_name = self._agg_func_name
+        # Map internal names: any->first, anyLast->last
+        agg_name_map = {"any": "first", "anyLast": "last"}
+        agg_func_name = agg_name_map.get(agg_func_name, agg_func_name)
+
+        # Inject LazyGroupByAgg into DataStore lazy ops chain
+        new_ds = copy(self._datastore)
+        new_ds._groupby_fields = []  # clear to avoid interference
+        new_ds._add_lazy_op(
+            LazyGroupByAgg(
+                groupby_cols=groupby_col_names,
+                agg_func=agg_func_name,
+                sort=sort,
+                as_index=False,  # always False in SQL-first; we handle indexing below
+                dropna=dropna,
+                selected_columns=[col_name],
+            )
+        )
+
+        result_df = new_ds._execute()
+
+        if as_index:
+            # Return Series with groupby keys as index
+            if len(groupby_col_names) == 1:
+                result_series = result_df.set_index(groupby_col_names[0])[col_name]
+            else:
+                result_series = result_df.set_index(groupby_col_names)[col_name]
+            result_series.name = col_name
+            return result_series
+        else:
+            # Return DataFrame with groupby keys as columns
+            return result_df
 
     def _execute_op(self):
         """
@@ -4607,11 +4698,19 @@ class ColumnExpr:
             # Add OVER clause with ORDER BY _row_id to preserve original row order
             # _row_id is a built-in virtual column in chDB v4.0.0b5+ for Python() table function
             # Frame must span entire partition to access all rows
-            row_idx_field = Field("_row_id")
-            window_func = window_func.over(
-                order_by=[row_idx_field],
-                frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
-            )
+            # In performance mode, skip ORDER BY for throughput (undefined order)
+            from .config import is_performance_mode
+
+            if not is_performance_mode():
+                row_idx_field = Field("_row_id")
+                window_func = window_func.over(
+                    order_by=[row_idx_field],
+                    frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
+                )
+            else:
+                window_func = window_func.over(
+                    frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
+                )
 
             # Wrap with toFloat64 to match pandas behavior
             # pandas shift() returns float64 because NaN is only supported in float
@@ -4693,11 +4792,19 @@ class ColumnExpr:
 
             # Add OVER clause with ORDER BY _row_id to preserve original row order
             # _row_id is a built-in virtual column in chDB v4.0.0b5+ for Python() table function
-            row_idx_field = Field("_row_id")
-            lag_func = lag_func.over(
-                order_by=[row_idx_field],
-                frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
-            )
+            # In performance mode, skip ORDER BY for throughput (undefined order)
+            from .config import is_performance_mode
+
+            if not is_performance_mode():
+                row_idx_field = Field("_row_id")
+                lag_func = lag_func.over(
+                    order_by=[row_idx_field],
+                    frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
+                )
+            else:
+                lag_func = lag_func.over(
+                    frame="ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING",
+                )
 
             # diff = current - lag
             # Result will be NULL for first `periods` rows (since lag is NULL)
@@ -4840,7 +4947,10 @@ class ColumnExpr:
             # to preserve original row order for ties (pandas behavior).
             # Note: connection.py automatically replaces rowNumberInAllBlocks()
             # with _row_id for Python() table function (chDB v4.0.0b5+)
-            if method == "first":
+            # In performance mode, skip tiebreaker for throughput
+            from .config import is_performance_mode
+
+            if method == "first" and not is_performance_mode():
                 order_by_items.append("rowNumberInAllBlocks()")
 
             # Create the window function
