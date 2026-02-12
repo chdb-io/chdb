@@ -637,7 +637,12 @@ class TestUniqueAndValueCounts:
         """ds.value_counts() module function."""
         values = pd.Series(['a', 'b', 'a', 'c', 'a', 'b'])
 
-        pd_result = pd.value_counts(values)
+        # pandas 3.0 removed pd.value_counts(), use Series.value_counts() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = values.value_counts()
+        else:
+            pd_result = pd.value_counts(values)
         ds_result = ds.value_counts(values)
 
         assert_datastore_equals_pandas(ds_result, pd_result)
@@ -646,7 +651,12 @@ class TestUniqueAndValueCounts:
         """value_counts with normalize."""
         values = pd.Series(['a', 'b', 'a', 'c', 'a', 'b'])
 
-        pd_result = pd.value_counts(values, normalize=True)
+        # pandas 3.0 removed pd.value_counts(), use Series.value_counts() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = values.value_counts(normalize=True)
+        else:
+            pd_result = pd.value_counts(values, normalize=True)
         ds_result = ds.value_counts(values, normalize=True)
 
         assert_datastore_equals_pandas(ds_result, pd_result)

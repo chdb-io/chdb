@@ -233,10 +233,14 @@ class TestTimezoneOperations:
 
     def test_to_period_monthly(self):
         """to_period() with monthly frequency."""
-        dates = pd.date_range('2024-01-15', periods=5, freq='M')
+        # pandas 3.0 uses 'ME' instead of 'M' for date_range, but to_period still uses 'M'
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        date_freq = 'ME' if pandas_version >= (3, 0) else 'M'
+        dates = pd.date_range('2024-01-15', periods=5, freq=date_freq)
         pd_series = pd.Series(dates)
         ds_series = DataStore({'dates': dates})['dates']
 
+        # to_period always uses 'M' for monthly periods
         pd_result = pd_series.dt.to_period('M')
         ds_result = ds_series.dt.to_period('M')
 

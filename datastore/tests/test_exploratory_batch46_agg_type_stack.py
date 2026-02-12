@@ -261,8 +261,14 @@ class TestStackUnstackOperations:
         ds_df = DataStore({'A': [1, np.nan], 'B': [3, 4]})
         ds_df = ds_df.set_index(pd.Index(['x', 'y']))
 
-        pd_result = pd_df.stack(dropna=False)
-        ds_result = ds_df.stack(dropna=False)
+        # pandas 3.0 removed dropna parameter from stack()
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.stack()
+            ds_result = ds_df.stack()
+        else:
+            pd_result = pd_df.stack(dropna=False)
+            ds_result = ds_df.stack(dropna=False)
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 

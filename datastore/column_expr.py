@@ -33,6 +33,28 @@ def _parse_pandas_version():
 # Check if pandas version supports limit_area parameter (added in pandas 2.1.0)
 _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 
+# pandas 3.0 removed convert_dtype parameter from Series.apply()
+_PANDAS_3_PLUS = _parse_pandas_version() >= (3, 0)
+
+
+def _is_numeric_dtype(dtype) -> bool:
+    """Safely check if dtype is numeric. Handles pandas extension dtypes."""
+    import numpy as np
+    try:
+        return np.issubdtype(dtype, np.number)
+    except TypeError:
+        return False
+
+
+def _is_datetime_dtype(dtype) -> bool:
+    """Safely check if dtype is datetime. Handles pandas extension dtypes."""
+    import numpy as np
+    try:
+        return np.issubdtype(dtype, np.datetime64)
+    except TypeError:
+        return False
+
+
 if TYPE_CHECKING:
     from .core import DataStore
     from .conditions import Condition, BinaryCondition
@@ -852,6 +874,17 @@ class ColumnExpr:
         if not hasattr(series, self._method_name):
             return series
 
+        # pandas 3.0 removed fillna(method=) parameter, use ffill()/bfill() instead
+        if self._method_name == "fillna":
+            method_val = kwargs.pop("method", None)
+            if method_val is not None:
+                if method_val == 'ffill' or method_val == 'pad':
+                    return series.ffill()
+                elif method_val == 'bfill' or method_val == 'backfill':
+                    return series.bfill()
+                else:
+                    raise ValueError(f"Invalid fill method: {method_val}")
+
         method = getattr(series, self._method_name)
         return method(*args, **kwargs)
 
@@ -1620,15 +1653,13 @@ class ColumnExpr:
         vals2 = s2[~null2]
 
         # Handle numeric comparison with tolerance
-        if np.issubdtype(s1.dtype, np.number) and np.issubdtype(s2.dtype, np.number):
+        if _is_numeric_dtype(s1.dtype) and _is_numeric_dtype(s2.dtype):
             return np.allclose(
                 vals1.values, vals2.values, rtol=rtol, atol=atol, equal_nan=True
             )
 
         # Handle datetime comparison
-        if np.issubdtype(s1.dtype, np.datetime64) or np.issubdtype(
-            s2.dtype, np.datetime64
-        ):
+        if _is_datetime_dtype(s1.dtype) or _is_datetime_dtype(s2.dtype):
             try:
                 dt1 = pd.to_datetime(vals1, errors="coerce")
                 dt2 = pd.to_datetime(vals2, errors="coerce")
@@ -5192,7 +5223,7 @@ class ColumnExpr:
 
         Args:
             func: Function to apply to each element
-            convert_dtype: Try to find better dtype for results (default True)
+            convert_dtype: Try to find better dtype for results (default True, ignored in pandas 3.0+)
             args: Positional arguments to pass to func
             **kwargs: Additional keyword arguments to pass to func
 
@@ -5213,11 +5244,15 @@ class ColumnExpr:
             2    58
             Name: age, dtype: int64
         """
+        # pandas 3.0 removed convert_dtype parameter
+        method_kwargs = dict(args=args, **kwargs)
+        if not _PANDAS_3_PLUS:
+            method_kwargs['convert_dtype'] = convert_dtype
         return ColumnExpr(
             source=self,
             method_name="apply",
             method_args=(func,),
-            method_kwargs=dict(convert_dtype=convert_dtype, args=args, **kwargs),
+            method_kwargs=method_kwargs,
         )
 
     def value_counts(

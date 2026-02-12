@@ -165,7 +165,10 @@ class TestDatetimeAccessorEdgeCases:
 
     def test_dt_year_month_day(self):
         """Test dt accessor for year, month, day."""
-        dates = pd.date_range('2023-01-15', periods=5, freq='M')
+        # pandas 3.0 uses 'ME' instead of 'M' for month end frequency
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        freq = 'ME' if pandas_version >= (3, 0) else 'M'
+        dates = pd.date_range('2023-01-15', periods=5, freq=freq)
         pd_df = pd.DataFrame({'date': dates})
         ds_df = DataStore({'date': dates})
 

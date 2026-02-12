@@ -78,12 +78,6 @@ chdb_array_string_conversion = pytest.mark.xfail(
     strict=True,
 )
 
-# NOTE: bytes/blob columns work for read-only access but are converted to strings in SQL operations
-chdb_blob_to_string_conversion = pytest.mark.xfail(
-    reason="chDB converts bytes/blob data to strings during SQL execution (filter, sort, head/tail, select)",
-    strict=True,
-)
-
 # FIXED: chDB now handles Nullable Int64 comparison correctly (resolved in recent chDB version)
 # chdb_nullable_int64_comparison = pytest.mark.xfail(
 #     reason="chDB does not handle Nullable Int64 comparison correctly - returns raw bytes",

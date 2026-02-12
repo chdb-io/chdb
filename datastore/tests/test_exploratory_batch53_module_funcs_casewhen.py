@@ -213,7 +213,12 @@ class TestValueCounts:
     def test_value_counts_basic(self):
         """Test basic value_counts functionality."""
         pd_data = pd.Series(['a', 'b', 'a', 'c', 'a', 'b'])
-        pd_result = pd.value_counts(pd_data)
+        # pandas 3.0 removed pd.value_counts(), use Series.value_counts() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_data.value_counts()
+        else:
+            pd_result = pd.value_counts(pd_data)
 
         ds_data = DataStore({'col': ['a', 'b', 'a', 'c', 'a', 'b']})['col']
         ds_result = ds_module.value_counts(ds_data)
@@ -226,7 +231,12 @@ class TestValueCounts:
     def test_value_counts_normalize(self):
         """Test value_counts with normalize=True."""
         pd_data = pd.Series(['a', 'b', 'a', 'a'])
-        pd_result = pd.value_counts(pd_data, normalize=True)
+        # pandas 3.0 removed pd.value_counts(), use Series.value_counts() instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_data.value_counts(normalize=True)
+        else:
+            pd_result = pd.value_counts(pd_data, normalize=True)
 
         ds_data = DataStore({'col': ['a', 'b', 'a', 'a']})['col']
         ds_result = ds_module.value_counts(ds_data, normalize=True)

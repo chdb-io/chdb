@@ -447,7 +447,12 @@ class TestSwapMethods:
         pd_df = pd.DataFrame({'A': [1, 2], 'B': [3, 4]})
         ds_df = DataStore(pd_df.copy())
         
-        pd_result = pd_df.swapaxes(0, 1)
+        # pandas 3.0 removed swapaxes, use T instead
+        pandas_version = tuple(int(x) for x in pd.__version__.split('.')[:2])
+        if pandas_version >= (3, 0):
+            pd_result = pd_df.T
+        else:
+            pd_result = pd_df.swapaxes(0, 1)
         ds_result = ds_df.swapaxes(0, 1)
         
         assert_datastore_equals_pandas(ds_result, pd_result)

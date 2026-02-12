@@ -334,7 +334,7 @@ jobs:
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "Testing chdb on Python $version"
             pyenv shell $version
-            python -m pip install dist/*.whl --force-reinstall
+            python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
             python -c "import chdb; res = chdb.query('select 1112222222,555', 'CSV'); print(f'Python $version: {res}')"
             
             if [ "$DEBUG_MODE" == "true" ]; then
@@ -382,59 +382,74 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.11
-          
+
           DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
-          
-          python -m pip install dist/*.whl --force-reinstall
-          python -m pip install pytest pytest-cov
-          echo "Testing DataStore import..."
-          python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
-          
-          echo "Running DataStore tests..."
-          cd datastore
-          
-          if [ "$DEBUG_MODE" == "true" ]; then
-            # Run pytest under lldb to capture all crash signals
-            python -m pip install pytest-timeout
-            REAL_PYTHON=$(pyenv which python)
-            echo "Using Python with lldb: $REAL_PYTHON"
-            LLDB_OUTPUT=$(mktemp)
-            lldb -b \
-              -o "process handle SIGABRT -n true -p true -s true" \
-              -o "process handle SIGSEGV -n true -p true -s true" \
-              -o "process handle SIGBUS -n true -p true -s true" \
-              -o "process handle SIGFPE -n true -p true -s true" \
-              -o "process handle SIGILL -n true -p true -s true" \
-              -o "target stop-hook add --one-liner 'bt all'" \
-              -o "target stop-hook add --one-liner 'quit'" \
-              -o "run -m pytest tests/ -v --tb=short -x" \
-              -o "bt all" \
-              -o "quit" \
-              -- "$REAL_PYTHON" 2>&1 | tee "$LLDB_OUTPUT"
-            # Check if any crash signal was caught (match actual crash patterns, not config commands)
-            if grep -qE "(stop reason = signal|received signal|hit Breakpoint.*__abort|Process.*exited.*signal)" "$LLDB_OUTPUT"; then
-              echo "ERROR: Crash signal detected in DataStore tests!"
-              if ls ../tmp/core/core.* 2>/dev/null; then
-                echo "=== Analyzing core file ==="
-                for corefile in ../tmp/core/core.*; do
-                  lldb python -c "$corefile" -b -o "bt all" -o "quit"
-                done
+
+          # Test with two pandas versions: <3.0 and >=3.0
+          for PANDAS_CONSTRAINT in "pandas<3.0" "pandas>=3.0"; do
+            echo "=============================================="
+            echo "Testing DataStore with $PANDAS_CONSTRAINT"
+            echo "=============================================="
+
+            python -m pip install dist/*.whl --force-reinstall
+            python -m pip install pytest pytest-cov "$PANDAS_CONSTRAINT"
+            echo "Installed pandas version:"
+            python -c "import pandas; print(pandas.__version__)"
+
+            echo "Testing DataStore import..."
+            python -c "import datastore; print('DataStore import OK'); from datastore import DataStore, DataFrame; print('DataStore classes import OK')"
+
+            echo "Running DataStore tests with $PANDAS_CONSTRAINT ..."
+            cd datastore
+
+            if [ "$DEBUG_MODE" == "true" ]; then
+              # Run pytest under lldb to capture all crash signals
+              python -m pip install pytest-timeout
+              REAL_PYTHON=$(pyenv which python)
+              echo "Using Python with lldb: $REAL_PYTHON"
+              LLDB_OUTPUT=$(mktemp)
+              lldb -b \
+                -o "process handle SIGABRT -n true -p true -s true" \
+                -o "process handle SIGSEGV -n true -p true -s true" \
+                -o "process handle SIGBUS -n true -p true -s true" \
+                -o "process handle SIGFPE -n true -p true -s true" \
+                -o "process handle SIGILL -n true -p true -s true" \
+                -o "target stop-hook add --one-liner 'bt all'" \
+                -o "target stop-hook add --one-liner 'quit'" \
+                -o "run -m pytest tests/ -v --tb=short -x" \
+                -o "bt all" \
+                -o "quit" \
+                -- "$REAL_PYTHON" 2>&1 | tee "$LLDB_OUTPUT"
+              # Check if any crash signal was caught (match actual crash patterns, not config commands)
+              if grep -qE "(stop reason = signal|received signal|hit Breakpoint.*__abort|Process.*exited.*signal)" "$LLDB_OUTPUT"; then
+                echo "ERROR: Crash signal detected in DataStore tests with $PANDAS_CONSTRAINT!"
+                if ls ../tmp/core/core.* 2>/dev/null; then
+                  echo "=== Analyzing core file ==="
+                  for corefile in ../tmp/core/core.*; do
+                    lldb python -c "$corefile" -b -o "bt all" -o "quit"
+                  done
+                fi
+                rm -f "$LLDB_OUTPUT"
+                exit 1
               fi
+              # Extract process exit code from lldb output
+              EXIT_CODE=$(grep -oE "Process [0-9]+ exited with status = [0-9]+" "$LLDB_OUTPUT" | tail -1 | sed "s/.*= //" || echo "0")
               rm -f "$LLDB_OUTPUT"
-              exit 1
+              if [ "$EXIT_CODE" != "0" ]; then
+                echo "ERROR: DataStore tests failed with exit code $EXIT_CODE ($PANDAS_CONSTRAINT)"
+                exit $EXIT_CODE
+              fi
+            else
+              # Normal test run (same as main branch)
+              python -m pytest tests/ -v --tb=short -x
             fi
-            # Extract process exit code from lldb output
-            EXIT_CODE=$(grep -oE "Process [0-9]+ exited with status = [0-9]+" "$LLDB_OUTPUT" | tail -1 | sed "s/.*= //" || echo "0")
-            rm -f "$LLDB_OUTPUT"
-            if [ "$EXIT_CODE" != "0" ]; then
-              echo "ERROR: DataStore tests failed with exit code $EXIT_CODE"
-              exit $EXIT_CODE
-            fi
-          else
-            # Normal test run (same as main branch)
-            python -m pytest tests/ -v --tb=short -x
-          fi
-          
+
+            cd ..
+            echo "=============================================="
+            echo "DataStore tests PASSED with $PANDAS_CONSTRAINT"
+            echo "=============================================="
+          done
+
           pyenv shell --unset
         continue-on-error: false
       - name: Run notebook tests
@@ -443,7 +458,7 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           pyenv shell 3.9
-          python -m pip install dist/*.whl --force-reinstall
+          python -m pip install dist/*.whl --force-reinstall -c <(echo "pandas<3.0")
           jupyter nbconvert --to notebook --execute tests/test_data_insertion.ipynb --output test_data_insertion_output.ipynb
           pyenv shell --unset
         continue-on-error: false
