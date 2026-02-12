@@ -6,6 +6,13 @@ on:
       TAG_NAME:
         description: 'Release Version Tag'
         required: true
+      DEBUG_MODE:
+        description: 'Enable debug mode (Debug build, lldb tests, skip static lib)'
+        required: false
+        default: 'true'
+        type: boolean
+  release:
+    types: [created]
   push:
     branches:
       - main
@@ -18,14 +25,18 @@ on:
     paths-ignore:
       - '**/*.md'
 
+env:
+  # DEBUG_MODE disabled for all builds
+  EFFECTIVE_DEBUG_MODE: 'false'
+
 jobs:
-  build_static_lib_on_linux:
-    name: Build static lib on Linux (cross-compile for macOS x86_64)
+  build_universal_wheel_on_linux:
+    name: Build on Linux (cross-compile for macOS x86_64)
     runs-on: [self-hosted, linux, x64, ubuntu-latest]
     if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
-      - name: Install build dependencies
+      - name: Install Python build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
@@ -49,7 +60,9 @@ jobs:
           which clang++-19
           clang++-19 --version
           sudo apt-get install -y make cmake ccache ninja-build yasm gawk wget
+          # Install WebAssembly linker (wasm-ld)
           sudo apt-get install -y lld-19
+          # Create symlink for wasm-ld
           if ! command -v wasm-ld &> /dev/null; then
             sudo ln -sf /usr/bin/wasm-ld-19 /usr/bin/wasm-ld || true
           fi
@@ -81,15 +94,23 @@ jobs:
           sudo ln -s /usr/bin/clang++-19 /usr/bin/clang++
           which clang++
           clang++ --version
-      - name: Build static library with debug symbols
+      - name: Run chdb/build_mac_on_linux.sh
         timeout-minutes: 600
         run: |
           source ~/.cargo/env
-          export CHDB_KEEP_DEBUG_SYMBOLS=1
-          bash ./chdb/build/build_static_lib_mac_on_linux.sh x86_64
+          bash ./chdb/build_mac_on_linux.sh x86_64 Debug
+        continue-on-error: false
+      - name: Run chdb/build/build_static_lib_mac_on_linux.sh
+        if: env.EFFECTIVE_DEBUG_MODE != 'true'
+        timeout-minutes: 600
+        run: |
+          source ~/.cargo/env
+          bash ./chdb/build/build_static_lib_mac_on_linux.sh x86_64 Debug
+      #   continue-on-error: false
       - name: Check ccache statistics
         run: |
           ccache -s
+          ls -lh chdb
           df -h
       - name: Keep killall ccache and wait for ccache to finish
         if: always()
@@ -99,18 +120,27 @@ jobs:
             killall ccache; \
             sleep 10; \
           done
-      - name: Upload libchdb.a
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-x86_64-build-artifacts
           path: |
+            ./libchdb.so
             ./libchdb.a
+            ./chdb/_chdb.abi3.so
+            ./chdb/libpybind11nonlimitedapi_stubs.dylib
+            ./chdb/libpybind11nonlimitedapi_chdb_3.9.dylib
+            ./chdb/libpybind11nonlimitedapi_chdb_3.10.dylib
+            ./chdb/libpybind11nonlimitedapi_chdb_3.11.dylib
+            ./chdb/libpybind11nonlimitedapi_chdb_3.12.dylib
+            ./chdb/libpybind11nonlimitedapi_chdb_3.13.dylib
+            ./chdb/libpybind11nonlimitedapi_chdb_3.14.dylib
           retention-days: 1
 
-  test_go_on_macos:
-    name: Test Go on macOS x86_64 (crash debug)
+  test_on_macos:
+    name: Test on macOS x86_64
     runs-on: macos-15-intel
-    needs: build_static_lib_on_linux
+    needs: build_universal_wheel_on_linux
     if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 600
     steps:
@@ -120,6 +150,59 @@ jobs:
           echo "Machine type: $(uname -m)"
           echo "Architecture: $(arch)"
           echo "System info: $(uname -a)"
+          echo "Hardware info:"
+          system_profiler SPHardwareDataType | grep "Chip\|Processor"
+          if sysctl -n hw.optional.arm64 2>/dev/null | grep -q "1"; then
+            echo "This is an ARM64 (Apple Silicon) machine"
+          else
+            echo "This is an x86_64 (Intel) machine"
+          fi
+      - name: Setup pyenv
+        run: |
+          curl https://pyenv.run | bash
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+
+          pyenv install 3.9:latest
+          pyenv install 3.10:latest
+          pyenv install 3.11:latest
+          pyenv install 3.12:latest
+          pyenv install 3.13:latest
+          pyenv install 3.14:latest
+          pyenv global 3.9 3.10 3.11 3.12 3.13 3.14
+
+          echo "Installed versions:"
+          pyenv versions
+      - name: Verify pyenv installations
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          echo "Installed Python versions:"
+          pyenv versions
+          echo ""
+          echo "Verifying all required Python versions are available:"
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            if ! pyenv versions --bare | grep -q "^$version"; then
+              echo "ERROR: Python $version is not installed!"
+              exit 1
+            fi
+            echo "✓ Python $version is installed"
+          done
+          echo "All Python versions verified successfully!"
+      - name: Install dependencies for all Python versions
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            echo "Installing dependencies for Python $version"
+            pyenv shell $version
+            python -m pip install --upgrade pip
+            python -m pip install setuptools tox "pandas<3.0" pyarrow twine psutil deltalake wheel>=0.40.0 jupyter nbconvert
+            pyenv shell --unset
+          done
+      - name: Remove /usr/local/bin/python3
+        run: |
+          sudo rm -f /usr/local/bin/python3
       - name: Install go for macOS
         run: |
           brew update
@@ -133,10 +216,30 @@ jobs:
         with:
           name: macos-x86_64-build-artifacts
           path: ./artifacts
-      - name: Restore libchdb.a
+      - name: Restore artifacts to original paths
         run: |
+          mv ./artifacts/libchdb.so ./
+          # Move libchdb.a if it exists (not built in DEBUG_MODE)
           [ -f ./artifacts/libchdb.a ] && mv ./artifacts/libchdb.a ./
-          ls -lh ./libchdb.a
+          mv ./artifacts/chdb/_chdb.abi3.so ./chdb/
+          mv ./artifacts/chdb/libpybind11nonlimitedapi_stubs.dylib ./chdb/
+          for v in 9 10 11 12 13 14; do
+            mv ./artifacts/chdb/libpybind11nonlimitedapi_chdb_3.${v}.dylib ./chdb/
+          done
+          ls -lh ./libchdb.so
+          ls -lh ./chdb/*.so ./chdb/*.dylib
+      - name: Sign macOS binaries
+        run: |
+          echo "Signing cross-compiled binaries for macOS..."
+          codesign -f -s - ./libchdb.so
+          codesign -f -s - ./chdb/_chdb.abi3.so
+          codesign -f -s - ./chdb/libpybind11nonlimitedapi_stubs.dylib
+          for f in ./chdb/libpybind11nonlimitedapi_chdb_3.*.dylib; do
+            codesign -f -s - "$f"
+          done
+          echo "Verifying signatures..."
+          codesign -dvv ./libchdb.so
+          codesign -dvv ./chdb/_chdb.abi3.so
       - name: Run chdb/build/test_go_example.sh
         timeout-minutes: 600
         run: |
