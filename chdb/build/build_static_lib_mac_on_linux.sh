@@ -3,7 +3,7 @@
 set -e
 
 TARGET_ARCH=${1:-x86_64}
-build_type=${2:-Debug}
+build_type=${2:-Release}
 MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 . ${MY_DIR}/../vars.sh cross-compile
 
