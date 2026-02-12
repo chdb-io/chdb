@@ -3,7 +3,7 @@
 set -e
 
 TARGET_ARCH=${1:-x86_64}
-build_type=${2:-Release}
+build_type=${2:-Debug}
 MY_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 . ${MY_DIR}/../vars.sh cross-compile
 
@@ -97,9 +97,8 @@ CMAKE_INSTALL_NAME_TOOL="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-install_name_tool"
 CMAKE_RANLIB_FILEPATH="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ranlib"
 CMAKE_LINKER_NAME="${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld"
 
-if [ ! -d $BUILD_DIR ]; then
-    mkdir $BUILD_DIR
-fi
+rm -rf $BUILD_DIR
+mkdir $BUILD_DIR
 
 cd ${BUILD_DIR}
 
