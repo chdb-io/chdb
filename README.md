@@ -543,6 +543,15 @@ For more examples, see [examples](examples) and [tests](tests).
 - For DataStore API, see [Pandas Compatibility Guide](docs/PANDAS_COMPATIBILITY.md)
 
 
+## AI Coding Agent Skill
+
+chdb provides an [AI Skill](agent/skills/using-chdb/) that teaches AI coding agents (Cursor, Claude Code, etc.) chdb's multi-source data analytics API. Install it so your AI assistant can write correct chdb code out of the box:
+
+```bash
+curl -sL https://raw.githubusercontent.com/chdb-io/chdb/main/install_skill.sh | bash
+```
+
+
 ## Events
 
 - Demo chDB at [ClickHouse v23.7 livehouse!](https://t.co/todc13Kn19) and [Slides](https://docs.google.com/presentation/d/1ikqjOlimRa7QAg588TAB_Fna-Tad2WMg7_4AgnbQbFA/edit?usp=sharing)
