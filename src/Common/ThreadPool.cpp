@@ -921,6 +921,7 @@ void GlobalThreadPool::shutdown()
     if (the_instance)
     {
         the_instance->finalize();
+        the_instance.reset();
     }
 }
 
