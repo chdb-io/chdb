@@ -920,8 +920,8 @@ void GlobalThreadPool::shutdown()
 {
     if (the_instance)
     {
-        the_instance->finalize();
-        the_instance.reset();
+        /// the_instance->finalize();
+        auto * leaked [[maybe_unused]] = the_instance.release();
     }
 }
 
