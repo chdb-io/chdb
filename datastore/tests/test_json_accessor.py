@@ -161,7 +161,7 @@ class TestJsonExtractFloat:
     def test_json_extract_float(self, ds_float_json):
         """Test extracting float values from JSON."""
         ds_float_json['price'] = ds_float_json['data'].json.json_extract_float('price')
-        df = ds_float_json.to_df()
+        df = ds_float_json.to_df().sort_values('id')
 
         expected = [19.99, 29.50]
         assert list(df['price']) == pytest.approx(expected)
@@ -363,7 +363,7 @@ class TestJsonArrayExtraction:
         The fix detects this and falls back to JSON parsing in Python.
         """
         ds_json_arrays['tags_raw'] = ds_json_arrays['data'].json.json_extract_array_raw('tags')
-        df = ds_json_arrays.to_df()
+        df = ds_json_arrays.to_df().sort_values('id')
 
         # Result should be a list
         result = df['tags_raw'].iloc[0]
@@ -544,7 +544,7 @@ class TestJsonAccessorChaining:
 
         # Assign and execute
         ds_with_json['upper_name'] = result
-        df = ds_with_json.to_df()
+        df = ds_with_json.to_df().sort_values('id')
 
         # Verify chained operations executed correctly
         expected = ['ALICE', 'BOB']
@@ -559,7 +559,7 @@ class TestJsonAccessorChaining:
         assert isinstance(result, ColumnExpr)
 
         ds_with_json['name_len'] = result
-        df = ds_with_json.to_df()
+        df = ds_with_json.to_df().sort_values('id')
 
         # 'alice' = 5, 'bob' = 3
         expected = [5, 3]
@@ -582,7 +582,7 @@ class TestJsonAccessorChaining:
         doubled = age_expr * 2
 
         ds_with_json['doubled_age'] = doubled
-        df = ds_with_json.to_df()
+        df = ds_with_json.to_df().sort_values('id')
 
         expected = [60, 50]  # 30*2, 25*2
         assert list(df['doubled_age']) == expected
@@ -592,7 +592,7 @@ class TestJsonAccessorChaining:
         result = ds_with_json['data'].json.json_extract_string('name').str.upper().str.slice(0, 2)  # First 2 chars
 
         ds_with_json['prefix'] = result
-        df = ds_with_json.to_df()
+        df = ds_with_json.to_df().sort_values('id')
 
         expected = ['AL', 'BO']
         assert list(df['prefix']) == expected
