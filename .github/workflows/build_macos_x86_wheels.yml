@@ -98,14 +98,14 @@ jobs:
         timeout-minutes: 600
         run: |
           source ~/.cargo/env
-          bash ./chdb/build_mac_on_linux.sh x86_64 Debug
+          bash ./chdb/build_mac_on_linux.sh x86_64 Release
         continue-on-error: false
       - name: Run chdb/build/build_static_lib_mac_on_linux.sh
         if: env.EFFECTIVE_DEBUG_MODE != 'true'
         timeout-minutes: 600
         run: |
           source ~/.cargo/env
-          bash ./chdb/build/build_static_lib_mac_on_linux.sh x86_64 Debug
+          bash ./chdb/build/build_static_lib_mac_on_linux.sh x86_64 Release
       #   continue-on-error: false
       - name: Check ccache statistics
         run: |
