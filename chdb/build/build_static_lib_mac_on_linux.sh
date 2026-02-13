@@ -181,6 +181,7 @@ clang-19 chdb_example.cpp -o chdb_example \
     --ld-path=${CCTOOLS_BIN}/${DARWIN_TRIPLE}-ld \
     -L. -lchdb -liconv \
     -framework CoreFoundation \
+    -Wl,-U,_inside_main \
     -Wl,-map,chdb_example.map
 if [ $? -ne 0 ]; then
     echo "Error: Failed to compile chdb_example.cpp"
@@ -209,12 +210,12 @@ if [ $? -ne 0 ]; then
 fi
 
 # Strip the libchdb_minimal.a
-if [ ${build_type} == "Debug" ]; then
-    echo -e "\nDebug build, skip strip"
-else
-    echo -e "\nStrip the libchdb_minimal.a:"
-    ${STRIP} -S libchdb_minimal.a
-fi
+# if [ ${build_type} == "Debug" ]; then
+#     echo -e "\nDebug build, skip strip"
+# else
+#     echo -e "\nStrip the libchdb_minimal.a:"
+#     ${STRIP} -S libchdb_minimal.a
+# fi
 
 # Copy final library to project root
 echo "Copying libchdb_minimal.a to project root as libchdb.a..."
