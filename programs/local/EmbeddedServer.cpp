@@ -75,6 +75,7 @@
 #endif
 
 bool chdb_embedded_server_initialized = false;
+extern std::atomic<bool> g_memory_tracking_disabled;
 
 namespace fs = std::filesystem;
 
@@ -206,10 +207,20 @@ void EmbeddedServer::initialize(Poco::Util::Application & self)
         server_settings[ServerSetting::max_thread_pool_free_size],
         server_settings[ServerSetting::thread_pool_queue_size]);
 
+    static std::once_flag atexit_registered;
+    std::call_once(atexit_registered, []
+    {
+        (void)std::atexit([]
+        {
+            g_memory_tracking_disabled.store(true, std::memory_order_relaxed);
+            GlobalThreadPool::shutdown();
+        });
+
 #if USE_AZURE_BLOB_STORAGE
-    /// See the explanation near the same line in Server.cpp
-    GlobalThreadPool::instance().addOnDestroyCallback([] { Azure::Storage::_internal::XmlGlobalDeinitialize(); });
+        /// See the explanation near the same line in Server.cpp
+        GlobalThreadPool::instance().addOnDestroyCallback([] { Azure::Storage::_internal::XmlGlobalDeinitialize(); });
 #endif
+    });
 
 #if defined(OS_LINUX)
     memory_worker = std::make_unique<MemoryWorker>(
