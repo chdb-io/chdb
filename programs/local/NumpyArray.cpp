@@ -151,7 +151,7 @@ struct Enum8Convert
 		try
 		{
 			auto it = enum_type.findByValue(static_cast<Int8>(val));
-			String enum_name(it->second.data, it->second.size);
+			String enum_name(it->second.data(), it->second.size());
 			return py::str(enum_name).release().ptr();
 		}
 		catch (...)
@@ -177,7 +177,7 @@ struct Enum16Convert
 		try
 		{
 			auto it = enum_type.findByValue(static_cast<Int16>(val));
-			String enum_name(it->second.data, it->second.size);
+			String enum_name(it->second.data(), it->second.size());
 			return py::str(enum_name).release().ptr();
 		}
 		catch (...)
@@ -590,9 +590,9 @@ static bool CHColumnStringToNumpyArray(NumpyAppendData & append_data)
 		}
 		else
 		{
-			StringRef str_ref = string_column->getDataAt(src_index);
-			auto * str_ptr = const_cast<char *>(str_ref.data);
-			auto str_size = str_ref.size;
+			std::string_view str_ref = string_column->getDataAt(src_index);
+			auto * str_ptr = const_cast<char *>(str_ref.data());
+			auto str_size = str_ref.size();
 			PyObject * py_str = PyUnicode_DecodeUTF8(str_ptr, str_size, nullptr);
 			if (!py_str)
 			{
@@ -897,8 +897,6 @@ void NumpyArray::append(
 	case TypeIndex::Set:
 	/// JSONPaths is an internal type used only for JSON schema inference,
 	case TypeIndex::JSONPaths:
-	/// Deprecated type, should not appear in normal data processing
-	case TypeIndex::ObjectDeprecated:
 	/// Function types are not actual data types, should not appear here
 	case TypeIndex::Function:
 	/// Aggregate function types are not actual data types, should not appear here

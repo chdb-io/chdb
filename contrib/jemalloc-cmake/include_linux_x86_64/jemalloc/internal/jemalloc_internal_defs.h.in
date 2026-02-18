@@ -137,7 +137,6 @@
 /* #undef JEMALLOC_MUTEX_INIT_CB */
 
 /* Non-empty if the tls_model attribute is supported. */
-// #define JEMALLOC_TLS_MODEL __attribute__((tls_model("initial-exec")))
 #define JEMALLOC_TLS_MODEL
 
 /*
@@ -321,6 +320,9 @@
  */
 /* #undef JEMALLOC_MADVISE_NOCORE */
 
+/* Defined if process_madvise(2) is available. */
+#undef JEMALLOC_HAVE_PROCESS_MADVISE
+
 /* Defined if mprotect(2) is available. */
 #define JEMALLOC_HAVE_MPROTECT
 
@@ -396,7 +398,7 @@
 /*
  * If defined, all the features necessary for background threads are present.
  */
-#define JEMALLOC_BACKGROUND_THREAD
+/* #undef JEMALLOC_BACKGROUND_THREAD */
 
 /*
  * If defined, jemalloc symbols are not exported (doesn't work when

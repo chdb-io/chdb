@@ -4,6 +4,7 @@
 #include "PythonUtils.h"
 #include "config.h"
 
+#include <Poco/Logger.h>
 #include <QueryPipeline/Pipe.h>
 #include <Storages/ColumnsDescription.h>
 #include <Storages/IStorage.h>
@@ -14,7 +15,6 @@
 #include <pybind11/pytypes.h>
 #include <pybind11/stl.h>
 #include <pybind11/stl_bind.h>
-
 
 namespace DB
 {
@@ -46,28 +46,6 @@ public:
     {
         throw Exception(ErrorCodes::NOT_IMPLEMENTED, "read() method is not implemented");
     }
-
-    // // readDataPtr is similar to readData but return pointer to py::object
-    // static std::shared_ptr<std::vector<std::vector<PyObject *>>>
-    // readDataPtr(const py::object & data, const std::vector<std::string> & col_names, size_t & cursor, size_t count)
-    // {
-    //     py::gil_scoped_acquire acquire;
-    //     auto block = std::make_shared<std::vector<std::vector<PyObject *>>>();
-    //     // Access columns directly by name and slice
-    //     for (const auto & col : col_names)
-    //     {
-    //         py::object col_data = data[py::str(col)]; // Use dictionary-style access
-    //         auto col_block = std::make_shared<std::vector<PyObject *>>();
-    //         for (size_t i = cursor; i < cursor + count; i++)
-    //             col_block->push_back(col_data.attr("__getitem__")(i).ptr());
-    //         block->push_back(col_block);
-    //     }
-
-    //     if (!block->empty())
-    //         cursor += py::len((*block)[0]); // Update cursor based on the length of the first column slice
-
-    //     return block;
-    // }
 
     // Return a vector of column names and their types, as a list of pairs.
     // The order is important, and should match the order of the data.
@@ -108,7 +86,6 @@ public:
     //      eg: "DataTypeUInt8", "DataTypeUInt16", "DataTypeUInt32", "DataTypeUInt64", "DataTypeUInt128", "DataTypeUInt256",
     //      "DataTypeInt8", "DataTypeInt16", "DataTypeInt32", "DataTypeInt64", "DataTypeInt128", "DataTypeInt256",
     //      "DataTypeFloat32", "DataTypeFloat64", "DataTypeString",
-
     static std::vector<std::pair<std::string, std::string>> getSchemaFromPyObj(py::object data);
 
     std::vector<std::pair<std::string, std::string>> getSchema() { return getSchemaFromPyObj(data); }

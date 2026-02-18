@@ -145,7 +145,10 @@ extern const ServerSettingsUInt64 max_format_parsing_thread_pool_size;
 extern const ServerSettingsUInt64 max_format_parsing_thread_pool_free_size;
 extern const ServerSettingsUInt64 format_parsing_thread_pool_queue_size;
 extern const ServerSettingsUInt64 memory_worker_period_ms;
+extern const ServerSettingsDouble memory_worker_purge_dirty_pages_threshold_ratio;
+extern const ServerSettingsDouble memory_worker_purge_total_memory_threshold_ratio;
 extern const ServerSettingsBool memory_worker_correct_memory_tracker;
+extern const ServerSettingsBool memory_worker_use_cgroup;
 }
 
 namespace ErrorCodes
@@ -212,11 +215,14 @@ void EmbeddedServer::initialize(Poco::Util::Application & self)
 #endif
 
 #if defined(OS_LINUX)
-    memory_worker = std::make_unique<MemoryWorker>(
-        server_settings[ServerSetting::memory_worker_period_ms],
-        server_settings[ServerSetting::memory_worker_correct_memory_tracker],
-        /* use_cgroup */ true,
-        nullptr);
+    MemoryWorkerConfig memory_worker_config{
+        .rss_update_period_ms = server_settings[ServerSetting::memory_worker_period_ms],
+        .purge_dirty_pages_threshold_ratio = server_settings[ServerSetting::memory_worker_purge_dirty_pages_threshold_ratio],
+        .purge_total_memory_threshold_ratio = server_settings[ServerSetting::memory_worker_purge_total_memory_threshold_ratio],
+        .correct_tracker = server_settings[ServerSetting::memory_worker_correct_memory_tracker],
+        .use_cgroup = server_settings[ServerSetting::memory_worker_use_cgroup],
+    };
+    memory_worker = std::make_unique<MemoryWorker>(memory_worker_config, nullptr);
     memory_worker->start();
 #endif
 
@@ -657,7 +663,7 @@ void EmbeddedServer::processConfig()
     size_t max_server_memory_usage = server_settings[ServerSetting::max_server_memory_usage];
     const double max_server_memory_usage_to_ram_ratio = server_settings[ServerSetting::max_server_memory_usage_to_ram_ratio];
     const size_t physical_server_memory = getMemoryAmount();
-    const size_t default_max_server_memory_usage = static_cast<size_t>(physical_server_memory * max_server_memory_usage_to_ram_ratio);
+    const size_t default_max_server_memory_usage = static_cast<size_t>(static_cast<double>(physical_server_memory) * max_server_memory_usage_to_ram_ratio);
 
     if (max_server_memory_usage == 0)
     {
@@ -688,7 +694,7 @@ void EmbeddedServer::processConfig()
     total_memory_tracker.setMetric(CurrentMetrics::MemoryTracking);
 
     const double cache_size_to_ram_max_ratio = server_settings[ServerSetting::cache_size_to_ram_max_ratio];
-    const size_t max_cache_size = static_cast<size_t>(physical_server_memory * cache_size_to_ram_max_ratio);
+    const size_t max_cache_size = static_cast<size_t>(static_cast<double>(physical_server_memory) * cache_size_to_ram_max_ratio);
 
     String uncompressed_cache_policy = server_settings[ServerSetting::uncompressed_cache_policy];
     size_t uncompressed_cache_size = server_settings[ServerSetting::uncompressed_cache_size];

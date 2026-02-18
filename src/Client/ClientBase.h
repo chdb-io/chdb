@@ -70,6 +70,12 @@ enum MultiQueryProcessingStage
     PARSING_FAILED,
 };
 
+// On illumos, <curses.h> defines ERR as a macro (error return value).
+// Undef it to allow use of ERR as an enum value below.
+#ifdef ERR
+#  undef ERR
+#endif
+
 enum ProgressOption
 {
     DEFAULT,
@@ -149,8 +155,8 @@ public:
         query_result_buf.reset();
     }
 
-    size_t getProcessedRows() const { return processed_rows; }
-    size_t getProcessedBytes() const { return processed_bytes; }
+    size_t getProcessedRows() const { return processed_rows_from_blocks; }
+    size_t getProcessedBytes() const { return processed_bytes_from_blocks; }
     double getElapsedTime() const { return progress_indication.elapsedSeconds();}
     std::string getErrorMsg() const { return error_message_oss.str(); }
     void setDefaultFormat(const String & format);
@@ -186,7 +192,7 @@ public:
 
     virtual bool buzzHouse()
     {
-        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "Clickhouse was compiled without BuzzHouse enabled");
+        throw Exception(ErrorCodes::NOT_IMPLEMENTED, "ClickHouse was compiled without BuzzHouse enabled");
     }
 
     virtual void connect() = 0;
@@ -273,7 +279,8 @@ public:
     /// Used to check certain things that are considered unsafe for the embedded client
     virtual bool isEmbeeddedClient() const = 0;
 
-public:
+    static fs::path getHistoryFilePath();
+
     void setProgressCallback(ProgressCallback callback);
     bool hasProgressCallback() const;
     void setProgressValuesCallback(ProgressValuesCallback callback);
@@ -412,7 +419,7 @@ public:
     bool stdin_is_a_tty = false; /// stdin is a terminal.
     bool stdout_is_a_tty = false; /// stdout is a terminal.
     bool stderr_is_a_tty = false; /// stderr is a terminal.
-    uint64_t terminal_width = 0;
+    uint16_t terminal_width = 0;
 
     String pager;
 
@@ -424,7 +431,10 @@ public:
     bool select_into_file = false; /// If writing result INTO OUTFILE. It affects progress rendering.
     bool select_into_file_and_stdout = false; /// If writing result INTO OUTFILE AND STDOUT. It affects progress rendering.
     bool is_default_format = true; /// false, if format is set in the config or command line.
-    std::optional<size_t> insert_format_max_block_size_from_config; /// Max block size when reading INSERT data.
+    std::optional<size_t> insert_format_max_block_size_rows_from_config; /// Max block size in rows when reading INSERT data.
+    std::optional<size_t> insert_format_max_block_size_bytes_from_config; /// Max block size in bytes when reading INSERT data.
+    std::optional<size_t> insert_format_min_block_size_rows_from_config; /// Min block size in rows when reading INSERT data.
+    std::optional<size_t> insert_format_min_block_size_bytes_from_config; /// Min block size in bytes when reading INSERT data.
     size_t max_client_network_bandwidth = 0; /// The maximum speed of data exchange over the network for the client in bytes per second.
 
     bool has_vertical_output_suffix = false; /// Is \G present at the end of the query string?
@@ -471,8 +481,8 @@ public:
     std::unique_ptr<WriteBufferFromFileDescriptor> tty_buf;
     std::mutex tty_mutex;
 
-    String home_path;
-    String history_file; /// Path to a file containing command history.
+    fs::path home_path;
+    fs::path history_file; /// Path to a file containing command history.
     UInt32 history_max_entries; /// Maximum number of entries in the history file.
 
     UInt64 server_revision = 0;
@@ -497,8 +507,11 @@ public:
     std::atomic_bool progress_table_toggle_on = false;
     bool need_render_profile_events = true;
     bool written_first_block = false;
-    size_t processed_rows = 0; /// How many rows have been read or written.
-    size_t processed_bytes = 0; /// How many bytes have been read or written.
+    /// How many rows have been read or written. `processed_rows_from_blocks` does not increment when data does not flow through client,
+    /// like with `INSERT ... SELECT`. We can use progress reports by server in that case to track processed rows.
+    size_t processed_rows_from_blocks = 0;
+    size_t processed_bytes_from_blocks = 0;
+    size_t processed_rows_from_progress = 0;
     std::stringstream error_message_oss; /// error message stringstream
 
     bool print_stack_trace = false;

@@ -127,7 +127,7 @@
  * Among other things, it must be possible to initialize a mutex without
  * triggering allocation in order for threaded allocation to be safe.
  */
-// #define JEMALLOC_THREADED_INIT
+/* #undef JEMALLOC_THREADED_INIT */
 
 /*
  * Defined if the pthreads implementation defines
@@ -137,7 +137,6 @@
 /* #undef JEMALLOC_MUTEX_INIT_CB */
 
 /* Non-empty if the tls_model attribute is supported. */
-// #define JEMALLOC_TLS_MODEL __attribute__((tls_model("initial-exec")))
 #define JEMALLOC_TLS_MODEL
 
 /*
@@ -320,6 +319,9 @@
  * Defined if MADV_[NO]CORE is supported as an argument to madvise.
  */
 /* #undef JEMALLOC_MADVISE_NOCORE */
+
+/* Defined if process_madvise(2) is available. */
+#undef JEMALLOC_HAVE_PROCESS_MADVISE
 
 /* Defined if mprotect(2) is available. */
 #define JEMALLOC_HAVE_MPROTECT
