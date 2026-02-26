@@ -249,16 +249,6 @@ PyReader = _chdb.PyReader
 from . import dbapi, session, udf, utils  # noqa: E402
 from .state import connect  # noqa: E402
 
-# DataStore: Pandas-like data manipulation framework with automatic SQL generation
-# Usage:
-#   from chdb import datastore
-#   from chdb.datastore import DataStore, DataFrame
-#   import chdb.datastore as ds
-import datastore  # noqa: E402
-
-# Register datastore as a submodule of chdb so that 'import chdb.datastore' works
-sys.modules['chdb.datastore'] = datastore
-
 __all__ = [
     "_chdb",
     "PyReader",
@@ -274,5 +264,4 @@ __all__ = [
     "udf",
     "utils",
     "connect",
-    "datastore",
 ]
