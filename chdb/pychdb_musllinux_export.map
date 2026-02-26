@@ -1,7 +1,0 @@
-{
-    global:
-        PyInit__chdb;
-
-    local:
-        _Z*;
-};

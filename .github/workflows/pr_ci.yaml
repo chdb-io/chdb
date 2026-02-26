@@ -26,5 +26,7 @@ jobs:
       - name: Install flake8
         run: python -m pip install flake8
 
-      - name: Run flake8 on chdb directory
-        run: cd chdb && flake8 .
+      - name: Run flake8
+        run: |
+          # Uses root setup.cfg for unified configuration
+          flake8 chdb datastore --count --show-source --statistics

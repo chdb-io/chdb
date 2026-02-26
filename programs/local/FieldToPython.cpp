@@ -366,13 +366,12 @@ py::object convertFieldToPython(
 
             try
             {
-                py::object timestamp_object = import_cache.datetime.datetime()(
-                    year, month, day, hour, minute, second, microsecond
-                );
-
                 const String & tz_name = time_zone.getTimeZone();
-                auto tz_obj = import_cache.pytz.timezone()(tz_name);
-                return tz_obj.attr("localize")(timestamp_object);
+                auto tz_obj = import_cache.zoneinfo.ZoneInfo()(tz_name);
+                py::object timestamp_object = import_cache.datetime.datetime()(
+                    year, month, day, hour, minute, second, microsecond, py::arg("tzinfo") = tz_obj
+                );
+                return timestamp_object;
             }
             catch (py::error_already_set &)
             {
@@ -409,13 +408,12 @@ py::object convertFieldToPython(
 
             try
             {
-                py::object timestamp_object = import_cache.datetime.datetime()(
-                    year, month, day, hour, minute, second, microsecond
-                );
-
                 const String & tz_name = time_zone.getTimeZone();
-                auto tz_obj = import_cache.pytz.timezone()(tz_name);
-                return tz_obj.attr("localize")(timestamp_object);
+                auto tz_obj = import_cache.zoneinfo.ZoneInfo()(tz_name);
+                py::object timestamp_object = import_cache.datetime.datetime()(
+                    year, month, day, hour, minute, second, microsecond, py::arg("tzinfo") = tz_obj
+                );
+                return timestamp_object;
             }
             catch (py::error_already_set &)
             {

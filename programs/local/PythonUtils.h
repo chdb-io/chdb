@@ -3,6 +3,7 @@
 #include "config.h"
 
 #include <Columns/ColumnString.h>
+#include <Columns/IColumnUnique.h>
 #include <pybind11/gil.h>
 #include <pybind11/numpy.h>
 #include <pybind11/pybind11.h>
@@ -34,6 +35,10 @@ struct ColumnWrapper
     bool is_object_type = false;
     bool is_virtual = false;
     std::unique_ptr<RegisteredArray> registered_array;
+
+    bool is_category = false;
+    ColumnUniquePtr category_unique;
+    std::string category_codes_type;
 
     ~ColumnWrapper()
     {

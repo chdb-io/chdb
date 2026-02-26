@@ -2,7 +2,6 @@
 #include "chdb-internal.h"
 #if USE_PYTHON
 #include "ChunkCollectorOutputFormat.h"
-#include "StoragePython.h"
 #include "TableFunctionPython.h"
 #else
 #include "StorageArrowStream.h"
@@ -74,6 +73,7 @@
 #endif
 
 extern bool chdb_embedded_server_initialized;
+extern std::atomic<bool> g_memory_tracking_disabled;
 
 namespace fs = std::filesystem;
 
@@ -239,13 +239,23 @@ void LocalServer::initialize(Poco::Util::Application & self)
         server_settings[ServerSetting::max_thread_pool_free_size],
         server_settings[ServerSetting::thread_pool_queue_size]);
 
-#if USE_AZURE_BLOB_STORAGE
-    /// See the explanation near the same line in Server.cpp
-    GlobalThreadPool::instance().addOnDestroyCallback([]
+    static std::once_flag atexit_registered;
+    std::call_once(atexit_registered, []
     {
-        Azure::Storage::_internal::XmlGlobalDeinitialize();
-    });
+        (void)std::atexit([]
+        {
+            g_memory_tracking_disabled.store(true, std::memory_order_relaxed);
+            GlobalThreadPool::shutdown();
+        });
+
+#if USE_AZURE_BLOB_STORAGE
+        /// See the explanation near the same line in Server.cpp
+        GlobalThreadPool::instance().addOnDestroyCallback([]
+        {
+            Azure::Storage::_internal::XmlGlobalDeinitialize();
+        });
 #endif
+    });
 
 #if defined(OS_LINUX)
     memory_worker = std::make_unique<MemoryWorker>(
@@ -313,6 +323,9 @@ static DatabasePtr createMemoryDatabaseIfNotExists(ContextPtr context, const Str
     {
         /// TODO: add attachTableDelayed into DatabaseMemory to speedup loading
         system_database = std::make_shared<DatabaseMemory>(database_name, context);
+        /// Lock the UUID before attaching the database to avoid assertion failure in addUUIDMapping
+        if (UUID uuid = system_database->getUUID(); uuid != UUIDHelpers::Nil)
+            DatabaseCatalog::instance().addUUIDMapping(uuid);
         DatabaseCatalog::instance().attachDatabase(database_name, system_database);
     }
     return system_database;
@@ -667,7 +680,6 @@ try
 
             registerStorages();
 #if USE_PYTHON
-            registerStoragePython(StorageFactory::instance());
             CHDB::registerDataFrameOutputFormat();
 #endif
 

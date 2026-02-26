@@ -55,7 +55,7 @@ namespace ErrorCodes
 }
 
 PythonSource::PythonSource(
-    py::object & data_source_,
+    CHDB::DataSourceWrapperPtr data_source_wrapper_,
     bool isInheritsFromPyReader_,
     bool isPandasDataFrame_,
     const Block & sample_block_,
@@ -67,7 +67,7 @@ PythonSource::PythonSource(
     const FormatSettings & format_settings_,
     ArrowTableReaderPtr arrow_table_reader_)
     : ISource(std::make_shared<Block>(sample_block_.cloneEmpty()))
-    , data_source(data_source_)
+    , data_source_wrapper(std::move(data_source_wrapper_))
     , isInheritsFromPyReader(isInheritsFromPyReader_)
     , isPandasDataFrame(isPandasDataFrame_)
     , sample_block(sample_block_)
@@ -441,7 +441,7 @@ Chunk PythonSource::scanDataToChunk()
 
         try
         {
-            if (isPandasDataFrame && is_nullable)
+            if (isPandasDataFrame && (is_nullable || col.is_category))
             {
                 columns[i] = PandasScan::scanColumn(col, cursor, count, format_settings);
                 continue;
@@ -552,7 +552,7 @@ Chunk PythonSource::generate()
         {
             PyObjectVecPtr data;
             py::gil_scoped_acquire acquire;
-            data = std::move(castToSharedPtrVector<py::object>(data_source.attr("read")(names, max_block_size)));
+            data = std::move(castToSharedPtrVector<py::object>(data_source_wrapper->getDataSource().attr("read")(names, max_block_size)));
             if (data->empty())
                 return {};
 

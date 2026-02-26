@@ -6,7 +6,7 @@ chDB is an in-process OLAP SQL engine powered by ClickHouse, providing fast anal
 Requirements
 ------------
 
-- **Python**: 3.8 or higher
+- **Python**: 3.9 or higher
 - **Architecture**: 64-bit systems only
 - **Platforms**: macOS and Linux (x86_64 and ARM64)
 
@@ -59,7 +59,7 @@ System Requirements
 **Minimum Requirements:**
   - **RAM**: 512MB available memory
   - **Disk**: 200MB free space for installation
-  - **Python**: 3.8+ with pip
+  - **Python**: 3.9+ with pip
 
 **Recommended:**
   - **RAM**: 2GB+ for processing large datasets
@@ -97,7 +97,7 @@ Troubleshooting
 
 **Import Errors**
 
-If you encounter import errors, ensure you have Python 3.8+ and a supported platform:
+If you encounter import errors, ensure you have Python 3.9+ and a supported platform:
 
 .. code-block:: python
 
@@ -130,7 +130,7 @@ For contributing to chDB development, you need to build from source. The build p
 
 **Prerequisites:**
 
-- Python 3.8 or higher (required for compatibility)
+- Python 3.9 or higher (required for compatibility)
 - CMake and Ninja build system
 - Platform-specific compilers:
 
@@ -145,7 +145,7 @@ For contributing to chDB development, you need to build from source. The build p
    git clone --recursive https://github.com/chdb-io/chdb.git
    cd chdb
    
-   # Ensure Python 3.8 is active
+   # Ensure Python 3.9+ is active
    python --version
    
    # Build chDB (creates both Python module and libchdb.so)

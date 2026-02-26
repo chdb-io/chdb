@@ -266,9 +266,15 @@ void ClientInfo::setInitialQuery()
     query_kind = QueryKind::INITIAL_QUERY;
     fillOSUserHostNameAndVersionInfo();
     if (client_name.empty())
-        client_name = VERSION_NAME;
+    {
+        /// client_name = VERSION_NAME;
+        client_name = "chDB";
+    }
     else
-        client_name = std::string(VERSION_NAME) + " " + client_name;
+    {
+        /// client_name = std::string(VERSION_NAME) + " " + client_name;
+        client_name = "chDB " + client_name;
+    }
 }
 
 bool ClientInfo::clientVersionEquals(const ClientInfo & other, bool compare_patch) const

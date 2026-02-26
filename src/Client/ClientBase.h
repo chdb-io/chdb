@@ -5,6 +5,7 @@
 #include <Client/ProgressTable.h>
 #include <Client/Suggest.h>
 #include <IO/CompressionMethod.h>
+#include <IO/Progress.h>
 #include <IO/WriteBuffer.h>
 #include <Common/DNSResolver.h>
 #include <Common/InterruptListener.h>
@@ -35,6 +36,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <mutex>
 #include <Poco/Util/LayeredConfiguration.h>
 
 #include <IO/WriteBufferFromVector.h>
@@ -114,6 +116,7 @@ class ClientBase
 {
 public:
     using Arguments = std::vector<String>;
+    using ProgressValuesCallback = std::function<void(const ProgressValues &, UInt64 elapsed_ns)>;
 
     explicit ClientBase
     (
@@ -271,6 +274,11 @@ public:
     virtual bool isEmbeeddedClient() const = 0;
 
 public:
+    void setProgressCallback(ProgressCallback callback);
+    bool hasProgressCallback() const;
+    void setProgressValuesCallback(ProgressValuesCallback callback);
+    bool hasProgressValuesCallback() const;
+
     void receiveResult(ASTPtr parsed_query, Int32 signals_before_stop, bool partial_result_on_first_cancel);
     bool receiveAndProcessPacket(ASTPtr parsed_query, bool cancelled_);
     void receiveLogsAndProfileEvents(ASTPtr parsed_query);
@@ -477,6 +485,12 @@ public:
 
     ProgressIndication progress_indication;
     ProgressTable progress_table;
+    mutable std::mutex progress_callback_mutex;
+    ProgressCallback progress_callback;
+    mutable std::mutex progress_values_callback_mutex;
+    ProgressValuesCallback progress_values_callback;
+    mutable std::mutex progress_values_accumulated_mutex;
+    Progress progress_values_accumulated;
     bool need_render_progress = true;
     bool need_render_progress_table = true;
     bool progress_table_toggle_enabled = true;

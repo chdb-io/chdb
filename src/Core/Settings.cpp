@@ -7034,6 +7034,10 @@ Sets the evaluation time to be used with promql dialect. 'auto' means the curren
     DECLARE(Int64, pandas_analyze_sample, 10000, R"(
 Sample rows in pandas to automatically determine the data types. When set to 0, sampling is disabled
 )", EXPERIMENTAL) \
+    DECLARE(String, chdb_client_name, "", R"(
+The application name appended to 'chDB' when connecting to remote servers via remote() or remoteSecure() table functions.
+If empty, query_log shows 'chDB'. If set to 'my-app', query_log shows 'chDB my-app'.
+)", EXPERIMENTAL) \
     \
     /* ####################################################### */ \
     /* ############ END OF EXPERIMENTAL FEATURES ############# */ \

@@ -34,7 +34,7 @@
 </div>
 
 ## 安装方式
-目前，chDB 只支持在 macOS（x86_64 和 ARM64）和 Linux 上的 Python 3.8+。
+目前，chDB 只支持在 macOS（x86_64 和 ARM64）和 Linux 上的 Python 3.9+。
 ```bash
 pip install chdb
 ```
@@ -83,6 +83,39 @@ print(df)
 # 0 2025-01-01
 # 1 2025-01-02
 ```
+
+### 查询进度（`progress=auto`）
+```python
+import chdb
+
+# Connection API
+conn = chdb.connect(":memory:?progress=auto")
+conn.query("SELECT sum(number) FROM numbers_mt(1e10) GROUP BY number % 10 SETTINGS max_threads=4")
+```
+
+```python
+import chdb
+
+# 一次性 query API
+res = chdb.query(
+    "SELECT sum(number) FROM numbers_mt(1e10) GROUP BY number % 10 SETTINGS max_threads=4",
+    options={"progress": "auto"},
+)
+```
+
+`progress=auto` 的行为：
+- 在终端运行时：在终端中显示文本进度更新。
+- 在 Jupyter/Marimo 中：在 notebook 输出区域渲染进度。
+
+其他进度选项：
+- 进度条：
+  - `progress=tty`：将进度输出到终端 TTY。
+  - `progress=err`：将进度输出到 `stderr`。
+  - `progress=off`：关闭进度条输出。
+- 进度表（终端输出）：
+  - `progress-table=tty`：将进度表输出到终端 TTY。
+  - `progress-table=err`：将进度表输出到 `stderr`。
+  - `progress-table=off`：关闭进度表输出。
 
 更多内容请参见:
 * [ClickHouse SQL语法: 定义和使用查询参数](https://clickhouse.com/docs/sql-reference/syntax#defining-and-using-query-parameters)

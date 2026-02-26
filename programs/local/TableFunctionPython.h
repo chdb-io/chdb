@@ -1,6 +1,6 @@
 #pragma once
 
-#include "PybindWrapper.h"
+#include "DataSourceWrapper.h"
 
 #include <Storages/ColumnsDescription.h>
 #include <TableFunctions/ITableFunction.h>
@@ -17,13 +17,6 @@ class TableFunctionPython : public ITableFunction
 public:
     static constexpr auto name = "python";
     std::string getName() const override { return name; }
-    ~TableFunctionPython() override
-    {
-        // Acquire the GIL before destroying the reader object
-        pybind11::gil_scoped_acquire acquire;
-        reader.dec_ref();
-        reader.release();
-    }
 
 private:
     Poco::Logger * logger = &Poco::Logger::get("TableFunctionPython");
@@ -40,8 +33,7 @@ private:
     ColumnsDescription getActualTableStructure(ContextPtr context, bool is_insert_query) const override;
 
     bool is_pandas_df = false;
-    pybind11::object reader;
-
+    mutable CHDB::DataSourceWrapperPtr data_source_wrapper;
 };
 
 }

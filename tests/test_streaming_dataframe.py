@@ -7,6 +7,9 @@ import pandas as pd
 import chdb
 from chdb import session
 
+# pandas 3.0+ returns string dtype instead of object for string columns
+PANDAS_V3 = int(pd.__version__.split('.')[0]) >= 3
+
 
 class TestStreamingDataFrame(unittest.TestCase):
     """Test streaming DataFrame generation with large scale data"""
@@ -56,7 +59,10 @@ class TestStreamingDataFrame(unittest.TestCase):
 
                 # Verify column types
                 self.assertTrue(pd.api.types.is_integer_dtype(batch_df['id']))
-                self.assertTrue(pd.api.types.is_object_dtype(batch_df['name']))
+                if PANDAS_V3:
+                    self.assertTrue(pd.api.types.is_string_dtype(batch_df['name']))
+                else:
+                    self.assertTrue(pd.api.types.is_object_dtype(batch_df['name']))
 
                 # Add to total count
                 batch_rows = len(batch_df)

@@ -1,0 +1,11 @@
+product_id,product_name,category_id,price,stock,supplier
+101,Wireless Mouse,1,29.99,150,TechCorp
+102,Mechanical Keyboard,1,129.99,80,TechCorp
+103,USB Cable,2,9.99,500,CableWorld
+104,Laptop Stand,3,99.99,120,OfficeSupplies
+105,Webcam HD,1,79.99,200,TechCorp
+106,Desk Lamp,3,45.99,90,OfficeSupplies
+107,HDMI Cable,2,19.99,300,CableWorld
+108,Monitor 24inch,1,299.99,45,TechCorp
+109,Ergonomic Chair,3,399.99,30,OfficeSupplies
+110,Portable SSD,1,149.99,100,TechCorp

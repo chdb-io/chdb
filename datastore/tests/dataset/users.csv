@@ -1,0 +1,11 @@
+user_id,name,email,age,country,registration_date
+1,Alice Smith,alice@example.com,28,USA,2023-01-15
+2,Bob Johnson,bob@example.com,35,UK,2023-02-20
+3,Charlie Brown,charlie@example.com,22,Canada,2023-03-10
+4,Diana Prince,diana@example.com,31,USA,2023-04-05
+5,Eve Wilson,eve@example.com,27,Australia,2023-05-12
+6,Frank Miller,frank@example.com,45,UK,2023-06-18
+7,Grace Lee,grace@example.com,29,USA,2023-07-22
+8,Henry Zhang,henry@example.com,33,Canada,2023-08-30
+9,Iris Chen,iris@example.com,26,Australia,2023-09-14
+10,Jack Davis,jack@example.com,38,USA,2023-10-01

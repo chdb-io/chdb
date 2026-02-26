@@ -1,0 +1,22 @@
+# Development dependencies
+-r requirements.txt
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Benchmarking
+duckdb>=1.3.0
+matplotlib>=3.7.0
+polars>=1.7.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+mypy>=1.0.0
+pre-commit>=3.0.0
+
+# Build and packaging
+build>=0.10.0
+twine>=4.0.0
+

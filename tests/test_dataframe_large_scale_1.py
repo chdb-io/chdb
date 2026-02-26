@@ -11,6 +11,8 @@ import json
 import numpy as np
 from datetime import timedelta
 
+STRING_DTYPE = "str" if pd.__version__ >= "3" else "object"
+
 
 class TestDataFrameLargeScale(unittest.TestCase):
     """Test DataFrame generation with large scale data (1M rows) and diverse data types"""
@@ -126,7 +128,7 @@ class TestDataFrameLargeScale(unittest.TestCase):
             'uint64_col': ['uint64'],
             'float32_col': ['float32'],
             'float64_col': ['float64'],
-            'string_col': ['object'],
+            'string_col': [STRING_DTYPE],
             'bool_col': ['bool'],
             'date_col': ['datetime64[s]'],
             'datetime_col': ['datetime64[s, Asia/Shanghai]'],
@@ -135,7 +137,7 @@ class TestDataFrameLargeScale(unittest.TestCase):
             'array_string_col': ['object'],
             'tuple_int_string_col': ['object'],
             'json_col': ['object'],
-            'enum_col': ['object'],
+            'enum_col': [STRING_DTYPE],
             'interval_seconds_col': ['timedelta64[s]'],
         }
 

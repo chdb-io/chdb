@@ -10,6 +10,8 @@ import math
 import uuid
 import ipaddress
 
+STRING_DTYPE = "str" if pd.__version__ >= "3" else "object"
+
 
 class TestDataFrameColumnTypesOne(unittest.TestCase):
 
@@ -425,15 +427,15 @@ class TestDataFrameColumnTypesOne(unittest.TestCase):
 
         # Precise data type validation
         expected_types = {
-            "string_val": "object",  # String types mapped to object in pandas
-            "fixed_string_val": "object",
-            "low_cardinality_val": "object",
-            "empty_string": "object",
-            "unicode_string": "object",
-            "special_chars": "object",
-            "long_string": "object",
-            "fixed_string_short": "object",
-            "low_cardinality_empty": "object"
+            "string_val": STRING_DTYPE,  # String types mapped to object/str in pandas
+            "fixed_string_val": STRING_DTYPE,
+            "low_cardinality_val": STRING_DTYPE,
+            "empty_string": STRING_DTYPE,
+            "unicode_string": STRING_DTYPE,
+            "special_chars": STRING_DTYPE,
+            "long_string": STRING_DTYPE,
+            "fixed_string_short": STRING_DTYPE,
+            "low_cardinality_empty": STRING_DTYPE
         }
 
         for col, expected_type in expected_types.items():
@@ -801,10 +803,10 @@ class TestDataFrameColumnTypesOne(unittest.TestCase):
         # Verify data types - Enum types should be mapped to object (string) dtype in pandas
         expected_types = {
             "row_id": "uint8",
-            "enum8_val": "object",      # Enum8 mapped to object (string) dtype
-            "enum8_range": "object",    # Enum8 with negative/positive range
-            "enum16_val": "object",     # Enum16 mapped to object (string) dtype
-            "enum16_direction": "object" # Enum16 with multiple values
+            "enum8_val": STRING_DTYPE,      # Enum8 mapped to object/str (string) dtype
+            "enum8_range": STRING_DTYPE,    # Enum8 with negative/positive range
+            "enum16_val": STRING_DTYPE,     # Enum16 mapped to object/str (string) dtype
+            "enum16_direction": STRING_DTYPE # Enum16 with multiple values
         }
 
         for col, expected_type in expected_types.items():

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Core/UUID.h>
 #include <Databases/DatabasesCommon.h>
 #include <Common/escapeForFileName.h>
 #include <Parsers/ASTCreateQuery.h>
@@ -20,8 +21,10 @@ class DatabaseMemory final : public DatabaseWithOwnTablesBase
 {
 public:
     DatabaseMemory(const String & name_, ContextPtr context);
+    DatabaseMemory(const String & name_, UUID uuid, ContextPtr context);
 
     String getEngineName() const override { return "Memory"; }
+    UUID getUUID() const override { return db_uuid; }
 
     void createTable(
         ContextPtr context,
@@ -58,6 +61,7 @@ private:
     void removeDataPath(ContextPtr local_context);
 
     const String data_path;
+    const UUID db_uuid;
     using NameToASTCreate = std::unordered_map<String, ASTPtr>;
     NameToASTCreate create_queries TSA_GUARDED_BY(mutex);
 };

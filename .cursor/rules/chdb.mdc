@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+
+
+1. When crashes (SIGSEGV, SIGABRT, SIGFPE, SIGILL, SIGBUS, SIGSYS) happen in tests, always obtain the stack trace first, then analyze the root cause before attempting fixes. Never bypass the problem by removing exception-throwing statements or defensive checks - fix the actual underlying issue.

@@ -5,7 +5,9 @@
 #include "config.h"
 
 #include <filesystem>
+#include <mutex>
 #include <optional>
+#include <IO/Progress.h>
 
 #if USE_CLIENT_AI
 #    include <Client/AI/AIConfiguration.h>
@@ -33,6 +35,9 @@ private:
     std::string db_path;
     bool is_memory_db;
     bool is_readonly;
+#if USE_PYTHON
+    py::object progress_callback;
+#endif
 #if USE_CLIENT_AI
     std::unique_ptr<AIQueryProcessor> ai_processor;
     std::optional<DB::AIConfiguration> ai_config;
@@ -45,6 +50,7 @@ public:
     cursor_wrapper * cursor();
     void commit();
     void close();
+    void set_progress_callback(const py::object & callback);
     query_result * query(const std::string & query_str, const std::string & format = "CSV", const py::dict & params = py::dict());
     py::object query_df(const std::string & query_str, const py::dict & params = py::dict());
     streaming_query_result * send_query(const std::string & query_str, const std::string & format = "CSV", const py::dict & params = py::dict());

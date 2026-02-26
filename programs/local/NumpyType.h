@@ -26,7 +26,11 @@ enum class NumpyNullableType : uint8_t {
 	DATETIME_MS,
 	DATETIME_NS,
 	DATETIME_US,
-	TIMEDELTA,
+	TIMEDELTA_NS,
+	TIMEDELTA_US,
+	TIMEDELTA_MS,
+	TIMEDELTA_S,
+	TIMEDELTA_D,  // Day precision
 
 	CATEGORY,
 	STRING,

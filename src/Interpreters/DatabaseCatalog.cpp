@@ -946,6 +946,11 @@ DatabaseCatalog & DatabaseCatalog::instance()
     return *database_catalog;
 }
 
+bool DatabaseCatalog::isAvailable()
+{
+    return database_catalog != nullptr;
+}
+
 void DatabaseCatalog::shutdown(std::function<void()> shutdown_system_logs)
 {
     // The catalog might not be initialized yet by init(global_context). It can

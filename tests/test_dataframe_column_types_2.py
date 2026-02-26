@@ -10,6 +10,8 @@ import numpy as np
 import datetime
 from datetime import date, timedelta
 
+STRING_DTYPE = "str" if pd.__version__ >= "3" else "object"
+
 
 class TestDataFrameColumnTypesTwo(unittest.TestCase):
 
@@ -211,13 +213,13 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(ret.iloc[2]["dynamic_object"], '42')
         self.assertEqual(ret.iloc[2]["dynamic_null"], "nested_value")
 
-        # Data type validation - Dynamic types may be mapped to object in pandas
+        # Data type validation - Dynamic types may be mapped to object/str in pandas
         expected_types = {
-            "dynamic_string": "object",
-            "dynamic_number": "object",
-            "dynamic_array": "object",
-            "dynamic_object": "object",
-            "dynamic_null": "object"
+            "dynamic_string": STRING_DTYPE,
+            "dynamic_number": STRING_DTYPE,
+            "dynamic_array": STRING_DTYPE,
+            "dynamic_object": STRING_DTYPE,
+            "dynamic_null": STRING_DTYPE
         }
 
         for col, expected_type in expected_types.items():
@@ -1092,10 +1094,10 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(ret.iloc[2]["lc_int8"], 1)  # Same as row 0
         self.assertEqual(ret.iloc[2]["lc_int32"], 100)  # Same as row 0
 
-        # Data type validation - LowCardinality should typically be object for strings, specific types for numbers
+        # Data type validation - LowCardinality should typically be object/str for strings, specific types for numbers
         expected_lc_types = {
             "row_id": "uint8",
-            "lc_string": "object",
+            "lc_string": STRING_DTYPE,
             "lc_int8": "int8",
             "lc_int32": "int32",
             "lc_uint16": "uint16",
@@ -1335,8 +1337,8 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
             "nullable_float64": "float64",
             "nullable_decimal32": "Float64",
             "nullable_decimal64": "Float64",
-            "nullable_string": "object",
-            "nullable_fixed_string": "object",
+            "nullable_string": STRING_DTYPE,
+            "nullable_fixed_string": STRING_DTYPE,
             "nullable_date": "datetime64[s]",
             "nullable_datetime": "datetime64[s, Asia/Shanghai]",
             "nullable_datetime64": "datetime64[ns, Asia/Shanghai]",
@@ -1364,7 +1366,11 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         })
         result = self.session.query("SELECT * FROM Python(df)", 'DataFrame')
         self.assertEqual(df['dt'].tolist(), result['dt'].tolist())
-        self.assertEqual(df['dt'].dtype, result['dt'].dtype)
+        # pandas 3.0+ defaults to datetime64[us], but chdb always outputs datetime64[ns]
+        if pd.__version__ >= "3":
+            self.assertEqual(result['dt'].dtype, np.dtype('datetime64[ns]'))
+        else:
+            self.assertEqual(df['dt'].dtype, result['dt'].dtype)
 
     def test_float_with_nan(self):
         """Test that float64 with NaN preserves dtype and values"""
@@ -1395,6 +1401,119 @@ class TestDataFrameColumnTypesTwo(unittest.TestCase):
         self.assertEqual(bytes(result['blob_col'].iloc[0]), b'\x01\x86\x00\x00\x00')
         self.assertIsInstance(result['fixed_blob'].iloc[0], bytearray)
         self.assertEqual(bytes(result['fixed_blob'].iloc[0]), b'\xff\x00\xfe\x01')
+
+
+    def test_timedelta_input_from_pandas(self):
+        """Test timedelta64 input from pandas DataFrame - aligned with pandas behavior"""
+        # Create pandas DataFrame with timedelta columns
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4],
+            'td_ns': pd.to_timedelta(['1 day', '2 hours', '30 minutes', '10 seconds']),
+            'td_with_null': pd.to_timedelta(['1 day', None, '3 hours', '45 minutes']),
+        })
+
+        print("\nInput DataFrame:")
+        print(df)
+        print("\nInput dtypes:")
+        print(df.dtypes)
+
+        # Query using chDB - should handle timedelta input
+        result = self.session.query("SELECT * FROM Python(df) ORDER BY id", 'DataFrame')
+
+        print("\nResult DataFrame:")
+        print(result)
+        print("\nResult dtypes:")
+        print(result.dtypes)
+
+        # Verify row count
+        self.assertEqual(len(result), 4)
+
+        # Verify timedelta values are preserved
+        # Note: ClickHouse Interval type may convert to different precision
+        self.assertEqual(result.iloc[0]['id'], 1)
+        self.assertEqual(result.iloc[1]['id'], 2)
+        self.assertEqual(result.iloc[2]['id'], 3)
+        self.assertEqual(result.iloc[3]['id'], 4)
+
+        # Verify timedelta column values (comparing as timedelta)
+        expected_td = [
+            pd.Timedelta('1 day'),
+            pd.Timedelta('2 hours'),
+            pd.Timedelta('30 minutes'),
+            pd.Timedelta('10 seconds'),
+        ]
+
+        for i, expected in enumerate(expected_td):
+            actual = result.iloc[i]['td_ns']
+            self.assertEqual(actual, expected, f"Row {i}: expected {expected}, got {actual}")
+
+        # Verify NULL handling in timedelta column
+        self.assertEqual(result.iloc[0]['td_with_null'], pd.Timedelta('1 day'))
+        self.assertTrue(pd.isna(result.iloc[1]['td_with_null']), "Row 1 should be NULL")
+        self.assertEqual(result.iloc[2]['td_with_null'], pd.Timedelta('3 hours'))
+        self.assertEqual(result.iloc[3]['td_with_null'], pd.Timedelta('45 minutes'))
+
+    def test_timedelta_various_precisions(self):
+        """Test timedelta with different precisions from pandas"""
+        # pandas timedelta64[ns] is the default
+        df = pd.DataFrame({
+            'id': [1, 2, 3, 4, 5],
+            'days': pd.to_timedelta([1, 2, 3, 4, 5], unit='D'),
+            'hours': pd.to_timedelta([1, 2, 3, 4, 5], unit='h'),
+            'minutes': pd.to_timedelta([1, 2, 3, 4, 5], unit='m'),
+            'seconds': pd.to_timedelta([1, 2, 3, 4, 5], unit='s'),
+            'milliseconds': pd.to_timedelta([1, 2, 3, 4, 5], unit='ms'),
+        })
+
+        print("\nInput DataFrame with various timedelta precisions:")
+        print(df)
+        print("\nInput dtypes:")
+        print(df.dtypes)
+
+        result = self.session.query("SELECT * FROM Python(df) ORDER BY id", 'DataFrame')
+
+        print("\nResult DataFrame:")
+        print(result)
+        print("\nResult dtypes:")
+        print(result.dtypes)
+
+        # Verify values
+        self.assertEqual(len(result), 5)
+
+        # Check days column
+        for i in range(5):
+            expected_days = pd.Timedelta(days=i + 1)
+            self.assertEqual(result.iloc[i]['days'], expected_days)
+
+        # Check hours column
+        for i in range(5):
+            expected_hours = pd.Timedelta(hours=i + 1)
+            self.assertEqual(result.iloc[i]['hours'], expected_hours)
+
+        # Check seconds column
+        for i in range(5):
+            expected_seconds = pd.Timedelta(seconds=i + 1)
+            self.assertEqual(result.iloc[i]['seconds'], expected_seconds)
+
+    def test_timedelta_arithmetic_query(self):
+        """Test timedelta values can be used in SQL arithmetic"""
+        df = pd.DataFrame({
+            'id': [1, 2, 3],
+            'duration': pd.to_timedelta(['1 hour', '2 hours', '3 hours']),
+        })
+
+        # Query that uses timedelta in SQL
+        result = self.session.query("""
+            SELECT id, duration FROM Python(df) ORDER BY id
+        """, 'DataFrame')
+
+        print("\nResult from arithmetic query:")
+        print(result)
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result.iloc[0]['duration'], pd.Timedelta('1 hour'))
+        self.assertEqual(result.iloc[1]['duration'], pd.Timedelta('2 hours'))
+        self.assertEqual(result.iloc[2]['duration'], pd.Timedelta('3 hours'))
 
 
 if __name__ == '__main__':
