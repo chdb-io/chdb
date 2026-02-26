@@ -67,16 +67,20 @@ set(ORC_BUILD_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/../orc/c++/include")
 set(ORC_ADDITION_SOURCE_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(ARROW_SRC_DIR "${ClickHouse_SOURCE_DIR}/contrib/arrow/cpp/src")
 
-set(PROTOBUF_EXECUTABLE $<TARGET_FILE:protoc>)
+if (NOT CMAKE_HOST_SYSTEM_NAME STREQUAL CMAKE_SYSTEM_NAME OR NOT CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL CMAKE_SYSTEM_PROCESSOR)
+    set(PROTOBUF_EXECUTABLE "${PROJECT_BINARY_DIR}/native/contrib/google-protobuf-cmake/protoc")
+    set(GRPC_EXECUTABLE "${PROJECT_BINARY_DIR}/native/contrib/grpc-cmake/grpc_cpp_plugin")
+else ()
+    set(PROTOBUF_EXECUTABLE $<TARGET_FILE:protoc>)
+    set(GRPC_EXECUTABLE $<TARGET_FILE:grpc_cpp_plugin>)
+endif()
 set(PROTO_DIR "${ORC_SOURCE_DIR}/../proto")
-
 
 add_custom_command(OUTPUT orc_proto.pb.h orc_proto.pb.cc
         COMMAND ${PROTOBUF_EXECUTABLE}
         -I ${PROTO_DIR}
         --cpp_out="${CMAKE_CURRENT_BINARY_DIR}"
         "${PROTO_DIR}/orc_proto.proto")
-
 
 # === flatbuffers
 set(FLATBUFFERS_SRC_DIR "${ClickHouse_SOURCE_DIR}/contrib/flatbuffers")
@@ -221,10 +225,11 @@ target_include_directories(_orc SYSTEM PRIVATE
     ${ORC_ADDITION_SOURCE_DIR}
     ${ARROW_SRC_DIR})
 
-
 # === arrow
 
 set(LIBRARY_DIR "${ClickHouse_SOURCE_DIR}/contrib/arrow/cpp/src/arrow")
+
+
 
 # arrow/cpp/src/arrow/CMakeLists.txt (ARROW_SRCS + ARROW_COMPUTE + ARROW_IPC)
 # find . \( -iname \*.cc -o -iname \*.cpp -o -iname \*.c \) | sort | awk '{print "\"${LIBRARY_DIR}" substr($1,2) "\"" }' | grep -v 'test.cc' | grep -v 'json' | grep -v 'flight' \|
@@ -472,6 +477,7 @@ target_link_libraries(_arrow PRIVATE
     _flatbuffers
 
     ch_contrib::double_conversion
+
     ch_contrib::lz4
     ch_contrib::snappy
     ch_contrib::zlib
@@ -491,6 +497,7 @@ target_include_directories(_arrow SYSTEM BEFORE PUBLIC "${ClickHouse_SOURCE_DIR}
 
 target_include_directories(_arrow SYSTEM PRIVATE ${ARROW_SRC_DIR})
 target_include_directories(_arrow SYSTEM PRIVATE ${HDFS_INCLUDE_DIR})
+
 
 # === parquet
 
@@ -592,6 +599,6 @@ endforeach ()
 
 # The library is large - avoid bloat.
 if (OMIT_HEAVY_DEBUG_SYMBOLS)
-    target_compile_options (_arrow PRIVATE -g0)
-    target_compile_options (_parquet PRIVATE -g0)
+    target_compile_options (_arrow PRIVATE -g1)
+    target_compile_options (_parquet PRIVATE -g1)
 endif()

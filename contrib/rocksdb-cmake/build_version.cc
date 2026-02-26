@@ -26,7 +26,7 @@ extern "C" {
 } // extern "C"
 
 std::unordered_map<std::string, ROCKSDB_NAMESPACE::RegistrarFunc> ROCKSDB_NAMESPACE::ObjectRegistry::builtins_ = {
-
+  
 };
 
 namespace ROCKSDB_NAMESPACE {

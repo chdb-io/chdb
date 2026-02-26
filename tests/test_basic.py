@@ -14,6 +14,7 @@ class TestBasic(unittest.TestCase):
         self.assertTrue(len(res.error_message()) == 0)
         with self.assertRaises(Exception):
             res = chdb.query("SELECT 1", "unknown_format")
+
 class TestOutput(unittest.TestCase):
     def test_output(self):
         for format, output in format_output.items():
@@ -30,7 +31,7 @@ class TestOutput(unittest.TestCase):
                 continue
             if "Vertical" in format:
                 continue
-            
+
             if format in ("JSONEachRowWithProgress", "JSONStringsEachRowWithProgress"):
                 data_str = str(data)
                 lines = data_str.split('\n')
