@@ -202,7 +202,7 @@ jobs:
             echo "Installing dependencies for Python $version"
             pyenv shell $version
             python -m pip install --upgrade pip
-            python -m pip install setuptools tox pyarrow twine psutil deltalake wheel>=0.40.0 jupyter nbconvert
+            python -m pip install setuptools tox pandas pyarrow twine psutil deltalake wheel>=0.40.0 jupyter nbconvert
             pyenv shell --unset
           done
       - name: Remove /usr/local/bin/python3
@@ -309,7 +309,13 @@ jobs:
           DEBUG_MODE="${{ env.EFFECTIVE_DEBUG_MODE }}"
 
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            for PANDAS_CONSTRAINT in "pandas<3.0" "pandas>=3.0"; do
+            # pandas 3.x requires Python >=3.11
+            if [[ "$version" == "3.9" || "$version" == "3.10" ]]; then
+              PANDAS_CONSTRAINTS=("pandas<3.0")
+            else
+              PANDAS_CONSTRAINTS=("pandas<3.0" "pandas>=3.0")
+            fi
+            for PANDAS_CONSTRAINT in "${PANDAS_CONSTRAINTS[@]}"; do
               echo "=============================================="
               echo "Testing chdb on Python $version with $PANDAS_CONSTRAINT"
               echo "=============================================="
