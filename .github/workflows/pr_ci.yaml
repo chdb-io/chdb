@@ -14,7 +14,7 @@ jobs:
       - name: Clone chDB repository
         uses: actions/checkout@v2
         with:
-          repository: "chdb-io/chdb"
+          repository: "chdb-io/chdb-core"
           ref: "refs/pull/${{ github.event.pull_request.number }}/merge"
           token: ${{ secrets.GITHUB_TOKEN }}
 
