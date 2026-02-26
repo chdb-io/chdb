@@ -4,6 +4,7 @@
 
 #include <Common/CurrentMemoryTracker.h>
 
+std::atomic<bool> g_memory_tracking_disabled{false};
 
 #ifdef MEMORY_TRACKER_DEBUG_CHECKS
 thread_local bool memory_tracker_always_throw_logical_error_on_allocation = false;
@@ -24,6 +25,9 @@ namespace
 
 MemoryTracker * getMemoryTracker()
 {
+    if (unlikely(g_memory_tracking_disabled.load(std::memory_order_relaxed)))
+        return nullptr;
+
     if (auto * thread_memory_tracker = DB::CurrentThread::getMemoryTracker())
         return thread_memory_tracker;
 

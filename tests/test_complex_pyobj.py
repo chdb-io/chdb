@@ -49,7 +49,7 @@ class TestComplexPyObj(unittest.TestCase):
         )
         self.assertEqual(ret.dtypes["A"], "Int32")
         self.assertEqual(ret.dtypes["B"], "float64")
-        self.assertTrue(is_string_or_object_dtype(ret.dtypes["C"]))
+        self.assertTrue(ret.dtypes["C"], "boolean")
         self.assertTrue(is_string_or_object_dtype(ret.dtypes["D"]))
         self.assertTrue(is_string_or_object_dtype(ret.dtypes["E"]))
         self.assertTrue(is_string_or_object_dtype(ret.dtypes["F"]))
@@ -59,7 +59,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 0
         self.assertEqual(ret.iloc[0]["A"], 1)
         self.assertEqual(ret.iloc[0]["B"], 4.0)
-        self.assertEqual(ret.iloc[0]["C"], 'True')
+        self.assertEqual(ret.iloc[0]["C"], True)
         self.assertEqual(ret.iloc[0]["D"], 'a')
         self.assertTrue(pd.isna(ret.iloc[0]["E"]))
         self.assertEqual(ret.iloc[0]["F"], '[1, 2]')
@@ -68,7 +68,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 1
         self.assertEqual(ret.iloc[1]["A"], 2)
         self.assertEqual(ret.iloc[1]["B"], 5.0)
-        self.assertEqual(ret.iloc[1]["C"], 'False')
+        self.assertEqual(ret.iloc[1]["C"], False)
         self.assertEqual(ret.iloc[1]["D"], 'b')
         self.assertTrue(pd.isna(ret.iloc[1]["E"]))
         self.assertEqual(ret.iloc[1]["F"], '[3, 4]')
@@ -77,7 +77,7 @@ class TestComplexPyObj(unittest.TestCase):
         # Row 2
         self.assertEqual(ret.iloc[2]["A"], 3)
         self.assertEqual(ret.iloc[2]["B"], 6.0)
-        self.assertEqual(ret.iloc[2]["C"], 'True')
+        self.assertEqual(ret.iloc[2]["C"], True)
         self.assertEqual(ret.iloc[2]["D"], 'c')
         self.assertTrue(pd.isna(ret.iloc[2]["E"]))
         self.assertEqual(ret.iloc[2]["F"], '[5, 6]')
