@@ -19,7 +19,7 @@ replace = 'current_version = "{new_version}"'
 filename = "pyproject.toml"
 
 [[tool.bumpversion.files]]
-filename = "chdb/__init__.py"
+filename = "datastore/__init__.py"
 
 [[tool.bumpversion.files]]
 filename = "docs/conf.py"

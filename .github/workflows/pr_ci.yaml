@@ -29,4 +29,4 @@ jobs:
       - name: Run flake8
         run: |
           # Uses root setup.cfg for unified configuration
-          flake8 chdb datastore --count --show-source --statistics
+          flake8 datastore --count --show-source --statistics

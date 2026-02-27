@@ -1,9 +1,4 @@
-.PHONY: all clean buildlib wheel pub mac-arm64 docs docs-md
-
-buildlib:
-	@echo "Building library..."
-	@cd chdb && bash build.sh
-	@echo "Done."
+.PHONY: all clean wheel pub test docs docs-md
 
 wheel:
 	@echo "Building wheel..."
@@ -11,15 +6,8 @@ wheel:
 	@echo "Done."
 
 test:
-	@echo "Testing..."
-	cd tests && python3 run_all.py
-
-test-datastore:
 	@echo "Testing DataStore..."
 	cd datastore && python3 -m pytest tests/ -v --tb=short
-
-test-all: test test-datastore
-	@echo "All tests completed."
 
 pub:
 	@echo "Publishing wheel..."
@@ -30,18 +18,6 @@ clean:
 	@echo "Cleaning..."
 	tox -e clean
 	@echo "Done."
-
-mac-arm64:
-	@echo "Make macOS arm64 whl"
-	chdb/build_mac_arm64.sh
-	@echo "Done."
-
-linux-arm64:
-	@echo "Make linux arm64 whl"
-	chdb/build_linux_arm64.sh
-	@echo "Done."
-
-build: clean buildlib wheel
 
 docs:
 	@echo "Building documentation..."
