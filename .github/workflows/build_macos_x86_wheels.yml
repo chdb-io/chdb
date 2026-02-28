@@ -217,7 +217,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Update version for release
-        # if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
@@ -225,8 +225,7 @@ jobs:
 
           # Install bump-my-version
           python -m pip install bump-my-version
-          # TAG_NAME=${GITHUB_REF#refs/tags/v}
-          TAG_NAME=0.0.1b2
+          TAG_NAME=${GITHUB_REF#refs/tags/v}
           bump-my-version replace --new-version $TAG_NAME
           echo "Version files updated to $TAG_NAME"
           pyenv shell --unset
@@ -446,7 +445,7 @@ jobs:
             ./macos-x86_64-libchdb-static.tar.gz
           overwrite: true
       - name: Upload pypi
-        # if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
