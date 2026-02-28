@@ -95,7 +95,13 @@ jobs:
           eval "$(pyenv init -)"
 
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            for PANDAS_CONSTRAINT in "pandas<3.0" "pandas>=3.0"; do
+            # pandas 3.x requires Python >= 3.11
+            if [[ "$version" == "3.9" || "$version" == "3.10" ]]; then
+              PANDAS_CONSTRAINTS=("pandas<3.0")
+            else
+              PANDAS_CONSTRAINTS=("pandas<3.0" "pandas>=3.0")
+            fi
+            for PANDAS_CONSTRAINT in "${PANDAS_CONSTRAINTS[@]}"; do
               echo "=============================================="
               echo "Testing DataStore on Python $version with $PANDAS_CONSTRAINT"
               echo "=============================================="
