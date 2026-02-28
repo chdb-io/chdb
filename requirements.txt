@@ -1,4 +1,4 @@
 # Production dependencies
-chdb-core==0.0.1b2
+chdb-core>=25.1.0
 pandas>=2.1.0
 pyarrow>=13.0.0
