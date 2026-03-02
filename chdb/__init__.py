@@ -49,7 +49,7 @@ _process_result_format_funs = {
 # UDF script path will be f"{g_udf_path}/{func_name}.py"
 g_udf_path = ""
 
-__version__ = "3.7.0"
+__version__ = "0.0.1b1"
 if sys.version_info[:2] >= (3, 7):
     # get the path of the current file
     current_path = os.path.dirname(os.path.abspath(__file__))
@@ -249,16 +249,6 @@ PyReader = _chdb.PyReader
 from . import dbapi, session, udf, utils  # noqa: E402
 from .state import connect  # noqa: E402
 
-# DataStore: Pandas-like data manipulation framework with automatic SQL generation
-# Usage:
-#   from chdb import datastore
-#   from chdb.datastore import DataStore, DataFrame
-#   import chdb.datastore as ds
-import datastore  # noqa: E402
-
-# Register datastore as a submodule of chdb so that 'import chdb.datastore' works
-sys.modules['chdb.datastore'] = datastore
-
 __all__ = [
     "_chdb",
     "PyReader",
@@ -274,5 +264,4 @@ __all__ = [
     "udf",
     "utils",
     "connect",
-    "datastore",
 ]
