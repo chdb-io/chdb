@@ -11,7 +11,7 @@ authors = [
 keywords = ["chdb", "clickhouse", "olap", "analytics", "database", "sql"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
-    "Environment :: Plugins", 
+    "Environment :: Plugins",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: MacOS :: MacOS X",
@@ -23,19 +23,18 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "Programming Language :: C++",
     "Topic :: Software Development :: Libraries",
     "Topic :: Database",
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "pandas>=2.1.0,<3.0.0",
+    "chdb-core>=25.1.0",
+    "pandas>=2.1.0",
     "pyarrow>=13.0.0"
 ]
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
-ci = ["cibuildwheel"]
 publish = ["twine", "wheel"]
 
 [project.urls]
@@ -48,21 +47,19 @@ Issues = "https://github.com/chdb-io/chdb/issues"
 [build-system]
 requires = [
     "setuptools>=46.1.0",
-    "pybind11>=2.6",
     "wheel",
 ]
 build-backend = "setuptools.build_meta"
 
-[tool.cibuildwheel]
-build-frontend = "pip"
-build-verbosity = 1
+[tool.setuptools.packages.find]
+include = ["datastore*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests", "datastore/tests"]
+testpaths = ["datastore/tests"]
 
 [tool.pyright]
-include = ["chdb", "datastore"]
+include = ["datastore"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
 pythonVersion = "3.9"
 typeCheckingMode = "basic"
