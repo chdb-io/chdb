@@ -261,3 +261,6 @@ libchdb.so
 *.tgz
 /examples/ml-25m
 .clickhouse/
+
+# supposed to be some local rules, not for sharing
+.cursor/rules/
