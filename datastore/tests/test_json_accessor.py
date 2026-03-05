@@ -27,18 +27,19 @@ class TestJsonAccessorBasic:
         """Create a test DataStore with JSON columns."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"name": "Alice", "age": 30, "active": true}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"name": "Bob", "age": 25, "active": false}' as data
-            UNION ALL
-            SELECT 
-                3 as id,
-                '{"name": "Charlie", "age": 35, "active": true}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"name": "Alice", "age": 30, "active": true}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"name": "Bob", "age": 25, "active": false}' as data
+                UNION ALL
+                SELECT 
+                    3 as id,
+                    '{"name": "Charlie", "age": 35, "active": true}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -105,14 +106,15 @@ class TestJsonNestedPaths:
         """Create DataStore with nested JSON."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"user": {"name": "Alice", "address": {"city": "NYC", "zip": "10001"}}}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"user": {"name": "Bob", "address": {"city": "LA", "zip": "90001"}}}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"user": {"name": "Alice", "address": {"city": "NYC", "zip": "10001"}}}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"user": {"name": "Bob", "address": {"city": "LA", "zip": "90001"}}}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -145,14 +147,15 @@ class TestJsonExtractFloat:
         """Create DataStore with float values in JSON."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"price": 19.99, "quantity": 5}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"price": 29.50, "quantity": 3}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"price": 19.99, "quantity": 5}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"price": 29.50, "quantity": 3}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -342,14 +345,15 @@ class TestJsonArrayExtraction:
         """Create DataStore with JSON containing arrays."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"tags": ["python", "data", "ml"]}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"tags": ["java", "backend"]}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"tags": ["python", "data", "ml"]}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"tags": ["java", "backend"]}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -380,14 +384,15 @@ class TestJsonArrayExtraction:
         # Create data with nested structure
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"user": {"hobbies": ["reading", "coding"]}}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"user": {"hobbies": ["gaming"]}}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"user": {"hobbies": ["reading", "coding"]}}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"user": {"hobbies": ["gaming"]}}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -480,14 +485,15 @@ class TestJsonAccessorChaining:
         """Create a test DataStore with JSON columns."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"name": "alice", "age": 30}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"name": "bob", "age": 25}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"name": "alice", "age": 30}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"name": "bob", "age": 25}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
