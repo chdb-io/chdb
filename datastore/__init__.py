@@ -290,7 +290,7 @@ from .pandas_api import (  # noqa: E402
     array,
 )
 
-__version__ = "0.1.0"
+__version__ = "3.7.0"
 __author__ = "DataStore Contributors"
 
 __all__ = [
