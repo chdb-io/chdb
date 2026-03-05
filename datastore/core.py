@@ -5572,19 +5572,31 @@ class DataStore(PandasCompatMixin):
 
         Table names in FROM/JOIN clauses are automatically resolved to table functions.
         """
+        import time
+
+        import chdb
+
         self._require_connection_params()
 
-        # Rewrite table references to table functions
         rewritten_sql = self._rewrite_table_references(query)
         self._logger.debug(f"Original SQL: {query}")
         self._logger.debug(f"Rewritten SQL: {rewritten_sql}")
 
-        # Execute and wrap in DataStore
-        import chdb
+        profiler = get_profiler()
+        sql_preview = rewritten_sql[:80] + "..." if len(rewritten_sql) > 80 else rewritten_sql
 
+        start = time.perf_counter()
         result_df = chdb.query(rewritten_sql, output_format="DataFrame")
+        elapsed_ms = (time.perf_counter() - start) * 1000
 
-        # Return a new DataStore wrapping the result
+        with profiler.step(
+            "Remote SQL Query", sql=sql_preview, time_ms=f"{elapsed_ms:.2f}"
+        ):
+            pass
+
+        if is_profiling_enabled():
+            profiler.log_report()
+
         return DataStore(result_df)
 
     def _rewrite_table_references(self, sql: str) -> str:
@@ -6067,9 +6079,22 @@ class DataStore(PandasCompatMixin):
         Returns:
             pandas DataFrame with query results
         """
+        import time
+
         import chdb
 
+        profiler = get_profiler()
+        sql_preview = sql[:80] + "..." if len(sql) > 80 else sql
+
+        start = time.perf_counter()
         result = chdb.query(sql, output_format="DataFrame")
+        elapsed_ms = (time.perf_counter() - start) * 1000
+
+        with profiler.step(
+            "Metadata Query", sql=sql_preview, time_ms=f"{elapsed_ms:.2f}"
+        ):
+            pass
+
         return result
 
     def __iter__(self):
