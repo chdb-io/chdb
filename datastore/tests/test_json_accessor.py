@@ -27,18 +27,19 @@ class TestJsonAccessorBasic:
         """Create a test DataStore with JSON columns."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"name": "Alice", "age": 30, "active": true}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"name": "Bob", "age": 25, "active": false}' as data
-            UNION ALL
-            SELECT 
-                3 as id,
-                '{"name": "Charlie", "age": 35, "active": true}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"name": "Alice", "age": 30, "active": true}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"name": "Bob", "age": 25, "active": false}' as data
+                UNION ALL
+                SELECT 
+                    3 as id,
+                    '{"name": "Charlie", "age": 35, "active": true}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -67,9 +68,9 @@ class TestJsonAccessorBasic:
     # ==================== Extract String Tests ====================
 
     def test_json_extract_string_execution(self, ds_with_json):
-        """Test extracting string values from JSON."""
+        """Test extracting string values from JSON preserves row order."""
         ds_with_json['name'] = ds_with_json['data'].json.json_extract_string('name')
-        df = ds_with_json.sort_values('id').to_df()
+        df = ds_with_json.to_df()
 
         assert 'name' in df.columns
         expected_names = ['Alice', 'Bob', 'Charlie']
@@ -78,20 +79,19 @@ class TestJsonAccessorBasic:
     # ==================== Extract Int Tests ====================
 
     def test_json_extract_int_execution(self, ds_with_json):
-        """Test extracting integer values from JSON."""
+        """Test extracting integer values from JSON preserves row order."""
         ds_with_json['age'] = ds_with_json['data'].json.json_extract_int('age')
-        df = ds_with_json.sort_values('id').to_df()
+        df = ds_with_json.to_df()
 
-        # Note: ORDER BY id in fixture ensures consistent order
         expected_ages = [30, 25, 35]
         assert list(df['age']) == expected_ages
 
     # ==================== Extract Bool Tests ====================
 
     def test_json_extract_bool_execution(self, ds_with_json):
-        """Test extracting boolean values from JSON."""
+        """Test extracting boolean values from JSON preserves row order."""
         ds_with_json['is_active'] = ds_with_json['data'].json.json_extract_bool('active')
-        df = ds_with_json.sort_values('id').to_df()
+        df = ds_with_json.to_df()
 
         expected = [1, 0, 1]  # ClickHouse returns 1/0 for bool
         assert list(df['is_active']) == expected
@@ -105,33 +105,32 @@ class TestJsonNestedPaths:
         """Create DataStore with nested JSON."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"user": {"name": "Alice", "address": {"city": "NYC", "zip": "10001"}}}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"user": {"name": "Bob", "address": {"city": "LA", "zip": "90001"}}}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"user": {"name": "Alice", "address": {"city": "NYC", "zip": "10001"}}}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"user": {"name": "Bob", "address": {"city": "LA", "zip": "90001"}}}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
         return DataStore.from_df(df)
 
     def test_nested_path_extraction(self, ds_nested_json):
-        """Test extracting values from nested JSON paths."""
+        """Test extracting values from nested JSON paths preserves row order."""
         ds_nested_json['username'] = ds_nested_json['data'].json.json_extract_string('user.name')
-        # Sort by id for deterministic comparison (row order may vary with Python() table function)
-        df = ds_nested_json.to_df().sort_values('id')
+        df = ds_nested_json.to_df()
 
         expected = ['Alice', 'Bob']
         assert list(df['username']) == expected
 
     def test_deeply_nested_path(self, ds_nested_json):
-        """Test extracting deeply nested values."""
+        """Test extracting deeply nested values preserves row order."""
         ds_nested_json['city'] = ds_nested_json['data'].json.json_extract_string('user.address.city')
-        # Sort by id for deterministic comparison (row order may vary with Python() table function)
-        df = ds_nested_json.to_df().sort_values('id')
+        df = ds_nested_json.to_df()
 
         expected = ['NYC', 'LA']
         assert list(df['city']) == expected
@@ -145,14 +144,15 @@ class TestJsonExtractFloat:
         """Create DataStore with float values in JSON."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"price": 19.99, "quantity": 5}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"price": 29.50, "quantity": 3}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"price": 19.99, "quantity": 5}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"price": 29.50, "quantity": 3}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -342,14 +342,15 @@ class TestJsonArrayExtraction:
         """Create DataStore with JSON containing arrays."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"tags": ["python", "data", "ml"]}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"tags": ["java", "backend"]}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"tags": ["python", "data", "ml"]}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"tags": ["java", "backend"]}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
@@ -380,20 +381,21 @@ class TestJsonArrayExtraction:
         # Create data with nested structure
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"user": {"hobbies": ["reading", "coding"]}}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"user": {"hobbies": ["gaming"]}}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"user": {"hobbies": ["reading", "coding"]}}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"user": {"hobbies": ["gaming"]}}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )
         ds = DataStore.from_df(df)
         ds['hobbies'] = ds['data'].json.json_extract_array_raw('user.hobbies')
-        result = ds.to_df().sort_values('id')
+        result = ds.to_df()
 
         assert isinstance(result['hobbies'].iloc[0], list)
         assert result['hobbies'].iloc[0] == ['reading', 'coding']
@@ -468,8 +470,8 @@ class TestJsonDirectSQL:
         )
 
         tags = result['tags'].iloc[0]
-        # Should be a list/array with 3 elements
         assert len(tags) == 3
+        assert list(tags) == ['"a"', '"b"', '"c"']
 
 
 class TestJsonAccessorChaining:
@@ -480,14 +482,15 @@ class TestJsonAccessorChaining:
         """Create a test DataStore with JSON columns."""
         df = chdb.query(
             """
-            SELECT 
-                1 as id,
-                '{"name": "alice", "age": 30}' as data
-            UNION ALL
-            SELECT 
-                2 as id,
-                '{"name": "bob", "age": 25}' as data
-            ORDER BY id
+            SELECT * FROM (
+                SELECT 
+                    1 as id,
+                    '{"name": "alice", "age": 30}' as data
+                UNION ALL
+                SELECT 
+                    2 as id,
+                    '{"name": "bob", "age": 25}' as data
+            ) ORDER BY id
         """,
             "DataFrame",
         )

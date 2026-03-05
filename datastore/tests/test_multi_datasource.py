@@ -174,110 +174,81 @@ class TestMultiDataSourceCoexistence(unittest.TestCase):
 import pytest
 
 
-@pytest.mark.network
-class TestRemoteClickHouseIntegration(unittest.TestCase):
-    """
-    Integration tests with real remote ClickHouse server.
-
-    Uses the public ClickHouse demo server:
-    - Host: sql-clickhouse.clickhouse.com:9440
-    - Database: pypi
-    - Table: pypi_downloads
-    - User: demo
-    - Password: (empty)
-    - Secure: True (required for port 9440)
-
-    These tests require network access and are marked with @pytest.mark.network.
-    Run with: pytest -m network tests/test_multi_datasource.py
-    Skip with: pytest -m "not network" tests/
-    """
-
-    def setUp(self):
-        """Reset executor before each test."""
-        reset_executor()
+class TestRemoteClickHouseParamSemantic(unittest.TestCase):
+    """Unit tests for remote ClickHouse parameter handling (no server needed)."""
 
     def test_remote_clickhouse_database_param(self):
         """Remote ClickHouse connection should use correct database param."""
         ds = DataStore.from_clickhouse(
-            'sql-clickhouse.clickhouse.com:9440', 'pypi', 'pypi_downloads', 'demo', '', secure=True
+            'localhost:9000', 'mydb', 'mytable', 'default', ''
         )
 
-        # chDB path should be :memory:
         self.assertEqual(ds.database, ':memory:')
-        # Remote database should be 'pypi'
-        self.assertEqual(ds._table_function.params.get('database'), 'pypi')
+        self.assertEqual(ds._table_function.params.get('database'), 'mydb')
+
+
+class TestRemoteClickHouseIntegration:
+    """
+    Integration tests with local ClickHouse test server.
+
+    Uses the clickhouse_server fixture from conftest.py which automatically
+    starts/stops a local ClickHouse server with test_db (users, orders tables).
+    """
+
+    @pytest.fixture(autouse=True)
+    def setup(self, clickhouse_server):
+        self.host, self.port = clickhouse_server
+        reset_executor()
+
+    def _make_connection(self, database=None, table=None):
+        return DataStore.from_clickhouse(
+            f'{self.host}:{self.port}', database, table, 'default', ''
+        )
 
     def test_remote_clickhouse_with_local_dataframe(self):
         """Remote ClickHouse and local DataFrame can coexist."""
-        # Create local DataFrame first
-        local_df = pd.DataFrame({'project': ['numpy', 'pandas', 'scipy'], 'local_score': [100, 200, 150]})
+        local_df = pd.DataFrame({'name': ['Alice', 'Bob'], 'local_score': [100, 200]})
         ds_local = DataStore(local_df)
 
-        # Create remote ClickHouse connection
-        ds_remote = DataStore.from_clickhouse(
-            'sql-clickhouse.clickhouse.com:9440', 'pypi', 'pypi_downloads', 'demo', '', secure=True
-        )
+        ds_remote = self._make_connection('system', 'one')
 
-        # Both should use :memory:
-        self.assertEqual(ds_local.database, ':memory:')
-        self.assertEqual(ds_remote.database, ':memory:')
+        assert ds_local.database == ':memory:'
+        assert ds_remote.database == ':memory:'
 
-        # Connect to remote
         ds_remote.connect()
+        remote_result = ds_remote.select('dummy').limit(1)
+        assert len(remote_result) == 1
 
-        # Query remote
-        remote_result = ds_remote.select('project', 'count').filter(ds_remote['project'] == 'numpy').limit(1)
-
-        # Should have results
-        self.assertGreater(len(remote_result), 0)
-        self.assertEqual(list(remote_result.columns), ['project', 'count'])
-
-        # Local should still work
-        local_result = ds_local.filter(ds_local['project'] == 'numpy')
-        self.assertEqual(len(local_result), 1)
-        self.assertEqual(local_result['local_score'].iloc[0], 100)
+        local_result = ds_local.filter(ds_local['name'] == 'Alice')
+        assert len(local_result) == 1
+        assert local_result['local_score'].iloc[0] == 100
 
     def test_query_remote_clickhouse_basic(self):
-        """Basic query to remote ClickHouse server."""
-        ds = DataStore.from_clickhouse(
-            'sql-clickhouse.clickhouse.com:9440', 'pypi', 'pypi_downloads', 'demo', '', secure=True
-        )
+        """Basic query to local ClickHouse server."""
+        ds = self._make_connection('system', 'one')
         ds.connect()
 
-        # Simple query
-        result = ds.select('project', 'count').limit(5)
-
-        # Should have 5 rows
-        self.assertEqual(len(result), 5)
-        # Should have correct columns
-        self.assertEqual(list(result.columns), ['project', 'count'])
+        result = ds.select('dummy').limit(5)
+        assert len(result) >= 1
+        assert 'dummy' in result.columns
 
     def test_query_remote_clickhouse_with_filter(self):
-        """Query remote ClickHouse with filter."""
-        ds = DataStore.from_clickhouse(
-            'sql-clickhouse.clickhouse.com:9440', 'pypi', 'pypi_downloads', 'demo', '', secure=True
-        )
+        """Query local ClickHouse with filter on test_db.users."""
+        ds = self._make_connection('test_db', 'users')
         ds.connect()
 
-        # Query with filter
-        result = ds.select('project', 'count').filter(ds['project'] == 'requests').limit(3)
-
-        # All results should have project = 'requests'
-        self.assertTrue(all(result['project'] == 'requests'))
+        result = ds.select('id', 'name', 'age').filter(ds['name'] == 'Alice').limit(3)
+        assert len(result) >= 1
+        assert all(result['name'] == 'Alice')
 
     def test_query_remote_clickhouse_with_aggregation(self):
-        """Query remote ClickHouse with aggregation."""
-        ds = DataStore.from_clickhouse(
-            'sql-clickhouse.clickhouse.com:9440', 'pypi', 'pypi_downloads', 'demo', '', secure=True
-        )
+        """Query local ClickHouse with aggregation on test_db.users."""
+        ds = self._make_connection('test_db', 'users')
         ds.connect()
 
-        # Aggregation query
-        result = ds.filter(ds['project'] == 'numpy').groupby('project').agg(total_count=('count', 'sum'))
-
-        # Should have aggregated result
-        self.assertEqual(len(result), 1)
-        self.assertIn('total_count', result.columns)
+        result = ds.groupby('name').agg(total_age=('age', 'sum'))
+        assert len(result) > 0
+        assert 'total_age' in result.columns
 
 
 if __name__ == '__main__':
