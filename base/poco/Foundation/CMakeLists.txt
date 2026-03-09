@@ -212,6 +212,7 @@ target_compile_definitions (_poco_foundation
     PUBLIC
         POCO_ENABLE_CPP11
         POCO_OS_FAMILY_UNIX
+        POCO_NO_SIGNAL_HANDLER
 )
 
 target_include_directories (_poco_foundation SYSTEM PUBLIC "include")

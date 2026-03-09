@@ -6,7 +6,6 @@
 #include "StoragePython.h"
 #include <ChdbClient.h>
 #include "chdb.h"
-#include <Common/SignalHandlers.h>
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
