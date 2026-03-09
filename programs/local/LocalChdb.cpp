@@ -5,6 +5,8 @@
 #include "PythonImporter.h"
 #include "StoragePython.h"
 #include <ChdbClient.h>
+#include "chdb.h"
+#include <Common/SignalHandlers.h>
 
 #include <pybind11/detail/non_limited_api.h>
 #include <pybind11/pybind11.h>
@@ -879,6 +881,18 @@ PYBIND11_MODULE(_chdb, m)
         py::arg("udf_path") = "",
         py::arg("params") = py::dict(),
         "Query chDB and return a query_result object or DataFrame");
+
+    m.def(
+        "set_signal_handlers_enabled",
+        [](int enabled) { chdb_set_signal_handlers_enabled(enabled); },
+        py::arg("enabled"),
+        "Enable (1) or disable (0) chDB process-wide signal handler installation. "
+        "Must be called BEFORE chdb_connect() or query() to take effect.");
+
+    m.def(
+        "reset_signal_handlers",
+        []() { chdb_reset_signal_handlers(); },
+        "Reset all signal handlers installed by chDB back to SIG_DFL.");
 
     auto destroy_import_cache = []()
     {

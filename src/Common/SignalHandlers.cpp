@@ -38,6 +38,8 @@ static const std::vector<FramePointers> empty_stack;
 using namespace DB;
 
 
+std::atomic<bool> HandledSignals::disable_signal_handlers = false;
+
 static std::atomic_bool is_crashed = false;
 bool isCrashed() { return is_crashed.load(std::memory_order_relaxed); }
 
@@ -596,6 +598,8 @@ void HandledSignals::reset(bool close_pipe)
         }
     }
 
+    handled_signals.clear();
+
     if (close_pipe)
         signal_pipe.close();
 }
@@ -625,6 +629,9 @@ void HandledSignals::setupTerminateHandler()
 
 void HandledSignals::setupCommonDeadlySignalHandlers()
 {
+    if (disable_signal_handlers.load(std::memory_order_relaxed))
+        return;
+
     /// SIGTSTP is added for debugging purposes. To output a stack trace of any running thread at anytime.
     /// NOTE: that it is also used by clickhouse-test wrapper
     addSignalHandler({SIGABRT, SIGSEGV, SIGILL, SIGBUS, SIGSYS, SIGFPE, SIGTSTP, SIGTRAP}, signalHandler, true);
@@ -636,5 +643,8 @@ void HandledSignals::setupCommonDeadlySignalHandlers()
 
 void HandledSignals::setupCommonTerminateRequestSignalHandlers()
 {
+    if (disable_signal_handlers.load(std::memory_order_relaxed))
+        return;
+
     addSignalHandler({SIGINT, SIGQUIT, SIGTERM}, terminateRequestedSignalHandler, true);
 }

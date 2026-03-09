@@ -59,16 +59,12 @@ void interruptSignalHandler(int signum)
 
 ClientApplicationBase::~ClientApplicationBase()
 {
-    try
-    {
-        writeSignalIDtoSignalPipe(SignalListener::StopThread);
-        signal_listener_thread.join();
-        HandledSignals::instance().reset();
-    }
-    catch (...)
-    {
-        tryLogCurrentException(__PRETTY_FUNCTION__);
-    }
+    /// Signal handlers and the listener thread are managed globally via the
+    /// static HandledSignals singleton.  In the chDB embedded use-case a new
+    /// ClientApplicationBase is created (and destroyed) for every query, but
+    /// the signal infrastructure must survive across queries.  Cleanup is
+    /// handled by chdb_reset_signal_handlers() / set_signal_handlers_enabled(0)
+    /// when the user explicitly requests it.
 }
 
 ClientApplicationBase::ClientApplicationBase() : ClientBase(STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO, std::cin, std::cout, std::cerr) {}

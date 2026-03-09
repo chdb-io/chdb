@@ -35,3 +35,6 @@ _chdb_result_error
 _chdb_arrow_scan
 _chdb_arrow_array_scan
 _chdb_arrow_unregister_table
+
+_chdb_set_signal_handlers_enabled
+_chdb_reset_signal_handlers

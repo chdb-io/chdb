@@ -67,6 +67,7 @@
 #include <Common/formatReadable.h>
 #include <Common/logger_useful.h>
 #include <Common/quoteString.h>
+#include <Common/SignalHandlers.h>
 
 #include "config.h"
 
@@ -552,6 +553,10 @@ try
     StackTrace::setShowAddresses(server_settings[ServerSetting::show_addresses_in_stack_traces]);
     std::cout << std::fixed << std::setprecision(3);
     std::cerr << std::fixed << std::setprecision(3);
+
+    /// Re-install ClickHouse signal handlers (SA_SIGINFO) after Poco::Application::initialize()
+    /// which overwrites them with its own non-SA_SIGINFO handlers.
+    HandledSignals::instance().setupCommonDeadlySignalHandlers();
 
     /// Try to increase limit on number of open files.
     {
