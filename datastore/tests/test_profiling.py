@@ -124,7 +124,7 @@ class TestRemoteSQLProfilingSteps(unittest.TestCase):
 
     @mock.patch("chdb.query")
     def test_remote_sql_step_has_sql_preview_and_valid_timing(self, mock_query):
-        """Remote SQL Query step metadata should contain sql preview and non-negative time_ms."""
+        """Remote SQL Query step should contain sql preview and non-negative duration_ms."""
         mock_query.return_value = pd.DataFrame({"x": [1]})
 
         ds = DataStore(
@@ -143,11 +143,8 @@ class TestRemoteSQLProfilingSteps(unittest.TestCase):
         assert "sql" in step.metadata, (
             f"Step metadata should have 'sql' key, got: {step.metadata}"
         )
-        assert "time_ms" in step.metadata, (
-            f"Step metadata should have 'time_ms' key, got: {step.metadata}"
-        )
-        assert float(step.metadata["time_ms"]) >= 0, (
-            f"time_ms should be non-negative, got: {step.metadata['time_ms']}"
+        assert step.duration_ms >= 0, (
+            f"duration_ms should be non-negative, got: {step.duration_ms}"
         )
         assert len(step.metadata["sql"]) > 0, (
             "sql preview should not be empty"
@@ -242,7 +239,7 @@ class TestMetadataQueryProfilingSteps(unittest.TestCase):
 
     @mock.patch("chdb.query")
     def test_metadata_step_has_sql_preview_and_valid_timing(self, mock_query):
-        """Metadata Query step metadata should contain sql preview and non-negative time_ms."""
+        """Metadata Query step should contain sql preview and non-negative duration_ms."""
         mock_query.return_value = pd.DataFrame({"name": ["db1"]})
 
         ds = DataStore(
@@ -259,11 +256,8 @@ class TestMetadataQueryProfilingSteps(unittest.TestCase):
         assert "sql" in step.metadata, (
             f"Step metadata should have 'sql' key, got: {step.metadata}"
         )
-        assert "time_ms" in step.metadata, (
-            f"Step metadata should have 'time_ms' key, got: {step.metadata}"
-        )
-        assert float(step.metadata["time_ms"]) >= 0, (
-            f"time_ms should be non-negative, got: {step.metadata['time_ms']}"
+        assert step.duration_ms >= 0, (
+            f"duration_ms should be non-negative, got: {step.duration_ms}"
         )
         assert "SELECT" in step.metadata["sql"].upper(), (
             f"sql preview should contain a SELECT statement, got: {step.metadata['sql']}"

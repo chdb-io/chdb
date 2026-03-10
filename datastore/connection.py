@@ -115,8 +115,8 @@ class Connection:
             profiler = get_profiler()
             if profiler:
                 sql_preview = sql[:50] + "..." if len(sql) > 50 else sql
-                with profiler.step("chDB Query", sql=sql_preview, time_ms=f"{elapsed_ms:.2f}"):
-                    pass  # Already executed, just record timing
+                with profiler.step("chDB Query", sql=sql_preview, duration_ms=elapsed_ms):
+                    pass
 
             return QueryResult(data=result, output_format=output_format)
         except Exception as e:
@@ -295,9 +295,9 @@ class Connection:
                     sql=sql_preview,
                     rows_in=len(df),
                     rows_out=len(result),
-                    time_ms=f"{elapsed_ms:.2f}",
+                    duration_ms=elapsed_ms,
                 ):
-                    pass  # Already executed, just record timing
+                    pass
 
             # Restore original integer column names if we converted them
             if int_col_map:
@@ -913,8 +913,8 @@ class Connection:
             profiler = get_profiler()
             if profiler:
                 expr_preview = expr_sql[:40] + "..." if len(expr_sql) > 40 else expr_sql
-                with profiler.step("chDB Expression", expr=expr_preview, rows=len(df), time_ms=f"{elapsed_ms:.2f}"):
-                    pass  # Already executed, just record timing
+                with profiler.step("chDB Expression", expr=expr_preview, rows=len(df), duration_ms=elapsed_ms):
+                    pass
 
             return result_series
         except Exception as e:
