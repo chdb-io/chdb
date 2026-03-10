@@ -9,6 +9,9 @@ Uses the `==` operator for comparison, which is implemented in DataStore,
 ColumnExpr, and LazyAggregate to handle smart comparison with pandas objects.
 """
 
+import io
+from contextlib import redirect_stdout
+
 import pytest
 import pandas as pd
 import numpy as np
@@ -616,7 +619,10 @@ class TestDateTimeEngineSwitch:
             ds_df['year'] = ds_df['date'].dt.year
 
             # Get explain output
-            explain_output = ds_df.explain()
+            f = io.StringIO()
+            with redirect_stdout(f):
+                ds_df.explain()
+            explain_output = f.getvalue()
 
             # Should show toYear in the plan (the lazy expression)
             assert 'toYear' in explain_output, f"Expected 'toYear' in explain output:\n{explain_output}"
@@ -627,7 +633,10 @@ class TestDateTimeEngineSwitch:
             ds_df2 = ds.DataStore.from_df(pd.DataFrame(sample_df))
             ds_df2['year'] = ds_df2['date'].dt.year
 
-            explain_output2 = ds_df2.explain()
+            f = io.StringIO()
+            with redirect_stdout(f):
+                ds_df2.explain()
+            explain_output2 = f.getvalue()
 
             # In new architecture, explain shows the expression (toYear) but execution
             # engine selection happens at runtime. Check that the plan is present.
@@ -650,7 +659,10 @@ class TestDateTimeEngineSwitch:
             ds_df['year'] = ds_df['date'].dt.year
             ds_df['month'] = ds_df['date'].dt.month
 
-            explain_output = ds_df.explain()
+            f = io.StringIO()
+            with redirect_stdout(f):
+                ds_df.explain()
+            explain_output = f.getvalue()
 
             # Verify chDB function patterns in explain output
             # Pattern: [chDB] Assign column 'year' = toYear(...)
@@ -683,7 +695,10 @@ class TestDateTimeEngineSwitch:
             ds_df['year'] = ds_df['date'].dt.year
             ds_df['month'] = ds_df['date'].dt.month
 
-            explain_output = ds_df.explain()
+            f = io.StringIO()
+            with redirect_stdout(f):
+                ds_df.explain()
+            explain_output = f.getvalue()
 
             # In new unified architecture, explain shows toYear/toMonth but engine is [Pandas]
             # Engine selection happens at execution time based on function_config

@@ -24,6 +24,7 @@ import os
 import re
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -38,6 +39,13 @@ from datastore.expressions import Field, Literal
 from datastore.conditions import BinaryCondition
 
 from tests.test_utils import assert_datastore_equals_pandas
+
+
+def _capture_explain(obj, **kwargs):
+    f = io.StringIO()
+    with redirect_stdout(f):
+        obj.explain(**kwargs)
+    return f.getvalue()
 
 
 def verify_segment_engines(lazy_ops, has_sql_source, expected_segments):
@@ -926,7 +934,7 @@ class TestDebugLoggingVerification(unittest.TestCase):
         ds['doubled'] = ds['value'].apply(lambda x: x * 2)
         ds = ds.sort_values('doubled')
 
-        explain = ds.explain()
+        explain = _capture_explain(ds)
 
         # === VERIFY HEADER ===
         self.assertIn('Execution Plan (in execution order)', explain, "Should show execution plan header")

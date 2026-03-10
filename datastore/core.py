@@ -684,7 +684,7 @@ class DataStore(PandasCompatMixin):
                     lines.append(f"     └─ {k}: {v}")
         return lines
 
-    def explain(self, verbose: bool = False) -> str:
+    def explain(self, verbose: bool = False) -> None:
         """
         Generate and display the execution plan in original operation order.
 
@@ -696,15 +696,12 @@ class DataStore(PandasCompatMixin):
         Args:
             verbose: If True, show additional details like full SQL queries
 
-        Returns:
-            String representation of the execution plan
-
         Example:
             >>> ds = DataStore.from_file("data.csv")
             >>> ds = ds.select('name', 'age').filter(ds.age > 25)
             >>> ds['computed'] = ds['age'] * 2
             >>> ds = ds.filter(ds['age'] < 50)  # Order matters!
-            >>> print(ds.explain())
+            >>> ds.explain()
         """
         from .query_planner import QueryPlanner
 
@@ -867,7 +864,6 @@ class DataStore(PandasCompatMixin):
 
         output = "\n".join(lines)
         print(output)
-        return output
 
     def _is_sql_query(self) -> bool:
         """Check if this DataStore represents a SQL query."""

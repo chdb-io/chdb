@@ -2,10 +2,20 @@
 Tests for the explain() method.
 """
 
-import unittest
-import tempfile
+import io
 import os
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+
 from datastore import DataStore
+
+
+def _capture_explain(obj, **kwargs):
+    f = io.StringIO()
+    with redirect_stdout(f):
+        obj.explain(**kwargs)
+    return f.getvalue()
 
 
 class TestExplainMethod(unittest.TestCase):
@@ -35,7 +45,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*')
 
-        output = result.explain()
+        output = _capture_explain(result)
         self.assertIsInstance(output, str)
         self.assertIn("Execution Plan", output)
 
@@ -44,7 +54,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').filter(ds.age > 25)
 
-        output = result.explain()
+        output = _capture_explain(result)
         self.assertIn("Operations", output)
         self.assertIn("SELECT", output)
         self.assertIn("WHERE", output)
@@ -54,7 +64,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').filter(ds.age > 25).add_prefix('p1_').filter(ds.p1_salary > 55000)
 
-        output = result.explain()
+        output = _capture_explain(result)
         self.assertIn("Execution Plan", output)
         # Should show some operations
         self.assertIn("[1]", output)
@@ -64,8 +74,8 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').filter(ds.age > 25).add_prefix('p1_')
 
-        normal_output = result.explain()
-        verbose_output = result.explain(verbose=True)
+        normal_output = _capture_explain(result)
+        verbose_output = _capture_explain(result, verbose=True)
 
         # Verbose should have more content
         self.assertGreaterEqual(len(verbose_output), len(normal_output))
@@ -78,7 +88,7 @@ class TestExplainMethod(unittest.TestCase):
         result = ds.select('*').filter(ds.age > 25)
 
         # Call explain - should not execute
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Should show pending state
         self.assertIn("Pending", output)
@@ -89,7 +99,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').add_prefix('p1_')
 
-        output = result.explain()
+        output = _capture_explain(result)
         # Should show the operation history
         self.assertIn("Execution Plan", output)
 
@@ -98,7 +108,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').filter(ds.age > 25).filter(ds.salary > 60000)
 
-        output = result.explain()
+        output = _capture_explain(result)
         self.assertIn("Generated SQL Query", output)
         self.assertIn("SELECT", output)
         self.assertIn("FROM", output)
@@ -111,7 +121,7 @@ class TestExplainMethod(unittest.TestCase):
         result['doubled'] = result['age'] * 2
         result = result.filter(ds.salary > 55000)
 
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Should have numbered operations
         self.assertIn("[1]", output)
@@ -124,7 +134,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').filter(ds.age > 25).add_prefix('p1_').filter(ds.p1_salary > 55000)
 
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Operations should appear in order
         select_idx = output.find("SELECT:")
@@ -138,7 +148,7 @@ class TestExplainMethod(unittest.TestCase):
         """Test explain() with a DataStore that has no operations."""
         ds = DataStore.from_file(self.csv_file)
 
-        output = ds.explain()
+        output = _capture_explain(ds)
         self.assertIn("Execution Plan", output)
 
     def test_explain_pandas_operation(self):
@@ -146,7 +156,7 @@ class TestExplainMethod(unittest.TestCase):
         ds = DataStore.from_file(self.csv_file)
         result = ds.select('*').add_prefix('emp_').filter(ds.emp_age > 28)
 
-        output = result.explain()
+        output = _capture_explain(result)
         # add_prefix is now lazy, should show in operations
         self.assertIn("Add prefix", output)
 
@@ -209,7 +219,7 @@ class TestExplainMethod(unittest.TestCase):
             )
 
         # explain should handle many operations without crashing
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Verify basic structure exists
         self.assertIn("Execution Plan", output)
@@ -246,7 +256,7 @@ class TestExplainMethod(unittest.TestCase):
                 }
             )
 
-        output = result.explain()
+        output = _capture_explain(result)
         self.assertIn("Execution Plan", output)
         # Should have many operations (data source + select + 25 filters + execution + 25 post-mat)
         self.assertIn("[25]", output)  # Should have operation #25
@@ -283,7 +293,7 @@ class TestExplainMethod(unittest.TestCase):
                 }
             )
 
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Should show correct execution and subsequent operations
         self.assertIn("Execution Point", output)
@@ -322,7 +332,7 @@ class TestExplainMethod(unittest.TestCase):
 
         # explain() should complete quickly (<2 seconds)
         start = time.time()
-        output = result.explain()
+        output = _capture_explain(result)
         duration = time.time() - start
 
         self.assertLess(duration, 2.0, "explain() should complete in less than 2 seconds")
@@ -336,7 +346,7 @@ class TestExplainMethod(unittest.TestCase):
         # Only Pandas operations
         result = ds.add_prefix('p1_').add_suffix('_s1').rename(columns={'p1_id_s1': 'new_id'}).add_prefix('p2_')
 
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Should have execution plan
         self.assertIn("Execution Plan", output)
@@ -354,7 +364,7 @@ class TestExplainMethod(unittest.TestCase):
         result = result.sort('age', ascending=False)
         result = result.limit(10)
 
-        output = result.explain()
+        output = _capture_explain(result)
 
         # Find positions of operations
         # Note: SQL operations use SQL terminology, Pandas operations use pandas terminology

@@ -5,13 +5,22 @@ This module tests the intelligent automatic caching feature that avoids
 re-execution of the pipeline when repr/__str__ are called multiple times.
 """
 
+import io
 import time
 import unittest
+from contextlib import redirect_stdout
 
 import pandas as pd
 
 from datastore import DataStore, config
 from tests.test_utils import assert_frame_equal
+
+
+def _capture_explain(obj, **kwargs):
+    f = io.StringIO()
+    with redirect_stdout(f):
+        obj.explain(**kwargs)
+    return f.getvalue()
 
 
 class TestCacheBasics(unittest.TestCase):
@@ -1066,7 +1075,7 @@ class TestIncrementalExecutionVerification(unittest.TestCase):
         str(ds)  # checkpoint
 
         # After checkpoint, explain should show DataFrame source
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
         self.assertIn('DataFrame source', explain_output)
 
     def test_explain_shows_new_ops_after_checkpoint(self):
@@ -1079,7 +1088,7 @@ class TestIncrementalExecutionVerification(unittest.TestCase):
 
         ds['z'] = ds['y'] + 1  # new op after checkpoint
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Should show both cached source and new op
         self.assertIn('DataFrame source', explain_output)
@@ -1664,7 +1673,7 @@ class TestEngineExecutionVerification(unittest.TestCase):
         ds = DataStore.from_dataframe(pd.DataFrame({'a': [1, 2, 3]}))
         ds['b'] = ds['a'] * 2
         
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
         
         # In Pandas mode, explain should show [Pandas] indicators
         self.assertIn('[Pandas]', explain_output,
@@ -1675,7 +1684,7 @@ class TestEngineExecutionVerification(unittest.TestCase):
         ds2 = DataStore.from_dataframe(pd.DataFrame({'a': [1, 2, 3]}))
         ds2['b'] = ds2['a'] * 2
         
-        explain_output2 = ds2.explain()
+        explain_output2 = _capture_explain(ds2)
         
         # In Auto mode, explain might show either engine
         # The key is that it should have engine indicators

@@ -2,6 +2,9 @@
 Test lazy execution functionality.
 """
 
+import io
+from contextlib import redirect_stdout
+
 import pytest
 import os
 from datastore import DataStore as ds
@@ -142,7 +145,10 @@ def test_explain():
     users = users.filter(users["age"] < 50)
 
     # Explain should not execute
-    output = users.explain()
+    f = io.StringIO()
+    with redirect_stdout(f):
+        users.explain()
+    output = f.getvalue()
 
     # Check that explain worked
     assert "Execution Plan" in output
