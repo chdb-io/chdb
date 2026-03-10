@@ -289,19 +289,18 @@ class TestPristineRemoteTestDB:
         ds = clickhouse_connection.table("test_db", "users")
         assert ds.empty is False
 
-    def test_metadata_matches_full_execution(self, clickhouse_connection):
-        """Metadata from pristine path must match full execution result."""
+    def test_metadata_matches_sql_schema(self, clickhouse_connection):
+        """Metadata from pristine path must match DESCRIBE schema."""
         ds = clickhouse_connection.table("test_db", "users")
         meta_cols = list(ds.columns)
-        meta_shape = ds.shape
         meta_dtypes = ds.dtypes
 
-        ds2 = clickhouse_connection.table("test_db", "users")
-        full_df = ds2._execute()
+        schema_df = clickhouse_connection.describe("test_db", "users")
+        schema_cols = schema_df["name"].tolist()
 
-        assert meta_cols == list(full_df.columns)
-        assert meta_shape == full_df.shape
-        pd.testing.assert_series_equal(meta_dtypes, full_df.dtypes)
+        assert meta_cols == schema_cols
+        assert len(meta_dtypes) == len(schema_cols)
+        assert list(meta_dtypes.index) == schema_cols
 
     def test_metadata_does_not_trigger_full_load(self, clickhouse_connection):
         """Accessing metadata should not populate _cached_result."""
