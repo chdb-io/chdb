@@ -300,7 +300,7 @@ if "chdb" in _sys.modules and not hasattr(_sys.modules["chdb"], "core_version"):
     try:
         import importlib.metadata as _meta
         _chdb = _sys.modules["chdb"]
-        _chdb.core_version = getattr(_chdb, "engine_version", _chdb.__version__)
+        _chdb.core_version = _meta.version("chdb-core")
         _chdb.__version__ = _meta.version("chdb")
         _chdb.chdb_version = tuple(_chdb.__version__.split("."))
     except Exception:

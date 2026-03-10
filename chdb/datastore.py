@@ -17,7 +17,7 @@ import datastore as _datastore_pkg  # the real top-level package
 _chdb_mod = sys.modules.get("chdb")
 if _chdb_mod is not None and not hasattr(_chdb_mod, "core_version"):
     try:
-        _chdb_mod.core_version = getattr(_chdb_mod, "engine_version", _chdb_mod.__version__)
+        _chdb_mod.core_version = importlib.metadata.version("chdb-core")
         _chdb_mod.__version__ = importlib.metadata.version("chdb")
         _chdb_mod.chdb_version = tuple(_chdb_mod.__version__.split("."))
     except Exception:
