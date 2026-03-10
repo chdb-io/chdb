@@ -293,6 +293,19 @@ from .pandas_api import (  # noqa: E402
 __version__ = "3.7.0"
 __author__ = "DataStore Contributors"
 
+# When the chdb pip package is installed, patch chdb.__version__ to reflect
+# the chdb package version rather than the chdb-core engine version.
+import sys as _sys
+if "chdb" in _sys.modules and not hasattr(_sys.modules["chdb"], "core_version"):
+    try:
+        import importlib.metadata as _meta
+        _chdb = _sys.modules["chdb"]
+        _chdb.core_version = getattr(_chdb, "engine_version", _chdb.__version__)
+        _chdb.__version__ = _meta.version("chdb")
+        _chdb.chdb_version = tuple(_chdb.__version__.split("."))
+    except Exception:
+        pass
+
 __all__ = [
     # Core
     'DataStore',

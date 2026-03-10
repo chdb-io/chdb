@@ -52,7 +52,8 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["datastore*"]
+include = ["datastore*", "chdb"]
+namespaces = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
