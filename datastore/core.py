@@ -5590,7 +5590,7 @@ class DataStore(PandasCompatMixin):
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         with profiler.step(
-            "Remote SQL Query", sql=sql_preview, time_ms=f"{elapsed_ms:.2f}"
+            "Remote SQL Query", sql=sql_preview, duration_ms=elapsed_ms
         ):
             pass
 
@@ -6091,7 +6091,7 @@ class DataStore(PandasCompatMixin):
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         with profiler.step(
-            "Metadata Query", sql=sql_preview, time_ms=f"{elapsed_ms:.2f}"
+            "Metadata Query", sql=sql_preview, duration_ms=elapsed_ms
         ):
             pass
 

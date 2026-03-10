@@ -611,11 +611,16 @@ class Profiler:
 
         Args:
             name: Name of the step
-            **metadata: Additional metadata to attach to the step
+            **metadata: Additional metadata to attach to the step.
+                If ``duration_ms`` (float) is provided, it is used as the
+                step duration instead of measuring the ``with`` block body.
+                This is useful when the work has already been timed externally.
         """
         if not self.enabled:
             yield None
             return
+
+        pre_duration_ms = metadata.pop("duration_ms", None)
 
         parent = self._stack[-1] if self._stack else None
         step = ProfileStep(name, parent)
@@ -631,7 +636,10 @@ class Profiler:
         try:
             yield step
         finally:
-            step.end_time = time.perf_counter()
+            if pre_duration_ms is not None:
+                step.end_time = step.start_time + pre_duration_ms / 1000.0
+            else:
+                step.end_time = time.perf_counter()
             self._stack.pop()
 
     def clear(self):
