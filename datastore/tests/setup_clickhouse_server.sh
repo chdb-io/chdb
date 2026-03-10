@@ -160,6 +160,7 @@ cat > "${CONFIG_FILE}" << EOF
     </logger>
     <listen_host>127.0.0.1</listen_host>
     <users_config>users.xml</users_config>
+    <max_server_memory_usage_to_ram_ratio>0.25</max_server_memory_usage_to_ram_ratio>
 </clickhouse>
 EOF
 
@@ -170,7 +171,7 @@ cat > "${USERS_FILE}" << EOF
 <clickhouse>
     <profiles>
         <default>
-            <max_memory_usage>10000000000</max_memory_usage>
+            <max_memory_usage>500000000</max_memory_usage>
             <use_uncompressed_cache>0</use_uncompressed_cache>
             <load_balancing>random</load_balancing>
         </default>

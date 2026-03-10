@@ -5,8 +5,10 @@ These tests cover advanced scenarios mixing SQL operations (filter, sort, join, 
 with Pandas operations (assign, transform, apply, pivot, rank, etc.) in various orders.
 """
 
+import io
 import logging
 import os
+from contextlib import redirect_stdout
 
 import numpy as np
 import pandas as pd
@@ -453,7 +455,10 @@ class TestExplainWithComplexPipelines:
         ds = ds.limit(10)
 
         # Get explain output
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
 
         # Should contain key operations
         assert "WHERE" in explain_output or "filter" in explain_output.lower()
@@ -836,7 +841,10 @@ class TestExtremeMixedPipeline:
         ds["col_15"] = ds["col_13"] + 1  # 15
 
         # Get explain output
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
 
         # Should contain multiple operation types
         assert "SELECT" in explain_output or "select" in explain_output.lower()

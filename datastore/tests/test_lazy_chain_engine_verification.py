@@ -13,10 +13,18 @@ import numpy as np
 import logging
 import io
 import re
+from contextlib import redirect_stdout
 
 from datastore import DataStore, config
 from datastore.config import ExecutionEngine
 from datastore.function_executor import function_config, ExecutionEngine as FuncExecEngine
+
+
+def _capture_explain(obj, **kwargs):
+    f = io.StringIO()
+    with redirect_stdout(f):
+        obj.explain(**kwargs)
+    return f.getvalue()
 
 
 class TestLongChainWithExplain(unittest.TestCase):
@@ -46,7 +54,7 @@ class TestLongChainWithExplain(unittest.TestCase):
         ds = self.ds.select('text', 'value')
         ds = ds.filter(ds['value'] > -5)
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Should show [chDB] markers
         self.assertIn('[chDB]', explain_output)
@@ -60,7 +68,7 @@ class TestLongChainWithExplain(unittest.TestCase):
         ds = self.ds.copy()
         ds['upper_text'] = ds['text'].str.upper()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Verify [Pandas] marker is present for this column assignment
         pandas_pattern = re.compile(r'\[Pandas\].*Assign column.*upper_text')
@@ -75,7 +83,7 @@ class TestLongChainWithExplain(unittest.TestCase):
         # Chain: trim -> upper
         ds['processed'] = ds['text'].str.trim().str.upper()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Verify [chDB] marker is present for this column assignment
         chdb_pattern = re.compile(r'\[chDB\].*Assign column.*processed')
@@ -90,7 +98,7 @@ class TestLongChainWithExplain(unittest.TestCase):
         # Chain: abs -> + 10 -> sqrt
         ds['computed'] = (ds['value'].abs() + 10).sqrt()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Verify [chDB] marker is present for this column assignment
         chdb_pattern = re.compile(r'\[chDB\].*Assign column.*computed')
@@ -283,7 +291,7 @@ class TestExplainWithEngineMarkers(unittest.TestCase):
     def test_explain_contains_engine_markers(self):
         """explain() should contain engine markers [chDB] or [Pandas]."""
         ds = self.ds.select('text', 'value')
-        explain = ds.explain()
+        explain = _capture_explain(ds)
 
         # Should have at least one engine marker
         has_chdb = '[chDB]' in explain
@@ -294,13 +302,13 @@ class TestExplainWithEngineMarkers(unittest.TestCase):
     def test_explain_shows_execution_plan_header(self):
         """explain() should show execution plan header."""
         ds = self.ds.select('text')
-        explain = ds.explain()
+        explain = _capture_explain(ds)
 
         self.assertIn('Execution Plan', explain)
 
     def test_explain_shows_data_source(self):
         """explain() should show data source."""
-        explain = self.ds.explain()
+        explain = _capture_explain(self.ds)
 
         # Should mention data source
         self.assertIn('📊', explain)
@@ -308,7 +316,7 @@ class TestExplainWithEngineMarkers(unittest.TestCase):
     def test_explain_shows_final_state(self):
         """explain() should show final state."""
         ds = self.ds.select('text')
-        explain = ds.explain()
+        explain = _capture_explain(ds)
 
         self.assertIn('Final State', explain)
 
@@ -431,7 +439,7 @@ class TestEngineVerificationWithColumnAssignment(unittest.TestCase):
         ds = self.ds.copy()
         ds['upper'] = ds['text'].str.upper()
 
-        explain = ds.explain()
+        explain = _capture_explain(ds)
 
         # Verify [chDB] marker for column assignment
         chdb_pattern = re.compile(r'\[chDB\].*Assign column.*upper')
@@ -524,7 +532,7 @@ class TestExplainOutputEngineVerification(unittest.TestCase):
         ds['upper'] = ds['text'].str.trim().str.upper()
         ds['abs_val'] = ds['value'].abs()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Use regex to find [chDB] markers for Assign column operations
         chdb_assign_pattern = re.compile(r'\[chDB\].*Assign column')
@@ -546,7 +554,7 @@ class TestExplainOutputEngineVerification(unittest.TestCase):
         ds['upper'] = ds['text'].str.trim().str.upper()
         ds['abs_val'] = ds['value'].abs()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Use regex to find [Pandas] markers for Assign column operations
         pandas_assign_pattern = re.compile(r'\[Pandas\].*Assign column')
@@ -567,7 +575,7 @@ class TestExplainOutputEngineVerification(unittest.TestCase):
         ds = self.ds.copy()
         ds['upper'] = ds['text'].str.upper()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # [Pandas] should NOT appear for Assign column with upper
         pandas_upper_pattern = re.compile(r'\[Pandas\].*Assign column.*upper')
@@ -587,7 +595,7 @@ class TestExplainOutputEngineVerification(unittest.TestCase):
         ds = self.ds.copy()
         ds['upper'] = ds['text'].str.upper()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # [chDB] should NOT appear for Assign column with upper
         chdb_upper_pattern = re.compile(r'\[chDB\].*Assign column.*upper')
@@ -611,7 +619,7 @@ class TestExplainOutputEngineVerification(unittest.TestCase):
         ds['abs_val'] = ds['value'].abs()
         ds['rounded'] = ds['value'].round()
 
-        explain_output = ds.explain()
+        explain_output = _capture_explain(ds)
 
         # Count [chDB] and [Pandas] markers for Assign column
         chdb_pattern = re.compile(r'\[chDB\].*Assign column')
@@ -630,13 +638,13 @@ class TestExplainOutputEngineVerification(unittest.TestCase):
         config.use_chdb()
         ds1 = self.ds.copy()
         ds1['upper'] = ds1['text'].str.upper()
-        explain_ch = ds1.explain()
+        explain_ch = _capture_explain(ds1)
 
         # Then with Pandas
         config.use_pandas()
         ds2 = self.ds.copy()
         ds2['upper'] = ds2['text'].str.upper()
-        explain_pd = ds2.explain()
+        explain_pd = _capture_explain(ds2)
 
         # ClickHouse explain should have [chDB]
         self.assertIn('[chDB]', explain_ch)

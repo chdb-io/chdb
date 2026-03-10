@@ -1,6 +1,8 @@
+import io
 import logging
 import os
 import importlib
+from contextlib import redirect_stdout
 
 import pytest
 
@@ -21,7 +23,10 @@ def test_explain_reports_lazy_ops_in_order():
     users["age_plus_1"] = users["age"] + 1
     users = users[["name", "age_plus_1"]]
 
-    output = users.explain()
+    f = io.StringIO()
+    with redirect_stdout(f):
+        users.explain()
+    output = f.getvalue()
 
     assert "SELECT:" in output
     assert "WHERE:" in output
@@ -176,7 +181,10 @@ def test_explain_includes_join_and_pandas_ops():
     ds = ds.select("user_id", "age", "amount")  # select after join
     ds = ds.filter(ds.age > 25).add_prefix("u_")
 
-    output = ds.explain()
+    f = io.StringIO()
+    with redirect_stdout(f):
+        ds.explain()
+    output = f.getvalue()
 
     assert "JOIN" in output  # SQL JOIN in the generated query
     assert "Add prefix" in output

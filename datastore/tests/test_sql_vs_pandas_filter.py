@@ -4,10 +4,13 @@ Test to understand how SQL engine vs Pandas engine filtering works.
 This test creates independent data and verifies both execution paths.
 """
 
+import io
 import unittest
 import tempfile
 import os
 import logging
+from contextlib import redirect_stdout
+
 import pandas as pd
 
 from datastore import DataStore, config
@@ -1216,7 +1219,10 @@ class TestExecutionEngineVerification(unittest.TestCase):
         ds = ds.sort('value', ascending=False)
         ds = ds.limit(5)
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
         print("\n=== Pure SQL Operations ===")
         print(explain_output)
 
@@ -1249,7 +1255,10 @@ class TestExecutionEngineVerification(unittest.TestCase):
         ds['tripled'] = ds['value'] * 3
         ds = ds.add_prefix('col_')
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
         print("\n=== Pandas Operations ===")
         print(explain_output)
 
@@ -1284,7 +1293,10 @@ class TestExecutionEngineVerification(unittest.TestCase):
         # Step 5: SQL sort
         ds = ds.sort('id', ascending=True)
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
         print("\n=== Mixed SQL + Pandas Operations ===")
         print(explain_output)
 
@@ -1338,7 +1350,10 @@ class TestExecutionEngineVerification(unittest.TestCase):
         ds['s24'] = ds['s22'] + 1  # 24 [Pandas]
         ds = ds.filter(ds['s24'] > 0)  # 25 [Pandas]
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
         print("\n=== 25-Step Pipeline Explain ===")
         print(explain_output)
 
@@ -1433,12 +1448,18 @@ class TestExecutionEngineVerification(unittest.TestCase):
         ds = ds.limit(5)
 
         # Non-verbose
-        explain_normal = ds.explain(verbose=False)
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain(verbose=False)
+        explain_normal = f.getvalue()
         print("\n=== Explain (Normal) ===")
         print(explain_normal)
 
         # Verbose
-        explain_verbose = ds.explain(verbose=True)
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain(verbose=True)
+        explain_verbose = f.getvalue()
         print("\n=== Explain (Verbose) ===")
         print(explain_verbose)
 
@@ -1470,7 +1491,10 @@ class TestExecutionEngineVerification(unittest.TestCase):
         # Step 3: Filter after pandas op (should use Pandas engine)
         ds = ds.filter(ds['computed'] > 80)
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
         print("\n=== Filter After Pandas Op ===")
         print(explain_output)
 
@@ -1593,7 +1617,10 @@ class TestExecutionEngineVerification(unittest.TestCase):
             print(f"  {op}")
 
         # Print explain
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
         print("\n=== Execution Plan ===")
         print(explain_output)
 
@@ -1828,7 +1855,10 @@ class TestLazyPipelineInterleaving(unittest.TestCase):
         ds = ds.sort_values('computed', ascending=False)
         ds = ds.head(3)
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
 
         # Verify explain shows useful information
         self.assertIn('[chDB]', explain_output)
@@ -2008,7 +2038,10 @@ class TestSQLMethodInPipeline(unittest.TestCase):
         ds = ds.sql("SELECT * FROM __df__ WHERE doubled > 80")
         ds = ds.add_prefix('result_')
 
-        explain_output = ds.explain()
+        f = io.StringIO()
+        with redirect_stdout(f):
+            ds.explain()
+        explain_output = f.getvalue()
 
         print("\n=== .sql() in explain() ===")
         print(explain_output)

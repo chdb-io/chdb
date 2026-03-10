@@ -7,11 +7,21 @@ showing proper SQL-Pandas-SQL interleaving instead of the old single-boundary ap
 Reference: example_daily_usage.ipynb scenario
 """
 
+import io
 import unittest
+from contextlib import redirect_stdout
+
 import pandas as pd
 
 from datastore import DataStore as ds
 from tests.test_utils import assert_datastore_equals_pandas
+
+
+def _capture_explain(obj, **kwargs):
+    f = io.StringIO()
+    with redirect_stdout(f):
+        obj.explain(**kwargs)
+    return f.getvalue()
 
 
 class TestExplainSegmentedExecution(unittest.TestCase):
@@ -45,7 +55,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         nat2['float_age'] = nat2.doubled.cast('Float64')
 
         # Get explain output
-        explain_output = nat2.explain()
+        explain_output = _capture_explain(nat2)
 
         # Verify multiple segments are shown (not just 2 phases)
         self.assertIn('Segment 1', explain_output)
@@ -121,7 +131,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         nat = nat.filter(nat.age < 35)
         nat['age_minus_10'] = nat['age'] - 10
 
-        explain_output = nat.explain()
+        explain_output = _capture_explain(nat)
 
         # Segment 1 should start at Operation 2 (after data source [1])
         self.assertIn('Segment 1', explain_output)
@@ -137,7 +147,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         nat = ds.from_file('tests/dataset/users.csv')
         nat = nat.filter(nat.age < 35).filter(nat.age > 20)
 
-        explain_output = nat.explain()
+        explain_output = _capture_explain(nat)
 
         # Should show only one SQL segment
         self.assertIn('Segment 1 [chDB] (from source)', explain_output)
@@ -153,7 +163,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         nat = ds(pdf)
         nat = nat.filter(nat.age > 20)
 
-        explain_output = nat.explain()
+        explain_output = _capture_explain(nat)
 
         # With DataFrame source, operations go through Python() table function
         # which is still SQL-capable
@@ -182,7 +192,7 @@ class TestSegmentedExecutionDailyUsage(unittest.TestCase):
         nat2["float_age"] = nat2.doubled.cast("Float64")
 
         # Get explain output
-        explain_output = nat2.explain()
+        explain_output = _capture_explain(nat2)
 
         # Verify the key fix: should have multiple segments
         segment_count = explain_output.count('Segment ')
