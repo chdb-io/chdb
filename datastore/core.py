@@ -1085,6 +1085,58 @@ class DataStore(PandasCompatMixin):
         self._lazy_ops.append(op)
         self._invalidate_cache()
 
+    def _get_source_df_if_pristine(self) -> "Optional[pd.DataFrame]":
+        """
+        For pristine DataStores (no transformations applied), return the
+        underlying source DataFrame directly. Returns None otherwise.
+
+        "Pristine" means:
+        - Cache is valid (already executed, result available), OR
+        - Exactly one LazyDataFrameSource op with no further ops
+
+        This enables zero-cost metadata access (dtypes, columns, shape)
+        for freshly created or already-executed DataStores.
+        """
+        if self._is_cache_valid():
+            return self._cached_result
+        from .lazy_ops import LazyDataFrameSource
+        if (len(self._lazy_ops) == 1
+                and isinstance(self._lazy_ops[0], LazyDataFrameSource)):
+            return self._lazy_ops[0]._df
+        return None
+
+    def _is_pristine_sql_source(self) -> bool:
+        """Check if this is a raw SQL/file source with no operations."""
+        return (not self._lazy_ops
+                and (self._table_function is not None or self.table_name is not None))
+
+    def _probe_dtypes_from_sql_source(self) -> "pd.Series":
+        """
+        Get pandas dtypes for a pristine SQL source via a LIMIT 0 query.
+
+        Executes SELECT * ... LIMIT 0 which returns an empty DataFrame with
+        correct column types, without transferring any actual data.
+        """
+        if self._executor is None:
+            self.connect()
+
+        if self._table_function:
+            source = self._table_function.to_sql()
+        elif self.table_name:
+            source = format_identifier(self.table_name, self.quote_char)
+        else:
+            return self._get_df().dtypes
+
+        sql = f"SELECT * FROM {source} LIMIT 0"
+        if self._format_settings:
+            parts = []
+            for k, v in self._format_settings.items():
+                parts.append(f"{k}='{v}'" if isinstance(v, str) else f"{k}={v}")
+            sql += " SETTINGS " + ", ".join(parts)
+
+        result = self._executor.execute(sql)
+        return result.to_df().dtypes
+
     def _execute(self):
         """
         Execute all lazy operations into a DataFrame.
@@ -3594,9 +3646,10 @@ class DataStore(PandasCompatMixin):
     @property
     def shape(self):
         """
-        Return the shape (rows, columns) of the query result.
+        Return the shape (rows, columns).
 
-        Works correctly with both SQL queries and executed DataFrames.
+        Optimized for pristine sources: uses source DataFrame directly or
+        SQL COUNT(*) + DESCRIBE, avoiding full data loading.
 
         Returns:
             Tuple of (rows, columns)
@@ -3605,20 +3658,23 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> rows, cols = ds.select("*").shape
         """
-        # Use _get_df if available (handles caching properly)
+        src = self._get_source_df_if_pristine()
+        if src is not None:
+            return src.shape
+        if self._is_pristine_sql_source():
+            return (self.count_rows(), len(self.columns))
         if hasattr(self, "_get_df"):
-            df = self._get_df()
-        else:
-            df = self.to_df()
-        return df.shape
+            return self._get_df().shape
+        return self.to_df().shape
 
     @property
     def columns(self):
         """
-        Return the column names of the query result.
+        Return the column names.
 
-        Works correctly with both SQL queries and executed DataFrames.
-        Raises DataStoreError if no table is bound (connection-level DataStore).
+        Optimized for pristine sources: reads from the source DataFrame
+        or uses DESCRIBE (no data loading). For complex pipelines,
+        falls back to full execution.
 
         Returns:
             pandas Index of column names
@@ -3628,12 +3684,16 @@ class DataStore(PandasCompatMixin):
             >>> cols = ds.select("*").columns
         """
         self._require_table_context("columns")
-        # Use _get_df if available (handles caching properly)
+        src = self._get_source_df_if_pristine()
+        if src is not None:
+            return src.columns
+        if self._is_pristine_sql_source():
+            schema = self.schema()
+            if schema:
+                return pd.Index(schema.keys())
         if hasattr(self, "_get_df"):
-            df = self._get_df()
-        else:
-            df = self.to_df()
-        return df.columns
+            return self._get_df().columns
+        return self.to_df().columns
 
     @columns.setter
     def columns(self, new_columns):

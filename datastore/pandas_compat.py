@@ -348,7 +348,12 @@ class PandasCompatMixin:
 
     @property
     def dtypes(self):
-        """Return the dtypes in the DataFrame."""
+        """Return the dtypes. Optimized for pristine sources."""
+        src = self._get_source_df_if_pristine()
+        if src is not None:
+            return src.dtypes
+        if self._is_pristine_sql_source():
+            return self._probe_dtypes_from_sql_source()
         return self._get_df().dtypes
 
     @property
@@ -368,17 +373,27 @@ class PandasCompatMixin:
 
     @property
     def ndim(self):
-        """Return the number of dimensions."""
-        return self._get_df().ndim
+        """Return the number of dimensions (always 2 for DataStore/DataFrame)."""
+        return 2
 
     @property
     def size(self):
-        """Return the number of elements in the DataFrame."""
+        """Return the number of elements. Optimized for pristine sources."""
+        src = self._get_source_df_if_pristine()
+        if src is not None:
+            return src.size
+        if self._is_pristine_sql_source():
+            return self.count_rows() * len(self.columns)
         return self._get_df().size
 
     @property
     def empty(self):
-        """Indicator whether DataFrame is empty."""
+        """Check if DataFrame is empty. Optimized for pristine sources."""
+        src = self._get_source_df_if_pristine()
+        if src is not None:
+            return len(src) == 0
+        if self._is_pristine_sql_source():
+            return self.count_rows() == 0
         return self._get_df().empty
 
     @property
