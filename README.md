@@ -30,6 +30,10 @@
 * Input&Output support Parquet, CSV, JSON, Arrow, ORC and 60+[more](https://clickhouse.com/docs/en/interfaces/formats) formats
 * Support Python DB API 2.0
 
+## Get Started on Hex
+
+Ready to try ClickHouse in Hex? Follow the <a href="https://app.hex.tech/partnerships/app/chDB-Tutorial-032XsQ4qoKtlXxcw49joav/latest" target="_blank">getting started tutorial</a> to set up your first connection. Want more time to explore? Sign up for an <a href="https://app.hex.tech/signup/clickhouse-30" target="_blank">extended 30-day Hex trial</a> with full access to ClickHouse integrations.
+
 ## Arch
 <div align="center">
   <img src="https://github.com/chdb-io/chdb/raw/main/docs/_static/arch-chdb3.png" width="450">
