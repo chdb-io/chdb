@@ -139,6 +139,9 @@ extern const ServerSettingsDouble uncompressed_cache_size_ratio;
 extern const ServerSettingsString primary_index_cache_policy;
 extern const ServerSettingsUInt64 primary_index_cache_size;
 extern const ServerSettingsDouble primary_index_cache_size_ratio;
+extern const ServerSettingsString query_condition_cache_policy;
+extern const ServerSettingsUInt64 query_condition_cache_size;
+extern const ServerSettingsDouble query_condition_cache_size_ratio;
 extern const ServerSettingsUInt64 max_prefixes_deserialization_thread_pool_size;
 extern const ServerSettingsUInt64 max_prefixes_deserialization_thread_pool_free_size;
 extern const ServerSettingsUInt64 prefixes_deserialization_thread_pool_thread_pool_queue_size;
@@ -822,8 +825,11 @@ void EmbeddedServer::processConfig()
         iceberg_metadata_files_cache_size_ratio);
 #endif
 
-    /// Initialize a dummy query condition cache.
-    global_context->setQueryConditionCache(DEFAULT_QUERY_CONDITION_CACHE_POLICY, 0, 0);
+    String query_condition_cache_policy = server_settings[ServerSetting::query_condition_cache_policy];
+    size_t query_condition_cache_size = server_settings[ServerSetting::query_condition_cache_size];
+    double query_condition_cache_size_ratio = server_settings[ServerSetting::query_condition_cache_size_ratio];
+    query_condition_cache_size = std::min(query_condition_cache_size, max_cache_size);
+    global_context->setQueryConditionCache(query_condition_cache_policy, query_condition_cache_size, query_condition_cache_size_ratio);
 
     /// Initialize a dummy query result cache.
     global_context->setQueryResultCache(0, 0, 0, 0);
