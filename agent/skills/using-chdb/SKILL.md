@@ -1,6 +1,6 @@
 ---
 name: using-chdb
-description: Guide for using chdb, an in-process SQL OLAP engine powered by ClickHouse. Covers pandas-compatible DataStore API, 16+ data sources (MySQL, PostgreSQL, S3, ClickHouse, MongoDB, Iceberg, Delta Lake, etc.), 10+ file formats, and cross-source joins. Use when the user wants to analyze data, query files, join multiple data sources, or build data integration pipelines.
+description: Guide for using chdb, an in-process SQL OLAP engine powered by ClickHouse. Covers pandas-compatible DataStore API, 16+ data sources (MySQL, PostgreSQL, S3, ClickHouse, MongoDB, Iceberg, Delta Lake, etc.), 10+ file formats, and cross-source joins. Use when the user mentions chdb, DataStore, or wants to query files with SQL, join data across different databases and cloud storage, run ClickHouse queries in-process, or build serverless data pipelines without ETL.
 ---
 
 # chdb — Pandas-Compatible Multi-Source Data Analytics
@@ -181,17 +181,24 @@ from chdb import session as chs
 
 sess = chs.Session("./analytics_db")   # persistent; use Session() for in-memory
 
-# Ingest from external sources into local tables
+# Step 1: Ingest from external sources into local tables
 sess.query("""
     CREATE TABLE users ENGINE = MergeTree() ORDER BY id AS
     SELECT * FROM mysql('db:3306', 'crm', 'users', 'root', 'pass')
 """)
+
+# Step 2: Verify ingestion before proceeding
+user_count = sess.query("SELECT count() FROM users", "DataFrame")
+print(f"Ingested {user_count.iloc[0, 0]} users")
+
 sess.query("""
     CREATE TABLE events ENGINE = MergeTree() ORDER BY (ts, user_id) AS
     SELECT * FROM s3('s3://logs/events/*.parquet', NOSIGN)
 """)
+event_count = sess.query("SELECT count() FROM events", "DataFrame")
+print(f"Ingested {event_count.iloc[0, 0]} events")
 
-# Analyze locally — fast iterative queries
+# Step 3: Analyze locally — fast iterative queries
 sess.query("""
     SELECT u.country, e.event_type, count() AS cnt, uniqExact(e.user_id) AS users
     FROM events e JOIN users u ON e.user_id = u.id
