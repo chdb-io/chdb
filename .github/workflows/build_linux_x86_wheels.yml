@@ -42,7 +42,7 @@ jobs:
           sudo apt-get install -y make build-essential libssl-dev zlib1g-dev \
             libbz2-dev libreadline-dev wget curl llvm \
             libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev \
-            libffi-dev liblzma-dev libsqlite3-dev golang-go
+            libffi-dev liblzma-dev libsqlite3-dev golang-go liblz4-dev
       - name: Install GitHub CLI
         run: |
           wget https://github.com/cli/cli/releases/download/v2.82.1/gh_2.82.1_linux_amd64.tar.gz -O gh.tar.gz
@@ -264,6 +264,7 @@ jobs:
         run: |
           bash -x ./examples/runStub.sh
           bash -x ./examples/runArrowTest.sh
+          bash -x ./examples/runArrowStreamParse.sh
       - name: Check ccache statistics
         run: |
           ccache -s
