@@ -211,7 +211,7 @@ jobs:
       - name: Install go for macOS
         run: |
           brew update
-          brew install go
+          brew install go lz4
           go version
       - uses: actions/checkout@v3
         with:
@@ -277,6 +277,7 @@ jobs:
         run: |
           bash -x ./examples/runStub.sh
           bash -x ./examples/runArrowTest.sh
+          bash -x ./examples/runArrowStreamParse.sh
       - name: Build wheels
         run: |
           rm -rf chdb/build/
