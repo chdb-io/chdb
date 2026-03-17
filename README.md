@@ -548,12 +548,23 @@ For more examples, see [examples](examples) and [tests](tests).
 - For DataStore API, see [Pandas Compatibility Guide](docs/PANDAS_COMPATIBILITY.md)
 
 
-## AI Coding Agent Skill
+## AI Coding Agent Skills
 
-chdb provides an [AI Skill](agent/skills/using-chdb/) that teaches AI coding agents (Cursor, Claude Code, etc.) chdb's multi-source data analytics API. Install it so your AI assistant can write correct chdb code out of the box:
+chdb provides two [AI Skills](agent/skills/) that teach AI coding agents (Cursor, Claude Code, Codex, etc.) how to use chdb:
+
+- **[chdb-datastore](agent/skills/chdb-datastore/)** — Drop-in pandas replacement. `import chdb.datastore as pd`, keep existing code unchanged, get ClickHouse performance.
+- **[chdb-sql](agent/skills/chdb-sql/)** — In-process ClickHouse SQL. Run `chdb.query()`, use Session for stateful pipelines, query any file or database with SQL.
+
+Install both so your AI assistant can write correct chdb code out of the box:
 
 ```bash
 curl -sL https://raw.githubusercontent.com/chdb-io/chdb/main/install_skill.sh | bash
+```
+
+For project-level installation (git-committable, shared with your team):
+
+```bash
+curl -sL https://raw.githubusercontent.com/chdb-io/chdb/main/install_skill.sh | bash -s -- --project
 ```
 
 
