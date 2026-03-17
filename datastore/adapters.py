@@ -8,8 +8,46 @@ Each adapter provides database-specific SQL generation for:
 - Building table function SQL
 """
 
+import logging
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+CLICKHOUSE_CLOUD_SUFFIX = '.clickhouse.cloud'
+CLICKHOUSE_NATIVE_PORT = 9000
+CLICKHOUSE_NATIVE_SECURE_PORT = 9440
+
+
+def normalize_clickhouse_connection(host: str, secure: bool) -> Tuple[str, bool]:
+    """
+    Apply smart defaults for ClickHouse Cloud and secure connections.
+
+    Mirrors the auto-detection logic from clickhouse-client:
+    - PR #56638/#56649: .clickhouse.cloud host -> secure + port 9440
+    - PR #74212: port 9440 -> secure
+
+    Returns:
+        (normalized_host, secure) tuple
+    """
+    hostname, _, port_str = host.partition(':')
+    port = int(port_str) if port_str else None
+
+    if hostname.endswith(CLICKHOUSE_CLOUD_SUFFIX):
+        secure = True
+        if port == CLICKHOUSE_NATIVE_PORT:
+            logger.warning(
+                "ClickHouse Cloud does not support plaintext native protocol on port %d. "
+                "Switching to port %d (native + TLS).",
+                CLICKHOUSE_NATIVE_PORT, CLICKHOUSE_NATIVE_SECURE_PORT,
+            )
+            host = f"{hostname}:{CLICKHOUSE_NATIVE_SECURE_PORT}"
+        elif port is None:
+            host = f"{hostname}:{CLICKHOUSE_NATIVE_SECURE_PORT}"
+    elif port == CLICKHOUSE_NATIVE_SECURE_PORT:
+        secure = True
+
+    return host, secure
 
 
 class SourceAdapter(ABC):
@@ -83,6 +121,7 @@ class ClickHouseAdapter(SourceAdapter):
     
     def __init__(self, host: str, user: str = 'default', password: str = '', 
                  secure: bool = False, **kwargs):
+        host, secure = normalize_clickhouse_connection(host, secure)
         super().__init__(host, user, password, **kwargs)
         self.secure = secure
     

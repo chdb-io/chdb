@@ -443,6 +443,7 @@ class DataStore(PandasCompatMixin):
             "postgresql",
             "postgres",
         ]
+        clickhouse_sources = {"clickhouse", "remote", "remotesecure"}
         if source and source.lower() in remote_db_sources:
             # Merge port into host if provided separately
             host_val = kwargs.get("host", "")
@@ -451,12 +452,20 @@ class DataStore(PandasCompatMixin):
                 host_val = f"{host_val}:{port_val}"
                 kwargs["host"] = host_val  # update kwargs so table function also gets it
 
+            # Auto-detect ClickHouse Cloud / secure connections
+            secure_val = kwargs.get("secure", False)
+            if source.lower() in clickhouse_sources and host_val:
+                from .adapters import normalize_clickhouse_connection
+                host_val, secure_val = normalize_clickhouse_connection(host_val, secure_val)
+                kwargs["host"] = host_val
+                kwargs["secure"] = secure_val
+
             # Store remote params for metadata operations
             self._remote_params = {
                 "host": host_val,
                 "user": kwargs.get("user"),
                 "password": kwargs.get("password", ""),
-                "secure": kwargs.get("secure", False),
+                "secure": secure_val,
             }
 
             # Determine connection mode
@@ -2180,6 +2189,10 @@ class DataStore(PandasCompatMixin):
         """
         Create DataStore from remote ClickHouse server.
 
+        Auto-detects ClickHouse Cloud connections: hosts ending with
+        ``.clickhouse.cloud`` automatically use ``remoteSecure()`` on port 9440.
+        Port 9440 also auto-enables secure mode.
+
         Args:
             host: ClickHouse server address (host or host:port)
             database: Database name (optional - can be set later with use())
@@ -2201,9 +2214,9 @@ class DataStore(PandasCompatMixin):
             >>> ds_secure = DataStore.from_clickhouse("server:9440", "default", "events",
             ...                                       secure=True)
 
-            >>> # Port as separate parameter (e.g. ClickHouse Cloud)
-            >>> ds = DataStore.from_clickhouse("xxx.clickhouse.cloud", port=9440,
-            ...                                user="default", password="pass", secure=True)
+            >>> # ClickHouse Cloud - auto-detected, no need for secure=True or port
+            >>> ds = DataStore.from_clickhouse("xxx.clickhouse.cloud",
+            ...     user="default", password="pass", database="default", table="events")
         """
         if port is not None and ":" not in str(host):
             host = f"{host}:{port}"

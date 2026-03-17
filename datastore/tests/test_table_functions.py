@@ -705,6 +705,33 @@ class TestRemoteTableFunction:
         sql = tf.to_sql()
         assert sql.startswith("remoteSecure(")
 
+    def test_remote_cloud_host_auto_secure(self):
+        """ClickHouse Cloud host auto-detects secure + port 9440."""
+        tf = RemoteTableFunction(
+            host="abc123.clickhouse.cloud", database="mydb", table="users"
+        )
+        sql = tf.to_sql()
+        assert sql.startswith("remoteSecure(")
+        assert "abc123.clickhouse.cloud:9440" in sql
+
+    def test_remote_cloud_host_port_9000_rewritten(self):
+        """ClickHouse Cloud host:9000 -> rewritten to 9440 + remoteSecure."""
+        tf = RemoteTableFunction(
+            host="abc123.clickhouse.cloud:9000", database="mydb", table="users"
+        )
+        sql = tf.to_sql()
+        assert sql.startswith("remoteSecure(")
+        assert "abc123.clickhouse.cloud:9440" in sql
+        assert ":9000" not in sql
+
+    def test_remote_port_9440_auto_secure(self):
+        """Port 9440 on any host -> remoteSecure."""
+        tf = RemoteTableFunction(
+            host="my-server:9440", database="mydb", table="users"
+        )
+        sql = tf.to_sql()
+        assert sql.startswith("remoteSecure(")
+
     def test_remote_missing_params(self):
         """Test error when required params are missing."""
         tf = RemoteTableFunction(host="localhost:9000")

@@ -213,6 +213,31 @@ class TestDatabaseURIParsing:
         assert kwargs["user"] == "default"
         assert kwargs["password"] == "pass"
 
+    def test_clickhouse_uri_with_secure_true(self):
+        """Test ClickHouse URI with ?secure=true."""
+        uri = "clickhouse://myhost:9440/default/events?user=default&secure=true"
+        source_type, kwargs = parse_uri(uri)
+        assert source_type == "clickhouse"
+        assert kwargs["secure"] is True
+
+    def test_clickhouse_uri_with_secure_1(self):
+        """Test ClickHouse URI with ?secure=1."""
+        uri = "clickhouse://myhost:9440/default/events?secure=1"
+        source_type, kwargs = parse_uri(uri)
+        assert kwargs["secure"] is True
+
+    def test_clickhouse_uri_with_secure_false(self):
+        """Test ClickHouse URI with ?secure=false."""
+        uri = "clickhouse://myhost:9000/default/events?secure=false"
+        source_type, kwargs = parse_uri(uri)
+        assert kwargs["secure"] is False
+
+    def test_clickhouse_uri_without_secure(self):
+        """Test ClickHouse URI without secure param -> no secure key."""
+        uri = "clickhouse://myhost:9000/default/events"
+        source_type, kwargs = parse_uri(uri)
+        assert "secure" not in kwargs
+
 
 class TestHTTPURIParsing:
     """Test parsing of HTTP/HTTPS URIs."""
