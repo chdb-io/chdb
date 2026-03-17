@@ -1330,5 +1330,123 @@ class TestEmptyPassword(unittest.TestCase):
         self.assertIn("''", func)  # Empty string in SQL
 
 
+class TestClickHouseCloudAutoDetect(unittest.TestCase):
+    """Test auto-detection of ClickHouse Cloud connections.
+
+    Mirrors clickhouse-client behavior:
+    - PR #56638/#56649: .clickhouse.cloud -> secure + port 9440
+    - PR #74212: port 9440 -> secure
+    """
+
+    def test_cloud_host_no_port_auto_secure_and_port(self):
+        """.clickhouse.cloud host without port -> secure=True, port 9440."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.us-east-1.aws.clickhouse.cloud",
+            user="default", password="pass"
+        )
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.us-east-1.aws.clickhouse.cloud:9440",
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+    def test_cloud_host_port_9000_rewritten_to_9440(self):
+        """.clickhouse.cloud:9000 -> port rewritten to 9440."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.clickhouse.cloud:9000",
+            user="default", password="pass"
+        )
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+    def test_cloud_host_port_9000_logs_warning(self):
+        """.clickhouse.cloud:9000 logs a warning about port switch."""
+        import logging
+        with self.assertLogs("datastore.adapters", level=logging.WARNING) as cm:
+            ClickHouseAdapter(
+                host="abc123.clickhouse.cloud:9000",
+                user="default", password="pass"
+            )
+        self.assertTrue(
+            any("port 9000" in msg and "9440" in msg for msg in cm.output),
+            f"Expected warning about port switch, got: {cm.output}",
+        )
+
+    def test_cloud_host_with_explicit_9440_kept(self):
+        """.clickhouse.cloud:9440 kept as-is, secure=True."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.clickhouse.cloud:9440",
+            user="default", password="pass"
+        )
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+    def test_port_9440_auto_secure_non_cloud_host(self):
+        """Any host with port 9440 -> auto secure=True."""
+        ds = DataStore.from_clickhouse(
+            host="my-server.internal:9440",
+            user="default", password=""
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+    def test_non_cloud_host_port_9000_unchanged(self):
+        """Non-cloud host with port 9000 -> no changes."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        self.assertEqual(ds._remote_params["host"], "localhost:9000")
+        self.assertFalse(ds._remote_params.get("secure", False))
+
+    def test_cloud_host_with_port_param(self):
+        """ClickHouse Cloud with port as separate parameter."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.clickhouse.cloud",
+            port=9000,
+            user="default", password="pass"
+        )
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+    def test_adapter_cloud_uses_remote_secure(self):
+        """ClickHouseAdapter with cloud host generates remoteSecure() SQL."""
+        adapter = ClickHouseAdapter(
+            host="abc123.clickhouse.cloud",
+            user="default", password="pass"
+        )
+        sql = adapter.list_databases_sql()
+        self.assertIn("remoteSecure(", sql)
+        self.assertIn("abc123.clickhouse.cloud:9440", sql)
+
+    def test_adapter_port_9440_uses_remote_secure(self):
+        """ClickHouseAdapter with port 9440 generates remoteSecure() SQL."""
+        adapter = ClickHouseAdapter(
+            host="my-server:9440",
+            user="default", password=""
+        )
+        sql = adapter.build_table_function("mydb", "users")
+        self.assertIn("remoteSecure(", sql)
+
+    def test_cloud_host_custom_port_preserved(self):
+        """.clickhouse.cloud with non-9000 custom port is preserved."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.clickhouse.cloud:19440",
+            user="default", password="pass"
+        )
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:19440",
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+
 if __name__ == "__main__":
     unittest.main()

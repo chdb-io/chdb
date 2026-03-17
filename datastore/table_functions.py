@@ -748,6 +748,8 @@ class RemoteTableFunction(TableFunction):
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
+        from .adapters import normalize_clickhouse_connection
+
         host = self.params.get("host")
         database = self.params.get("database", "default")
         table = self.params.get("table")
@@ -757,6 +759,8 @@ class RemoteTableFunction(TableFunction):
 
         if not all([host, table]):
             raise DataStoreError("'host' and 'table' are required for remote()")
+
+        host, secure = normalize_clickhouse_connection(host, secure)
 
         func_name = "remoteSecure" if secure else "remote"
 

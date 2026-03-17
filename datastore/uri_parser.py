@@ -480,7 +480,7 @@ def _parse_clickhouse_uri(parsed) -> Tuple[str, Dict[str, Any]]:
     """
     Parse clickhouse:// URI.
 
-    Format: clickhouse://host:port/database/table
+    Format: clickhouse://host:port/database/table?user=...&password=...&secure=true
     """
     kwargs = {}
 
@@ -504,6 +504,8 @@ def _parse_clickhouse_uri(parsed) -> Tuple[str, Dict[str, Any]]:
         kwargs["user"] = query_params["user"][0]
     if "password" in query_params:
         kwargs["password"] = query_params["password"][0]
+    if "secure" in query_params:
+        kwargs["secure"] = query_params["secure"][0].lower() in ("true", "1", "yes")
 
     return "clickhouse", kwargs
 
