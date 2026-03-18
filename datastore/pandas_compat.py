@@ -807,14 +807,185 @@ class PandasCompatMixin:
         return self._get_df().var(axis=axis, skipna=skipna, ddof=ddof, numeric_only=numeric_only, **kwargs)
 
     def nunique(self, axis=0, dropna=True):
-        """Count number of distinct elements in specified axis."""
-        return self._get_df().nunique(axis=axis, dropna=dropna)
+        """Count number of distinct elements in specified axis.
+
+        Uses SQL COUNT(DISTINCT col) pushdown when possible.
+        Falls back to pandas when non-SQL lazy ops are present.
+        """
+        if axis != 0:
+            return self._get_df().nunique(axis=axis, dropna=dropna)
+
+        # Check if SQL pushdown is possible
+        from .lazy_ops import LazyRelationalOp
+        has_non_sql_ops = False
+        if self._lazy_ops:
+            for op in self._lazy_ops:
+                if not isinstance(op, LazyRelationalOp):
+                    has_non_sql_ops = True
+                    break
+                if op.op_type == "PANDAS_FILTER":
+                    has_non_sql_ops = True
+                    break
+
+        if has_non_sql_ops or not self._has_sql_state():
+            return self._get_df().nunique(axis=axis, dropna=dropna)
+
+        try:
+            from .utils import format_identifier
+            if self._executor is None:
+                self.connect()
+
+            subquery_sql = self.to_sql()
+            # Get column names
+            schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+            schema_result = self._executor.execute(schema_sql)
+            column_names = schema_result.column_names
+
+            if not column_names:
+                return pd.Series(dtype="int64")
+
+            # Build COUNT(DISTINCT col) for each column
+            count_exprs = []
+            for col_name in column_names:
+                quoted_col = format_identifier(col_name, self.quote_char)
+                if dropna:
+                    count_exprs.append(
+                        f"COUNT(DISTINCT {quoted_col}) AS {quoted_col}"
+                    )
+                else:
+                    # Include NULLs: count distinct non-null + 1 if any null exists
+                    count_exprs.append(
+                        f"COUNT(DISTINCT {quoted_col}) + "
+                        f"CASE WHEN countIf({quoted_col} IS NULL) > 0 THEN 1 ELSE 0 END "
+                        f"AS {quoted_col}"
+                    )
+
+            count_select = ", ".join(count_exprs)
+            count_sql = f"SELECT {count_select} FROM ({subquery_sql})"
+            self._logger.debug("nunique() executing: %s", count_sql)
+
+            result = self._executor.execute(count_sql)
+            if result.rows and result.rows[0]:
+                counts = {
+                    col: int(val) for col, val in zip(column_names, result.rows[0])
+                }
+                return pd.Series(counts)
+            else:
+                return pd.Series({col: 0 for col in column_names})
+
+        except Exception as e:
+            self._logger.debug("nunique() SQL pushdown failed, falling back to pandas: %s", e)
+            return self._get_df().nunique(axis=axis, dropna=dropna)
 
     def value_counts(self, subset=None, normalize=False, sort=True, ascending=False, dropna=True):
-        """Return counts of unique rows."""
-        return self._get_df().value_counts(
-            subset=subset, normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
-        )
+        """Return counts of unique rows.
+
+        Uses SQL GROUP BY pushdown when possible.
+        Generates: SELECT cols, COUNT(*) FROM ... GROUP BY cols
+        Falls back to pandas when non-SQL lazy ops are present.
+        """
+        from .lazy_ops import LazyRelationalOp
+        has_non_sql_ops = False
+        if self._lazy_ops:
+            for op in self._lazy_ops:
+                if not isinstance(op, LazyRelationalOp):
+                    has_non_sql_ops = True
+                    break
+                if op.op_type == "PANDAS_FILTER":
+                    has_non_sql_ops = True
+                    break
+
+        if has_non_sql_ops or not self._has_sql_state():
+            return self._get_df().value_counts(
+                subset=subset, normalize=normalize, sort=sort,
+                ascending=ascending, dropna=dropna,
+            )
+
+        try:
+            from .utils import format_identifier
+            if self._executor is None:
+                self.connect()
+
+            subquery_sql = self.to_sql()
+
+            # Get column names for subset
+            schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+            schema_result = self._executor.execute(schema_sql)
+            all_columns = schema_result.column_names
+
+            if not all_columns:
+                return pd.Series(dtype="int64")
+
+            cols = list(subset) if subset is not None else list(all_columns)
+            quoted_cols = [format_identifier(c, self.quote_char) for c in cols]
+            cols_sql = ", ".join(quoted_cols)
+
+            # WHERE clause for dropna
+            where_parts = []
+            if dropna:
+                for qc in quoted_cols:
+                    where_parts.append(f"{qc} IS NOT NULL")
+            where_clause = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
+
+            # Build query
+            if normalize:
+                total_sql = f"(SELECT COUNT(*) FROM ({subquery_sql}){where_clause})"
+                select_sql = (
+                    f"{cols_sql}, CAST(COUNT(*) AS Float64) / {total_sql} AS __count__"
+                )
+            else:
+                select_sql = f"{cols_sql}, toInt64(COUNT(*)) AS __count__"
+
+            order_clause = ""
+            if sort:
+                order_dir = "ASC" if ascending else "DESC"
+                order_clause = f" ORDER BY __count__ {order_dir}"
+
+            sql = (
+                f"SELECT {select_sql} FROM ({subquery_sql})"
+                f"{where_clause} GROUP BY {cols_sql}{order_clause}"
+            )
+            self._logger.debug("value_counts() executing: %s", sql)
+
+            result = self._executor.execute(sql)
+            result_df = result.to_df()
+
+            if result_df.empty:
+                idx = pd.MultiIndex.from_arrays(
+                    [[] for _ in cols], names=cols
+                ) if len(cols) > 1 else pd.Index([], name=cols[0])
+                name = "proportion" if normalize else "count"
+                return pd.Series([], dtype="float64" if normalize else "int64",
+                                 index=idx, name=name)
+
+            # Build proper index (MultiIndex if multiple columns)
+            count_col = result_df.columns[-1]
+            if len(cols) == 1:
+                result_series = pd.Series(
+                    result_df[count_col].values,
+                    index=pd.Index(result_df[cols[0]].values, name=cols[0]),
+                    name="proportion" if normalize else "count",
+                )
+            else:
+                idx = pd.MultiIndex.from_arrays(
+                    [result_df[c].values for c in cols], names=cols
+                )
+                result_series = pd.Series(
+                    result_df[count_col].values,
+                    index=idx,
+                    name="proportion" if normalize else "count",
+                )
+
+            return result_series
+
+        except Exception as e:
+            self._logger.debug(
+                "value_counts() SQL pushdown failed, falling back to pandas: %s", e
+            )
+            return self._get_df().value_counts(
+                subset=subset, normalize=normalize, sort=sort,
+                ascending=ascending, dropna=dropna,
+            )
 
     # ========== Data Manipulation ==========
 
@@ -827,9 +998,24 @@ class PandasCompatMixin:
         )
 
     def drop_duplicates(self, subset=None, keep='first', inplace=False, ignore_index=False):
-        """Return DataFrame with duplicate rows removed."""
+        """Return DataFrame with duplicate rows removed.
+
+        Uses lazy distinct operation for SQL pushdown when possible.
+        For keep='first' (default), generates SELECT DISTINCT via lazy ops.
+        Falls back to pandas for keep='last' or keep=False.
+        """
         if inplace:
             raise ImmutableError("DataStore")
+
+        # Use lazy distinct for SQL pushdown when keep='first' (default)
+        if keep == 'first' and not ignore_index:
+            from .lazy_ops import LazyDistinct
+            new_ds = copy(self)
+            new_ds._distinct = True
+            new_ds._add_lazy_op(LazyDistinct(subset=subset, keep=keep))
+            return new_ds
+
+        # Fall back to pandas for keep='last' or keep=False
         return self._wrap_result(self._get_df().drop_duplicates(subset=subset, keep=keep, ignore_index=ignore_index))
 
     def dropna(self, *, axis=0, how=None, thresh=None, subset=None, inplace=False):
@@ -1873,8 +2059,76 @@ class PandasCompatMixin:
     # ========== Memory Methods ==========
 
     def memory_usage(self, index=True, deep=False):
-        """Return memory usage of each column in bytes."""
-        return self._get_df().memory_usage(index=index, deep=deep)
+        """Return memory usage of each column in bytes.
+
+        For SQL sources with no pending non-SQL ops, estimates memory usage
+        from row count and column types without downloading the full table.
+        Falls back to materializing the DataFrame otherwise.
+        """
+        from .lazy_ops import LazyRelationalOp
+        has_non_sql_ops = False
+        if self._lazy_ops:
+            for op in self._lazy_ops:
+                if not isinstance(op, LazyRelationalOp):
+                    has_non_sql_ops = True
+                    break
+                if op.op_type == "PANDAS_FILTER":
+                    has_non_sql_ops = True
+                    break
+
+        if has_non_sql_ops or not self._has_sql_state():
+            return self._get_df().memory_usage(index=index, deep=deep)
+
+        try:
+            from .utils import format_identifier
+            if self._executor is None:
+                self.connect()
+
+            subquery_sql = self.to_sql()
+
+            # Get row count
+            count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
+            count_result = self._executor.execute(count_sql)
+            row_count = int(count_result.rows[0][0]) if count_result.rows else 0
+
+            # Get schema with a LIMIT 0 query
+            schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+            schema_result = self._executor.execute(schema_sql)
+            schema_df = schema_result.to_df()
+
+            # Estimate memory from dtypes and row count
+            usage = {}
+            for col in schema_df.columns:
+                dtype = schema_df[col].dtype
+                if dtype == 'int64' or dtype == 'float64':
+                    usage[col] = row_count * 8
+                elif dtype == 'int32' or dtype == 'float32':
+                    usage[col] = row_count * 4
+                elif dtype == 'int16':
+                    usage[col] = row_count * 2
+                elif dtype == 'int8' or dtype == 'bool':
+                    usage[col] = row_count * 1
+                else:
+                    # Object/string types: estimate 8 bytes per pointer
+                    # (deep=True would need actual data for accurate string sizes)
+                    if deep:
+                        # Need actual data for deep memory estimation
+                        return self._get_df().memory_usage(index=index, deep=deep)
+                    usage[col] = row_count * 8
+
+            result = pd.Series(usage)
+            if index:
+                # RangeIndex memory: 128 bytes base
+                index_usage = pd.Series({'Index': 128})
+                result = pd.concat([index_usage, result])
+
+            return result
+
+        except Exception as e:
+            self._logger.debug(
+                "memory_usage() SQL estimation failed, falling back to pandas: %s", e
+            )
+            return self._get_df().memory_usage(index=index, deep=deep)
 
     # ========== Boolean Methods ==========
 
