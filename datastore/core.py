@@ -6654,6 +6654,14 @@ class DataStore(PandasCompatMixin):
                 orderby_parts.append(f"{field_sql} {direction}")
             parts.append(f"ORDER BY {', '.join(orderby_parts)}")
 
+        # LIMIT 1 BY clause (for drop_duplicates with subset)
+        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
+        if self._distinct_subset:
+            limit_by_cols = ", ".join(
+                format_identifier(c, quote_char) for c in self._distinct_subset
+            )
+            parts.append(f"LIMIT 1 BY {limit_by_cols}")
+
         # LIMIT clause
         if self._limit_value is not None:
             parts.append(f"LIMIT {self._limit_value}")
@@ -6661,13 +6669,6 @@ class DataStore(PandasCompatMixin):
         # OFFSET clause
         if self._offset_value is not None:
             parts.append(f"OFFSET {self._offset_value}")
-
-        # LIMIT 1 BY clause (for drop_duplicates with subset)
-        if self._distinct_subset:
-            limit_by_cols = ", ".join(
-                format_identifier(c, quote_char) for c in self._distinct_subset
-            )
-            parts.append(f"LIMIT 1 BY {limit_by_cols}")
 
         # Add format settings if present
         if self._format_settings:

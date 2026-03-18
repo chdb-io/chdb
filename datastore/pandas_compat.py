@@ -2049,18 +2049,7 @@ class PandasCompatMixin:
         from row count and column types without downloading the full table.
         Falls back to materializing the DataFrame otherwise.
         """
-        from .lazy_ops import LazyRelationalOp
-        has_non_sql_ops = False
-        if self._lazy_ops:
-            for op in self._lazy_ops:
-                if not isinstance(op, LazyRelationalOp):
-                    has_non_sql_ops = True
-                    break
-                if op.op_type == "PANDAS_FILTER":
-                    has_non_sql_ops = True
-                    break
-
-        if has_non_sql_ops or not self._has_sql_state():
+        if not self._can_sql_pushdown():
             return self._get_df().memory_usage(index=index, deep=deep)
 
         try:

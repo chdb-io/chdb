@@ -787,16 +787,17 @@ class SQLExecutionEngine:
             )
             parts.append(f"ORDER BY {orderby_sql}")
 
-        # LIMIT
-        if clauses.limit_value is not None:
-            parts.append(f"LIMIT {clauses.limit_value}")
-
         # LIMIT 1 BY clause (for drop_duplicates with subset)
+        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
         if self.ds._distinct_subset:
             limit_by_cols = ", ".join(
                 format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
             )
             parts.append(f"LIMIT 1 BY {limit_by_cols}")
+
+        # LIMIT
+        if clauses.limit_value is not None:
+            parts.append(f"LIMIT {clauses.limit_value}")
 
         # OFFSET
         if clauses.offset_value is not None:
@@ -990,15 +991,16 @@ class SQLExecutionEngine:
 
         sql_parts.append("ORDER BY __orig_row_num__")
 
-        if clauses.limit_value is not None:
-            sql_parts.append(f"LIMIT {clauses.limit_value}")
-
         # LIMIT 1 BY clause (for drop_duplicates with subset)
+        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
         if self.ds._distinct_subset:
             limit_by_cols = ", ".join(
                 format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
             )
             sql_parts.append(f"LIMIT 1 BY {limit_by_cols}")
+
+        if clauses.limit_value is not None:
+            sql_parts.append(f"LIMIT {clauses.limit_value}")
 
         if clauses.offset_value is not None:
             sql_parts.append(f"OFFSET {clauses.offset_value}")
@@ -1974,16 +1976,17 @@ class SQLExecutionEngine:
                 )
                 parts.append(f"ORDER BY {orderby_sql}")
 
-        # LIMIT
-        if limit_value is not None:
-            parts.append(f"LIMIT {limit_value}")
-
         # LIMIT 1 BY clause (for drop_duplicates with subset)
+        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
         if self.ds._distinct_subset:
             limit_by_cols = ", ".join(
                 format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
             )
             parts.append(f"LIMIT 1 BY {limit_by_cols}")
+
+        # LIMIT
+        if limit_value is not None:
+            parts.append(f"LIMIT {limit_value}")
 
         # OFFSET
         if offset_value is not None:
