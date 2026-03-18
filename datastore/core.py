@@ -5988,12 +5988,34 @@ class DataStore(PandasCompatMixin):
 
         return DataStore(result_df)
 
+    # SQL keywords that must not be captured as table aliases.
+    _SQL_ALIAS_KEYWORDS = (
+        "WHERE|GROUP|ORDER|HAVING|LIMIT|UNION|INTERSECT|EXCEPT|ON|SET|INTO"
+        "|VALUES|JOIN|LEFT|RIGHT|INNER|OUTER|CROSS|FULL|NATURAL|LATERAL"
+        "|WINDOW|RETURNING|FOR|USING|WHEN|THEN|ELSE|END|CASE|SELECT|FROM"
+        "|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WITH|OFFSET|FETCH|AND|OR"
+        "|NOT|IN|IS|LIKE|BETWEEN|EXISTS|ALL|ANY|SOME|PARTITION|OVER|ROWS"
+        "|RANGE|UNBOUNDED|PRECEDING|FOLLOWING|CURRENT|ROW|SEMI|ANTI|GLOBAL"
+        "|ARRAY|PREWHERE|FINAL|SAMPLE|FORMAT|SETTINGS"
+    )
+
     def _rewrite_table_references(self, sql: str) -> str:
         """
         Rewrite table references in SQL to use table functions.
 
         Uses regex to find FROM/JOIN table references and replaces them
         with appropriate table function calls.
+
+        Handles:
+            - Simple names: FROM users
+            - Qualified names: FROM db.users, FROM schema.db.users
+            - Backtick-quoted names: FROM `my-table`, FROM `db`.`table`
+            - Aliases: FROM users AS u, FROM users u
+            - JOINs (all types): JOIN, LEFT JOIN, INNER JOIN, etc.
+            - Subqueries: FROM (...) - preserved, inner tables rewritten
+            - CTEs: WITH cte AS (...) SELECT FROM cte - cte not rewritten
+            - UNION/INTERSECT/EXCEPT: both sides rewritten
+            - Function calls: FROM numbers(10) - preserved
 
         Args:
             sql: Original SQL query
@@ -6005,17 +6027,40 @@ class DataStore(PandasCompatMixin):
 
         adapter = self._get_adapter()
 
-        # Pattern to match table references after FROM/JOIN
-        # Matches: FROM table, FROM db.table, FROM schema.db.table
-        # Excludes: FROM func(...), FROM (subquery), FROM "quoted"
-        pattern = r'\b(FROM|JOIN)\s+(?![\w]+\s*\()(?!\()(?!")([a-zA-Z_][\w]*(?:\.[a-zA-Z_][\w]*){0,2})(\s+(?:AS\s+)?([a-zA-Z_][\w]*))?'
+        # Extract CTE names so we don't rewrite references to them.
+        cte_names = set()
+        if re.search(r"\bWITH\b", sql, re.IGNORECASE):
+            for m in re.finditer(r"(\w+)\s+AS\s*\(", sql, re.IGNORECASE):
+                cte_names.add(m.group(1).lower())
+
+        # Build the regex pattern.
+        _BARE = r"[a-zA-Z_][\w]*"
+        _DOTTED = rf"{_BARE}(?:\.{_BARE}){{0,2}}"
+        _BACKTICK = r"`[^`]+`(?:\.`[^`]+`){0,2}"
+        _KW = self._SQL_ALIAS_KEYWORDS
+
+        pattern = (
+            rf"\b(FROM|JOIN)\s+"
+            rf"(?!{_BARE}\s*\()"  # not a function call
+            rf"(?!\()"  # not a subquery
+            rf'(?!")'  # not double-quoted identifier
+            rf"({_BACKTICK}|{_DOTTED})"  # table reference
+            rf"(\s+(?:AS\s+)?(?!(?:{_KW})\b)({_BARE}))?"  # optional alias
+        )
 
         def replace_table_ref(match):
             keyword = match.group(1)  # FROM or JOIN
-            table_ref = match.group(2)  # table reference
-            alias_part = match.group(3) or ""  # optional alias (e.g., " AS u" or " u")
+            table_ref = match.group(2)  # table reference (may include backticks)
+            alias_part = match.group(3) or ""  # optional alias
 
-            parts = table_ref.split(".")
+            # Strip backticks
+            clean_ref = table_ref.replace("`", "")
+
+            # Skip CTE references
+            if clean_ref.lower() in cte_names:
+                return match.group(0)
+
+            parts = clean_ref.split(".")
 
             if len(parts) == 1:
                 # Just table name - use default database
