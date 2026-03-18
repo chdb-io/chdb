@@ -3493,6 +3493,15 @@ class DataStore(PandasCompatMixin):
             table = args[1] if len(args) > 1 else kwargs.get("table")
             return self._remote_describe(database, table)
 
+        # SQL optimization: compute statistics via SQL aggregates (no full data load)
+        if include is None and exclude is None and self._can_use_sql_no_load():
+            try:
+                return self._sql_describe(percentiles=percentiles)
+            except Exception as e:
+                self._logger.debug(
+                    "describe() SQL optimization failed, falling back: %s", e
+                )
+
         # Local DataFrame statistics
         # Use pandas compat layer if available, otherwise fallback
         if hasattr(self, "_get_df"):
@@ -3504,6 +3513,92 @@ class DataStore(PandasCompatMixin):
         )
 
         # Wrap result in DataStore
+        if hasattr(self, "_wrap_result"):
+            return self._wrap_result(result_df, "describe()")
+        else:
+            return self._wrap_result_fallback(result_df)
+
+    def _sql_describe(self, percentiles=None):
+        """Compute describe() statistics via SQL aggregates (no full data load)."""
+        if self._executor is None:
+            self.connect()
+
+        # Probe column types via LIMIT 0 query
+        subquery_sql = self.to_sql()
+        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+        probe_result = self._executor.execute(probe_sql)
+        probe_df = probe_result.to_df()
+        dtypes = probe_df.dtypes
+
+        # Find numeric columns
+        numeric_cols = [
+            col
+            for col in dtypes.index
+            if pd.api.types.is_numeric_dtype(dtypes[col])
+        ]
+
+        if not numeric_cols:
+            result_df = pd.DataFrame()
+            if hasattr(self, "_wrap_result"):
+                return self._wrap_result(result_df, "describe()")
+            else:
+                return self._wrap_result_fallback(result_df)
+
+        # Default percentiles (matching pandas behavior)
+        if percentiles is None:
+            percentiles = [0.25, 0.5, 0.75]
+        else:
+            percentiles = sorted(set(list(percentiles) + [0.5]))
+
+        # Build SQL with all statistics per numeric column
+        select_parts = []
+        for col in numeric_cols:
+            qcol = format_identifier(col, self.quote_char)
+            select_parts.append(f"toFloat64(COUNT({qcol}))")
+            select_parts.append(f"toFloat64(avg({qcol}))")
+            select_parts.append(f"toFloat64(stddevSamp({qcol}))")
+            select_parts.append(f"toFloat64(min({qcol}))")
+            for p in percentiles:
+                select_parts.append(
+                    f"toFloat64(quantileExactInclusive({p})({qcol}))"
+                )
+            select_parts.append(f"toFloat64(max({qcol}))")
+
+        sql = f"SELECT {', '.join(select_parts)} FROM ({subquery_sql})"
+        self._logger.debug("describe() SQL: %s", sql)
+        result = self._executor.execute(sql)
+
+        if not result.rows or not result.rows[0]:
+            # Empty result, fall back to pandas
+            if hasattr(self, "_get_df"):
+                df = self._get_df()
+            else:
+                df = self.to_df()
+            result_df = df.describe(percentiles=percentiles)
+            if hasattr(self, "_wrap_result"):
+                return self._wrap_result(result_df, "describe()")
+            else:
+                return self._wrap_result_fallback(result_df)
+
+        # Build output DataFrame matching pandas describe() format
+        row = result.rows[0]
+        stat_names = ["count", "mean", "std", "min"]
+        for p in percentiles:
+            stat_names.append(f"{p * 100:g}%")
+        stat_names.append("max")
+
+        n_stats = len(stat_names)
+        data = {}
+        for col_idx, col in enumerate(numeric_cols):
+            offset = col_idx * n_stats
+            values = []
+            for i in range(n_stats):
+                val = row[offset + i]
+                values.append(float(val) if val is not None else float("nan"))
+            data[col] = values
+
+        result_df = pd.DataFrame(data, index=stat_names)
+
         if hasattr(self, "_wrap_result"):
             return self._wrap_result(result_df, "describe()")
         else:
@@ -3641,6 +3736,29 @@ class DataStore(PandasCompatMixin):
 
         return True
 
+    def _can_use_sql_no_load(self) -> bool:
+        """Check if SQL optimization can avoid full data loading.
+
+        Similar to _can_use_sql_tail() but stricter: requires an actual
+        SQL table/file source (table_function or table_name), NOT just
+        _source_df (which means data is already in memory). Used by
+        info/describe/sample to avoid downloading data from remote sources.
+        """
+        if self._table_function is None and self.table_name is None:
+            return False
+
+        if self._lazy_ops:
+            from .lazy_ops import LazyRelationalOp, LazyDataFrameSource
+
+            for op in self._lazy_ops:
+                if isinstance(op, LazyDataFrameSource):
+                    continue
+                if isinstance(op, LazyRelationalOp):
+                    continue
+                return False
+
+        return True
+
     def sample(
         self,
         n: int = None,
@@ -3674,6 +3792,28 @@ class DataStore(PandasCompatMixin):
             >>> sample_20_percent = ds.select("*").sample(frac=0.2)
             >>> sample_replace = ds.sample(n=150, replace=True)
         """
+        # SQL optimization: ORDER BY rand() LIMIT n (no full data load)
+        # Only for simple cases without replace, weights, or random_state
+        if (
+            not replace
+            and weights is None
+            and random_state is None
+            and self._can_use_sql_no_load()
+        ):
+            try:
+                if n is not None:
+                    return self._sql_sample(int(n))
+                elif frac is not None and 0 < frac <= 1:
+                    total = self.count_rows()
+                    actual_n = int(round(total * frac))
+                    if actual_n < 1:
+                        actual_n = 1
+                    return self._sql_sample(actual_n)
+            except Exception as e:
+                self._logger.debug(
+                    "sample() SQL optimization failed, falling back: %s", e
+                )
+
         # Use _get_df if available (handles caching properly)
         if hasattr(self, "_get_df"):
             df = self._get_df()
@@ -3693,6 +3833,20 @@ class DataStore(PandasCompatMixin):
         sample_desc = f"sample(n={n})" if n is not None else f"sample(frac={frac})"
         if hasattr(self, "_wrap_result"):
             return self._wrap_result(result_df, sample_desc)
+        else:
+            return self._wrap_result_fallback(result_df)
+
+    def _sql_sample(self, n):
+        """Sample n rows using SQL ORDER BY rand() LIMIT n (no full data load)."""
+        if self._executor is None:
+            self.connect()
+        subquery_sql = self.to_sql()
+        sample_sql = f"SELECT * FROM ({subquery_sql}) ORDER BY rand() LIMIT {n}"
+        self._logger.debug("sample() SQL: %s", sample_sql)
+        result = self._executor.execute(sample_sql)
+        result_df = result.to_df()
+        if hasattr(self, "_wrap_result"):
+            return self._wrap_result(result_df, f"sample(n={n})")
         else:
             return self._wrap_result_fallback(result_df)
 
@@ -3974,6 +4128,8 @@ class DataStore(PandasCompatMixin):
         Print concise summary of the query result.
 
         Works correctly with both SQL queries and executed DataFrames.
+        Optimized for SQL sources: uses metadata queries (schema, COUNT)
+        instead of loading all data.
 
         Args:
             verbose: Whether to print full summary
@@ -3986,6 +4142,21 @@ class DataStore(PandasCompatMixin):
             >>> ds = DataStore.from_file("data.csv")
             >>> ds.select("*").info()
         """
+        # SQL optimization: avoid full data loading
+        if self._can_use_sql_no_load():
+            try:
+                return self._sql_info(
+                    verbose=verbose,
+                    buf=buf,
+                    max_cols=max_cols,
+                    memory_usage=memory_usage,
+                    show_counts=show_counts,
+                )
+            except Exception as e:
+                self._logger.debug(
+                    "info() SQL optimization failed, falling back: %s", e
+                )
+
         # Use _get_df if available (handles caching properly)
         if hasattr(self, "_get_df"):
             df = self._get_df()
@@ -3998,6 +4169,97 @@ class DataStore(PandasCompatMixin):
             memory_usage=memory_usage,
             show_counts=show_counts,
         )
+
+    def _sql_info(
+        self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None
+    ):
+        """Generate info() output using SQL metadata queries (no full data load)."""
+        import sys
+        import io as _io
+
+        if self._executor is None:
+            self.connect()
+
+        # Lightweight metadata queries
+        row_count = self.count_rows()
+
+        # Probe dtypes via LIMIT 0 (transfers zero rows)
+        subquery_sql = self.to_sql()
+        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+        probe_result = self._executor.execute(probe_sql)
+        probe_df = probe_result.to_df()
+        dtypes = probe_df.dtypes
+        col_names = list(probe_df.columns)
+        n_cols = len(col_names)
+
+        # Get non-null counts via SQL COUNT(col)
+        show_counts_flag = show_counts if show_counts is not None else True
+        non_null_counts = {}
+        if show_counts_flag:
+            counts_series = self.count()
+            non_null_counts = {
+                col: int(counts_series.get(col, 0)) for col in col_names
+            }
+
+        # Build output matching pandas info() format
+        lines = []
+        lines.append("<class 'pandas.core.frame.DataFrame'>")
+        if row_count > 0:
+            lines.append(f"RangeIndex: {row_count} entries, 0 to {row_count - 1}")
+        else:
+            lines.append("RangeIndex: 0 entries")
+        lines.append(f"Data columns (total {n_cols} columns):")
+
+        show_verbose = verbose if verbose is not None else (
+            n_cols <= (max_cols if max_cols else 100)
+        )
+
+        if show_verbose and n_cols > 0:
+            # Calculate column widths for formatting
+            idx_width = max(len(str(n_cols - 1)), 1)
+            name_width = max((len(str(col)) for col in col_names), default=6)
+            name_width = max(name_width, 6)
+            count_width = max(
+                len(f"{non_null_counts.get(col, row_count)} non-null")
+                for col in col_names
+            ) if non_null_counts else 14
+
+            header = (
+                f" {'#':>{idx_width}}   {'Column':<{name_width}}  "
+                f"{'Non-Null Count':<{count_width}}  Dtype  "
+            )
+            lines.append(header)
+            lines.append(
+                f" {'-' * idx_width}  {'-' * name_width}  "
+                f"{'-' * count_width}  -----  "
+            )
+
+            for i, col in enumerate(col_names):
+                nn_count = non_null_counts.get(col, row_count)
+                dtype_str = str(dtypes[col])
+                count_str = f"{nn_count} non-null"
+                lines.append(
+                    f" {i:>{idx_width}}   {str(col):<{name_width}}  "
+                    f"{count_str:<{count_width}}  {dtype_str}"
+                )
+
+        # Dtypes summary
+        dtype_counts = dtypes.value_counts()
+        dtype_parts = []
+        for dtype_name in sorted(dtype_counts.index, key=str):
+            dtype_parts.append(f"{dtype_name}({dtype_counts[dtype_name]})")
+        lines.append(f"dtypes: {', '.join(dtype_parts)}")
+
+        if memory_usage is not False:
+            lines.append("memory usage: not available for SQL source")
+
+        output_str = "\n".join(lines) + "\n"
+        if buf is not None:
+            buf.write(output_str)
+        else:
+            sys.stdout.write(output_str)
+
+        return None
 
     def create_table(
         self,
