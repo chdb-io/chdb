@@ -4402,19 +4402,7 @@ class DataStore(PandasCompatMixin):
         # Build values
         values_list = []
         for row in data:
-            values = []
-            for col in col_names:
-                val = row.get(col)
-                if val is None:
-                    values.append("NULL")
-                elif isinstance(val, str):
-                    # Escape single quotes
-                    escaped = val.replace("'", "''")
-                    values.append(f"'{escaped}'")
-                elif isinstance(val, bool):
-                    values.append("1" if val else "0")
-                else:
-                    values.append(str(val))
+            values = [self._format_insert_value(row.get(col), self.quote_char) for col in col_names]
             values_list.append(f"({', '.join(values)})")
 
         values_sql = ", ".join(values_list)
@@ -6688,6 +6676,37 @@ class DataStore(PandasCompatMixin):
 
         return " ".join(parts)
 
+    @staticmethod
+    def _format_insert_value(value, quote_char: str = '"') -> str:
+        """Format a single value for INSERT SQL.
+
+        Handles None, NaN, NaT, bool, str, datetime, Expression, and numeric types.
+        """
+        import math
+        from datetime import datetime, date
+
+        if value is None:
+            return "NULL"
+        # Check for pandas NA-like values (NaN, NaT, pd.NA)
+        try:
+            if pd.isna(value):
+                return "NULL"
+        except (TypeError, ValueError):
+            # pd.isna() can raise for non-scalar types
+            pass
+        if isinstance(value, bool):
+            return "1" if value else "0"
+        if isinstance(value, str):
+            escaped = value.replace("'", "''")
+            return f"\'{escaped}\'"
+        if isinstance(value, datetime):
+            return f"\'{value.strftime('%Y-%m-%d %H:%M:%S')}\'"
+        if isinstance(value, date):
+            return f"\'{value.strftime('%Y-%m-%d')}\'"
+        if isinstance(value, Expression):
+            return value.to_sql(quote_char=quote_char)
+        return str(value)
+
     def _generate_insert_sql(self, quote_char: str) -> str:
         """Generate INSERT SQL (ClickHouse style)."""
         # Determine target (table function or table name)
@@ -6723,19 +6742,7 @@ class DataStore(PandasCompatMixin):
             # INSERT INTO ... VALUES ...
             values_parts = []
             for row in self._insert_values:
-                row_values = []
-                for value in row:
-                    if value is None:
-                        row_values.append("NULL")
-                    elif isinstance(value, bool):
-                        row_values.append("1" if value else "0")
-                    elif isinstance(value, str):
-                        escaped = value.replace("'", "''")
-                        row_values.append(f"'{escaped}'")
-                    elif isinstance(value, Expression):
-                        row_values.append(value.to_sql(quote_char=quote_char))
-                    else:
-                        row_values.append(str(value))
+                row_values = [self._format_insert_value(v, quote_char) for v in row]
                 values_parts.append(f"({', '.join(row_values)})")
             parts.append(f"VALUES {', '.join(values_parts)}")
         else:
