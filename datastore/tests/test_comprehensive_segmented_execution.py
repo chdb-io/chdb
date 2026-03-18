@@ -626,16 +626,21 @@ class TestSegmentEngineVerification(unittest.TestCase):
         shutil.rmtree(cls.temp_dir, ignore_errors=True)
 
     def test_pure_sql_segment(self):
-        """Verify pure SQL operations stay in SQL segment."""
+        """Verify pure SQL operations stay in SQL segment.
+        
+        Note: ORDER BY without LIMIT is not pushed to SQL (cost-aware optimization).
+        Adding .head() ensures ORDER BY + LIMIT merge into SQL.
+        Without .head(), sort_values creates an additional pandas segment.
+        """
         ds = DataStore.from_file(self.test_file)
         ds = ds[ds['value'] > 50]
         ds = ds[ds['value'] < 150]
-        ds = ds.sort_values('value')
+        ds = ds.sort_values('value').head(100)
 
         planner = QueryPlanner()
         plan = planner.plan_segments(ds._lazy_ops, has_sql_source=True)
 
-        # Should be single SQL segment
+        # Should be single SQL segment (WHERE + ORDER BY + LIMIT all in SQL)
         self.assertEqual(len(plan.segments), 1, f"Expected 1 segment, got {len(plan.segments)}: {plan.describe()}")
         self.assertEqual(
             plan.segments[0].segment_type, 'sql', f"Expected SQL segment, got {plan.segments[0].segment_type}"
@@ -644,7 +649,7 @@ class TestSegmentEngineVerification(unittest.TestCase):
         # Verify result
         ds_result = ds.to_df()
         pdf = self.test_data[(self.test_data['value'] > 50) & (self.test_data['value'] < 150)]
-        pdf = pdf.sort_values('value')
+        pdf = pdf.sort_values('value').head(100)
 
         np.testing.assert_array_equal(ds_result['value'].values, pdf['value'].values)
 

@@ -1588,6 +1588,11 @@ class SQLExecutionEngine:
         select_fields_for_sql = sql_select_fields
 
         if groupby_agg_op:
+            # Note: Pre-aggregation ORDER BY (from sort_values() before groupby) is already
+            # handled by the query planner - it won't be pushed to SQL. Any ORDER BY present
+            # here is a post-aggregation sort (e.g., groupby().agg().sort_values('mean'))
+            # and must be preserved.
+
             # Get columns for aggregation - prioritize explicit column selection from
             # df[['col1', 'col2']].groupby(...) over all source columns
             # This ensures that df[['Pclass', 'Survived']].groupby('Pclass').mean()
