@@ -178,5 +178,199 @@ class TestHeadRowOrderPreservation(unittest.TestCase):
         self.assertEqual(list(ds_df['value']), [5, 6])
 
 
+class TestTailPerformanceOptimization(unittest.TestCase):
+    """Test that tail() uses SQL OFFSET/LIMIT optimization."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Create test data."""
+        cls.df = pd.DataFrame({
+            'a': list(range(1, 11)),
+            'b': ['x', 'y', 'z', 'w', 'v', 'u', 't', 's', 'r', 'q']
+        })
+
+    def test_simple_tail_matches_pandas(self):
+        """Simple tail() should match pandas."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.tail(3)
+        ds_result = ds.tail(3)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_simple_tail_default_n(self):
+        """tail() with default n=5 should match pandas."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.tail()
+        ds_result = ds.tail()
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_tail_negative_n_matches_pandas(self):
+        """tail(-2) should return all except first 2 rows, matching pandas."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.tail(-2)
+        ds_result = ds.tail(-2)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_tail_larger_than_dataframe(self):
+        """tail(n) where n > len(df) should return all rows."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.tail(100)
+        ds_result = ds.tail(100)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_tail_on_empty_dataframe(self):
+        """tail() on empty DataFrame should match pandas."""
+        pd_df = pd.DataFrame({'a': [], 'b': []})
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.tail(5)
+        ds_result = ds.tail(5)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_tail_zero(self):
+        """tail(0) should return empty DataFrame matching pandas."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.tail(0)
+        ds_result = ds.tail(0)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_filter_then_tail_matches_pandas(self):
+        """filter + tail should match pandas."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df[pd_df['a'] > 5].tail(3)
+        ds_result = ds[ds['a'] > 5].tail(3)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_sort_then_tail_matches_pandas(self):
+        """sort + tail should match pandas (sort by value, then take last n)."""
+        pd_df = self.df.copy()
+        ds = DataStore(pd_df)
+
+        pd_result = pd_df.sort_values('a', ascending=False).tail(3)
+        ds_result = ds.sort_values('a', ascending=False).tail(3)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_tail_with_parquet_file(self):
+        """tail() on Parquet file should match pandas."""
+        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as f:
+            parquet_path = f.name
+        self.df.to_parquet(parquet_path)
+
+        try:
+            pd_df = pd.read_parquet(parquet_path)
+            ds = DataStore(parquet_path)
+
+            pd_result = pd_df.tail(5)
+            ds_result = ds.tail(5)
+
+            assert_datastore_equals_pandas(ds_result, pd_result)
+        finally:
+            os.unlink(parquet_path)
+
+    def test_filter_tail_parquet_matches_pandas(self):
+        """filter + tail on Parquet file should match pandas."""
+        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as f:
+            parquet_path = f.name
+        self.df.to_parquet(parquet_path)
+
+        try:
+            pd_df = pd.read_parquet(parquet_path)
+            ds = DataStore(parquet_path)
+
+            pd_result = pd_df[pd_df['a'] > 3].tail(4)
+            ds_result = ds[ds['a'] > 3].tail(4)
+
+            assert_datastore_equals_pandas(ds_result, pd_result)
+        finally:
+            os.unlink(parquet_path)
+
+    def test_tail_uses_sql_offset_limit(self):
+        """tail() should use SQL OFFSET/LIMIT, not download all data."""
+        import logging
+
+        # Create a parquet file (SQL source)
+        with tempfile.NamedTemporaryFile(suffix='.parquet', delete=False) as f:
+            parquet_path = f.name
+        big_df = pd.DataFrame({
+            'a': list(range(100)),
+            'b': [f'val_{i}' for i in range(100)]
+        })
+        big_df.to_parquet(parquet_path)
+
+        try:
+            ds = DataStore(parquet_path)
+
+            # Verify the optimization path is used
+            self.assertTrue(ds._can_use_sql_tail())
+
+            # Get result
+            ds_result = ds.tail(5)
+
+            # Verify result matches pandas
+            pd_df = pd.read_parquet(parquet_path)
+            pd_result = pd_df.tail(5)
+            assert_datastore_equals_pandas(ds_result, pd_result)
+        finally:
+            os.unlink(parquet_path)
+
+
+class TestTailRowOrderPreservation(unittest.TestCase):
+    """Test that row order is preserved correctly with tail()."""
+
+    def test_tail_preserves_original_order(self):
+        """tail() should preserve original row order from source."""
+        df = pd.DataFrame({
+            'id': [10, 20, 30, 40, 50],
+            'value': ['a', 'b', 'c', 'd', 'e']
+        })
+        ds = DataStore(df)
+
+        pd_result = df.tail(3)
+        ds_result = ds.tail(3)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+        ds_df = ds_result.to_df()
+        self.assertEqual(list(ds_df['id']), [30, 40, 50])
+        self.assertEqual(list(ds_df['value']), ['c', 'd', 'e'])
+
+    def test_filter_tail_preserves_order_after_filter(self):
+        """filter + tail should preserve order of filtered rows."""
+        df = pd.DataFrame({
+            'id': [10, 20, 30, 40, 50, 60],
+            'value': [1, 5, 2, 6, 3, 7]
+        })
+        ds = DataStore(df)
+
+        # Filter for value > 3, then tail(2)
+        # Original order of rows with value > 3: 20 (5), 40 (6), 60 (7)
+        # tail(2) should give: 40 (6), 60 (7)
+        pd_result = df[df['value'] > 3].tail(2)
+        ds_result = ds[ds['value'] > 3].tail(2)
+
+        assert_datastore_equals_pandas(ds_result, pd_result)
+        ds_df = ds_result.to_df()
+        self.assertEqual(list(ds_df['id']), [40, 60])
+        self.assertEqual(list(ds_df['value']), [6, 7])
+
+
 if __name__ == '__main__':
     unittest.main()

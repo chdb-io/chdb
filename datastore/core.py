@@ -3572,7 +3572,8 @@ class DataStore(PandasCompatMixin):
         """
         Return the last n rows of the query result.
 
-        If n is positive, returns the last n rows.
+        If n is positive, returns the last n rows using SQL OFFSET/LIMIT
+        when a SQL source is available (avoids full table download).
         If n is negative, returns all rows except the first |n| rows,
         matching pandas behavior.
 
@@ -3581,14 +3582,24 @@ class DataStore(PandasCompatMixin):
                If negative, returns all rows except the first |n| rows.
 
         Returns:
-            DataStore with the selected rows
+            DataStore with the selected rows (lazy for positive n with SQL source)
 
         Example:
             >>> ds = DataStore({'a': [1, 2, 3, 4, 5]})
             >>> ds.tail(3)   # Returns last 3 rows
             >>> ds.tail(-2)  # Returns all except first 2 rows (last 3 rows)
         """
-        # Use _get_df if available (handles caching properly)
+        if n >= 0 and self._can_use_sql_tail():
+            # Positive n with SQL source: use OFFSET/LIMIT optimization
+            # Get total count efficiently via SQL COUNT(*)
+            total = self.count_rows()
+            if total <= n:
+                # Fewer rows than requested, return all
+                return self.limit(total)
+            # Use OFFSET to skip to the last n rows
+            return self.offset(total - n).limit(n)
+
+        # Negative n or no SQL source: fall back to pandas
         if hasattr(self, "_get_df"):
             df = self._get_df()
         else:
@@ -3600,6 +3611,35 @@ class DataStore(PandasCompatMixin):
             return self._wrap_result(result_df, f"tail({n})")
         else:
             return self._wrap_result_fallback(result_df)
+
+    def _can_use_sql_tail(self) -> bool:
+        """Check if SQL OFFSET/LIMIT optimization can be used for tail().
+
+        Returns True when the DataStore has a SQL source and all pending
+        lazy operations can be expressed in SQL (so count_rows() is accurate
+        and OFFSET/LIMIT can be pushed to the query).
+        """
+        # Must have a SQL source
+        has_sql_source = bool(
+            self._table_function or self.table_name or self._source_df is not None
+        )
+        if not has_sql_source:
+            return False
+
+        # Check if there are non-SQL lazy ops that would make
+        # count_rows() inaccurate or OFFSET/LIMIT incorrect
+        if self._lazy_ops:
+            from .lazy_ops import LazyRelationalOp, LazyDataFrameSource
+
+            for op in self._lazy_ops:
+                if isinstance(op, LazyDataFrameSource):
+                    continue
+                if isinstance(op, LazyRelationalOp):
+                    continue
+                # Non-SQL op found: can't use SQL tail optimization
+                return False
+
+        return True
 
     def sample(
         self,
