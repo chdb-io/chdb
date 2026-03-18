@@ -1320,5 +1320,172 @@ class TestMixedSqlPandasOperations(unittest.TestCase):
         self.assertEqual(list(d['value']), expected)
 
 
+class TestChainedFilterSortCount(unittest.TestCase):
+    """
+    Regression tests for count()/count_rows() after chained filter + sort_values.
+
+    Reproduces the scenario: ds[cond1][cond2].sort_values([...]).count()
+    which previously hung on remote ClickHouse because ORDER BY was included
+    in the COUNT subquery, forcing a full sort before counting.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_dir = tempfile.mkdtemp()
+        cls.csv_file = os.path.join(cls.temp_dir, "zb_sample.csv")
+
+        cls.pdf = pd.DataFrame({
+            'date': ['20260121', '20260121', '20260122', '20260122', '20260121',
+                     '20260121', '20260122', '20260121'],
+            'time_int': [33000000, 35000000, 33000000, 33000000, 34000000,
+                         34500000, 31000000, 32000000],
+            'date_time': [
+                '2026-01-21 09:00', '2026-01-21 09:30', '2026-01-22 09:00',
+                '2026-01-22 09:30', '2026-01-21 09:15', '2026-01-21 09:25',
+                '2026-01-22 08:30', '2026-01-21 08:50',
+            ],
+            'chno': [1, 2, 1, 2, 1, 3, 1, 2],
+            'seqno': [100, 200, 300, 400, 150, 180, 50, 80],
+            'price': [10.5, 20.0, 30.5, 40.0, 15.0, 18.5, 25.0, 12.0],
+        })
+        cls.pdf.to_csv(cls.csv_file, index=False)
+
+        cls.DATE = '20260121'
+        cls.TIME_INT_MAX = 34000000
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.exists(cls.csv_file):
+            os.unlink(cls.csv_file)
+        if os.path.exists(cls.temp_dir):
+            os.rmdir(cls.temp_dir)
+
+    def _get_pandas_filtered_sorted(self):
+        pdf = self.pdf
+        return pdf[pdf['date'] == self.DATE][pdf['time_int'] <= self.TIME_INT_MAX].sort_values(
+            ['date_time', 'chno', 'seqno']
+        )
+
+    def _get_ds_filtered_sorted(self):
+        ds = DataStore.from_file(self.csv_file)
+        return ds[ds['date'] == self.DATE][ds['time_int'] <= self.TIME_INT_MAX].sort_values(
+            ['date_time', 'chno', 'seqno']
+        )
+
+    def test_chained_filter_sort_count_matches_pandas(self):
+        """count() after chained filter + sort_values matches pandas."""
+        pd_result = self._get_pandas_filtered_sorted()
+        ds_result = self._get_ds_filtered_sorted()
+
+        pd_count = pd_result.count()
+        ds_count = ds_result.count()
+
+        self.assertIsInstance(ds_count, pd.Series)
+        for col in pd_count.index:
+            self.assertEqual(
+                ds_count[col], pd_count[col],
+                f"count mismatch for column '{col}': DS={ds_count[col]} vs PD={pd_count[col]}"
+            )
+
+    def test_chained_filter_sort_count_rows_matches_pandas(self):
+        """count_rows() after chained filter + sort_values matches pandas len()."""
+        pd_result = self._get_pandas_filtered_sorted()
+        ds_result = self._get_ds_filtered_sorted()
+
+        self.assertEqual(ds_result.count_rows(), len(pd_result))
+
+    def test_chained_filter_sort_len_matches_pandas(self):
+        """len() after chained filter + sort_values matches pandas."""
+        pd_result = self._get_pandas_filtered_sorted()
+        ds_result = self._get_ds_filtered_sorted()
+
+        self.assertEqual(len(ds_result), len(pd_result))
+
+    def test_count_sql_has_no_order_by(self):
+        """count() subquery SQL must NOT contain ORDER BY (it's wasteful for counting)."""
+        from copy import copy
+        from datastore.lazy_ops import LazyRelationalOp
+
+        ds_result = self._get_ds_filtered_sorted()
+
+        orderby_ops = [
+            op for op in ds_result._lazy_ops
+            if isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
+        ]
+        self.assertTrue(len(orderby_ops) > 0, "Test setup: should have ORDER BY lazy ops")
+
+        count_base = copy(ds_result)
+        count_base._lazy_ops = [
+            op for op in count_base._lazy_ops
+            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
+        ]
+        count_base._orderby_fields = []
+        sql = count_base.to_sql()
+
+        self.assertNotIn("ORDER BY", sql, f"COUNT subquery should not contain ORDER BY: {sql}")
+        self.assertIn("WHERE", sql, f"COUNT subquery must retain WHERE clause: {sql}")
+
+    def test_count_after_single_filter_and_sort(self):
+        """count() with single filter + sort_values."""
+        pdf = self.pdf
+        pd_result = pdf[pdf['date'] == self.DATE].sort_values(['chno', 'seqno']).count()
+
+        ds = DataStore.from_file(self.csv_file)
+        ds_result = ds[ds['date'] == self.DATE].sort_values(['chno', 'seqno']).count()
+
+        for col in pd_result.index:
+            self.assertEqual(ds_result[col], pd_result[col])
+
+    def test_count_after_filter_no_sort(self):
+        """count() with chained filters but no sort."""
+        pdf = self.pdf
+        pd_result = pdf[pdf['date'] == self.DATE][pdf['time_int'] <= self.TIME_INT_MAX].count()
+
+        ds = DataStore.from_file(self.csv_file)
+        ds_result = ds[ds['date'] == self.DATE][ds['time_int'] <= self.TIME_INT_MAX].count()
+
+        for col in pd_result.index:
+            self.assertEqual(ds_result[col], pd_result[col])
+
+    def test_count_rows_after_filter_no_sort(self):
+        """count_rows() with chained filters but no sort."""
+        pdf = self.pdf
+        pd_len = len(pdf[pdf['date'] == self.DATE][pdf['time_int'] <= self.TIME_INT_MAX])
+
+        ds = DataStore.from_file(self.csv_file)
+        ds_len = ds[ds['date'] == self.DATE][ds['time_int'] <= self.TIME_INT_MAX].count_rows()
+
+        self.assertEqual(ds_len, pd_len)
+
+    def test_count_filter_returns_zero_rows(self):
+        """count() when filter produces empty result."""
+        pdf = self.pdf
+        pd_result = pdf[pdf['price'] > 99999].count()
+
+        ds = DataStore.from_file(self.csv_file)
+        ds_result = ds[ds['price'] > 99999].count()
+
+        for col in pd_result.index:
+            self.assertEqual(ds_result[col], 0)
+
+    def test_count_rows_filter_returns_zero_rows(self):
+        """count_rows() when filter produces empty result."""
+        ds = DataStore.from_file(self.csv_file)
+        self.assertEqual(ds[ds['price'] > 99999].count_rows(), 0)
+
+    def test_execution_result_matches_count(self):
+        """Verify count() matches the actual executed DataFrame length."""
+        ds_result = self._get_ds_filtered_sorted()
+
+        ds_count = ds_result.count()
+        ds_df = ds_result.to_df()
+
+        for col in ds_df.columns:
+            self.assertEqual(
+                ds_count[col], ds_df[col].count(),
+                f"count() disagrees with to_df().count() for column '{col}'"
+            )
+
+
 if __name__ == '__main__':
     unittest.main()
