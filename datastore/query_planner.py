@@ -882,6 +882,15 @@ class QueryPlanner:
                             return False
                         break  # first/last handled separately
 
+                # ORDER BY after GROUP BY operates on aggregated (small) result set,
+                # so SQL sort is cheap - always push to SQL
+                has_preceding_groupby = any(
+                    isinstance(p_op, LazyGroupByAgg)
+                    for p_op in (preceding_ops or [])
+                )
+                if has_preceding_groupby:
+                    return True
+
                 has_limit = any(
                     isinstance(f_op, LazyRelationalOp) and f_op.op_type == "LIMIT"
                     for f_op in following
