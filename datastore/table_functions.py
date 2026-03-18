@@ -524,6 +524,9 @@ class MySQLTableFunction(TableFunction):
     def can_write(self) -> bool:
         return True
 
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        return True  # Remote DB — no meaningful row order, skip rowNumberInAllBlocks
+
     def to_sql(self, quote_char: str = '"') -> str:
         host = self.params.get("host")
         database = self.params.get("database")
@@ -568,6 +571,9 @@ class PostgreSQLTableFunction(TableFunction):
     @property
     def can_write(self) -> bool:
         return True
+
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        return True  # Remote DB — no meaningful row order, skip rowNumberInAllBlocks
 
     def to_sql(self, quote_char: str = '"') -> str:
         host = self.params.get("host")
@@ -615,6 +621,9 @@ class MongoDBTableFunction(TableFunction):
     @property
     def can_write(self) -> bool:
         return False  # MongoDB table function is read-only
+
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        return True  # Remote DB — no meaningful row order, skip rowNumberInAllBlocks
 
     def to_sql(self, quote_char: str = '"') -> str:
         host = self.params.get("host")
@@ -665,6 +674,9 @@ class RedisTableFunction(TableFunction):
     def can_write(self) -> bool:
         return True
 
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        return True  # Remote DB — no meaningful row order, skip rowNumberInAllBlocks
+
     def to_sql(self, quote_char: str = '"') -> str:
         host = self.params.get("host")
         key = self.params.get("key")
@@ -709,6 +721,9 @@ class SQLiteTableFunction(TableFunction):
     def can_write(self) -> bool:
         return False  # SQLite table function is read-only
 
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        return True  # External DB — no meaningful row order, skip rowNumberInAllBlocks
+
     def to_sql(self, quote_char: str = '"') -> str:
         database_path = self.params.get("database_path") or self.params.get("path")
         table = self.params.get("table")
@@ -745,6 +760,14 @@ class RemoteTableFunction(TableFunction):
 
     @property
     def can_write(self) -> bool:
+        return True
+
+    def preserves_row_order(self, format_settings: Dict[str, Any] = None) -> bool:
+        """Remote tables have no meaningful original row order.
+
+        Adding rowNumberInAllBlocks() on a remote() source forces a full table
+        scan before any WHERE filtering, which is catastrophic for large tables.
+        """
         return True
 
     def to_sql(self, quote_char: str = '"') -> str:
