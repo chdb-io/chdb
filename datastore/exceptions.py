@@ -2,6 +2,8 @@
 Exception classes for DataStore
 """
 
+import re
+
 __all__ = [
     "DataStoreError",
     "ConnectionError",
@@ -12,6 +14,9 @@ __all__ = [
     "UnsupportedOperationError",
     "ImmutableError",
     "ColumnNotFoundError",
+    "translate_remote_error",
+    "_extract_clickhouse_error_code",
+    "_extract_host_from_error",
 ]
 
 
@@ -134,8 +139,6 @@ class ColumnNotFoundError(DataStoreError):
                 msg += f". Available columns (first 10 of {len(available_columns)}): [{cols_str}, ...]"
         super().__init__(msg)
 
-
-import re
 
 
 def _extract_clickhouse_error_code(error_str: str) -> str:
