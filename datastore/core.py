@@ -6081,9 +6081,10 @@ class DataStore(PandasCompatMixin):
 
         # Handle table selection in connection/database mode
         if isinstance(key, str) and self._connection_mode in ("connection", "database"):
-            # Check if this looks like a table reference (contains dot or we're in connection mode)
-            if "." in key or self._connection_mode == "connection":
-                return self._select_table(key)
+            # In connection/database mode, any string key is a table reference.
+            # Dot notation ("db.table") and bare names ("table") both route here.
+            # _select_table handles missing database by raising DataStoreError.
+            return self._select_table(key)
 
         if isinstance(key, str):
             # Check if column is accessible (respects select() restrictions)
