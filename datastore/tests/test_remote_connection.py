@@ -1475,6 +1475,94 @@ class TestClickHouseCloudAutoDetect(unittest.TestCase):
         )
         self.assertTrue(ds._remote_params.get("secure"))
 
+    def test_explicit_secure_false_overridden_for_cloud_host(self):
+        """Explicit secure=False with .clickhouse.cloud -> secure still True."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.clickhouse.cloud",
+            user="default", password="pass",
+            secure=False,
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+
+    def test_normalize_idempotent_cloud_no_port(self):
+        """normalize_clickhouse_connection is idempotent for cloud host without port."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "abc123.clickhouse.cloud", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+
+    def test_normalize_idempotent_cloud_port_9000(self):
+        """normalize_clickhouse_connection is idempotent for cloud:9000."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "abc123.clickhouse.cloud:9000", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+        self.assertEqual(host2, "abc123.clickhouse.cloud:9440")
+        self.assertTrue(secure2)
+
+    def test_normalize_idempotent_non_cloud_9440(self):
+        """normalize_clickhouse_connection is idempotent for non-cloud:9440."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "myserver:9440", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+        self.assertTrue(secure2)
+
+    def test_normalize_idempotent_plain_host(self):
+        """normalize_clickhouse_connection is idempotent for plain host:9000."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "localhost:9000", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+        self.assertFalse(secure2)
+
+    def test_cloud_uri_triggers_auto_detection(self):
+        """clickhouse:// URI with .clickhouse.cloud host triggers auto-detection."""
+        ds = DataStore.uri(
+            "clickhouse://abc123.clickhouse.cloud/default/events"
+            "?user=default&password=pass"
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+
+    def test_cloud_uri_secure_false_still_overridden(self):
+        """clickhouse:// URI with secure=false + cloud host -> secure True."""
+        ds = DataStore.uri(
+            "clickhouse://abc123.clickhouse.cloud:9000/default/events"
+            "?user=default&password=pass&secure=false"
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+
+    def test_uri_secure_true_parsed_correctly(self):
+        """clickhouse:// URI with ?secure=true sets secure flag."""
+        ds = DataStore.uri(
+            "clickhouse://myhost:9440/default/events"
+            "?user=default&password=pass&secure=true"
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
 
 
 class TestSQLRewritingRobustness(unittest.TestCase):
