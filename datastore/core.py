@@ -4186,13 +4186,11 @@ class DataStore(PandasCompatMixin):
         # Lightweight metadata queries
         row_count = self.count_rows()
 
-        # Probe dtypes via LIMIT 0 (transfers zero rows)
-        subquery_sql = self.to_sql()
-        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
-        probe_result = self._executor.execute(probe_sql)
-        probe_df = probe_result.to_df()
-        dtypes = probe_df.dtypes
-        col_names = list(probe_df.columns)
+        # Get dtypes and column names via optimized properties
+        # (uses DESCRIBE or direct LIMIT 0 on the source, avoiding
+        # nested subquery which can hang on remote tables)
+        dtypes = self.dtypes
+        col_names = list(self.columns)
         n_cols = len(col_names)
 
         # Get non-null counts via SQL COUNT(col)
