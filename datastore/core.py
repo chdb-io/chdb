@@ -28,6 +28,7 @@ from .exceptions import (
     ConnectionError,
     ExecutionError,
     UnsupportedOperationError,
+    translate_remote_error,
 )
 from .connection import Connection, QueryResult
 from .executor import Executor
@@ -2831,7 +2832,8 @@ class DataStore(PandasCompatMixin):
             return self
         except Exception as e:
             self._logger.error("Connection failed: %s", e)
-            raise ConnectionError(f"Failed to connect: {e}")
+            friendly_msg = translate_remote_error(e, self._remote_params)
+            raise ConnectionError(f"Failed to connect: {friendly_msg}")
 
     def _test_data_source(self) -> None:
         """
@@ -2854,7 +2856,8 @@ class DataStore(PandasCompatMixin):
             self._logger.debug("Data source is accessible")
         except Exception as e:
             self._logger.error("Data source not accessible: %s", e)
-            raise ConnectionError(f"Data source not accessible: {e}")
+            friendly_msg = translate_remote_error(e, self._remote_params)
+            raise ConnectionError(f"Data source not accessible: {friendly_msg}")
 
     def schema(self) -> dict:
         """
@@ -2932,7 +2935,8 @@ class DataStore(PandasCompatMixin):
             )
         except Exception as e:
             self._logger.error("Data source not accessible: %s", e)
-            raise ConnectionError(f"Data source not accessible: {e}")
+            friendly_msg = translate_remote_error(e, self._remote_params)
+            raise ConnectionError(f"Data source not accessible: {friendly_msg}")
 
     def _get_table_alias(self) -> str:
         """
@@ -3345,7 +3349,8 @@ class DataStore(PandasCompatMixin):
             return result
         except Exception as e:
             self._logger.error("Query execution failed: %s", e)
-            raise ExecutionError(f"Query execution failed: {e}")
+            friendly_msg = translate_remote_error(e, self._remote_params)
+            raise ExecutionError(f"Query execution failed: {friendly_msg}")
 
     def exec(self) -> QueryResult:
         """

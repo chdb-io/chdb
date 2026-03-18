@@ -19,7 +19,7 @@ import chdb
 import pandas as pd
 import numpy as np
 
-from .exceptions import ConnectionError, ExecutionError
+from .exceptions import ConnectionError, ExecutionError, translate_remote_error
 from .config import get_logger, get_profiler
 
 
@@ -121,7 +121,8 @@ class Connection:
             return QueryResult(data=result, output_format=output_format)
         except Exception as e:
             self._logger.error("[chDB] Query failed: %s", e)
-            raise ExecutionError(f"Query execution failed: {e}\nSQL: {sql}")
+            friendly_msg = translate_remote_error(e)
+            raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
 
     def query_df(
         self,
@@ -312,7 +313,8 @@ class Connection:
             return result
         except Exception as e:
             self._logger.error("[chDB] DataFrame query failed: %s", e)
-            raise ExecutionError(f"Failed to execute SQL on DataFrame: {e}")
+            friendly_msg = translate_remote_error(e)
+            raise ExecutionError(f"Failed to execute SQL on DataFrame: {friendly_msg}")
 
     def _prepare_df_for_chdb(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, Optional[pd.Index], Optional[str]]:
         """
@@ -919,7 +921,8 @@ class Connection:
             return result_series
         except Exception as e:
             self._logger.error("[chDB] Expression evaluation failed: %s", e)
-            raise ExecutionError(f"Failed to evaluate expression '{expr_sql}': {e}")
+            friendly_msg = translate_remote_error(e)
+            raise ExecutionError(f"Failed to evaluate expression '{expr_sql}': {friendly_msg}")
 
     def _is_row_expanding_expression(self, expr_sql: str) -> bool:
         """
