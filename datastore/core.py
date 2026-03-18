@@ -3779,6 +3779,9 @@ class DataStore(PandasCompatMixin):
                 if not isinstance(op, LazyRelationalOp):
                     has_non_sql_ops = True
                     break
+                if op.op_type == "PANDAS_FILTER":
+                    has_non_sql_ops = True
+                    break
 
         if has_non_sql_ops:
             # Fall back to execution for non-SQL operations
@@ -3795,14 +3798,23 @@ class DataStore(PandasCompatMixin):
         if self._executor is None:
             self.connect()
 
-        # Step 1: Get column names efficiently using LIMIT 1
-        # Note: LIMIT 0 doesn't return column info in chDB, so we use LIMIT 1
+        # Build subquery SQL without ORDER BY (unnecessary for COUNT, and forces
+        # remote servers to do a full sort before counting which can be very slow)
         from copy import copy
 
-        schema_ds = copy(self)
-        schema_ds._limit_value = 1
-        schema_ds._offset_value = None
-        schema_sql = schema_ds.to_sql()
+        count_base = copy(self)
+        count_base._lazy_ops = [
+            op
+            for op in count_base._lazy_ops
+            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
+        ]
+        count_base._orderby_fields = []
+        count_base._limit_value = None
+        count_base._offset_value = None
+        subquery_sql = count_base.to_sql()
+
+        # Step 1: Get column names efficiently using LIMIT 1
+        schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 1"
         self._logger.debug("count() getting column names with: %s", schema_sql)
 
         try:
@@ -3810,38 +3822,26 @@ class DataStore(PandasCompatMixin):
             column_names = schema_result.column_names
 
             if not column_names:
-                # No columns found, return empty Series
                 return pd.Series(dtype="int64")
 
             # Step 2: Build COUNT query for each column
-            # SELECT COUNT(col1) AS col1, COUNT(col2) AS col2, ... FROM (subquery)
             count_exprs = []
             for col_name in column_names:
-                # Use format_identifier for proper quoting
                 quoted_col = format_identifier(col_name, self.quote_char)
                 count_exprs.append(f"COUNT({quoted_col}) AS {quoted_col}")
 
             count_select = ", ".join(count_exprs)
-
-            # Build subquery from current state (without LIMIT 0)
-            count_ds = copy(self)
-            count_ds._limit_value = None
-            count_ds._offset_value = None
-            subquery_sql = count_ds.to_sql()
-
             count_sql = f"SELECT {count_select} FROM ({subquery_sql})"
             self._logger.debug("count() executing: %s", count_sql)
 
             result = self._executor.execute(count_sql)
 
             if result.rows and result.rows[0]:
-                # Build Series from result
                 counts = {
                     col: int(val) for col, val in zip(column_names, result.rows[0])
                 }
                 return pd.Series(counts)
             else:
-                # Return Series with zeros
                 return pd.Series({col: 0 for col in column_names})
 
         except Exception as e:
@@ -3877,10 +3877,7 @@ class DataStore(PandasCompatMixin):
             This is more efficient than len() for large datasets as it uses SQL COUNT(*)
             instead of executing the entire DataFrame.
         """
-        from .functions import Count
-
         # If we have lazy operations that can't be expressed in SQL, fall back to execution
-        # Check if there are any non-SQL operations in the lazy ops
         has_non_sql_ops = False
         if self._lazy_ops:
             from .lazy_ops import LazyRelationalOp
@@ -3889,51 +3886,43 @@ class DataStore(PandasCompatMixin):
                 if not isinstance(op, LazyRelationalOp):
                     has_non_sql_ops = True
                     break
+                if op.op_type == "PANDAS_FILTER":
+                    has_non_sql_ops = True
+                    break
 
         if has_non_sql_ops:
-            # Fall back to execution for non-SQL operations
             self._logger.debug(
                 "count_rows() falling back to execution due to non-SQL operations"
             )
             return len(self._execute())
 
         # If LIMIT is applied, execute with LIMIT and return actual count
-        # This is more accurate than COUNT(*) without LIMIT
         if self._limit_value is not None:
             self._logger.debug("count_rows() executing due to LIMIT")
             return len(self._execute())
 
-        # Build a COUNT(*) query
-        # Create a copy of the current DataStore to modify for counting
-        from copy import copy
-
-        count_ds = copy(self)
-
-        # Replace SELECT fields with COUNT(*)
-        count_ds._select_fields = [Count("*")]
-        count_ds._select_star = (
-            False  # Must clear _select_star to avoid "SELECT *, COUNT(*)"
-        )
-
-        # Clear ORDER BY (not needed for COUNT)
-        count_ds._orderby_fields = []
-
-        # Clear OFFSET (not applicable for COUNT without LIMIT)
-        count_ds._offset_value = None
-
-        # Clear DISTINCT (COUNT(*) counts all rows)
-        count_ds._distinct = False
-
         # Ensure we're connected
-        if count_ds._executor is None:
-            count_ds.connect()
+        if self._executor is None:
+            self.connect()
 
-        # Execute the COUNT query
-        sql = count_ds.to_sql()
-        self._logger.debug("count_rows() executing SQL: %s", sql)
-        result = count_ds._executor.execute(sql)
+        # Build subquery SQL without ORDER BY (unnecessary for COUNT(*))
+        from copy import copy
+        from .lazy_ops import LazyRelationalOp
 
-        # Extract the count value from result
+        count_base = copy(self)
+        count_base._lazy_ops = [
+            op
+            for op in count_base._lazy_ops
+            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
+        ]
+        count_base._orderby_fields = []
+        count_base._limit_value = None
+        count_base._offset_value = None
+        subquery_sql = count_base.to_sql()
+        count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
+        self._logger.debug("count_rows() executing SQL: %s", count_sql)
+        result = self._executor.execute(count_sql)
+
         if result.rows:
             return int(result.rows[0][0])
         return 0
