@@ -34,6 +34,7 @@ from .lazy_ops import (
     LazyWhere,
     LazyMask,
     LazyDataFrameSource,
+    LazyDistinct,
 )
 from .expressions import Field, Expression
 from .config import get_logger
@@ -902,6 +903,18 @@ class QueryPlanner:
             # LazyApply can be pushed to SQL if it's a simple aggregation pattern
             # e.g., groupby('category').apply(lambda x: x.sum())
             return op.can_push_to_sql()
+
+        if isinstance(op, LazyDistinct):
+            # LazyDistinct can be pushed to SQL when executing from a table/file source
+            # (first segment). For subsequent segments (on DataFrame), keep as pandas
+            # to preserve DataFrame index information.
+            # Check if there's a LazyDataFrameSource in preceding ops - if so, this is
+            # a DataFrame context where pandas execution is needed for index preservation.
+            if preceding_ops and any(
+                isinstance(p, LazyDataFrameSource) for p in preceding_ops
+            ):
+                return False
+            return True
 
         # All other ops (LazyFilter, LazyTransform, etc.)
         # require Pandas execution

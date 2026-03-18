@@ -791,6 +791,13 @@ class SQLExecutionEngine:
         if clauses.limit_value is not None:
             parts.append(f"LIMIT {clauses.limit_value}")
 
+        # LIMIT 1 BY clause (for drop_duplicates with subset)
+        if self.ds._distinct_subset:
+            limit_by_cols = ", ".join(
+                format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
+            )
+            parts.append(f"LIMIT 1 BY {limit_by_cols}")
+
         # OFFSET
         if clauses.offset_value is not None:
             parts.append(f"OFFSET {clauses.offset_value}")
@@ -985,6 +992,13 @@ class SQLExecutionEngine:
 
         if clauses.limit_value is not None:
             sql_parts.append(f"LIMIT {clauses.limit_value}")
+
+        # LIMIT 1 BY clause (for drop_duplicates with subset)
+        if self.ds._distinct_subset:
+            limit_by_cols = ", ".join(
+                format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
+            )
+            sql_parts.append(f"LIMIT 1 BY {limit_by_cols}")
 
         if clauses.offset_value is not None:
             sql_parts.append(f"OFFSET {clauses.offset_value}")
@@ -1659,6 +1673,13 @@ class SQLExecutionEngine:
             ):
                 effective_orderby = [("__rowNumberInAllBlocks__", True)]
 
+            # When DISTINCT is active, don't use include_star because it would
+            # expand * to all source columns (defeating column selection + DISTINCT).
+            # Column assignments are already in select_fields_for_sql.
+            use_include_star = has_column_assignments if has_column_assignments else None
+            if self.ds._distinct and use_include_star:
+                use_include_star = None
+
             return self.assemble_sql(
                 select_fields_for_sql,
                 clauses.where_conditions,
@@ -1669,7 +1690,7 @@ class SQLExecutionEngine:
                 distinct=self.ds._distinct,
                 groupby_fields=groupby_fields_for_sql,
                 having_condition=self.ds._having_condition,
-                include_star=has_column_assignments if has_column_assignments else None,
+                include_star=use_include_star,
             )
 
     def _build_temp_alias_query(
@@ -1956,6 +1977,13 @@ class SQLExecutionEngine:
         # LIMIT
         if limit_value is not None:
             parts.append(f"LIMIT {limit_value}")
+
+        # LIMIT 1 BY clause (for drop_duplicates with subset)
+        if self.ds._distinct_subset:
+            limit_by_cols = ", ".join(
+                format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
+            )
+            parts.append(f"LIMIT 1 BY {limit_by_cols}")
 
         # OFFSET
         if offset_value is not None:
@@ -2361,6 +2389,11 @@ class SQLExecutionEngine:
                 select_sql = fields_sql
         else:
             select_sql = "*"
+
+        # Note: DISTINCT and LIMIT 1 BY are NOT applied here for DataFrame SQL
+        # execution. For DataFrame sources, LazyDistinct handles dedup via pandas
+        # to preserve index information. DISTINCT/LIMIT 1 BY are only used in
+        # first-segment SQL (from file/table) and in to_sql() output.
 
         # Standard case: Build simple SQL - row order is preserved by executor
         from_sql = "__df__"

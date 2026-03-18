@@ -363,6 +363,7 @@ class DataStore(PandasCompatMixin):
         self._limit_value: Optional[int] = None
         self._offset_value: Optional[int] = None
         self._distinct: bool = False
+        self._distinct_subset: Optional[List[str]] = None  # For LIMIT 1 BY subset_cols
 
         # INSERT/UPDATE/DELETE state
         self._insert_columns: List[str] = []
@@ -523,6 +524,7 @@ class DataStore(PandasCompatMixin):
         self._limit_value: Optional[int] = None
         self._offset_value: Optional[int] = None
         self._distinct: bool = False
+        self._distinct_subset: Optional[List[str]] = None  # For LIMIT 1 BY subset_cols
 
         # INSERT/UPDATE/DELETE state
         self._insert_columns: List[str] = []
@@ -886,6 +888,7 @@ class DataStore(PandasCompatMixin):
             or self._limit_value is not None
             or self._offset_value is not None
             or self._distinct
+            or self._distinct_subset
             or self._table_function is not None
             or self.table_name is not None
         )
@@ -902,6 +905,24 @@ class DataStore(PandasCompatMixin):
             or self._table_function
             or self.table_name
         )
+
+    def _can_sql_pushdown(self) -> bool:
+        """Check if SQL pushdown is possible for aggregate operations.
+
+        Returns False if there are non-SQL lazy ops (e.g., pandas transforms)
+        in the pipeline, or if the DataStore has no SQL state. Operations like
+        count(), count_rows(), nunique(), and value_counts() use this to decide
+        whether to use SQL or fall back to pandas execution.
+        """
+        if self._lazy_ops:
+            from .lazy_ops import LazyRelationalOp, LazyDistinct
+            for op in self._lazy_ops:
+                if isinstance(op, (LazyRelationalOp, LazyDistinct)):
+                    if isinstance(op, LazyRelationalOp) and op.op_type == "PANDAS_FILTER":
+                        return False
+                    continue
+                return False
+        return self._has_sql_state()
 
     def _require_table_context(self, operation: str) -> None:
         """
@@ -1273,6 +1294,7 @@ class DataStore(PandasCompatMixin):
                         self._limit_value = None
                         self._offset_value = None
                         self._distinct = False
+                        self._distinct_subset = None
 
                         self._logger.debug(
                             "Pipeline checkpointed: lazy_ops replaced with DataFrame source"
@@ -2632,6 +2654,7 @@ class DataStore(PandasCompatMixin):
         new_ds._limit_value = None
         new_ds._offset_value = None
         new_ds._distinct = False
+        new_ds._distinct_subset = None
 
         # Add the DataFrame as a lazy source for pandas-style operations
         new_ds._lazy_ops = [LazyDataFrameSource(df)]
@@ -3442,6 +3465,7 @@ class DataStore(PandasCompatMixin):
         new_ds._limit_value = None
         new_ds._offset_value = None
         new_ds._distinct = False
+        new_ds._distinct_subset = None
         new_ds._lazy_ops = [LazyDataFrameSource(result_df)]
 
         # Reset cache state for the new DataStore
@@ -3964,20 +3988,7 @@ class DataStore(PandasCompatMixin):
             For total row count (like SQL COUNT(*)), use count_rows() instead.
             Falls back to DataFrame execution if non-SQL operations are pending.
         """
-        # Check if there are any non-SQL operations in the lazy ops
-        has_non_sql_ops = False
-        if self._lazy_ops:
-            from .lazy_ops import LazyRelationalOp
-
-            for op in self._lazy_ops:
-                if not isinstance(op, LazyRelationalOp):
-                    has_non_sql_ops = True
-                    break
-                if op.op_type == "PANDAS_FILTER":
-                    has_non_sql_ops = True
-                    break
-
-        if has_non_sql_ops:
+        if not self._can_sql_pushdown():
             # Fall back to execution for non-SQL operations
             self._logger.debug(
                 "count() falling back to execution due to non-SQL operations"
@@ -4071,20 +4082,7 @@ class DataStore(PandasCompatMixin):
             This is more efficient than len() for large datasets as it uses SQL COUNT(*)
             instead of executing the entire DataFrame.
         """
-        # If we have lazy operations that can't be expressed in SQL, fall back to execution
-        has_non_sql_ops = False
-        if self._lazy_ops:
-            from .lazy_ops import LazyRelationalOp
-
-            for op in self._lazy_ops:
-                if not isinstance(op, LazyRelationalOp):
-                    has_non_sql_ops = True
-                    break
-                if op.op_type == "PANDAS_FILTER":
-                    has_non_sql_ops = True
-                    break
-
-        if has_non_sql_ops:
+        if not self._can_sql_pushdown():
             self._logger.debug(
                 "count_rows() falling back to execution due to non-SQL operations"
             )
@@ -5700,7 +5698,12 @@ class DataStore(PandasCompatMixin):
         from .lazy_ops import LazyDistinct
 
         # Set SQL flag for SQL execution path
-        self._distinct = True
+        if subset is not None:
+            # Use LIMIT 1 BY for subset-based deduplication
+            self._distinct_subset = list(subset) if not isinstance(subset, list) else subset
+        else:
+            # Use SELECT DISTINCT for full-row deduplication
+            self._distinct = True
         # Add lazy op for DataFrame execution path
         self._add_lazy_op(LazyDistinct(subset=subset, keep=keep))
 
@@ -6658,6 +6661,13 @@ class DataStore(PandasCompatMixin):
         # OFFSET clause
         if self._offset_value is not None:
             parts.append(f"OFFSET {self._offset_value}")
+
+        # LIMIT 1 BY clause (for drop_duplicates with subset)
+        if self._distinct_subset:
+            limit_by_cols = ", ".join(
+                format_identifier(c, quote_char) for c in self._distinct_subset
+            )
+            parts.append(f"LIMIT 1 BY {limit_by_cols}")
 
         # Add format settings if present
         if self._format_settings:

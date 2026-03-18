@@ -815,19 +815,7 @@ class PandasCompatMixin:
         if axis != 0:
             return self._get_df().nunique(axis=axis, dropna=dropna)
 
-        # Check if SQL pushdown is possible
-        from .lazy_ops import LazyRelationalOp
-        has_non_sql_ops = False
-        if self._lazy_ops:
-            for op in self._lazy_ops:
-                if not isinstance(op, LazyRelationalOp):
-                    has_non_sql_ops = True
-                    break
-                if op.op_type == "PANDAS_FILTER":
-                    has_non_sql_ops = True
-                    break
-
-        if has_non_sql_ops or not self._has_sql_state():
+        if not self._can_sql_pushdown():
             return self._get_df().nunique(axis=axis, dropna=dropna)
 
         try:
@@ -884,18 +872,7 @@ class PandasCompatMixin:
         Generates: SELECT cols, COUNT(*) FROM ... GROUP BY cols
         Falls back to pandas when non-SQL lazy ops are present.
         """
-        from .lazy_ops import LazyRelationalOp
-        has_non_sql_ops = False
-        if self._lazy_ops:
-            for op in self._lazy_ops:
-                if not isinstance(op, LazyRelationalOp):
-                    has_non_sql_ops = True
-                    break
-                if op.op_type == "PANDAS_FILTER":
-                    has_non_sql_ops = True
-                    break
-
-        if has_non_sql_ops or not self._has_sql_state():
+        if not self._can_sql_pushdown():
             return self._get_df().value_counts(
                 subset=subset, normalize=normalize, sort=sort,
                 ascending=ascending, dropna=dropna,
@@ -1001,7 +978,9 @@ class PandasCompatMixin:
         """Return DataFrame with duplicate rows removed.
 
         Uses lazy distinct operation for SQL pushdown when possible.
-        For keep='first' (default), generates SELECT DISTINCT via lazy ops.
+        For keep='first' (default):
+        - subset=None: generates SELECT DISTINCT via lazy ops
+        - subset=[cols]: generates LIMIT 1 BY cols for proper subset handling
         Falls back to pandas for keep='last' or keep=False.
         """
         if inplace:
@@ -1011,7 +990,12 @@ class PandasCompatMixin:
         if keep == 'first' and not ignore_index:
             from .lazy_ops import LazyDistinct
             new_ds = copy(self)
-            new_ds._distinct = True
+            if subset is not None:
+                # Use LIMIT 1 BY for subset-based deduplication
+                new_ds._distinct_subset = list(subset) if not isinstance(subset, list) else subset
+            else:
+                # Use SELECT DISTINCT for full-row deduplication
+                new_ds._distinct = True
             new_ds._add_lazy_op(LazyDistinct(subset=subset, keep=keep))
             return new_ds
 
