@@ -264,4 +264,5 @@ libchdb.so
 
 # supposed to be some local rules, not for sharing
 .cursor/rules/
+.cursor/hooks/
 chdb.code-workspace
