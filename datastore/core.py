@@ -4004,6 +4004,12 @@ class DataStore(PandasCompatMixin):
                 df = self.to_df()
             return df.count()
 
+        # If LIMIT is applied (e.g., via head()), execute with LIMIT and count
+        # the actual result, since COUNT without LIMIT would over-count
+        if self._limit_value is not None:
+            self._logger.debug("count() executing due to LIMIT")
+            return self._execute().count()
+
         # Ensure we're connected
         if self._executor is None:
             self.connect()
