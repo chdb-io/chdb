@@ -258,10 +258,7 @@ class TestLargeTableFilterVariants:
         """groupby + sum should push down to SQL."""
         start = time.monotonic()
         result = ds_large.groupby("category")["val_int"].sum()
-        if hasattr(result, "_execute"):
-            series = result._execute()
-        else:
-            series = result
+        series = result._execute()
         elapsed = time.monotonic() - start
 
         assert len(series) == 4
@@ -271,10 +268,7 @@ class TestLargeTableFilterVariants:
         """groupby + mean should push down to SQL."""
         start = time.monotonic()
         result = ds_large.groupby("tag")["score"].mean()
-        if hasattr(result, "_execute"):
-            series = result._execute()
-        else:
-            series = result
+        series = result._execute()
         elapsed = time.monotonic() - start
 
         assert len(series) == 3  # X, Y, Z
