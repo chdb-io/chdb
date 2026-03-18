@@ -55,6 +55,9 @@ build-backend = "setuptools.build_meta"
 include = ["datastore*", "chdb"]
 namespaces = true
 
+[tool.setuptools.exclude-package-data]
+chdb = ["*.dylib", "*.so"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["datastore/tests"]
