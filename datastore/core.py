@@ -5746,12 +5746,43 @@ class DataStore(PandasCompatMixin):
         self._alias = alias
         self._is_subquery = True
 
+    def _bind_table_context(self, database: str, table: str) -> None:
+        """
+        Bind a table to this DataStore, setting up table_name and _table_function.
+
+        Called by use() when a table argument is provided, so that
+        _connection_mode='table' is consistent with the actual SQL source state.
+
+        Args:
+            database: Database name for the table.
+            table: Table name to bind.
+        """
+        self.table_name = table
+
+        # For remote sources, create table function so SQL generation works
+        if self._remote_params and self.source_type:
+            try:
+                tf_kwargs = dict(self._remote_params)
+                tf_kwargs["table"] = table
+                if database and database != ":memory:":
+                    tf_kwargs["database"] = database
+                self._table_function = create_table_function(
+                    self.source_type, **tf_kwargs
+                )
+            except Exception:
+                # If table function creation fails, table_name is still set
+                # which provides a FROM clause for SQL generation
+                pass
+
     def use(self, *args) -> "DataStore":
         """
         Set default schema, database, and/or table context.
 
         This sets defaults for subsequent operations like query() and ds["table"].
         Mutates the current DataStore and returns self for chaining.
+
+        When called with a table argument (2 or 3 args), this also binds the
+        table so that operations like head(), columns, etc. work immediately.
 
         Args:
             With 1 arg: use(database) - set default database
@@ -5766,7 +5797,7 @@ class DataStore(PandasCompatMixin):
             >>> ds.use("production")
             >>> ds.query("SELECT * FROM users")  # uses production.users
 
-            >>> ds.use("production", "users")  # set both
+            >>> ds.use("production", "users")  # set both and bind table
             >>> ds.columns  # now works
 
         Raises:
@@ -5787,12 +5818,14 @@ class DataStore(PandasCompatMixin):
                 self._connection_mode = "database"
             if args[1]:
                 self._connection_mode = "table"
+                self._bind_table_context(args[0], args[1])
         elif len(args) == 3:
             self._default_schema = args[0]
             self._default_database = args[1]
             self._default_table = args[2]
             if args[2]:
                 self._connection_mode = "table"
+                self._bind_table_context(args[1], args[2])
         else:
             raise ValueError(
                 "use() takes 1, 2, or 3 arguments (database), (database, table), or (schema, database, table)"

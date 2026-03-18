@@ -437,8 +437,20 @@ class TestTestDatabaseAdvanced:
         """use(db, table) then filter should work."""
         clickhouse_connection.use("test_db", "users")
 
-        # After use(db, table), we're in table mode
+        # After use(db, table), we're in table mode with proper binding
         assert clickhouse_connection._connection_mode == "table"
+        assert clickhouse_connection.table_name == "users"
+        assert clickhouse_connection._table_function is not None
+
+    def test_use_database_table_then_head(self, clickhouse_connection):
+        """use(db, table) followed by head() should execute successfully."""
+        clickhouse_connection.use("test_db", "users")
+
+        # head() should work because table is properly bound
+        result = clickhouse_connection.head()
+        df = result._execute()
+        assert len(df) > 0
+        assert "name" in df.columns
 
     def test_table_after_use_database(self, clickhouse_connection):
         """table(table) after use(db) should work."""

@@ -201,7 +201,7 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._default_database, "production")
 
     def test_use_two_args_sets_database_and_table(self):
-        """use(database, table) sets both."""
+        """use(database, table) sets both and binds table."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
@@ -210,9 +210,22 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._default_database, "production")
         self.assertEqual(ds._default_table, "users")
         self.assertEqual(ds._connection_mode, "table")
+        # Verify table is actually bound (not just defaults)
+        self.assertEqual(ds.table_name, "users")
+        self.assertIsNotNone(ds._table_function)
+
+    def test_use_two_args_creates_consistent_sql_state(self):
+        """use(database, table) creates consistent internal state for SQL generation."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        ds.use("mydb", "mytable")
+
+        # _has_sql_state() should return True since table_name and _table_function are set
+        self.assertTrue(ds._has_sql_state())
 
     def test_use_three_args_sets_all(self):
-        """use(schema, database, table) sets all three."""
+        """use(schema, database, table) sets all three and binds table."""
         ds = DataStore.from_postgresql(
             host="localhost:5432", user="postgres", password=""
         )
@@ -222,6 +235,21 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._default_database, "mydb")
         self.assertEqual(ds._default_table, "users")
         self.assertEqual(ds._connection_mode, "table")
+        # Verify table is actually bound
+        self.assertEqual(ds.table_name, "users")
+        self.assertIsNotNone(ds._table_function)
+
+    def test_use_two_args_generates_valid_sql(self):
+        """use(database, table) should produce valid SQL with FROM clause."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        ds.use("mydb", "mytable")
+
+        # The table function should produce SQL that references the table
+        sql = ds._table_function.to_sql()
+        self.assertIn("mytable", sql)
+        self.assertIn("mydb", sql)
 
     def test_use_returns_self_for_chaining(self):
         """use() returns self for method chaining."""
