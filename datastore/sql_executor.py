@@ -700,6 +700,18 @@ class SQLExecutionEngine:
             return format_identifier(self.ds.table_name, self.quote_char)
         return ""
 
+    def _build_limit_by_clause(self) -> Optional[str]:
+        """Build LIMIT 1 BY clause for drop_duplicates(subset=...).
+
+        Returns the clause string (e.g. 'LIMIT 1 BY "a", "b"') or None.
+        """
+        if not self.ds._distinct_subset:
+            return None
+        limit_by_cols = ", ".join(
+            format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
+        )
+        return f"LIMIT 1 BY {limit_by_cols}"
+
     def build_simple_sql(
         self,
         clauses: ExtractedClauses,
@@ -787,13 +799,9 @@ class SQLExecutionEngine:
             )
             parts.append(f"ORDER BY {orderby_sql}")
 
-        # LIMIT 1 BY clause (for drop_duplicates with subset)
-        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
-        if self.ds._distinct_subset:
-            limit_by_cols = ", ".join(
-                format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
-            )
-            parts.append(f"LIMIT 1 BY {limit_by_cols}")
+        limit_by = self._build_limit_by_clause()
+        if limit_by:
+            parts.append(limit_by)
 
         # LIMIT
         if clauses.limit_value is not None:
@@ -991,13 +999,9 @@ class SQLExecutionEngine:
 
         sql_parts.append("ORDER BY __orig_row_num__")
 
-        # LIMIT 1 BY clause (for drop_duplicates with subset)
-        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
-        if self.ds._distinct_subset:
-            limit_by_cols = ", ".join(
-                format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
-            )
-            sql_parts.append(f"LIMIT 1 BY {limit_by_cols}")
+        limit_by = self._build_limit_by_clause()
+        if limit_by:
+            sql_parts.append(limit_by)
 
         if clauses.limit_value is not None:
             sql_parts.append(f"LIMIT {clauses.limit_value}")
@@ -1981,13 +1985,9 @@ class SQLExecutionEngine:
                 )
                 parts.append(f"ORDER BY {orderby_sql}")
 
-        # LIMIT 1 BY clause (for drop_duplicates with subset)
-        # Must come before LIMIT/OFFSET per ClickHouse SQL syntax
-        if self.ds._distinct_subset:
-            limit_by_cols = ", ".join(
-                format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
-            )
-            parts.append(f"LIMIT 1 BY {limit_by_cols}")
+        limit_by = self._build_limit_by_clause()
+        if limit_by:
+            parts.append(limit_by)
 
         # LIMIT
         if limit_value is not None:

@@ -2,7 +2,9 @@
 Core DataStore class - main entry point for data operations
 """
 
+import math
 import time
+from datetime import datetime, date
 import pandas as pd
 import numpy as np
 from typing import Any, Optional, List, Dict, Union, TYPE_CHECKING
@@ -907,6 +909,33 @@ class DataStore(PandasCompatMixin):
             or self.table_name
         )
 
+    def _all_lazy_ops_are_sql_compatible(self, allow_dataframe_source: bool = False) -> bool:
+        """Check whether every pending lazy op can be expressed in SQL.
+
+        Shared predicate used by _can_sql_pushdown, _can_use_sql_tail,
+        and _can_use_sql_no_load to avoid duplicating the same loop.
+
+        Args:
+            allow_dataframe_source: If True, LazyDataFrameSource ops are
+                accepted (needed by tail/no-load checks that verify the
+                source separately). If False, only relational SQL ops and
+                LazyDistinct are accepted.
+        """
+        if not self._lazy_ops:
+            return True
+        from .lazy_ops import LazyRelationalOp, LazyDistinct, LazyDataFrameSource
+        for op in self._lazy_ops:
+            if isinstance(op, LazyDistinct):
+                continue
+            if isinstance(op, LazyRelationalOp):
+                if op.op_type == "PANDAS_FILTER":
+                    return False
+                continue
+            if allow_dataframe_source and isinstance(op, LazyDataFrameSource):
+                continue
+            return False
+        return True
+
     def _can_sql_pushdown(self) -> bool:
         """Check if SQL pushdown is possible for aggregate operations.
 
@@ -915,15 +944,7 @@ class DataStore(PandasCompatMixin):
         count(), count_rows(), nunique(), and value_counts() use this to decide
         whether to use SQL or fall back to pandas execution.
         """
-        if self._lazy_ops:
-            from .lazy_ops import LazyRelationalOp, LazyDistinct
-            for op in self._lazy_ops:
-                if isinstance(op, (LazyRelationalOp, LazyDistinct)):
-                    if isinstance(op, LazyRelationalOp) and op.op_type == "PANDAS_FILTER":
-                        return False
-                    continue
-                return False
-        return self._has_sql_state()
+        return self._all_lazy_ops_are_sql_compatible() and self._has_sql_state()
 
     def _require_table_context(self, operation: str) -> None:
         """
@@ -3533,36 +3554,22 @@ class DataStore(PandasCompatMixin):
             try:
                 return self._sql_describe(percentiles=percentiles)
             except Exception as e:
-                self._logger.debug(
-                    "describe() SQL optimization failed, falling back: %s", e
+                self._logger.info(
+                    "describe() SQL optimization failed, falling back to pandas: %s", e
                 )
 
         # Local DataFrame statistics
-        # Use pandas compat layer if available, otherwise fallback
-        if hasattr(self, "_get_df"):
-            df = self._get_df()
-        else:
-            df = self.to_df()
+        df = self._get_df()
         result_df = df.describe(
             percentiles=percentiles, include=include, exclude=exclude
         )
 
-        # Wrap result in DataStore
-        if hasattr(self, "_wrap_result"):
-            return self._wrap_result(result_df, "describe()")
-        else:
-            return self._wrap_result_fallback(result_df)
+        return self._wrap_result(result_df, "describe()")
 
     def _sql_describe(self, percentiles=None):
         """Compute describe() statistics via SQL aggregates (no full data load)."""
-        if self._executor is None:
-            self.connect()
-
-        # Probe column types via LIMIT 0 query
+        probe_df = self._probe_schema()
         subquery_sql = self.to_sql()
-        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
-        probe_result = self._executor.execute(probe_sql)
-        probe_df = probe_result.to_df()
         dtypes = probe_df.dtypes
 
         # Find numeric columns
@@ -3573,11 +3580,7 @@ class DataStore(PandasCompatMixin):
         ]
 
         if not numeric_cols:
-            result_df = pd.DataFrame()
-            if hasattr(self, "_wrap_result"):
-                return self._wrap_result(result_df, "describe()")
-            else:
-                return self._wrap_result_fallback(result_df)
+            return self._wrap_result(pd.DataFrame(), "describe()")
 
         # Default percentiles (matching pandas behavior)
         if percentiles is None:
@@ -3604,16 +3607,8 @@ class DataStore(PandasCompatMixin):
         result = self._executor.execute(sql)
 
         if not result.rows or not result.rows[0]:
-            # Empty result, fall back to pandas
-            if hasattr(self, "_get_df"):
-                df = self._get_df()
-            else:
-                df = self.to_df()
-            result_df = df.describe(percentiles=percentiles)
-            if hasattr(self, "_wrap_result"):
-                return self._wrap_result(result_df, "describe()")
-            else:
-                return self._wrap_result_fallback(result_df)
+            result_df = self._get_df().describe(percentiles=percentiles)
+            return self._wrap_result(result_df, "describe()")
 
         # Build output DataFrame matching pandas describe() format
         row = result.rows[0]
@@ -3634,10 +3629,7 @@ class DataStore(PandasCompatMixin):
 
         result_df = pd.DataFrame(data, index=stat_names)
 
-        if hasattr(self, "_wrap_result"):
-            return self._wrap_result(result_df, "describe()")
-        else:
-            return self._wrap_result_fallback(result_df)
+        return self._wrap_result(result_df, "describe()")
 
     def desc(self, percentiles=None, include=None, exclude=None):
         """
@@ -3686,17 +3678,8 @@ class DataStore(PandasCompatMixin):
             return self.limit(n)
         else:
             # Negative n: need to exclude last |n| rows
-            # Must execute to know total count, then use pandas
-            if hasattr(self, "_get_df"):
-                df = self._get_df()
-            else:
-                df = self.to_df()
-            result_df = df.head(n)
-
-            if hasattr(self, "_wrap_result"):
-                return self._wrap_result(result_df, f"head({n})")
-            else:
-                return self._wrap_result_fallback(result_df)
+            result_df = self._get_df().head(n)
+            return self._wrap_result(result_df, f"head({n})")
 
     def tail(self, n: int = 5):
         """
@@ -3730,17 +3713,8 @@ class DataStore(PandasCompatMixin):
             return self.offset(total - n).limit(n)
 
         # Negative n or no SQL source: fall back to pandas
-        if hasattr(self, "_get_df"):
-            df = self._get_df()
-        else:
-            df = self.to_df()
-        result_df = df.tail(n)
-
-        # Wrap result in DataStore
-        if hasattr(self, "_wrap_result"):
-            return self._wrap_result(result_df, f"tail({n})")
-        else:
-            return self._wrap_result_fallback(result_df)
+        result_df = self._get_df().tail(n)
+        return self._wrap_result(result_df, f"tail({n})")
 
     def _can_use_sql_tail(self) -> bool:
         """Check if SQL OFFSET/LIMIT optimization can be used for tail().
@@ -3749,50 +3723,25 @@ class DataStore(PandasCompatMixin):
         lazy operations can be expressed in SQL (so count_rows() is accurate
         and OFFSET/LIMIT can be pushed to the query).
         """
-        # Must have a SQL source
         has_sql_source = bool(
             self._table_function or self.table_name or self._source_df is not None
         )
-        if not has_sql_source:
-            return False
-
-        # Check if there are non-SQL lazy ops that would make
-        # count_rows() inaccurate or OFFSET/LIMIT incorrect
-        if self._lazy_ops:
-            from .lazy_ops import LazyRelationalOp, LazyDataFrameSource
-
-            for op in self._lazy_ops:
-                if isinstance(op, LazyDataFrameSource):
-                    continue
-                if isinstance(op, LazyRelationalOp):
-                    continue
-                # Non-SQL op found: can't use SQL tail optimization
-                return False
-
-        return True
+        return has_sql_source and self._all_lazy_ops_are_sql_compatible(
+            allow_dataframe_source=True
+        )
 
     def _can_use_sql_no_load(self) -> bool:
         """Check if SQL optimization can avoid full data loading.
 
-        Similar to _can_use_sql_tail() but stricter: requires an actual
-        SQL table/file source (table_function or table_name), NOT just
-        _source_df (which means data is already in memory). Used by
-        info/describe/sample to avoid downloading data from remote sources.
+        Stricter than _can_use_sql_tail: requires an actual SQL table/file
+        source (table_function or table_name), NOT just _source_df (which
+        means data is already in memory). Used by info/describe/sample to
+        avoid downloading data from remote sources.
         """
-        if self._table_function is None and self.table_name is None:
-            return False
-
-        if self._lazy_ops:
-            from .lazy_ops import LazyRelationalOp, LazyDataFrameSource
-
-            for op in self._lazy_ops:
-                if isinstance(op, LazyDataFrameSource):
-                    continue
-                if isinstance(op, LazyRelationalOp):
-                    continue
-                return False
-
-        return True
+        has_remote_source = self._table_function is not None or self.table_name is not None
+        return has_remote_source and self._all_lazy_ops_are_sql_compatible(
+            allow_dataframe_source=True
+        )
 
     def sample(
         self,
@@ -3845,16 +3794,11 @@ class DataStore(PandasCompatMixin):
                         actual_n = 1
                     return self._sql_sample(actual_n)
             except Exception as e:
-                self._logger.debug(
-                    "sample() SQL optimization failed, falling back: %s", e
+                self._logger.info(
+                    "sample() SQL optimization failed, falling back to pandas: %s", e
                 )
 
-        # Use _get_df if available (handles caching properly)
-        if hasattr(self, "_get_df"):
-            df = self._get_df()
-        else:
-            df = self.to_df()
-        result_df = df.sample(
+        result_df = self._get_df().sample(
             n=n,
             frac=frac,
             replace=replace,
@@ -3864,12 +3808,8 @@ class DataStore(PandasCompatMixin):
             ignore_index=ignore_index,
         )
 
-        # Wrap result in DataStore
         sample_desc = f"sample(n={n})" if n is not None else f"sample(frac={frac})"
-        if hasattr(self, "_wrap_result"):
-            return self._wrap_result(result_df, sample_desc)
-        else:
-            return self._wrap_result_fallback(result_df)
+        return self._wrap_result(result_df, sample_desc)
 
     def _sql_sample(self, n):
         """Sample n rows using SQL ORDER BY rand() LIMIT n (no full data load)."""
@@ -3880,10 +3820,7 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("sample() SQL: %s", sample_sql)
         result = self._executor.execute(sample_sql)
         result_df = result.to_df()
-        if hasattr(self, "_wrap_result"):
-            return self._wrap_result(result_df, f"sample(n={n})")
-        else:
-            return self._wrap_result_fallback(result_df)
+        return self._wrap_result(result_df, f"sample(n={n})")
 
     @property
     def shape(self):
@@ -3905,9 +3842,7 @@ class DataStore(PandasCompatMixin):
             return src.shape
         if self._is_pristine_sql_source():
             return (self.count_rows(), len(self.columns))
-        if hasattr(self, "_get_df"):
-            return self._get_df().shape
-        return self.to_df().shape
+        return self._get_df().shape
 
     @property
     def columns(self):
@@ -3933,9 +3868,7 @@ class DataStore(PandasCompatMixin):
             schema = self.schema()
             if schema:
                 return pd.Index(schema.keys())
-        if hasattr(self, "_get_df"):
-            return self._get_df().columns
-        return self.to_df().columns
+        return self._get_df().columns
 
     @columns.setter
     def columns(self, new_columns):
@@ -3979,6 +3912,38 @@ class DataStore(PandasCompatMixin):
             self._cached_result = None
             self._cached_at_version = -1
 
+    def _build_count_subquery(self) -> str:
+        """Build a subquery SQL suitable for COUNT operations.
+
+        Strips ORDER BY (unnecessary for counting and expensive on remote
+        servers) and clears LIMIT/OFFSET so the count covers all rows.
+        """
+        from copy import copy
+
+        count_base = copy(self)
+        count_base._lazy_ops = [
+            op
+            for op in count_base._lazy_ops
+            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
+        ]
+        count_base._orderby_fields = []
+        count_base._limit_value = None
+        count_base._offset_value = None
+        return count_base.to_sql()
+
+    def _probe_schema(self) -> pd.DataFrame:
+        """Return an empty DataFrame with correct columns and dtypes.
+
+        Executes ``SELECT * FROM (subquery) LIMIT 0`` -- lightweight because
+        no rows are transferred. Used by aggregate helpers (nunique,
+        value_counts, describe, memory_usage) to discover column metadata.
+        """
+        if self._executor is None:
+            self.connect()
+        subquery_sql = self.to_sql()
+        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+        return self._executor.execute(probe_sql).to_df()
+
     def count(self):
         """
         Count non-null values for each column in the query result.
@@ -4000,15 +3965,10 @@ class DataStore(PandasCompatMixin):
             Falls back to DataFrame execution if non-SQL operations are pending.
         """
         if not self._can_sql_pushdown():
-            # Fall back to execution for non-SQL operations
             self._logger.debug(
                 "count() falling back to execution due to non-SQL operations"
             )
-            if hasattr(self, "_get_df"):
-                df = self._get_df()
-            else:
-                df = self.to_df()
-            return df.count()
+            return self._get_df().count()
 
         # If LIMIT is applied (e.g., via head()), execute with LIMIT and count
         # the actual result, since COUNT without LIMIT would over-count
@@ -4020,20 +3980,7 @@ class DataStore(PandasCompatMixin):
         if self._executor is None:
             self.connect()
 
-        # Build subquery SQL without ORDER BY (unnecessary for COUNT, and forces
-        # remote servers to do a full sort before counting which can be very slow)
-        from copy import copy
-
-        count_base = copy(self)
-        count_base._lazy_ops = [
-            op
-            for op in count_base._lazy_ops
-            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
-        ]
-        count_base._orderby_fields = []
-        count_base._limit_value = None
-        count_base._offset_value = None
-        subquery_sql = count_base.to_sql()
+        subquery_sql = self._build_count_subquery()
 
         # Step 1: Get column names efficiently using LIMIT 1
         schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 1"
@@ -4068,12 +4015,8 @@ class DataStore(PandasCompatMixin):
 
         except Exception as e:
             # Fall back to execution on any error
-            self._logger.debug("count() falling back to execution due to error: %s", e)
-            if hasattr(self, "_get_df"):
-                df = self._get_df()
-            else:
-                df = self.to_df()
-            return df.count()
+            self._logger.info("count() falling back to execution due to error: %s", e)
+            return self._get_df().count()
 
     def count_rows(self) -> int:
         """
@@ -4114,20 +4057,7 @@ class DataStore(PandasCompatMixin):
         if self._executor is None:
             self.connect()
 
-        # Build subquery SQL without ORDER BY (unnecessary for COUNT(*))
-        from copy import copy
-        from .lazy_ops import LazyRelationalOp
-
-        count_base = copy(self)
-        count_base._lazy_ops = [
-            op
-            for op in count_base._lazy_ops
-            if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY")
-        ]
-        count_base._orderby_fields = []
-        count_base._limit_value = None
-        count_base._offset_value = None
-        subquery_sql = count_base.to_sql()
+        subquery_sql = self._build_count_subquery()
         count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
         self._logger.debug("count_rows() executing SQL: %s", count_sql)
         result = self._executor.execute(count_sql)
@@ -4168,16 +4098,11 @@ class DataStore(PandasCompatMixin):
                     show_counts=show_counts,
                 )
             except Exception as e:
-                self._logger.debug(
-                    "info() SQL optimization failed, falling back: %s", e
+                self._logger.info(
+                    "info() SQL optimization failed, falling back to pandas: %s", e
                 )
 
-        # Use _get_df if available (handles caching properly)
-        if hasattr(self, "_get_df"):
-            df = self._get_df()
-        else:
-            df = self.to_df()
-        return df.info(
+        return self._get_df().info(
             verbose=verbose,
             buf=buf,
             max_cols=max_cols,
@@ -5775,10 +5700,10 @@ class DataStore(PandasCompatMixin):
                 self._table_function = create_table_function(
                     self.source_type, **tf_kwargs
                 )
-            except Exception:
-                # If table function creation fails, table_name is still set
-                # which provides a FROM clause for SQL generation
-                pass
+            except Exception as e:
+                self._logger.debug(
+                    "_bind_table_context: table function creation failed: %s", e
+                )
 
     def use(self, *args) -> "DataStore":
         """
@@ -6737,9 +6662,6 @@ class DataStore(PandasCompatMixin):
 
         Handles None, NaN, NaT, bool, str, datetime, Expression, and numeric types.
         """
-        import math
-        from datetime import datetime, date
-
         if value is None:
             return "NULL"
         # Check for pandas NA-like values (NaN, NaT, pd.NA)

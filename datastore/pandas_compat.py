@@ -820,14 +820,9 @@ class PandasCompatMixin:
 
         try:
             from .utils import format_identifier
-            if self._executor is None:
-                self.connect()
 
             subquery_sql = self.to_sql()
-            # Get column names
-            schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
-            schema_result = self._executor.execute(schema_sql)
-            column_names = schema_result.column_names
+            column_names = list(self._probe_schema().columns)
 
             if not column_names:
                 return pd.Series(dtype="int64")
@@ -862,7 +857,7 @@ class PandasCompatMixin:
                 return pd.Series({col: 0 for col in column_names})
 
         except Exception as e:
-            self._logger.debug("nunique() SQL pushdown failed, falling back to pandas: %s", e)
+            self._logger.info("nunique() SQL pushdown failed, falling back to pandas: %s", e)
             return self._get_df().nunique(axis=axis, dropna=dropna)
 
     def value_counts(self, subset=None, normalize=False, sort=True, ascending=False, dropna=True):
@@ -880,15 +875,8 @@ class PandasCompatMixin:
 
         try:
             from .utils import format_identifier
-            if self._executor is None:
-                self.connect()
-
             subquery_sql = self.to_sql()
-
-            # Get column names for subset
-            schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
-            schema_result = self._executor.execute(schema_sql)
-            all_columns = schema_result.column_names
+            all_columns = list(self._probe_schema().columns)
 
             if not all_columns:
                 return pd.Series(dtype="int64")
@@ -956,8 +944,8 @@ class PandasCompatMixin:
             return result_series
 
         except Exception as e:
-            self._logger.debug(
-                "value_counts() SQL pushdown failed, falling back to pandas: %s", e
+            self._logger.info(
+                "value_counts() SQL pushdown failed, falling back to pandas: %s", e,
             )
             return self._get_df().value_counts(
                 subset=subset, normalize=normalize, sort=sort,
@@ -2064,10 +2052,7 @@ class PandasCompatMixin:
             count_result = self._executor.execute(count_sql)
             row_count = int(count_result.rows[0][0]) if count_result.rows else 0
 
-            # Get schema with a LIMIT 0 query
-            schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
-            schema_result = self._executor.execute(schema_sql)
-            schema_df = schema_result.to_df()
+            schema_df = self._probe_schema()
 
             # Estimate memory from dtypes and row count
             usage = {}
@@ -2098,8 +2083,8 @@ class PandasCompatMixin:
             return result
 
         except Exception as e:
-            self._logger.debug(
-                "memory_usage() SQL estimation failed, falling back to pandas: %s", e
+            self._logger.info(
+                "memory_usage() SQL estimation failed, falling back to pandas: %s", e,
             )
             return self._get_df().memory_usage(index=index, deep=deep)
 

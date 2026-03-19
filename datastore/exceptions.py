@@ -15,8 +15,6 @@ __all__ = [
     "ImmutableError",
     "ColumnNotFoundError",
     "translate_remote_error",
-    "_extract_clickhouse_error_code",
-    "_extract_host_from_error",
 ]
 
 
