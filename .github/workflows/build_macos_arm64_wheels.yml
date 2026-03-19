@@ -39,12 +39,43 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          pyenv install 3.9:latest
-          pyenv install 3.10:latest
-          pyenv install 3.11:latest
-          pyenv install 3.12:latest
-          pyenv install 3.13:latest
-          pyenv install 3.14:latest
+          # Patch ensurepip to remove bundled setuptools (79+ is incompatible
+          # with some Pythons). Two variants for different _PROJECTS formats:
+          #   v1 = 3-tuple with "py3" tag  (3.9.14+, 3.10+)
+          #   v2 = 2-tuple without tag     (older 3.9.x, fallback)
+          # setuptools is installed later by pip (compatible version).
+          cat > /tmp/ensurepip-v1.patch << 'PATCH'
+          --- Lib/ensurepip/__init__.py
+          +++ Lib/ensurepip/__init__.py
+          @@ -10,4 +10,3 @@
+           _PROJECTS = [
+          -    ("setuptools", _SETUPTOOLS_VERSION, "py3"),
+               ("pip", _PIP_VERSION, "py3"),
+           ]
+          PATCH
+          cat > /tmp/ensurepip-v2.patch << 'PATCH'
+          --- Lib/ensurepip/__init__.py
+          +++ Lib/ensurepip/__init__.py
+          @@ -10,4 +10,3 @@
+           _PROJECTS = [
+          -    ("setuptools", _SETUPTOOLS_VERSION),
+               ("pip", _PIP_VERSION),
+           ]
+          PATCH
+
+          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            echo "===== Installing Python $version ====="
+            if pyenv install "$version:latest" 2>&1; then
+              echo "Python $version installed successfully"
+            elif pyenv install --patch "$version:latest" < /tmp/ensurepip-v1.patch 2>&1; then
+              echo "Python $version installed successfully (ensurepip patched, v1)"
+            elif pyenv install --patch "$version:latest" < /tmp/ensurepip-v2.patch 2>&1; then
+              echo "Python $version installed successfully (ensurepip patched, v2)"
+            else
+              echo "ERROR: Failed to install Python $version"
+              exit 1
+            fi
+          done
           pyenv global 3.9 3.10 3.11 3.12 3.13 3.14
 
           echo "Installed versions:"
