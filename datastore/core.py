@@ -1521,6 +1521,12 @@ class DataStore(PandasCompatMixin):
                         self._logger.debug(
                             "  Applied column selection to empty df: %s", select_cols
                         )
+                    # For empty groupby results, set group keys as index
+                    # to match pandas behavior (groupby with as_index=True)
+                    if plan.groupby_agg and getattr(plan.groupby_agg, 'as_index', True):
+                        groupby_cols = plan.groupby_agg.groupby_cols
+                        if all(col in df.columns for col in groupby_cols):
+                            df = df.set_index(groupby_cols)
                     return df
 
             # If we have a source but no DataFrame yet, load raw data first
