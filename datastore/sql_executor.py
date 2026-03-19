@@ -2138,6 +2138,23 @@ class SQLExecutionEngine:
         if not _is_perf():
             result_df = self._apply_sql_dtype_corrections(result_df, df, plan)
 
+        # Fix where/mask with other=None dtype: pandas converts non-nullable int to float64
+        # when NaN is introduced, but chDB SQL returns nullable Int64 with <NA>.
+        # Only convert if the original input column was non-nullable integer (numpy int64).
+        # If the input was already nullable Int64, keep it as Int64 (it can hold NA natively).
+        if plan.where_ops:
+            has_null_where = any(op.other is None for op in plan.where_ops)
+            if has_null_where:
+                for col in result_df.columns:
+                    if col in df.columns and result_df[col].isna().any():
+                        input_dtype = df[col].dtype
+                        result_dtype = result_df[col].dtype
+                        # Only convert if input was non-nullable int and result is nullable Int
+                        if (not pd.api.types.is_extension_array_dtype(input_dtype)
+                                and pd.api.types.is_integer_dtype(input_dtype)
+                                and pd.api.types.is_integer_dtype(result_dtype)):
+                            result_df[col] = result_df[col].astype('float64')
+
         return result_df
 
     def _apply_sql_dtype_corrections(
