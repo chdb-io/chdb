@@ -370,6 +370,33 @@ def set_cross_datastore_engine(engine: str) -> None:
     _cross_datastore_engine = engine
 
 
+# =============================================================================
+# STREAMING DATAFRAME CONFIGURATION
+# =============================================================================
+
+_streaming_df: bool = True
+
+
+def get_streaming_df() -> bool:
+    """Check if streaming DataFrame execution is enabled.
+
+    When enabled, large DataFrame queries use send_query() + pd.concat
+    instead of the synchronous query("DataFrame") path, reducing peak
+    C++ memory usage by ~80%.
+    """
+    return _streaming_df
+
+
+def set_streaming_df(enabled: bool) -> None:
+    """Enable or disable streaming DataFrame execution.
+
+    Args:
+        enabled: True to use streaming (default), False to use synchronous query.
+    """
+    global _streaming_df
+    _streaming_df = enabled
+
+
 class DataStoreConfig:
     """
     Configuration class for DataStore.
