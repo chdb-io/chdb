@@ -946,6 +946,11 @@ class DataStore(PandasCompatMixin):
         """
         return self._all_lazy_ops_are_sql_compatible() and self._has_sql_state()
 
+    def _is_remote_source(self) -> bool:
+        """Check if the data source is a remote ClickHouse table function."""
+        from .table_functions import RemoteTableFunction
+        return isinstance(self._table_function, RemoteTableFunction)
+
     def _require_table_context(self, operation: str) -> None:
         """
         Raise a helpful error if this DataStore is in connection/database mode
@@ -3980,34 +3985,109 @@ class DataStore(PandasCompatMixin):
         if self._executor is None:
             self.connect()
 
-        subquery_sql = self._build_count_subquery()
-
-        # Step 1: Get column names efficiently using LIMIT 1
-        schema_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 1"
-        self._logger.debug("count() getting column names with: %s", schema_sql)
-
         try:
-            schema_result = self._executor.execute(schema_sql)
-            column_names = schema_result.column_names
+            # Capture SQL state BEFORE accessing self.columns, because the
+            # columns property may trigger execution on non-pristine sources,
+            # which clears _table_function, _where_condition, and _lazy_ops.
+            is_simple = not (
+                self._groupby_fields
+                or self._having_condition
+                or self._distinct
+                or self._joins
+                or self._distinct_subset
+                or self._computed_columns
+            )
+            table_source = None
+            where_sql = ""
+            is_remote = self._is_remote_source()
 
+            if is_simple:
+                from .sql_executor import (
+                    SQLExecutionEngine,
+                    extract_clauses_from_ops,
+                )
+
+                sql_engine = SQLExecutionEngine(self)
+                table_source = sql_engine.get_table_source()
+                if table_source:
+                    count_ops = [
+                        op
+                        for op in self._lazy_ops
+                        if not (
+                            isinstance(op, LazyRelationalOp)
+                            and op.op_type == "ORDER BY"
+                        )
+                    ]
+                    clauses = extract_clauses_from_ops(
+                        count_ops, self.quote_char
+                    )
+                    if clauses.where_conditions:
+                        combined = clauses.where_conditions[0]
+                        for cond in clauses.where_conditions[1:]:
+                            combined = combined & cond
+                        where_sql = f" WHERE {combined.to_sql(quote_char=self.quote_char)}"
+                    elif self._where_condition:
+                        where_sql = f" WHERE {self._where_condition.to_sql(quote_char=self.quote_char)}"
+
+            # For non-simple non-remote, capture subquery SQL before columns
+            # access might clear state.
+            subquery_sql = None
+            if not is_simple and not is_remote:
+                subquery_sql = self._build_count_subquery()
+
+            # Now get column names (may trigger execution on non-pristine
+            # sources, clearing SQL state -- but we've already captured it).
+            column_names = list(self.columns)
             if not column_names:
                 return pd.Series(dtype="int64")
 
-            # Step 2: Build COUNT query for each column
+            # Simple case: build flat COUNT (no subquery nesting)
+            if is_simple and table_source:
+                count_exprs = []
+                for col_name in column_names:
+                    quoted_col = format_identifier(col_name, self.quote_char)
+                    count_exprs.append(f"COUNT({quoted_col})")
+                count_select = ", ".join(count_exprs)
+                count_sql = (
+                    f"SELECT {count_select} FROM {table_source}{where_sql}"
+                )
+                self._logger.debug("count() executing flat SQL: %s", count_sql)
+
+                result = self._executor.execute(count_sql)
+                if result.rows and result.rows[0]:
+                    counts = {
+                        col: int(val)
+                        for col, val in zip(column_names, result.rows[0])
+                    }
+                    return pd.Series(counts)
+                else:
+                    return pd.Series(
+                        {col: 0 for col in column_names}
+                    )
+
+            # Complex case: remote sources cannot use nested subqueries.
+            if is_remote:
+                self._logger.debug(
+                    "count() falling back to _execute() for complex remote query"
+                )
+                return self._execute().count()
+
+            # Non-remote complex case: subquery wrapping is safe
+            if subquery_sql is None:
+                subquery_sql = self._build_count_subquery()
             count_exprs = []
             for col_name in column_names:
                 quoted_col = format_identifier(col_name, self.quote_char)
                 count_exprs.append(f"COUNT({quoted_col}) AS {quoted_col}")
-
             count_select = ", ".join(count_exprs)
             count_sql = f"SELECT {count_select} FROM ({subquery_sql})"
             self._logger.debug("count() executing: %s", count_sql)
 
             result = self._executor.execute(count_sql)
-
             if result.rows and result.rows[0]:
                 counts = {
-                    col: int(val) for col, val in zip(column_names, result.rows[0])
+                    col: int(val)
+                    for col, val in zip(column_names, result.rows[0])
                 }
                 return pd.Series(counts)
             else:
@@ -4015,7 +4095,9 @@ class DataStore(PandasCompatMixin):
 
         except Exception as e:
             # Fall back to execution on any error
-            self._logger.info("count() falling back to execution due to error: %s", e)
+            self._logger.info(
+                "count() falling back to execution due to error: %s", e
+            )
             return self._get_df().count()
 
     def count_rows(self) -> int:
@@ -4057,6 +4139,65 @@ class DataStore(PandasCompatMixin):
         if self._executor is None:
             self.connect()
 
+        # Simple case (no GROUP BY, HAVING, DISTINCT, JOINs, computed columns):
+        # Build a flat SELECT count() query to avoid subquery nesting,
+        # which hangs on remote() table functions in chDB.
+        # Computed columns (from assign()) are excluded because WHERE may
+        # reference them, but they don't exist in the raw source.
+        is_simple = not (
+            self._groupby_fields
+            or self._having_condition
+            or self._distinct
+            or self._joins
+            or self._distinct_subset
+            or self._computed_columns
+        )
+        if is_simple:
+            from .sql_executor import SQLExecutionEngine, extract_clauses_from_ops
+
+            sql_engine = SQLExecutionEngine(self)
+            table_source = sql_engine.get_table_source()
+            if table_source:
+                count_ops = [
+                    op
+                    for op in self._lazy_ops
+                    if not (
+                        isinstance(op, LazyRelationalOp)
+                        and op.op_type == "ORDER BY"
+                    )
+                ]
+                clauses = extract_clauses_from_ops(count_ops, self.quote_char)
+
+                where_sql = ""
+                if clauses.where_conditions:
+                    combined = clauses.where_conditions[0]
+                    for cond in clauses.where_conditions[1:]:
+                        combined = combined & cond
+                    where_sql = (
+                        f" WHERE {combined.to_sql(quote_char=self.quote_char)}"
+                    )
+                elif self._where_condition:
+                    where_sql = f" WHERE {self._where_condition.to_sql(quote_char=self.quote_char)}"
+
+                count_sql = f"SELECT count() FROM {table_source}{where_sql}"
+                self._logger.debug(
+                    "count_rows() executing flat SQL: %s", count_sql
+                )
+                result = self._executor.execute(count_sql)
+                if result.rows:
+                    return int(result.rows[0][0])
+                return 0
+
+        # Complex case (GROUP BY / HAVING / DISTINCT / JOINs / computed columns):
+        # Remote sources cannot use nested subqueries (hangs in chDB),
+        # so fall back to full execution which generates flat SQL.
+        if self._is_remote_source():
+            self._logger.debug(
+                "count_rows() falling back to _execute() for complex remote query"
+            )
+            return len(self._execute())
+
+        # Non-remote complex case: subquery wrapping is safe
         subquery_sql = self._build_count_subquery()
         count_sql = f"SELECT COUNT(*) FROM ({subquery_sql})"
         self._logger.debug("count_rows() executing SQL: %s", count_sql)
