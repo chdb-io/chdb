@@ -2,6 +2,7 @@
 Condition system for DataStore (WHERE clause expressions)
 """
 
+import math
 from typing import Optional, List, Iterator
 from copy import copy
 
@@ -374,8 +375,24 @@ class InCondition(Condition):
         yield self
         yield from self.expression.nodes()
 
+    @staticmethod
+    def _is_nan(value):
+        """Check if a value is NaN (float NaN, not None)."""
+        try:
+            return isinstance(value, float) and math.isnan(value)
+        except (TypeError, ValueError):
+            return False
+
     def to_sql(self, quote_char: str = '"', **kwargs) -> str:
-        """Generate SQL for IN condition."""
+        """Generate SQL for IN condition.
+
+        Handles edge cases for pandas compatibility:
+        - Empty list: isin([]) -> 1=0 (always false), notin([]) -> 1=1 (always true)
+        - NaN in values: isin([nan, 1]) -> (col IS NULL OR col IN (1))
+        - notin NULL safety: notin([1]) -> (col NOT IN (1) OR col IS NULL)
+          This matches pandas ~isin() which includes NaN rows when NaN is not
+          in the values list.
+        """
         from .expressions import Literal
 
         expr_sql = self.expression.to_sql(quote_char=quote_char, **kwargs)
@@ -388,19 +405,55 @@ class InCondition(Condition):
             operator = "NOT IN" if self.negate else "IN"
             sql = f"{expr_sql} {operator} ({values_sql})"
         else:
-            # Convert values to SQL
-            value_sqls = []
+            # Separate NaN values from non-NaN values for pandas-compatible
+            # NULL semantics. In pandas, isin([nan]) matches NaN rows, but
+            # SQL IN (NULL) never matches NULL rows.
+            has_nan = False
+            non_nan_values = []
             for val in self.values:
-                if isinstance(val, Expression):
-                    value_sqls.append(val.to_sql(quote_char=quote_char, **kwargs))
+                if self._is_nan(val):
+                    has_nan = True
                 else:
-                    value_sqls.append(
-                        Literal(val).to_sql(quote_char=quote_char, **kwargs)
-                    )
+                    non_nan_values.append(val)
 
-            values_sql = ",".join(value_sqls)
-            operator = "NOT IN" if self.negate else "IN"
-            sql = f"{expr_sql} {operator} ({values_sql})"
+            # Handle empty list: isin([]) -> 1=0, notin([]) -> 1=1
+            if not non_nan_values and not has_nan:
+                sql = "1=1" if self.negate else "1=0"
+            elif has_nan and not non_nan_values:
+                # Only NaN values in list
+                if self.negate:
+                    # notin([nan]) -> col IS NOT NULL
+                    sql = f"{expr_sql} IS NOT NULL"
+                else:
+                    # isin([nan]) -> col IS NULL
+                    sql = f"{expr_sql} IS NULL"
+            else:
+                # Build the IN clause with non-NaN values
+                value_sqls = []
+                for val in non_nan_values:
+                    if isinstance(val, Expression):
+                        value_sqls.append(val.to_sql(quote_char=quote_char, **kwargs))
+                    else:
+                        value_sqls.append(
+                            Literal(val).to_sql(quote_char=quote_char, **kwargs)
+                        )
+                values_sql = ",".join(value_sqls)
+
+                if self.negate:
+                    if has_nan:
+                        # notin([nan, 1, 2]) -> (col IS NOT NULL AND col NOT IN (1,2))
+                        sql = f"({expr_sql} IS NOT NULL AND {expr_sql} NOT IN ({values_sql}))"
+                    else:
+                        # notin([1, 2]) -> (col NOT IN (1,2) OR col IS NULL)
+                        # Matches pandas ~isin() which includes NaN rows
+                        sql = f"({expr_sql} NOT IN ({values_sql}) OR {expr_sql} IS NULL)"
+                else:
+                    if has_nan:
+                        # isin([nan, 1, 2]) -> (col IS NULL OR col IN (1,2))
+                        sql = f"({expr_sql} IS NULL OR {expr_sql} IN ({values_sql}))"
+                    else:
+                        # Standard: isin([1, 2]) -> col IN (1,2)
+                        sql = f"{expr_sql} IN ({values_sql})"
 
         # Add alias if present and requested
         if kwargs.get("with_alias", False) and self.alias:

@@ -700,6 +700,18 @@ class SQLExecutionEngine:
             return format_identifier(self.ds.table_name, self.quote_char)
         return ""
 
+    def _build_limit_by_clause(self) -> Optional[str]:
+        """Build LIMIT 1 BY clause for drop_duplicates(subset=...).
+
+        Returns the clause string (e.g. 'LIMIT 1 BY "a", "b"') or None.
+        """
+        if not self.ds._distinct_subset:
+            return None
+        limit_by_cols = ", ".join(
+            format_identifier(c, self.quote_char) for c in self.ds._distinct_subset
+        )
+        return f"LIMIT 1 BY {limit_by_cols}"
+
     def build_simple_sql(
         self,
         clauses: ExtractedClauses,
@@ -786,6 +798,10 @@ class SQLExecutionEngine:
                 stable=is_stable_sort(clauses.orderby_kind),
             )
             parts.append(f"ORDER BY {orderby_sql}")
+
+        limit_by = self._build_limit_by_clause()
+        if limit_by:
+            parts.append(limit_by)
 
         # LIMIT
         if clauses.limit_value is not None:
@@ -982,6 +998,10 @@ class SQLExecutionEngine:
             sql_parts.append(f"GROUP BY {groupby_sql}")
 
         sql_parts.append("ORDER BY __orig_row_num__")
+
+        limit_by = self._build_limit_by_clause()
+        if limit_by:
+            sql_parts.append(limit_by)
 
         if clauses.limit_value is not None:
             sql_parts.append(f"LIMIT {clauses.limit_value}")
@@ -1572,6 +1592,11 @@ class SQLExecutionEngine:
         select_fields_for_sql = sql_select_fields
 
         if groupby_agg_op:
+            # Note: Pre-aggregation ORDER BY (from sort_values() before groupby) is already
+            # handled by the query planner - it won't be pushed to SQL. Any ORDER BY present
+            # here is a post-aggregation sort (e.g., groupby().agg().sort_values('mean'))
+            # and must be preserved.
+
             # Get columns for aggregation - prioritize explicit column selection from
             # df[['col1', 'col2']].groupby(...) over all source columns
             # This ensures that df[['Pclass', 'Survived']].groupby('Pclass').mean()
@@ -1659,6 +1684,13 @@ class SQLExecutionEngine:
             ):
                 effective_orderby = [("__rowNumberInAllBlocks__", True)]
 
+            # When DISTINCT is active, don't use include_star because it would
+            # expand * to all source columns (defeating column selection + DISTINCT).
+            # Column assignments are already in select_fields_for_sql.
+            use_include_star = has_column_assignments if has_column_assignments else None
+            if self.ds._distinct and use_include_star:
+                use_include_star = None
+
             return self.assemble_sql(
                 select_fields_for_sql,
                 clauses.where_conditions,
@@ -1669,7 +1701,7 @@ class SQLExecutionEngine:
                 distinct=self.ds._distinct,
                 groupby_fields=groupby_fields_for_sql,
                 having_condition=self.ds._having_condition,
-                include_star=has_column_assignments if has_column_assignments else None,
+                include_star=use_include_star,
             )
 
     def _build_temp_alias_query(
@@ -1953,6 +1985,10 @@ class SQLExecutionEngine:
                 )
                 parts.append(f"ORDER BY {orderby_sql}")
 
+        limit_by = self._build_limit_by_clause()
+        if limit_by:
+            parts.append(limit_by)
+
         # LIMIT
         if limit_value is not None:
             parts.append(f"LIMIT {limit_value}")
@@ -2101,6 +2137,23 @@ class SQLExecutionEngine:
         # In performance mode, skip dtype corrections -- let SQL return native dtypes
         if not _is_perf():
             result_df = self._apply_sql_dtype_corrections(result_df, df, plan)
+
+        # Fix where/mask with other=None dtype: pandas converts non-nullable int to float64
+        # when NaN is introduced, but chDB SQL returns nullable Int64 with <NA>.
+        # Only convert if the original input column was non-nullable integer (numpy int64).
+        # If the input was already nullable Int64, keep it as Int64 (it can hold NA natively).
+        if plan.where_ops:
+            has_null_where = any(op.other is None for op in plan.where_ops)
+            if has_null_where:
+                for col in result_df.columns:
+                    if col in df.columns and result_df[col].isna().any():
+                        input_dtype = df[col].dtype
+                        result_dtype = result_df[col].dtype
+                        # Only convert if input was non-nullable int and result is nullable Int
+                        if (not pd.api.types.is_extension_array_dtype(input_dtype)
+                                and pd.api.types.is_integer_dtype(input_dtype)
+                                and pd.api.types.is_integer_dtype(result_dtype)):
+                            result_df[col] = result_df[col].astype('float64')
 
         return result_df
 
@@ -2361,6 +2414,11 @@ class SQLExecutionEngine:
                 select_sql = fields_sql
         else:
             select_sql = "*"
+
+        # Note: DISTINCT and LIMIT 1 BY are NOT applied here for DataFrame SQL
+        # execution. For DataFrame sources, LazyDistinct handles dedup via pandas
+        # to preserve index information. DISTINCT/LIMIT 1 BY are only used in
+        # first-segment SQL (from file/table) and in to_sql() output.
 
         # Standard case: Build simple SQL - row order is preserved by executor
         from_sql = "__df__"

@@ -8,6 +8,7 @@ Reference: example_daily_usage.ipynb scenario
 """
 
 import io
+import os
 import unittest
 from contextlib import redirect_stdout
 
@@ -15,6 +16,8 @@ import pandas as pd
 
 from datastore import DataStore as ds
 from tests.test_utils import assert_datastore_equals_pandas
+
+USERS_CSV = os.path.join(os.path.dirname(__file__), 'dataset', 'users.csv')
 
 
 def _capture_explain(obj, **kwargs):
@@ -45,7 +48,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         The explain output should show multiple segments, not just 2 phases.
         """
         # Build the pipeline
-        nat = ds.from_file('tests/dataset/users.csv')
+        nat = ds.from_file(USERS_CSV)
         nat = nat.filter(nat.age < 35)
         nat['age_minus_10'] = nat['age'] - 10
         nat = nat.add_prefix('col_').filter(nat.col_age > 25).filter(nat.col_country == 'USA')
@@ -87,7 +90,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         Focus on numeric columns to avoid date format differences.
         """
         # === DataStore operations ===
-        ds_df = ds.from_file('tests/dataset/users.csv')
+        ds_df = ds.from_file(USERS_CSV)
         ds_df = ds_df.filter(ds_df.age < 35)
         ds_df['age_minus_10'] = ds_df['age'] - 10
         ds_df = ds_df.add_prefix('col_').filter(ds_df.col_age > 25).filter(ds_df.col_country == 'USA')
@@ -97,7 +100,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         ds_result['float_age'] = ds_result.doubled.cast('Float64')
 
         # === Pandas operations (mirror of DataStore) ===
-        pd_df = pd.read_csv('tests/dataset/users.csv')
+        pd_df = pd.read_csv(USERS_CSV)
         pd_df = pd_df[pd_df['age'] < 35]
         pd_df['age_minus_10'] = pd_df['age'] - 10
         pd_df = pd_df.add_prefix('col_')
@@ -127,7 +130,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         The segment summary should use the same numbering as the operation list,
         accounting for [1] being the data source.
         """
-        nat = ds.from_file('tests/dataset/users.csv')
+        nat = ds.from_file(USERS_CSV)
         nat = nat.filter(nat.age < 35)
         nat['age_minus_10'] = nat['age'] - 10
 
@@ -144,7 +147,7 @@ class TestExplainSegmentedExecution(unittest.TestCase):
         """
         Test explain output when all operations are SQL-pushable.
         """
-        nat = ds.from_file('tests/dataset/users.csv')
+        nat = ds.from_file(USERS_CSV)
         nat = nat.filter(nat.age < 35).filter(nat.age > 20)
 
         explain_output = _capture_explain(nat)
@@ -179,7 +182,7 @@ class TestSegmentedExecutionDailyUsage(unittest.TestCase):
 
         This is the reference test for the explain() fix.
         """
-        nat = ds.from_file('tests/dataset/users.csv')
+        nat = ds.from_file(USERS_CSV)
         nat.sql("select 1").execute()  # Initial SQL test
 
         nat = nat.filter(nat.age < 35)

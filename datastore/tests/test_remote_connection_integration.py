@@ -437,8 +437,20 @@ class TestTestDatabaseAdvanced:
         """use(db, table) then filter should work."""
         clickhouse_connection.use("test_db", "users")
 
-        # After use(db, table), we're in table mode
+        # After use(db, table), we're in table mode with proper binding
         assert clickhouse_connection._connection_mode == "table"
+        assert clickhouse_connection.table_name == "users"
+        assert clickhouse_connection._table_function is not None
+
+    def test_use_database_table_then_head(self, clickhouse_connection):
+        """use(db, table) followed by head() should execute successfully."""
+        clickhouse_connection.use("test_db", "users")
+
+        # head() should work because table is properly bound
+        result = clickhouse_connection.head()
+        df = result._execute()
+        assert len(df) > 0
+        assert "name" in df.columns
 
     def test_table_after_use_database(self, clickhouse_connection):
         """table(table) after use(db) should work."""
@@ -481,3 +493,126 @@ class TestTestDatabaseAdvanced:
 
         # Users with age above average
         assert len(df) >= 0  # May be 0 or more depending on data
+
+
+class TestTailOptimizationIntegration:
+    """Test that tail() uses SQL OFFSET/LIMIT on remote ClickHouse,
+    avoiding full table download."""
+
+    def test_tail_on_sql_result(self, clickhouse_connection):
+        """tail() on sql() result works correctly (data already local)."""
+        result = clickhouse_connection.sql(
+            "SELECT number FROM system.numbers LIMIT 100"
+        )
+
+        tail_result = result.tail(3)
+        df = tail_result._execute()
+
+        assert len(df) == 3
+        assert list(df["number"]) == [97, 98, 99]
+
+    def test_tail_default_n_remote(self, clickhouse_connection):
+        """tail() with default n=5 on sql() result."""
+        result = clickhouse_connection.sql(
+            "SELECT number FROM system.numbers LIMIT 20"
+        )
+
+        tail_result = result.tail()
+        df = tail_result._execute()
+
+        assert len(df) == 5
+        assert list(df["number"]) == [15, 16, 17, 18, 19]
+
+    def test_tail_larger_than_result_remote(self, clickhouse_connection):
+        """tail(n) where n > row count should return all rows."""
+        result = clickhouse_connection.sql(
+            "SELECT number FROM system.numbers LIMIT 3"
+        )
+
+        tail_result = result.tail(100)
+        df = tail_result._execute()
+
+        assert len(df) == 3
+        assert list(df["number"]) == [0, 1, 2]
+
+    def test_tail_zero_remote(self, clickhouse_connection):
+        """tail(0) on sql() result should return empty result."""
+        result = clickhouse_connection.sql(
+            "SELECT number FROM system.numbers LIMIT 10"
+        )
+
+        tail_result = result.tail(0)
+        df = tail_result._execute()
+
+        assert len(df) == 0
+
+    def test_tail_negative_n_remote(self, clickhouse_connection):
+        """tail(-2) returns all except first 2 rows (falls back to pandas)."""
+        result = clickhouse_connection.sql(
+            "SELECT number FROM system.numbers LIMIT 10"
+        )
+
+        tail_result = result.tail(-2)
+        df = tail_result._execute()
+
+        # Should be rows 2..9 (all except first 2)
+        assert len(df) == 8
+        assert list(df["number"]) == list(range(2, 10))
+
+    def test_tail_on_remote_table_uses_sql(self, clickhouse_connection):
+        """table() API creates SQL source where tail() uses OFFSET/LIMIT.
+
+        This is the key optimization: table().tail() avoids full table download
+        by using SQL COUNT(*) + OFFSET/LIMIT instead of downloading all rows.
+        """
+        # system.tables is a bounded system table
+        tables_ds = clickhouse_connection.table("system", "tables")
+
+        # Verify the SQL optimization path is available
+        assert tables_ds._can_use_sql_tail()
+
+        # tail() should use SQL OFFSET/LIMIT, not download full table
+        tail_result = tables_ds.tail(3)
+        df = tail_result._execute()
+
+        assert len(df) == 3
+        # Should have standard system.tables columns
+        assert "name" in df.columns
+        assert "database" in df.columns
+
+
+class TestTailOnTestDatabase:
+    """Test tail() on test_db tables if available."""
+
+    @pytest.fixture(autouse=True)
+    def check_test_db(self, clickhouse_connection):
+        """Skip tests if test_db doesn't exist."""
+        databases = clickhouse_connection.databases()
+        if "test_db" not in databases:
+            pytest.skip("test_db not found")
+
+    def test_tail_on_users_table(self, clickhouse_connection):
+        """tail() on test_db.users should return last rows."""
+        users = clickhouse_connection.table("test_db", "users")
+
+        tail_result = users.tail(2)
+        df = tail_result._execute()
+
+        assert len(df) == 2
+        # Should have user columns
+        assert "name" in df.columns
+        assert "id" in df.columns
+
+    def test_tail_on_filtered_remote_table(self, clickhouse_connection):
+        """tail() after filter on remote table."""
+        users = clickhouse_connection.table("test_db", "users")
+
+        # Filter then tail
+        filtered = users[users["age"] >= 25]
+        tail_result = filtered.tail(1)
+        df = tail_result._execute()
+
+        assert len(df) <= 1
+        if len(df) > 0:
+            assert df.iloc[0]["age"] >= 25
+

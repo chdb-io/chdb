@@ -1273,7 +1273,8 @@ class TestSortKindOptimization:
 
         df = pd.DataFrame({'a': [3, 1, 2], 'b': ['x', 'y', 'z']})
         ds = DataStore(df)
-        result = ds.sort_values('a', kind='stable')
+        # ORDER BY is only pushed to SQL when LIMIT follows (cost-aware optimization)
+        result = ds.sort_values('a', kind='stable').head(10)
 
         # Get execution SQL through plan_segments
         planner = QueryPlanner()
@@ -1301,7 +1302,8 @@ class TestSortKindOptimization:
 
         df = pd.DataFrame({'a': [3, 1, 2], 'b': ['x', 'y', 'z']})
         ds = DataStore(df)
-        result = ds.sort_values('a', kind='quicksort')
+        # ORDER BY is only pushed to SQL when LIMIT follows (cost-aware optimization)
+        result = ds.sort_values('a', kind='quicksort').head(10)
 
         # Get execution SQL through plan_segments
         planner = QueryPlanner()
@@ -1329,7 +1331,8 @@ class TestSortKindOptimization:
 
         df = pd.DataFrame({'a': [1, 2, 1], 'b': [3, 1, 2], 'c': ['x', 'y', 'z']})
         ds = DataStore(df)
-        result = ds.sort_values(['a', 'b'], ascending=[True, False], kind='stable')
+        # ORDER BY is only pushed to SQL when LIMIT follows (cost-aware optimization)
+        result = ds.sort_values(['a', 'b'], ascending=[True, False], kind='stable').head(10)
 
         planner = QueryPlanner()
         exec_plan = planner.plan_segments(result._lazy_ops, True, schema={})
@@ -1357,7 +1360,8 @@ class TestSortKindOptimization:
 
         df = pd.DataFrame({'a': [1, 2, 1], 'b': [3, 1, 2], 'c': ['x', 'y', 'z']})
         ds = DataStore(df)
-        result = ds.sort_values(['a', 'b'], ascending=[True, False], kind='quicksort')
+        # ORDER BY is only pushed to SQL when LIMIT follows (cost-aware optimization)
+        result = ds.sort_values(['a', 'b'], ascending=[True, False], kind='quicksort').head(10)
 
         planner = QueryPlanner()
         exec_plan = planner.plan_segments(result._lazy_ops, True, schema={})

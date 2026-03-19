@@ -2,6 +2,7 @@
 Expression system for DataStore - inspired by pypika but independent implementation
 """
 
+import math
 from typing import Any, Optional, Iterator, List, Type, TYPE_CHECKING
 from copy import copy
 
@@ -625,6 +626,8 @@ class Literal(Expression):
             sql = "NULL"
         elif isinstance(self.value, bool):
             sql = "TRUE" if self.value else "FALSE"
+        elif isinstance(self.value, float) and math.isnan(self.value):
+            sql = "NULL"
         elif isinstance(self.value, (int, float)):
             sql = str(self.value)
         elif isinstance(self.value, str):

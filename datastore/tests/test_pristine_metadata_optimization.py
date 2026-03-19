@@ -11,11 +11,16 @@ Covers three source types:
 
 Uses the clickhouse_server fixture (auto-starts local ClickHouse) for
 remote source tests.
+
+Scenario 5 additions: mock-based verification that _execute() is never
+called for pristine metadata access, LIMIT 0 query verification for
+_probe_dtypes_from_sql_source(), and post-filter metadata correctness.
 """
 
 import os
 import time
 import tempfile
+from unittest.mock import patch, MagicMock, call
 
 import numpy as np
 import pandas as pd
@@ -311,3 +316,386 @@ class TestPristineRemoteTestDB:
         _ = ds.dtypes
         _ = ds.empty
         assert ds._cached_result is None
+
+
+# ---------------------------------------------------------------------------
+# 4. Zero-overhead mock verification (Scenario 5)
+# ---------------------------------------------------------------------------
+
+class TestZeroOverheadDataFrameSource:
+    """Verify _execute() is never called for pristine DataFrame metadata."""
+
+    @pytest.fixture
+    def df(self):
+        return pd.DataFrame({
+            "id": [1, 2, 3, 4, 5],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+            "score": [90.5, 85.0, 92.3, 78.0, 95.5],
+            "active": [True, False, True, True, False],
+        })
+
+    def test_columns_no_execute(self, df):
+        """Access .columns on DataStore(df) must not call _execute."""
+        ds = DataStore(df)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            cols = ds.columns
+            mock_exec.assert_not_called()
+        assert list(cols) == list(df.columns)
+
+    def test_dtypes_no_execute(self, df):
+        """Access .dtypes on DataStore(df) must not call _execute."""
+        ds = DataStore(df)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            dtypes = ds.dtypes
+            mock_exec.assert_not_called()
+        pd.testing.assert_series_equal(dtypes, df.dtypes)
+
+    def test_shape_no_execute(self, df):
+        """Access .shape on DataStore(df) must not call _execute."""
+        ds = DataStore(df)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            shape = ds.shape
+            mock_exec.assert_not_called()
+        assert shape == df.shape
+
+    def test_size_no_execute(self, df):
+        """Access .size on DataStore(df) must not call _execute."""
+        ds = DataStore(df)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            size = ds.size
+            mock_exec.assert_not_called()
+        assert size == df.size
+
+    def test_empty_no_execute(self, df):
+        """Access .empty on DataStore(df) must not call _execute."""
+        ds = DataStore(df)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            empty = ds.empty
+            mock_exec.assert_not_called()
+        assert empty == df.empty
+
+    def test_all_metadata_no_execute_combined(self, df):
+        """All metadata properties together must not trigger _execute."""
+        ds = DataStore(df)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            _ = ds.columns
+            _ = ds.dtypes
+            _ = ds.shape
+            _ = ds.size
+            _ = ds.empty
+            _ = ds.ndim
+            mock_exec.assert_not_called()
+
+
+class TestZeroOverheadFileSource:
+    """Verify _execute() is never called for pristine file source metadata."""
+
+    @pytest.fixture
+    def parquet_file(self, tmp_path):
+        df = pd.DataFrame({
+            "id": range(100),
+            "value": np.random.randn(100),
+            "category": np.random.choice(["A", "B", "C"], 100),
+        })
+        path = str(tmp_path / "test_data.parquet")
+        df.to_parquet(path, index=False)
+        return path, df
+
+    @pytest.fixture
+    def csv_file(self, tmp_path):
+        df = pd.DataFrame({
+            "x": [1, 2, 3],
+            "y": [4.0, 5.0, 6.0],
+        })
+        path = str(tmp_path / "test_data.csv")
+        df.to_csv(path, index=False)
+        return path, df
+
+    def test_columns_no_execute_parquet(self, parquet_file):
+        """Access .columns on from_file() parquet must not call _execute."""
+        path, df = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            cols = ds.columns
+            mock_exec.assert_not_called()
+        assert list(cols) == list(df.columns)
+
+    def test_dtypes_no_execute_parquet(self, parquet_file):
+        """Access .dtypes on from_file() parquet must not call _execute."""
+        path, df = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            dtypes = ds.dtypes
+            mock_exec.assert_not_called()
+        assert list(dtypes.index) == list(df.dtypes.index)
+
+    def test_shape_no_execute_parquet(self, parquet_file):
+        """Access .shape on from_file() parquet must not call _execute."""
+        path, df = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            shape = ds.shape
+            mock_exec.assert_not_called()
+        assert shape == df.shape
+
+    def test_size_no_execute_parquet(self, parquet_file):
+        """Access .size on from_file() parquet must not call _execute."""
+        path, df = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            size = ds.size
+            mock_exec.assert_not_called()
+        assert size == df.size
+
+    def test_empty_no_execute_parquet(self, parquet_file):
+        """Access .empty on from_file() parquet must not call _execute."""
+        path, _ = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            empty = ds.empty
+            mock_exec.assert_not_called()
+        assert empty is False
+
+    def test_all_metadata_no_execute_file(self, parquet_file):
+        """All metadata properties together must not trigger _execute on file source."""
+        path, _ = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            _ = ds.columns
+            _ = ds.dtypes
+            _ = ds.shape
+            _ = ds.size
+            _ = ds.empty
+            _ = ds.ndim
+            mock_exec.assert_not_called()
+        assert ds._cached_result is None
+
+    def test_columns_no_execute_csv(self, csv_file):
+        """Access .columns on from_file() CSV must not call _execute."""
+        path, df = csv_file
+        ds = DataStore.from_file(path)
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            cols = ds.columns
+            mock_exec.assert_not_called()
+        assert list(cols) == list(df.columns)
+
+
+# ---------------------------------------------------------------------------
+# 5. _probe_dtypes_from_sql_source() LIMIT 0 verification (Scenario 5)
+# ---------------------------------------------------------------------------
+
+class TestProbeDtypesLimit0:
+    """Verify _probe_dtypes_from_sql_source uses LIMIT 0 query."""
+
+    @pytest.fixture
+    def parquet_file(self, tmp_path):
+        df = pd.DataFrame({
+            "a": [1, 2, 3],
+            "b": [4.0, 5.0, 6.0],
+            "c": ["x", "y", "z"],
+        })
+        path = str(tmp_path / "probe_test.parquet")
+        df.to_parquet(path, index=False)
+        return path, df
+
+    def test_probe_dtypes_uses_limit_0(self, parquet_file):
+        """_probe_dtypes_from_sql_source must execute a LIMIT 0 query."""
+        path, _ = parquet_file
+        ds = DataStore.from_file(path)
+        ds.connect()
+
+        original_execute = ds._executor.execute
+        executed_sqls = []
+
+        def capture_sql(sql, *args, **kwargs):
+            executed_sqls.append(sql)
+            return original_execute(sql, *args, **kwargs)
+
+        with patch.object(ds._executor, "execute", side_effect=capture_sql):
+            dtypes = ds._probe_dtypes_from_sql_source()
+
+        limit_0_sqls = [s for s in executed_sqls if "LIMIT 0" in s]
+        assert len(limit_0_sqls) > 0, (
+            f"Expected LIMIT 0 query, got: {executed_sqls}"
+        )
+        # The query should be SELECT * FROM ... LIMIT 0
+        assert "SELECT * FROM" in limit_0_sqls[0]
+        assert isinstance(dtypes, pd.Series)
+        assert len(dtypes) == 3
+
+    def test_probe_dtypes_returns_correct_columns(self, parquet_file):
+        """_probe_dtypes_from_sql_source must return dtypes for all columns."""
+        path, df = parquet_file
+        ds = DataStore.from_file(path)
+        dtypes = ds._probe_dtypes_from_sql_source()
+        assert list(dtypes.index) == list(df.columns)
+
+    def test_dtypes_property_calls_probe_for_file_source(self, parquet_file):
+        """Accessing .dtypes on file source must route to _probe_dtypes_from_sql_source."""
+        path, _ = parquet_file
+        ds = DataStore.from_file(path)
+        with patch.object(
+            ds, "_probe_dtypes_from_sql_source",
+            wraps=ds._probe_dtypes_from_sql_source,
+        ) as mock_probe:
+            _ = ds.dtypes
+            mock_probe.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# 6. Post-filter metadata correctness (Scenario 5)
+# ---------------------------------------------------------------------------
+
+class TestPostFilterMetadata:
+    """After filter, metadata must NOT use pristine path but still be correct."""
+
+    @pytest.fixture
+    def df(self):
+        return pd.DataFrame({
+            "id": [1, 2, 3, 4, 5],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+            "score": [90.5, 85.0, 92.3, 78.0, 95.5],
+        })
+
+    def test_filter_then_columns(self, df):
+        """After filter, .columns should return correct columns via execution."""
+        pd_result = df[df["score"] > 80]
+        ds = DataStore(df)
+        ds2 = ds[ds["score"] > 80]
+        assert ds2._get_source_df_if_pristine() is None
+        assert list(ds2.columns) == list(pd_result.columns)
+
+    def test_filter_then_shape(self, df):
+        """After filter, .shape should return correct shape via execution."""
+        pd_result = df[df["score"] > 80]
+        ds = DataStore(df)
+        ds2 = ds[ds["score"] > 80]
+        assert ds2.shape == pd_result.shape
+
+    def test_filter_then_dtypes(self, df):
+        """After filter, .dtypes should still match pandas."""
+        pd_result = df[df["score"] > 80]
+        ds = DataStore(df)
+        ds2 = ds[ds["score"] > 80]
+        pd.testing.assert_series_equal(ds2.dtypes, pd_result.dtypes)
+
+    def test_filter_then_size(self, df):
+        """After filter, .size should match pandas."""
+        pd_result = df[df["score"] > 80]
+        ds = DataStore(df)
+        ds2 = ds[ds["score"] > 80]
+        assert ds2.size == pd_result.size
+
+    def test_filter_then_empty(self, df):
+        """After filter, .empty should match pandas."""
+        pd_result = df[df["score"] > 80]
+        ds = DataStore(df)
+        ds2 = ds[ds["score"] > 80]
+        assert ds2.empty == pd_result.empty
+
+    def test_filter_empty_result(self, df):
+        """Filter that excludes all rows: metadata should reflect empty result."""
+        pd_result = df[df["score"] > 999]
+        ds = DataStore(df)
+        ds2 = ds[ds["score"] > 999]
+        assert ds2.empty == pd_result.empty
+        assert ds2.shape == pd_result.shape
+        assert ds2.size == pd_result.size
+
+    def test_filter_on_file_source_not_pristine(self, tmp_path):
+        """After filter on file source, pristine path must not be used."""
+        df = pd.DataFrame({"x": [1, 2, 3, 4, 5], "y": [10, 20, 30, 40, 50]})
+        path = str(tmp_path / "filter_test.parquet")
+        df.to_parquet(path, index=False)
+
+        pd_result = df[df["x"] > 2]
+        ds = DataStore.from_file(path)
+        ds2 = ds[ds["x"] > 2]
+        assert ds2._is_pristine_sql_source() is False
+        assert ds2._get_source_df_if_pristine() is None
+        assert list(ds2.columns) == list(pd_result.columns)
+        assert ds2.shape == pd_result.shape
+
+
+# ---------------------------------------------------------------------------
+# 7. Remote source DESCRIBE verification (Scenario 5)
+# ---------------------------------------------------------------------------
+
+class TestRemoteDescribeNotSelectStar:
+    """Pristine remote .columns must use DESCRIBE/schema, not SELECT *."""
+
+    def test_columns_uses_schema_path(self, clickhouse_connection):
+        """Columns access on pristine remote source must route through schema()."""
+        ds = clickhouse_connection.table("system", "one")
+        with patch.object(ds, "schema", wraps=ds.schema) as mock_schema:
+            with patch.object(
+                ds, "_execute", wraps=ds._execute
+            ) as mock_exec:
+                cols = ds.columns
+                # schema() should be called (DESCRIBE path)
+                mock_schema.assert_called()
+                # _execute() should NOT be called
+                mock_exec.assert_not_called()
+        assert "dummy" in list(cols)
+
+    def test_dtypes_uses_probe_path(self, clickhouse_connection):
+        """Dtypes access on pristine remote source must use _probe_dtypes_from_sql_source."""
+        ds = clickhouse_connection.table("system", "one")
+        with patch.object(
+            ds, "_probe_dtypes_from_sql_source",
+            wraps=ds._probe_dtypes_from_sql_source,
+        ) as mock_probe:
+            with patch.object(
+                ds, "_execute", wraps=ds._execute
+            ) as mock_exec:
+                dtypes = ds.dtypes
+                mock_probe.assert_called_once()
+                mock_exec.assert_not_called()
+        assert "dummy" in dtypes.index
+
+    def test_shape_uses_count_rows_not_execute(self, clickhouse_connection):
+        """Shape access on pristine remote source must use count_rows, not _execute."""
+        ds = clickhouse_connection.table("system", "one")
+        with patch.object(ds, "count_rows", wraps=ds.count_rows) as mock_count:
+            with patch.object(
+                ds, "_execute", wraps=ds._execute
+            ) as mock_exec:
+                shape = ds.shape
+                mock_count.assert_called()
+                mock_exec.assert_not_called()
+        assert shape == (1, 1)
+
+    def test_empty_uses_count_rows_not_execute(self, clickhouse_connection):
+        """Empty check on pristine remote source must use count_rows, not _execute."""
+        ds = clickhouse_connection.table("system", "one")
+        with patch.object(ds, "count_rows", wraps=ds.count_rows) as mock_count:
+            with patch.object(
+                ds, "_execute", wraps=ds._execute
+            ) as mock_exec:
+                empty = ds.empty
+                mock_count.assert_called()
+                mock_exec.assert_not_called()
+        assert empty is False
+
+    def test_no_execute_for_all_metadata_remote(self, clickhouse_connection):
+        """All metadata properties on pristine remote source must skip _execute."""
+        ds = clickhouse_connection.table("system", "one")
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            _ = ds.columns
+            _ = ds.dtypes
+            _ = ds.shape
+            _ = ds.size
+            _ = ds.empty
+            _ = ds.ndim
+            mock_exec.assert_not_called()
+        assert ds._cached_result is None
+
+    def test_after_filter_remote_uses_execute(self, clickhouse_connection):
+        """After filter on remote source, metadata MUST go through execution."""
+        ds = clickhouse_connection.table("system", "tables")
+        ds2 = ds[ds["database"] == "system"]
+        assert ds2._is_pristine_sql_source() is False
+        # Accessing shape on filtered remote source should work correctly
+        rows, ncols = ds2.shape
+        assert rows > 0
+        assert ncols > 5

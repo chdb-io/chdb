@@ -364,7 +364,8 @@ def _build_starts_with(expr, prefix: str, na=None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('startsWith', expr, Literal(prefix), alias=alias)
+    # Wrap with toBool() to return bool dtype instead of uint8
+    return Function('toBool', Function('startsWith', expr, Literal(prefix)), alias=alias)
 
 
 @register_function(
@@ -388,7 +389,8 @@ def _build_ends_with(expr, suffix: str, na=None, alias=None):
     from .functions import Function
     from .expressions import Literal
 
-    return Function('endsWith', expr, Literal(suffix), alias=alias)
+    # Wrap with toBool() to return bool dtype instead of uint8
+    return Function('toBool', Function('endsWith', expr, Literal(suffix)), alias=alias)
 
 
 @register_function(

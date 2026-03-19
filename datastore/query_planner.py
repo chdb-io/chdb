@@ -34,6 +34,7 @@ from .lazy_ops import (
     LazyWhere,
     LazyMask,
     LazyDataFrameSource,
+    LazyDistinct,
 )
 from .expressions import Field, Expression
 from .config import get_logger
@@ -741,9 +742,13 @@ class QueryPlanner:
                             "  [Schema] After SELECT: %s", list(effective_schema.keys())
                         )
 
-            # Pass preceding operations to allow context-aware decisions
-            preceding_ops = lazy_ops[: lazy_ops.index(op)] if op in lazy_ops else []
-            if self._can_push_op_to_sql(op, effective_schema, preceding_ops):
+            # Pass preceding and following operations for context-aware decisions
+            op_idx = lazy_ops.index(op) if op in lazy_ops else -1
+            preceding_ops = lazy_ops[:op_idx] if op_idx >= 0 else []
+            following_ops = lazy_ops[op_idx + 1 :] if op_idx >= 0 else []
+            if self._can_push_op_to_sql(
+                op, effective_schema, preceding_ops, following_ops
+            ):
                 op_types.append(("sql", op))
             else:
                 op_types.append(("pandas", op))
@@ -827,6 +832,7 @@ class QueryPlanner:
         op: LazyOp,
         schema: Dict[str, str] = None,
         preceding_ops: List[LazyOp] = None,
+        following_ops: List[LazyOp] = None,
     ) -> bool:
         """
         Check if a single operation can be pushed to SQL.
@@ -835,6 +841,7 @@ class QueryPlanner:
             op: The operation to check
             schema: Column schema for type-aware checking
             preceding_ops: List of operations that come before this one (for context-aware decisions)
+            following_ops: List of operations that come after this one (for ORDER BY cost awareness)
 
         Returns:
             True if the operation can be executed via SQL
@@ -853,6 +860,47 @@ class QueryPlanner:
             # But PANDAS_FILTER is for method-mode ColumnExpr that cannot be converted to SQL
             if op.op_type == "PANDAS_FILTER":
                 return False
+
+            if op.op_type == "ORDER BY":
+                # Cost-aware ORDER BY optimization: only push ORDER BY to SQL when
+                # LIMIT follows in the operation chain. Unbounded ORDER BY forces
+                # remote servers to sort the entire dataset before returning results,
+                # which is very expensive for large remote tables.
+                # When no LIMIT follows, the sort happens in pandas after data fetch.
+                following = following_ops or []
+
+                # Check if ORDER BY precedes a GROUP BY with non-order-sensitive
+                # aggregation (sum, mean, count, etc.) - the sort is semantically
+                # meaningless and should be dropped entirely from SQL
+                for f_op in following:
+                    if isinstance(f_op, LazyGroupByAgg):
+                        if f_op.agg_func not in ("first", "last"):
+                            self._logger.debug(
+                                "  [ORDER BY] Skipping push to SQL: meaningless before GROUP BY %s()",
+                                f_op.agg_func,
+                            )
+                            return False
+                        break  # first/last handled separately
+
+                # ORDER BY after GROUP BY operates on aggregated (small) result set,
+                # so SQL sort is cheap - always push to SQL
+                has_preceding_groupby = any(
+                    isinstance(p_op, LazyGroupByAgg)
+                    for p_op in (preceding_ops or [])
+                )
+                if has_preceding_groupby:
+                    return True
+
+                has_limit = any(
+                    isinstance(f_op, LazyRelationalOp) and f_op.op_type == "LIMIT"
+                    for f_op in following
+                )
+                if not has_limit:
+                    self._logger.debug(
+                        "  [ORDER BY] Skipping push to SQL: no LIMIT follows (unbounded sort)"
+                    )
+                return has_limit
+
             return True
 
         if isinstance(op, LazyGroupByAgg):
@@ -902,6 +950,18 @@ class QueryPlanner:
             # LazyApply can be pushed to SQL if it's a simple aggregation pattern
             # e.g., groupby('category').apply(lambda x: x.sum())
             return op.can_push_to_sql()
+
+        if isinstance(op, LazyDistinct):
+            # LazyDistinct can be pushed to SQL when executing from a table/file source
+            # (first segment). For subsequent segments (on DataFrame), keep as pandas
+            # to preserve DataFrame index information.
+            # Check if there's a LazyDataFrameSource in preceding ops - if so, this is
+            # a DataFrame context where pandas execution is needed for index preservation.
+            if preceding_ops and any(
+                isinstance(p, LazyDataFrameSource) for p in preceding_ops
+            ):
+                return False
+            return True
 
         # All other ops (LazyFilter, LazyTransform, etc.)
         # require Pandas execution

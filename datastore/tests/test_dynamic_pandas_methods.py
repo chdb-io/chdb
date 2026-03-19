@@ -4,10 +4,13 @@ Tests for dynamic Pandas method invocation.
 When a function is not registered, DataStore tries to call corresponding Pandas method.
 """
 
+import os
 import unittest
 from datastore import DataStore as ds
 from datastore.functions import Function
 from datastore.expressions import Field
+
+USERS_CSV = os.path.join(os.path.dirname(__file__), 'dataset', 'users.csv')
 
 
 class TestDynamicPandasMethods(unittest.TestCase):
@@ -15,14 +18,14 @@ class TestDynamicPandasMethods(unittest.TestCase):
 
     def test_str_removeprefix(self):
         """Test str.removeprefix - unregistered, uses dynamic invocation."""
-        nat = ds.from_file('tests/dataset/users.csv').limit(3)
+        nat = ds.from_file(USERS_CSV).limit(3)
         nat['no_prefix'] = Function('removeprefix', Field('name'), 'Alice ')
         df = nat.to_df()
         self.assertEqual(df[df['name'] == 'Alice Smith']['no_prefix'].iloc[0], 'Smith')
 
     def test_str_removesuffix(self):
         """Test str.removesuffix - unregistered, uses dynamic invocation."""
-        nat = ds.from_file('tests/dataset/users.csv').limit(3)
+        nat = ds.from_file(USERS_CSV).limit(3)
         nat['no_suffix'] = Function('removesuffix', Field('name'), ' Smith')
         df = nat.to_df()
         self.assertEqual(df[df['name'] == 'Alice Smith']['no_suffix'].iloc[0], 'Alice')
@@ -50,7 +53,7 @@ class TestDynamicPandasMethods(unittest.TestCase):
 
     def test_str_slice(self):
         """Test str.slice - unregistered, uses dynamic invocation."""
-        nat = ds.from_file('tests/dataset/users.csv').limit(3)
+        nat = ds.from_file(USERS_CSV).limit(3)
         # slice(0, 5) gets first 5 characters
         nat['first5'] = Function('slice', Field('name'), 0, 5)
         df = nat.to_df()
@@ -62,14 +65,14 @@ class TestDynamicFallbackToChdb(unittest.TestCase):
 
     def test_chdb_specific_function(self):
         """Test ClickHouse-specific function via fallback."""
-        nat = ds.from_file('tests/dataset/users.csv').orderby('user_id').limit(3)
+        nat = ds.from_file(USERS_CSV).orderby('user_id').limit(3)
         nat['name_len'] = Function('lengthUTF8', Field('name'))
         df = nat.to_df()
         self.assertEqual(df['name_len'].iloc[0], 11)  # 'Alice Smith'
 
     def test_nonexistent_function_raises_error(self):
         """Test that a non-existent function raises an error."""
-        nat = ds.from_file('tests/dataset/users.csv').limit(2)
+        nat = ds.from_file(USERS_CSV).limit(2)
         nat['bad'] = Function('totally_fake_xyz', Field('name'))
         with self.assertRaises(Exception):
             nat.to_df()

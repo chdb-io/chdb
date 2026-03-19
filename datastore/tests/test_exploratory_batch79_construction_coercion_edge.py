@@ -236,7 +236,6 @@ class TestStringOperationEdgeCases:
 
         assert_series_equal(ds_result, pd_result)
 
-    @pytest.mark.xfail(reason="chDB returns uint8 for startsWith, pandas returns bool - known dtype issue")
     def test_str_startswith_empty_prefix(self):
         """Test startswith with empty string prefix"""
         pd_df = pd.DataFrame({'text': ['hello', 'world', '']})

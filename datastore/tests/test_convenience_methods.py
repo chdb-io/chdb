@@ -438,5 +438,217 @@ class TestConvenienceMethods(unittest.TestCase):
         assert_frame_equal(df1, df2.to_df())
 
 
+
+
+class TestSQLOptimizedMethods(unittest.TestCase):
+    """Test SQL-optimized info/describe/sample that avoid full table loading."""
+
+    @classmethod
+    def setUpClass(cls):
+        """Create a larger test CSV for SQL optimization tests."""
+        cls.temp_dir = tempfile.mkdtemp()
+        cls.csv_file = os.path.join(cls.temp_dir, "test_sql_opt.csv")
+
+        import random
+
+        random.seed(42)
+        with open(cls.csv_file, "w") as f:
+            f.write("id,name,age,score\n")
+            for i in range(100):
+                name = chr(65 + i % 26) + chr(97 + (i * 7) % 26)
+                f.write(f"{i},{name},{20 + i % 50},{random.uniform(0, 100):.2f}\n")
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.exists(cls.csv_file):
+            os.unlink(cls.csv_file)
+        if os.path.exists(cls.temp_dir):
+            os.rmdir(cls.temp_dir)
+
+    # ---- sample() SQL optimization tests ----
+
+    def test_sample_sql_returns_correct_count(self):
+        """sample(n) via SQL returns the right number of rows."""
+        ds = DataStore.from_file(self.csv_file)
+        result = ds.sample(n=10)
+        self.assertIsInstance(result, DataStore)
+        self.assertEqual(len(result), 10)
+
+    def test_sample_sql_returns_valid_rows(self):
+        """All sampled rows must exist in the original data."""
+        ds = DataStore.from_file(self.csv_file)
+        sample_df = ds.sample(n=5).to_df()
+        full_df = ds.to_df()
+        for _, row in sample_df.iterrows():
+            self.assertIn(row["id"], full_df["id"].values)
+
+    def test_sample_sql_frac(self):
+        """sample(frac) via SQL returns the correct fraction of rows."""
+        ds = DataStore.from_file(self.csv_file)
+        result = ds.sample(frac=0.1)
+        self.assertIsInstance(result, DataStore)
+        self.assertEqual(len(result), 10)
+
+    def test_sample_sql_with_filter(self):
+        """sample() works correctly after filter (SQL pushdown)."""
+        ds = DataStore.from_file(self.csv_file)
+        result = ds.filter(ds.age > 40).sample(n=3)
+        self.assertEqual(len(result), 3)
+        result_df = result.to_df()
+        for _, row in result_df.iterrows():
+            self.assertGreater(row["age"], 40)
+
+    def test_sample_random_state_uses_pandas(self):
+        """random_state forces pandas path for reproducibility."""
+        ds = DataStore.from_file(self.csv_file)
+        r1 = ds.sample(n=5, random_state=42).to_df()
+        r2 = ds.sample(n=5, random_state=42).to_df()
+        assert_frame_equal(r1, r2)
+
+    def test_sample_replace_uses_pandas(self):
+        """replace=True forces pandas path."""
+        ds = DataStore.from_file(self.csv_file)
+        result = ds.sample(n=150, replace=True)
+        self.assertEqual(len(result), 150)
+
+    # ---- info() SQL optimization tests ----
+
+    def test_info_sql_returns_none(self):
+        """info() returns None (prints to stdout) like pandas."""
+        ds = DataStore.from_file(self.csv_file)
+        result = ds.info()
+        self.assertIsNone(result)
+
+    def test_info_sql_with_buf(self):
+        """info() writes to buffer and contains expected metadata."""
+        import io
+
+        ds = DataStore.from_file(self.csv_file)
+        buf = io.StringIO()
+        result = ds.info(buf=buf)
+        self.assertIsNone(result)
+
+        output = buf.getvalue()
+        self.assertIn("100", output)  # 100 rows
+        self.assertIn("4 columns", output)  # 4 columns
+        self.assertIn("id", output)
+        self.assertIn("name", output)
+        self.assertIn("age", output)
+        self.assertIn("score", output)
+
+    def test_info_sql_with_filter(self):
+        """info() respects filter and shows filtered row count."""
+        import io
+
+        ds = DataStore.from_file(self.csv_file)
+        buf = io.StringIO()
+        ds.filter(ds.age > 40).info(buf=buf)
+        output = buf.getvalue()
+        # Should NOT show "100 entries" since we filtered
+        self.assertNotIn("100 entries", output)
+
+    def test_info_sql_show_counts(self):
+        """info(show_counts=True) includes non-null counts."""
+        import io
+
+        ds = DataStore.from_file(self.csv_file)
+        buf = io.StringIO()
+        ds.info(buf=buf, show_counts=True)
+        output = buf.getvalue()
+        self.assertIn("non-null", output)
+
+    # ---- describe() SQL optimization tests ----
+
+    def test_describe_sql_returns_datastore(self):
+        """describe() via SQL returns a DataStore."""
+        ds = DataStore.from_file(self.csv_file)
+        result = ds.describe()
+        self.assertIsInstance(result, DataStore)
+
+    def test_describe_sql_has_correct_stats(self):
+        """describe() has all expected statistic rows."""
+        ds = DataStore.from_file(self.csv_file)
+        stats_df = ds.describe().to_df()
+        for stat in ["count", "mean", "std", "min", "25%", "50%", "75%", "max"]:
+            self.assertIn(stat, stats_df.index)
+
+    def test_describe_sql_numeric_only(self):
+        """describe() includes only numeric columns by default."""
+        ds = DataStore.from_file(self.csv_file)
+        stats_df = ds.describe().to_df()
+        # id, age, score are numeric; name is string
+        self.assertIn("id", stats_df.columns)
+        self.assertIn("age", stats_df.columns)
+        self.assertIn("score", stats_df.columns)
+        self.assertNotIn("name", stats_df.columns)
+
+    def test_describe_sql_matches_pandas(self):
+        """describe() via SQL produces results matching pandas describe()."""
+        ds = DataStore.from_file(self.csv_file)
+        ds_stats = ds.describe().to_df()
+        pd_stats = ds.to_df().describe()
+
+        # Same columns and index
+        self.assertEqual(list(ds_stats.columns), list(pd_stats.columns))
+        self.assertEqual(list(ds_stats.index), list(pd_stats.index))
+
+        # Values should match within tolerance
+        for col in ds_stats.columns:
+            for idx in ds_stats.index:
+                ds_val = ds_stats.loc[idx, col]
+                pd_val = pd_stats.loc[idx, col]
+                import math
+                if math.isnan(ds_val) and math.isnan(pd_val):
+                    continue
+                self.assertAlmostEqual(
+                    ds_val,
+                    pd_val,
+                    places=4,
+                    msg=f"Mismatch at [{idx}, {col}]: DS={ds_val}, PD={pd_val}",
+                )
+
+    def test_describe_sql_with_custom_percentiles(self):
+        """describe() with custom percentiles works via SQL."""
+        ds = DataStore.from_file(self.csv_file)
+        stats = ds.describe(percentiles=[0.1, 0.5, 0.9])
+        stats_df = stats.to_df()
+        self.assertIn("10%", stats_df.index)
+        self.assertIn("50%", stats_df.index)
+        self.assertIn("90%", stats_df.index)
+
+    def test_describe_sql_with_filter(self):
+        """describe() works after filter (SQL pushdown)."""
+        ds = DataStore.from_file(self.csv_file)
+        stats = ds.filter(ds.age > 30).describe()
+        stats_df = stats.to_df()
+
+        # count should be less than 100
+        self.assertLess(stats_df.loc["count", "age"], 100)
+        # min age should be > 30
+        self.assertGreater(stats_df.loc["min", "age"], 30)
+
+    def test_describe_include_all_uses_pandas(self):
+        """describe(include='all') falls back to pandas (includes non-numeric)."""
+        ds = DataStore.from_file(self.csv_file)
+        stats = ds.describe(include="all")
+        stats_df = stats.to_df()
+        # Should include non-numeric columns
+        self.assertIn("name", stats_df.columns)
+
+    def test_describe_sql_matches_pandas_mirror(self):
+        """Mirror test: DataStore describe matches pandas describe exactly."""
+        import pandas as pd
+
+        # pandas path
+        pd_df = pd.read_csv(self.csv_file)
+        pd_result = pd_df.describe()
+
+        # DataStore path (uses SQL optimization)
+        ds = DataStore.from_file(self.csv_file)
+        ds_result = ds.describe()
+
+        assert_frame_equal(ds_result.to_df(), pd_result)
+
+
 if __name__ == "__main__":
     unittest.main()

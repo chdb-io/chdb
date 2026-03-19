@@ -201,7 +201,7 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._default_database, "production")
 
     def test_use_two_args_sets_database_and_table(self):
-        """use(database, table) sets both."""
+        """use(database, table) sets both and binds table."""
         ds = DataStore.from_clickhouse(
             host="localhost:9000", user="default", password=""
         )
@@ -210,9 +210,22 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._default_database, "production")
         self.assertEqual(ds._default_table, "users")
         self.assertEqual(ds._connection_mode, "table")
+        # Verify table is actually bound (not just defaults)
+        self.assertEqual(ds.table_name, "users")
+        self.assertIsNotNone(ds._table_function)
+
+    def test_use_two_args_creates_consistent_sql_state(self):
+        """use(database, table) creates consistent internal state for SQL generation."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        ds.use("mydb", "mytable")
+
+        # _has_sql_state() should return True since table_name and _table_function are set
+        self.assertTrue(ds._has_sql_state())
 
     def test_use_three_args_sets_all(self):
-        """use(schema, database, table) sets all three."""
+        """use(schema, database, table) sets all three and binds table."""
         ds = DataStore.from_postgresql(
             host="localhost:5432", user="postgres", password=""
         )
@@ -222,6 +235,21 @@ class TestUseMethod(unittest.TestCase):
         self.assertEqual(ds._default_database, "mydb")
         self.assertEqual(ds._default_table, "users")
         self.assertEqual(ds._connection_mode, "table")
+        # Verify table is actually bound
+        self.assertEqual(ds.table_name, "users")
+        self.assertIsNotNone(ds._table_function)
+
+    def test_use_two_args_generates_valid_sql(self):
+        """use(database, table) should produce valid SQL with FROM clause."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        ds.use("mydb", "mytable")
+
+        # The table function should produce SQL that references the table
+        sql = ds._table_function.to_sql()
+        self.assertIn("mytable", sql)
+        self.assertIn("mydb", sql)
 
     def test_use_returns_self_for_chaining(self):
         """use() returns self for method chaining."""
@@ -1446,6 +1474,619 @@ class TestClickHouseCloudAutoDetect(unittest.TestCase):
             "abc123.clickhouse.cloud:19440",
         )
         self.assertTrue(ds._remote_params.get("secure"))
+
+    def test_explicit_secure_false_overridden_for_cloud_host(self):
+        """Explicit secure=False with .clickhouse.cloud -> secure still True."""
+        ds = DataStore.from_clickhouse(
+            host="abc123.clickhouse.cloud",
+            user="default", password="pass",
+            secure=False,
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+
+    def test_normalize_idempotent_cloud_no_port(self):
+        """normalize_clickhouse_connection is idempotent for cloud host without port."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "abc123.clickhouse.cloud", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+
+    def test_normalize_idempotent_cloud_port_9000(self):
+        """normalize_clickhouse_connection is idempotent for cloud:9000."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "abc123.clickhouse.cloud:9000", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+        self.assertEqual(host2, "abc123.clickhouse.cloud:9440")
+        self.assertTrue(secure2)
+
+    def test_normalize_idempotent_non_cloud_9440(self):
+        """normalize_clickhouse_connection is idempotent for non-cloud:9440."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "myserver:9440", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+        self.assertTrue(secure2)
+
+    def test_normalize_idempotent_plain_host(self):
+        """normalize_clickhouse_connection is idempotent for plain host:9000."""
+        from datastore.adapters import normalize_clickhouse_connection
+        host1, secure1 = normalize_clickhouse_connection(
+            "localhost:9000", False
+        )
+        host2, secure2 = normalize_clickhouse_connection(host1, secure1)
+        self.assertEqual(host1, host2)
+        self.assertEqual(secure1, secure2)
+        self.assertFalse(secure2)
+
+    def test_cloud_uri_triggers_auto_detection(self):
+        """clickhouse:// URI with .clickhouse.cloud host triggers auto-detection."""
+        ds = DataStore.uri(
+            "clickhouse://abc123.clickhouse.cloud/default/events"
+            "?user=default&password=pass"
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+
+    def test_cloud_uri_secure_false_still_overridden(self):
+        """clickhouse:// URI with secure=false + cloud host -> secure True."""
+        ds = DataStore.uri(
+            "clickhouse://abc123.clickhouse.cloud:9000/default/events"
+            "?user=default&password=pass&secure=false"
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+        self.assertEqual(
+            ds._remote_params["host"],
+            "abc123.clickhouse.cloud:9440",
+        )
+
+    def test_uri_secure_true_parsed_correctly(self):
+        """clickhouse:// URI with ?secure=true sets secure flag."""
+        ds = DataStore.uri(
+            "clickhouse://myhost:9440/default/events"
+            "?user=default&password=pass&secure=true"
+        )
+        self.assertTrue(ds._remote_params.get("secure"))
+
+
+class TestSQLRewritingRobustness(unittest.TestCase):
+    """Comprehensive tests for _rewrite_table_references robustness.
+
+    Verifies SQL rewriting works correctly across various complex SQL
+    structures: JOINs, CTEs, subqueries, UNION, aliases, backtick-quoted
+    identifiers, and more.
+    """
+
+    def _make_ds(self, database=None):
+        """Create a ClickHouse DataStore for testing SQL rewriting."""
+        ds = DataStore.from_clickhouse(
+            host="localhost:9000", user="default", password=""
+        )
+        if database:
+            ds.use(database)
+        return ds
+
+    def _remote(self, database, table):
+        """Expected remote() call for given database and table."""
+        return f"remote('localhost:9000', '{database}', '{table}', 'default', '')"
+
+    # --- Simple SELECT ---
+
+    def test_rewrite_simple_select(self):
+        """Simple SELECT FROM table is rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references("SELECT * FROM users")
+        self.assertEqual(
+            result,
+            f"SELECT * FROM {self._remote('testdb', 'users')}",
+        )
+
+    def test_rewrite_select_with_columns(self):
+        """SELECT with column list preserves columns."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT name, age, email FROM users"
+        )
+        self.assertIn("SELECT name, age, email FROM", result)
+        self.assertIn(self._remote("testdb", "users"), result)
+
+    def test_rewrite_select_with_where(self):
+        """WHERE clause is preserved after rewrite."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users WHERE age > 25 AND active = 1"
+        )
+        expected = (
+            f"SELECT * FROM {self._remote('testdb', 'users')} "
+            "WHERE age > 25 AND active = 1"
+        )
+        self.assertEqual(result, expected)
+
+    def test_rewrite_select_with_order_by(self):
+        """ORDER BY clause is preserved after rewrite."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users ORDER BY name DESC"
+        )
+        expected = (
+            f"SELECT * FROM {self._remote('testdb', 'users')} ORDER BY name DESC"
+        )
+        self.assertEqual(result, expected)
+
+    def test_rewrite_select_with_group_by(self):
+        """GROUP BY clause is preserved after rewrite."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT dept, COUNT(*) FROM users GROUP BY dept"
+        )
+        expected = (
+            f"SELECT dept, COUNT(*) FROM {self._remote('testdb', 'users')} "
+            "GROUP BY dept"
+        )
+        self.assertEqual(result, expected)
+
+    def test_rewrite_select_with_limit(self):
+        """LIMIT clause is preserved after rewrite."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users LIMIT 10"
+        )
+        expected = f"SELECT * FROM {self._remote('testdb', 'users')} LIMIT 10"
+        self.assertEqual(result, expected)
+
+    # --- Aliases ---
+
+    def test_rewrite_alias_with_as(self):
+        """FROM table AS alias is rewritten preserving alias."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references("SELECT * FROM users AS u")
+        expected = f"SELECT * FROM {self._remote('testdb', 'users')} AS u"
+        self.assertEqual(result, expected)
+
+    def test_rewrite_alias_without_as(self):
+        """FROM table alias (without AS) is rewritten preserving alias."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT u.name FROM users u WHERE u.age > 25"
+        )
+        expected = (
+            f"SELECT u.name FROM {self._remote('testdb', 'users')} u "
+            "WHERE u.age > 25"
+        )
+        self.assertEqual(result, expected)
+
+    # --- JOINs ---
+
+    def test_rewrite_two_table_join_with_aliases(self):
+        """JOIN with aliases on both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users u JOIN orders o ON u.id = o.user_id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn(" u JOIN", result)
+        self.assertIn(" o ON", result)
+
+    def test_rewrite_join_without_aliases(self):
+        """JOIN without aliases rewrites both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users JOIN orders ON users.id = orders.user_id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn("ON users.id = orders.user_id", result)
+
+    def test_rewrite_left_join(self):
+        """LEFT JOIN rewrites both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users u LEFT JOIN orders o ON u.id = o.user_id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn("LEFT JOIN", result)
+
+    def test_rewrite_right_join(self):
+        """RIGHT JOIN rewrites both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users u RIGHT JOIN orders o ON u.id = o.user_id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn("RIGHT JOIN", result)
+
+    def test_rewrite_inner_join_without_aliases(self):
+        """INNER JOIN without aliases rewrites both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn("INNER JOIN", result)
+
+    def test_rewrite_full_outer_join(self):
+        """FULL OUTER JOIN rewrites both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn("FULL OUTER JOIN", result)
+
+    def test_rewrite_cross_join(self):
+        """CROSS JOIN rewrites both tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users CROSS JOIN roles"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "roles"), result)
+        self.assertIn("CROSS JOIN", result)
+
+    def test_rewrite_nested_three_table_join(self):
+        """Three-table JOIN chain rewrites all tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM a JOIN b ON a.id = b.id JOIN c ON b.id = c.id"
+        )
+        self.assertIn(self._remote("testdb", "a"), result)
+        self.assertIn(self._remote("testdb", "b"), result)
+        self.assertIn(self._remote("testdb", "c"), result)
+        self.assertIn("ON a.id = b.id", result)
+        self.assertIn("ON b.id = c.id", result)
+
+    def test_rewrite_nested_three_table_join_with_aliases(self):
+        """Three-table JOIN chain with aliases rewrites all tables."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users u "
+            "JOIN orders o ON u.id = o.user_id "
+            "JOIN products p ON o.product_id = p.id"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn(self._remote("testdb", "products"), result)
+        self.assertIn(" u JOIN", result)
+        self.assertIn(" o ON", result)
+        self.assertIn(" p ON", result)
+
+    # --- Subqueries ---
+
+    def test_rewrite_subquery_inner_table(self):
+        """Subquery: inner table is rewritten, outer FROM is not."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM (SELECT * FROM users) sub"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        # Outer FROM should still reference the subquery
+        self.assertIn("FROM (SELECT", result)
+
+    def test_rewrite_subquery_in_where(self):
+        """Subquery in WHERE: tables in both main and sub are rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders)"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+
+    def test_rewrite_nested_subqueries(self):
+        """Nested subqueries: all inner tables are rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM (SELECT * FROM (SELECT * FROM events) t1) t2"
+        )
+        self.assertIn(self._remote("testdb", "events"), result)
+
+    # --- CTEs ---
+
+    def test_rewrite_cte_inner_table_rewritten(self):
+        """CTE: inner table is rewritten, CTE reference is not."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "WITH cte AS (SELECT * FROM users) SELECT * FROM cte"
+        )
+        # Inner table should be rewritten
+        self.assertIn(self._remote("testdb", "users"), result)
+        # CTE reference should NOT be rewritten
+        self.assertIn("SELECT * FROM cte", result)
+        # Only one remote() call
+        self.assertEqual(result.count("remote("), 1)
+
+    def test_rewrite_multiple_ctes(self):
+        """Multiple CTEs: all inner tables rewritten, CTE refs preserved."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "WITH a AS (SELECT * FROM users), "
+            "b AS (SELECT * FROM orders) "
+            "SELECT * FROM a JOIN b ON a.id = b.id"
+        )
+        # Inner tables rewritten
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        # CTE references NOT rewritten
+        self.assertIn("FROM a JOIN b", result)
+        # Exactly 2 remote() calls (users and orders)
+        self.assertEqual(result.count("remote("), 2)
+
+    def test_rewrite_cte_with_real_table_join(self):
+        """CTE joined with a real table: CTE ref preserved, real table rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "WITH cte AS (SELECT * FROM users) "
+            "SELECT * FROM cte JOIN orders ON cte.id = orders.user_id"
+        )
+        # Inner table and real table rewritten
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        # CTE reference preserved
+        self.assertIn("FROM cte JOIN", result)
+        # Exactly 2 remote() calls
+        self.assertEqual(result.count("remote("), 2)
+
+    def test_rewrite_recursive_cte(self):
+        """RECURSIVE CTE: CTE reference is not rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "WITH RECURSIVE tree AS ("
+            "SELECT * FROM nodes WHERE parent_id IS NULL "
+            "UNION ALL "
+            "SELECT n.* FROM nodes n JOIN tree t ON n.parent_id = t.id"
+            ") SELECT * FROM tree"
+        )
+        # Real table 'nodes' rewritten (appears twice)
+        nodes_count = result.count(self._remote("testdb", "nodes"))
+        self.assertEqual(nodes_count, 2)
+        # CTE 'tree' references NOT rewritten
+        self.assertIn("JOIN tree", result)
+        self.assertIn("FROM tree", result.split(")")[-1])
+
+    # --- UNION / INTERSECT / EXCEPT ---
+
+    def test_rewrite_union_all(self):
+        """UNION ALL: both sides are rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users UNION ALL SELECT * FROM admins"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "admins"), result)
+        self.assertIn("UNION ALL", result)
+
+    def test_rewrite_union(self):
+        """UNION (without ALL): both sides are rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users UNION SELECT * FROM admins"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "admins"), result)
+        self.assertIn("UNION", result)
+
+    def test_rewrite_triple_union(self):
+        """Three-way UNION: all tables rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users "
+            "UNION ALL SELECT * FROM admins "
+            "UNION ALL SELECT * FROM guests"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "admins"), result)
+        self.assertIn(self._remote("testdb", "guests"), result)
+
+    # --- Qualified table names ---
+
+    def test_rewrite_qualified_two_part_name(self):
+        """db.table uses the specified database."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM production.users"
+        )
+        self.assertIn(self._remote("production", "users"), result)
+
+    def test_rewrite_qualified_three_part_name(self):
+        """schema.db.table combines schema and table."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM myschema.mydb.users"
+        )
+        self.assertIn(self._remote("mydb", "myschema.users"), result)
+
+    def test_rewrite_qualified_overrides_default_db(self):
+        """Qualified name uses its own database, not default."""
+        ds = self._make_ds("defaultdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM otherdb.users"
+        )
+        self.assertIn(self._remote("otherdb", "users"), result)
+        self.assertNotIn("defaultdb", result)
+
+    # --- Backtick-quoted identifiers ---
+
+    def test_rewrite_backtick_simple(self):
+        """Backtick-quoted table name is rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references("SELECT * FROM `users`")
+        self.assertIn(self._remote("testdb", "users"), result)
+
+    def test_rewrite_backtick_with_special_chars(self):
+        """Backtick-quoted name with hyphens is rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM `my-table`"
+        )
+        self.assertIn(self._remote("testdb", "my-table"), result)
+
+    def test_rewrite_backtick_qualified(self):
+        """Backtick-quoted db.table is rewritten."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM `mydb`.`my_table`"
+        )
+        self.assertIn(self._remote("mydb", "my_table"), result)
+
+    # --- Double-quoted identifiers ---
+
+    def test_rewrite_double_quoted_not_rewritten(self):
+        """Double-quoted identifiers are not rewritten."""
+        ds = self._make_ds("testdb")
+        sql = 'SELECT * FROM "users"'
+        result = ds._rewrite_table_references(sql)
+        self.assertNotIn("remote(", result)
+
+    # --- Function calls preserved ---
+
+    def test_rewrite_preserves_numbers_function(self):
+        """numbers() table function is preserved."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references("SELECT * FROM numbers(10)")
+        self.assertNotIn("remote(", result)
+        self.assertIn("numbers(10)", result)
+
+    def test_rewrite_preserves_file_function(self):
+        """file() table function is preserved."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM file('data.csv')"
+        )
+        self.assertNotIn("remote(", result)
+        self.assertIn("file(", result)
+
+    def test_rewrite_preserves_url_function(self):
+        """url() table function is preserved."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM url('http://example.com/data', JSONEachRow)"
+        )
+        self.assertNotIn("remote(", result)
+        self.assertIn("url(", result)
+
+    def test_rewrite_preserves_s3_function(self):
+        """s3() table function is preserved."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM s3('s3://bucket/file.parquet')"
+        )
+        self.assertNotIn("remote(", result)
+        self.assertIn("s3(", result)
+
+    # --- INSERT ---
+
+    def test_rewrite_insert_select_only_rewrites_from(self):
+        """INSERT INTO ... SELECT FROM: only FROM is rewritten, not INTO."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "INSERT INTO target SELECT * FROM source"
+        )
+        self.assertIn("INSERT INTO target", result)
+        self.assertIn(self._remote("testdb", "source"), result)
+
+    # --- Subqueries (preserved) ---
+
+    def test_rewrite_from_subquery_preserved(self):
+        """FROM (subquery) is preserved as-is."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM (SELECT 1 AS x) sub"
+        )
+        self.assertNotIn("remote(", result)
+        self.assertIn("(SELECT 1 AS x)", result)
+
+    # --- Error cases ---
+
+    def test_rewrite_no_default_db_raises(self):
+        """Unqualified table without default database raises error."""
+        ds = self._make_ds()  # no database
+        with self.assertRaises(DataStoreError) as ctx:
+            ds._rewrite_table_references("SELECT * FROM users")
+        self.assertIn("database", str(ctx.exception).lower())
+
+    def test_rewrite_qualified_name_no_default_db_ok(self):
+        """Qualified name works without default database."""
+        ds = self._make_ds()  # no database
+        result = ds._rewrite_table_references(
+            "SELECT * FROM production.users"
+        )
+        self.assertIn(self._remote("production", "users"), result)
+
+    # --- Case insensitivity ---
+
+    def test_rewrite_case_insensitive_from(self):
+        """FROM keyword matching is case-insensitive."""
+        ds = self._make_ds("testdb")
+        for kw in ["from", "FROM", "From", "fRoM"]:
+            result = ds._rewrite_table_references(f"SELECT * {kw} users")
+            self.assertIn("remote(", result, f"Failed for keyword: {kw}")
+
+    def test_rewrite_case_insensitive_join(self):
+        """JOIN keyword matching is case-insensitive."""
+        ds = self._make_ds("testdb")
+        for kw in ["join", "JOIN", "Join"]:
+            result = ds._rewrite_table_references(
+                f"SELECT * FROM users u {kw} orders o ON u.id = o.user_id"
+            )
+            self.assertEqual(
+                result.count("remote("), 2,
+                f"Failed for keyword: {kw}",
+            )
+
+    # --- Complex queries ---
+
+    def test_rewrite_complex_analytics_query(self):
+        """Complex analytics query with JOIN, WHERE, GROUP BY, ORDER BY."""
+        ds = self._make_ds("testdb")
+        sql = (
+            "SELECT u.name, COUNT(o.id) as order_count, SUM(o.total) as revenue "
+            "FROM users u "
+            "JOIN orders o ON u.id = o.user_id "
+            "WHERE o.created_at > '2024-01-01' "
+            "GROUP BY u.name "
+            "HAVING COUNT(o.id) > 5 "
+            "ORDER BY revenue DESC "
+            "LIMIT 100"
+        )
+        result = ds._rewrite_table_references(sql)
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn(self._remote("testdb", "orders"), result)
+        self.assertIn("WHERE o.created_at > '2024-01-01'", result)
+        self.assertIn("GROUP BY u.name", result)
+        self.assertIn("HAVING COUNT(o.id) > 5", result)
+        self.assertIn("ORDER BY revenue DESC", result)
+        self.assertIn("LIMIT 100", result)
+
+    def test_rewrite_mixed_real_and_function_tables(self):
+        """Query mixing real tables and table functions."""
+        ds = self._make_ds("testdb")
+        result = ds._rewrite_table_references(
+            "SELECT * FROM users u "
+            "JOIN numbers(100) n ON u.id = n.number"
+        )
+        self.assertIn(self._remote("testdb", "users"), result)
+        self.assertIn("numbers(100)", result)
+        self.assertEqual(result.count("remote("), 1)
 
 
 if __name__ == "__main__":

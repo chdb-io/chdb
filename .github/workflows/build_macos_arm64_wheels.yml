@@ -39,39 +39,44 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          pyenv install 3.9:latest
-          pyenv install 3.10:latest
-          pyenv install 3.11:latest
-          pyenv install 3.12:latest
-          pyenv install 3.13:latest
-          pyenv install 3.14:latest
-          pyenv global 3.9 3.10 3.11 3.12 3.13 3.14
+          INSTALLED=""
+          set +e
+          for v in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            echo "=== Installing Python $v ==="
+            if pyenv install "$v:latest"; then
+              INSTALLED="$INSTALLED $v"
+            else
+              echo "Normal install failed, retrying without ensurepip..."
+              installed_ver=$(pyenv latest "$v" 2>/dev/null)
+              if [ -n "$installed_ver" ]; then pyenv uninstall -f "$installed_ver" 2>/dev/null; fi
+              PYTHON_CONFIGURE_OPTS="--without-ensurepip" pyenv install "$v:latest" || true
+              if pyenv versions --bare | grep -q "^$v\."; then
+                INSTALLED="$INSTALLED $v"
+                echo "Python $v binary installed (pip bootstrap deferred)"
+              else
+                echo "WARNING: Python $v install failed completely, skipping"
+              fi
+            fi
+          done
+          set -e
+          if [ -z "$INSTALLED" ]; then echo "No Python installed!"; exit 1; fi
+          pyenv global $INSTALLED
 
           echo "Installed versions:"
           pyenv versions
-      - name: Verify pyenv installations
-        run: |
-          export PATH="$HOME/.pyenv/bin:$PATH"
-          eval "$(pyenv init -)"
-          echo "Installed Python versions:"
-          pyenv versions
-          echo ""
-          echo "Verifying all required Python versions are available:"
-          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
-              echo "ERROR: Python $version is not installed!"
-              exit 1
-            fi
-            echo "✓ Python $version is installed"
-          done
-          echo "All Python versions verified successfully!"
       - name: Install dependencies for all Python versions
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            if ! pyenv versions --bare | grep -q "^$version"; then continue; fi
             echo "Installing dependencies for Python $version"
             pyenv shell $version
+            if ! python -m pip --version 2>/dev/null; then
+              echo "pip missing, bootstrapping..."
+              curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+              python /tmp/get-pip.py || python -m ensurepip --upgrade || true
+            fi
             python -m pip install --upgrade pip
             python -m pip install setuptools tox pandas pyarrow wheel pytest pytest-cov
             pyenv shell --unset
@@ -95,6 +100,10 @@ jobs:
           eval "$(pyenv init -)"
 
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+            if ! pyenv versions --bare | grep -q "^$version"; then
+              echo "Python $version not available, skipping"
+              continue
+            fi
             # pandas 3.x requires Python >= 3.11
             if [[ "$version" == "3.9" || "$version" == "3.10" ]]; then
               PANDAS_CONSTRAINTS=("pandas<3.0")

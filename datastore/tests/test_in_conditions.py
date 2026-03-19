@@ -56,7 +56,7 @@ class InConditionDataTypesTests(unittest.TestCase):
     def test_in_empty_list(self):
         """Test IN with empty list"""
         cond = Field("id").isin([])
-        self.assertEqual('"id" IN ()', cond.to_sql())
+        self.assertEqual('1=0', cond.to_sql())
 
 
 class NotInConditionTests(unittest.TestCase):
@@ -65,17 +65,17 @@ class NotInConditionTests(unittest.TestCase):
     def test_notin_integers(self):
         """Test NOT IN with integers"""
         cond = Field("id").notin([1, 2, 3])
-        self.assertEqual('"id" NOT IN (1,2,3)', cond.to_sql())
+        self.assertEqual('("id" NOT IN (1,2,3) OR "id" IS NULL)', cond.to_sql())
 
     def test_notin_strings(self):
         """Test NOT IN with strings"""
         cond = Field("status").notin(['inactive', 'deleted'])
-        self.assertEqual('"status" NOT IN (\'inactive\',\'deleted\')', cond.to_sql())
+        self.assertEqual('("status" NOT IN (\'inactive\',\'deleted\') OR "status" IS NULL)', cond.to_sql())
 
     def test_notin_dates(self):
         """Test NOT IN with dates"""
         cond = Field("holiday").notin([date(2023, 1, 1), date(2023, 12, 25)])
-        self.assertEqual('"holiday" NOT IN (\'2023-01-01\',\'2023-12-25\')', cond.to_sql())
+        self.assertEqual('("holiday" NOT IN (\'2023-01-01\',\'2023-12-25\') OR "holiday" IS NULL)', cond.to_sql())
 
 
 class InConditionInQueryTests(unittest.TestCase):

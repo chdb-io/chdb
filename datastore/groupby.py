@@ -226,8 +226,12 @@ class LazyGroupBy:
             # Convert named aggregation to pandas format
             # pandas expects: agg(**kwargs) where kwargs={'alias': ('col', 'func')}
             return self._create_lazy_agg_datastore(agg_dict=None, named_agg=kwargs)
+        elif isinstance(func, str):
+            # Single function name: agg('sum'), agg('mean'), etc.
+            # Pass as agg_func (single function for all numeric columns)
+            return self._create_lazy_agg_datastore(agg_func=func, **kwargs)
         else:
-            # Pandas-style aggregation: agg({'col': 'func'})
+            # Pandas-style aggregation: agg({'col': 'func'}) or agg({'col': ['func1', 'func2']})
             # Return lazy DataStore with LazyGroupByAgg operation
             return self._create_lazy_agg_datastore(agg_dict=func, **kwargs)
 
