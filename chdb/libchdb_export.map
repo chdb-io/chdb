@@ -41,6 +41,10 @@
         chdb_arrow_array_scan;
         chdb_arrow_unregister_table;
 
+        /* Signal Handler Control */
+        chdb_set_signal_handlers_enabled;
+        chdb_reset_signal_handlers;
+
     local:
         *;
 };

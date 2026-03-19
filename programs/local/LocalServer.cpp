@@ -1,5 +1,6 @@
 #include "LocalServer.h"
 #include "chdb-internal.h"
+#include <Common/SignalHandlers.h>
 #if USE_PYTHON
 #include "ChunkCollectorOutputFormat.h"
 #include "TableFunctionPython.h"
@@ -633,7 +634,9 @@ try
 {
     StackTrace::setShowAddresses(server_settings[ServerSetting::show_addresses_in_stack_traces]);
 
-    // setupSignalHandler();
+    /// Re-install ClickHouse signal handlers (SA_SIGINFO) after Poco::Application::initialize()
+    /// which overwrites them with its own non-SA_SIGINFO handlers.
+    HandledSignals::instance().setupCommonDeadlySignalHandlers();
 
     std::cout << std::fixed << std::setprecision(3);
     std::cerr << std::fixed << std::setprecision(3);

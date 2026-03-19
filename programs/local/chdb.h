@@ -420,6 +420,26 @@ CHDB_EXPORT chdb_state chdb_arrow_array_scan(
  */
 CHDB_EXPORT chdb_state chdb_arrow_unregister_table(chdb_connection conn, const char * table_name);
 
+//===--------------------------------------------------------------------===//
+// Signal Handler Control
+//===--------------------------------------------------------------------===//
+
+/**
+ * Controls whether chDB installs process-wide signal handlers.
+ * Call BEFORE chdb_connect() or query_stable() to prevent chDB
+ * from installing process-wide signal handlers.
+ *
+ * @param enabled 1 to enable signal handlers (default), 0 to disable them
+ */
+CHDB_EXPORT void chdb_set_signal_handlers_enabled(int enabled);
+
+/**
+ * Resets all signal handlers installed by chDB back to SIG_DFL.
+ * Useful when signal handlers were already installed and need to be removed,
+ * e.g. to let the embedding process manage its own signal handling.
+ */
+CHDB_EXPORT void chdb_reset_signal_handlers(void);
+
 #ifdef __cplusplus
 }
 #endif

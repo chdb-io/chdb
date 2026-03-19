@@ -94,6 +94,11 @@ struct HandledSignals
     DB::PipeFDs signal_pipe;
     std::atomic_flag fatal_error_printed;
 
+    /// When true, setupCommonDeadlySignalHandlers() and
+    /// setupCommonTerminateRequestSignalHandlers() become no-ops.
+    /// Must be set BEFORE any init() call to take effect.
+    static std::atomic<bool> disable_signal_handlers;
+
     HandledSignals();
     ~HandledSignals();
 

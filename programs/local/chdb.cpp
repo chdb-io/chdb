@@ -3,6 +3,7 @@
 #include "ChunkCollectorOutputFormat.h"
 #include "LocalServer.h"
 
+#include <csignal>
 #include <cstddef>
 #include <cstring>
 #include <ChdbClient.h>
@@ -11,6 +12,7 @@
 #    include <PythonTableCache.h>
 #endif
 #include <Common/MemoryTracker.h>
+#include <Common/SignalHandlers.h>
 #include <Common/ThreadStatus.h>
 
 #if defined(USE_MUSL) && defined(__aarch64__)
@@ -107,28 +109,46 @@ std::unique_ptr<MaterializedQueryResult> pyEntryClickHouseLocal(int argc, char *
         DB::ThreadStatus thread_status;
         DB::LocalServer app;
         app.init(argc, argv);
+
+        /// Install crash-signal handlers so that chDB can produce useful stack traces
+        /// on SIGSEGV/SIGILL/etc.  This is a no-op when the caller has opted out via
+        /// chdb_set_signal_handlers_enabled(0), and it is safe to call on every query
+        /// because addSignalHandler() is idempotent with respect to the OS handler.
+        HandledSignals::instance().setupCommonDeadlySignalHandlers();
+
         int ret = app.run();
+        std::unique_ptr<MaterializedQueryResult> result;
         if (ret == 0)
         {
-            return std::make_unique<MaterializedQueryResult>(
+            result = std::make_unique<MaterializedQueryResult>(
                 ResultBuffer(app.stealQueryOutputVector()), app.getElapsedTime(), app.getProcessedRows(), app.getProcessedBytes(), 0, 0);
         }
         else
         {
-            return std::make_unique<MaterializedQueryResult>(app.getErrorMsg());
+            result = std::make_unique<MaterializedQueryResult>(app.getErrorMsg());
         }
+
+        if (HandledSignals::disable_signal_handlers.load(std::memory_order_relaxed))
+            chdb_reset_signal_handlers();
+
+        return result;
     }
     catch (const DB::Exception & e)
     {
-        // wrap the error message into a new std::exception
+        if (HandledSignals::disable_signal_handlers.load(std::memory_order_relaxed))
+            chdb_reset_signal_handlers();
         throw std::domain_error(DB::getExceptionMessage(e, false));
     }
     catch (const boost::program_options::error & e)
     {
+        if (HandledSignals::disable_signal_handlers.load(std::memory_order_relaxed))
+            chdb_reset_signal_handlers();
         throw std::invalid_argument("Bad arguments: " + std::string(e.what()));
     }
     catch (...)
     {
+        if (HandledSignals::disable_signal_handlers.load(std::memory_order_relaxed))
+            chdb_reset_signal_handlers();
         throw std::domain_error(DB::getCurrentExceptionMessage(true));
     }
 }
@@ -168,6 +188,10 @@ chdb_connection * connect_chdb_with_exception(int argc, char ** argv)
         conn->server = client.release();
         conn->connected = true;
         auto ** conn_ptr = new chdb_conn *(conn);
+
+        if (HandledSignals::disable_signal_handlers.load(std::memory_order_relaxed))
+            chdb_reset_signal_handlers();
+
         return reinterpret_cast<chdb_connection *>(conn_ptr);
     }
     catch (const DB::Exception & e)
@@ -446,7 +470,12 @@ chdb_connection * chdb_connect(int argc, char ** argv)
 {
     try
     {
-        return connect_chdb_with_exception(argc, argv);
+        auto * conn = connect_chdb_with_exception(argc, argv);
+
+        if (HandledSignals::disable_signal_handlers.load(std::memory_order_relaxed))
+            chdb_reset_signal_handlers();
+
+        return conn;
     }
     catch (const DB::Exception & e)
     {
@@ -784,4 +813,31 @@ const char * chdb_result_error(chdb_result * result)
         return nullptr;
 
     return query_result->getError().c_str();
+}
+
+void chdb_set_signal_handlers_enabled(int enabled)
+{
+    HandledSignals::disable_signal_handlers.store(!enabled, std::memory_order_relaxed);
+
+    if (!enabled)
+        chdb_reset_signal_handlers();
+}
+
+void chdb_reset_signal_handlers(void)
+{
+    static const std::vector<int> deadly_signals = {
+        SIGABRT, SIGSEGV, SIGILL, SIGBUS, SIGSYS, SIGFPE, SIGTSTP, SIGTRAP
+    };
+
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = SIG_DFL;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    for (int sig : deadly_signals)
+        sigaction(sig, &sa, nullptr);
+
+    auto & instance = HandledSignals::instance();
+    instance.handled_signals.clear();
 }
