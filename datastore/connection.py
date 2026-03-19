@@ -21,7 +21,7 @@ import pandas as pd
 import numpy as np
 
 from .exceptions import ConnectionError, ExecutionError, translate_remote_error
-from .config import get_logger, get_profiler
+from .config import get_logger, get_profiler, get_chdb_settings, _freeze_chdb_settings
 
 
 def _convert_nullable_dtypes(df: pd.DataFrame) -> pd.DataFrame:
@@ -66,11 +66,37 @@ class Connection:
         self._cursor = None
         self._logger = get_logger()
 
+    def _build_connection_string(self) -> str:
+        """
+        Build chdb connection string with global chdb_settings and instance params.
+
+        Global chdb_settings from config are applied first, then instance-level
+        connection_params can override them. All settings are encoded as URL
+        query parameters in the connection string.
+        """
+        all_settings = {**get_chdb_settings(), **self.connection_params}
+        if not all_settings:
+            return self.database
+
+        parts = []
+        for key, value in all_settings.items():
+            if value == '':
+                parts.append(key)
+            else:
+                parts.append(f'{key}={value}')
+        params_str = '&'.join(parts)
+
+        separator = '&' if '?' in self.database else '?'
+        return f'{self.database}{separator}{params_str}'
+
     def connect(self) -> "Connection":
         """Establish connection to chdb."""
         try:
-            self._conn = chdb.connect(self.database, **self.connection_params)
-            self._logger.debug("[chDB] Connected to database: %s", self.database)
+            conn_str = self._build_connection_string()
+            self._conn = chdb.connect(conn_str)
+            if self._conn is not None:
+                _freeze_chdb_settings()
+            self._logger.debug("[chDB] Connected: %s", conn_str)
             return self
         except Exception as e:
             raise ConnectionError(f"Failed to connect to chdb: {e}")

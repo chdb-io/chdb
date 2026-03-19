@@ -7,7 +7,7 @@ including logging level configuration.
 
 import logging
 import time
-from typing import Optional, List, Dict
+from typing import Any, Optional, List, Dict
 from contextlib import contextmanager
 
 # Module-level logger for DataStore
@@ -331,6 +331,71 @@ def use_pandas_compat() -> None:
 
 
 # =============================================================================
+# CHDB ENGINE SETTINGS
+# =============================================================================
+
+# Default chdb server-level settings applied via connection string.
+# These are ClickHouse server settings (system.server_settings) that can only
+# be configured at connection time, not via SET or per-query SETTINGS.
+#
+# IMPORTANT: chdb_settings are frozen once the first connection is created.
+# All calls to set_chdb_setting(s) must happen before any DataStore query.
+_chdb_settings: Dict[str, Any] = {
+    'memory_worker_correct_memory_tracker': 1,
+}
+_chdb_settings_frozen: bool = False
+
+
+def get_chdb_settings() -> Dict[str, Any]:
+    """
+    Get current chdb engine settings.
+
+    Returns a copy so modifications don't affect the internal state.
+
+    Returns:
+        Dict of setting name to value
+    """
+    return dict(_chdb_settings)
+
+
+def _freeze_chdb_settings() -> None:
+    """Mark chdb_settings as frozen. Called when the first connection is created."""
+    global _chdb_settings_frozen
+    _chdb_settings_frozen = True
+
+
+def _check_chdb_settings_not_frozen() -> None:
+    """Raise RuntimeError if chdb_settings have been frozen."""
+    if _chdb_settings_frozen:
+        raise RuntimeError(
+            "chdb_settings cannot be changed after a connection has been created. "
+            "Call set_chdb_setting() before any DataStore query."
+        )
+
+
+def set_chdb_setting(key: str, value: Any) -> None:
+    """
+    Set a chdb engine setting.
+
+    These settings are applied via the connection string when chdb.connect()
+    is called. Must be called before any DataStore query triggers a connection.
+
+    Args:
+        key: Setting name (e.g., 'memory_worker_correct_memory_tracker')
+        value: Setting value
+
+    Raises:
+        RuntimeError: If a connection has already been created.
+
+    Example:
+        >>> from datastore import config
+        >>> config.set_chdb_setting('memory_worker_correct_memory_tracker', 0)
+    """
+    _check_chdb_settings_not_frozen()
+    _chdb_settings[key] = value
+
+
+# =============================================================================
 # CROSS-DATASTORE OPERATION CONFIGURATION
 # =============================================================================
 
@@ -516,6 +581,17 @@ class DataStoreConfig:
     def set_cross_datastore_engine(self, engine: str) -> None:
         """Set cross-DataStore execution engine."""
         set_cross_datastore_engine(engine)
+
+    # ========== chDB Engine Settings ==========
+
+    @property
+    def chdb_settings(self) -> Dict[str, Any]:
+        """Get current chdb engine settings (returns a copy)."""
+        return get_chdb_settings()
+
+    def set_chdb_setting(self, key: str, value: Any) -> None:
+        """Set a single chdb engine setting (must be called before any query)."""
+        set_chdb_setting(key, value)
 
     # ========== Cache Configuration ==========
 
