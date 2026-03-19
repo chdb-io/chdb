@@ -71,13 +71,13 @@ class InConditionTests(unittest.TestCase):
         """Test NOT IN with numbers"""
         ds = DataStore(table="test")
         sql = ds.select("*").filter(ds.id.notin([1, 2, 3])).to_sql()
-        self.assertEqual('SELECT * FROM "test" WHERE "id" NOT IN (1,2,3)', sql)
+        self.assertEqual('SELECT * FROM "test" WHERE ("id" NOT IN (1,2,3) OR "id" IS NULL)', sql)
 
     def test_notin_strings(self):
         """Test NOT IN with strings"""
         ds = DataStore(table="test")
         sql = ds.select("*").filter(ds.name.notin(['Alice', 'Bob'])).to_sql()
-        self.assertEqual('SELECT * FROM "test" WHERE "name" NOT IN (\'Alice\',\'Bob\')', sql)
+        self.assertEqual('SELECT * FROM "test" WHERE ("name" NOT IN (\'Alice\',\'Bob\') OR "name" IS NULL)', sql)
 
     def test_isin_single_value(self):
         """Test IN with single value"""
