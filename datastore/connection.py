@@ -14,6 +14,7 @@ All chDB execution should go through this module for:
 """
 
 from typing import Any, Optional, Dict, List, Tuple
+import gc
 import time
 import chdb
 import pandas as pd
@@ -861,11 +862,20 @@ class Connection:
 
         try:
             chunks = []
-            with self._conn.send_query(sql, "DataFrame") as stream:
-                for chunk in stream:
-                    chunks.append(chunk)
+            gc_was_enabled = gc.isenabled()
+            gc.disable()
+            try:
+                with self._conn.send_query(sql, "DataFrame") as stream:
+                    for chunk in stream:
+                        chunks.append(chunk)
+            finally:
+                if gc_was_enabled:
+                    gc.enable()
             if not chunks:
-                return self._conn.query(sql, "DataFrame")
+                sql_upper = sql.strip().upper()
+                if sql_upper.startswith(("SELECT", "DESCRIBE", "SHOW", "EXPLAIN", "WITH")):
+                    return self._conn.query(sql, "DataFrame")
+                return pd.DataFrame()
             if len(chunks) == 1:
                 return chunks[0]
             return pd.concat(chunks, ignore_index=True)
@@ -1132,15 +1142,17 @@ class Connection:
         self.close()
 
     def __del__(self):
-        """Release Python references without closing the underlying connection.
+        """No-op: prevent GC-triggered cleanup from aborting active queries.
 
-        The chdb connection_wrapper has its own C++ destructor that safely
-        handles cleanup (close sets conn=nullptr, destructor checks for it).
-        Calling close() from __del__ risks aborting active streaming queries
-        on other Connection objects that share the same EmbeddedServer.
+        All chdb connections share a single EmbeddedServer. Dropping
+        self._conn here would decrement its refcount, potentially firing
+        chdb's own __del__ -> close() which aborts the shared server and
+        SIGABRTs any in-flight streaming queries on other Connection objects.
+
+        Connections are cleaned up via explicit close() or __exit__.
+        At interpreter shutdown all C++ resources are released regardless.
         """
-        self._cursor = None
-        self._conn = None
+        pass
 
 
 class QueryResult:

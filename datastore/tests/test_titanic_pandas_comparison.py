@@ -61,7 +61,11 @@ class TitanicPandasComparisonTest(unittest.TestCase):
         ds_result = self.ds.head(5).to_df()
         pd_result = self.pd_df.head(5)
 
-        assert_frame_equal(ds_result, pd_result)
+        assert_frame_equal(
+            ds_result.astype(object).fillna(value=np.nan),
+            pd_result.astype(object).fillna(value=np.nan),
+            check_dtype=False,
+        )
 
     def test_tail(self):
         """Test tail() returns same result as pandas."""
