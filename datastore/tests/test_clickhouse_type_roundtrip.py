@@ -140,7 +140,7 @@ class TestClickHouseTypeRoundTrip:
             self._cleanup(ds, conn, "t_fstr")
 
     def test_fixedstring_dtype_is_object(self):
-        """FixedString maps to object (string) dtype."""
+        """FixedString maps to a string-like dtype (object or StringDtype)."""
         ds, conn = self._setup_table(
             "t_fstr_dt",
             "CREATE TABLE t_fstr_dt (val FixedString(4)) ENGINE = Memory",
@@ -148,7 +148,7 @@ class TestClickHouseTypeRoundTrip:
         )
         try:
             df = self._read_df(ds)
-            assert df["val"].dtype == object
+            assert df["val"].dtype == object or pd.api.types.is_string_dtype(df["val"])
             assert isinstance(df["val"].iloc[0], str)
         finally:
             self._cleanup(ds, conn, "t_fstr_dt")
@@ -181,7 +181,7 @@ class TestClickHouseTypeRoundTrip:
             values = df["val"].tolist()
 
             assert values == ["apple", "banana", "cherry", "apple"]
-            assert df["val"].dtype == object
+            assert df["val"].dtype == object or pd.api.types.is_string_dtype(df["val"])
         finally:
             self._cleanup(ds, conn, "t_enum")
 
@@ -262,7 +262,7 @@ class TestClickHouseTypeRoundTrip:
             values = df["val"].tolist()
 
             assert values == ["hello", "world", "hello"]
-            assert df["val"].dtype == object
+            assert df["val"].dtype == object or pd.api.types.is_string_dtype(df["val"])
             assert isinstance(values[0], str)
         finally:
             self._cleanup(ds, conn, "t_lowcard")
