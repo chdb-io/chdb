@@ -23,7 +23,7 @@ on:
 jobs:
   test_datastore:
     name: Test DataStore (macOS arm64)
-    runs-on: macos-14-xlarge
+    runs-on: macos-15-xlarge
     if: ${{ !github.event.pull_request.draft }}
     timeout-minutes: 60
     steps:
@@ -39,28 +39,11 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          INSTALLED=""
-          set +e
           for v in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "=== Installing Python $v ==="
-            if pyenv install "$v:latest"; then
-              INSTALLED="$INSTALLED $v"
-            else
-              echo "Normal install failed, retrying without ensurepip..."
-              installed_ver=$(pyenv latest "$v" 2>/dev/null)
-              if [ -n "$installed_ver" ]; then pyenv uninstall -f "$installed_ver" 2>/dev/null; fi
-              PYTHON_CONFIGURE_OPTS="--without-ensurepip" pyenv install "$v:latest" || true
-              if pyenv versions --bare | grep -q "^$v\."; then
-                INSTALLED="$INSTALLED $v"
-                echo "Python $v binary installed (pip bootstrap deferred)"
-              else
-                echo "WARNING: Python $v install failed completely, skipping"
-              fi
-            fi
+            pyenv install "$v:latest"
           done
-          set -e
-          if [ -z "$INSTALLED" ]; then echo "No Python installed!"; exit 1; fi
-          pyenv global $INSTALLED
+          pyenv global $(pyenv versions --bare)
 
           echo "Installed versions:"
           pyenv versions
@@ -72,11 +55,6 @@ jobs:
             if ! pyenv versions --bare | grep -q "^$version"; then continue; fi
             echo "Installing dependencies for Python $version"
             pyenv shell $version
-            if ! python -m pip --version 2>/dev/null; then
-              echo "pip missing, bootstrapping..."
-              curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-              python /tmp/get-pip.py || python -m ensurepip --upgrade || true
-            fi
             python -m pip install --upgrade pip
             python -m pip install setuptools tox pandas pyarrow wheel pytest pytest-cov
             pyenv shell --unset
