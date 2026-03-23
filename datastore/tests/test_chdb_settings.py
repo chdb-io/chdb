@@ -31,6 +31,8 @@ def _reset_chdb_settings_state():
     """Reset chdb_settings and frozen flag on the real module."""
     _config_module._chdb_settings = {
         'memory_worker_correct_memory_tracker': 1,
+        'max_server_memory_usage': 0,
+        'max_server_memory_usage_to_ram_ratio': 0,
     }
     _config_module._chdb_settings_frozen = False
 
@@ -67,9 +69,13 @@ def reset_chdb_state():
 class TestChdbSettingsDefaults:
     """Verify default chdb_settings values."""
 
-    def test_default_memory_worker_correct_memory_tracker_is_1(self):
+    def test_default_settings(self):
         settings = get_chdb_settings()
-        assert settings == {'memory_worker_correct_memory_tracker': 1}
+        assert settings == {
+            'memory_worker_correct_memory_tracker': 1,
+            'max_server_memory_usage': 0,
+            'max_server_memory_usage_to_ram_ratio': 0,
+        }
 
     def test_default_applied_to_connection(self):
         conn = Connection(':memory:')
@@ -81,6 +87,22 @@ class TestChdbSettingsDefaults:
                 'CSV',
             )
             assert '"1"' in str(r)
+        finally:
+            conn.close()
+
+    def test_default_memory_limits_applied_to_connection(self):
+        conn = Connection(':memory:')
+        conn.connect()
+        try:
+            r = conn._conn.query(
+                "SELECT name, value FROM system.server_settings "
+                "WHERE name IN ('max_server_memory_usage', 'max_server_memory_usage_to_ram_ratio') "
+                "ORDER BY name",
+                'CSV',
+            )
+            result = str(r)
+            assert '"max_server_memory_usage","0"' in result
+            assert '"max_server_memory_usage_to_ram_ratio","0"' in result
         finally:
             conn.close()
 
@@ -153,7 +175,11 @@ class TestChdbSettingsDataStoreConfig:
 
     def test_config_chdb_settings_property(self):
         from datastore.config import config
-        assert config.chdb_settings == {'memory_worker_correct_memory_tracker': 1}
+        assert config.chdb_settings == {
+            'memory_worker_correct_memory_tracker': 1,
+            'max_server_memory_usage': 0,
+            'max_server_memory_usage_to_ram_ratio': 0,
+        }
 
     def test_config_set_chdb_setting(self):
         from datastore.config import config
@@ -322,24 +348,26 @@ class TestChdbSettingsConnectionString:
     def test_connection_string_default(self):
         conn = Connection(':memory:')
         conn_str = conn._build_connection_string()
-        assert conn_str == ':memory:?memory_worker_correct_memory_tracker=1'
+        assert ':memory:?' in conn_str
+        assert 'memory_worker_correct_memory_tracker=1' in conn_str
+        assert 'max_server_memory_usage=0' in conn_str
+        assert 'max_server_memory_usage_to_ram_ratio=0' in conn_str
 
     def test_connection_string_override(self):
         set_chdb_setting('memory_worker_correct_memory_tracker', 0)
         conn = Connection(':memory:')
         conn_str = conn._build_connection_string()
-        assert conn_str == ':memory:?memory_worker_correct_memory_tracker=0'
+        assert 'memory_worker_correct_memory_tracker=0' in conn_str
 
-    def test_connection_string_multiple_settings(self):
-        set_chdb_setting('max_server_memory_usage', 1073741824)
+    def test_connection_string_extra_setting(self):
+        set_chdb_setting('some_custom_setting', 42)
         conn = Connection(':memory:')
         conn_str = conn._build_connection_string()
-        assert conn_str in (
-            ':memory:?memory_worker_correct_memory_tracker=1&max_server_memory_usage=1073741824',
-            ':memory:?max_server_memory_usage=1073741824&memory_worker_correct_memory_tracker=1',
-        )
+        assert 'some_custom_setting=42' in conn_str
+        assert 'memory_worker_correct_memory_tracker=1' in conn_str
 
     def test_connection_string_with_file_database(self):
         conn = Connection('test.db')
         conn_str = conn._build_connection_string()
-        assert conn_str == 'test.db?memory_worker_correct_memory_tracker=1'
+        assert 'test.db?' in conn_str
+        assert 'memory_worker_correct_memory_tracker=1' in conn_str

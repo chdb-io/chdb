@@ -342,6 +342,8 @@ def use_pandas_compat() -> None:
 # All calls to set_chdb_setting(s) must happen before any DataStore query.
 _chdb_settings: Dict[str, Any] = {
     'memory_worker_correct_memory_tracker': 1,
+    'max_server_memory_usage': 0,
+    'max_server_memory_usage_to_ram_ratio': 0,
 }
 _chdb_settings_frozen: bool = False
 
