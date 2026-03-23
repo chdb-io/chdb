@@ -656,9 +656,31 @@ class ColumnExpr:
         """Execute expression mode - evaluate the expression tree."""
         from .expression_evaluator import ExpressionEvaluator
         from .conditions import Condition
+        from .expressions import Field
 
-        # Get the executed DataFrame from the DataStore
-        df = self._datastore._execute()
+        # Column pruning: only materialize columns referenced by the expression
+        # instead of SELECT * which wastes memory for wide DataFrames.
+        # Only prune for SQL-backed DataStores (file/table) to avoid dtype changes
+        # when the pruning goes through a SQL segment on in-memory data.
+        # Also skip pruning when DISTINCT is active since it depends on all columns.
+        has_sql_source = bool(
+            self._datastore._table_function or getattr(self._datastore, 'table_name', None)
+        )
+        has_distinct = getattr(self._datastore, '_distinct', False)
+        needed_fields = set()
+        if has_sql_source and not has_distinct and self._expr is not None:
+            for node in self._expr.find(Field):
+                needed_fields.add(node.name)
+
+        if needed_fields:
+            all_cols = set(self._datastore._get_all_column_names())
+            if needed_fields < all_cols:
+                pruned = self._datastore.select(*sorted(needed_fields))
+                df = pruned._execute()
+            else:
+                df = self._datastore._execute()
+        else:
+            df = self._datastore._execute()
 
         # Use unified expression evaluator (respects function_config)
         evaluator = ExpressionEvaluator(df, self._datastore)
@@ -955,9 +977,6 @@ class ColumnExpr:
                 normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
             )
 
-        # Get the DataFrame from datastore
-        df = self._datastore._execute()
-
         # Get column name from expression
         col_name = None
         if self._source is not None:
@@ -970,8 +989,30 @@ class ColumnExpr:
 
         # If we can't determine the column, fall back to pandas
         if col_name is None or (
-            not isinstance(self._source._expr, Field) and col_name not in df.columns
+            self._source is not None
+            and not isinstance(self._source._expr, Field)
         ):
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
+            return series.value_counts(
+                normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
+            )
+
+        # Column pruning: only materialize the needed column instead of SELECT *
+        # Only for SQL-backed sources to avoid dtype changes on in-memory data
+        has_sql_source = bool(
+            self._datastore._table_function or getattr(self._datastore, 'table_name', None)
+        )
+        if has_sql_source:
+            pruned = self._datastore.select(col_name)
+            df = pruned._execute()
+        else:
+            df = self._datastore._execute()
+
+        if col_name not in df.columns:
             series = (
                 self._source._execute()
                 if self._source is not None
@@ -1159,11 +1200,58 @@ class ColumnExpr:
         sort = getattr(self, "_groupby_sort", True)
 
         try:
+            col_name = self._get_column_name()
+
+            # Single-SQL path: inject GROUP BY into lazy ops chain
+            # This avoids materializing the full intermediate DataFrame
+            # when the DataStore has a SQL source (file/table).
+            # Skip for in-memory DataStores to preserve pandas aggregation semantics
+            # (e.g., sum of all-NaN returns 0 in pandas but NULL in SQL).
+            has_sql_source = bool(
+                datastore._table_function or getattr(datastore, 'table_name', None)
+            )
+            if has_sql_source:
+                from copy import copy
+                from .lazy_ops import LazyGroupByAgg
+                dropna_val = getattr(self, "_groupby_dropna", True)
+                new_ds = copy(datastore)
+                new_ds._groupby_fields = []
+                new_ds._add_lazy_op(
+                    LazyGroupByAgg(
+                        groupby_cols=groupby_col_names,
+                        agg_func=self._pandas_agg_func or self._agg_func_name,
+                        sort=sort,
+                        as_index=False,
+                        dropna=dropna_val,
+                        selected_columns=[col_name],
+                    )
+                )
+                result_df = new_ds._execute()
+                datastore._groupby_fields = original_groupby
+                if as_index:
+                    if len(groupby_col_names) == 1:
+                        result_series = result_df.set_index(groupby_col_names[0])[col_name]
+                    else:
+                        result_series = result_df.set_index(groupby_col_names)[col_name]
+                    result_series.name = col_name
+                    return result_series
+                else:
+                    return result_df
+
             df = datastore._execute()
+
+            # Column pruning: drop columns not needed for groupby + aggregation
+            # to reduce memory before passing DataFrame to chDB for SQL execution
+            needed_cols = set(groupby_col_names)
+            if col_name and col_name in df.columns:
+                needed_cols.add(col_name)
+            if needed_cols and len(needed_cols) < len(df.columns):
+                cols_to_keep = [c for c in df.columns if c in needed_cols]
+                if len(cols_to_keep) == len(needed_cols):
+                    df = df[cols_to_keep]
 
             # Check execution engine configuration
             engine = get_execution_engine()
-            col_name = self._get_column_name()
 
             if engine == ExecutionEngine.PANDAS:
                 # Use pure pandas groupby with as_index, sort, and dropna parameters
@@ -5462,7 +5550,11 @@ class ColumnExpr:
         self, value=None, method=None, axis=None, inplace=False, limit=None
     ) -> "ColumnExpr":
         """
-        Fill NA/NaN values using pandas (lazy).
+        Fill NA/NaN values (lazy).
+
+        When value is a simple scalar and no method/limit is specified,
+        uses SQL ifNull() for efficient execution without full materialization.
+        Otherwise falls back to pandas fillna().
 
         Args:
             value: Value to use to fill holes (can be ColumnExpr or scalar)
@@ -5480,6 +5572,26 @@ class ColumnExpr:
         """
         if inplace:
             raise ImmutableError("ColumnExpr")
+
+        # Use SQL ifNull() for simple numeric scalar fills when we have an expression tree
+        # This avoids materializing the full DataFrame just to fill NAs
+        # Only for numeric values to avoid type mismatch (e.g., ifNull(Float64_col, 'string'))
+        # Only for SQL-backed sources - ifNull expression doesn't evaluate correctly
+        # on in-memory DataStores when chained with further operations (e.g., .abs())
+        has_sql_source = bool(
+            self._datastore
+            and (self._datastore._table_function or getattr(self._datastore, 'table_name', None))
+        )
+        if (
+            has_sql_source
+            and value is not None
+            and method is None
+            and limit is None
+            and self._expr is not None
+            and not isinstance(value, (pd.Series, pd.DataFrame))
+            and isinstance(value, (int, float))
+        ):
+            return self.fillna_sql(value)
 
         return ColumnExpr(
             source=self,

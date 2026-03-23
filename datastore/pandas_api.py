@@ -1019,6 +1019,19 @@ def concat(objs, axis=0, join="outer", ignore_index=False, keys=None, **kwargs):
     """
     DataStore = _get_datastore_class()
 
+    # Lazy UNION ALL path for simple vertical concatenation of DataStores
+    if (
+        axis == 0
+        and keys is None
+        and not kwargs.get("verify_integrity", False)
+        and all(isinstance(obj, DataStore) for obj in objs)
+        and len(objs) >= 2
+    ):
+        result = objs[0]
+        for obj in objs[1:]:
+            result = result.union(obj, all=True)
+        return result
+
     # Check if any input is a DataStore (vs plain pandas DataFrame)
     has_datastore = False
     dfs = []
