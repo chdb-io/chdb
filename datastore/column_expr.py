@@ -1202,11 +1202,8 @@ class ColumnExpr:
         try:
             col_name = self._get_column_name()
 
-            # Single-SQL path: inject GROUP BY into lazy ops chain
-            # This avoids materializing the full intermediate DataFrame
-            # when the DataStore has a SQL source (file/table).
-            # Skip for in-memory DataStores to preserve pandas aggregation semantics
-            # (e.g., sum of all-NaN returns 0 in pandas but NULL in SQL).
+            # Single-SQL path: push GROUP BY into the SQL query to avoid
+            # materializing the full intermediate DataFrame.
             has_sql_source = bool(
                 datastore._table_function or getattr(datastore, 'table_name', None)
             )
@@ -1229,6 +1226,18 @@ class ColumnExpr:
                 )
                 result_df = new_ds._execute()
                 datastore._groupby_fields = original_groupby
+
+                # SQL GROUP BY doesn't support dropna — it keeps NULL/empty
+                # groups. Filter them out to match pandas dropna=True.
+                if dropna_val and len(result_df) > 0:
+                    for gc in groupby_col_names:
+                        if gc in result_df.columns:
+                            mask = result_df[gc].notna()
+                            if result_df[gc].dtype == object:
+                                mask = mask & (result_df[gc] != '')
+                            result_df = result_df[mask]
+                    result_df = result_df.reset_index(drop=True)
+
                 if as_index:
                     if len(groupby_col_names) == 1:
                         result_series = result_df.set_index(groupby_col_names[0])[col_name]
