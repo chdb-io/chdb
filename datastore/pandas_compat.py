@@ -1543,9 +1543,12 @@ class PandasCompatMixin:
         """
         DataStore = type(self)
 
-        # Lazy UNION ALL path for simple vertical concatenation
+        # Lazy UNION ALL path for simple vertical concatenation.
+        # Only when ignore_index=True (UNION ALL resets index) and join='outer'.
         if (
             axis == 0
+            and ignore_index
+            and join == 'outer'
             and keys is None
             and not verify_integrity
             and all(isinstance(obj, DataStore) for obj in objs)

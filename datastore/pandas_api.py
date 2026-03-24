@@ -1019,9 +1019,12 @@ def concat(objs, axis=0, join="outer", ignore_index=False, keys=None, **kwargs):
     """
     DataStore = _get_datastore_class()
 
-    # Lazy UNION ALL path for simple vertical concatenation of DataStores
+    # Lazy UNION ALL path for simple vertical concatenation of DataStores.
+    # Only when ignore_index=True (UNION ALL resets index) and join='outer'.
     if (
         axis == 0
+        and ignore_index
+        and join == "outer"
         and keys is None
         and not kwargs.get("verify_integrity", False)
         and all(isinstance(obj, DataStore) for obj in objs)
