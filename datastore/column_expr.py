@@ -1210,7 +1210,8 @@ class ColumnExpr:
             has_sql_source = bool(
                 datastore._table_function or getattr(datastore, 'table_name', None)
             )
-            if has_sql_source:
+            has_existing_lazy_ops = bool(getattr(datastore, '_lazy_ops', None))
+            if has_sql_source and not has_existing_lazy_ops:
                 from copy import copy
                 from .lazy_ops import LazyGroupByAgg
                 dropna_val = getattr(self, "_groupby_dropna", True)
