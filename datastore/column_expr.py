@@ -1208,7 +1208,8 @@ class ColumnExpr:
                 datastore._table_function or getattr(datastore, 'table_name', None)
             )
             has_existing_lazy_ops = bool(getattr(datastore, '_lazy_ops', None))
-            if has_sql_source and not has_existing_lazy_ops:
+            engine = get_execution_engine()
+            if has_sql_source and not has_existing_lazy_ops and engine != ExecutionEngine.PANDAS:
                 from copy import copy
                 from .lazy_ops import LazyGroupByAgg
                 dropna_val = getattr(self, "_groupby_dropna", True)
