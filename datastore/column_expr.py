@@ -1204,12 +1204,21 @@ class ColumnExpr:
 
             # Single-SQL path: push GROUP BY into the SQL query to avoid
             # materializing the full intermediate DataFrame.
+            # Skip for in-memory DataStores to preserve pandas aggregation semantics
+            # (e.g., sum of all-NaN returns 0 in pandas but NULL in SQL).
             has_sql_source = bool(
                 datastore._table_function or getattr(datastore, 'table_name', None)
             )
-            has_existing_lazy_ops = bool(getattr(datastore, '_lazy_ops', None))
             engine = get_execution_engine()
-            if has_sql_source and not has_existing_lazy_ops and engine != ExecutionEngine.PANDAS:
+            # Skip when WHERE references the aggregation column — chDB resolves
+            # aliases in WHERE, so "WHERE col > X" + "agg(col) AS col" triggers
+            # ILLEGAL_AGGREGATION.
+            has_where_alias_conflict = False
+            if datastore._where_condition is not None and col_name:
+                where_sql = datastore._where_condition.to_sql(quote_char='"')
+                if f'"{col_name}"' in where_sql:
+                    has_where_alias_conflict = True
+            if has_sql_source and engine != ExecutionEngine.PANDAS and not has_where_alias_conflict:
                 from copy import copy
                 from .lazy_ops import LazyGroupByAgg
                 dropna_val = getattr(self, "_groupby_dropna", True)
