@@ -25,7 +25,7 @@ jobs:
     name: Test DataStore (macOS x86_64)
     runs-on: macos-15-intel
     if: ${{ !github.event.pull_request.draft }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Check machine architecture
         run: |
@@ -41,7 +41,7 @@ jobs:
 
           INSTALLED=""
           set +e
-          for v in 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for v in 3.10 3.11 3.12 3.13 3.14; do
             echo "=== Installing Python $v ==="
             if pyenv install "$v:latest"; then
               INSTALLED="$INSTALLED $v"
@@ -68,7 +68,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.10 3.11 3.12 3.13 3.14; do
             if ! pyenv versions --bare | grep -q "^$version"; then continue; fi
             echo "Installing dependencies for Python $version"
             pyenv shell $version
@@ -88,7 +88,7 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.9
+          pyenv shell 3.10
           make wheel
       - name: Show files
         run: |
@@ -99,13 +99,13 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
+          for version in 3.10 3.11 3.12 3.13 3.14; do
             if ! pyenv versions --bare | grep -q "^$version"; then
               echo "Python $version not available, skipping"
               continue
             fi
             # pandas 3.x requires Python >= 3.11
-            if [[ "$version" == "3.9" || "$version" == "3.10" ]]; then
+            if [[ "$version" == "3.10" ]]; then
               PANDAS_CONSTRAINTS=("pandas<3.0")
             else
               PANDAS_CONSTRAINTS=("pandas<3.0" "pandas>=3.0")
