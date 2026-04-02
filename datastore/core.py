@@ -5203,8 +5203,10 @@ class DataStore(PandasCompatMixin):
                 left_sql = self._generate_select_sql(self.quote_char)
                 other_sql = other._generate_select_sql(other.quote_char)
                 union_keyword = "UNION ALL" if all else "UNION"
-                union_sql = f"{left_sql} {union_keyword} {other_sql}"
+                union_sql = f"({left_sql}) {union_keyword} ({other_sql})"
                 self._table_function = SubqueryTableFunction(union_sql)
+                self._cached_result = None
+                self._cached_at_version = -1
                 self._select_fields = []
                 self._where_condition = None
                 self._joins = []

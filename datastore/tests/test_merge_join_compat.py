@@ -17,7 +17,6 @@ All tests use Mirror Code Pattern: DataStore result == pandas result.
 import os
 import tempfile
 import pandas as pd
-import numpy as np
 import pytest
 
 from datastore import DataStore, concat as ds_concat
