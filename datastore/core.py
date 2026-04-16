@@ -4611,6 +4611,868 @@ class DataStore(PandasCompatMixin):
         """
         self._delete_flag = True
 
+    # ========== Writeback Methods ==========
+
+    def _execute_remote_ddl(self, sql: str) -> str:
+        """
+        Execute DDL/DML on the remote ClickHouse server via remote(query=...).
+
+        Uses chdb's remote() table function with the query= parameter to send
+        arbitrary SQL (including DDL) over the native TCP protocol.
+
+        Args:
+            sql: SQL statement to execute on the remote server
+
+        Returns:
+            Execution status from the server
+
+        Raises:
+            ExecutionError: If the DDL execution fails
+        """
+        import chdb
+
+        self._require_connection_params()
+
+        host = self._remote_params.get("host", "")
+        user = self._remote_params.get("user", "default")
+        password = self._remote_params.get("password", "")
+        secure = self._remote_params.get("secure", False)
+
+        func = "remoteSecure" if secure else "remote"
+        escaped_sql = sql.replace("\\", "\\\\").replace("'", "\\'")
+
+        remote_sql = (
+            f"SELECT * FROM {func}('{host}', "
+            f"query = '{escaped_sql}', "
+            f"'{user}', '{password}')"
+        )
+
+        try:
+            result = chdb.query(remote_sql, "TabSeparated")
+            if hasattr(result, "has_error") and result.has_error():
+                raise ExecutionError(
+                    f"Remote DDL execution failed:\n{result.error_message()}\nSQL: {sql}"
+                )
+            return result.bytes().decode("utf-8") if result else ""
+        except RuntimeError as e:
+            raise ExecutionError(
+                f"Remote DDL execution failed:\n{e}\nSQL: {sql}"
+            ) from e
+
+    def _get_remote_view_sql(self) -> str:
+        """
+        Generate SELECT SQL suitable for execution ON the remote server.
+
+        Replaces remote()/remoteSecure() table function calls with direct
+        database.table references for the primary table and all JOINed tables,
+        so the SQL can be used in VIEW/MV definitions or
+        CREATE TABLE ... AS SELECT on the remote server.
+
+        Returns:
+            SQL string with direct table references
+        """
+        q = self.quote_char
+        sql = self._generate_select_sql(q)
+
+        if self._table_function:
+            tf_sql = self._table_function.to_sql(quote_char=q)
+            database = self._table_function.params.get("database", "default")
+            table = self._table_function.params.get("table")
+
+            alias = self._get_table_alias()
+            direct_ref = (
+                f"{format_identifier(database, q)}.{format_identifier(table, q)}"
+            )
+
+            old_from = f"{tf_sql} AS {format_identifier(alias, q)}"
+            sql = sql.replace(old_from, direct_ref)
+
+        for other_ds, _, _ in self._joins:
+            if isinstance(other_ds, DataStore) and other_ds._table_function:
+                tf_sql = other_ds._table_function.to_sql(quote_char=q)
+                database = other_ds._table_function.params.get("database", "default")
+                table = other_ds._table_function.params.get("table")
+                alias = other_ds._get_table_alias()
+                direct_ref = (
+                    f"{format_identifier(database, q)}.{format_identifier(table, q)}"
+                )
+                old_from = f"{tf_sql} AS {format_identifier(alias, q)}"
+                sql = sql.replace(old_from, direct_ref)
+
+        return sql
+
+    def _parse_target_name(self, name: str) -> tuple:
+        """
+        Parse a target name into (database, table).
+
+        Supports "database.table" format. If no database is specified,
+        uses the current database context or defaults to "default".
+
+        Args:
+            name: Target name, e.g. "mydb.mytable" or "mytable"
+
+        Returns:
+            (database, table) tuple
+        """
+        if "." in name:
+            parts = name.split(".", 1)
+            return parts[0], parts[1]
+        tf_params = self._table_function.params if self._table_function else {}
+        database = (
+            tf_params.get("database")
+            or self._default_database
+            or "default"
+        )
+        return database, name
+
+    def _check_remote_table_exists(self, database: str, table: str) -> bool:
+        """
+        Check if a table exists on the remote ClickHouse server.
+
+        Args:
+            database: Database name
+            table: Table name
+
+        Returns:
+            True if the table exists
+        """
+        adapter = self._get_adapter()
+        func = adapter.get_table_function_name()
+        host = adapter._escape_sql_string(adapter.host)
+        user = adapter._escape_sql_string(adapter.user)
+        password = adapter._escape_sql_string(adapter.password)
+        db = adapter._escape_sql_string(database)
+        tbl = adapter._escape_sql_string(table)
+
+        sql = (
+            f"SELECT count() AS cnt FROM {func}('{host}', 'system', 'tables', "
+            f"'{user}', '{password}') "
+            f"WHERE database = '{db}' AND name = '{tbl}'"
+        )
+
+        import chdb
+
+        result = chdb.query(sql, output_format="DataFrame")
+        return int(result.iloc[0, 0]) > 0
+
+    def _get_remote_table_schema(self, database: str, table: str) -> Dict[str, str]:
+        """
+        Get the schema of a remote table as {column_name: column_type}.
+
+        Args:
+            database: Database name
+            table: Table name
+
+        Returns:
+            Dict mapping column names to ClickHouse type strings
+        """
+        adapter = self._get_adapter()
+        func = adapter.get_table_function_name()
+        host = adapter._escape_sql_string(adapter.host)
+        user = adapter._escape_sql_string(adapter.user)
+        password = adapter._escape_sql_string(adapter.password)
+        db = adapter._escape_sql_string(database)
+        tbl = adapter._escape_sql_string(table)
+
+        sql = (
+            f"SELECT name, type FROM {func}('{host}', 'system', 'columns', "
+            f"'{user}', '{password}') "
+            f"WHERE database = '{db}' AND table = '{tbl}' ORDER BY position"
+        )
+
+        import chdb
+
+        result = chdb.query(sql, output_format="DataFrame")
+        return dict(zip(result["name"], result["type"]))
+
+    def _get_all_source_tables(self) -> set:
+        """
+        Recursively collect all (database, table) pairs this DataStore's SQL
+        pipeline depends on.
+
+        Includes the primary source table and any tables from SQL JOINs,
+        traversing nested JOINs (e.g., A JOIN (B JOIN C)) to capture all levels.
+        LazyJoin/LazyUnion tables (in _lazy_ops) are not collected here because
+        their data is read inside _execute().
+        """
+        tables: set = set()
+        if self._table_function:
+            db = self._table_function.params.get("database", "default")
+            tbl = self._table_function.params.get("table")
+            if tbl:
+                tables.add((db, tbl))
+        for other_ds, _, _ in self._joins:
+            if hasattr(other_ds, "_get_all_source_tables"):
+                tables.update(other_ds._get_all_source_tables())
+            elif hasattr(other_ds, "_table_function") and other_ds._table_function:
+                db = other_ds._table_function.params.get("database", "default")
+                tbl = other_ds._table_function.params.get("table")
+                if tbl:
+                    tables.add((db, tbl))
+        return tables
+
+    def _is_same_remote_table(self, database: str, table: str) -> bool:
+        """
+        Check if the target database.table overlaps with any of this DataStore's
+        source tables. Used to detect write-back-to-source scenarios.
+        """
+        return (database, table) in self._get_all_source_tables()
+
+    def _is_all_same_remote_server(self, target_host: str) -> bool:
+        """
+        Check if all source tables (primary + JOINs) reside on the same
+        remote ClickHouse server as the target.
+
+        When True + fully_sql, the entire pipeline can execute on the remote
+        server without any data passing through local chDB.
+        """
+        if not target_host:
+            return False
+
+        if not self._table_function:
+            return False
+        src_host = self._table_function.params.get("host", "")
+        if src_host != target_host:
+            return False
+
+        for other_ds, _, _ in self._joins:
+            if hasattr(other_ds, "_table_function") and other_ds._table_function:
+                join_host = other_ds._table_function.params.get("host", "")
+                if join_host != target_host:
+                    return False
+            else:
+                return False
+        return True
+
+    @staticmethod
+    def _pandas_dtype_to_clickhouse(df: "pd.DataFrame") -> Dict[str, str]:
+        """
+        Map pandas DataFrame dtypes to ClickHouse column types.
+
+        Used when the pipeline contains Pandas-only operations and the
+        data has been materialized locally.
+
+        Args:
+            df: pandas DataFrame
+
+        Returns:
+            OrderedDict mapping column names to ClickHouse type strings
+        """
+        from collections import OrderedDict
+
+        dtype_map = {
+            "int8": "Int8",
+            "int16": "Int16",
+            "int32": "Int32",
+            "int64": "Int64",
+            "uint8": "UInt8",
+            "uint16": "UInt16",
+            "uint32": "UInt32",
+            "uint64": "UInt64",
+            "float16": "Float32",
+            "float32": "Float32",
+            "float64": "Float64",
+            "bool": "UInt8",
+            "object": "String",
+            "string": "String",
+            "datetime64[ns]": "DateTime",
+            "datetime64[us]": "DateTime64(6)",
+            "datetime64[ms]": "DateTime64(3)",
+            "timedelta64[ns]": "Int64",
+            "category": "String",
+        }
+
+        schema = OrderedDict()
+        for col in df.columns:
+            dtype_str = str(df[col].dtype)
+            if dtype_str in dtype_map:
+                ch_type = dtype_map[dtype_str]
+            elif dtype_str.startswith("datetime64"):
+                ch_type = "DateTime"
+            elif dtype_str.startswith("int") or dtype_str.startswith("Int"):
+                ch_type = "Int64"
+            elif dtype_str.startswith("uint") or dtype_str.startswith("UInt"):
+                ch_type = "UInt64"
+            elif dtype_str.startswith("float") or dtype_str.startswith("Float"):
+                ch_type = "Float64"
+            else:
+                ch_type = "String"
+
+            if bool(df[col].isna().any()):
+                ch_type = f"Nullable({ch_type})"
+
+            schema[col] = ch_type
+
+        return schema
+
+    def _describe_query_schema(self, select_sql: str) -> Dict[str, str]:
+        """
+        Use DESCRIBE to get the exact ClickHouse types for a SELECT query.
+
+        Unlike LIMIT 0 which relies on the database to implicitly infer types
+        during CREATE TABLE ... AS SELECT, this uses DESCRIBE to get precise
+        column names, types, and nullability from the query compiler without
+        executing the query.
+
+        Args:
+            select_sql: A SELECT SQL string (may contain remote() table functions)
+
+        Returns:
+            OrderedDict mapping column names to ClickHouse type strings
+        """
+        import chdb
+        from collections import OrderedDict
+
+        describe_sql = f"DESCRIBE ({select_sql})"
+        result = chdb.query(describe_sql, output_format="DataFrame")
+        return OrderedDict(zip(result["name"], result["type"]))
+
+    def _is_fully_sql_pushable(self) -> bool:
+        """
+        Check if this DataStore's entire pipeline can be executed as a single
+        server-side SQL statement via INSERT INTO ... SELECT ... FROM remote().
+
+        Reuses QueryPlanner._can_push_op_to_sql() for classification, with
+        one exception: LazySQLQuery (generated by groupby().agg() etc.) is
+        treated as SQL-compatible here. Although plan_segments() classifies it
+        as a "pandas" segment (because it can't merge into a surrounding SQL
+        context), the query it contains IS valid SQL that can run server-side.
+
+        This exception exists because _execute()'s segment-based execution
+        currently cannot handle LazySQLQuery correctly when preceded by
+        SQL-state operations like WHERE + GROUP BY (it generates broken SQL
+        like SELECT * ... GROUP BY without aggregation). The server-side path
+        avoids this by using to_sql(execution_format=True) which delegates
+        to _build_execution_sql() for correct SQL generation.
+
+        Returns:
+            True if the pipeline can run as a single server-side SQL
+        """
+        if not (self._table_function or self.table_name):
+            return False
+
+        if not self._lazy_ops:
+            return True
+
+        from .lazy_ops import LazySQLQuery
+        from .query_planner import QueryPlanner
+
+        planner = QueryPlanner()
+        for i, op in enumerate(self._lazy_ops):
+            if isinstance(op, LazySQLQuery):
+                continue
+            preceding = self._lazy_ops[:i]
+            following = self._lazy_ops[i + 1:]
+            if not planner._can_push_op_to_sql(op, preceding_ops=preceding, following_ops=following):
+                return False
+
+        return True
+
+    def _insert_dataframe_to_remote(
+        self,
+        df: "pd.DataFrame",
+        database: str,
+        table: str,
+        index: bool = False,
+        index_label: Optional[Union[str, List[str]]] = None,
+    ) -> None:
+        """
+        Insert a local pandas DataFrame into a remote ClickHouse table.
+
+        Uses chdb's Python() table function to read from the DataFrame
+        and INSERT INTO TABLE FUNCTION remote() to write to the remote server.
+
+        Args:
+            df: pandas DataFrame to upload
+            database: Target database name
+            table: Target table name
+            index: Whether to write the DataFrame index as column(s)
+            index_label: Column name(s) for the index when index=True
+        """
+        import chdb
+
+        if index:
+            original_index_names = (
+                list(df.index.names)
+                if isinstance(df.index, pd.MultiIndex)
+                else [df.index.name]
+            )
+            df = df.reset_index()
+            if index_label is not None:
+                labels = [index_label] if isinstance(index_label, str) else list(index_label)
+                rename_map = {}
+                for old, new in zip(original_index_names, labels):
+                    col_name = old if old is not None else "index"
+                    if col_name in df.columns and new != col_name:
+                        rename_map[col_name] = new
+                if rename_map:
+                    df = df.rename(columns=rename_map)
+        elif not df.index.equals(pd.RangeIndex(len(df))):
+            df = df.reset_index(drop=True)
+
+        target_tf = self._build_remote_table_function_sql(database, table)
+        insert_sql = f"INSERT INTO TABLE FUNCTION {target_tf} SELECT * FROM Python(df)"
+
+        try:
+            chdb.query(insert_sql)
+        except RuntimeError as e:
+            if "UNEXPECTED_PACKET" in str(e) and "Wrote" in str(e):
+                pass
+            else:
+                raise
+
+    def _build_remote_table_function_sql(self, database: str, table: str) -> str:
+        """
+        Build a remote()/remoteSecure() table function call for a target table.
+
+        Args:
+            database: Target database name
+            table: Target table name
+
+        Returns:
+            SQL string like remote('host', 'db', 'table', 'user', 'pass')
+        """
+        adapter = self._get_adapter()
+        return adapter.build_table_function(database, table)
+
+    def to_clickhouse(
+        self,
+        name: Optional[str] = None,
+        if_exists: str = "fail",
+        index: bool = False,
+        index_label: Optional[Union[str, List[str]]] = None,
+        table_type: str = "",
+        engine: str = "MergeTree()",
+        order_by: Optional[Union[str, List[str]]] = None,
+        partition_by: Optional[str] = None,
+        enable_schema_evolution: bool = False,
+    ) -> None:
+        """
+        Write DataStore data to a remote ClickHouse table.
+
+        Execution paths (in priority order):
+        1. **Pure remote** — fully SQL-pushable + all sources on the same
+           server as the target → entire SQL runs on the remote server,
+           no data passes through local chDB.
+        2. **Local SQL** — fully SQL-pushable but sources on different
+           servers → local chDB orchestrates INSERT INTO remote() SELECT
+           FROM remote().
+        3. **DataFrame upload** — pipeline contains Pandas-only ops →
+           _execute() locally, then upload via Python() table function.
+
+        For ``if_exists="replace"`` with the pure-remote path,
+        ``CREATE OR REPLACE TABLE … AS SELECT`` is used for atomic
+        replacement (no data-loss window).
+
+        Args:
+            name: Target table name. Supports "database.table" format.
+                  If None, writes back to the source table.
+            if_exists: Behavior when table exists:
+                - "fail": Raise error
+                - "replace": Atomically replace (same server) or
+                  DROP + CREATE + INSERT (cross-server / DataFrame)
+                - "append": INSERT into existing table
+            index: Whether to write the DataFrame index as a column
+            index_label: Column name(s) for the index
+            table_type: "" for permanent table, "temp" for temporary table
+            engine: ClickHouse table engine (default: "MergeTree()")
+            order_by: ORDER BY columns (required for MergeTree family)
+            partition_by: PARTITION BY expression
+            enable_schema_evolution: Auto-adapt column differences (append only)
+
+        Raises:
+            QueryError: If target table exists and if_exists="fail"
+            ExecutionError: If DDL or INSERT fails
+        """
+        if if_exists not in ("fail", "replace", "append"):
+            raise ValueError(
+                f"Invalid if_exists='{if_exists}'. "
+                f"Must be one of: 'fail', 'replace', 'append'"
+            )
+
+        self._require_connection_params()
+
+        # ---- resolve target database.table ----
+        if name is None:
+            if self._joins:
+                raise QueryError(
+                    "Must specify target table name for JOINed DataStore. "
+                    "Implicit write-back to source is ambiguous when multiple "
+                    "tables are involved."
+                )
+            tf_params = self._table_function.params if self._table_function else {}
+            database: str = (
+                tf_params.get("database") or self._default_database or "default"
+            )
+            table_name: str = (
+                tf_params.get("table")
+                or self._default_table
+                or self.table_name
+                or ""
+            )
+            if not table_name:
+                raise QueryError(
+                    "No target table specified and no source table to write back to"
+                )
+        else:
+            database, table_name = self._parse_target_name(name)
+
+        q = self.quote_char
+        target_ref = (
+            f"{format_identifier(database, q)}.{format_identifier(table_name, q)}"
+        )
+
+        # ---- classify execution path ----
+        fully_sql = self._is_fully_sql_pushable()
+        target_host = self._remote_params.get("host", "")
+        same_server = fully_sql and self._is_all_same_remote_server(target_host)
+
+        # ---- build ENGINE / ORDER BY / PARTITION BY clause ----
+        if order_by is None:
+            order_by_clause = "tuple()"
+        elif isinstance(order_by, list):
+            order_by_clause = ", ".join(
+                format_identifier(c, q) for c in order_by
+            )
+        else:
+            order_by_clause = order_by
+
+        engine_parts = [f"ENGINE = {engine}"]
+        if "MergeTree" in engine:
+            engine_parts.append(f"ORDER BY ({order_by_clause})")
+        if partition_by:
+            engine_parts.append(f"PARTITION BY ({partition_by})")
+        engine_clause = " ".join(engine_parts)
+
+        # ==================================================================
+        # REPLACE
+        # ==================================================================
+        if if_exists == "replace":
+            if same_server:
+                select_sql = self._get_remote_view_sql()
+                ddl = (
+                    f"CREATE OR REPLACE TABLE {target_ref} "
+                    f"{engine_clause} AS {select_sql}"
+                )
+                self._execute_remote_ddl(ddl)
+            else:
+                _local_df = self._execute() if not fully_sql else None
+                if fully_sql:
+                    schema = self._describe_query_schema(self.to_sql())
+                else:
+                    assert _local_df is not None
+                    schema = self._pandas_dtype_to_clickhouse(_local_df)
+                col_defs = ", ".join(
+                    f"{format_identifier(c, q)} {t}"
+                    for c, t in schema.items()
+                )
+                self._execute_remote_ddl(f"DROP TABLE IF EXISTS {target_ref}")
+                if table_type == "temp":
+                    create_ddl = (
+                        f"CREATE TEMPORARY TABLE "
+                        f"{format_identifier(table_name, q)} "
+                        f"({col_defs}) {engine_clause}"
+                    )
+                else:
+                    create_ddl = (
+                        f"CREATE TABLE {target_ref} ({col_defs}) {engine_clause}"
+                    )
+                self._execute_remote_ddl(create_ddl)
+                self._do_insert(
+                    fully_sql, _local_df, database, table_name,
+                    target_ref, same_server, index, index_label,
+                )
+            return
+
+        # ==================================================================
+        # APPEND
+        # ==================================================================
+        if if_exists == "append":
+            table_exists = self._check_remote_table_exists(database, table_name)
+
+            if enable_schema_evolution and table_exists:
+                self._apply_schema_evolution(database, table_name, target_ref, q)
+
+            if not table_exists:
+                self._create_target_table(
+                    fully_sql, None, database, table_name, target_ref,
+                    table_type, engine_clause, q,
+                )
+
+            self._do_insert(
+                fully_sql, None, database, table_name,
+                target_ref, same_server, index, index_label,
+            )
+            return
+
+        # ==================================================================
+        # FAIL (default)
+        # ==================================================================
+        self._create_target_table(
+            fully_sql, None, database, table_name, target_ref,
+            table_type, engine_clause, q, fail_if_exists=True,
+        )
+        self._do_insert(
+            fully_sql, None, database, table_name,
+            target_ref, same_server, index, index_label,
+        )
+
+    # ---- internal helpers for to_clickhouse ----
+
+    def _create_target_table(
+        self,
+        fully_sql: bool,
+        local_df: Optional["pd.DataFrame"],
+        database: str,
+        table_name: str,
+        target_ref: str,
+        table_type: str,
+        engine_clause: str,
+        q: str,
+        fail_if_exists: bool = False,
+    ) -> None:
+        """CREATE TABLE on the remote server with schema inferred from the pipeline."""
+        if local_df is not None:
+            schema = self._pandas_dtype_to_clickhouse(local_df)
+        elif fully_sql:
+            schema = self._describe_query_schema(self.to_sql())
+        else:
+            local_df = self._execute()
+            assert local_df is not None
+            schema = self._pandas_dtype_to_clickhouse(local_df)
+
+        col_defs = ", ".join(
+            f"{format_identifier(c, q)} {t}" for c, t in schema.items()
+        )
+
+        if table_type == "temp":
+            create_ddl = (
+                f"CREATE TEMPORARY TABLE {format_identifier(table_name, q)} "
+                f"({col_defs}) {engine_clause}"
+            )
+        else:
+            create_ddl = (
+                f"CREATE TABLE {target_ref} ({col_defs}) {engine_clause}"
+            )
+
+        try:
+            self._execute_remote_ddl(create_ddl)
+        except ExecutionError as e:
+            if fail_if_exists and "already exists" in str(e).lower():
+                raise QueryError(
+                    f"Table '{database}.{table_name}' already exists. "
+                    f"Use if_exists='replace' or 'append'."
+                ) from e
+            raise
+
+    def _do_insert(
+        self,
+        fully_sql: bool,
+        local_df: Optional["pd.DataFrame"],
+        database: str,
+        table_name: str,
+        target_ref: str,
+        same_server: bool,
+        index: bool,
+        index_label: Optional[Union[str, List[str]]],
+    ) -> None:
+        """Insert data into the (already existing) target table."""
+        if same_server:
+            select_sql = self._get_remote_view_sql()
+            self._execute_remote_ddl(f"INSERT INTO {target_ref} {select_sql}")
+        elif fully_sql:
+            target_tf = self._build_remote_table_function_sql(database, table_name)
+            insert_sql = f"INSERT INTO TABLE FUNCTION {target_tf} {self.to_sql()}"
+            import chdb
+            chdb.query(insert_sql)
+        else:
+            if local_df is None:
+                local_df = self._execute()
+            assert local_df is not None
+            self._insert_dataframe_to_remote(
+                local_df, database, table_name,
+                index=index, index_label=index_label,
+            )
+
+    def _apply_schema_evolution(
+        self, database: str, table_name: str, target_ref: str, q: str,
+    ) -> None:
+        """ALTER TABLE ADD COLUMN for columns present in source but missing in target."""
+        target_schema = self._get_remote_table_schema(database, table_name)
+        src_db: str = (
+            self._table_function.params.get("database", "default")
+            if self._table_function
+            else self._default_database or "default"
+        )
+        src_tbl: str = (
+            self._table_function.params.get("table", "")
+            if self._table_function
+            else self.table_name or ""
+        )
+        source_schema = self._get_remote_table_schema(src_db, src_tbl)
+        for col_name, col_type in source_schema.items():
+            if col_name not in target_schema:
+                nullable_type = (
+                    col_type
+                    if col_type.startswith("Nullable")
+                    else f"Nullable({col_type})"
+                )
+                alter_sql = (
+                    f"ALTER TABLE {target_ref} "
+                    f"ADD COLUMN IF NOT EXISTS "
+                    f"{format_identifier(col_name, q)} {nullable_type}"
+                )
+                self._execute_remote_ddl(alter_sql)
+
+    def create_view(self, name: str, replace: bool = True) -> None:
+        """
+        Create a VIEW on the remote ClickHouse server from this DataStore's query.
+
+        The VIEW saves the query definition; data is computed on read.
+
+        Args:
+            name: View name. Supports "database.view_name" format.
+            replace: If True, uses CREATE OR REPLACE VIEW
+
+        Raises:
+            ExecutionError: If the DDL execution fails
+        """
+        self._require_connection_params()
+
+        database, view_name = self._parse_target_name(name)
+        q = self.quote_char
+        view_ref = (
+            f"{format_identifier(database, q)}.{format_identifier(view_name, q)}"
+        )
+
+        view_sql = self._get_remote_view_sql()
+
+        or_replace = "OR REPLACE " if replace else ""
+        ddl = f"CREATE {or_replace}VIEW {view_ref} AS {view_sql}"
+
+        self._execute_remote_ddl(ddl)
+
+    def create_materialized_view(
+        self,
+        name: str,
+        engine: str = "AggregatingMergeTree()",
+        order_by: Optional[Union[str, List[str]]] = None,
+        partition_by: Optional[str] = None,
+        populate: bool = False,
+        replace: bool = True,
+    ) -> None:
+        """
+        Create a MATERIALIZED VIEW on the remote ClickHouse server.
+
+        The MV automatically processes new data inserted into the source table.
+
+        Args:
+            name: Materialized view name. Supports "database.mv_name" format.
+            engine: Storage engine (default: "AggregatingMergeTree()")
+            order_by: ORDER BY columns
+            partition_by: PARTITION BY expression
+            populate: If True, backfill existing data (use cautiously on large tables)
+            replace: If True, uses CREATE OR REPLACE
+
+        Raises:
+            ExecutionError: If the DDL execution fails
+        """
+        self._require_connection_params()
+
+        database, mv_name = self._parse_target_name(name)
+        q = self.quote_char
+        mv_ref = (
+            f"{format_identifier(database, q)}.{format_identifier(mv_name, q)}"
+        )
+
+        view_sql = self._get_remote_view_sql()
+
+        if order_by is None:
+            order_by_clause = "tuple()"
+        elif isinstance(order_by, list):
+            order_by_clause = ", ".join(
+                format_identifier(c, q) for c in order_by
+            )
+        else:
+            order_by_clause = order_by
+
+        if replace:
+            self._execute_remote_ddl(f"DROP TABLE IF EXISTS {mv_ref}")
+        parts = [f"CREATE MATERIALIZED VIEW {mv_ref}"]
+        parts.append(f"ENGINE = {engine}")
+
+        if "MergeTree" in engine:
+            parts.append(f"ORDER BY ({order_by_clause})")
+
+        if partition_by:
+            parts.append(f"PARTITION BY ({partition_by})")
+
+        if populate:
+            parts.append("POPULATE")
+
+        parts.append(f"AS {view_sql}")
+
+        self._execute_remote_ddl(" ".join(parts))
+
+    def save(
+        self,
+        name: Optional[str] = None,
+        type: str = "table",
+        if_exists: str = "fail",
+    ) -> None:
+        """
+        Unified writeback entry point.
+
+        Saves the DataStore's data or query definition to a remote ClickHouse
+        target. Delegates to specialized methods based on the type parameter.
+
+        Args:
+            name: Target name. Supports "database.name" format.
+                  If None (only for type="table"), writes back to source table.
+            type: Target type:
+                - "table": Permanent table (default)
+                - "view": VIEW (saves query definition, computed on read)
+                - "materialized_view": Materialized view (auto-updates on source writes)
+            if_exists: Behavior when target exists (table only):
+                - "fail": Raise error (default)
+                - "replace": Atomically replace (CREATE OR REPLACE TABLE)
+                - "append": Insert into existing table
+
+        Raises:
+            ValueError: If type or if_exists is invalid
+            QueryError: If target exists and if_exists="fail"
+        """
+        if type not in ("table", "view", "materialized_view"):
+            raise ValueError(
+                f"Invalid type='{type}'. Must be one of: 'table', 'view', 'materialized_view'"
+            )
+
+        if type == "table":
+            self.to_clickhouse(
+                name=name,
+                if_exists=if_exists,
+                enable_schema_evolution=(if_exists == "append"),
+            )
+        elif type == "view":
+            if if_exists not in ("fail", "replace"):
+                raise ValueError(
+                    f"Views only support if_exists='fail' or 'replace', got '{if_exists}'"
+                )
+            if name is None:
+                raise QueryError("View name is required")
+            replace = if_exists == "replace"
+            self.create_view(name=name, replace=replace)
+        elif type == "materialized_view":
+            if if_exists not in ("fail", "replace"):
+                raise ValueError(
+                    f"Materialized views only support if_exists='fail' or 'replace', "
+                    f"got '{if_exists}'"
+                )
+            if name is None:
+                raise QueryError("Materialized view name is required")
+            replace = if_exists == "replace"
+            self.create_materialized_view(name=name, replace=replace)
+
     # ========== Query Building Methods ==========
 
     @immutable
