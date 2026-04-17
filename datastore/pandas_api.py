@@ -406,6 +406,8 @@ def read_parquet(path, columns=None, **kwargs) -> "DataStoreType":
     if needs_pandas:
         pandas_df = pd.read_parquet(path, columns=columns, **kwargs)
         return DataStore.from_df(pandas_df)
+    elif isinstance(path, str) and path.startswith("s3://"):
+        return DataStore.from_s3(path, format="Parquet")
     else:
         # Use chDB SQL engine
         return DataStore.from_file(path, format="Parquet")
