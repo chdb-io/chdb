@@ -241,10 +241,11 @@ class TestToClickHouse:
             _drop(target)
 
     def test_write_back_to_source(self, source_table):
-        """Write back to source table using name=None with replace (atomic)."""
+        """Write back to source table with replace (atomic)."""
         ds = _make_ds(source_table)
         ds_filtered = ds.filter(ds["status"] == "completed")
         ds_filtered.to_clickhouse(
+            f"{DATABASE}.{source_table}",
             if_exists="replace", engine="MergeTree()", order_by="city"
         )
 
@@ -356,11 +357,13 @@ class TestCreateView:
 
 
 class TestCreateMaterializedView:
-    """Test create_materialized_view() method."""
+    """Test create_materialized_view() — TO form, target table is explicit."""
 
-    def test_basic_mv(self, source_table):
+    def test_basic_mv_auto_creates_target(self, source_table):
         mv_name = "wb_mv_basic"
+        target = "wb_mv_basic_target"
         _drop(mv_name)
+        _drop(target)
         try:
             ds = _make_ds(source_table)
             summary = (
@@ -369,67 +372,101 @@ class TestCreateMaterializedView:
                 .agg(total=col("amount").sum(), cnt=col("amount").count())
             )
             summary.create_materialized_view(
-                f"{DATABASE}.{mv_name}",
+                name=f"{DATABASE}.{mv_name}",
+                to=f"{DATABASE}.{target}",
                 engine="SummingMergeTree()",
                 order_by="city",
                 populate=True,
             )
 
-            result = _select_all(mv_name, order_by="city")
+            # populate=True backfilled existing rows into the target.
+            result = _select_all(target, order_by="city")
             assert len(result) >= 3
+            # Querying the MV name itself routes through the trigger to the
+            # same target table, so counts must match.
+            assert _count(mv_name) == _count(target)
         finally:
             _drop(mv_name)
+            _drop(target)
 
-    def test_mv_incremental_update(self, source_table):
-        """MV should auto-update when source table gets new inserts."""
+    def test_mv_incremental_update_lands_in_target(self, source_table):
+        """New rows inserted into the source must show up in the target table
+        (and therefore in the MV) without manual intervention."""
         mv_name = "wb_mv_incremental"
+        target = "wb_mv_incremental_target"
         _drop(mv_name)
+        _drop(target)
         try:
             ds = _make_ds(source_table)
             ds.create_materialized_view(
-                f"{DATABASE}.{mv_name}",
+                name=f"{DATABASE}.{mv_name}",
+                to=f"{DATABASE}.{target}",
                 engine="MergeTree()",
                 order_by="city",
             )
 
-            count_before = _count(mv_name)
+            count_before = _count(target)
 
             _ddl(
                 f'INSERT INTO "{DATABASE}"."{source_table}" VALUES '
                 f"('Shenzhen', 888.0, 'new')"
             )
 
-            count_after = _count(mv_name)
-            assert count_after == count_before + 1
+            assert _count(target) == count_before + 1
         finally:
             _drop(mv_name)
+            _drop(target)
 
-    def test_mv_replace(self, source_table):
-        mv_name = "wb_mv_replace"
+    def test_mv_fail_when_target_exists_without_append(self, source_table):
+        """if_target_exists='fail' (default) must reject a pre-existing target."""
+        mv_name = "wb_mv_target_fail"
+        target = "wb_mv_target_fail_target"
         _drop(mv_name)
+        _drop(target)
+        try:
+            _ddl(
+                f'CREATE TABLE "{DATABASE}"."{target}" (city String, x Int64) '
+                f"ENGINE = MergeTree() ORDER BY city"
+            )
+            ds = _make_ds(source_table)
+            with pytest.raises(QueryError, match="already exists"):
+                ds.create_materialized_view(
+                    name=f"{DATABASE}.{mv_name}",
+                    to=f"{DATABASE}.{target}",
+                    engine="MergeTree()",
+                    order_by="city",
+                )
+        finally:
+            _drop(mv_name)
+            _drop(target)
+
+    def test_mv_fail_when_mv_already_exists(self, source_table):
+        """A second create_materialized_view with the same MV name must
+        always fail — replace is intentionally not supported until ClickHouse
+        ships CREATE OR REPLACE MATERIALIZED VIEW (PR #100539)."""
+        mv_name = "wb_mv_already_exists"
+        target = "wb_mv_already_exists_target"
+        _drop(mv_name)
+        _drop(target)
         try:
             ds = _make_ds(source_table)
-
             ds.create_materialized_view(
-                f"{DATABASE}.{mv_name}",
+                name=f"{DATABASE}.{mv_name}",
+                to=f"{DATABASE}.{target}",
                 engine="MergeTree()",
                 order_by="city",
-                populate=True,
             )
-            count1 = _count(mv_name)
-            assert count1 == 7
-
-            ds.filter(ds["status"] == "completed").create_materialized_view(
-                f"{DATABASE}.{mv_name}",
-                engine="MergeTree()",
-                order_by="city",
-                populate=True,
-                replace=True,
-            )
-            count2 = _count(mv_name)
-            assert count2 == 5
+            with pytest.raises(QueryError, match="already exists"):
+                ds.create_materialized_view(
+                    name=f"{DATABASE}.{mv_name}",
+                    to=f"{DATABASE}.{target}",
+                    engine="MergeTree()",
+                    order_by="city",
+                    if_target_exists="append",
+                )
         finally:
             _drop(mv_name)
+            _drop(target)
 
 
 # ============================================================================
@@ -493,28 +530,45 @@ class TestSave:
 
     def test_save_as_mv(self, source_table):
         mv_name = "wb_save_mv"
+        target = "wb_save_mv_target"
         _drop(mv_name)
+        _drop(target)
         try:
             ds = _make_ds(source_table)
-            ds.save(f"{DATABASE}.{mv_name}", type="materialized_view", if_exists="replace")
+            ds.save(
+                f"{DATABASE}.{mv_name}",
+                type="materialized_view",
+                to=f"{DATABASE}.{target}",
+            )
 
             _ddl(
                 f'INSERT INTO "{DATABASE}"."{source_table}" VALUES '
                 f"('Hangzhou', 777.0, 'completed')"
             )
-            assert _count(mv_name) >= 1
+            assert _count(target) >= 1
         finally:
             _drop(mv_name)
+            _drop(target)
+
+    def test_save_as_mv_requires_to(self, source_table):
+        ds = _make_ds(source_table)
+        with pytest.raises(ValueError, match="requires `to=`"):
+            ds.save("some_mv", type="materialized_view")
+
+    def test_save_as_mv_rejects_replace(self, source_table):
+        ds = _make_ds(source_table)
+        with pytest.raises(ValueError, match="if_exists='fail'"):
+            ds.save(
+                "some_mv",
+                type="materialized_view",
+                if_exists="replace",
+                to="some_target",
+            )
 
     def test_save_invalid_type(self, source_table):
         ds = _make_ds(source_table)
         with pytest.raises(ValueError, match="Invalid type"):
             ds.save("some_table", type="invalid")
-
-    def test_save_view_requires_name(self, source_table):
-        ds = _make_ds(source_table)
-        with pytest.raises(QueryError, match="View name is required"):
-            ds.save(type="view")
 
     def test_save_view_invalid_if_exists(self, source_table):
         ds = _make_ds(source_table)
@@ -597,6 +651,7 @@ class TestPureRemoteExecution:
 
         ds_filtered = ds.filter(ds["status"] == "completed")
         ds_filtered.to_clickhouse(
+            f"{DATABASE}.{source_table}",
             if_exists="replace", engine="MergeTree()", order_by="city"
         )
         assert _count(source_table) == 5
@@ -801,9 +856,3 @@ class TestWritebackEdgeCases:
         ds = _make_ds(source_table)
         with pytest.raises(ValueError, match="Invalid if_exists"):
             ds.to_clickhouse("some_table", if_exists="truncate")
-
-    def test_no_target_no_source(self):
-        """to_clickhouse with no name and no source table should error."""
-        ds = _make_ds()
-        with pytest.raises(QueryError, match="No target table"):
-            ds.to_clickhouse()
