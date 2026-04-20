@@ -4777,21 +4777,35 @@ class DataStore(PandasCompatMixin):
         """
         Check if a table exists on the remote ClickHouse server.
 
-        Uses ClickHouse's native ``EXISTS TABLE`` statement, which only
-        requires the user to have access to the target database/table itself
-        and does not depend on ``system.tables`` visibility.
+        Uses a ``remote('host', 'system', 'tables', ...)`` lookup rather than
+        the native ``EXISTS TABLE`` statement, because chDB's
+        ``remote(query=...)`` table function is DDL-style — it returns a
+        per-replica status row (``<n>\\t<host>\\tOK``) regardless of what the
+        wrapped query selects, so ``EXISTS TABLE``'s actual ``0/1`` answer
+        is unreachable through that path.
 
         Args:
             database: Database name
             table: Table name
 
         Returns:
-            True if the table exists
+            True if the table (or view, materialized view, dictionary) exists
         """
-        db_ref = format_identifier(database, "`")
-        tbl_ref = format_identifier(table, "`")
-        result = self._execute_remote_ddl(f"EXISTS TABLE {db_ref}.{tbl_ref}")
-        return result.strip() == "1"
+        adapter = self._get_adapter()
+        func = adapter.get_table_function_name()
+        host = adapter._escape_sql_string(adapter.host)
+        user = adapter._escape_sql_string(adapter.user)
+        password = adapter._escape_sql_string(adapter.password)
+        db = adapter._escape_sql_string(database)
+        tbl = adapter._escape_sql_string(table)
+
+        sql = (
+            f"SELECT count() AS cnt FROM "
+            f"{func}('{host}', 'system', 'tables', '{user}', '{password}') "
+            f"WHERE database = '{db}' AND name = '{tbl}'"
+        )
+        result = self._run_chdb_query(sql, "DataFrame")
+        return int(result.iloc[0, 0]) > 0
 
     def _get_remote_table_schema(self, database: str, table: str) -> Dict[str, str]:
         """
@@ -4942,26 +4956,40 @@ class DataStore(PandasCompatMixin):
 
         return True
 
-    def _insert_dataframe_to_remote(
+    def _materialize_for_writeback(
+        self,
+        index: bool,
+        index_label: Optional[Union[str, List[str]]],
+    ) -> "pd.DataFrame":
+        """``_execute()`` then index-normalize in one shot. Centralized so
+        every writeback caller treats the materialized DataFrame the same
+        way (and the ``Optional[DataFrame]`` from ``_execute`` is unwrapped
+        in exactly one place)."""
+        df = self._execute()
+        assert df is not None, (
+            "_execute() returned None during writeback materialization"
+        )
+        return self._normalize_index_for_insert(df, index, index_label)
+
+    def _normalize_index_for_insert(
         self,
         df: "pd.DataFrame",
-        database: str,
-        table: str,
-        index: bool = False,
-        index_label: Optional[Union[str, List[str]]] = None,
-    ) -> None:
-        """
-        Insert a local pandas DataFrame into a remote ClickHouse table.
+        index: bool,
+        index_label: Optional[Union[str, List[str]]],
+    ) -> "pd.DataFrame":
+        """Apply ``index`` / ``index_label`` semantics to ``df`` once, so the
+        same flattened DataFrame can drive schema inference (``DESCRIBE
+        Python(df)`` in ``_create_target_table`` / ``_apply_schema_evolution``)
+        and the actual ``INSERT ... FROM Python(df)`` later. If we only did
+        this in ``_insert_dataframe_to_remote``, CREATE TABLE would see N
+        columns and the INSERT would push N+1 → ``NUMBER_OF_COLUMNS_DOESNT_MATCH``.
 
-        Uses chdb's Python() table function to read from the DataFrame
-        and INSERT INTO TABLE FUNCTION remote() to write to the remote server.
-
-        Args:
-            df: pandas DataFrame to upload
-            database: Target database name
-            table: Target table name
-            index: Whether to write the DataFrame index as column(s)
-            index_label: Column name(s) for the index when index=True
+        - ``index=False`` (default): drop the index entirely; mirrors the
+          ``index=False`` behavior of ``DataFrame.to_sql`` / ``to_csv``.
+        - ``index=True``: surface index levels as regular columns. Names
+          follow pandas' own ``reset_index()`` defaults (``"index"`` for an
+          unnamed single Index, ``"level_0"`` / ``"level_1"`` / ... for an
+          unnamed MultiIndex), so ``index_label`` can rename them.
         """
         if index:
             is_multi = isinstance(df.index, pd.MultiIndex)
@@ -4970,12 +4998,14 @@ class DataStore(PandasCompatMixin):
             )
             df = df.reset_index()
             if index_label is not None:
-                labels = [index_label] if isinstance(index_label, str) else list(index_label)
+                labels = (
+                    [index_label] if isinstance(index_label, str)
+                    else list(index_label)
+                )
                 rename_map = {}
-                for level, (old, new) in enumerate(zip(original_index_names, labels)):
-                    # Mirror pandas' reset_index() default naming for unnamed
-                    # levels: MultiIndex levels become "level_0", "level_1", ...
-                    # while a single unnamed Index becomes "index".
+                for level, (old, new) in enumerate(
+                    zip(original_index_names, labels)
+                ):
                     if old is not None:
                         col_name = old
                     elif is_multi:
@@ -4986,7 +5016,26 @@ class DataStore(PandasCompatMixin):
                         rename_map[col_name] = new
                 if rename_map:
                     df = df.rename(columns=rename_map)
+        else:
+            # Drop a non-default index quietly — chDB's Python() adapter
+            # ignores the index but downstream column counts must agree
+            # with what DESCRIBE Python(df) reports above.
+            df = df.reset_index(drop=True)
+        return df
 
+    def _insert_dataframe_to_remote(
+        self,
+        df: "pd.DataFrame",
+        database: str,
+        table: str,
+    ) -> None:
+        """
+        Insert a local pandas DataFrame into a remote ClickHouse table.
+
+        Index handling must already have been applied by
+        ``_normalize_index_for_insert`` so the DataFrame's columns match the
+        target table 1:1.
+        """
         target_tf = self._build_remote_table_function_sql(database, table)
         insert_sql = f"INSERT INTO TABLE FUNCTION {target_tf} SELECT * FROM Python(df)"
         self._run_chdb_query(insert_sql)
@@ -5141,13 +5190,13 @@ class DataStore(PandasCompatMixin):
                         f"Drop the target table manually first, or pick a "
                         f"different target name."
                     )
-                local_df = self._execute()
+                local_df = self._materialize_for_writeback(index, index_label)
                 self._create_target_table(
                     local_df, target_ref, engine_clause, q,
                 )
                 self._do_insert(
                     False, local_df, database, table_name,
-                    target_ref, same_server, index, index_label,
+                    target_ref, same_server,
                 )
             return
 
@@ -5159,7 +5208,10 @@ class DataStore(PandasCompatMixin):
 
             # Materialize once if the pipeline isn't fully SQL-pushable, then
             # share the same df with schema evolution, CREATE TABLE and INSERT.
-            local_df = self._execute() if not fully_sql else None
+            local_df = (
+                self._materialize_for_writeback(index, index_label)
+                if not fully_sql else None
+            )
 
             if enable_schema_evolution and table_exists:
                 self._apply_schema_evolution(
@@ -5173,20 +5225,23 @@ class DataStore(PandasCompatMixin):
 
             self._do_insert(
                 fully_sql, local_df, database, table_name,
-                target_ref, same_server, index, index_label,
+                target_ref, same_server,
             )
             return
 
         # ==================================================================
         # FAIL (default)
         # ==================================================================
-        local_df = self._execute() if not fully_sql else None
+        local_df = (
+            self._materialize_for_writeback(index, index_label)
+            if not fully_sql else None
+        )
         self._create_target_table(
             local_df, target_ref, engine_clause, q,
         )
         self._do_insert(
             fully_sql, local_df, database, table_name,
-            target_ref, same_server, index, index_label,
+            target_ref, same_server,
         )
 
     # ---- internal helpers for to_clickhouse ----
@@ -5235,8 +5290,6 @@ class DataStore(PandasCompatMixin):
         table_name: str,
         target_ref: str,
         same_server: bool,
-        index: bool,
-        index_label: Optional[Union[str, List[str]]],
     ) -> None:
         """Insert data into the (already existing) target table.
 
@@ -5252,7 +5305,9 @@ class DataStore(PandasCompatMixin):
           ``INSERT INTO TABLE FUNCTION remote(target) ... FROM remote(source)``
           form, which routed every row through local chDB (two hops).
         - non-SQL pipeline: pandas-only ops force local materialization, then
-          upload via the Python() table function.
+          upload via the Python() table function. ``local_df`` must already
+          have its index normalized via ``_normalize_index_for_insert`` so it
+          matches the schema CREATE TABLE / ALTER TABLE saw.
         """
         if fully_sql:
             select_sql = (
@@ -5260,13 +5315,8 @@ class DataStore(PandasCompatMixin):
             )
             self._execute_remote_ddl(f"INSERT INTO {target_ref} {select_sql}")
         else:
-            if local_df is None:
-                local_df = self._execute()
             assert local_df is not None
-            self._insert_dataframe_to_remote(
-                local_df, database, table_name,
-                index=index, index_label=index_label,
-            )
+            self._insert_dataframe_to_remote(local_df, database, table_name)
 
     def _apply_schema_evolution(
         self,
@@ -5508,9 +5558,18 @@ class DataStore(PandasCompatMixin):
         partition_by: Optional[str],
         q: str,
     ) -> str:
-        """Build the ``ENGINE = ... ORDER BY (...) PARTITION BY ...`` clause
-        used by both ``to_clickhouse`` and ``create_materialized_view`` so the
-        two stay in lock-step on engine semantics.
+        """Build the ``ENGINE = ... ORDER BY (...) PARTITION BY ... SETTINGS ...``
+        clause used by both ``to_clickhouse`` and ``create_materialized_view``
+        so the two stay in lock-step on engine semantics.
+
+        For MergeTree-family engines we always emit ``SETTINGS
+        allow_nullable_key = 1`` because schema inference goes through
+        ``DESCRIBE`` (of either ``remote()`` or ``Python(df)``), which
+        conservatively wraps column types in ``Nullable(...)``. Without this
+        setting, any ORDER BY referencing such a column is rejected with
+        ``ILLEGAL_COLUMN``. The setting is a no-op for non-nullable columns
+        and never alters write semantics, so it's safe to enable
+        unconditionally.
         """
         if order_by is None:
             order_by_clause = "tuple()"
@@ -5521,11 +5580,14 @@ class DataStore(PandasCompatMixin):
         else:
             order_by_clause = order_by
 
+        is_mergetree = "MergeTree" in engine
         parts = [f"ENGINE = {engine}"]
-        if "MergeTree" in engine:
+        if is_mergetree:
             parts.append(f"ORDER BY ({order_by_clause})")
         if partition_by:
             parts.append(f"PARTITION BY ({partition_by})")
+        if is_mergetree:
+            parts.append("SETTINGS allow_nullable_key = 1")
         return " ".join(parts)
 
     def save(
