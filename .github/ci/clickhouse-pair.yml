@@ -1,0 +1,64 @@
+# Two independent ClickHouse instances used by the writeback integration tests.
+#
+# This file is the single source of truth for the test environment; CI and
+# local developers share it. Bring the pair up with:
+#
+#   docker compose -f .github/ci/clickhouse-pair.yml up -d --wait
+#
+# Tear down with:
+#
+#   docker compose -f .github/ci/clickhouse-pair.yml down -v
+#
+# Once running, point datastore/tests/test_writeback.py at it via:
+#
+#   CHDB_TEST_HOST=localhost:9000        CHDB_TEST_USER=remote_user
+#   CHDB_TEST_PASSWORD=test123           CHDB_TEST_DATABASE=chdb_test
+#   CHDB_TEST_TARGET_HOST=localhost:9001 CHDB_TEST_TARGET_USER=remote_user_2
+#   CHDB_TEST_TARGET_PASSWORD=test456    CHDB_TEST_TARGET_DATABASE=chdb_test_2
+#
+# Both nodes are wired to the same docker network, so a query running on `ch1`
+# can reach `ch2` via the hostname `ch2:9000` (and vice versa). This matches
+# the cross-server scenarios the test suite exercises.
+
+name: chdb-ds-writeback
+
+services:
+  ch1:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: chdb_ds_ch1
+    # Map ch1's native port to the host so test code (running outside the
+    # docker network) can reach it as localhost:9000.
+    ports:
+      - "9000:9000"
+      - "8123:8123"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./init-ch1.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  ch2:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: chdb_ds_ch2
+    ports:
+      - "9001:9000"
+      - "8124:8123"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - ./init-ch2.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
