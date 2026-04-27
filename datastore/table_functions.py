@@ -192,7 +192,15 @@ class UrlTableFunction(TableFunction):
         url: HTTP(S) URL to the data
         format: Input/output data format (optional, auto-detected if not provided)
         structure: Optional table structure
-        headers: Optional HTTP headers as list of 'Key: Value' strings
+        headers: Optional HTTP headers. Recommended: ``dict[str, str]``
+            (e.g. ``{"Authorization": "Bearer xxx"}``).
+            Legacy formats accepted for backward compatibility:
+
+            - ``list[str]`` of ``'Key: Value'`` strings
+            - a single ``'Key: Value'`` string
+
+            Generated as ClickHouse ``headers('Key'='Value', ...)`` and
+            placed as the 4th positional argument of ``url()``.
 
     Example:
         >>> # Auto-detection from URL
@@ -205,6 +213,13 @@ class UrlTableFunction(TableFunction):
         ...                       format="JSONEachRow")
         >>> tf.to_sql()
         "url('https://example.com/data.json', 'JSONEachRow')"
+
+        >>> # Headers as dict (recommended)
+        >>> tf = UrlTableFunction(url="https://api.example.com/data",
+        ...                       format="JSONEachRow",
+        ...                       headers={"Authorization": "Bearer xxx"})
+        >>> tf.to_sql()
+        "url('https://api.example.com/data', 'JSONEachRow', 'auto', headers('Authorization'='Bearer xxx'))"
     """
 
     @property
@@ -226,33 +241,53 @@ class UrlTableFunction(TableFunction):
 
         sql_params = [self._format_param(url)]
 
-        # Format is optional - chdb can auto-detect
-        if format_name:
-            sql_params.append(self._format_param(format_name))
+        has_headers = bool(headers)
+        need_structure_slot = structure is not None or has_headers
+        need_format_slot = format_name is not None or need_structure_slot
 
-            if structure:
-                sql_params.append(self._format_param(structure))
+        if need_format_slot:
+            sql_params.append(self._format_param(format_name or "auto"))
+        if need_structure_slot:
+            sql_params.append(self._format_param(structure or "auto"))
+        if has_headers:
+            sql_params.append(f"headers({self._format_headers(headers)})")
 
-        if headers:
-            sql_params.extend(["'auto'"] * (3 - len(sql_params)))
-            if isinstance(headers, list):
-                pairs = []
-                for h in headers:
-                    if isinstance(h, str) and ":" in h:
-                        k, v = h.split(":", 1)
-                        pairs.append(f"'{k.strip()}'='{v.strip()}'")
-                    else:
-                        pairs.append(self._format_param(h))
-                headers_sql = ", ".join(pairs)
-            elif isinstance(headers, dict):
-                headers_sql = ", ".join(f"'{k}'='{v}'" for k, v in headers.items())
-            else:
-                headers_sql = self._format_param(headers)
-            sql_params.append(f"headers({headers_sql})")
+        return f"url({', '.join(sql_params)})"
 
-        sql = f"url({', '.join(sql_params)})"
+    def _format_headers(self, headers: Any) -> str:
+        """
+        Convert ``headers`` into the ``'K1'='V1', 'K2'='V2'`` payload for
+        ClickHouse ``headers()``.
 
-        return sql
+        All keys/values are routed through :meth:`_format_param` so that
+        embedded single quotes are properly escaped.
+        """
+        if isinstance(headers, dict):
+            items = list(headers.items())
+        elif isinstance(headers, list):
+            items = [self._parse_header_string(h) for h in headers]
+        elif isinstance(headers, str):
+            items = [self._parse_header_string(headers)]
+        else:
+            raise DataStoreError(
+                "headers must be dict[str, str], list of 'Key: Value' strings, "
+                f"or a single 'Key: Value' string; got {type(headers).__name__}"
+            )
+
+        return ", ".join(
+            f"{self._format_param(str(k))}={self._format_param(str(v))}"
+            for k, v in items
+        )
+
+    @staticmethod
+    def _parse_header_string(h: Any) -> tuple:
+        """Split a ``'Key: Value'`` string into a ``(key, value)`` tuple."""
+        if not isinstance(h, str) or ":" not in h:
+            raise DataStoreError(
+                f"invalid header element {h!r}: expected 'Key: Value' string"
+            )
+        k, _, v = h.partition(":")
+        return k.strip(), v.strip()
 
 
 class S3TableFunction(TableFunction):

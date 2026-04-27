@@ -455,7 +455,7 @@ class TestUrlTableFunction:
         tf = UrlTableFunction(url="https://example.com/data.csv", format="CSV", headers="Authorization: Bearer token")
         sql = tf.to_sql()
         assert " HEADERS(" not in sql, f"Old broken pattern found: {sql}"
-        assert "headers(" in sql
+        assert "headers('Authorization'='Bearer token')" in sql
 
     def test_url_missing_url(self):
         """Test error when URL is missing."""
