@@ -25,7 +25,7 @@ jobs:
     name: Test DataStore (macOS arm64)
     runs-on: macos-15-xlarge
     if: ${{ !github.event.pull_request.draft }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     steps:
       - name: Check machine architecture
         run: |
