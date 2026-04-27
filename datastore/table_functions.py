@@ -233,15 +233,24 @@ class UrlTableFunction(TableFunction):
             if structure:
                 sql_params.append(self._format_param(structure))
 
-        sql = f"url({', '.join(sql_params)})"
-
-        # Add headers if provided
         if headers:
+            sql_params.extend(["'auto'"] * (3 - len(sql_params)))
             if isinstance(headers, list):
-                headers_sql = ", ".join([self._format_param(h) for h in headers])
+                pairs = []
+                for h in headers:
+                    if isinstance(h, str) and ":" in h:
+                        k, v = h.split(":", 1)
+                        pairs.append(f"'{k.strip()}'='{v.strip()}'")
+                    else:
+                        pairs.append(self._format_param(h))
+                headers_sql = ", ".join(pairs)
+            elif isinstance(headers, dict):
+                headers_sql = ", ".join(f"'{k}'='{v}'" for k, v in headers.items())
             else:
                 headers_sql = self._format_param(headers)
-            sql += f" HEADERS({headers_sql})"
+            sql_params.append(f"headers({headers_sql})")
+
+        sql = f"url({', '.join(sql_params)})"
 
         return sql
 
