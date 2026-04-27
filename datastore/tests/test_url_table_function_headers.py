@@ -5,9 +5,6 @@ from datastore.exceptions import DataStoreError
 from datastore.table_functions import UrlTableFunction
 
 
-_conn = chdb.connect(":memory:")
-
-
 def assert_sql_parses(sql: str) -> None:
     """
     Assert that ``sql`` is accepted by ClickHouse's SQL parser.
@@ -19,7 +16,7 @@ def assert_sql_parses(sql: str) -> None:
     """
     full_sql = f"EXPLAIN AST SELECT * FROM {sql}"
     try:
-        _conn.query(full_sql, "CSV")
+        chdb.query(full_sql, "CSV")
     except Exception as e:
         pytest.fail(
             f"Generated SQL failed to parse via EXPLAIN AST.\n"
