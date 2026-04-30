@@ -441,19 +441,21 @@ class TestUrlTableFunction:
         assert sql == "url('https://example.com/data.json', 'JSONEachRow', 'id UInt32, name String')"
 
     def test_url_with_headers_list(self):
-        """Test URL with headers as list."""
+        """Test URL with headers as list — headers are 4th positional arg inside url()."""
         tf = UrlTableFunction(
             url="https://example.com/data.csv", format="CSV", headers=["Authorization: Bearer token", "X-Custom: value"]
         )
         sql = tf.to_sql()
-        assert "url('https://example.com/data.csv', 'CSV')" in sql
-        assert "HEADERS('Authorization: Bearer token', 'X-Custom: value')" in sql
+        assert " HEADERS(" not in sql, f"Old broken pattern found: {sql}"
+        assert "headers('Authorization'='Bearer token', 'X-Custom'='value')" in sql
+        assert sql.startswith("url(")
 
     def test_url_with_headers_string(self):
-        """Test URL with headers as string."""
+        """Test URL with headers as string — headers are 4th positional arg inside url()."""
         tf = UrlTableFunction(url="https://example.com/data.csv", format="CSV", headers="Authorization: Bearer token")
         sql = tf.to_sql()
-        assert "HEADERS('Authorization: Bearer token')" in sql
+        assert " HEADERS(" not in sql, f"Old broken pattern found: {sql}"
+        assert "headers('Authorization'='Bearer token')" in sql
 
     def test_url_missing_url(self):
         """Test error when URL is missing."""
