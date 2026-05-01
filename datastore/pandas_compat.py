@@ -220,9 +220,30 @@ class DataStoreLocIndexer:
 
     def __setitem__(self, key, value):
         """Set item via loc, converting ColumnExpr to pandas types first."""
+        from .lazy_ops import LazyDataFrameSource
+
         converted_key = self._convert_key(key)
         df = self._datastore._get_df()
         df.loc[converted_key] = value
+
+        # Checkpoint: wrap the modified DataFrame as LazyDataFrameSource
+        # so that subsequent _execute() calls return this modified DataFrame
+        # instead of re-running the original SQL pipeline (which would lose
+        # the in-place modifications made by loc[]).
+        self._datastore._lazy_ops = [LazyDataFrameSource(df)]
+        self._datastore._table_function = None
+        self._datastore.table_name = None
+        self._datastore._select_fields = []
+        self._datastore._where_condition = None
+        self._datastore._joins = []
+        self._datastore._groupby_fields = []
+        self._datastore._having_condition = None
+        self._datastore._orderby_fields = []
+        self._datastore._limit_value = None
+        self._datastore._offset_value = None
+        self._datastore._distinct = False
+        self._datastore._source_df = df
+        self._datastore._computed_columns = {}
 
         # Invalidate cache since we modified the underlying DataFrame
         self._datastore._invalidate_cache()
@@ -1427,8 +1448,62 @@ class PandasCompatMixin:
         indicator=False,
         validate=None,
     ):
-        """Merge DataFrame objects."""
-        # Convert right to DataFrame if it's a DataStore
+        """Merge DataFrame objects.
+
+        Uses lazy SQL JOIN when both sides are DataStores with SQL sources
+        and no advanced pandas-only features are needed. Falls back to
+        pandas merge otherwise.
+        """
+        DataStore = type(self)
+
+        # Try lazy SQL JOIN path when both sides are DataStores with SQL sources
+        # and no pandas-only merge features are used
+        # Determine join key columns
+        if on is not None:
+            key_cols = set(on) if isinstance(on, (list, tuple)) else {on}
+        elif left_on is not None and right_on is not None:
+            lk = set(left_on) if isinstance(left_on, (list, tuple)) else {left_on}
+            rk = set(right_on) if isinstance(right_on, (list, tuple)) else {right_on}
+            key_cols = lk | rk
+        else:
+            key_cols = set()
+
+        # Check for overlapping non-key columns — SQL JOIN uses table.col
+        # naming (e.g., right.value) while pandas uses suffixes (_x/_y).
+        # Fall back to pandas when suffixes would be needed.
+        left_cols = set()
+        right_cols = set()
+        try:
+            if isinstance(right, DataStore):
+                left_cols = set(self._get_all_column_names())
+                right_cols = set(right._get_all_column_names())
+        except Exception:
+            pass
+        overlapping_non_key = (left_cols & right_cols) - key_cols
+
+        can_use_sql_join = (
+            isinstance(right, DataStore)
+            and not left_index
+            and not right_index
+            and not indicator
+            and not sort
+            and validate is None
+            and not overlapping_non_key
+            and (on is not None or (left_on is not None and right_on is not None))
+            and bool(self._table_function or self.table_name
+                     or self._source_df is not None)
+            and bool(right._table_function or right.table_name
+                     or right._source_df is not None)
+        )
+
+        if can_use_sql_join:
+            try:
+                return self.join(right, on=on, how=how,
+                                 left_on=left_on, right_on=right_on)
+            except Exception:
+                pass  # Fall back to pandas merge
+
+        # Pandas merge fallback
         if hasattr(right, '_get_df'):
             right = right._get_df()
         return self._wrap_result(
@@ -1461,8 +1536,30 @@ class PandasCompatMixin:
         sort=False,
         copy=True,
     ):
-        """Concatenate DataStore/DataFrame objects."""
-        # Convert DataStore objects to DataFrames
+        """Concatenate DataStore/DataFrame objects.
+
+        Uses lazy SQL UNION ALL when all objects are DataStores and axis=0.
+        Falls back to pandas concat otherwise.
+        """
+        DataStore = type(self)
+
+        # Lazy UNION ALL path for simple vertical concatenation.
+        # Only when ignore_index=True (UNION ALL resets index) and join='outer'.
+        if (
+            axis == 0
+            and ignore_index
+            and join == 'outer'
+            and keys is None
+            and not verify_integrity
+            and len(objs) >= 2
+            and all(isinstance(obj, DataStore) for obj in objs)
+        ):
+            result = objs[0]
+            for obj in objs[1:]:
+                result = result.union(obj, all=True)
+            return result
+
+        # Pandas concat fallback
         dfs = []
         for obj in objs:
             if hasattr(obj, '_get_df'):
