@@ -1165,6 +1165,7 @@ class DataStore(PandasCompatMixin):
     def _is_pristine_sql_source(self) -> bool:
         """Check if this is a raw SQL/file source with no operations."""
         return (not self._lazy_ops
+                and not self._joins
                 and (self._table_function is not None or self.table_name is not None))
 
     def _probe_dtypes_from_sql_source(self) -> "pd.Series":
@@ -1323,10 +1324,30 @@ class DataStore(PandasCompatMixin):
                         self._distinct = False
                         self._distinct_subset = None
 
+                        # Update _source_df to the execution result so the old
+                        # source DataFrame can be garbage collected. This points
+                        # to the same object as _cached_result (no extra memory).
+                        self._source_df = df
+
                         self._logger.debug(
                             "Pipeline checkpointed: lazy_ops replaced with DataFrame source"
                         )
                     else:
+                        # Pure SQL execution with a DataFrame source (via
+                        # PythonTableFunction): checkpoint to release the old
+                        # source DataFrame. After execution, the computed
+                        # columns are materialized in df, so the old
+                        # expressions and PythonTableFunction are no longer
+                        # needed.
+                        if self._source_df is not None:
+                            from .lazy_ops import LazyDataFrameSource
+
+                            self._source_df = df
+                            self._table_function = None
+                            self._lazy_ops = [LazyDataFrameSource(df)]
+                            self._select_fields = []
+                            self._computed_columns = {}
+
                         self._logger.debug("Pure SQL execution: SQL state preserved")
 
                     self._cache_version = 0
@@ -3873,6 +3894,39 @@ class DataStore(PandasCompatMixin):
             schema = self.schema()
             if schema:
                 return pd.Index(schema.keys())
+        # When we have computed columns from assign() on a SQL source with no
+        # column-reducing ops (selections/filters), derive column names from
+        # schema + computed columns without materialization.
+        # Skip when there are column-reducing lazy ops (e.g., df[['a','b']])
+        # since _get_all_column_names() returns source columns, not selected ones.
+        if (
+            self._computed_columns
+            and (self._table_function is not None or self.table_name is not None)
+            and not self._joins
+            and self._can_sql_pushdown()
+            and self._cached_result is None
+            and self._source_df is None
+        ):
+            try:
+                base_cols = list(self._get_all_column_names())
+                computed_cols = [
+                    c for c in self._computed_columns if c not in base_cols
+                ]
+                return pd.Index(base_cols + computed_cols)
+            except Exception:
+                pass
+        # For JOINs or complex SQL sources: probe schema with LIMIT 0
+        # This avoids materializing the full result just to get column names
+        if (
+            self._joins
+            and self._can_sql_pushdown()
+            and self._cached_result is None
+        ):
+            try:
+                probe_df = self._probe_schema()
+                return probe_df.columns
+            except Exception:
+                pass
         return self._get_df().columns
 
     @columns.setter
@@ -5132,6 +5186,38 @@ class DataStore(PandasCompatMixin):
             >>> ds1.union(ds2, all=True)  # Keeps all rows (like SQL UNION ALL)
         """
         from .lazy_ops import LazyUnion
+
+        # When both sides have SQL sources, use SQL UNION ALL directly
+        # This avoids materializing both sides into Python DataFrames
+        has_sql_source = bool(self._table_function or self.table_name)
+        other_has_sql_source = bool(
+            hasattr(other, '_table_function') and (other._table_function or getattr(other, 'table_name', None))
+        )
+        if has_sql_source and other_has_sql_source:
+            from .table_functions import SubqueryTableFunction
+            left_cols = list(self._get_all_column_names())
+            right_cols = list(other._get_all_column_names())
+            if set(left_cols) == set(right_cols):
+                if left_cols != right_cols:
+                    other = other.select(*left_cols)
+                left_sql = self._generate_select_sql(self.quote_char)
+                other_sql = other._generate_select_sql(other.quote_char)
+                union_keyword = "UNION ALL" if all else "UNION"
+                union_sql = f"({left_sql}) {union_keyword} ({other_sql})"
+                self._table_function = SubqueryTableFunction(union_sql)
+                self._cached_result = None
+                self._cached_at_version = -1
+                self._select_fields = []
+                self._where_condition = None
+                self._joins = []
+                self._groupby_fields = []
+                self._having_condition = None
+                self._orderby_fields = []
+                self._limit_value = None
+                self._offset_value = None
+                self._distinct = False
+                self._select_star = False
+                return  # @immutable returns the copy
 
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
         # Execution is deferred until needed

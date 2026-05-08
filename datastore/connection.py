@@ -725,23 +725,24 @@ class Connection:
         """
         sql_upper = sql.upper()
 
-        # Check if LIMIT/OFFSET exists at the OUTER level (not inside a subquery)
+        # Check if LIMIT/OFFSET or SETTINGS exists at the OUTER level (not inside a subquery)
         limit_pos = self._find_outer_clause_position(sql_upper, "LIMIT")
         offset_pos = self._find_outer_clause_position(sql_upper, "OFFSET")
+        settings_pos = self._find_outer_clause_position(sql_upper, "SETTINGS")
 
-        if limit_pos != -1 or offset_pos != -1:
-            # LIMIT/OFFSET at outer level - insert ORDER BY before it
-            clause_start = len(sql)
-            if limit_pos != -1:
-                clause_start = min(clause_start, limit_pos)
-            if offset_pos != -1:
-                clause_start = min(clause_start, offset_pos)
+        # Find earliest trailing clause position
+        trailing_positions = [
+            p for p in [limit_pos, offset_pos, settings_pos] if p != -1
+        ]
 
+        if trailing_positions:
+            # Insert ORDER BY before the first trailing clause
+            clause_start = min(trailing_positions)
             base_query = sql[:clause_start].strip()
-            limit_offset_clause = sql[clause_start:].strip()
-            return f"{base_query} ORDER BY _row_id {limit_offset_clause}"
+            trailing_clause = sql[clause_start:].strip()
+            return f"{base_query} ORDER BY _row_id {trailing_clause}"
         else:
-            # No LIMIT/OFFSET at outer level: add ORDER BY at the end
+            # No trailing clauses: add ORDER BY at the end
             return f"{sql} ORDER BY _row_id"
 
     def _append_row_id_tiebreaker(self, sql: str) -> str:
