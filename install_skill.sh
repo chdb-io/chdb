@@ -3,7 +3,7 @@
 # Two skills: chdb-datastore (pandas API) and chdb-sql (raw SQL)
 set -e
 
-BASE_URL="https://raw.githubusercontent.com/chdb-io/chdb/main/agent/skills"
+BASE_URL="https://raw.githubusercontent.com/chdb-io/chdb/main/agent_skills"
 SKILLS="chdb-datastore chdb-sql"
 
 DATASTORE_FILES="SKILL.md references/connectors.md references/api-reference.md examples/examples.md scripts/verify_install.py"

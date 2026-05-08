@@ -14,6 +14,10 @@
 [![Twitter](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter)](https://twitter.com/chdb_io)
 </div>
 
+<div align="center">
+   <sub>Contributing? See <a href="./AGENTS.md"><code>AGENTS.md</code></a> — the structured guide for AI coding agents and human contributors. Follows the <a href="https://agents.md">agents.md</a> open standard.</sub>
+</div>
+
 # chDB
 
 

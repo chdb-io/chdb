@@ -1,3 +1,5 @@
+> **For the repo-level contributor guide** (build, test, lint, PR conventions, CI), see [`./AGENTS.md`](./AGENTS.md). This file is the chdb-ds *design philosophy* — the rules that constrain *how* DataStore code is written, separate from the contribution process.
+
 ## chdb-ds Design and Testing Principles
 
 ### 1. Fully Lazy Execution Architecture
