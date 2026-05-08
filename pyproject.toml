@@ -67,3 +67,24 @@ include = ["datastore"]
 exclude = ["src", "contrib", "programs", "build", "buildlib", "dist", "venv", ".venv", ".vscode", ".git", "__pycache__", ".mypy_cache", ".pytest_cache"]
 pythonVersion = "3.9"
 typeCheckingMode = "basic"
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-exclude = [
+    ".tox",
+    "build",
+    "dist",
+    ".eggs",
+    "docs/conf.py",
+    "datastore/tests",
+]
+
+[tool.ruff.lint]
+# Drop-in replacement for the flake8 config that previously lived in setup.cfg.
+# Critical errors only — see AGENTS.md Section 2.9 for why this is intentionally narrow.
+select = ["E9", "F63", "F7", "F82"]
+ignore = ["F811"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]

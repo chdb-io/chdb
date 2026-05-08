@@ -12,7 +12,7 @@ polars>=1.7.0
 
 # Code quality
 black>=23.0.0
-flake8>=6.0.0
+ruff>=0.5.0
 mypy>=1.0.0
 pre-commit>=3.0.0
 
