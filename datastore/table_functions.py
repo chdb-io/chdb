@@ -194,7 +194,7 @@ class FileTableFunction(TableFunction):
         Returns:
             True if row order is guaranteed to be preserved
         """
-        format_name = self.params.get("format", "").lower()
+        format_name = (self.params.get("format") or "").lower()
 
         # For Parquet files, check if preserve_order setting is enabled
         if format_name == "parquet":
@@ -398,7 +398,7 @@ class S3TableFunction(TableFunction):
         Returns:
             True if row order is guaranteed to be preserved
         """
-        format_name = self.params.get("format", "").lower()
+        format_name = (self.params.get("format") or "").lower()
 
         if format_name == "parquet":
             if format_settings:
