@@ -143,4 +143,4 @@ target.insert_into("category", "total", "count").select_from(
 
 > Note: This skill teaches how to *use* chdb DataStore.
 > For raw SQL queries, use the `chdb-sql` skill.
-> For contributing to chdb source code, see CLAUDE.md in the project root.
+> For contributing to chdb source code, see AGENTS.md in the project root.

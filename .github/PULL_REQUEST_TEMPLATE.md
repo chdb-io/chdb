@@ -1,88 +1,60 @@
-<!---
-A technical comment, you are free to remove or leave it as it is when PR is created
-The following categories are used in the next scripts, update them accordingly
-utils/changelog/changelog.py
-tests/ci/cancel_and_rerun_workflow_lambda/app.py
--->
-### Changelog category (leave one):
-- New Feature
-- Improvement
-- Performance Improvement
-- Backward Incompatible Change
-- Build/Testing/Packaging Improvement
-- Documentation (changelog entry is not required)
-- Critical Bug Fix (crash, LOGICAL_ERROR, data loss, RBAC)
-- Bug Fix (user-visible misbehavior in an official stable release)
-- CI Fix or Improvement (changelog entry is not required)
-- Not for changelog (changelog entry is not required)
+<!--
+Thanks for contributing to chDB!
 
-
-### Changelog entry (a [user-readable short description](https://github.com/ClickHouse/ClickHouse/blob/master/docs/changelog_entry_guidelines.md) of the changes that goes into CHANGELOG.md):
-...
-
-### Documentation entry for user-facing changes
-
-- [ ] Documentation is written (mandatory for new features)
-
-<!---
-Directly edit documentation source files in the "docs" folder with the same pull-request as code changes
-
-or
-
-Add a user-readable short description of the changes that should be added to docs.clickhouse.com below.
-
-At a minimum, the following information should be added (but add more as needed).
-- Motivation: Why is this function, table engine, etc. useful to ClickHouse users?
-
-- Parameters: If the feature being added takes arguments, options or is influenced by settings, please list them below with a brief explanation.
-
-- Example use: A query or command.
+Before opening: skim CONTRIBUTING.md for setup, the "I changed X — what
+to run" table, things to avoid, and PR conventions. AGENTS.md captures
+the chdb-ds design and testing principles (kept short — stays loaded
+in AI coding agents at all times).
 -->
 
 
-> Information about CI checks: https://clickhouse.com/docs/en/development/continuous-integration/
+## Summary
 
-<details>
-    <summary>CI Settings</summary>
+<!-- One or two sentences describing what this PR changes and why.
+     Focus on user impact, not internal mechanics. -->
 
-**NOTE:** If your merge the PR with modified CI you **MUST KNOW** what you are doing
-**NOTE:** Checked options will be applied if set before CI RunConfig/PrepareRunConfig step
+## Type of change
 
-#### Run these jobs only (required builds will be added automatically):
-- [ ] <!---ci_include_integration--> Integration Tests
-- [ ] <!---ci_include_stateless--> Stateless tests
-- [ ] <!---ci_include_stateful--> Stateful tests
-- [ ] <!---ci_include_unit--> Unit tests
-- [ ] <!---ci_include_performance--> Performance tests
-- [ ] <!---ci_include_aarch64--> All with aarch64
-- [ ] <!---ci_include_asan--> All with ASAN
-- [ ] <!---ci_include_tsan--> All with TSAN
-- [ ] <!---ci_include_analyzer--> All with Analyzer
-- [ ] <!---ci_include_azure --> All with Azure
-- [ ] <!---ci_include_KEYWORD--> Add your option here
+<!-- Check the one that fits. PR titles start with a Capitalised
+     verb (e.g. "Add ...", "Fix ...", "Improve ..."), no
+     Conventional-Commit prefix. See CONTRIBUTING.md → "PR & commit
+     conventions". -->
 
-#### Deny these jobs:
-- [ ] <!---ci_exclude_fast--> Fast test
-- [ ] <!---ci_exclude_integration--> Integration Tests
-- [ ] <!---ci_exclude_stateless--> Stateless tests
-- [ ] <!---ci_exclude_stateful--> Stateful tests
-- [ ] <!---ci_exclude_performance--> Performance tests
-- [ ] <!---ci_exclude_asan--> All with ASAN
-- [ ] <!---ci_exclude_tsan--> All with TSAN
-- [ ] <!---ci_exclude_msan--> All with MSAN
-- [ ] <!---ci_exclude_ubsan--> All with UBSAN
-- [ ] <!---ci_exclude_coverage--> All with Coverage
-- [ ] <!---ci_exclude_aarch64--> All with Aarch64
+- [ ] New feature
+- [ ] Bug fix
+- [ ] Refactor (no behavior change)
+- [ ] Tests only
+- [ ] Documentation only
+- [ ] CI / build infrastructure
+- [ ] Tooling / dependencies / housekeeping
 
-#### Extra options:
-- [ ] <!---do_not_test--> do not test (only style check)
-- [ ] <!---no_merge_commit--> disable merge-commit (no merge from master before tests)
-- [ ] <!---no_ci_cache--> disable CI cache (job reuse)
+## Linked issues
 
-#### Only specified batches in multi-batch jobs:
-- [ ] <!---batch_0--> 1
-- [ ] <!---batch_1--> 2
-- [ ] <!---batch_2--> 3
-- [ ] <!---batch_3--> 4
+<!-- "Fixes #123" closes the issue when merged. "Refs #123" links
+     without closing. Delete the line if no issue exists. -->
 
-</details>
+Fixes #
+
+## How to verify
+
+<!-- The exact command(s) you ran locally and the result. For
+     DataStore changes, include the targeted pytest command. -->
+
+```bash
+# example
+cd datastore && python -m pytest tests/test_<file>.py -v --tb=short
+```
+
+## Checklist
+
+- [ ] Tests added or updated for the behavior change (regression test for bug fixes)
+- [ ] `ruff check datastore --statistics` passes locally
+- [ ] If the change touches DataStore semantics: ran the relevant pytest module on **both** `pandas<3.0` and `pandas>=3.0` (Python ≥ 3.11)
+- [ ] User-facing API or behavior changes have updated docs (`docs/`, docstrings, `examples/`)
+- [ ] No new dependencies added to `requirements.txt` without prior discussion
+
+## Notes for reviewers
+
+<!-- Optional: design alternatives considered, performance
+     concerns, screenshots, anything specific you want the
+     reviewer to look at. Delete this section if not used. -->
