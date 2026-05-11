@@ -113,4 +113,4 @@ conn.close()
 
 > Note: This skill teaches how to *use* chdb SQL.
 > For pandas-style operations, use the `chdb-datastore` skill.
-> For contributing to chdb source code, see CLAUDE.md in the project root.
+> For contributing to chdb source code, see AGENTS.md in the project root.

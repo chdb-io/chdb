@@ -1,344 +1,243 @@
-# Contributing
+# Contributing to chDB
 
-Welcome to `chdb` contributor's guide.
+Welcome — and thanks for considering a contribution. All contributors
+are expected to be open, considerate, reasonable, and respectful; see
+[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
 
-This document focuses on getting any potential contributor familiarized with
-the development processes, but [other kinds of contributions] are also appreciated.
+This is the contributor-facing guide. [`AGENTS.md`](./AGENTS.md) is
+short and stays loaded by AI coding agents at all times; it captures
+the design and testing principles of chdb-ds (DataStore). Everything
+else — setup, build, the modify-then-test workflow, PR conventions,
+CI, releases — lives here.
 
-If you are new to using [git] or have never collaborated in a project previously,
-please have a look at [contribution-guide.org]. Other resources are also
-listed in the excellent [guide created by FreeCodeCamp] [^contrib1].
+## What chDB is
 
-Please notice, all users and contributors are expected to be **open,
-considerate, reasonable, and respectful**. When in doubt,
-[Python Software Foundation's Code of Conduct] is a good reference in terms of
-behavior guidelines.
+chDB is an in-process OLAP SQL engine powered by ClickHouse. End
+users do `pip install chdb` and embed the full ClickHouse SQL dialect
+into their Python process — querying Parquet / CSV / JSON / Arrow /
+ORC / S3 / HTTPFS sources with zero-copy interop with pandas and
+PyArrow.
 
-## Issue Reports
+This repository (`chdb-io/chdb`) is the **Python layer** of chDB:
+`chdb/` (small shim), `datastore/` (the chdb-ds project — a
+pandas-compatible lazy API that compiles to ClickHouse SQL), and
+`agent/skills/` (published Skills).
 
-If you experience bugs or general issues with `chdb`, please have a look
-on the [issue tracker].
-If you don't see anything useful there, please feel free to fire an issue report.
+**The C++ engine itself does NOT live here.** It lives in the sibling
+repository [`chdb-io/chdb-core`](https://github.com/chdb-io/chdb-core)
+and is consumed as the `chdb-core` PyPI package. If a user-reported
+bug or feature turns out to need engine-side changes, redirect the
+work there.
 
-:::{tip}
-Please don't forget to include the closed issues in your search.
-Sometimes a solution was already reported, and the problem is considered
-**solved**.
-:::
+### What makes chDB worth picking
 
-New issue reports should include information about your programming environment
-(e.g., operating system, Python version) and steps to reproduce the problem.
-Please try also to simplify the reproduction steps to a very minimal example
-that still illustrates the problem you are facing. By removing other factors,
-you help us to identify the root cause of the issue.
+chDB packs the full ClickHouse SQL surface — typed JSON, funnel /
+cohort / percentile aggregates, ~80 data formats, dozens of source
+connectors (S3 / MySQL / Postgres / Iceberg / Kafka / …), vector and
+session primitives, plus `remoteSecure()` federation to a remote
+ClickHouse cluster — into one in-process engine you load with
+`import chdb`. A pandas-compatible DataFrame surface (`datastore`)
+pushes the same code down to SQL with a one-line import swap.
 
-## Documentation Improvements
+### Where does my change go? (chdb vs chdb-core)
 
-You can help improve `chdb` docs by making them more readable and coherent, or
-by adding missing information and correcting mistakes.
+| What you want to change | Repo | Key path |
+|---|---|---|
+| DataStore / chdb-ds API, pandas compat | **chdb-io/chdb** (here) | `datastore/` |
+| Top-level Python `chdb/` shim & re-exports | **chdb-io/chdb** (here) | `chdb/__init__.py`, `chdb/datastore.py` |
+| Published agent skills (Cursor/Claude/Codex) | **chdb-io/chdb** (here) | `agent/skills/` |
+| Bun / Go / Rust / Node / Zig / Ruby bindings | sibling repo | `chdb-io/chdb-{bun,go,rust,node,zig,ruby}` |
 
-`chdb` documentation uses [Sphinx] as its main documentation compiler.
-This means that the docs are kept in the same repository as the project code, and
-that any documentation update is done in the same way was a code contribution.
+Anything C++ — the ClickHouse SQL engine, format readers, codecs,
+storage engines, the public C ABI consumed by every binding, the
+chdb-core wheel build — lives in
+[chdb-io/chdb-core](https://github.com/chdb-io/chdb-core).
 
-```{todo} Don't forget to mention which markup language you are using.
+## Reporting issues
 
-    e.g.,  [reStructuredText] or [CommonMark] with [MyST] extensions.
+Search [open and closed issues](https://github.com/chdb-io/chdb/issues)
+first — your problem may already have a workaround. A good new issue
+includes:
+
+- Operating system + Python version
+- A minimal reproduction (the smallest snippet that still shows the
+  bug)
+- The expected behaviour and the observed behaviour
+
+For performance issues, use the **Performance issue** template — it
+asks for dataset shape, observed vs expected timing, and (optional)
+profiling output, which speeds review significantly.
+
+## Setting up
+
+```bash
+git clone https://github.com/chdb-io/chdb && cd chdb
+python -m pip install --upgrade pip      # pip ≥ 21.3 needed for PEP 660 editable install
+pip install -r requirements-dev.txt
+pip install -e .
+# For doc builds: pip install -r docs/requirements.txt
 ```
 
-```{todo} If your project is hosted on GitHub, you can also mention the following tip:
+Pure-Python repository. No C++ build, no submodules. `pip install -e .`
+pulls in the `chdb-core` engine wheel automatically. Supported:
+Python 3.9–3.14 on macOS (arm64, x86_64) and Linux (x86_64, arm64).
 
-   :::{tip}
-      Please notice that the [GitHub web interface] provides a quick way of
-      propose changes in `chdb`'s files. While this mechanism can
-      be tricky for normal code contributions, it works perfectly fine for
-      contributing to the docs, and can be quite handy.
+`make wheel` is the **release** path — it shells out to
+`tox -e build -- --wheel`, builds an isolated environment, and
+produces an artefact in `dist/`. For development, `pip install -e .`
+once is enough; iterate from there.
 
-      If you are interested in trying this method out, please navigate to
-      the `docs` folder in the source [repository], find which file you
-      would like to propose changes and click in the little pencil icon at the
-      top, to open [GitHub's code editor]. Once you finish editing the file,
-      please write a message in the form at the bottom of the page describing
-      which changes have you made and what are the motivations behind them and
-      submit your proposal.
-   :::
+## I changed X — what to run
+
+90% of contributions land in one of these buckets. Pick your row,
+copy the verify command, iterate.
+
+| You changed | Rebuild? | How to verify |
+|---|---|---|
+| **A. `datastore/*.py`** (most common) | No | **Full suite (default):** `cd datastore && python -m pytest tests/ -v --tb=short -x` (~1 min, ~10k tests, fail-fast). `make test` runs the same suite without `-x`. Targeted (`pytest tests/test_<file>.py`) is fine while debugging, but **the full suite is what you sign off on**. |
+| **B. `datastore/tests/*.py` only** | No | Same as A |
+| **C. `chdb/__init__.py` or `chdb/datastore.py` shim** | Effective yes | `pip uninstall -y chdb && pip install -e .`, restart Python, verify both `import chdb` and `from chdb import datastore` succeed |
+| **D. `docs/`** | No | `make docs` (HTML on :8001) or `make docs-md` |
+| **E. `examples/` / `benchmark/` / `refs/` scripts** | No | `python <path-to-script>.py` |
+| **F. `agent/skills/*` content** | No | `bash install_skill.sh --project`, inspect `./.agents/skills/` |
+| **G. C++ / SQL engine** | — | Wrong repo — go to [chdb-io/chdb-core](https://github.com/chdb-io/chdb-core) |
+
+> ⚠️ **Prefer the full suite when in doubt.** chdb-ds has a lot of
+> hidden coupling between lazy operators, expression rewrites, and
+> the SQL / pandas execution split — a change that *looks* localised
+> routinely surfaces a failure 50 tests away. If your change touches
+> more than one row or you're not sure which code paths it reaches,
+> **just run the full suite** (~1 min on a recent laptop).
+
+**Before opening a PR**: run `ruff check datastore --statistics`
+(the only PR gate) plus the full suite from row A. If both are green
+locally, CI will almost always be green too.
+
+## Things to avoid
+
+### Capture the stack trace before changing code on a crash
+
+When a test crashes with `SIGSEGV`, `SIGABRT`, `SIGFPE`, `SIGILL`,
+`SIGBUS`, or `SIGSYS`, **always obtain the stack trace first**, then
+analyse the root cause before attempting fixes. Specifically, do
+*not*:
+
+- remove the failing assertion or exception-throwing statement
+- add a defensive `try/except` that swallows the crash
+- mark the test as `xfail` / `skip` to make the suite go green
+
+The crash is signalling a real bug — usually in the chdb-core engine
+binding or in a refcounting / memoryview path. Capture the trace
+(`gdb -ex run --args python -m pytest ...` on Linux, `lldb -- python
+-m pytest ...` on macOS, or `faulthandler.enable()` for Python-side
+traces), find the actual cause, and fix it where it lives. If the
+cause is in `chdb-core`, file the bug there.
+
+### Keep secrets out of test fixtures
+
+S3 access keys, ClickHouse Cloud DSNs, OAuth tokens. Use environment
+variables and skip patterns (`pytest.skip` if env not set). Tests
+that require remote credentials should be runnable locally with
+`nosign=true` or with a documented env-var setup.
+
+## PR & commit conventions
+
+**PR titles** — follow ClickHouse style: **start with a capitalised
+verb, no Conventional-Commit prefix**. Describe user impact, not
+internal mechanics.
+
+Good:
+
+- `Add timedelta64 type support for pandas DataFrame input`
+- `Fix memory leak in session cleanup`
+- `Improve filter pushdown for large DataStore frames`
+- `Update documentation for remote connection`
+
+Avoid:
+
+- `feat: add timedelta64 type support` (no Conventional-Commit prefix)
+- `[Feature] Add timedelta64 support` (no brackets)
+- `feat(datastore): add timedelta support` (no scope notation)
+- `Refactored _resolve_columns to take a span` (describes mechanics,
+  not user impact)
+
+**Commit messages** inside a PR can be lowercase as long
+as the PR title itself follows the rule above. chdb uses merge
+commits (not squash), so each commit title still lives in `git log`
+forever — keep them readable.
+
+**Branch names** — descriptive with a category prefix:
+`fix/timedelta-support`, `feat/datastore-session`, `docs/update-readme`,
+`refactor/cleanup-imports`. External contributors may also use
+`<github-handle>/<topic>`.
+
+**Scope** — one concern per PR. Split refactors away from fixes;
+mixed PRs slow review and complicate bisection.
+
+**Tests** — every behaviour change comes with a test. See
+[`AGENTS.md`](./AGENTS.md) §4 for the DataStore mirror-code testing
+pattern.
+
+## Documentation changes
+
+`docs/` is built with Sphinx. The Sphinx-side dependencies aren't in
+`requirements-dev.txt`; install them once before building:
+
+```bash
+pip install -r docs/requirements.txt
+make docs        # builds HTML and serves on :8001
+make docs-md     # builds markdown into buildlib/markdowndocs/
 ```
 
-When working on documentation changes in your local machine, you can
-compile them using [tox] :
+For doc-only PRs, the test suite still has to be green, but you can
+skip running it locally if you only touched `docs/`.
 
-```
-tox -e docs
-```
+## CI
 
-and use Python's built-in web server for a preview in your web browser
-(`http://localhost:8000`):
+The build-and-test matrix:
 
-```
-python3 -m http.server --directory 'docs/_build/html'
-```
+- **Python**: 3.9, 3.10, 3.11, 3.12, 3.13, 3.14
+- **pandas**: `pandas<3.0` always; `pandas>=3.0` additionally on
+  Python ≥ 3.11
+- **Platforms**: 4 (Linux x86_64, Linux arm64, macOS x86_64,
+  macOS arm64)
 
-## Code Contributions
+To reproduce CI locally:
 
-```{todo} Please include a reference or explanation about the internals of the project.
-
-   An architecture description, design principles or at least a summary of the
-   main concepts will make it easy for potential contributors to get started
-   quickly.
+```bash
+ruff check datastore --statistics
+cd datastore && python -m pytest tests/ -v --tb=short -x
 ```
 
-### Submit an issue
+## Security
 
-Before you work on any non-trivial code contribution it's best to first create
-a report in the [issue tracker] to start a discussion on the subject.
-This often provides additional considerations and avoids unnecessary work.
+- No secrets in test fixtures (see "Keep secrets out of test
+  fixtures" above).
+- Capture stack traces for engine crashes.
+- Report security issues via GitHub Security Advisories on
+  `chdb-io/chdb`, not public issues.
 
-### Create an environment
+## Maintainer release flow
 
-Before you start coding, we recommend creating an isolated [virtual environment]
-to avoid any problems with your installed Python packages.
-This can easily be done via either [virtualenv]:
+Wheels are built by GitHub Actions on tag pushes. The high-level
+steps for a release:
 
-```
-virtualenv <PATH TO VENV>
-source <PATH TO VENV>/bin/activate
-```
+1. Confirm `main` is green across the full CI matrix.
+2. Tag the release commit: `git tag v<version>` and push
+   `git push upstream v<version>`.
+3. The release workflow builds and uploads to PyPI automatically.
 
-or [Miniconda]:
+For ad-hoc local wheels (not a release), `make wheel` produces an
+artefact in `dist/`.
 
-```
-conda create -n chdb python=3 six virtualenv pytest pytest-cov
-conda activate chdb
-```
+## Related files
 
-### Clone the repository
+- [`AGENTS.md`](./AGENTS.md) — chdb-ds design and testing principles
+  (LLM-facing, kept short)
+- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — high-level
+  DataStore architecture
+- [`docs/PANDAS_COMPATIBILITY.md`](./docs/PANDAS_COMPATIBILITY.md)
+- User docs: <https://chdb.readthedocs.io/en/latest/index.html>
 
-1. Create an user account on GitHub if you do not already have one.
-
-2. Fork the project [repository]: click on the *Fork* button near the top of the
-   page. This creates a copy of the code under your account on GitHub.
-
-3. Clone this copy to your local disk:
-
-   ```
-   git clone git@github.com:YourLogin/chdb.git
-   cd chdb
-   ```
-
-4. You should run:
-
-   ```
-   pip install -U pip setuptools -e .
-   ```
-
-   to be able to import the package under development in the Python REPL.
-
-   ```{todo} if you are not using pre-commit, please remove the following item:
-   ```
-
-5. Install [pre-commit]:
-
-   ```
-   pip install pre-commit
-   pre-commit install
-   ```
-
-   `chdb` comes with a lot of hooks configured to automatically help the
-   developer to check the code being written.
-
-### Implement your changes
-
-1. Create a branch to hold your changes:
-
-   ```
-   git checkout -b my-feature
-   ```
-
-   and start making changes. Never work on the main branch!
-
-2. Start your work on this branch. Don't forget to add [docstrings] to new
-   functions, modules and classes, especially if they are part of public APIs.
-
-3. Add yourself to the list of contributors in `AUTHORS.rst`.
-
-4. When you’re done editing, do:
-
-   ```
-   git add <MODIFIED FILES>
-   git commit
-   ```
-
-   to record your changes in [git].
-
-   ```{todo} if you are not using pre-commit, please remove the following item:
-   ```
-
-   Please make sure to see the validation messages from [pre-commit] and fix
-   any eventual issues.
-   This should automatically use [flake8]/[black] to check/fix the code style
-   in a way that is compatible with the project.
-
-   :::{important}
-   Don't forget to add unit tests and documentation in case your
-   contribution adds an additional feature and is not just a bugfix.
-
-   Moreover, writing a [descriptive commit message] is highly recommended.
-   In case of doubt, you can check the commit history with:
-
-   ```
-   git log --graph --decorate --pretty=oneline --abbrev-commit --all
-   ```
-
-   to look for recurring communication patterns.
-   :::
-
-5. Please check that your changes don't break any unit tests with:
-
-   ```
-   tox
-   ```
-
-   (after having installed [tox] with `pip install tox` or `pipx`).
-
-   You can also use [tox] to run several other pre-configured tasks in the
-   repository. Try `tox -av` to see a list of the available checks.
-
-### Submit your contribution
-
-1. If everything works fine, push your local branch to the remote server with:
-
-   ```
-   git push -u origin my-feature
-   ```
-
-2. Go to the web page of your fork and click "Create pull request"
-   to send your changes for review.
-
-   ```{todo} if you are using GitHub, you can uncomment the following paragraph
-
-      Find more detailed information in [creating a PR]. You might also want to open
-      the PR as a draft first and mark it as ready for review after the feedbacks
-      from the continuous integration (CI) system or any required fixes.
-
-   ```
-
-### Troubleshooting
-
-The following tips can be used when facing problems to build or test the
-package:
-
-1. Make sure to fetch all the tags from the upstream [repository].
-   The command `git describe --abbrev=0 --tags` should return the version you
-   are expecting. If you are trying to run CI scripts in a fork repository,
-   make sure to push all the tags.
-   You can also try to remove all the egg files or the complete egg folder, i.e.,
-   `.eggs`, as well as the `*.egg-info` folders in the `src` folder or
-   potentially in the root of your project.
-
-2. Sometimes [tox] misses out when new dependencies are added, especially to
-   `setup.cfg` and `docs/requirements.txt`. If you find any problems with
-   missing dependencies when running a command with [tox], try to recreate the
-   `tox` environment using the `-r` flag. For example, instead of:
-
-   ```
-   tox -e docs
-   ```
-
-   Try running:
-
-   ```
-   tox -r -e docs
-   ```
-
-3. Make sure to have a reliable [tox] installation that uses the correct
-   Python version (e.g., 3.7+). When in doubt you can run:
-
-   ```
-   tox --version
-   # OR
-   which tox
-   ```
-
-   If you have trouble and are seeing weird errors upon running [tox], you can
-   also try to create a dedicated [virtual environment] with a [tox] binary
-   freshly installed. For example:
-
-   ```
-   virtualenv .venv
-   source .venv/bin/activate
-   .venv/bin/pip install tox
-   .venv/bin/tox -e all
-   ```
-
-4. [Pytest can drop you] in an interactive session in the case an error occurs.
-   In order to do that you need to pass a `--pdb` option (for example by
-   running `tox -- -k <NAME OF THE FALLING TEST> --pdb`).
-   You can also setup breakpoints manually instead of using the `--pdb` option.
-
-## Maintainer tasks
-
-### Releases
-
-```{todo} This section assumes you are using PyPI to publicly release your package.
-
-   If instead you are using a different/private package index, please update
-   the instructions accordingly.
-```
-
-If you are part of the group of maintainers and have correct user permissions
-on [PyPI], the following steps can be used to release a new version for
-`chdb`:
-
-1. Make sure all unit tests are successful.
-2. Tag the current commit on the main branch with a release tag, e.g., `v1.2.3`.
-3. Push the new tag to the upstream [repository],
-   e.g., `git push upstream v1.2.3`
-4. Clean up the `dist` and `build` folders with `tox -e clean`
-   (or `rm -rf dist build`)
-   to avoid confusion with old builds and Sphinx docs.
-5. Run `tox -e build` and check that the files in `dist` have
-   the correct version (no `.dirty` or [git] hash) according to the [git] tag.
-   Also check the sizes of the distributions, if they are too big (e.g., >
-   500KB), unwanted clutter may have been accidentally included.
-6. Run `tox -e publish -- --repository pypi` and check that everything was
-   uploaded to [PyPI] correctly.
-
-[^contrib1]: Even though, these resources focus on open source projects and
-    communities, the general ideas behind collaborating with other developers
-    to collectively create software are general and can be applied to all sorts
-    of environments, including private companies and proprietary code bases.
-
-
-[black]: https://pypi.org/project/black/
-[commonmark]: https://commonmark.org/
-[contribution-guide.org]: http://www.contribution-guide.org/
-[creating a pr]: https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request
-[descriptive commit message]: https://chris.beams.io/posts/git-commit
-[docstrings]: https://www.sphinx-doc.org/en/master/usage/extensions/napoleon.html
-[first-contributions tutorial]: https://github.com/firstcontributions/first-contributions
-[flake8]: https://flake8.pycqa.org/en/stable/
-[git]: https://git-scm.com
-[github web interface]: https://docs.github.com/en/github/managing-files-in-a-repository/managing-files-on-github/editing-files-in-your-repository
-[github's code editor]: https://docs.github.com/en/github/managing-files-in-a-repository/managing-files-on-github/editing-files-in-your-repository
-[github's fork and pull request workflow]: https://guides.github.com/activities/forking/
-[guide created by freecodecamp]: https://github.com/freecodecamp/how-to-contribute-to-open-source
-[miniconda]: https://docs.conda.io/en/latest/miniconda.html
-[myst]: https://myst-parser.readthedocs.io/en/latest/syntax/syntax.html
-[other kinds of contributions]: https://opensource.guide/how-to-contribute
-[pre-commit]: https://pre-commit.com/
-[pypi]: https://pypi.org/
-[pyscaffold's contributor's guide]: https://pyscaffold.org/en/stable/contributing.html
-[pytest can drop you]: https://docs.pytest.org/en/stable/usage.html#dropping-to-pdb-python-debugger-at-the-start-of-a-test
-[python software foundation's code of conduct]: https://www.python.org/psf/conduct/
-[restructuredtext]: https://www.sphinx-doc.org/en/master/usage/restructuredtext/
-[sphinx]: https://www.sphinx-doc.org/en/master/
-[tox]: https://tox.readthedocs.io/en/stable/
-[virtual environment]: https://realpython.com/python-virtual-environments-a-primer/
-[virtualenv]: https://virtualenv.pypa.io/en/stable/
-
-
-```{todo} Please review and change the following definitions:
-```
-
-[repository]: https://github.com/chdb-io/chdb
-[issue tracker]: https://github.com/chdb-io/chdb/issues
+When asked to *use* chDB, the readthedocs site is canonical. When
+asked to *contribute to* chDB, this file is canonical.

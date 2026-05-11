@@ -1,2 +1,3 @@
 sphinx>=1.3
 sphinx-rtd-theme
+sphinx-markdown-builder  # for `make docs-md`
