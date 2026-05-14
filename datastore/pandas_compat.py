@@ -134,31 +134,47 @@ class DataStoreLocIndexer:
         self._datastore = datastore
 
     def _convert_key(self, key):
-        """Convert ColumnExpr or tuple with ColumnExpr to pandas types."""
-        from .column_expr import ColumnExpr
-        from .lazy_result import LazyCondition
+        """Convert any chdb-ds boolean-like node in the key into something
+        vanilla ``pandas.loc[]`` can consume (a boolean Series, or a pandas
+        ``Expression`` that pandas itself knows how to evaluate).
 
-        # Translate pd.col(...) up front so downstream sees chdb-ds.
+        Used by both the read fallback path in ``__getitem__`` (when
+        ``_can_pushdown_condition`` is False) and by ``__setitem__`` (which
+        has no SQL pushdown path at all). After ``_translate_pd_col_in_key``
+        the row key may now be a raw chdb-ds ``Condition`` (from a translated
+        ``pd.col`` expression) or a ``PandasFallbackExpr`` (untranslatable
+        chain like ``.astype`` / ``np.log``) — both used to leak straight
+        through and trip ``InvalidIndexError`` / ``KeyError`` in pandas.
+        """
+        from .column_expr import ColumnExpr
+        from .conditions import Condition
+        from .lazy_result import LazyCondition
+        from .pandas_col_compat import PandasFallbackExpr
+
         key = _translate_pd_col_in_key(key)
 
-        # Handle single ColumnExpr key (boolean indexing)
-        if isinstance(key, ColumnExpr):
-            # Execute to get the underlying Series
-            return key._execute()
-        elif isinstance(key, LazyCondition):
-            return key._to_series()
+        def _materialize_row(node):
+            if isinstance(node, ColumnExpr):
+                return node._execute()
+            if isinstance(node, LazyCondition):
+                return node._execute()
+            if isinstance(node, Condition):
+                from .expression_evaluator import ExpressionEvaluator
 
-        # Handle tuple (row_indexer, column_indexer)
+                df = self._datastore._execute()
+                return ExpressionEvaluator(df, self._datastore).evaluate(node)
+            if isinstance(node, PandasFallbackExpr):
+                return node.original
+            return node
+
+        if isinstance(
+            key, (ColumnExpr, LazyCondition, Condition, PandasFallbackExpr)
+        ):
+            return _materialize_row(key)
+
         if isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
-
-            # Convert row key if it's a ColumnExpr
-            if isinstance(row_key, ColumnExpr):
-                row_key = row_key._execute()
-            elif isinstance(row_key, LazyCondition):
-                row_key = row_key._to_series()
-
-            return (row_key, col_key)
+            return (_materialize_row(row_key), col_key)
 
         return key
 

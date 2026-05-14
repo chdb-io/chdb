@@ -234,6 +234,32 @@ class TestDataStoreLocMirrorsPandas(unittest.TestCase):
         ds_out = self.ds.loc[pd.col("speed") > 105, ["name", "age"]]
         assert_datastore_equals_pandas(ds_out, pd_out)
 
+    def test_loc_with_compound_pd_col_condition_and_column_subset(self):
+        # Covers the ``(Expression, list[str])`` tuple branch with a compound
+        # ``&`` condition, ensuring both halves of the AND are pushed down
+        # together with the SELECT projection.
+        pd_out = self.df.loc[
+            (pd.col("age") >= 18) & (pd.col("speed") < 130),
+            ["name", "age"],
+        ]
+        ds_out = self.ds.loc[
+            (pd.col("age") >= 18) & (pd.col("speed") < 130),
+            ["name", "age"],
+        ]
+        assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_loc_with_pd_col_condition_and_single_str_column(self):
+        # Covers the ``isinstance(col_key, str)`` branch in
+        # ``DataStoreLocIndexer.__getitem__`` which wraps the str into
+        # ``[col_key]`` before emitting the SELECT op. pandas returns a
+        # Series here while chdb-ds returns a single-column DataStore — the
+        # design rule is "don't obsess over container differences", so we
+        # compare the underlying values mirror-style.
+        pd_out = self.df.loc[pd.col("speed") > 105, "name"]
+        ds_out = self.ds.loc[pd.col("speed") > 105, "name"]
+        ds_df = ds_out._execute() if hasattr(ds_out, "_execute") else ds_out
+        self.assertEqual(list(ds_df["name"]), list(pd_out))
+
 
 class TestDataStoreFilterMirrorsPandas(unittest.TestCase):
 
@@ -371,6 +397,23 @@ class TestPandasFallbackForUntranslatableExpressions(unittest.TestCase):
         # routes through a CAST path.
         self.assertEqual(str(df_out["age_f"].dtype), "float64")
 
+    def test_loc_tuple_with_astype_falls_back_to_pandas(self):
+        # ``ds.loc[pd.col(...).astype(...) > X, [cols]]`` must produce the
+        # same rows pandas does, *without* emitting ``CAST(...)`` in any
+        # executed SQL — i.e. the fallback path has to handle the tuple
+        # shape too, not just the bare-key shape covered by
+        # ``test_getitem_with_astype_falls_back_to_pandas``.
+        pd_out = self.df.loc[
+            pd.col("age").astype(float) > 21, ["name", "age"]
+        ]
+        result, sqls = _capture_executed_sql(
+            lambda: DataStore(self.df.copy()).loc[
+                pd.col("age").astype(float) > 21, ["name", "age"]
+            ]
+        )
+        assert_datastore_equals_pandas(result, pd_out)
+        self._assert_no_sql_fragment(sqls, 'CAST("age"')
+
 
 # ---------------------------------------------------------------------------
 # 3. Pushdown verification — assert generated SQL contains the right fragments
@@ -451,6 +494,95 @@ class TestPushdownSqlFragments(unittest.TestCase):
         self._assert_any_sql_contains(
             sqls, '("age" >= 18 AND "speed" < 130)'
         )
+
+    def test_loc_tuple_pushes_down_where_and_select_columns(self):
+        # ``ds.loc[pd.col(...) > X, [cols]]`` must produce ONE SQL query
+        # that contains BOTH the WHERE clause AND the explicit column
+        # projection — not ``SELECT *`` followed by an in-memory column
+        # subset. Mirror-result equality (covered elsewhere) cannot
+        # distinguish these two; only SQL-level inspection can.
+        _, sqls = _capture_executed_sql(
+            lambda: DataStore(self.df.copy()).loc[
+                pd.col("speed") > 105, ["name", "age"]
+            ]
+        )
+        joined = "\n".join(sqls) or "(no SQL captured)"
+        self._assert_any_sql_contains(
+            sqls, 'WHERE "speed" > 105', label="loc tuple: "
+        )
+        # Pushed-down SELECT must list both columns by name.
+        has_projection = any(
+            'SELECT' in s.upper() and '"name"' in s and '"age"' in s
+            for s in sqls
+        )
+        self.assertTrue(
+            has_projection,
+            msg=(
+                "Expected SELECT projection with both \"name\" and \"age\" "
+                f"in one SQL, got:\n{joined}"
+            ),
+        )
+        # Negative: the WHERE-bearing SQL must NOT be ``SELECT *``, which
+        # would mean projection pushdown silently failed.
+        for s in sqls:
+            if 'WHERE "speed" > 105' in s:
+                self.assertNotIn(
+                    'SELECT *',
+                    s,
+                    msg=(
+                        "WHERE got pushed but projection did not — "
+                        f"SELECT * leaks the full row width:\n{s}"
+                    ),
+                )
+
+    def test_loc_tuple_with_single_str_col_pushes_down(self):
+        # ``ds.loc[pd.col(...) > X, "name"]`` (col selector as a bare str)
+        # goes through the ``if isinstance(col_key, str): col_key = [col_key]``
+        # branch and should still produce a SQL with both the WHERE clause
+        # and the single-column projection.
+        _, sqls = _capture_executed_sql(
+            lambda: DataStore(self.df.copy()).loc[
+                pd.col("speed") > 105, "name"
+            ]
+        )
+        joined = "\n".join(sqls) or "(no SQL captured)"
+        self._assert_any_sql_contains(
+            sqls, 'WHERE "speed" > 105', label="loc str col: "
+        )
+        self.assertTrue(
+            any('SELECT' in s.upper() and '"name"' in s for s in sqls),
+            msg=f'Expected SELECT "name" in SQL, got:\n{joined}',
+        )
+
+
+# ---------------------------------------------------------------------------
+# 3.5 ``ds.loc[pd.col(...), col] = value`` — setitem must mirror pandas
+# ---------------------------------------------------------------------------
+
+
+class TestLocSetItemWithPdCol(unittest.TestCase):
+    """``ds.loc[pd.col(...) > X, "col"] = value`` should assign through to
+    the underlying DataFrame just like pandas does. There is no SQL
+    pushdown for setitem, so this exercises the ``_convert_key`` →
+    pandas-loc fallback path with a translated chdb-ds Condition as the
+    row key.
+    """
+
+    def setUp(self):
+        self.df = _sample_df()
+
+    def test_loc_setitem_with_pd_col_condition_assigns_correctly(self):
+        pd_df = self.df.copy()
+        pd_df.loc[pd.col("speed") > 105, "name"] = "FAST"
+
+        ds = DataStore(self.df.copy())
+        ds.loc[pd.col("speed") > 105, "name"] = "FAST"
+
+        ds_df = ds._execute() if hasattr(ds, "_execute") else ds
+        self.assertEqual(list(ds_df["name"]), list(pd_df["name"]))
+        # Untouched columns must remain identical, including row order.
+        self.assertEqual(list(ds_df["age"]), list(pd_df["age"]))
+        self.assertEqual(list(ds_df["speed"]), list(pd_df["speed"]))
 
 
 # ---------------------------------------------------------------------------
