@@ -536,6 +536,14 @@ class Expression(Node):
         # ClickHouse uses quantile(level)(column) syntax
         return Function(f"quantile({level})", self, alias=alias)
 
+    # Opt out of numpy ufunc dispatch entirely. Without this, numpy falls
+    # back to calling same-named methods (Field.log injected by
+    # FunctionRegistry, Field.sqrt, etc.), which silently pushes
+    # ``np.log(pd.col('x'))`` to a ClickHouse log() call instead of letting
+    # pandas own the semantics. Setting it to ``None`` makes numpy raise
+    # TypeError; the pd.col translator catches it and wraps the original
+    # expression in PandasFallbackExpr so the pandas segment evaluates it.
+    __array_ufunc__ = None
 
 class Field(Expression):
     """

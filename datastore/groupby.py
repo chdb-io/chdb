@@ -205,6 +205,23 @@ class LazyGroupBy:
         """
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...).agg_fn()`` values into chdb-ds
+        # AggregateFunction nodes; otherwise the has_sql_agg / has_named_agg
+        # checks below miss them and the kwargs are silently dropped.
+        if kwargs:
+            kwargs = {
+                alias: (
+                    translate_pandas_expression(value)
+                    if is_pandas_col_expression(value)
+                    else value
+                )
+                for alias, value in kwargs.items()
+            }
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())

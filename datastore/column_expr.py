@@ -5818,6 +5818,62 @@ class ColumnExpr:
             method_kwargs=dict(copy=copy, errors=errors),
         )
 
+    def case_when(self, caselist) -> "ColumnExpr":
+        """Pandas-style ``Series.case_when``: replace values where any
+        condition is True, otherwise keep this column's value.
+
+        Mirrors :meth:`pandas.Series.case_when` but routes through
+        :class:`CaseWhenExpr` (compiles to ``CASE WHEN ... END``) and
+        accepts ``pd.col(...)`` in conditions/replacements. pandas 3.0.3's
+        own ``Series.case_when`` crashes on ``pd.col`` input.
+
+        Args:
+            caselist: list of ``(condition, replacement)`` tuples. Each
+                side may be a ``pd.col(...)``, a chdb-ds
+                ``Condition`` / ``ColumnExpr``, or a scalar.
+
+        Example:
+            >>> bucket = ds["revenue"].case_when([
+            ...     (pd.col("revenue") < 25, "small"),
+            ...     (pd.col("revenue") < 45, "medium"),
+            ...     (pd.col("revenue") >= 45, "large"),
+            ... ])
+        """
+        from .case_when import CaseWhenExpr
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if not isinstance(caselist, list):
+            raise TypeError(
+                f"case_when expects a list of (condition, replacement) tuples, "
+                f"got {type(caselist).__name__}"
+            )
+
+        translated_cases = []
+        for i, entry in enumerate(caselist):
+            if not isinstance(entry, tuple) or len(entry) != 2:
+                raise ValueError(
+                    f"case_when entry {i} must be a (condition, replacement) "
+                    f"tuple of length 2, got {entry!r}"
+                )
+            cond, repl = entry
+            if is_pandas_col_expression(cond):
+                cond = translate_pandas_expression(cond)
+            if is_pandas_col_expression(repl):
+                repl = translate_pandas_expression(repl)
+            translated_cases.append((cond, repl))
+
+        # ELSE = self, matching pandas Series.case_when semantics.
+        default = self._expr if self._expr is not None else self
+        expr = CaseWhenExpr(
+            cases=translated_cases,
+            default=default,
+            datastore=self._datastore,
+        )
+        return ColumnExpr(expr=expr, datastore=self._datastore)
+
     def sort_values(
         self,
         axis=0,
