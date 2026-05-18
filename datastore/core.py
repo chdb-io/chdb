@@ -5638,6 +5638,8 @@ class DataStore(PandasCompatMixin):
 
         from .pandas_col_compat import PandasFallbackExpr
 
+        from .case_when import CaseWhenExpr
+
         for alias, expr in kwargs.items():
             if isinstance(expr, PandasFallbackExpr):
                 # pd.col(...).astype/np.log/etc.: not SQL-pushable, not a
@@ -5655,6 +5657,18 @@ class DataStore(PandasCompatMixin):
                 else:
                     # Fallback: execute and use result
                     pandas_kwargs[alias] = expr._execute()
+            elif (
+                isinstance(expr, CaseWhenExpr)
+                and expr.contains_pandas_fallback()
+            ):
+                # Bare CaseWhenExpr from ``ds.when(pd.col(...).astype(...))...``
+                # — has the same SQL-serialization problem as the
+                # ColumnExpr-wrapped case above (caught via is_pandas_only).
+                # Wrap in a ColumnExpr so the planner segments it through
+                # ExpressionEvaluator, same as the ColumnExpr branch.
+                pandas_kwargs[alias] = ColumnExpr(
+                    expr=expr, datastore=self
+                )._execute()
             elif isinstance(expr, (Function, Expression)):
                 sql_kwargs[alias] = expr
             else:

@@ -73,12 +73,41 @@ class Expression(Node):
 
         - Expression -> return as-is
         - ColumnExpr -> extract underlying expression
+        - pd.col(...) (pandas 3.x) -> translate to chdb-ds expression
         - None -> Literal(None)
         - list/tuple -> handle specially
         - other -> Literal(value)
         """
         if isinstance(value, Expression):
             return value
+
+        # pandas 3.x ``pd.col(...)`` interop: translate so users can mix
+        # ``ds['a'] + pd.col('b')`` etc. Untranslatable chains (``.astype``,
+        # ``np.log``, ...) come back as PandasFallbackExpr — there is no
+        # safe way to combine those with a chdb-ds expression tree (the
+        # combined node would have to be evaluated entirely in pandas, and
+        # we'd lose the SQL pushdown on the chdb-ds side). Raise a clear
+        # error pointing at the workaround instead of silently emitting a
+        # broken SQL fragment from str(value).
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+            PandasFallbackExpr,
+        )
+
+        if is_pandas_col_expression(value):
+            translated = translate_pandas_expression(value)
+            if isinstance(translated, Expression):
+                return translated
+            if isinstance(translated, PandasFallbackExpr):
+                raise TypeError(
+                    "Cannot combine a chdb-ds expression with an "
+                    "untranslatable pd.col(...) chain (e.g. .astype, "
+                    "numpy ufunc, .apply). Pre-materialize the chain "
+                    "first, then combine: "
+                    "``ds = ds.assign(tmp=pd.col('x').astype(int)); "
+                    "ds['y'] + ds['tmp']``."
+                )
 
         # Handle ColumnExpr (uses composition, not inheritance)
         # Import here to avoid circular imports

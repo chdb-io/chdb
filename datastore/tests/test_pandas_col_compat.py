@@ -182,6 +182,71 @@ class TestTranslatorUnit(unittest.TestCase):
         translated = translate_pandas_expression(bad)
         self.assertIsInstance(translated, PandasFallbackExpr)
 
+    def test_chained_str_accessor_pushes_down(self):
+        # Multi-step str accessor chains (lower -> strip) must compose into
+        # a single ClickHouse function tree, not dump to fallback. Mirrors
+        # how SQL builder will see the translated tree.
+        sql = translate_pandas_expression(
+            pd.col("name").str.lower().str.strip()
+        ).to_sql()
+        # Both transforms must appear; exact wrapping order matches how
+        # chdb-ds composes Function nodes.
+        self.assertIn("lower", sql)
+        self.assertIn("trim", sql)
+        self.assertIn('"name"', sql)
+
+    def test_dt_year_plus_literal_composes_arithmetic_and_function(self):
+        # ``pd.col("d").dt.year + 2000`` is a function-then-arithmetic
+        # composition — exercises that translated DateTimePropertyExpr
+        # nodes still feed cleanly into arithmetic translation.
+        sql = translate_pandas_expression(pd.col("d").dt.year + 2000).to_sql()
+        self.assertIn("toYear", sql)
+        self.assertIn("+2000", sql.replace(" ", ""))
+
+
+class TestNumpyUfuncOptOut(unittest.TestCase):
+    """``Expression.__array_ufunc__ = None`` is set on the chdb-ds side
+    (expressions.py:539) to stop numpy from silently dispatching
+    ``np.log(...)`` to a same-named method injected by FunctionRegistry
+    (which would push a SQL ``log()`` call). Verify the opt-out actually
+    disables ufunc dispatch for *both* raw Field nodes and translated
+    pd.col expressions; without it, ``assign(y=np.log(pd.col("x")))``
+    would silently route through SQL instead of pandas.
+    """
+
+    def test_np_log_on_raw_field_raises_typeerror(self):
+        f = Field("x")
+        with self.assertRaises(TypeError):
+            np.log(f)
+
+    def test_np_sqrt_on_raw_field_raises_typeerror(self):
+        f = Field("x")
+        with self.assertRaises(TypeError):
+            np.sqrt(f)
+
+    def test_np_log_on_arithmetic_expression_raises_typeerror(self):
+        # ``__array_ufunc__`` set on the base ``Expression`` class must
+        # propagate to ``ArithmeticExpression`` subclass too.
+        expr = Field("x") + 1
+        with self.assertRaises(TypeError):
+            np.log(expr)
+
+    def test_np_log_on_translated_pd_col_returns_pandas_fallback(self):
+        # ``np.log(pd.col("x"))`` symbolic-evals via pd.col's ufunc
+        # protocol; chdb-ds's opt-out propagates here too, the translator
+        # catches the TypeError and wraps the original expression. This is
+        # what makes ``assign(y=np.log(pd.col("x")))`` pandas-correct.
+        from datastore.pandas_col_compat import PandasFallbackExpr
+
+        translated = translate_pandas_expression(np.log(pd.col("x")))
+        self.assertIsInstance(translated, PandasFallbackExpr)
+
+    def test_np_sqrt_on_translated_pd_col_returns_pandas_fallback(self):
+        from datastore.pandas_col_compat import PandasFallbackExpr
+
+        translated = translate_pandas_expression(np.sqrt(pd.col("x")))
+        self.assertIsInstance(translated, PandasFallbackExpr)
+
 
 # ---------------------------------------------------------------------------
 # 2. DataStore correctness tests — mirror pandas, compare results
@@ -214,6 +279,38 @@ class TestDataStoreGetitemMirrorsPandas(unittest.TestCase):
         pd_out = self.df.loc[~(pd.col("age") < 18)]
         ds_out = self.ds[~(pd.col("age") < 18)]
         assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_bare_pd_col_field_in_getitem_equals_string_indexing(self):
+        # Covers ``__getitem__`` line ~6398: ``if isinstance(translated, Field):
+        # return self[translated.name]``. ``ds[pd.col('name')]`` should be the
+        # same shape as ``ds['name']`` — pandas treats ``df[pd.col('name')]``
+        # as a column selector, and chdb-ds normalizes through that branch.
+        ds_via_pd_col = self.ds[pd.col("name")]
+        ds_via_string = self.ds["name"]
+        # Compare materialized values rather than container types — both
+        # paths must yield the same column data.
+        a = ds_via_pd_col._execute() if hasattr(ds_via_pd_col, "_execute") else ds_via_pd_col
+        b = ds_via_string._execute() if hasattr(ds_via_string, "_execute") else ds_via_string
+        if hasattr(a, "tolist"):
+            self.assertEqual(a.tolist(), b.tolist() if hasattr(b, "tolist") else list(b))
+        else:
+            self.assertEqual(list(a["name"]), list(b["name"]) if "name" in getattr(b, "columns", []) else list(b))
+
+    def test_comparison_between_two_pd_col_columns_pushes_down(self):
+        # ``ds[pd.col('a') > pd.col('b')]`` — both sides are translated to
+        # Field nodes and the result is a chdb-ds BinaryCondition that must
+        # push as ``WHERE "speed" > "age"``, not silently materialize.
+        self.df["over"] = self.df["speed"] - self.df["age"]
+        pd_out = self.df.loc[pd.col("speed") > pd.col("age")]
+        ds = DataStore(self.df.copy())
+        result, sqls = _capture_executed_sql(
+            lambda: ds[pd.col("speed") > pd.col("age")]
+        )
+        assert_datastore_equals_pandas(result, pd_out)
+        self.assertTrue(
+            any('WHERE "speed" > "age"' in s for s in sqls),
+            msg=f'Expected WHERE "speed" > "age" in SQL, got:\n{sqls}',
+        )
 
 
 class TestDataStoreLocMirrorsPandas(unittest.TestCase):
@@ -354,6 +451,33 @@ class TestDataStoreAssignMirrorsPandas(unittest.TestCase):
             ds_out, pd_out, check_nullable_dtype=False
         )
 
+    def test_assign_mixed_sql_fallback_and_pandas_kwargs_routes_each_correctly(self):
+        # ``assign`` splits kwargs into three buckets (sql_kwargs /
+        # fallback_kwargs / pandas_kwargs) at core.py:5634. Each bucket alone
+        # is covered elsewhere; this exercises all three together to catch
+        # ordering/state-leak bugs between the buckets.
+        pd_out = self.df.assign(
+            diff=pd.col("speed") - pd.col("age"),
+            log_speed=np.log(pd.col("speed")),
+            doubled=lambda x: x["age"] * 2,
+        )
+        result, sqls = _capture_executed_sql(
+            lambda: DataStore(self.df.copy()).assign(
+                diff=pd.col("speed") - pd.col("age"),
+                log_speed=np.log(pd.col("speed")),
+                doubled=lambda x: x["age"] * 2,
+            )
+        )
+        assert_datastore_equals_pandas(result, pd_out)
+        # SQL bucket must push down arithmetic
+        self.assertTrue(
+            any('("speed"-"age")' in s for s in sqls),
+            msg=f'Expected ("speed"-"age") in SQL, got:\n{sqls}',
+        )
+        # Fallback bucket must NOT push log() to SQL
+        for s in sqls:
+            self.assertNotIn('log("speed")', s)
+
 
 class TestDataStoreWithColumnMirrorsPandas(unittest.TestCase):
 
@@ -364,6 +488,51 @@ class TestDataStoreWithColumnMirrorsPandas(unittest.TestCase):
     def test_with_column_arithmetic(self):
         pd_out = self.df.assign(diff=pd.col("speed") - pd.col("age"))
         ds_out = self.ds.with_column("diff", pd.col("speed") - pd.col("age"))
+        assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_with_column_str_accessor_pushes_down_initcap(self):
+        # Unlike assign(), with_column() goes straight to LazyColumnAssignment
+        # (no three-bucket dispatch). This makes sure the SQL pushdown path
+        # there still recognizes a translated pd.col expression.
+        pd_out = self.df.assign(name_t=pd.col("name").str.title())
+        result, sqls = _capture_executed_sql(
+            lambda: DataStore(self.df.copy()).with_column(
+                "name_t", pd.col("name").str.title()
+            )
+        )
+        assert_datastore_equals_pandas(result, pd_out)
+        # Verify the str.title was actually pushed as initcap, not silently
+        # run through pandas — distinguishing assign and with_column.
+        self.assertTrue(
+            any('initcap("name")' in s for s in sqls),
+            msg=f'Expected initcap("name") in SQL, got:\n{sqls}',
+        )
+
+    def test_with_column_np_log_falls_back_to_pandas(self):
+        # PR wires translate_pandas_expression into with_column but only the
+        # arithmetic-SQL path was covered. with_column has no dedicated
+        # fallback branch (unlike assign's three-bucket dispatch) — it relies
+        # on LazyColumnAssignment._is_pandas_only_function recognizing
+        # PandasFallbackExpr and forcing the pandas segment. Lock that in.
+        pd_out = self.df.assign(log_speed=np.log(pd.col("speed")))
+        result, sqls = _capture_executed_sql(
+            lambda: DataStore(self.df.copy()).with_column(
+                "log_speed", np.log(pd.col("speed"))
+            )
+        )
+        assert_datastore_equals_pandas(result, pd_out)
+        for s in sqls:
+            self.assertNotIn('log("speed")', s)
+
+    def test_with_column_astype_falls_back_and_preserves_float_dtype(self):
+        # astype(float) must yield numpy float64 (pandas semantics), not the
+        # Float64/Int64 dance a SQL CAST would produce. Catches regressions
+        # where with_column accidentally routes astype through SQL.
+        ds_out = self.ds.with_column("age_f", pd.col("age").astype(float))
+        df_out = ds_out._execute() if hasattr(ds_out, "_execute") else ds_out
+        self.assertEqual(str(df_out["age_f"].dtype), "float64")
+        # Values themselves must match pandas exactly.
+        pd_out = self.df.assign(age_f=pd.col("age").astype(float))
         assert_datastore_equals_pandas(ds_out, pd_out)
 
 
@@ -608,6 +777,21 @@ class TestLocSetItemWithPdCol(unittest.TestCase):
         self.assertEqual(list(ds_df["age"]), list(pd_df["age"]))
         self.assertEqual(list(ds_df["speed"]), list(pd_df["speed"]))
 
+    def test_loc_setitem_with_pd_col_astype_fallback_assigns_correctly(self):
+        # ``_convert_key`` has a dedicated PandasFallbackExpr -> original
+        # branch at pandas_compat.py:_convert_key. Without it,
+        # ``ds.loc[pd.col(...).astype(...) > X, "col"] = value`` would leak
+        # the opaque wrapper into pandas-loc and raise InvalidIndexError.
+        pd_df = self.df.copy()
+        pd_df.loc[pd.col("speed").astype(int) > 105, "name"] = "FAST"
+
+        ds = DataStore(self.df.copy())
+        ds.loc[pd.col("speed").astype(int) > 105, "name"] = "FAST"
+
+        ds_df = ds._execute() if hasattr(ds, "_execute") else ds
+        self.assertEqual(list(ds_df["name"]), list(pd_df["name"]))
+        self.assertEqual(list(ds_df["speed"]), list(pd_df["speed"]))
+
 
 # ---------------------------------------------------------------------------
 # 4. Regression: original bugs we fixed should stay fixed
@@ -647,6 +831,7 @@ class TestUnsupportedUsage(unittest.TestCase):
 
     def setUp(self):
         self.ds = DataStore(_sample_df())
+        self.df = _sample_df()
 
     def test_unknown_method_on_pd_col_falls_back_to_pandas(self):
         # Unknown methods on Field cannot be translated to SQL, so the
@@ -662,6 +847,152 @@ class TestUnsupportedUsage(unittest.TestCase):
         # semantics — surface a TypeError with a hint.
         with self.assertRaises(TypeError):
             _ = self.ds[pd.col("name").str.lower()]
+
+    # ------------------------------------------------------------------
+    # Methods where ``pd.col(...)`` is unsupported by pandas itself.
+    # We mirror that rejection — chdb-ds should not silently accept a
+    # pd.col where pandas refuses it (would diverge from the "pandas-
+    # parity" promise) and should not silently produce malformed SQL.
+    # ------------------------------------------------------------------
+
+    def test_fillna_with_pd_col_value_mirrors_pandas_rejection(self):
+        # pandas 3.0.3: ``df.fillna(value=pd.col('x'))`` raises TypeError
+        # ("boolean value of an expression is ambiguous") because
+        # ``fillna`` boolean-checks ``value``. chdb-ds must not pretend
+        # to support what pandas itself rejects.
+        with self.assertRaises(TypeError):
+            self.df.fillna(value=pd.col("speed"))
+        with self.assertRaises((TypeError, ValueError, NotImplementedError)):
+            self.ds.fillna(value=pd.col("speed"))
+
+    def test_drop_duplicates_with_pd_col_subset_mirrors_pandas_rejection(self):
+        # pandas 3.0.3: ``df.drop_duplicates(subset=pd.col(...))`` raises
+        # TypeError ("unhashable type: 'Expression'") because subset
+        # entries get stuffed into a set. chdb-ds mirrors.
+        with self.assertRaises(TypeError):
+            self.df.drop_duplicates(subset=pd.col("name"))
+        with self.assertRaises((TypeError, KeyError, NotImplementedError)):
+            self.ds.drop_duplicates(subset=pd.col("name"))
+
+    def test_set_index_with_pd_col_mirrors_pandas_rejection(self):
+        # pandas 3.0.3: ``df.set_index(pd.col(...))`` raises TypeError
+        # ("may be a column key... Received column of type
+        # <class 'pandas.api.typing.Expression'>"). chdb-ds mirrors.
+        with self.assertRaises(TypeError):
+            self.df.set_index(pd.col("name"))
+        with self.assertRaises((TypeError, KeyError, NotImplementedError)):
+            self.ds.set_index(pd.col("name"))
+
+
+# ---------------------------------------------------------------------------
+# 5b. Mixing ColumnExpr (``ds[col]``) and ``pd.col`` in one expression
+# ---------------------------------------------------------------------------
+
+
+class TestMixingColumnExprAndPdCol(unittest.TestCase):
+    """Users naturally interleave ``ds['x']`` (chdb-ds) and ``pd.col('x')``
+    (pandas 3.x). Used to crash:
+
+      * ``(ds['x'] > N) & (pd.col('y') < M)`` — ``ColumnExpr.__and__`` raised
+        ``TypeError: Cannot AND ColumnExpr with Expression``.
+      * ``ds['a'] + pd.col('b')`` — ``Expression.wrap`` didn't know about
+        pd.col and emitted ``'col(\\'b\\')'`` as a SQL string literal,
+        which ClickHouse rejected with a syntax error.
+
+    Both binary-op chains now translate the pd.col operand at the entry
+    point and route through SQL pushdown (or raise a clear error for
+    untranslatable chains).
+
+    Note: pandas 3.0.3 itself rejects ``(pd.Series & pd.col_expr)`` with
+    "boolean value of an expression is ambiguous", so we can't always
+    mirror against pandas — these tests hand-compute the expected result.
+    """
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {"revenue": [10, 20, 30, 40, 50], "qty": [1, 2, 3, 4, 5]}
+        )
+        self.ds = DataStore(self.df.copy())
+
+    def test_and_mixing_columnexpr_and_pd_col_pushes_down(self):
+        result, sqls = _capture_executed_sql(
+            lambda: self.ds.filter(
+                (self.ds["revenue"] > 15) & (pd.col("qty") < 5)
+            )
+        )
+        self.assertEqual(result["revenue"].tolist(), [20, 30, 40])
+        self.assertEqual(result["qty"].tolist(), [2, 3, 4])
+        joined = "\n".join(sqls)
+        self.assertIn('"revenue" > 15', joined)
+        self.assertIn('"qty" < 5', joined)
+
+    def test_or_mixing_columnexpr_and_pd_col_pushes_down(self):
+        result, sqls = _capture_executed_sql(
+            lambda: self.ds.filter(
+                (self.ds["revenue"] > 40) | (pd.col("qty") < 3)
+            )
+        )
+        self.assertEqual(result["revenue"].tolist(), [10, 20, 50])
+        joined = "\n".join(sqls)
+        self.assertIn('"revenue" > 40', joined)
+        self.assertIn('"qty" < 3', joined)
+
+    def test_reverse_and_pd_col_left_columnexpr_right(self):
+        # __rand__ path: pandas Expression evaluates ``__and__`` first and
+        # delegates back to ColumnExpr via Python's reflected operator.
+        result = self.ds.filter(
+            (pd.col("qty") < 5) & (self.ds["revenue"] > 15)
+        )._execute()
+        self.assertEqual(result["revenue"].tolist(), [20, 30, 40])
+
+    def test_arithmetic_mixing_columnexpr_and_pd_col_pushes_down(self):
+        result, sqls = _capture_executed_sql(
+            lambda: self.ds.assign(total=self.ds["revenue"] + pd.col("qty"))
+        )
+        self.assertEqual(result["total"].tolist(), [11, 22, 33, 44, 55])
+        joined = "\n".join(sqls)
+        self.assertIn('("revenue"+"qty")', joined)
+
+    def test_comparison_mixing_columnexpr_lt_pd_col(self):
+        # ``ds['a'] < pd.col('b')`` -> Expression.wrap kicks in.
+        result = self.ds.filter(self.ds["qty"] < pd.col("revenue"))._execute()
+        self.assertEqual(len(result), 5)
+
+    def test_loc_with_mixed_boolean_pushes_down(self):
+        result = self.ds.loc[
+            (self.ds["revenue"] > 15) & (pd.col("qty") < 5)
+        ]._execute()
+        self.assertEqual(result["revenue"].tolist(), [20, 30, 40])
+
+    def test_mixing_with_fallback_pd_col_in_and_raises_clear_error(self):
+        # ``ds['x'] & pd.col('y').astype(int) < 5`` — the fallback chain
+        # can't be expressed as a chdb-ds Condition tree. Surface a clear
+        # TypeError with the pre-materialize hint, not malformed SQL or
+        # an obscure NotImplementedError from to_sql.
+        with self.assertRaises(TypeError) as ctx:
+            _ = self.ds.filter(
+                (self.ds["revenue"] > 15)
+                & (pd.col("qty").astype(int) < 5)
+            )
+        self.assertIn("pd.col", str(ctx.exception))
+        self.assertIn("Pre-materialize", str(ctx.exception))
+
+    def test_mixing_with_fallback_pd_col_in_arithmetic_raises_clear_error(self):
+        # ``ds['a'] + pd.col('b').astype(int)`` — Expression.wrap must
+        # raise a clear TypeError instead of stringifying the wrapper.
+        with self.assertRaises(TypeError) as ctx:
+            _ = self.ds.assign(
+                total=self.ds["revenue"] + pd.col("qty").astype(int)
+            )
+        self.assertIn("pd.col", str(ctx.exception))
+        self.assertIn("Pre-materialize", str(ctx.exception))
+
+    def test_mixing_workaround_pre_materialize_then_combine(self):
+        # Documented escape hatch: pre-materialize the fallback chain
+        # into a separate column, then combine plain chdb-ds expressions.
+        ds = self.ds.assign(qty_int=pd.col("qty").astype(int))
+        result = ds.filter((ds["revenue"] > 15) & (ds["qty_int"] < 5))._execute()
+        self.assertEqual(result["revenue"].tolist(), [20, 30, 40])
 
 
 # ---------------------------------------------------------------------------
@@ -711,6 +1042,19 @@ class TestGroupbyAggMirrorsPandas(unittest.TestCase):
         self.assertIn('sum("revenue")', joined,
                       msg=f"Expected sum(\"revenue\") in SQL, got:\n{joined}")
         self.assertIn('"region"', joined)
+
+    def test_groupby_with_pd_col_key_matches_pandas_rejection(self):
+        # pandas 3.0.3 itself rejects ``df.groupby(pd.col(...))`` with
+        # ``TypeError: boolean value of an expression is ambiguous`` because
+        # the pd.col object hits ``__bool__`` somewhere inside groupby. PR
+        # deliberately didn't wire pd.col translation into ``DataStore.groupby``
+        # (core.py:5293) — chdb-ds matches the pandas rejection. Lock in
+        # the mirror so any future ``groupby(pd.col)`` support has to update
+        # both sides in lockstep.
+        with self.assertRaises(TypeError):
+            self.df.groupby(pd.col("region")).agg(t=("revenue", "sum"))
+        with self.assertRaises(TypeError):
+            self.ds.groupby(pd.col("region")).agg(t=pd.col("revenue").sum())
 
     def test_groupby_agg_with_unpushable_pd_col_raises_clear_query_error(self):
         # Regression: ``pd.col("x").astype(int).mean()`` translates to
@@ -792,6 +1136,48 @@ class TestSortValuesAcceptsPdCol(unittest.TestCase):
         self.assertIn("ORDER BY", joined.upper(),
                       msg=f"Expected ORDER BY in SQL, got:\n{joined}")
 
+    def test_sort_values_mixed_ascending_list_with_pd_col_and_string(self):
+        # ``ascending=[True, False]`` paired with a mixed list of pd.col +
+        # str keys is the tricky case: ``_translate_pd_col_in_sort_by`` must
+        # rebuild the list with the original ordering preserved so the
+        # ascending list still lines up with each key by index.
+        pd_out = (
+            self.df
+            .sort_values(by=["revenue", "name"], ascending=[True, False])
+            .reset_index(drop=True)
+        )
+        ds_out = self.ds.sort_values(
+            by=[pd.col("revenue"), "name"], ascending=[True, False]
+        )
+        assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_sort_values_by_list_of_two_pd_cols_with_limit_pushes_down(self):
+        # Two pd.col keys, both must end up in ORDER BY (verifies the list
+        # branch of ``_translate_pd_col_in_sort_by`` rebuilds the iterable
+        # correctly rather than collapsing it to a single key).
+        _, sqls = _capture_executed_sql(
+            lambda: self.ds.sort_values(
+                by=[pd.col("revenue"), pd.col("name")]
+            ).head(2)
+        )
+        joined = "\n".join(sqls)
+        self.assertIn('"revenue"', joined)
+        self.assertIn('"name"', joined)
+        self.assertIn("ORDER BY", joined.upper())
+
+    def test_sort_values_by_pd_col_fallback_rejected_like_pandas(self):
+        # pandas itself rejects ``sort_values(by=pd.col(...).astype(...))``
+        # with KeyError (you can only sort by a column name, not a derived
+        # expression). chdb-ds currently surfaces a less friendly TypeError
+        # from ``list(by)`` because ``_is_single_sort_key`` doesn't include
+        # PandasFallbackExpr — same outcome (rejection), worse error
+        # message. Pin the rejection behavior; tighten the error message
+        # in a follow-up if needed.
+        with self.assertRaises(Exception):
+            self.df.sort_values(by=pd.col("revenue").astype(float))
+        with self.assertRaises(Exception):
+            self.ds.sort_values(by=pd.col("revenue").astype(float))
+
 
 # ---------------------------------------------------------------------------
 # 8. case_when with pd.col conditions (chdb-ds-side replacement for the
@@ -858,6 +1244,89 @@ class TestColumnExprCaseWhenAcceptsPdCol(unittest.TestCase):
     def test_case_when_rejects_malformed_entries(self):
         with self.assertRaises(ValueError):
             self.ds["revenue"].case_when([(pd.col("revenue") < 5,)])
+
+    def test_case_when_with_pd_col_fallback_condition_routes_through_pandas(self):
+        # Regression: ``CaseWhenExpr`` used to call ``self.to_sql(...)``
+        # outside the try/except in ``_evaluate_via_chdb`` and
+        # ``PandasFallbackExpr.to_sql`` (translated from ``pd.col(...)
+        # .astype``) raised NotImplementedError. ``CaseWhenExpr.evaluate``
+        # now inspects its cases and forces ``_evaluate_via_pandas`` when
+        # any PandasFallbackExpr is present, and ``ColumnExpr.is_pandas_only``
+        # propagates that so ``assign`` routes the kwarg to the pandas
+        # bucket instead of splicing the CASE into a SELECT clause.
+        ds_out = self.ds.assign(
+            label=self.ds["revenue"].case_when(
+                [(pd.col("revenue").astype(int) < 25, "small")]
+            )
+        )
+        df_out = ds_out._execute()
+        # Rows where revenue (cast to int) < 25 get "small"; others keep
+        # the original revenue (case_when's ELSE = self).
+        labels = df_out["label"].tolist()
+        revenues = df_out["revenue"].tolist()
+        for rev, lab in zip(revenues, labels):
+            if int(rev) < 25:
+                self.assertEqual(lab, "small")
+            else:
+                self.assertEqual(str(lab), str(rev))
+
+    def test_case_when_with_pd_col_fallback_replacement_routes_through_pandas(self):
+        # Replacement-slot regression: ``CaseWhenExpr._value_to_sql`` used
+        # to fall into ``f"'{str(value)}'"`` and emit a string literal of
+        # the wrapper's ``repr``, producing malformed SQL that ClickHouse
+        # rejected. ``CaseWhenExpr._evaluate_via_pandas._evaluate_value``
+        # now recognizes PandasFallbackExpr and dispatches to the
+        # ExpressionEvaluator (which unwraps and runs the original pandas
+        # Expression).
+        ds_out = self.ds.assign(
+            label=self.ds["revenue"].case_when(
+                [(pd.col("revenue") < 25, pd.col("revenue").astype(str))]
+            )
+        )
+        df_out = ds_out._execute()
+        labels = df_out["label"].tolist()
+        revenues = df_out["revenue"].tolist()
+        # For rows where revenue < 25, replacement is ``str(revenue)``;
+        # for the rest, ELSE = self["revenue"], so str(label) should
+        # equal str(revenue) regardless.
+        for rev, lab in zip(revenues, labels):
+            self.assertEqual(str(lab), str(rev))
+
+    def test_when_otherwise_builder_with_pd_col_pushes_down(self):
+        # Regression: ``CaseWhenBuilder.when()`` used to store the raw
+        # pd.col object; serialization eventually called ``to_sql`` on it
+        # (or fell into the catch-all string literal) and emitted broken
+        # SQL. ``CaseWhenBuilder.when`` and ``.otherwise`` now translate
+        # pd.col arguments up front, so the builder API has parity with
+        # ``ColumnExpr.case_when([...])``.
+        result, sqls = _capture_executed_sql(
+            lambda: self.ds.assign(
+                label=self.ds.when(pd.col("revenue") < 25, "low")
+                .when(pd.col("revenue") < 45, "mid")
+                .otherwise("hi"),
+            )
+        )
+        labels = result["label"].tolist()
+        self.assertEqual(labels, ["low", "low", "mid", "mid", "hi"])
+        # Translation must reach SQL: WHEN "revenue" < 25 THEN ...
+        joined = "\n".join(sqls)
+        self.assertIn('"revenue" < 25', joined)
+        self.assertIn('"revenue" < 45', joined)
+
+    def test_when_otherwise_builder_with_pd_col_fallback_routes_through_pandas(self):
+        # Builder + fallback condition: same routing requirement as
+        # ColumnExpr.case_when with fallback. assign() must detect a
+        # CaseWhenExpr whose cases contain PandasFallbackExpr and route
+        # it through the pandas bucket (not the SQL select bucket).
+        ds_out = self.ds.assign(
+            label=self.ds.when(pd.col("revenue").astype(int) < 25, "low")
+            .otherwise("hi")
+        )
+        df_out = ds_out._execute()
+        labels = df_out["label"].tolist()
+        revenues = df_out["revenue"].tolist()
+        for rev, lab in zip(revenues, labels):
+            self.assertEqual(lab, "low" if int(rev) < 25 else "hi")
 
 
 # ---------------------------------------------------------------------------
