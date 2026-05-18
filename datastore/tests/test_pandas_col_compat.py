@@ -28,7 +28,6 @@ from datastore import DataStore
 from datastore.expressions import Field
 from datastore.pandas_col_compat import (
     PANDAS_3_PLUS,
-    PandasColTranslationError,
     is_pandas_col_expression,
     translate_pandas_expression,
 )
@@ -285,6 +284,31 @@ class TestDataStoreWhereMirrorsPandas(unittest.TestCase):
         # instead of ``DataFrame.where`` (value-masking semantics differ).
         pd_out = self.df.loc[pd.col("speed") > 105]
         ds_out = self.ds.where(pd.col("speed") > 105)
+        assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_where_with_pushable_pd_col_and_other_masks_unmatched(self):
+        # Pushable pd.col + explicit ``other`` → goes through pandas-style
+        # where() (not filter); covers the cross-branch wiring.
+        pd_out = self.df.where(pd.col("speed") > 105, other=0)
+        ds_out = self.ds.where(pd.col("speed") > 105, other=0)
+        assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_where_with_pd_col_fallback_and_other_unwraps_to_pandas(self):
+        # Regression for review feedback: ``pd.col(...).astype(...)`` is
+        # untranslatable (→ PandasFallbackExpr), and adding ``other`` forces
+        # the pandas-style branch. Without the unwrap, pandas receives the
+        # opaque wrapper and raises
+        # ``ValueError: Array conditional must be same shape as self``.
+        pd_out = self.df.where(pd.col("speed").astype(int) > 105, other=0)
+        ds_out = self.ds.where(pd.col("speed").astype(int) > 105, other=0)
+        assert_datastore_equals_pandas(ds_out, pd_out)
+
+    def test_where_with_pd_col_fallback_no_other_routes_through_filter(self):
+        # Untranslatable pd.col + no ``other`` → falls through to filter(),
+        # which has its own PandasFallbackExpr branch. Compare against
+        # ``loc[...]`` because filter() drops rows (vs. masking them).
+        pd_out = self.df.loc[pd.col("speed").astype(int) > 105]
+        ds_out = self.ds.where(pd.col("speed").astype(int) > 105)
         assert_datastore_equals_pandas(ds_out, pd_out)
 
 
@@ -625,10 +649,10 @@ class TestUnsupportedUsage(unittest.TestCase):
         self.ds = DataStore(_sample_df())
 
     def test_unknown_method_on_pd_col_falls_back_to_pandas(self):
-        # Unknown methods on Field used to raise PandasColTranslationError.
-        # Under Option-B fallback, the translator instead wraps the original
-        # pd.col expression in PandasFallbackExpr and lets pandas evaluate
-        # it. Pandas itself then surfaces the AttributeError at exec time.
+        # Unknown methods on Field cannot be translated to SQL, so the
+        # translator wraps the original pd.col expression in
+        # PandasFallbackExpr and lets pandas evaluate it. Pandas itself
+        # then surfaces the AttributeError at exec time.
         ds_out = self.ds.assign(bad=pd.col("name").totally_made_up_method())
         with self.assertRaises(AttributeError):
             ds_out._execute()
@@ -687,6 +711,35 @@ class TestGroupbyAggMirrorsPandas(unittest.TestCase):
         self.assertIn('sum("revenue")', joined,
                       msg=f"Expected sum(\"revenue\") in SQL, got:\n{joined}")
         self.assertIn('"region"', joined)
+
+    def test_groupby_agg_with_unpushable_pd_col_raises_clear_query_error(self):
+        # Regression: ``pd.col("x").astype(int).mean()`` translates to
+        # PandasFallbackExpr (because .astype is unpushable). Previously
+        # groupby.agg silently dropped the kwarg and returned an empty
+        # DataFrame (Columns: []) — worse than crashing. Must now raise
+        # a precise QueryError naming the offending alias.
+        from datastore.exceptions import QueryError
+
+        with self.assertRaises(QueryError) as ctx:
+            self.ds.groupby("region").agg(
+                total=pd.col("revenue").astype(int).mean()
+            )
+        msg = str(ctx.exception)
+        self.assertIn("'total'", msg,
+                      msg=f"error should name the offending alias, got: {msg}")
+        self.assertIn("cannot be pushed to SQL", msg,
+                      msg=f"error should explain why, got: {msg}")
+
+    def test_datastore_agg_with_unpushable_pd_col_raises_clear_query_error(self):
+        # Mirror check for the LazyGroupBy-less entry point
+        # (DataStore.agg called directly). Same precise QueryError.
+        from datastore.exceptions import QueryError
+
+        with self.assertRaises(QueryError) as ctx:
+            self.ds.agg(total=pd.col("revenue").astype(int).mean())
+        msg = str(ctx.exception)
+        self.assertIn("'total'", msg)
+        self.assertIn("cannot be pushed to SQL", msg)
 
 
 # ---------------------------------------------------------------------------

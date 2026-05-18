@@ -204,8 +204,10 @@ class LazyGroupBy:
             DataStore with lazy aggregation
         """
         from .column_expr import ColumnExpr
+        from .exceptions import QueryError
         from .functions import AggregateFunction
         from .pandas_col_compat import (
+            PandasFallbackExpr,
             is_pandas_col_expression,
             translate_pandas_expression,
         )
@@ -222,6 +224,24 @@ class LazyGroupBy:
                 )
                 for alias, value in kwargs.items()
             }
+
+        # Reject untranslatable pd.col aggregates up front. Without this,
+        # PandasFallbackExpr fails every isinstance check below and the
+        # kwargs are silently dropped into _create_lazy_agg_datastore,
+        # producing an *empty* DataFrame (Columns: []) — worse than crashing.
+        # pandas itself does not support agg(kw=pd.col(...).mean()) either,
+        # so falling back to pandas here is not an option. Mirrors the same
+        # check in DataStore.agg for parity.
+        for alias, value in kwargs.items():
+            if isinstance(value, PandasFallbackExpr):
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': "
+                    f"{value.original!r} contains operations that cannot be "
+                    f"pushed to SQL (e.g. .astype, numpy ufunc, .apply). "
+                    f"SQL aggregations require pushable expressions; rewrite "
+                    f"using col(...) arithmetic / accessors only, or "
+                    f"precompute the column via assign() first."
+                )
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(isinstance(v, (Expression, ColumnExpr, AggregateFunction)) for v in kwargs.values())

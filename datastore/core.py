@@ -4933,6 +4933,7 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .pandas_col_compat import (
+            PandasFallbackExpr,
             is_pandas_col_expression,
             translate_pandas_expression,
         )
@@ -4941,6 +4942,9 @@ class DataStore(PandasCompatMixin):
         # pandas-style branches see a real Condition / ColumnExpr.
         if is_pandas_col_expression(condition):
             condition = translate_pandas_expression(condition)
+
+        if isinstance(condition, PandasFallbackExpr) and other is not _MISSING:
+            condition = condition.original
 
         # Pandas-style where:
         # - ColumnExpr condition (always pandas-style)
@@ -5450,6 +5454,7 @@ class DataStore(PandasCompatMixin):
         from .functions import AggregateFunction
         from .lazy_ops import LazySQLQuery
         from .pandas_col_compat import (
+            PandasFallbackExpr,
             is_pandas_col_expression,
             translate_pandas_expression,
         )
@@ -5466,6 +5471,17 @@ class DataStore(PandasCompatMixin):
                 )
                 for alias, value in kwargs.items()
             }
+
+        for alias, value in kwargs.items():
+            if isinstance(value, PandasFallbackExpr):
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': "
+                    f"{value.original!r} contains operations that cannot be "
+                    f"pushed to SQL (e.g. .astype, numpy ufunc, .apply). "
+                    f"SQL aggregations require pushable expressions; rewrite "
+                    f"using col(...) arithmetic / accessors only, or "
+                    f"precompute the column via assign() first."
+                )
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(

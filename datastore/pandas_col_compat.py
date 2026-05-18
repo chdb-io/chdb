@@ -108,12 +108,6 @@ class _FakeFrame:
         return Field(name)
 
 
-class PandasColTranslationError(TypeError):
-    """Raised when a ``pd.col`` expression cannot be translated to SQL
-    *and* there is no way to fall back (currently unused; we always
-    fall back via :class:`PandasFallbackExpr` instead)."""
-
-
 class PandasFallbackExpr:
     """Wrapper for a ``pd.col`` expression that chdb-ds cannot translate
     to SQL (e.g. ``.astype("category")``, ``np.log(...)``, ``.apply(...)``).
@@ -183,7 +177,6 @@ def maybe_translate(expr: Any, columns: Optional[Iterable[Any]] = None) -> Any:
 
 __all__ = [
     "PANDAS_3_PLUS",
-    "PandasColTranslationError",
     "PandasFallbackExpr",
     "is_pandas_col_expression",
     "translate_pandas_expression",
