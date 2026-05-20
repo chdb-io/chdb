@@ -129,7 +129,7 @@ class TestLazyApplySQLPushdown(unittest.TestCase):
         """Test that simple aggregation can be pushed to SQL."""
         apply = LazyApply(lambda x: x.sum(), groupby_cols=['category'])
         self.assertTrue(apply.can_push_to_sql())
-        self.assertEqual(apply.execution_engine(), 'SQL')
+        self.assertEqual(apply.execution_engine(), 'chDB')
         self.assertEqual(apply.get_detected_agg_func(), 'sum')
 
     def test_cannot_push_without_groupby(self):
@@ -380,9 +380,9 @@ class TestGroupByApplySQLVerification(unittest.TestCase):
 
         logs = self.get_logs()
 
-        # Verify the LazyApply indicates SQL engine
+        # Verify the LazyApply indicates chDB engine (canonical literal used by explain())
         apply = LazyApply(lambda x: x.sum(), groupby_cols=['category'])
-        self.assertEqual(apply.execution_engine(), 'SQL', "Simple sum aggregation should use SQL engine")
+        self.assertEqual(apply.execution_engine(), 'chDB', "Simple sum aggregation should use chDB engine")
 
     def test_pandas_fallback_for_complex(self):
         """Verify Pandas is used for complex aggregations."""
