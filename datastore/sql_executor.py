@@ -1069,6 +1069,21 @@ class SQLExecutionEngine:
                     rewrite_column_refs_in_expression(c, previously_visible_to_temp)
                     for c in post_wheres
                 ]
+            # pandas default ``dropna=True`` excludes NULL group keys; SQL
+            # ``GROUP BY`` would group them. Emit ``col IS NOT NULL``
+            # filters as pre-agg WHEREs unless the user opted out via
+            # ``dropna=False`` or the global performance mode.
+            from .config import is_performance_mode as _is_perf_mode
+
+            if (
+                not _is_perf_mode()
+                and getattr(groupby_agg_op, "dropna", True)
+                and groupby_agg_op.groupby_cols
+            ):
+                dropna_conditions = [
+                    Field(col).notnull() for col in groupby_agg_op.groupby_cols
+                ]
+                pre_wheres = pre_wheres + dropna_conditions
             clauses.where_conditions = pre_wheres
             having_conditions = post_wheres
 
@@ -1204,6 +1219,13 @@ class SQLExecutionEngine:
                 # otherwise these are pure column assignments and we need
                 # ``SELECT *, expr AS alias`` to preserve inherited columns.
                 include_star = not clauses.explicit_column_selection
+            if groupby_agg_op is not None or where_needs_temp_alias:
+                # ``SELECT *`` is invalid alongside GROUP BY and would
+                # double-emit columns when CASE-WHEN temp aliases already
+                # cover every source column. The fully enumerated
+                # select_fields_for_sql already includes group keys /
+                # aggregations / temp aliases.
+                include_star = False
             sql = self._render_wrapper_layer_sql(
                 from_source,
                 clauses,
@@ -1214,6 +1236,9 @@ class SQLExecutionEngine:
                 preserved_orderby_kind,
                 add_row_order_fallback=is_first_layer,
                 include_star=include_star,
+                where_temp_alias_columns=(
+                    where_temp_alias_columns if where_needs_temp_alias else None
+                ),
             )
 
         # Renames introduced by this layer: aliases its SELECT actually
@@ -1267,15 +1292,18 @@ class SQLExecutionEngine:
             and not self.source_preserves_row_order()
         )
 
-        # HAVING is currently only emitted for wrapper layers (post-agg
-        # WHERE in a first-layer plan is folded into source-level WHERE by
-        # the planner). Assert to surface any unexpected case explicitly.
+        # Post-aggregation WHEREs become HAVING. Combine the planner-derived
+        # ``having_conditions`` list with any existing ``self.ds._having_condition``
+        # via boolean AND so user-level ``ds.having(...)`` still composes.
+        effective_having = self.ds._having_condition
         if having_conditions:
-            # Fold into the layer's WHERE list as a defensive fallback (the
-            # combine logic in assemble_sql will AND them together correctly
-            # because there's no GROUP BY split between them here).
-            clauses.where_conditions = list(clauses.where_conditions) + list(
-                having_conditions
+            combined_having = having_conditions[0]
+            for cond in having_conditions[1:]:
+                combined_having = combined_having & cond
+            effective_having = (
+                combined_having
+                if effective_having is None
+                else (effective_having & combined_having)
             )
 
         if where_needs_subquery:
@@ -1318,7 +1346,7 @@ class SQLExecutionEngine:
             joins=self.ds._joins,
             distinct=self.ds._distinct,
             groupby_fields=groupby_fields,
-            having_condition=self.ds._having_condition,
+            having_condition=effective_having,
             include_star=use_include_star,
         )
 
@@ -1333,6 +1361,7 @@ class SQLExecutionEngine:
         preserved_orderby_kind: Optional[str],
         add_row_order_fallback: bool = False,
         include_star: bool = False,
+        where_temp_alias_columns: Optional[List[Tuple[str, str]]] = None,
     ) -> str:
         """
         Emit SQL for a layer that reads from an explicit FROM source:
@@ -1356,7 +1385,15 @@ class SQLExecutionEngine:
         ``include_star`` enables ``SELECT *, expr AS alias`` style for
         column-assignment scenarios where we want to keep all inherited
         columns plus add the computed ones.
+
+        ``where_temp_alias_columns`` (list of ``(temp_alias, orig_name)``)
+        opts in to LazyWhere/LazyMask CASE-WHEN temp-alias wrapping: the
+        inner SELECT emits ``... AS __tmp_col__`` and we wrap with an outer
+        ``SELECT __tmp_col__ AS col, ...`` so the final result keeps the
+        user-visible column names. ORDER BY / LIMIT / OFFSET are pushed to
+        the outer layer so they bind to the user-visible names.
         """
+        wrap_temp_aliases = bool(where_temp_alias_columns)
         if select_fields:
             fields_sql = ", ".join(
                 f.to_sql(quote_char=self.quote_char, with_alias=True)
@@ -1368,7 +1405,13 @@ class SQLExecutionEngine:
 
         parts = [f"SELECT {select_sql}", f"FROM {from_source}"]
 
-        if clauses.where_conditions:
+        # When LazyMask/LazyWhere temp aliases wrap this layer, any
+        # WHERE in ``clauses.where_conditions`` semantically filters the
+        # MASKED values: ``mask(...)[mask] -> [filter]`` means filter
+        # after mask. Push the WHERE to the OUTER (post-rename) layer
+        # so it binds to the user-visible column names (= masked values).
+        # Otherwise emit it inline on the source columns as usual.
+        if clauses.where_conditions and not wrap_temp_aliases:
             combined = clauses.where_conditions[0]
             for c in clauses.where_conditions[1:]:
                 combined = combined & c
@@ -1392,6 +1435,48 @@ class SQLExecutionEngine:
         orderby_kind_to_use = (
             clauses.orderby_kind if clauses.orderby_fields else preserved_orderby_kind
         )
+
+        # ``ORDER BY _row_id`` only makes sense pre-GROUP-BY: SQL doesn't
+        # let us reference an ungrouped, non-aggregate column after GROUP BY,
+        # and post-aggregation row order is already determined by the agg
+        # itself (or by an explicit ORDER BY on the agg output).
+        row_order_fallback_allowed = add_row_order_fallback and not groupby_fields
+
+        if wrap_temp_aliases:
+            # When CASE-WHEN temp aliases are present, postpone WHERE /
+            # ORDER BY / LIMIT / OFFSET to the outer rename layer so they
+            # reference user-visible column names (= the masked values).
+            inner_sql = " ".join(parts)
+            outer_select = ", ".join(
+                f"{self.quote_char}{temp}{self.quote_char} AS {self.quote_char}{orig}{self.quote_char}"
+                for temp, orig in where_temp_alias_columns
+            )
+            outer_parts = [
+                f"SELECT {outer_select}",
+                f"FROM ({inner_sql}) AS __case_subq__",
+            ]
+            if clauses.where_conditions:
+                combined = clauses.where_conditions[0]
+                for c in clauses.where_conditions[1:]:
+                    combined = combined & c
+                outer_parts.append(
+                    f"WHERE {combined.to_sql(quote_char=self.quote_char)}"
+                )
+            if orderby_to_use:
+                orderby_sql = build_orderby_clause(
+                    orderby_to_use,
+                    self.quote_char,
+                    stable=is_stable_sort(orderby_kind_to_use),
+                )
+                outer_parts.append(f"ORDER BY {orderby_sql}")
+            elif row_order_fallback_allowed:
+                outer_parts.append("ORDER BY _row_id")
+            if clauses.limit_value is not None:
+                outer_parts.append(f"LIMIT {clauses.limit_value}")
+            if clauses.offset_value is not None:
+                outer_parts.append(f"OFFSET {clauses.offset_value}")
+            return " ".join(outer_parts)
+
         if orderby_to_use:
             orderby_sql = build_orderby_clause(
                 orderby_to_use,
@@ -1399,7 +1484,7 @@ class SQLExecutionEngine:
                 stable=is_stable_sort(orderby_kind_to_use),
             )
             parts.append(f"ORDER BY {orderby_sql}")
-        elif add_row_order_fallback:
+        elif row_order_fallback_allowed:
             # Preserve pandas-like row order for the DataFrame source; _row_id
             # is chDB's deterministic virtual column for Python() sources.
             parts.append("ORDER BY _row_id")
@@ -2691,12 +2776,19 @@ class SQLExecutionEngine:
         """
         schema = schema or {}
 
-        # Multi-layer plans go through the unified ``_build_layered_sql``
-        # pipeline with ``__df__`` as the FROM source. This ensures any
-        # LazyGroupByAgg / LazyWhere that lives in a non-zero layer is
-        # dispatched correctly (the previous ``_build_nested_sql_for_dataframe``
-        # path silently dropped them just like the source path used to).
-        if plan.layers and len(plan.layers) > 1:
+        # Plans that contain LazyGroupByAgg / LazyWhere / LazyMask (or have
+        # >1 layer) go through the unified ``_build_layered_sql`` pipeline
+        # with ``__df__`` as the FROM source. ``_build_layer`` correctly
+        # splits WHEREs by GROUP BY position (pre-agg -> WHERE, post-agg
+        # -> HAVING) and rewrites Field references to the agg's emitted
+        # temp aliases, both of which the legacy single-layer inline path
+        # below does not handle.
+        needs_layered_pipeline = bool(plan.layers) and (
+            len(plan.layers) > 1
+            or plan.groupby_agg is not None
+            or bool(plan.where_ops)
+        )
+        if needs_layered_pipeline:
             sql_select_fields, has_column_assignments = (
                 self._collect_select_fields_from_sql_ops(plan.sql_ops)
             )

@@ -811,7 +811,13 @@ class TestDispatchByOpType(unittest.TestCase):
         sql = result.sql
         self.assertIn('GROUP BY', sql)
         self.assertIn('sum("a")', sql)
-        self.assertIn('WHERE "a" > 5', sql)
+        # ``WHERE`` may be combined with the dropna ``IS NOT NULL`` filter
+        # for the group key when ``dropna=True`` (the pandas default), so
+        # allow either standalone or AND-combined forms.
+        self.assertTrue(
+            'WHERE "a" > 5' in sql or '"a" > 5 AND' in sql,
+            f'expected WHERE "a" > 5 clause in SQL: {sql}',
+        )
 
     def test_layer_without_groupby_agg_skips_group_by(self):
         """A layer with only WHERE/ORDER BY/LIMIT must not emit GROUP BY."""

@@ -349,6 +349,14 @@ class QueryPlanner:
         - OFFSET follows LIMIT (pandas: chained slices like [10:50][5:20])
         - LIMIT follows LIMIT (pandas: chained limits like [:50][:20])
         - WHERE follows computed column that came after LIMIT (dependency)
+        - LazyGroupByAgg follows LIMIT/OFFSET (pandas: ``head(N).groupby()``
+          aggregates over the first N rows; emitting LIMIT in the same SQL
+          layer as GROUP BY would otherwise mean "first N groups" instead).
+        - A pure-projection SELECT (e.g. ``df[['a','b']]``) follows a
+          WHERE in the same layer and the WHERE references columns that
+          would be dropped by the projection. This split keeps the
+          WHERE's columns alive in the inner subquery before the outer
+          layer projects them away.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -364,6 +372,68 @@ class QueryPlanner:
         seen_offset = False  # Have we seen an OFFSET in current layer?
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
+
+        def _is_pure_projection_select(op):
+            """Pure projection SELECT = ``SELECT col1, col2, ...`` with no
+            ``*`` marker (pandas ``df[[cols]]``). Assignment-style SELECTs
+            (``df.assign(c=...)``) carry a ``*`` and stay in the same
+            layer so the assignments survive."""
+            return (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and op.fields
+                and not any(isinstance(f, str) and f == "*" for f in op.fields)
+            )
+
+        def _projection_field_names(op):
+            names = set()
+            for f in op.fields or []:
+                name = None
+                if isinstance(f, str):
+                    name = f
+                elif hasattr(f, "name"):
+                    name = getattr(f, "name", None)
+                if isinstance(name, str):
+                    names.add(name.strip('"`'))
+            return names
+
+        def _where_refs_columns_not_in(op_set, layer):
+            """Does any WHERE in ``layer`` reference a column outside
+            ``op_set`` (e.g. one created by an assignment-style
+            SELECT/LazyColumnAssignment in the same layer)? If yes, the
+            outer projection would drop that column before the WHERE
+            could bind to it, so we must split into a new layer that
+            wraps the inner WHERE."""
+            wheres = [
+                prev
+                for prev in layer
+                if isinstance(prev, LazyRelationalOp)
+                and prev.op_type == "WHERE"
+                and prev.condition is not None
+            ]
+            if not wheres:
+                return False
+            for w in wheres:
+                refs = self._extract_referenced_columns(w.condition)
+                if refs - op_set:
+                    return True
+            return False
+
+        def _start_new_layer_with(op):
+            """Push current_layer, drop any pending assignments into it
+            first, then begin a fresh layer containing ``op``."""
+            nonlocal current_layer, seen_limit, seen_offset
+            nonlocal computed_columns_after_limit, pending_column_assignments
+            if pending_column_assignments:
+                current_layer.extend(pending_column_assignments)
+                pending_column_assignments = []
+            layers.append(current_layer)
+            current_layer = [op]
+            seen_limit = isinstance(op, LazyRelationalOp) and op.op_type == "LIMIT"
+            seen_offset = (
+                isinstance(op, LazyRelationalOp) and op.op_type == "OFFSET"
+            )
+            computed_columns_after_limit = set()
 
         for op in ops:
             if isinstance(op, LazyRelationalOp):
@@ -383,19 +453,17 @@ class QueryPlanner:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
                     needs_new_layer = True
+                elif _is_pure_projection_select(op):
+                    proj_fields = _projection_field_names(op)
+                    if _where_refs_columns_not_in(proj_fields, current_layer):
+                        # Pure projection that drops a column the layer's
+                        # WHERE depends on (e.g. ``assign(x=...)[where x>0][[id]]``).
+                        # Split into a new layer so the outer SELECT
+                        # projects after the inner WHERE has run.
+                        needs_new_layer = True
 
                 if needs_new_layer and current_layer:
-                    # Before starting new layer, add any pending column assignments
-                    # to ensure they're computed before WHERE/ORDER BY
-                    if pending_column_assignments:
-                        current_layer.extend(pending_column_assignments)
-                        pending_column_assignments = []
-
-                    layers.append(current_layer)
-                    current_layer = [op]
-                    seen_limit = op.op_type == "LIMIT"
-                    seen_offset = op.op_type == "OFFSET"
-                    computed_columns_after_limit = set()  # Reset for new layer
+                    _start_new_layer_with(op)
                 else:
                     # Add pending column assignments to current layer first
                     if pending_column_assignments:
@@ -418,6 +486,15 @@ class QueryPlanner:
                 else:
                     # No LIMIT/OFFSET yet, add directly to current layer
                     current_layer.append(op)
+            elif isinstance(op, LazyGroupByAgg) and (seen_limit or seen_offset):
+                # ``head(N).groupby(...).agg(...)`` semantics: pandas
+                # aggregates over the first N rows. If LIMIT and GROUP BY
+                # live in the same SQL layer we end up emitting
+                # ``... GROUP BY ... LIMIT N``, which limits the number of
+                # GROUPS instead of the number of input rows. Split into a
+                # new layer so the LIMIT applies to the inner subquery
+                # (i.e. ``SELECT ... FROM (SELECT ... LIMIT N) GROUP BY``).
+                _start_new_layer_with(op)
             else:
                 # Other operations - add pending column assignments first, then this op
                 if pending_column_assignments:

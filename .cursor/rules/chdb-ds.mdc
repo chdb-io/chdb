@@ -119,6 +119,52 @@ alwaysApply: true
    def test_sql_pandas_sql_segments_exact_values_and_structure(self):
    ```
 
+5. **Multi-Step Mirror for Bug-Fix Tests (>=5 ops chain)**
+
+   The Mark/Slack ``amazon_sample.parquet`` bug (PR #577) was a
+   single-op (``GROUP BY``) dispatcher bug, but it only surfaced as
+   part of a 5-step user chain
+   (``filter -> groupby -> agg -> sort -> head -> filter``).
+   Tests that only reproduced the smallest failing op pair would have
+   left it hidden.
+
+   When you fix a bug discovered by a multi-step chain, the regression
+   test MUST mirror the user's full chain length (typically >= 5 ops).
+
+   FORBIDDEN:
+   - Adding a regression test that only reproduces the smallest
+     failing op or op pair when the original user code was longer
+   - Splitting one user chain into multiple shorter tests "for clarity"
+   - Using synthetic data that doesn't exercise the column-name
+     conflict / null pattern / size class the user hit
+
+   REQUIRED:
+   - Verbatim mirror of the user's chain (read top to bottom and it
+     should look like what the user wrote)
+   - Either include a structural assertion (SQL substring /
+     ``plan.layers`` shape inspection) or add the matching shape to
+     ``test_sql_snapshot_assertions.py`` /
+     ``test_plan_invariants.py``
+   - Put the test under ``datastore/tests/journeys/`` with a name
+     that traces back to the user / issue (e.g.
+     ``test_mark_slack_amazon_reviews.py``)
+
+6. **Property-Based Sweep for Compositional Bugs**
+
+   For dispatcher / planner / SQL builder changes, run the
+   ``test_property_based_chains.py`` hypothesis sweep locally before
+   submitting. When hypothesis finds a falsifying example:
+
+   - Do NOT add the example to the property test's skip filter as the
+     first response - that hides the bug
+   - DO copy the falsifying chain into a verbatim regression test
+     under ``datastore/tests/journeys/`` with ``@unittest.expectedFailure``
+   - DO add a skip filter to the property test referencing the
+     journey test by name, so the property test stays green while the
+     bug is open
+   - When the bug is fixed, flip the ``expectedFailure`` and remove
+     the skip filter in the same commit
+
 **Self-Check Before Submitting Test:**
 - [ ] Does every comment about "expected behavior" have a corresponding assertion?
 - [ ] Are actual data values verified, not just lengths?
@@ -128,6 +174,8 @@ alwaysApply: true
 - [ ] Is segment structure (type, ops, is_first_segment) fully verified?
 - [ ] Are error messages descriptive for debugging?
 - [ ] Would this test catch a real bug, or just pass trivially?
+- [ ] If this is a bug-fix test, does the chain length match the user's original?
+- [ ] If this is a dispatcher/planner change, did property-based sweep pass locally?
 
 ---
 
