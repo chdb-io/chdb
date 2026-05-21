@@ -528,5 +528,56 @@ class TestExplainEngineLabelingForPushedOps(unittest.TestCase):
         self.assertEqual(non_pushable.execution_engine(), 'Pandas')
 
 
+class TestBuildExecutionSQLFirstSegment(unittest.TestCase):
+    """``_build_execution_sql`` (the backend for ``to_sql()`` and
+    ``explain()``'s SQL preview) returns the SQL the executor would
+    issue against the *original source* - i.e. the FIRST step of
+    ``_execute()``.
+
+    Regression for PR #577 Copilot comment: a previous implementation
+    used ``next(seg for seg in segments if seg.is_sql())`` which would
+    happily pick a LATER ``SQL-on-Python(__df__)`` segment when the
+    first segment was Pandas (cost-aware planner case for ORDER BY
+    without LIMIT). That returned a Python-table-function SQL whose
+    ``FROM`` clause does not match the original source the user sees in
+    the executor's first call.
+    """
+
+    def setUp(self):
+        import pandas as pd
+
+        self.temp_dir = tempfile.mkdtemp()
+        self.parquet_file = os.path.join(self.temp_dir, "data.parquet")
+        pd.DataFrame({"a": list(range(10)), "b": list(range(10))}).to_parquet(
+            self.parquet_file
+        )
+
+    def tearDown(self):
+        if os.path.exists(self.parquet_file):
+            os.unlink(self.parquet_file)
+        if os.path.exists(self.temp_dir):
+            os.rmdir(self.temp_dir)
+
+    def test_first_segment_sql_returns_source_bound_sql(self):
+        ds = DataStore.from_file(self.parquet_file)
+        sql = ds[ds["a"] > 5].to_sql()
+        self.assertIn("file(", sql)
+        self.assertNotIn("Python(", sql)
+        self.assertNotIn("__df__", sql)
+        self.assertIn('"a" > 5', sql)
+
+    def test_first_segment_pandas_returns_source_select(self):
+        """When the chain starts with a Pandas segment (e.g. ORDER BY
+        without LIMIT under the cost-aware planner), ``to_sql()`` must
+        return the initial ``SELECT * FROM <source>`` the executor
+        issues to materialize rows for Pandas - NOT a downstream
+        ``Python(__df__)`` SQL fragment."""
+        ds = DataStore.from_file(self.parquet_file)
+        sql = ds.sort_values("a").to_sql()
+        self.assertIn("file(", sql)
+        self.assertNotIn("Python(", sql)
+        self.assertNotIn("__df__", sql)
+
+
 if __name__ == '__main__':
     unittest.main()
