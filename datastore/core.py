@@ -1776,14 +1776,26 @@ class DataStore(PandasCompatMixin):
 
         from .query_planner import QueryPlanner
 
-        # Use QueryPlanner to analyze lazy operations (same logic as _execute)
+        # Use QueryPlanner segmented planning (same as _execute). For the
+        # single-source-SQL-segment case used by explain()/to_sql() we take
+        # the plan from the first SQL segment. When the whole chain is
+        # Pandas-only (e.g. ORDER BY without LIMIT under the cost-aware
+        # planner), fall back to the traditional ``SELECT * FROM source``
+        # generation - that is the SQL the executor would issue to fetch
+        # rows before handing off to Pandas.
         planner = QueryPlanner()
         schema = self._schema or {}
-        plan = planner.plan(self._lazy_ops, has_sql_source=True, schema=schema)
+        exec_plan = planner.plan_segments(
+            self._lazy_ops, has_sql_source=True, schema=schema
+        )
+        sql_segment = next(
+            (seg for seg in exec_plan.segments if seg.is_sql() and seg.plan), None
+        )
+        if sql_segment is None:
+            return self._generate_select_sql(self.quote_char)
 
-        # Use SQLExecutionEngine to build SQL from plan
         sql_engine = SQLExecutionEngine(self)
-        result = sql_engine.build_sql_from_plan(plan, schema)
+        result = sql_engine.build_sql_from_plan(sql_segment.plan, schema)
         return result.sql
 
     def _get_table_source(self) -> str:

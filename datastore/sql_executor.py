@@ -385,18 +385,185 @@ def extract_clauses_from_ops(
     return result
 
 
+def rewrite_column_refs_in_expression(expr: Any, rename_map: Dict[str, str]) -> Any:
+    """
+    Recursively rewrite ``Field`` references in an Expression/Condition tree.
+
+    When an inner SQL layer renames a column (e.g. ``SUM(int_col) AS
+    __agg_int_col__`` because of an alias conflict), outer layers that
+    reference the original name (``int_col``) need their references rewritten
+    to the temp alias so the outer SQL is well-formed.
+
+    The rewrite is structural and immutable: a new tree is returned and the
+    original is not mutated. Subqueries inside ``InCondition`` are not
+    descended into (they have their own column scope).
+
+    Args:
+        expr: A Condition, BinaryCondition, CompoundCondition, NotCondition,
+              UnaryCondition, InCondition, BetweenCondition, LikeCondition,
+              NullSafeCondition, ArithmeticExpression, Field, Literal, or
+              any other Expression-like value. ``None`` returns ``None``.
+        rename_map: Dict mapping ``original_name -> new_name``.
+
+    Returns:
+        A rewritten expression (new instance if anything changed, otherwise
+        the original).
+    """
+    if expr is None or not rename_map:
+        return expr
+
+    from .conditions import (
+        BinaryCondition,
+        CompoundCondition,
+        NotCondition,
+        UnaryCondition,
+        InCondition,
+        BetweenCondition,
+        LikeCondition,
+        NullSafeCondition,
+    )
+    from .expressions import ArithmeticExpression, Literal
+
+    if isinstance(expr, Field):
+        original = expr.name.strip("\"'")
+        if original in rename_map:
+            return Field(rename_map[original], table=expr.table, alias=expr.alias)
+        return expr
+
+    if isinstance(expr, Literal):
+        return expr
+
+    if isinstance(expr, BinaryCondition):
+        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
+        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
+        if new_left is expr.left and new_right is expr.right:
+            return expr
+        return BinaryCondition(expr.operator, new_left, new_right, expr.alias)
+
+    if isinstance(expr, CompoundCondition):
+        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
+        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
+        if new_left is expr.left and new_right is expr.right:
+            return expr
+        return CompoundCondition(expr.operator, new_left, new_right, expr.alias)
+
+    if isinstance(expr, NotCondition):
+        new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
+        if new_inner is expr.condition:
+            return expr
+        return NotCondition(new_inner, expr.alias)
+
+    if isinstance(expr, UnaryCondition):
+        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
+        if new_expr is expr.expression:
+            return expr
+        return UnaryCondition(expr.operator, new_expr, expr.alias)
+
+    if isinstance(expr, InCondition):
+        # Don't descend into subqueries (different column scope)
+        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
+        if new_expr is expr.expression:
+            return expr
+        return InCondition(new_expr, expr.values, expr.negate, expr.alias)
+
+    if isinstance(expr, BetweenCondition):
+        new_e = rewrite_column_refs_in_expression(expr.expression, rename_map)
+        new_l = rewrite_column_refs_in_expression(expr.lower, rename_map)
+        new_u = rewrite_column_refs_in_expression(expr.upper, rename_map)
+        if (
+            new_e is expr.expression
+            and new_l is expr.lower
+            and new_u is expr.upper
+        ):
+            return expr
+        return BetweenCondition(
+            new_e, new_l, new_u, expr.inclusive, expr.alias
+        )
+
+    if isinstance(expr, LikeCondition):
+        new_expr = rewrite_column_refs_in_expression(expr.expression, rename_map)
+        if new_expr is expr.expression:
+            return expr
+        return LikeCondition(
+            new_expr,
+            expr.pattern,
+            expr.negate,
+            expr.case_sensitive,
+            expr.alias,
+        )
+
+    if isinstance(expr, NullSafeCondition):
+        new_inner = rewrite_column_refs_in_expression(expr.condition, rename_map)
+        if new_inner is expr.condition:
+            return expr
+        return NullSafeCondition(new_inner, expr.alias)
+
+    if isinstance(expr, ArithmeticExpression):
+        new_left = rewrite_column_refs_in_expression(expr.left, rename_map)
+        new_right = rewrite_column_refs_in_expression(expr.right, rename_map)
+        if new_left is expr.left and new_right is expr.right:
+            return expr
+        rebuilt = ArithmeticExpression(
+            expr.operator, new_left, new_right, expr.alias
+        )
+        if getattr(expr, "_is_string_type", False):
+            rebuilt._is_string_type = True
+        return rebuilt
+
+    return expr
+
+
+def rewrite_column_refs_in_orderby(
+    orderby_fields: List[Tuple[Any, bool]], rename_map: Dict[str, str]
+) -> List[Tuple[Any, bool]]:
+    """
+    Rewrite Field references in an ORDER BY field list.
+
+    Generalizes :func:`apply_alias_renames_to_orderby` to work with any
+    ``rename_map`` (e.g. cross-layer alias propagation), not only the
+    ``temp_alias -> original_alias`` map.
+
+    Args:
+        orderby_fields: List of ``(field, ascending)`` tuples
+        rename_map: Dict mapping ``original_name -> new_name``
+
+    Returns:
+        New list with Field references rewritten where applicable.
+    """
+    if not rename_map or not orderby_fields:
+        return orderby_fields
+
+    new_orderby = []
+    for field_obj, asc in orderby_fields:
+        if isinstance(field_obj, Field):
+            rewritten = rewrite_column_refs_in_expression(field_obj, rename_map)
+            new_orderby.append((rewritten, asc))
+        elif isinstance(field_obj, str) and field_obj in rename_map:
+            new_orderby.append((Field(rename_map[field_obj]), asc))
+        else:
+            new_orderby.append((field_obj, asc))
+
+    return new_orderby
+
+
 def apply_alias_renames_to_orderby(
     orderby_fields: List[Tuple[Any, bool]], alias_renames: Dict[str, str]
 ) -> List[Tuple[Any, bool]]:
     """
-    Handle ORDER BY with alias conflicts.
+    Handle ORDER BY with same-layer alias conflicts (e.g. GroupBy temp aliases).
 
-    If ORDER BY references a column that has a temp alias (due to GroupBy conflict),
-    we need to use the temp alias in ORDER BY.
+    If ORDER BY references a column that has a temp alias (due to GroupBy
+    conflict), we need to use the temp alias in ORDER BY.
+
+    For the same-layer case the rename direction is reversed compared to
+    cross-layer rewrites: ``alias_renames`` maps ``temp_alias ->
+    original_alias`` because the temp alias is what is emitted in SELECT but
+    the user-facing ORDER BY column name is the original. Hence we invert it
+    and reuse :func:`rewrite_column_refs_in_orderby`.
 
     Args:
         orderby_fields: List of (field, ascending) tuples
-        alias_renames: Dict mapping temp_alias -> original_alias
+        alias_renames: Dict mapping ``temp_alias -> original_alias``
 
     Returns:
         Updated orderby_fields with temp aliases applied
@@ -404,47 +571,55 @@ def apply_alias_renames_to_orderby(
     if not alias_renames or not orderby_fields:
         return orderby_fields
 
-    # Build reverse mapping: original_alias -> temp_alias
     reverse_renames = {orig: temp for temp, orig in alias_renames.items()}
-
-    new_orderby = []
-    for field_obj, asc in orderby_fields:
-        field_name = field_obj.name if isinstance(field_obj, Field) else str(field_obj)
-        if field_name in reverse_renames:
-            # Replace with temp alias
-            new_orderby.append((Field(reverse_renames[field_name]), asc))
-        else:
-            new_orderby.append((field_obj, asc))
-
-    return new_orderby
+    return rewrite_column_refs_in_orderby(orderby_fields, reverse_renames)
 
 
 def build_groupby_select_fields(
     groupby_agg: LazyGroupByAgg,
-    alias_renames: Dict[str, str] = None,
+    inherited_alias_renames: Dict[str, str] = None,
     all_columns: List[str] = None,
     computed_columns: Dict[str, Expression] = None,
-) -> Tuple[List[Field], List[Expression]]:
+) -> Tuple[List[Field], List[Expression], Dict[str, str]]:
     """
     Build GROUP BY and SELECT fields from a LazyGroupByAgg operation.
 
-    This centralizes the aggregation SQL building logic.
+    Pure function: does NOT mutate any argument. Returns a fresh
+    ``emitted_renames`` dict describing every temp alias this call's
+    SELECT clause emits (whether the alias was pre-reserved in
+    ``inherited_alias_renames`` or newly created here). Callers can merge
+    it into ``plan.alias_renames`` for post-execution rename-back and
+    propagate it to subsequent layers for cross-layer Field rewriting.
 
     Args:
         groupby_agg: LazyGroupByAgg operation
-        alias_renames: Dict for alias conflict resolution
-        all_columns: All column names (needed for count() to generate COUNT(col) per column)
-        computed_columns: Dict mapping computed column names to their expressions
-                          (for expanding assign() columns in aggregations)
+        inherited_alias_renames: Existing temp-alias map (read-only). Used
+            to detect when an alias is already reserved by an outer scope
+            (e.g. by the planner's source-col/agg-alias conflict
+            detection). The caller's dict is never mutated.
+        all_columns: All column names (needed for count() to generate
+            COUNT(col) per column)
+        computed_columns: Dict mapping computed column names to their
+            expressions (for expanding assign() columns in aggregations)
 
     Returns:
-        Tuple of (groupby_fields, select_fields)
+        Tuple of (groupby_fields, select_fields, emitted_renames).
+        ``emitted_renames`` maps ``temp_alias -> original_alias`` for
+        every temp alias this layer's SELECT clause actually emits.
     """
     from .functions import AggregateFunction, Function
 
-    if alias_renames is None:
-        alias_renames = {}
+    inherited = inherited_alias_renames or {}
+    emitted_renames: Dict[str, str] = {}
     computed_columns = computed_columns or {}
+
+    def reserve_temp(temp: str, original: str) -> None:
+        """Record that this SELECT emits ``temp`` as the alias for ``original``."""
+        emitted_renames[temp] = original
+
+    def has_alias(temp: str) -> bool:
+        """Check if a temp alias is reserved (in inherited or already created)."""
+        return temp in inherited or temp in emitted_renames
 
     def resolve_column(col_name: str) -> Expression:
         """Resolve column name - return expression if computed column, else Field."""
@@ -502,8 +677,9 @@ def build_groupby_select_fields(
         for alias, (col, func) in groupby_agg.named_agg.items():
             # Check if this alias conflicts with WHERE columns
             temp_alias = f"__agg_{alias}__"
-            if temp_alias in alias_renames:
+            if has_alias(temp_alias):
                 final_alias = temp_alias
+                reserve_temp(temp_alias, alias)
             else:
                 final_alias = alias
 
@@ -568,9 +744,9 @@ def build_groupby_select_fields(
                 # When alias == source column name (e.g., sum(amount) AS amount),
                 # chDB interprets it as nested aggregation which is invalid
                 temp_alias = f"__agg_{alias}__"
-                if temp_alias in alias_renames or col == alias:
+                if has_alias(temp_alias) or col == alias:
                     # Use temp alias to avoid conflict, will rename back later
-                    alias_renames[temp_alias] = alias
+                    reserve_temp(temp_alias, alias)
                     alias = temp_alias
 
                 # Resolve column - may be a computed column from assign()
@@ -604,8 +780,9 @@ def build_groupby_select_fields(
             for col in cols_to_agg:
                 # Check if this alias conflicts with WHERE columns
                 temp_alias = f"__agg_{col}__"
-                if temp_alias in alias_renames:
+                if has_alias(temp_alias):
                     alias = temp_alias
+                    reserve_temp(temp_alias, col)
                 else:
                     alias = col
                 # Resolve column - may be a computed column from assign()
@@ -618,7 +795,7 @@ def build_groupby_select_fields(
                 sql_func = map_agg_func(func)
                 select_fields.append(AggregateFunction(sql_func, Star()))
 
-    return groupby_fields, select_fields
+    return groupby_fields, select_fields, emitted_renames
 
 
 @dataclass
@@ -633,6 +810,26 @@ class SQLBuildResult:
     sql: str
     alias_renames: Dict[str, str] = field(default_factory=dict)
     groupby_agg: Optional[LazyGroupByAgg] = None
+
+
+@dataclass
+class LayerBuildResult:
+    """
+    Result of building SQL for a single subquery layer.
+
+    Returned by :meth:`SQLExecutionEngine._build_layer`. The ``renames_introduced``
+    map records temp aliases this layer's SELECT emitted that differ from
+    their user-visible names (``temp_alias -> original_name``). Callers
+    chain layers by feeding the next layer ``inner_renames=visible_to_temp``
+    so its WHERE/ORDER BY refs are rewritten before reaching SQL.
+    """
+
+    sql: str
+    renames_introduced: Dict[str, str] = field(default_factory=dict)
+
+    def visible_to_temp(self) -> Dict[str, str]:
+        """Invert ``renames_introduced`` to a ``visible_name -> temp_alias`` map."""
+        return {orig: temp for temp, orig in self.renames_introduced.items()}
 
 
 class SQLExecutionEngine:
@@ -712,195 +909,507 @@ class SQLExecutionEngine:
         )
         return f"LIMIT 1 BY {limit_by_cols}"
 
-    def build_simple_sql(
-        self,
-        clauses: ExtractedClauses,
-        select_fields: List[Expression] = None,
-        groupby_fields: List[Expression] = None,
-        having_condition: Any = None,
-        distinct: bool = False,
-    ) -> str:
+    def _split_wheres_by_groupby_position(
+        self, layer_ops: List[LazyOp]
+    ) -> Tuple[List[Any], List[Any]]:
         """
-        Build a simple (non-nested) SQL query.
+        Split WHERE conditions in a layer into pre-aggregation and
+        post-aggregation buckets, using the position of the LazyGroupByAgg
+        op (if any) within the layer.
 
-        Args:
-            clauses: Extracted SQL clauses
-            select_fields: Fields to select
-            groupby_fields: GROUP BY fields
-            having_condition: HAVING condition
-            distinct: Whether to use DISTINCT
+        - WHEREs before the LazyGroupByAgg act on source rows -> WHERE clause
+        - WHEREs after the LazyGroupByAgg act on aggregation output ->
+          HAVING clause (SQL HAVING runs after GROUP BY)
 
         Returns:
-            SQL query string
+            (pre_agg_conditions, post_agg_conditions)
         """
-        parts = []
+        pre_agg: List[Any] = []
+        post_agg: List[Any] = []
+        seen_groupby = False
+        for op in layer_ops:
+            if isinstance(op, LazyGroupByAgg):
+                seen_groupby = True
+                continue
+            if (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "WHERE"
+                and op.condition is not None
+            ):
+                if seen_groupby:
+                    post_agg.append(op.condition)
+                else:
+                    pre_agg.append(op.condition)
+        return pre_agg, post_agg
 
-        # SELECT (with optional DISTINCT)
-        distinct_keyword = "DISTINCT " if distinct else ""
-        select_fields = select_fields or clauses.select_fields
+    def _build_layer(
+        self,
+        layer_ops: List[LazyOp],
+        *,
+        from_source: Optional[str] = None,
+        is_first_layer: bool,
+        inherited_renames: Optional[Dict[str, str]] = None,
+        previously_emitted_renames: Optional[Dict[str, str]] = None,
+        schema: Optional[Dict[str, str]] = None,
+        sql_select_fields: Optional[List[Expression]] = None,
+        has_column_assignments: bool = False,
+        preserved_orderby: Optional[List[Tuple[Any, bool]]] = None,
+        preserved_orderby_kind: Optional[str] = None,
+    ) -> "LayerBuildResult":
+        """
+        Build SQL for a single nested-subquery layer (unified entry point).
 
+        This is the *only* per-layer SQL builder. It handles every kind of
+        op a layer can contain and is parameterised by ``from_source`` /
+        ``is_first_layer`` so the same function works for:
+
+        - the innermost layer reading from a table function / table name,
+        - subsequent wrapper layers reading ``(inner_sql) AS __subqN__``,
+        - layers reading from a Python() DataFrame source (``__df__``).
+
+        Op-type dispatch (all ops are kept in their natural position in
+        ``layer_ops``):
+
+        - LazyRelationalOp -> WHERE / ORDER BY / LIMIT / OFFSET / SELECT
+        - LazyColumnAssignment (pushable) -> additional SELECT expression
+        - LazyGroupByAgg -> GROUP BY + aggregations; WHEREs in this layer
+          are split by position (before -> WHERE clause, after -> HAVING).
+        - LazyWhere / LazyMask -> CASE WHEN over every column with temp
+          aliases.
+
+        Args:
+            layer_ops: Ops in this layer (relational + special).
+            from_source: Explicit FROM source SQL fragment. ``None`` means
+                "this is the source layer, derive FROM from self.ds" (only
+                valid when ``is_first_layer`` is True).
+            is_first_layer: True for the innermost layer (gets row-order
+                preservation, JOINs, DISTINCT). False for wrapper layers.
+            inherited_renames: ``temp_alias -> original_alias`` map for
+                alias-awareness only. Used by
+                ``build_groupby_select_fields`` to detect when an alias is
+                already reserved (e.g. by the planner's source-col vs
+                agg-alias conflict detection). NOT used to rewrite Field
+                references in WHERE/ORDER BY.
+            previously_emitted_renames: ``temp_alias -> original_alias``
+                map for renames that *previously-built layers* actually
+                emitted under temp aliases. Used to rewrite this layer's
+                WHERE/HAVING/ORDER BY Field references (inverted to
+                ``orig -> temp``). Empty for the first layer.
+            schema: Column schema for type-aware CASE WHEN.
+            sql_select_fields: Pre-computed SELECT exprs from the caller
+                (column assignments etc.). Only used for the first layer.
+            has_column_assignments: Pass-through flag for first-layer
+                ``SELECT *, computed_col`` semantics.
+            preserved_orderby: ORDER BY from a previous layer to keep when
+                this layer has no explicit ORDER BY (wrapper layers only).
+            preserved_orderby_kind: Sort kind for stable sort detection.
+
+        Returns:
+            LayerBuildResult containing the SQL text and every temp alias
+            this layer's SELECT actually emitted
+            (``temp_alias -> original_alias``).
+        """
+        inherited_renames = inherited_renames or {}
+        previously_emitted_renames = previously_emitted_renames or {}
+        schema = schema or {}
+        sql_select_fields = sql_select_fields or []
+
+        # Inverted view of previously_emitted_renames for rewriting Field
+        # refs (visible_name -> emitted_temp_alias). This applies only to
+        # columns that an INNER subquery already emitted under a temp
+        # alias - NOT to planner reservations for this layer's own agg.
+        previously_visible_to_temp: Dict[str, str] = {
+            orig: temp for temp, orig in previously_emitted_renames.items()
+        }
+
+        groupby_agg_op, where_ops = self._extract_special_ops_from_layer(layer_ops)
+        clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+
+        # 1) Cross-layer rewrite: rewrite Field refs in this layer's
+        # WHERE/ORDER BY/SELECT to point at the inner layer's emitted names.
+        # SELECT rewriting matters when a wrapper layer projects a column
+        # the inner layer renamed (e.g. ``ds_filter['int_col']`` against an
+        # aggregation that emits ``__agg_int_col__``); the projection must
+        # bind to the temp alias and rely on post-execution rename-back.
+        if previously_visible_to_temp:
+            clauses.where_conditions = [
+                rewrite_column_refs_in_expression(c, previously_visible_to_temp)
+                for c in clauses.where_conditions
+            ]
+            clauses.orderby_fields = rewrite_column_refs_in_orderby(
+                clauses.orderby_fields, previously_visible_to_temp
+            )
+            clauses.select_fields = [
+                rewrite_column_refs_in_expression(f, previously_visible_to_temp)
+                for f in clauses.select_fields
+            ]
+            # The caller-supplied SELECT fields (e.g. a column projection
+            # from ColumnExpr) reference user-visible names too; rewrite
+            # them to bind to the inner subquery's actual emitted columns.
+            sql_select_fields = [
+                rewrite_column_refs_in_expression(f, previously_visible_to_temp)
+                for f in sql_select_fields
+            ]
+
+        # 2) Split WHEREs by GroupByAgg position (pre-agg -> WHERE, post-agg
+        # -> HAVING). ``_split_wheres_by_groupby_position`` re-reads from
+        # ``layer_ops`` to preserve position, so we need to rewrite both
+        # halves separately too.
+        having_conditions: List[Any] = []
+        if groupby_agg_op is not None:
+            pre_wheres, post_wheres = self._split_wheres_by_groupby_position(
+                layer_ops
+            )
+            if previously_visible_to_temp:
+                pre_wheres = [
+                    rewrite_column_refs_in_expression(c, previously_visible_to_temp)
+                    for c in pre_wheres
+                ]
+                post_wheres = [
+                    rewrite_column_refs_in_expression(c, previously_visible_to_temp)
+                    for c in post_wheres
+                ]
+            clauses.where_conditions = pre_wheres
+            having_conditions = post_wheres
+
+        # 3) Build SELECT / GROUP BY / WHERE CASE-WHEN tooling.
+        select_fields_for_sql: List[Expression] = sql_select_fields
+        groupby_fields_for_sql: List[Expression] = (
+            self.ds._groupby_fields if is_first_layer else []
+        )
+        where_needs_subquery = False
+        where_needs_temp_alias = False
+        where_temp_alias_columns: List[Tuple[str, str]] = []
+
+        if where_ops:
+            # LazyWhere/LazyMask CASE WHEN: emit a temp-alias SELECT over
+            # every column then rename back on the outer wrapper.
+            all_columns = self.ds._get_all_column_names() if is_first_layer else []
+            if not all_columns and not is_first_layer:
+                # Wrapper-layer CASE WHEN falls back to schema-driven cols if
+                # the source-bound helper has no schema (rare path).
+                all_columns = list(schema.keys())
+            if all_columns:
+                where_needs_temp_alias = True
+                for col in all_columns:
+                    temp_alias = f"__tmp_{col}__"
+                    where_temp_alias_columns.append((temp_alias, col))
+                select_fields_for_sql = [
+                    CaseWhenExpr(
+                        col,
+                        where_ops,
+                        self.quote_char,
+                        schema.get(col, "Unknown"),
+                        alias=f"__tmp_{col}__",
+                    )
+                    for col in all_columns
+                ]
+                if clauses.where_conditions:
+                    where_needs_subquery = True
+
+        if groupby_agg_op is not None:
+            # Determine target columns for aggregation (priority: explicit
+            # SELECT in clauses > caller-supplied select fields > agg spec >
+            # source schema).
+            if clauses.select_fields:
+                all_cols = self._infer_column_names(clauses.select_fields)
+            elif sql_select_fields:
+                all_cols = self._infer_column_names(sql_select_fields)
+            elif (
+                groupby_agg_op.agg_dict is not None
+                and isinstance(groupby_agg_op.agg_dict, dict)
+            ):
+                all_cols = list(groupby_agg_op.agg_dict.keys())
+            elif groupby_agg_op.selected_columns:
+                all_cols = list(groupby_agg_op.selected_columns)
+            else:
+                all_cols = (
+                    self.ds._get_all_column_names()
+                    if hasattr(self.ds, "_get_all_column_names")
+                    else None
+                ) or []
+
+            computed_cols = getattr(self.ds, "_computed_columns", None) or {}
+            (
+                groupby_fields_for_sql,
+                select_fields_for_sql,
+                emitted_renames,
+            ) = build_groupby_select_fields(
+                groupby_agg_op,
+                inherited_alias_renames=inherited_renames,
+                all_columns=all_cols,
+                computed_columns=computed_cols,
+            )
+
+            # Rewrite this layer's HAVING / ORDER BY refs to use the temp
+            # aliases the agg just emitted (visible_name -> temp_alias).
+            agg_visible_to_temp = {
+                orig: temp for temp, orig in emitted_renames.items()
+            }
+            if agg_visible_to_temp:
+                having_conditions = [
+                    rewrite_column_refs_in_expression(c, agg_visible_to_temp)
+                    for c in having_conditions
+                ]
+                clauses.orderby_fields = rewrite_column_refs_in_orderby(
+                    clauses.orderby_fields, agg_visible_to_temp
+                )
+
+            if groupby_agg_op.sort and not clauses.orderby_fields:
+                clauses.orderby_fields = [
+                    (Field(col), True) for col in groupby_agg_op.groupby_cols
+                ]
+            # GROUP BY reshapes rows; inner-layer ORDER BY no longer applies.
+            preserved_orderby = None
+            preserved_orderby_kind = None
+
+        # 4) Render SQL. Two render modes:
+        # - Source-bound first layer (``from_source is None`` and
+        #   ``is_first_layer=True``): full source-bound complexity (JOINs,
+        #   row-order subquery, CASE WHEN subquery, DISTINCT) via
+        #   ``_render_first_layer_sql``.
+        # - Explicit ``from_source`` (wrapper layer OR DataFrame ``__df__``
+        #   source): simple wrap over the given source via
+        #   ``_render_wrapper_layer_sql``. When this is the first layer of
+        #   the DataFrame path, ``add_row_order_fallback`` ensures
+        #   ``ORDER BY _row_id`` is added for deterministic ordering.
+        if from_source is None:
+            assert is_first_layer, "non-first layer must supply from_source"
+            sql = self._render_first_layer_sql(
+                clauses,
+                select_fields_for_sql,
+                groupby_fields_for_sql,
+                having_conditions,
+                where_ops,
+                where_needs_subquery,
+                where_needs_temp_alias,
+                where_temp_alias_columns,
+                groupby_agg_op,
+                has_column_assignments,
+            )
+        else:
+            # Wrapper / DataFrame layer: surface column assignments and
+            # explicit column selections from extract_clauses_from_ops so
+            # SELECT emits ``SELECT *, expr AS alias`` (or explicit cols).
+            wrapper_select_fields = select_fields_for_sql
+            include_star = has_column_assignments
+            if (
+                not wrapper_select_fields
+                and clauses.select_fields
+                and groupby_agg_op is None
+                and not where_ops
+            ):
+                wrapper_select_fields = clauses.select_fields
+                # When explicit_column_selection is set we want SELECT col1, col2;
+                # otherwise these are pure column assignments and we need
+                # ``SELECT *, expr AS alias`` to preserve inherited columns.
+                include_star = not clauses.explicit_column_selection
+            sql = self._render_wrapper_layer_sql(
+                from_source,
+                clauses,
+                wrapper_select_fields,
+                groupby_fields_for_sql,
+                having_conditions,
+                preserved_orderby,
+                preserved_orderby_kind,
+                add_row_order_fallback=is_first_layer,
+                include_star=include_star,
+            )
+
+        # Renames introduced by this layer: aliases its SELECT actually
+        # emitted. Empty when the layer has no LazyGroupByAgg / LazyWhere.
+        introduced: Dict[str, str] = {}
+        if groupby_agg_op is not None:
+            introduced.update(emitted_renames)
+        return LayerBuildResult(sql=sql, renames_introduced=introduced)
+
+    def _infer_column_names(
+        self, fields: List[Expression]
+    ) -> List[str]:
+        """Best-effort extraction of column names from a SELECT field list."""
+        cols: List[str] = []
+        for f in fields:
+            if isinstance(f, Field):
+                cols.append(f.name)
+            elif hasattr(f, "alias") and f.alias:
+                cols.append(f.alias)
+            else:
+                cols.append(str(f))
+        return cols
+
+    def _render_first_layer_sql(
+        self,
+        clauses: ExtractedClauses,
+        select_fields: List[Expression],
+        groupby_fields: List[Expression],
+        having_conditions: List[Any],
+        where_ops: List[Any],
+        where_needs_subquery: bool,
+        where_needs_temp_alias: bool,
+        where_temp_alias_columns: List[Tuple[str, str]],
+        groupby_agg_op: Optional[LazyGroupByAgg],
+        has_column_assignments: bool,
+    ) -> str:
+        """
+        Emit SQL for the innermost layer (bound to the table source).
+
+        Routes to one of three subquery wrappers if needed:
+        - ``build_sql_with_case_when_subquery``: WHERE under CASE WHEN
+        - ``_build_temp_alias_query``: CASE WHEN with row-order capture
+        - ``build_sql_with_row_order_subquery``: row order with WHERE
+
+        Otherwise falls through to ``assemble_sql`` which handles JOINs,
+        DISTINCT, HAVING, stable-sort subqueries and the standard clause
+        layout.
+        """
+        needs_row_order = (
+            clauses.needs_row_order(has_groupby=groupby_agg_op is not None)
+            and not self.source_preserves_row_order()
+        )
+
+        # HAVING is currently only emitted for wrapper layers (post-agg
+        # WHERE in a first-layer plan is folded into source-level WHERE by
+        # the planner). Assert to surface any unexpected case explicitly.
+        if having_conditions:
+            # Fold into the layer's WHERE list as a defensive fallback (the
+            # combine logic in assemble_sql will AND them together correctly
+            # because there's no GROUP BY split between them here).
+            clauses.where_conditions = list(clauses.where_conditions) + list(
+                having_conditions
+            )
+
+        if where_needs_subquery:
+            return self.build_sql_with_case_when_subquery(
+                clauses, select_fields, where_temp_alias_columns
+            )
+        if where_needs_temp_alias and where_temp_alias_columns:
+            return self._build_temp_alias_query(
+                clauses, select_fields, where_temp_alias_columns, needs_row_order
+            )
+        if needs_row_order and clauses.where_conditions and not self.ds._joins:
+            return self.build_sql_with_row_order_subquery(
+                clauses,
+                select_fields,
+                groupby_fields,
+                include_star=has_column_assignments,
+            )
+
+        effective_orderby = clauses.orderby_fields
+        if (
+            needs_row_order
+            and not clauses.orderby_fields
+            and (clauses.where_conditions or self.ds._joins)
+        ):
+            effective_orderby = [("__rowNumberInAllBlocks__", True)]
+
+        # When DISTINCT is active, don't use include_star because it would
+        # expand * to all source columns (defeating column selection +
+        # DISTINCT). Column assignments are already in select_fields.
+        use_include_star = has_column_assignments if has_column_assignments else None
+        if self.ds._distinct and use_include_star:
+            use_include_star = None
+
+        return self.assemble_sql(
+            select_fields,
+            clauses.where_conditions,
+            effective_orderby,
+            clauses.limit_value,
+            clauses.offset_value,
+            joins=self.ds._joins,
+            distinct=self.ds._distinct,
+            groupby_fields=groupby_fields,
+            having_condition=self.ds._having_condition,
+            include_star=use_include_star,
+        )
+
+    def _render_wrapper_layer_sql(
+        self,
+        from_source: str,
+        clauses: ExtractedClauses,
+        select_fields: List[Expression],
+        groupby_fields: List[Expression],
+        having_conditions: List[Any],
+        preserved_orderby: Optional[List[Tuple[Any, bool]]],
+        preserved_orderby_kind: Optional[str],
+        add_row_order_fallback: bool = False,
+        include_star: bool = False,
+    ) -> str:
+        """
+        Emit SQL for a layer that reads from an explicit FROM source:
+        ``SELECT ... FROM {from_source} [WHERE] [GROUP BY] [HAVING]
+        [ORDER BY] [LIMIT] [OFFSET]``.
+
+        Used for both wrapper layers (``(inner_sql) AS __subqN__``) and the
+        DataFrame execution path (``__df__``). No source-level JOINs,
+        DISTINCT or row-order subqueries here - those are exclusive to the
+        table-bound first layer (``_render_first_layer_sql``).
+
+        ``preserved_orderby`` propagates the previous layer's ORDER BY
+        through filter-only wrappers so
+        ``df.sort_values(...).head(10)[df.col > X]`` keeps its sort order.
+
+        ``add_row_order_fallback`` enables ``ORDER BY _row_id`` when the
+        layer has no other ORDER BY but still needs deterministic ordering.
+        Used for the Python() DataFrame first layer where ``_row_id`` is the
+        built-in virtual column carrying source row order.
+
+        ``include_star`` enables ``SELECT *, expr AS alias`` style for
+        column-assignment scenarios where we want to keep all inherited
+        columns plus add the computed ones.
+        """
         if select_fields:
             fields_sql = ", ".join(
                 f.to_sql(quote_char=self.quote_char, with_alias=True)
                 for f in select_fields
             )
-            if self.ds._select_star:
-                parts.append(f"SELECT {distinct_keyword}*, {fields_sql}")
-            else:
-                parts.append(f"SELECT {distinct_keyword}{fields_sql}")
+            select_sql = f"*, {fields_sql}" if include_star else fields_sql
         else:
-            parts.append(f"SELECT {distinct_keyword}*")
+            select_sql = "*"
 
-        # FROM
-        table_source = self.get_table_source()
-        if table_source:
-            # Add alias when joins are present
-            if self.ds._joins:
-                alias = self.ds._get_table_alias()
-                parts.append(
-                    f"FROM {table_source} AS {format_identifier(alias, self.quote_char)}"
-                )
-            else:
-                parts.append(f"FROM {table_source}")
+        parts = [f"SELECT {select_sql}", f"FROM {from_source}"]
 
-        # JOIN clauses
-        if self.ds._joins:
-            for other_ds, join_type, join_condition in self.ds._joins:
-                parts.append(
-                    self._build_join_clause(other_ds, join_type, join_condition)
-                )
-
-        # WHERE
         if clauses.where_conditions:
             combined = clauses.where_conditions[0]
-            for cond in clauses.where_conditions[1:]:
-                combined = combined & cond
+            for c in clauses.where_conditions[1:]:
+                combined = combined & c
             parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
 
-        # GROUP BY
         if groupby_fields:
-            groupby_sql = ", ".join(
+            gb_sql = ", ".join(
                 f.to_sql(quote_char=self.quote_char) for f in groupby_fields
             )
-            parts.append(f"GROUP BY {groupby_sql}")
+            parts.append(f"GROUP BY {gb_sql}")
 
-        # HAVING
-        if having_condition:
-            parts.append(
-                f"HAVING {having_condition.to_sql(quote_char=self.quote_char)}"
-            )
+        if having_conditions:
+            combined = having_conditions[0]
+            for c in having_conditions[1:]:
+                combined = combined & c
+            parts.append(f"HAVING {combined.to_sql(quote_char=self.quote_char)}")
 
-        # ORDER BY
-        if clauses.orderby_fields:
-            orderby_sql = build_orderby_clause(
-                clauses.orderby_fields,
-                self.quote_char,
-                stable=is_stable_sort(clauses.orderby_kind),
-            )
-            parts.append(f"ORDER BY {orderby_sql}")
-
-        limit_by = self._build_limit_by_clause()
-        if limit_by:
-            parts.append(limit_by)
-
-        # LIMIT
-        if clauses.limit_value is not None:
-            parts.append(f"LIMIT {clauses.limit_value}")
-
-        # OFFSET
-        if clauses.offset_value is not None:
-            parts.append(f"OFFSET {clauses.offset_value}")
-
-        return " ".join(parts)
-
-    def build_nested_sql(
-        self, layers: List[List[LazyOp]], base_clauses: ExtractedClauses = None
-    ) -> str:
-        """
-        Build nested subquery SQL for complex patterns.
-
-        Multiple layers are needed when:
-        - WHERE follows LIMIT/OFFSET (pandas: slice then filter)
-        - ORDER BY follows LIMIT/OFFSET (pandas: slice then sort)
-
-        Args:
-            layers: List of operation lists, innermost first
-            base_clauses: Clauses for the innermost query
-
-        Returns:
-            SQL query string with nested subqueries
-        """
-        if not layers:
-            return ""
-
-        # Build innermost query (layer 0)
-        inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
-
-        sql = self.build_simple_sql(
-            inner_clauses,
-            select_fields=inner_clauses.select_fields or None,
-            groupby_fields=self.ds._groupby_fields or None,
-            having_condition=self.ds._having_condition,
-            distinct=self.ds._distinct,
-        )
-
-        # Wrap with outer layers (layer 1, 2, ...)
-        for layer_idx, layer_ops in enumerate(layers[1:], 1):
-            layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
-            sql = self._wrap_with_layer(sql, layer_clauses, layer_idx)
-
-        return sql
-
-    def _wrap_with_layer(
-        self,
-        inner_sql: str,
-        clauses: ExtractedClauses,
-        layer_idx: int,
-        preserved_orderby: List[Tuple[Any, bool]] = None,
-        preserved_orderby_kind: str = None,
-    ) -> str:
-        """Wrap an inner SQL query with an outer layer.
-
-        Args:
-            inner_sql: The inner SQL query to wrap
-            clauses: Clauses to apply in this layer
-            layer_idx: Index of this layer (for alias naming)
-            preserved_orderby: ORDER BY from inner layers to preserve result ordering
-            preserved_orderby_kind: Sort kind (for stable sort detection)
-        """
-        outer_parts = ["SELECT *"]
-        outer_parts.append(f"FROM ({inner_sql}) AS __subq{layer_idx}__")
-
-        if clauses.where_conditions:
-            combined = clauses.where_conditions[0]
-            for cond in clauses.where_conditions[1:]:
-                combined = combined & cond
-            outer_parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-        # Use layer's ORDER BY if present, otherwise use preserved ORDER BY from inner layers
-        # This ensures patterns like (ORDER BY + LIMIT) + WHERE maintain consistent row ordering
         orderby_to_use = (
             clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
         )
         orderby_kind_to_use = (
             clauses.orderby_kind if clauses.orderby_fields else preserved_orderby_kind
         )
-
         if orderby_to_use:
             orderby_sql = build_orderby_clause(
                 orderby_to_use,
                 self.quote_char,
                 stable=is_stable_sort(orderby_kind_to_use),
             )
-            outer_parts.append(f"ORDER BY {orderby_sql}")
+            parts.append(f"ORDER BY {orderby_sql}")
+        elif add_row_order_fallback:
+            # Preserve pandas-like row order for the DataFrame source; _row_id
+            # is chDB's deterministic virtual column for Python() sources.
+            parts.append("ORDER BY _row_id")
 
         if clauses.limit_value is not None:
-            outer_parts.append(f"LIMIT {clauses.limit_value}")
-
+            parts.append(f"LIMIT {clauses.limit_value}")
         if clauses.offset_value is not None:
-            outer_parts.append(f"OFFSET {clauses.offset_value}")
+            parts.append(f"OFFSET {clauses.offset_value}")
 
-        return " ".join(outer_parts)
+        return " ".join(parts)
 
     def _build_join_clause(
         self, other_ds: "DataStore", join_type, join_condition
@@ -1265,47 +1774,21 @@ class SQLExecutionEngine:
                 groupby_agg=groupby_agg_op,
             )
 
-        # Collect SELECT fields from SQL operations (original logic)
-        sql_select_fields = []
-        has_column_assignments = False
-        has_select_star = False  # Track if '*' was in SELECT fields
-        for op in plan.sql_ops:
-            if isinstance(op, LazyRelationalOp):
-                if op.op_type == "SELECT" and op.fields:
-                    for f in op.fields:
-                        if isinstance(f, str):
-                            if f == "*":
-                                has_select_star = (
-                                    True  # Record that we need all columns
-                                )
-                            else:
-                                sql_select_fields.append(Field(f))
-                        else:
-                            sql_select_fields.append(f)
-            # Handle LazyColumnAssignment - add computed column expression
-            elif isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
-                sql_select_fields.append(op.get_sql_expression())
-                has_column_assignments = True
+        sql_select_fields, has_column_assignments = (
+            self._collect_select_fields_from_sql_ops(plan.sql_ops)
+        )
 
-        # If '*' was in SELECT fields, set has_column_assignments to trigger include_star
-        if has_select_star and sql_select_fields:
-            has_column_assignments = True
-
-        # Handle simple vs nested query
-        if len(layers) <= 1:
-            sql = self._build_simple_query_from_plan(
-                layers[0] if layers else [],
-                sql_select_fields,
-                groupby_agg_op,
-                where_ops,
-                alias_renames,
-                schema,
-                has_column_assignments,
-            )
-        else:
-            sql = self._build_nested_query_from_plan(
-                layers, sql_select_fields, has_column_assignments
-            )
+        # Unified layer loop: layer 0 reads from the table source,
+        # subsequent layers wrap "(inner_sql) AS __subqN__". Any temp
+        # aliases a layer introduces are accumulated and forwarded so
+        # downstream layers rewrite their column references accordingly.
+        sql = self._build_layered_sql(
+            layers if layers else [[]],
+            sql_select_fields,
+            alias_renames,
+            schema,
+            has_column_assignments,
+        )
 
         return SQLBuildResult(
             sql=sql,
@@ -1539,170 +2022,195 @@ class SQLExecutionEngine:
             sql = f"{sql} SETTINGS session_timezone='UTC'"
         return sql
 
-    def _build_simple_query_from_plan(
+    def _extract_special_ops_from_layer(
+        self, layer_ops: List[LazyOp]
+    ) -> Tuple[Optional[LazyGroupByAgg], List[Any]]:
+        """
+        Pull the LazyGroupByAgg (if any) and LazyWhere/LazyMask ops out of a
+        layer's op list, returning them separately for SQL dispatch.
+
+        Returns:
+            (groupby_agg_op, where_ops)
+        """
+        groupby_agg_op: Optional[LazyGroupByAgg] = None
+        where_ops: List[Any] = []
+        for op in layer_ops:
+            if isinstance(op, LazyGroupByAgg) and groupby_agg_op is None:
+                groupby_agg_op = op
+            elif isinstance(op, (LazyWhere, LazyMask)):
+                where_ops.append(op)
+        return groupby_agg_op, where_ops
+
+    def _collect_select_fields_from_sql_ops(
+        self, sql_ops: List[LazyOp]
+    ) -> Tuple[List[Expression], bool]:
+        """
+        Extract SELECT field expressions from ``plan.sql_ops``.
+
+        Walks the plan's pushable relational + column-assignment ops and
+        returns ``(sql_select_fields, has_column_assignments)``. The flag
+        captures both "this plan contains column assignments" and "the
+        plan's SELECT had a literal '*' that should be expanded into
+        ``SELECT *, computed_col`` semantics by ``include_star``.
+        """
+        sql_select_fields: List[Expression] = []
+        has_column_assignments = False
+        has_select_star = False
+
+        for op in sql_ops:
+            if isinstance(op, LazyRelationalOp):
+                if op.op_type == "SELECT" and op.fields:
+                    for f in op.fields:
+                        if isinstance(f, str):
+                            if f == "*":
+                                has_select_star = True
+                            else:
+                                sql_select_fields.append(Field(f))
+                        else:
+                            sql_select_fields.append(f)
+            elif isinstance(op, LazyColumnAssignment) and op.can_push_to_sql():
+                sql_select_fields.append(op.get_sql_expression())
+                has_column_assignments = True
+
+        # SELECT * with additional computed cols triggers include_star.
+        if has_select_star and sql_select_fields:
+            has_column_assignments = True
+
+        return sql_select_fields, has_column_assignments
+
+    def _build_layered_sql(
         self,
-        layer_ops: List[LazyOp],
+        layers: List[List[LazyOp]],
         sql_select_fields: List[Expression],
-        groupby_agg_op: Optional[LazyGroupByAgg],
-        where_ops: List[Any],
         alias_renames: Dict[str, str],
         schema: Dict[str, str],
-        has_column_assignments: bool = False,
+        has_column_assignments: bool,
+        first_layer_from_source: Optional[str] = None,
     ) -> str:
         """
-        Build a simple (non-nested) SQL query from plan components.
+        Build SQL by chaining ``_build_layer`` calls, one per nested
+        subquery layer. This is the canonical implementation of the
+        "compile a QueryPlan to SQL" pipeline.
+
+        Layer 0 reads from the table source (or ``first_layer_from_source``
+        when supplied - used by the Python() DataFrame execution path with
+        ``"__df__"``). Each subsequent layer reads ``(inner_sql) AS
+        __subqN__``. Temp aliases each layer introduces are accumulated
+        and fed to the next layer as ``inner_renames`` so its
+        WHERE/HAVING/ORDER BY ``Field`` references get rewritten to use
+        the actual emitted column names.
+
+        Args:
+            layers: List of per-layer op lists (innermost first). At least
+                one (possibly empty) layer must be supplied.
+            sql_select_fields: SELECT fields collected from
+                ``LazyRelationalOp(SELECT)`` / ``LazyColumnAssignment`` in
+                ``plan.sql_ops``; only used for the first layer.
+            alias_renames: ``plan.alias_renames`` - mutated to record any
+                temp aliases this build introduces (consumed by
+                post-execution rename-back).
+            schema: Column schema for type-aware CASE WHEN.
+            has_column_assignments: First-layer ``SELECT *, computed_col``
+                semantics flag.
+            first_layer_from_source: Optional explicit FROM source for layer
+                0 (e.g. ``"__df__"`` for Python() execution). When ``None``,
+                ``_build_layer`` derives FROM from ``self.ds``.
+
+        Returns:
+            The full nested SQL string.
         """
-        # Extract clauses
-        clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+        sql = ""
+        # ``inherited_renames`` is the temp_alias -> original_alias map (same
+        # format as ``plan.alias_renames``). It carries planner-seeded
+        # reservations plus everything previously emitted; the per-layer
+        # builder reads it only for ``build_groupby_select_fields`` alias
+        # collision detection. Field references are NOT rewritten through
+        # it - that's what ``previously_emitted_renames`` is for.
+        inherited_renames: Dict[str, str] = dict(alias_renames)
+        # ``previously_emitted_renames`` is the temp_alias -> original_alias
+        # map of renames that *already-built* layers actually emitted under
+        # temp aliases. The next layer's WHERE/ORDER BY Field refs are
+        # rewritten through this (inverted) so they bind to the correct
+        # subquery output column. Empty for the first layer.
+        previously_emitted_renames: Dict[str, str] = {}
+        preserved_orderby: Optional[List[Tuple[Any, bool]]] = None
+        preserved_orderby_kind: Optional[str] = None
 
-        # Apply alias renames to ORDER BY
-        clauses.orderby_fields = apply_alias_renames_to_orderby(
-            clauses.orderby_fields, alias_renames
-        )
+        for layer_idx, layer_ops in enumerate(layers):
+            is_first = layer_idx == 0
+            from_source = (
+                first_layer_from_source
+                if is_first
+                else f"({sql}) AS __subq{layer_idx}__"
+            )
 
-        # Handle LazyWhere/LazyMask SQL pushdown (CASE WHEN)
-        where_needs_subquery = False
-        where_needs_temp_alias = False
-        where_temp_alias_columns = []
-
-        if where_ops:
-            all_columns = self.ds._get_all_column_names()
-            if all_columns:
-                where_needs_temp_alias = True
-                for col in all_columns:
-                    temp_alias = f"__tmp_{col}__"
-                    where_temp_alias_columns.append((temp_alias, col))
-
-                sql_select_fields = [
-                    CaseWhenExpr(
-                        col,
-                        where_ops,
-                        self.quote_char,
-                        schema.get(col, "Unknown"),
-                        alias=f"__tmp_{col}__",
-                    )
-                    for col in all_columns
-                ]
-
-                if clauses.where_conditions:
-                    where_needs_subquery = True
-
-        # Handle LazyGroupByAgg SQL pushdown
-        groupby_fields_for_sql = self.ds._groupby_fields
-        select_fields_for_sql = sql_select_fields
-
-        if groupby_agg_op:
-            # Note: Pre-aggregation ORDER BY (from sort_values() before groupby) is already
-            # handled by the query planner - it won't be pushed to SQL. Any ORDER BY present
-            # here is a post-aggregation sort (e.g., groupby().agg().sort_values('mean'))
-            # and must be preserved.
-
-            # Get columns for aggregation - prioritize explicit column selection from
-            # df[['col1', 'col2']].groupby(...) over all source columns
-            # This ensures that df[['Pclass', 'Survived']].groupby('Pclass').mean()
-            # only aggregates 'Survived', not all columns from the source file
-            if clauses.select_fields:
-                # Use explicitly selected columns (from LazyRelationalOp(SELECT))
-                all_cols = []
-                for f in clauses.select_fields:
-                    if isinstance(f, Field):
-                        all_cols.append(f.name)
-                    elif hasattr(f, "alias") and f.alias:
-                        all_cols.append(f.alias)
-                    else:
-                        all_cols.append(str(f))
-            elif sql_select_fields:
-                # Use columns from passed-in select fields
-                all_cols = []
-                for f in sql_select_fields:
-                    if isinstance(f, Field):
-                        all_cols.append(f.name)
-                    elif hasattr(f, "alias") and f.alias:
-                        all_cols.append(f.alias)
-                    else:
-                        all_cols.append(str(f))
+            # Derive per-layer select fields so each layer only emits its
+            # own column assignments. The plan-wide ``sql_select_fields``
+            # (passed by ``build_sql_from_plan``) is only used for the
+            # first source-bound layer where we still want explicit column
+            # selections to reach ``assemble_sql``; the per-layer fields
+            # cover column assignments belonging to that specific layer.
+            (
+                layer_sql_select_fields,
+                layer_has_column_assignments,
+            ) = self._collect_select_fields_from_sql_ops(layer_ops)
+            if is_first and first_layer_from_source is None:
+                # Source-bound first layer keeps the legacy contract: the
+                # caller may pass a globally-collected ``sql_select_fields``
+                # which already includes this layer's own assignments.
+                effective_select_fields = sql_select_fields
+                effective_has_assignments = has_column_assignments
             else:
-                # Fall back to all source columns
-                all_cols = (
-                    self.ds._get_all_column_names()
-                    if hasattr(self.ds, "_get_all_column_names")
-                    else None
+                effective_select_fields = layer_sql_select_fields
+                effective_has_assignments = layer_has_column_assignments
+
+            result = self._build_layer(
+                layer_ops,
+                from_source=from_source,
+                is_first_layer=is_first,
+                inherited_renames=inherited_renames,
+                previously_emitted_renames=previously_emitted_renames,
+                schema=schema,
+                sql_select_fields=effective_select_fields,
+                has_column_assignments=effective_has_assignments,
+                preserved_orderby=preserved_orderby if not is_first else None,
+                preserved_orderby_kind=(
+                    preserved_orderby_kind if not is_first else None
+                ),
+            )
+            sql = result.sql
+            alias_renames.update(result.renames_introduced)
+            inherited_renames = dict(inherited_renames)
+            inherited_renames.update(result.renames_introduced)
+
+            # Decide what crosses into the next layer's WHERE/ORDER BY rewriter:
+            # - If this layer aggregated, only its own emitted aliases are
+            #   visible downstream (previous source-col renames are gone).
+            # - Otherwise propagate previously-emitted forward unchanged
+            #   (a non-agg wrapper doesn't introduce new emissions).
+            layer_has_agg = any(isinstance(o, LazyGroupByAgg) for o in layer_ops)
+            if layer_has_agg:
+                previously_emitted_renames = dict(result.renames_introduced)
+                preserved_orderby = None
+                preserved_orderby_kind = None
+            else:
+                # WHERE/ORDER BY emissions are not introduced by non-agg
+                # layers; propagate previous map unchanged.
+                layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
+                visible_to_temp = {
+                    orig: temp for temp, orig in previously_emitted_renames.items()
+                }
+                layer_clauses.orderby_fields = rewrite_column_refs_in_orderby(
+                    apply_alias_renames_to_orderby(
+                        layer_clauses.orderby_fields, alias_renames
+                    ),
+                    visible_to_temp,
                 )
-            # Get computed columns for expanding assign() columns in aggregations
-            computed_cols = getattr(self.ds, "_computed_columns", None) or {}
-            groupby_fields_for_sql, select_fields_for_sql = build_groupby_select_fields(
-                groupby_agg_op,
-                alias_renames,
-                all_columns=all_cols,
-                computed_columns=computed_cols,
-            )
-            # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
-            # This handles cases like ORDER BY value where value is aggregated (sum(value) AS __agg_value__)
-            clauses.orderby_fields = apply_alias_renames_to_orderby(
-                clauses.orderby_fields, alias_renames
-            )
-            if groupby_agg_op.sort and not clauses.orderby_fields:
-                clauses.orderby_fields = [
-                    (Field(col), True) for col in groupby_agg_op.groupby_cols
-                ]
+                if layer_clauses.orderby_fields:
+                    preserved_orderby = layer_clauses.orderby_fields
+                    preserved_orderby_kind = layer_clauses.orderby_kind
 
-        # Determine if row order preservation is needed
-        # Skip row order preservation if source already preserves order (e.g., Parquet with preserve_order)
-        needs_row_order = (
-            clauses.needs_row_order(has_groupby=groupby_agg_op is not None)
-            and not self.source_preserves_row_order()
-        )
-
-        # Build SQL based on complexity
-        if where_needs_subquery:
-            return self.build_sql_with_case_when_subquery(
-                clauses, select_fields_for_sql, where_temp_alias_columns
-            )
-        elif where_needs_temp_alias and where_temp_alias_columns:
-            return self._build_temp_alias_query(
-                clauses,
-                select_fields_for_sql,
-                where_temp_alias_columns,
-                needs_row_order,
-            )
-        elif needs_row_order and clauses.where_conditions and not self.ds._joins:
-            # Only use row order subquery when there are no JOINs
-            # JOINs require the full _build_sql_from_state path
-            return self.build_sql_with_row_order_subquery(
-                clauses,
-                select_fields_for_sql,
-                groupby_fields_for_sql,
-                include_star=has_column_assignments,
-            )
-        else:
-            # Simple case - use assemble_sql
-            effective_orderby = clauses.orderby_fields
-            if (
-                needs_row_order
-                and not clauses.orderby_fields
-                and (clauses.where_conditions or self.ds._joins)
-            ):
-                effective_orderby = [("__rowNumberInAllBlocks__", True)]
-
-            # When DISTINCT is active, don't use include_star because it would
-            # expand * to all source columns (defeating column selection + DISTINCT).
-            # Column assignments are already in select_fields_for_sql.
-            use_include_star = has_column_assignments if has_column_assignments else None
-            if self.ds._distinct and use_include_star:
-                use_include_star = None
-
-            return self.assemble_sql(
-                select_fields_for_sql,
-                clauses.where_conditions,
-                effective_orderby,
-                clauses.limit_value,
-                clauses.offset_value,
-                joins=self.ds._joins,
-                distinct=self.ds._distinct,
-                groupby_fields=groupby_fields_for_sql,
-                having_condition=self.ds._having_condition,
-                include_star=use_include_star,
-            )
+        return sql
 
     def _build_temp_alias_query(
         self,
@@ -1795,54 +2303,6 @@ class SQLExecutionEngine:
 
         return "\n".join(sql_parts)
 
-    def _build_nested_query_from_plan(
-        self,
-        layers: List[List[LazyOp]],
-        sql_select_fields: List[Expression],
-        has_column_assignments: bool = False,
-    ) -> str:
-        """Build nested subquery SQL for complex patterns."""
-        # Build innermost query (layer 0)
-        inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
-
-        sql = self.assemble_sql(
-            sql_select_fields,
-            inner_clauses.where_conditions,
-            inner_clauses.orderby_fields,
-            inner_clauses.limit_value,
-            inner_clauses.offset_value,
-            joins=self.ds._joins,
-            distinct=self.ds._distinct,
-            groupby_fields=self.ds._groupby_fields,
-            having_condition=self.ds._having_condition,
-            include_star=has_column_assignments if has_column_assignments else None,
-        )
-
-        # Track ORDER BY from inner layers to preserve sort order in final result
-        # When we have patterns like ORDER BY + LIMIT + WHERE, the inner ORDER BY
-        # must be applied to the final result to maintain consistent row ordering
-        preserved_orderby = inner_clauses.orderby_fields
-        preserved_orderby_kind = inner_clauses.orderby_kind
-
-        # Wrap with outer layers
-        for layer_idx, layer_ops in enumerate(layers[1:], 1):
-            layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
-
-            # If this layer has ORDER BY, use it; otherwise preserve from inner
-            if layer_clauses.orderby_fields:
-                preserved_orderby = layer_clauses.orderby_fields
-                preserved_orderby_kind = layer_clauses.orderby_kind
-
-            sql = self._wrap_with_layer(
-                sql,
-                layer_clauses,
-                layer_idx,
-                preserved_orderby=preserved_orderby,
-                preserved_orderby_kind=preserved_orderby_kind,
-            )
-
-        return sql
-
     def assemble_sql(
         self,
         select_fields,
@@ -1855,6 +2315,7 @@ class SQLExecutionEngine:
         groupby_fields=None,
         having_condition=None,
         include_star=None,
+        from_source: Optional[str] = None,
     ) -> str:
         """
         Assemble SQL query from given components.
@@ -1868,11 +2329,16 @@ class SQLExecutionEngine:
             orderby_fields: List of (field, ascending) tuples
             limit_value: LIMIT value
             offset_value: OFFSET value
-            joins: List of JOIN tuples
+            joins: List of JOIN tuples (ignored when ``from_source`` is set -
+                wrapper layers don't carry source-level JOINs)
             distinct: Whether to use DISTINCT
             groupby_fields: GROUP BY fields
             having_condition: HAVING condition
             include_star: If True, use SELECT *, computed_cols. If None, use self.ds._select_star
+            from_source: Optional explicit FROM source SQL fragment (e.g.
+                ``"(__inner_sql__) AS __subq1__"`` or ``"__df__"``). When ``None``
+                the FROM clause is derived from ``self.ds._table_function`` /
+                ``self.ds.table_name`` (legacy source-bound behaviour).
 
         Returns:
             SQL query string
@@ -1921,8 +2387,13 @@ class SQLExecutionEngine:
         else:
             parts.append(f"SELECT {distinct_keyword}*")
 
-        # FROM (with alias if joins present)
-        if self.ds._table_function:
+        # FROM clause
+        if from_source is not None:
+            # Caller supplied an explicit source (wrapper layer or DataFrame
+            # source). JOINs are NOT propagated through wrappers - they only
+            # belong to the original table reference.
+            parts.append(f"FROM {from_source}")
+        elif self.ds._table_function:
             # Handle table function objects
             if hasattr(self.ds._table_function, "to_sql"):
                 table_sql = self.ds._table_function.to_sql()
@@ -1939,8 +2410,8 @@ class SQLExecutionEngine:
         elif self.ds.table_name:
             parts.append(f"FROM {self.quote_char}{self.ds.table_name}{self.quote_char}")
 
-        # JOIN clauses
-        if joins:
+        # JOIN clauses (only when using the source-bound FROM path)
+        if joins and from_source is None:
             for other_ds, join_type, join_condition in joins:
                 parts.append(
                     self._build_join_clause(other_ds, join_type, join_condition)
@@ -2220,10 +2691,23 @@ class SQLExecutionEngine:
         """
         schema = schema or {}
 
-        # Check if we have multiple layers (nested LIMIT-WHERE patterns)
+        # Multi-layer plans go through the unified ``_build_layered_sql``
+        # pipeline with ``__df__`` as the FROM source. This ensures any
+        # LazyGroupByAgg / LazyWhere that lives in a non-zero layer is
+        # dispatched correctly (the previous ``_build_nested_sql_for_dataframe``
+        # path silently dropped them just like the source path used to).
         if plan.layers and len(plan.layers) > 1:
-            # Build nested subqueries from layers
-            return self._build_nested_sql_for_dataframe(plan.layers)
+            sql_select_fields, has_column_assignments = (
+                self._collect_select_fields_from_sql_ops(plan.sql_ops)
+            )
+            return self._build_layered_sql(
+                plan.layers,
+                sql_select_fields,
+                plan.alias_renames,
+                schema,
+                has_column_assignments,
+                first_layer_from_source="__df__",
+            )
 
         # Extract clauses for simple/single layer case
         clauses = extract_clauses_from_ops(plan.sql_ops, self.quote_char)
@@ -2243,12 +2727,17 @@ class SQLExecutionEngine:
             df_columns = list(df.columns)
             # Get computed columns for expanding assign() columns in aggregations
             computed_cols = getattr(self.ds, "_computed_columns", None) or {}
-            groupby_fields, select_fields = build_groupby_select_fields(
+            (
+                groupby_fields,
+                select_fields,
+                new_renames,
+            ) = build_groupby_select_fields(
                 plan.groupby_agg,
                 plan.alias_renames,
                 all_columns=df_columns,
                 computed_columns=computed_cols,
             )
+            plan.alias_renames.update(new_renames)
             # Re-apply alias renames to ORDER BY since build_groupby_select_fields may have added new renames
             if plan.alias_renames and clauses.orderby_fields:
                 clauses.orderby_fields = apply_alias_renames_to_orderby(
@@ -2584,110 +3073,3 @@ class SQLExecutionEngine:
 
         return False
 
-    def _build_nested_sql_for_dataframe(self, layers: List[List[LazyOp]]) -> str:
-        """
-        Build nested subquery SQL for DataFrame execution with multiple layers.
-
-        Each layer becomes a subquery wrapping the previous one:
-        Layer 0: SELECT * FROM __df__ WHERE value > 20 ORDER BY a DESC LIMIT 30
-        Layer 1: SELECT * FROM (layer0) WHERE value > 60 ORDER BY a DESC LIMIT 10
-        Layer 2: SELECT * FROM (layer1) WHERE value > 75 ORDER BY a DESC
-
-        ORDER BY from inner layers is preserved in outer layers to maintain consistent
-        row ordering after filters. This ensures patterns like
-        df.sort_values('a').head(7)[df['a'] > 4] return rows in the sorted order.
-
-        Args:
-            layers: List of operation layers from QueryPlan
-
-        Returns:
-            Nested SQL query string
-        """
-        # Build innermost query from layer 0
-        inner_clauses = extract_clauses_from_ops(layers[0], self.quote_char)
-        # add_row_order=True ensures LIMIT/OFFSET with no explicit ORDER BY gets ORDER BY _row_id
-        sql = self._assemble_simple_sql("__df__", inner_clauses, add_row_order=True)
-
-        # Track ORDER BY from inner layer to preserve in outer layers
-        preserved_orderby = inner_clauses.orderby_fields
-
-        # Wrap with outer layers
-        for layer_idx, layer_ops in enumerate(layers[1:], 1):
-            layer_clauses = extract_clauses_from_ops(layer_ops, self.quote_char)
-            subq_alias = f"__subq{layer_idx}__"
-
-            # If this layer has ORDER BY, use it; otherwise preserve from inner layers
-            if layer_clauses.orderby_fields:
-                preserved_orderby = layer_clauses.orderby_fields
-
-            # Each layer also needs deterministic ordering for LIMIT/OFFSET
-            sql = self._assemble_simple_sql(
-                f"({sql}) AS {subq_alias}",
-                layer_clauses,
-                add_row_order=True,
-                preserved_orderby=preserved_orderby,
-            )
-
-        return sql
-
-    def _assemble_simple_sql(
-        self,
-        from_source: str,
-        clauses: ExtractedClauses,
-        add_row_order: bool = False,
-        preserved_orderby: List[Tuple[Any, bool]] = None,
-    ) -> str:
-        """
-        Assemble a simple SQL query from a source and clauses.
-
-        Args:
-            from_source: The FROM clause source (table name or subquery)
-            clauses: Extracted SQL clauses
-            add_row_order: If True and there's LIMIT/OFFSET without explicit ORDER BY,
-                           add ORDER BY _row_id to preserve pandas-like row order
-            preserved_orderby: ORDER BY fields from inner layers to preserve sort order
-
-        Returns:
-            SQL query string
-        """
-        # Build SELECT clause - include computed columns if present
-        if clauses.select_fields:
-            fields_sql = ", ".join(
-                f.to_sql(quote_char=self.quote_char, with_alias=True)
-                for f in clauses.select_fields
-            )
-            parts = [f"SELECT *, {fields_sql}"]
-        else:
-            parts = ["SELECT *"]
-        parts.append(f"FROM {from_source}")
-
-        if clauses.where_conditions:
-            combined = clauses.where_conditions[0]
-            for cond in clauses.where_conditions[1:]:
-                combined = combined & cond
-            parts.append(f"WHERE {combined.to_sql(quote_char=self.quote_char)}")
-
-        # Add ORDER BY - either explicit, preserved from inner, or _row_id for row order preservation
-        # Priority: explicit ORDER BY > preserved ORDER BY > _row_id fallback
-        orderby_to_use = (
-            clauses.orderby_fields if clauses.orderby_fields else preserved_orderby
-        )
-
-        if orderby_to_use:
-            orderby_sql = build_orderby_clause(
-                orderby_to_use, self.quote_char, stable=False
-            )
-            parts.append(f"ORDER BY {orderby_sql}")
-        elif add_row_order:
-            # Add ORDER BY _row_id to preserve pandas-like row order
-            # This ensures filter operations maintain original row order
-            # _row_id is a built-in virtual column in chDB v4.0.0b5+
-            parts.append("ORDER BY _row_id")
-
-        if clauses.limit_value is not None:
-            parts.append(f"LIMIT {clauses.limit_value}")
-
-        if clauses.offset_value is not None:
-            parts.append(f"OFFSET {clauses.offset_value}")
-
-        return " ".join(parts)
