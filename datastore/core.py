@@ -1452,8 +1452,14 @@ class DataStore(PandasCompatMixin):
                         settings_parts.append(f"{key}={value}")
                 sql = f"{sql} SETTINGS {', '.join(settings_parts)}"
 
+            # Use a generous truncation limit so debug logs preserve the
+            # full SQL of typical multi-clause queries (was 200 chars, which
+            # truncated mid-clause for remote ``GROUP BY`` queries with
+            # ``dropna`` IS NOT NULL filters - breaking log-based
+            # assertions in ``tests/test_remote_lazy_chain_pushdown.py``).
             self._logger.debug(
-                "  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql
+                "  Executing SQL: %s",
+                sql[:2000] + "..." if len(sql) > 2000 else sql,
             )
 
             # For PythonTableFunction, use query_df to ensure row order preservation
