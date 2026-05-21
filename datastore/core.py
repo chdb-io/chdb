@@ -1776,26 +1776,32 @@ class DataStore(PandasCompatMixin):
 
         from .query_planner import QueryPlanner
 
-        # Use QueryPlanner segmented planning (same as _execute). For the
-        # single-source-SQL-segment case used by explain()/to_sql() we take
-        # the plan from the first SQL segment. When the whole chain is
-        # Pandas-only (e.g. ORDER BY without LIMIT under the cost-aware
-        # planner), fall back to the traditional ``SELECT * FROM source``
-        # generation - that is the SQL the executor would issue to fetch
-        # rows before handing off to Pandas.
+        # Use QueryPlanner segmented planning (same as _execute). This
+        # method models "the SQL ``_execute()`` would issue against the
+        # original source" - i.e. the FIRST step the executor runs.
+        # Cases:
+        # - First segment is SQL: return that segment's SQL.
+        # - First segment is Pandas (cost-aware planner, e.g. ORDER BY
+        #   without LIMIT): the executor first materializes data via a
+        #   plain ``SELECT * FROM source``, so return that. Returning a
+        #   later SQL-on-DataFrame segment would be misleading - its
+        #   FROM is ``Python(__df__)``, not the original source.
+        # - No segments / single Pandas-only segment: same fallback.
         planner = QueryPlanner()
         schema = self._schema or {}
         exec_plan = planner.plan_segments(
             self._lazy_ops, has_sql_source=True, schema=schema
         )
-        sql_segment = next(
-            (seg for seg in exec_plan.segments if seg.is_sql() and seg.plan), None
-        )
-        if sql_segment is None:
+        first_segment = exec_plan.segments[0] if exec_plan.segments else None
+        if (
+            first_segment is None
+            or not first_segment.is_sql()
+            or first_segment.plan is None
+        ):
             return self._generate_select_sql(self.quote_char)
 
         sql_engine = SQLExecutionEngine(self)
-        result = sql_engine.build_sql_from_plan(sql_segment.plan, schema)
+        result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
         return result.sql
 
     def _get_table_source(self) -> str:

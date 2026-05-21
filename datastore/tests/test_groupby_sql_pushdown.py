@@ -908,6 +908,92 @@ class TestDispatchByOpType(unittest.TestCase):
         # Post-agg condition is on the aggregation output
         self.assertIs(post[0], post_where.condition)
 
+    def test_mask_then_groupby_splits_into_nested_layers(self):
+        """Regression for PR #578 Copilot comment: ``mask(...).groupby(...).agg(...)``
+        used to put LazyMask and LazyGroupByAgg in the SAME layer, which
+        made the wrapper-layer CASE-WHEN temp-alias machinery
+        (``__tmp_<col>__``) collide with the aggregation's own SELECT
+        list - the outer ``SELECT __tmp_x__ AS x`` would reference
+        non-existent columns because the inner SELECT only emits
+        aggregations.
+
+        The planner now splits LazyGroupByAgg into a new nested layer
+        when the current layer already contains LazyWhere/LazyMask, so
+        the mask runs in the inner subquery and GROUP BY runs on the
+        masked output:
+        ``SELECT ... agg() FROM (SELECT CASE WHEN ... AS x) GROUP BY x``.
+        """
+        from datastore.query_planner import QueryPlanner
+        from datastore.lazy_ops import LazyMask, LazyGroupByAgg
+
+        df = pd.DataFrame({'g': [1, 1, 2, 2, 3], 'v': [10, 20, 30, 40, 50]})
+        ds = DataStore(df)
+        chain = ds.mask(ds['v'] < 30, 0).groupby('g').agg({'v': 'sum'})
+
+        planner = QueryPlanner()
+        exec_plan = planner.plan_segments(
+            chain._lazy_ops, has_sql_source=True, schema=None
+        )
+        sql_segments = [seg for seg in exec_plan.segments if seg.is_sql()]
+        self.assertEqual(len(sql_segments), 1)
+        layers = sql_segments[0].plan.layers
+        self.assertEqual(
+            len(layers), 2,
+            f'expected 2 layers (mask, then groupby), got {len(layers)}',
+        )
+        self.assertTrue(
+            any(isinstance(op, LazyMask) for op in layers[0]),
+            f'inner layer should hold the mask: {layers[0]}',
+        )
+        self.assertFalse(
+            any(isinstance(op, LazyGroupByAgg) for op in layers[0]),
+            f'inner layer should NOT hold the groupby: {layers[0]}',
+        )
+        self.assertTrue(
+            any(isinstance(op, LazyGroupByAgg) for op in layers[1]),
+            f'outer layer should hold the groupby: {layers[1]}',
+        )
+
+        # End-to-end correctness vs pandas
+        pd_result = df.mask(df['v'] < 30, 0).groupby('g').agg({'v': 'sum'})
+        ds_result = chain.to_df()
+        # Comparing as dicts is enough; index alignment differs for the
+        # ``0`` group (numeric vs auto-coerced) which is incidental here.
+        self.assertEqual(
+            dict(zip(ds_result.index.tolist(), ds_result['v'].tolist())),
+            dict(zip(pd_result.index.tolist(), pd_result['v'].tolist())),
+        )
+
+    def test_where_then_groupby_splits_into_nested_layers(self):
+        """Same as above but for ``where(...)`` (the boolean-mask twin
+        of ``mask(...)``)."""
+        from datastore.query_planner import QueryPlanner
+        from datastore.lazy_ops import LazyWhere, LazyGroupByAgg
+
+        df = pd.DataFrame({'g': [1, 1, 2, 2, 3], 'v': [10, 20, 30, 40, 50]})
+        ds = DataStore(df)
+        chain = ds.where(ds['v'] >= 30, 0).groupby('g').agg({'v': 'sum'})
+
+        planner = QueryPlanner()
+        exec_plan = planner.plan_segments(
+            chain._lazy_ops, has_sql_source=True, schema=None
+        )
+        sql_segments = [seg for seg in exec_plan.segments if seg.is_sql()]
+        self.assertEqual(len(sql_segments), 1)
+        layers = sql_segments[0].plan.layers
+        self.assertEqual(len(layers), 2)
+        self.assertTrue(any(isinstance(op, LazyWhere) for op in layers[0]))
+        self.assertTrue(
+            any(isinstance(op, LazyGroupByAgg) for op in layers[1])
+        )
+
+        pd_result = df.where(df['v'] >= 30, 0).groupby('g').agg({'v': 'sum'})
+        ds_result = chain.to_df()
+        self.assertEqual(
+            dict(zip(ds_result.index.tolist(), ds_result['v'].tolist())),
+            dict(zip(pd_result.index.tolist(), pd_result['v'].tolist())),
+        )
+
 
 class TestGroupBySQLPushdownPerformance(unittest.TestCase):
     """Test that SQL pushdown provides performance benefits."""

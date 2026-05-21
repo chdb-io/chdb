@@ -495,6 +495,20 @@ class QueryPlanner:
                 # new layer so the LIMIT applies to the inner subquery
                 # (i.e. ``SELECT ... FROM (SELECT ... LIMIT N) GROUP BY``).
                 _start_new_layer_with(op)
+            elif isinstance(op, LazyGroupByAgg) and any(
+                isinstance(prev, (LazyWhere, LazyMask)) for prev in current_layer
+            ):
+                # ``mask(cond, other).groupby(...).agg(...)`` (or ``where``)
+                # semantics: the mask must run BEFORE the GROUP BY so the
+                # aggregation sees masked values. In the same SQL layer,
+                # the wrapper-layer CASE-WHEN temp-alias machinery
+                # (``__tmp_<col>__``) collides with the agg's own select
+                # list (the inner SELECT only emits aggregations, not
+                # ``__tmp_*__``). Split into a new layer so the mask runs
+                # in the inner subquery and the GROUP BY runs on the
+                # masked output:
+                # ``SELECT ... agg() FROM (SELECT CASE WHEN ...) GROUP BY``.
+                _start_new_layer_with(op)
             else:
                 # Other operations - add pending column assignments first, then this op
                 if pending_column_assignments:

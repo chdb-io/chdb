@@ -1469,8 +1469,13 @@ class SQLExecutionEngine:
                     stable=is_stable_sort(orderby_kind_to_use),
                 )
                 outer_parts.append(f"ORDER BY {orderby_sql}")
-            elif row_order_fallback_allowed:
-                outer_parts.append("ORDER BY _row_id")
+            # ``ORDER BY _row_id`` is intentionally skipped when wrapping
+            # in ``__case_subq__``: the virtual ``_row_id`` from
+            # ``Python(__df__)`` is not propagated through the inner
+            # CASE-WHEN SELECT, so referencing it on the outer rename
+            # layer would fail with UNKNOWN_IDENTIFIER. CASE-WHEN is
+            # row-preserving, so the source order naturally flows up
+            # through the wrapper.
             if clauses.limit_value is not None:
                 outer_parts.append(f"LIMIT {clauses.limit_value}")
             if clauses.offset_value is not None:
