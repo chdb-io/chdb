@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or general discussion
+    url: https://discord.gg/D2Daa2fM5K
+    about: Join the chDB Discord — fastest path for usage questions, design discussions, and showing off what you built.
+  - name: chDB documentation
+    url: https://chdb.readthedocs.io/
+    about: User-facing API reference, installation guide, examples, and migration notes.
+  - name: chDB-core engine source
+    url: https://github.com/chdb-io/chdb-core
+    about: SQL engine, parser, format readers, codecs — issues there if your bug points at the C++ side.
