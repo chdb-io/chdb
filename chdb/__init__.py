@@ -52,9 +52,25 @@ try:
 except Exception:
     core_version = "unknown"
 
+def _preload_chdb_with_deepbind():
+    if sys.platform != "linux":
+        return
+    import ctypes
+    _RTLD_DEEPBIND = 0x00008
+    for candidate_dir in [_this_dir] + [p for p in __path__ if p != _this_dir]:
+        _abi3 = os.path.join(candidate_dir, "_chdb.abi3.so")
+        if os.path.exists(_abi3):
+            try:
+                ctypes.CDLL(_abi3, mode=sys.getdlopenflags() | _RTLD_DEEPBIND)
+            except OSError:
+                pass
+            return
+
+
 if sys.version_info[:2] >= (3, 7):
     cwd = os.getcwd()
     os.chdir(_this_dir)
+    _preload_chdb_with_deepbind()
     try:
         from . import _chdb  # noqa
     except ImportError:

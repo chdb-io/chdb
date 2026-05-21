@@ -140,7 +140,7 @@ jobs:
 
               pyenv shell $version
               python -m pip install dist/*.whl --force-reinstall
-              python -m pip install pytest pytest-cov "$PANDAS_CONSTRAINT"
+              python -m pip install pytest pytest-cov ray "$PANDAS_CONSTRAINT"
               echo "Installed pandas version:"
               python -c "import pandas; print(pandas.__version__)"
 
