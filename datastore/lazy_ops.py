@@ -1184,8 +1184,14 @@ class LazyGroupByAgg(LazyOp):
         return True
 
     def execution_engine(self) -> str:
-        """Return which engine this operation should use."""
-        return "SQL"
+        """Return which engine this operation should use.
+
+        Returns 'chDB' when the aggregation can be pushed down to SQL,
+        otherwise 'Pandas'. Returning the canonical literal lets
+        DataStore.explain() label this op consistently with the segment
+        it lives in.
+        """
+        return "chDB" if self.can_push_to_sql() else "Pandas"
 
 
 class LazyDataFrameSource(LazyOp):
@@ -1683,9 +1689,15 @@ class LazyApply(LazyOp):
         return self._is_simple_agg
 
     def execution_engine(self) -> str:
-        """Return which engine this operation should use."""
+        """Return which engine this operation should use.
+
+        Returns the canonical 'chDB' / 'Pandas' literal so that
+        DataStore.explain() can label this op consistently with the
+        segment it lives in. Returning 'SQL' here previously caused
+        pushed-down apply() ops to be mislabeled as Pandas in the plan.
+        """
         if self.can_push_to_sql():
-            return "SQL"
+            return "chDB"
         return "Pandas"
 
 
