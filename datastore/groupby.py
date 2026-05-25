@@ -99,17 +99,130 @@ class LazyGroupBy:
             >>> df.groupby('category').ngroups
             3
         """
-        # Get groupby column names
-        groupby_cols = []
+        return self._pandas_groupby().ngroups
+
+    def _groupby_col_names(self) -> List[str]:
+        """Resolve groupby Expression list to plain column-name strings."""
+        cols: List[str] = []
         for gf in self._groupby_fields:
             if isinstance(gf, Field):
-                groupby_cols.append(gf.name)
+                cols.append(gf.name)
             else:
-                groupby_cols.append(str(gf))
+                cols.append(str(gf))
+        return cols
 
-        # Execute the underlying datastore and get unique count
+    def _pandas_groupby(self):
+        """Materialize underlying DataStore and return a pandas GroupBy object.
+
+        Shared helper used by iteration, get_group(), groups, indices, ngroups,
+        len(), and ``in``. Respects ``sort``, ``dropna``, and ``selected_columns``
+        so behaviour matches pandas DataFrameGroupBy exactly.
+
+        Note: this triggers execution of the underlying DataStore. Each call
+        re-executes; callers in tight loops should hoist the result.
+        """
+        groupby_cols = self._groupby_col_names()
         df = self._datastore._get_df()
-        return df.groupby(groupby_cols, sort=self._sort, dropna=self._dropna).ngroups
+        # When grouping by a single column, pass the column name as a scalar to
+        # pandas (not a one-element list). This makes pandas yield scalar group
+        # keys (e.g. ``'A'``) instead of one-tuple keys (e.g. ``('A',)``),
+        # matching the dominant pandas convention ``df.groupby('col')`` and
+        # what users hit when chaining ``ds.groupby('col')`` from DataStore.
+        by = groupby_cols[0] if len(groupby_cols) == 1 else groupby_cols
+        pandas_gb = df.groupby(by, sort=self._sort, dropna=self._dropna)
+        if self._selected_columns is not None:
+            # Mirrors df.groupby(...)[ [cols] ] semantics: yielded sub-DataFrames
+            # only contain the selected columns, not the groupby key columns.
+            return pandas_gb[self._selected_columns]
+        return pandas_gb
+
+    def __iter__(self):
+        """Iterate over ``(group_key, sub_DataFrame)`` pairs - pandas semantics.
+
+        Mirrors :py:meth:`pandas.core.groupby.DataFrameGroupBy.__iter__`:
+
+        - Single-column groupby: yields ``(key, sub_df)`` where ``key`` is a scalar.
+        - Multi-column groupby:  yields ``((k1, k2, ...), sub_df)`` where the key
+          is a tuple of values matching the groupby columns.
+        - ``sub_df`` is a real ``pd.DataFrame`` containing the rows for that
+          group, preserving the original index of the source DataFrame.
+        - If ``selected_columns`` was set via ``gb[['c1', 'c2']]``, the yielded
+          sub-DataFrames only contain those columns.
+
+        Example:
+            >>> for (date, code), group in ds.groupby(['date', 'code']):
+            ...     print(date, code, len(group))
+        """
+        return iter(self._pandas_groupby())
+
+    def __len__(self) -> int:
+        """Return number of groups (matches pandas: ``len(gb) == gb.ngroups``)."""
+        return self.ngroups
+
+    def __contains__(self, key) -> bool:
+        """Return whether ``key`` is one of the group labels.
+
+        Matches pandas ``key in gb`` semantics: for multi-column groupby the
+        key should be a tuple of values matching the groupby columns.
+        """
+        return key in self._pandas_groupby().groups
+
+    @property
+    def groups(self) -> dict:
+        """Mapping from group label to the index labels in that group.
+
+        Mirrors :py:attr:`pandas.core.groupby.DataFrameGroupBy.groups`:
+        returns ``dict`` of ``{group_key: Index(...)}`` where each value is the
+        labels (not positions) of the rows in that group, using the original
+        DataFrame's index.
+
+        Example:
+            >>> ds.groupby('category').groups
+            {'A': Index([0, 2, 4]), 'B': Index([1, 3, 5])}
+        """
+        return self._pandas_groupby().groups
+
+    @property
+    def indices(self) -> dict:
+        """Mapping from group label to the positional locations in that group.
+
+        Mirrors :py:attr:`pandas.core.groupby.DataFrameGroupBy.indices`:
+        returns ``dict`` of ``{group_key: np.ndarray(positions)}`` where each
+        value gives integer row positions (0-based, after any reset) of the
+        rows in that group.
+
+        Example:
+            >>> ds.groupby('category').indices
+            {'A': array([0, 2, 4]), 'B': array([1, 3, 5])}
+        """
+        return self._pandas_groupby().indices
+
+    def get_group(self, name, obj=None) -> pd.DataFrame:
+        """Return the rows in the ``name`` group as a DataFrame.
+
+        Mirrors :py:meth:`pandas.core.groupby.DataFrameGroupBy.get_group`.
+
+        Args:
+            name: Group key. For single-column groupby this is a scalar matching
+                  the groupby column's value. For multi-column groupby it must
+                  be a tuple of values matching the groupby columns in order.
+            obj: Retained for pandas API compatibility (deprecated/removed in
+                 recent pandas versions); ignored here.
+
+        Returns:
+            pd.DataFrame: Sub-DataFrame for the requested group, preserving the
+            original index. If ``selected_columns`` was set via
+            ``gb[['c1', 'c2']]``, only those columns are included.
+
+        Raises:
+            KeyError: If ``name`` is not a valid group label.
+
+        Example:
+            >>> ds.groupby('category').get_group('A')
+            >>> ds.groupby(['date', 'code']).get_group(('2026-05-23', '000001'))
+        """
+        del obj  # unused, accepted for pandas API parity
+        return self._pandas_groupby().get_group(name)
 
     def __getitem__(self, key: Union[str, List[str]]) -> 'ColumnExpr':
         """
@@ -152,7 +265,16 @@ class LazyGroupBy:
             )
 
         else:
-            raise TypeError(f"Expected str or list, got {type(key).__name__}")
+            if isinstance(key, int):
+                raise TypeError(
+                    f"LazyGroupBy does not support integer indexing (got {key!r}). "
+                    "Use ``for key, group in groupby:`` to iterate over groups, "
+                    "or ``groupby.get_group(key)`` to access a specific group."
+                )
+            raise TypeError(
+                "LazyGroupBy column selection expects a str or list of str, "
+                f"got {type(key).__name__}"
+            )
 
     def __getattr__(self, name: str):
         """
