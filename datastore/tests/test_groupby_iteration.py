@@ -30,6 +30,21 @@ import pandas as pd
 from datastore import DataStore
 
 
+# pandas 2.x has version-specific behaviour around NaN groupby keys that
+# DataStore inherits because ``LazyGroupBy`` materializes through a real
+# pandas ``DataFrameGroupBy`` (see ``LazyGroupBy._pandas_groupby``). These
+# tests verify the chdb-ds side is correct on pandas 3.x where the NaN
+# semantics are well-defined; on pandas 2.x they would assert pandas's own
+# bugs (e.g. ``Categorical categories cannot be null`` from
+# ``groupby(NaN-col, dropna=False).groups``) rather than chdb-ds behaviour.
+_PANDAS_MAJOR = int(pd.__version__.split('.', 1)[0])
+_NAN_KEY_REQUIRES_PANDAS_3 = unittest.skipIf(
+    _PANDAS_MAJOR < 3,
+    "pandas 2.x has version-specific bugs with NaN groupby keys; "
+    "DataStore mirrors whatever pandas does. Coverage runs on pandas 3.x.",
+)
+
+
 class TestGroupByIterationSingleColumn(unittest.TestCase):
     """``for key, group in ds.groupby(col):`` mirrors pandas exactly."""
 
@@ -515,20 +530,56 @@ class TestGroupByPandasCompatibilityEdges(unittest.TestCase):
 
         pd.testing.assert_frame_equal(ds_group, pd_group)
 
-    # ----- dropna=False + NaN as lookup key -----
+    # ----- dropna=False + NaN as lookup key (pandas 3.x only) -----
 
-    # NB: NaN-key behaviour with ``dropna=False`` is intentionally only
-    # covered via iteration (see ``test_iter_dropna_false_includes_na_group``)
-    # because both pandas-side APIs diverge across supported versions:
-    # - ``get_group(np.nan)``: pandas 2.x raises KeyError, pandas 3.x works
-    # - ``.groups`` on a column with None/NaN: pandas 2.x raises
-    #   ``ValueError: Categorical categories cannot be null`` (fixed in 3.x)
+    @_NAN_KEY_REQUIRES_PANDAS_3
+    def test_get_group_with_nan_key_when_dropna_false(self):
+        pdf = pd.DataFrame(
+            {'cat': ['A', None, 'B', np.nan], 'v': [1, 2, 3, 4]}
+        )
+        ds = DataStore(pdf.copy())
 
-    # NB: ``get_group(('x', np.nan))`` for multi-column dropna=False groupby
-    # is intentionally not tested - pandas 2.x raises KeyError on NaN-bearing
-    # tuple keys (NaN != NaN in hash lookup) while pandas 3.x supports it,
-    # so any single assertion would diverge between supported pandas versions.
-    # Single-column NaN-key behaviour is covered by the two tests above.
+        pd_group = pdf.groupby('cat', dropna=False).get_group(np.nan)
+        ds_group = ds.groupby('cat', dropna=False).get_group(np.nan)
+
+        pd.testing.assert_frame_equal(ds_group, pd_group)
+
+    @_NAN_KEY_REQUIRES_PANDAS_3
+    def test_groups_includes_nan_key_when_dropna_false(self):
+        pdf = pd.DataFrame(
+            {'cat': ['A', None, 'B', np.nan], 'v': [1, 2, 3, 4]}
+        )
+        ds = DataStore(pdf.copy())
+
+        pd_groups = pdf.groupby('cat', dropna=False).groups
+        ds_groups = ds.groupby('cat', dropna=False).groups
+
+        self.assertEqual(len(ds_groups), len(pd_groups))
+        pd_nan_keys = [k for k in pd_groups if pd.isna(k)]
+        ds_nan_keys = [k for k in ds_groups if pd.isna(k)]
+        self.assertEqual(len(pd_nan_keys), 1)
+        self.assertEqual(len(ds_nan_keys), 1)
+        self.assertEqual(
+            list(ds_groups[ds_nan_keys[0]]),
+            list(pd_groups[pd_nan_keys[0]]),
+        )
+
+    @_NAN_KEY_REQUIRES_PANDAS_3
+    def test_get_group_multi_column_tuple_with_nan_when_dropna_false(self):
+        pdf = pd.DataFrame(
+            {
+                'a': ['x', 'x', 'y'],
+                'b': [1, np.nan, 1],
+                'v': [10, 20, 30],
+            }
+        )
+        ds = DataStore(pdf.copy())
+
+        target = ('x', np.nan)
+        pd_group = pdf.groupby(['a', 'b'], dropna=False).get_group(target)
+        ds_group = ds.groupby(['a', 'b'], dropna=False).get_group(target)
+
+        pd.testing.assert_frame_equal(ds_group, pd_group)
 
     # ----- degenerate inputs: empty / single-row / all-same -----
 
@@ -619,13 +670,23 @@ class TestSeriesGroupByIteration(unittest.TestCase):
 
         self.assertEqual(list(ds['v']), [10, 20, 30])
 
-    # NB: ``dropna`` behaviour for ``gb[col]`` iteration is intentionally not
-    # tested directly - both DataFrameGroupBy and SeriesGroupBy share the
-    # same ``_pandas_groupby()`` helper, so the dropna semantics is already
-    # covered by ``test_iter_dropna_false_includes_na_group`` above. A
-    # standalone SeriesGroupBy variant additionally trips a pandas 2.x
-    # internal bug (``ValueError: Categorical categories cannot be null``
-    # via ``__length_hint__ -> __len__ -> .groups``) that is fixed in 3.x.
+    @_NAN_KEY_REQUIRES_PANDAS_3
+    def test_series_groupby_iter_respects_dropna(self):
+        pdf = pd.DataFrame(
+            {'cat': ['A', None, 'B', np.nan], 'v': [1, 2, 3, 4]}
+        )
+        ds = DataStore(pdf.copy())
+
+        pd_items = list(pdf.groupby('cat', dropna=False)['v'])
+        ds_items = list(ds.groupby('cat', dropna=False)['v'])
+
+        self.assertEqual(len(ds_items), len(pd_items))
+        for (pk, ps), (dk, ds_s) in zip(pd_items, ds_items):
+            if pd.isna(pk):
+                self.assertTrue(pd.isna(dk))
+            else:
+                self.assertEqual(dk, pk)
+            self.assertEqual(ds_s.tolist(), ps.tolist())
 
     def test_iter_after_aggregation_yields_scalar_values_not_subseries(self):
         """Aggregated ColumnExprs propagate _groupby_fields downstream (for
