@@ -517,16 +517,11 @@ class TestGroupByPandasCompatibilityEdges(unittest.TestCase):
 
     # ----- dropna=False + NaN as lookup key -----
 
-    def test_get_group_with_nan_key_when_dropna_false(self):
-        pdf = pd.DataFrame(
-            {'cat': ['A', None, 'B', np.nan], 'v': [1, 2, 3, 4]}
-        )
-        ds = DataStore(pdf.copy())
-
-        pd_group = pdf.groupby('cat', dropna=False).get_group(np.nan)
-        ds_group = ds.groupby('cat', dropna=False).get_group(np.nan)
-
-        pd.testing.assert_frame_equal(ds_group, pd_group)
+    # NB: ``get_group(np.nan)`` is intentionally not tested - pandas 2.x
+    # raises KeyError on NaN lookup (NaN != NaN in hash table) while
+    # pandas 3.x supports it, so any single assertion would diverge between
+    # supported pandas versions. NaN-group presence is still covered via
+    # ``.groups`` and ``iter`` (both version-stable APIs).
 
     def test_groups_includes_nan_key_when_dropna_false(self):
         pdf = pd.DataFrame(
