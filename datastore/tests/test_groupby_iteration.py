@@ -517,30 +517,12 @@ class TestGroupByPandasCompatibilityEdges(unittest.TestCase):
 
     # ----- dropna=False + NaN as lookup key -----
 
-    # NB: ``get_group(np.nan)`` is intentionally not tested - pandas 2.x
-    # raises KeyError on NaN lookup (NaN != NaN in hash table) while
-    # pandas 3.x supports it, so any single assertion would diverge between
-    # supported pandas versions. NaN-group presence is still covered via
-    # ``.groups`` and ``iter`` (both version-stable APIs).
-
-    def test_groups_includes_nan_key_when_dropna_false(self):
-        pdf = pd.DataFrame(
-            {'cat': ['A', None, 'B', np.nan], 'v': [1, 2, 3, 4]}
-        )
-        ds = DataStore(pdf.copy())
-
-        pd_groups = pdf.groupby('cat', dropna=False).groups
-        ds_groups = ds.groupby('cat', dropna=False).groups
-
-        self.assertEqual(len(ds_groups), len(pd_groups))
-        pd_nan_keys = [k for k in pd_groups if pd.isna(k)]
-        ds_nan_keys = [k for k in ds_groups if pd.isna(k)]
-        self.assertEqual(len(pd_nan_keys), 1)
-        self.assertEqual(len(ds_nan_keys), 1)
-        self.assertEqual(
-            list(ds_groups[ds_nan_keys[0]]),
-            list(pd_groups[pd_nan_keys[0]]),
-        )
+    # NB: NaN-key behaviour with ``dropna=False`` is intentionally only
+    # covered via iteration (see ``test_iter_dropna_false_includes_na_group``)
+    # because both pandas-side APIs diverge across supported versions:
+    # - ``get_group(np.nan)``: pandas 2.x raises KeyError, pandas 3.x works
+    # - ``.groups`` on a column with None/NaN: pandas 2.x raises
+    #   ``ValueError: Categorical categories cannot be null`` (fixed in 3.x)
 
     # NB: ``get_group(('x', np.nan))`` for multi-column dropna=False groupby
     # is intentionally not tested - pandas 2.x raises KeyError on NaN-bearing
