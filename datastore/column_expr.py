@@ -3258,8 +3258,59 @@ class ColumnExpr:
         return len(self._execute())
 
     def __iter__(self):
-        """Iterate over executed values."""
+        """Iterate over values - SeriesGroupBy semantics when grouped, Series otherwise.
+
+        Mirrors :py:meth:`pandas.core.groupby.SeriesGroupBy.__iter__` when this
+        ColumnExpr is the direct result of ``ds.groupby(...)[col]`` (Expression
+        mode with a simple ``Field``): iteration yields ``(group_key, sub_series)``
+        pairs.
+
+        For all other forms - plain column expressions, computed expressions
+        like ``ds['a'] + ds['b']``, and crucially **aggregated results** like
+        ``ds.groupby('g')['v'].sum() * 2`` (which propagate ``_groupby_fields``
+        downstream but are no longer a SeriesGroupBy) - iteration falls back to
+        iterating over the values of the executed Series.
+
+        Example:
+            >>> # SeriesGroupBy form: yields (key, Series) per group
+            >>> for key, sub in ds.groupby('cat')['v']:
+            ...     print(key, sub.tolist())
+            ...
+            >>> # Plain column form: yields scalar values
+            >>> for v in ds['v']:
+            ...     print(v)
+            ...
+            >>> # Aggregated form: still yields scalar values (after agg+arith)
+            >>> for v in ds.groupby('cat')['v'].sum() * 2:
+            ...     print(v)
+        """
+        # Only a "pure" ds.groupby(...)[col] ColumnExpr is a SeriesGroupBy.
+        # Aggregation/method/op modes propagate _groupby_fields via _source for
+        # downstream pushdown bookkeeping, but their iter must keep yielding
+        # scalar values to match pandas Series semantics.
+        if self._groupby_fields and isinstance(self._expr, Field):
+            return self._iter_groupby_series()
         return iter(self._execute())
+
+    def _iter_groupby_series(self):
+        """Yield ``(key, sub_Series)`` pairs - SeriesGroupBy iteration via pandas.
+
+        Caller must have already verified ``isinstance(self._expr, Field)`` and
+        ``self._groupby_fields``.
+        """
+        df = self._datastore._get_df()
+        groupby_cols = [
+            gf.name if isinstance(gf, Field) else str(gf)
+            for gf in self._groupby_fields
+        ]
+        # Match LazyGroupBy._pandas_groupby() convention: single column -> scalar by,
+        # multi-column -> list, so scalar/tuple key semantics align between
+        # ``for k, g in gb:`` and ``for k, s in gb['col']:``.
+        by = groupby_cols[0] if len(groupby_cols) == 1 else groupby_cols
+        series_gb = df.groupby(
+            by, sort=self._groupby_sort, dropna=self._groupby_dropna
+        )[self._expr.name]
+        return iter(series_gb)
 
     def __getitem__(self, key):
         """
