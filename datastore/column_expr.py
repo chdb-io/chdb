@@ -3285,10 +3285,18 @@ class ColumnExpr:
             ...     print(v)
         """
         # Only a "pure" ds.groupby(...)[col] ColumnExpr is a SeriesGroupBy.
-        # Aggregation/method/op modes propagate _groupby_fields via _source for
-        # downstream pushdown bookkeeping, but their iter must keep yielding
-        # scalar values to match pandas Series semantics.
-        if self._groupby_fields and isinstance(self._expr, Field):
+        # Other modes propagate _groupby_fields for downstream pushdown
+        # bookkeeping (some, like ``transform``, even re-copy ``_expr=Field``
+        # onto an op-mode result), but their iter must keep yielding scalar
+        # values to match pandas Series semantics. So we require that NONE of
+        # the derived-mode entry fields are set.
+        if (
+            self._groupby_fields
+            and isinstance(self._expr, Field)
+            and self._source is None
+            and self._op_type is None
+            and self._agg_func_name is None
+        ):
             return self._iter_groupby_series()
         return iter(self._execute())
 

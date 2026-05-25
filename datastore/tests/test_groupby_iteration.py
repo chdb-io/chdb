@@ -686,6 +686,27 @@ class TestSeriesGroupByIteration(unittest.TestCase):
 
         self.assertEqual(list(ds_result), list(pd_result))
 
+    def test_iter_after_groupby_transform_yields_scalar_values(self):
+        """``gb['col'].transform(...)`` returns an op-mode ColumnExpr that
+        manually re-copies ``_expr=Field`` and ``_groupby_fields`` from its
+        source. The judgement that selects SeriesGroupBy iteration must look
+        at the derived-mode entry fields (``_source``, ``_op_type``,
+        ``_agg_func_name``) and skip SeriesGroupBy iteration here.
+
+        Regression for the CI failure of ``test_groupby_transform`` -
+        previously this fell into the SeriesGroupBy branch and yielded
+        ``[('bar', Series), ('foo', Series)]`` instead of transform values.
+        """
+        pdf = pd.DataFrame(
+            {'A': ['foo', 'foo', 'bar', 'bar'], 'B': [1, 2, 3, 4]}
+        )
+        ds = DataStore(pdf.copy())
+
+        pd_transform = pdf.groupby('A')['B'].transform('sum')
+        ds_transform = ds.groupby('A')['B'].transform('sum')
+
+        self.assertEqual(list(ds_transform), pd_transform.tolist())
+
 
 class TestGroupByGetItemErrorPaths(unittest.TestCase):
     """``gb[<illegal>]`` raises TypeError with a clear, type-specific message.
