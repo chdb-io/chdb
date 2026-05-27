@@ -1208,6 +1208,35 @@ class PandasCompatMixin:
             )
         )
 
+    def _has_categorical_sort_key(self, by) -> bool:
+        """Return True if any column in ``by`` is a pandas CategoricalDtype.
+
+        Categorical columns sort by their declared category order in pandas,
+        which SQL ORDER BY (string/value literal order) cannot reproduce.
+
+        Only inspects the cached source DataFrame and any already-materialized
+        cache; never triggers execution to find out. For sources where we
+        don't yet have a pandas frame, we assume non-categorical (chDB has no
+        notion of categorical dtype, so any column it produced is not one).
+        """
+        df = self._source_df
+        if df is None:
+            df = getattr(self, "_cached_result", None)
+        if df is None or df.empty:
+            return False
+        if isinstance(by, str):
+            keys = [by]
+        else:
+            try:
+                keys = list(by)
+            except TypeError:
+                return False
+        for col in keys:
+            if isinstance(col, str) and col in df.columns:
+                if isinstance(df[col].dtype, pd.CategoricalDtype):
+                    return True
+        return False
+
     def sort_values(
         self,
         by,
@@ -1246,11 +1275,15 @@ class PandasCompatMixin:
 
         # Check if we can use lazy SQL execution
         # Simple cases: axis=0, no key function, na_position='last', ignore_index=False
+        # Also: no CategoricalDtype sort key — pandas sorts by category order,
+        # but chDB has no categorical concept and would sort by string-literal
+        # order, producing a different result. Fall back to pandas.
         can_use_lazy = (
             axis == 0
             and key is None
             and na_position == 'last'
             and not ignore_index
+            and not self._has_categorical_sort_key(by)
             and hasattr(self, 'sort')  # Ensure sort() method exists
         )
 
