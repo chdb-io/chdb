@@ -400,3 +400,59 @@ class TestLocalSourceUnboundedOrderByPushed:
         assert not self._sql_has_order_by(
             plan
         ), "ORDER BY should not be pushed for a non-local (no SQL) source"
+
+
+class TestCategoricalSortKeyFallback:
+    """CategoricalDtype sort keys must follow the declared category order,
+    which SQL ORDER BY (value-literal order) cannot reproduce. The lazy SQL
+    path should fall back to pandas for these."""
+
+    def _make_categorical_df(self):
+        cats = pd.Categorical(
+            ["c", "a", "b", "a", "c", "b"],
+            categories=["b", "a", "c"],
+            ordered=True,
+        )
+        return pd.DataFrame({"x": cats, "i": [1, 2, 3, 4, 5, 6]})
+
+    def test_unbounded_sort_by_categorical_matches_pandas(self):
+        pdf = self._make_categorical_df()
+        ds = DataStore.from_df(pdf)
+        assert_datastore_equals_pandas(ds.sort_values("x"), pdf.sort_values("x"))
+
+    def test_mixed_categorical_and_plain_falls_back(self):
+        """If any sort key is categorical, the whole sort_values must fall
+        back to pandas — splitting would break stable order semantics."""
+        pdf = self._make_categorical_df()
+        ds = DataStore.from_df(pdf)
+        assert_datastore_equals_pandas(
+            ds.sort_values(["x", "i"]), pdf.sort_values(["x", "i"])
+        )
+
+    def test_plain_string_sort_still_uses_sql_pushdown(self):
+        """Sanity check that non-categorical string sorts are unaffected by
+        the new fallback."""
+        pdf = pd.DataFrame({"x": ["c", "a", "b", "a"], "i": [1, 2, 3, 4]})
+        ds = DataStore.from_df(pdf)
+        assert_datastore_equals_pandas(ds.sort_values("x"), pdf.sort_values("x"))
+        # Verify SQL pushdown still occurred for the non-categorical case.
+        sorted_ds = ds.sort_values("x")
+        planner = QueryPlanner()
+        from datastore.table_functions import PythonTableFunction
+
+        local = sorted_ds._source_df is not None or isinstance(
+            sorted_ds._table_function, PythonTableFunction
+        )
+        plan = planner.plan_segments(
+            sorted_ds._lazy_ops,
+            has_sql_source=True,
+            schema=sorted_ds.schema(),
+            local_source=local,
+        )
+        found_orderby = any(
+            isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
+            for seg in plan.segments
+            if seg.is_sql() and seg.plan
+            for op in seg.plan.sql_ops
+        )
+        assert found_orderby, "Plain string sort should still push ORDER BY to SQL"
