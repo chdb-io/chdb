@@ -34,7 +34,7 @@ from .exceptions import (
 )
 from .connection import Connection, QueryResult
 from .executor import Executor
-from .table_functions import create_table_function, TableFunction
+from .table_functions import create_table_function, PythonTableFunction, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
 from .lazy_ops import LazyOp, LazyRelationalOp
@@ -744,8 +744,14 @@ class DataStore(PandasCompatMixin):
                 self._table_function or self.table_name or self._source_df is not None
             )
             schema = self.schema() if has_sql_source else self._schema
+            local_source = self._source_df is not None or isinstance(
+                self._table_function, PythonTableFunction
+            )
             exec_plan = planner.plan_segments(
-                self._lazy_ops, has_sql_source, schema=schema
+                self._lazy_ops,
+                has_sql_source,
+                schema=schema,
+                local_source=local_source,
             )
 
             lines.append("\nOperations:")
@@ -1255,8 +1261,14 @@ class DataStore(PandasCompatMixin):
                     or self._source_df is not None
                 )
                 schema = self.schema() if has_sql_source else self._schema
+                local_source = self._source_df is not None or isinstance(
+                    self._table_function, PythonTableFunction
+                )
                 exec_plan = planner.plan_segments(
-                    self._lazy_ops, has_sql_source, schema=schema
+                    self._lazy_ops,
+                    has_sql_source,
+                    schema=schema,
+                    local_source=local_source,
                 )
 
                 self._logger.debug(exec_plan.describe())
@@ -1795,8 +1807,14 @@ class DataStore(PandasCompatMixin):
         # - No segments / single Pandas-only segment: same fallback.
         planner = QueryPlanner()
         schema = self._schema or {}
+        local_source = self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        )
         exec_plan = planner.plan_segments(
-            self._lazy_ops, has_sql_source=True, schema=schema
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=schema,
+            local_source=local_source,
         )
         first_segment = exec_plan.segments[0] if exec_plan.segments else None
         if (
