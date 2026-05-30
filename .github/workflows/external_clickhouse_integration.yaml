@@ -1,0 +1,165 @@
+name: External ClickHouse Integration
+
+# Integration tests against a pair of real ClickHouse servers — currently
+# exercises the writeback APIs (to_clickhouse / create_view /
+# create_materialized_view / save) in datastore/tests/test_writeback.py.
+#
+# Only runs on Linux self-hosted runners (x86_64 + arm64). The macOS /
+# Windows wheel-build workflows do NOT run this suite — test_writeback.py's
+# autouse fixture pytest.skip()s when CHDB_TEST_* env vars are unset, so
+# those jobs see all writeback cases as SKIPPED at zero cost.
+#
+# The two ClickHouse servers are launched via docker compose
+# (.github/ci/clickhouse-pair.yml), which is also the file local devs use
+# to reproduce the CI environment.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  # Intentionally NOT triggered on `release: types: [created]` — at release
+  # time the wheel-build workflows take over (build + upload to PyPI). The
+  # writeback / external-ClickHouse integration was already validated at PR
+  # time, and re-running it would only burn self-hosted runner minutes
+  # without adding signal.
+
+jobs:
+  integration:
+    name: External ClickHouse (${{ matrix.arch.name }})
+    if: ${{ !github.event.pull_request.draft }}
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - name: linux-x86_64
+            runner: [self-hosted, linux, x64, ubuntu-latest]
+          - name: linux-arm64
+            runner: [self-hosted, linux, arm64, ubuntu-latest]
+
+    runs-on: ${{ matrix.arch.runner }}
+
+    # Compose project name + container_name + host port bindings are fixed
+    # (9000/9001/8123/8124, chdb_ds_ch1/ch2). On a self-hosted runner that
+    # picks up multiple PRs in parallel those would collide, so serialize
+    # integration runs per arch. cancel-in-progress=false keeps an in-flight
+    # run intact when a newer push lands — premature kills leave dangling
+    # docker containers.
+    concurrency:
+      group: external-clickhouse-${{ matrix.arch.name }}
+      cancel-in-progress: false
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Probe runner for required tooling up front so failures surface
+      # with a clear "this runner is not provisioned correctly" message
+      # instead of a confusing `docker: command not found` deep into the run.
+      - name: Verify runner has docker + compose
+        run: |
+          set -e
+          docker version
+          docker compose version
+          docker info | head -20
+
+      # The wheel-build CI uses pyenv on these same self-hosted runners, so
+      # we reuse the same toolchain. setup-python@v5 may not have 3.14
+      # provisioned on every self-hosted image, but pyenv we know works.
+      - name: Setup Python 3.14 via pyenv
+        run: |
+          set -e
+          if [ ! -d "$HOME/.pyenv" ]; then
+            curl https://pyenv.run | bash
+          fi
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          if ! pyenv versions --bare | grep -q '^3\.14\.'; then
+            echo "Installing Python 3.14 via pyenv..."
+            pyenv install 3.14:latest || \
+              PYTHON_CONFIGURE_OPTS="--without-ensurepip" pyenv install 3.14:latest
+          fi
+          INSTALLED=$(pyenv versions --bare | grep '^3\.14\.' | head -1)
+          pyenv global "$INSTALLED"
+          python --version
+          if ! python -m pip --version 2>/dev/null; then
+            curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+            python /tmp/get-pip.py || python -m ensurepip --upgrade
+          fi
+          python -m pip install --upgrade pip
+
+      # Build the chdb wheel from THIS PR's source so the datastore
+      # changes (which live in the wheel) are what gets tested. Without
+      # this step `pip install chdb` from PyPI would pull the previously
+      # released version and the PR's writeback code would be invisible.
+      # `make wheel` only repackages Python sources — the heavy C++ engine
+      # comes from the chdb-core dependency (PyPI), no compilation here.
+      - name: Build wheel from PR source
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          python -m pip install setuptools wheel tox
+          make wheel
+          ls -lh dist/
+
+      - name: Install built wheel
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          python -m pip install dist/*.whl --force-reinstall
+          python -m pip install pytest pandas pyarrow
+          python -c "import chdb; print('chdb', chdb.__version__ if hasattr(chdb, '__version__') else 'unknown')"
+
+      # Defensive cleanup: a previous run that was force-killed (runner
+      # restart, OOM, manual cancel) can leave the pair behind, which would
+      # then make `up` fail with "container name already in use".
+      - name: Clean up any leftover ClickHouse pair
+        run: docker compose -f .github/ci/clickhouse-pair.yml down -v --remove-orphans || true
+
+      - name: Start ClickHouse pair
+        run: |
+          docker compose -f .github/ci/clickhouse-pair.yml up -d --wait
+          docker compose -f .github/ci/clickhouse-pair.yml ps
+
+      - name: Print ClickHouse versions
+        run: |
+          docker exec chdb_ds_ch1 clickhouse-client -q "SELECT version()"
+          docker exec chdb_ds_ch2 clickhouse-client -q "SELECT version()"
+
+      - name: Run external ClickHouse integration tests
+        env:
+          CHDB_TEST_HOST: localhost:9000
+          CHDB_TEST_USER: remote_user
+          CHDB_TEST_PASSWORD: test123
+          CHDB_TEST_DATABASE: chdb_test
+          CHDB_TEST_TARGET_HOST: localhost:9001
+          CHDB_TEST_TARGET_USER: remote_user_2
+          CHDB_TEST_TARGET_PASSWORD: test456
+          CHDB_TEST_TARGET_DATABASE: chdb_test_2
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          python -m pytest datastore/tests/test_writeback.py -v --tb=short
+
+      - name: Dump ClickHouse logs on failure
+        if: failure()
+        run: |
+          echo "===== ch1 logs ====="
+          docker logs chdb_ds_ch1 || true
+          echo "===== ch2 logs ====="
+          docker logs chdb_ds_ch2 || true
+
+      - name: Stop ClickHouse pair
+        if: always()
+        run: docker compose -f .github/ci/clickhouse-pair.yml down -v --remove-orphans
