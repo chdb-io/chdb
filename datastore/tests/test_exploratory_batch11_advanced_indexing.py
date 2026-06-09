@@ -13,7 +13,7 @@ Testing areas:
 """
 
 import pytest
-from tests.xfail_markers import chdb_array_nullable, chdb_no_normalize_utf8, lazy_extractall_multiindex
+from tests.xfail_markers import chdb_no_normalize_utf8, lazy_extractall_multiindex
 import pandas as pd
 import numpy as np
 from datastore import DataStore
@@ -408,7 +408,6 @@ class TestAdvancedStringOperations:
         ds_result = get_value(ds_result)
         assert_frame_equal(ds_result, pd_result)
 
-    @chdb_array_nullable
     def test_str_findall(self):
         """str.findall returns all matches."""
         pd_df = pd.DataFrame({'text': ['a1b2c3', 'x9', 'no_match']})

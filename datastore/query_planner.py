@@ -597,6 +597,7 @@ class QueryPlanner:
         lazy_ops: List[LazyOp],
         has_sql_source: bool,
         schema: Dict[str, str] = None,
+        local_source: bool = False,
     ) -> ExecutionPlan:
         """
         Analyze LazyOp chain and produce a segmented execution plan.
@@ -689,7 +690,11 @@ class QueryPlanner:
             preceding_ops = lazy_ops[:op_idx] if op_idx >= 0 else []
             following_ops = lazy_ops[op_idx + 1 :] if op_idx >= 0 else []
             if self._can_push_op_to_sql(
-                op, effective_schema, preceding_ops, following_ops
+                op,
+                effective_schema,
+                preceding_ops,
+                following_ops,
+                local_source=local_source,
             ):
                 op_types.append(("sql", op))
             else:
@@ -775,6 +780,7 @@ class QueryPlanner:
         schema: Dict[str, str] = None,
         preceding_ops: List[LazyOp] = None,
         following_ops: List[LazyOp] = None,
+        local_source: bool = False,
     ) -> bool:
         """
         Check if a single operation can be pushed to SQL.
@@ -784,6 +790,9 @@ class QueryPlanner:
             schema: Column schema for type-aware checking
             preceding_ops: List of operations that come before this one (for context-aware decisions)
             following_ops: List of operations that come after this one (for ORDER BY cost awareness)
+            local_source: True when the SQL source is an in-process PythonTableFunction
+                (from_df). For local sources there is no network/serialization cost,
+                so unbounded ORDER BY can be pushed down profitably.
 
         Returns:
             True if the operation can be executed via SQL
@@ -809,6 +818,11 @@ class QueryPlanner:
                 # remote servers to sort the entire dataset before returning results,
                 # which is very expensive for large remote tables.
                 # When no LIMIT follows, the sort happens in pandas after data fetch.
+                #
+                # Exception: in-process PythonTableFunction sources (from_df) have
+                # no network/serialization cost, and chDB's parallel ORDER BY is
+                # consistently faster than pandas single-threaded sort_values on
+                # large frames, so unbounded ORDER BY is pushed down for them.
                 following = following_ops or []
 
                 # Check if ORDER BY precedes a GROUP BY with non-order-sensitive
@@ -837,11 +851,17 @@ class QueryPlanner:
                     isinstance(f_op, LazyRelationalOp) and f_op.op_type == "LIMIT"
                     for f_op in following
                 )
-                if not has_limit:
+                if has_limit:
+                    return True
+                if local_source:
                     self._logger.debug(
-                        "  [ORDER BY] Skipping push to SQL: no LIMIT follows (unbounded sort)"
+                        "  [ORDER BY] Pushing to SQL: local PythonTableFunction source"
                     )
-                return has_limit
+                    return True
+                self._logger.debug(
+                    "  [ORDER BY] Skipping push to SQL: no LIMIT follows (unbounded sort)"
+                )
+                return False
 
             return True
 

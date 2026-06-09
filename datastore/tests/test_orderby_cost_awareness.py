@@ -301,3 +301,158 @@ class TestEdgeCases:
         ds_result = ds.sort_values("col").head(1)
         pd_result = pdf.sort_values("col").head(1)
         assert_datastore_equals_pandas(ds_result, pd_result)
+
+
+class TestLocalSourceUnboundedOrderByPushed:
+    """For local PythonTableFunction sources (from_df), unbounded ORDER BY
+    is pushed to SQL because chDB parallel sort beats pandas single-threaded
+    sort and there is no transport cost."""
+
+    @pytest.fixture
+    def pdf(self):
+        return pd.DataFrame(
+            {
+                "id": [1, 2, 3, 4, 5, 6, 7, 8],
+                "group": ["a", "a", "b", "b", "a", "b", "a", "b"],
+                "value": [30, 10, 50, 20, 40, 60, 5, 15],
+            }
+        )
+
+    @pytest.fixture
+    def ds(self, pdf):
+        return DataStore.from_df(pdf)
+
+    def _plan(self, ds_obj):
+        planner = QueryPlanner()
+        has_sql = bool(
+            ds_obj._table_function
+            or ds_obj.table_name
+            or ds_obj._source_df is not None
+        )
+        from datastore.table_functions import PythonTableFunction
+
+        local = ds_obj._source_df is not None or isinstance(
+            ds_obj._table_function, PythonTableFunction
+        )
+        schema = ds_obj.schema() if has_sql else ds_obj._schema
+        return planner.plan_segments(
+            ds_obj._lazy_ops, has_sql, schema=schema, local_source=local
+        )
+
+    def _sql_has_order_by(self, exec_plan):
+        for seg in exec_plan.segments:
+            if seg.is_sql() and seg.plan:
+                for op in seg.plan.sql_ops:
+                    if isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY":
+                        return True
+        return False
+
+    def test_from_df_sort_values_alone_pushes_orderby_to_sql(self, ds):
+        sorted_ds = ds.sort_values("value")
+        plan = self._plan(sorted_ds)
+        assert self._sql_has_order_by(
+            plan
+        ), "ORDER BY should be in a SQL segment for from_df source"
+
+    def test_from_df_sort_values_alone_matches_pandas(self, ds, pdf):
+        ds_result = ds.sort_values("value")
+        pd_result = pdf.sort_values("value")
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_from_df_sort_values_descending_matches_pandas(self, ds, pdf):
+        ds_result = ds.sort_values("value", ascending=False)
+        pd_result = pdf.sort_values("value", ascending=False)
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_from_df_sort_values_multi_col_matches_pandas(self, ds, pdf):
+        ds_result = ds.sort_values(["group", "value"])
+        pd_result = pdf.sort_values(["group", "value"])
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_from_df_sort_values_mixed_ascending_matches_pandas(self, ds, pdf):
+        ds_result = ds.sort_values(["group", "value"], ascending=[True, False])
+        pd_result = pdf.sort_values(["group", "value"], ascending=[True, False])
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_from_df_filter_sort_matches_pandas(self, ds, pdf):
+        ds_result = ds[ds["value"] >= 20].sort_values(["group", "value"])
+        pd_result = pdf[pdf["value"] >= 20].sort_values(["group", "value"])
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_from_df_sort_before_groupby_still_stripped(self, ds, pdf):
+        """Pre-GROUP BY sort is still meaningless and should be dropped from SQL,
+        even for local sources."""
+        sorted_grouped = ds.sort_values("value").groupby("group").sum()
+        plan = self._plan(sorted_grouped)
+        assert not self._sql_has_order_by(
+            plan
+        ), "ORDER BY before non-first/last GROUP BY should be stripped"
+        ds_result = ds.sort_values("value").groupby("group").sum()
+        pd_result = pdf.sort_values("value").groupby("group").sum()
+        assert_datastore_equals_pandas(ds_result, pd_result)
+
+    def test_dict_source_unbounded_sort_still_not_pushed(self):
+        """Non-local source (no _source_df, no table_function) keeps the
+        cost-aware behavior — ORDER BY without LIMIT stays in pandas."""
+        ds_dict = DataStore({"a": [3, 1, 2], "b": ["x", "y", "z"]})
+        sorted_ds = ds_dict.sort_values("a")
+        plan = self._plan(sorted_ds)
+        assert not self._sql_has_order_by(
+            plan
+        ), "ORDER BY should not be pushed for a non-local (no SQL) source"
+
+
+class TestCategoricalSortKeyFallback:
+    """CategoricalDtype sort keys must follow the declared category order,
+    which SQL ORDER BY (value-literal order) cannot reproduce. The lazy SQL
+    path should fall back to pandas for these."""
+
+    def _make_categorical_df(self):
+        cats = pd.Categorical(
+            ["c", "a", "b", "a", "c", "b"],
+            categories=["b", "a", "c"],
+            ordered=True,
+        )
+        return pd.DataFrame({"x": cats, "i": [1, 2, 3, 4, 5, 6]})
+
+    def test_unbounded_sort_by_categorical_matches_pandas(self):
+        pdf = self._make_categorical_df()
+        ds = DataStore.from_df(pdf)
+        assert_datastore_equals_pandas(ds.sort_values("x"), pdf.sort_values("x"))
+
+    def test_mixed_categorical_and_plain_falls_back(self):
+        """If any sort key is categorical, the whole sort_values must fall
+        back to pandas — splitting would break stable order semantics."""
+        pdf = self._make_categorical_df()
+        ds = DataStore.from_df(pdf)
+        assert_datastore_equals_pandas(
+            ds.sort_values(["x", "i"]), pdf.sort_values(["x", "i"])
+        )
+
+    def test_plain_string_sort_still_uses_sql_pushdown(self):
+        """Sanity check that non-categorical string sorts are unaffected by
+        the new fallback."""
+        pdf = pd.DataFrame({"x": ["c", "a", "b", "a"], "i": [1, 2, 3, 4]})
+        ds = DataStore.from_df(pdf)
+        assert_datastore_equals_pandas(ds.sort_values("x"), pdf.sort_values("x"))
+        # Verify SQL pushdown still occurred for the non-categorical case.
+        sorted_ds = ds.sort_values("x")
+        planner = QueryPlanner()
+        from datastore.table_functions import PythonTableFunction
+
+        local = sorted_ds._source_df is not None or isinstance(
+            sorted_ds._table_function, PythonTableFunction
+        )
+        plan = planner.plan_segments(
+            sorted_ds._lazy_ops,
+            has_sql_source=True,
+            schema=sorted_ds.schema(),
+            local_source=local,
+        )
+        found_orderby = any(
+            isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
+            for seg in plan.segments
+            if seg.is_sql() and seg.plan
+            for op in seg.plan.sql_ops
+        )
+        assert found_orderby, "Plain string sort should still push ORDER BY to SQL"

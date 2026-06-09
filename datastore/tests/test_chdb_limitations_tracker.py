@@ -17,7 +17,6 @@ import pandas as pd
 import pytest
 
 from tests.xfail_markers import (
-    chdb_array_nullable,
     chdb_no_normalize_utf8,
     chdb_no_quantile_array,
     chdb_datetime_timezone,
@@ -61,13 +60,12 @@ class TestTypeSupportLimitations:
         assert len(result) == 1
         assert result['val'].iloc[0] == 3
 
-    @chdb_array_nullable
     def test_array_in_nullable(self):
         """Check if chDB allows Array inside Nullable type."""
         df = pd.DataFrame({'text': ['hello world', 'foo bar', None]})
         ds = DataStore(df)
         # str.findall returns array - used to fail with Array in Nullable error
-        result = ds['text'].str.findall(r'\w+')._get_df()
+        result = ds['text'].str.findall(r'\w+')
         assert len(result) == 3
 
 
