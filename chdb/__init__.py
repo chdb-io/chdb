@@ -245,8 +245,14 @@ from .state import connect  # noqa: E402
 try:
     from .udf import func  # noqa: E402
     _udf_exports.append("func")
-except ImportError:
-    pass
+except ImportError as e:
+    # `func` is mirrored from chdb-core and may be absent on engine builds
+    # that predate the module-level UDF API; in that case the missing name /
+    # submodule surfaces as e.name == "chdb.udf"(.func). Re-raise anything
+    # else (e.g. a missing dependency *inside* the udf module) so a real
+    # import failure doesn't silently drop chdb.func.
+    if e.name not in ("chdb.udf", "chdb.udf.func"):
+        raise
 
 __all__ = [
     "_chdb",
