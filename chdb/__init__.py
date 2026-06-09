@@ -127,6 +127,12 @@ def to_datastore(df):
     try:
         from chdb.datastore import DataStore
     except ImportError as e:
+        # Only translate a genuinely-missing datastore module into the
+        # "install chdb" hint. Re-raise unrelated import failures (e.g. a
+        # broken transitive import *inside* the datastore package) with their
+        # original traceback so real bugs stay debuggable.
+        if e.name not in ("chdb.datastore", "chdb"):
+            raise
         raise ImportError(
             'DataStore output format requires the chdb package. '
             'Install it via "pip install chdb".'
