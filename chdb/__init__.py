@@ -127,15 +127,6 @@ def to_datastore(df):
     try:
         from chdb.datastore import DataStore
     except ImportError as e:
-        # `from chdb.datastore import DataStore` pulls in the top-level
-        # `datastore` package through the chdb.datastore shim, so a missing
-        # API package surfaces as one of chdb.datastore / chdb / datastore.
-        # Translate those into the "install chdb" hint, but re-raise unrelated
-        # import failures (e.g. a broken transitive import *inside* the
-        # datastore package, such as a missing pandas) with their original
-        # traceback so real bugs stay debuggable.
-        if e.name not in ("chdb.datastore", "chdb", "datastore"):
-            raise
         raise ImportError(
             'DataStore output format requires the chdb package. '
             'Install it via "pip install chdb".'
@@ -245,14 +236,8 @@ from .state import connect  # noqa: E402
 try:
     from .udf import func  # noqa: E402
     _udf_exports.append("func")
-except ImportError as e:
-    # `func` is mirrored from chdb-core and may be absent on engine builds
-    # that predate the module-level UDF API; in that case the missing name /
-    # submodule surfaces as e.name == "chdb.udf"(.func). Re-raise anything
-    # else (e.g. a missing dependency *inside* the udf module) so a real
-    # import failure doesn't silently drop chdb.func.
-    if e.name not in ("chdb.udf", "chdb.udf.func"):
-        raise
+except ImportError:
+    pass
 
 __all__ = [
     "_chdb",
