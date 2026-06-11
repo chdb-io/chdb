@@ -6044,6 +6044,32 @@ class DataStore(PandasCompatMixin):
                 "Must provide either 'condition' for row filtering or 'items'/'like'/'regex' for column selection"
             )
 
+        # Translate ``pd.col(...)`` up front so the rest of filter()
+        # only sees chdb-ds Condition / ColumnExpr objects. Storing a
+        # pandas Expression in _where_condition would later trip the
+        # ``__bool__`` check in _has_sql_state and break __repr__.
+        from .pandas_col_compat import (
+            PandasFallbackExpr,
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if is_pandas_col_expression(condition):
+            condition = translate_pandas_expression(condition)
+
+        # Untranslatable pd.col expression (e.g. uses .astype / numpy ufunc):
+        # route as a pandas-only filter op, same path as method-mode ColumnExpr.
+        if isinstance(condition, PandasFallbackExpr):
+            self._track_operation(
+                "pandas", "filter(pd_col_fallback)", {"lazy": True}
+            )
+            self._add_lazy_op(
+                LazyRelationalOp(
+                    "PANDAS_FILTER", "pd_col_fallback", condition=condition
+                )
+            )
+            return self
+
         # Handle LazyCondition (e.g., from isin(), between()) - extract underlying Condition
         from .lazy_result import LazyCondition
 
@@ -6152,6 +6178,19 @@ class DataStore(PandasCompatMixin):
             >>> ds.where(ds['age'] > 18)     # Replace False values with NaN
         """
         from .column_expr import ColumnExpr
+        from .pandas_col_compat import (
+            PandasFallbackExpr,
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...)`` up front so both the SQL-style and
+        # pandas-style branches see a real Condition / ColumnExpr.
+        if is_pandas_col_expression(condition):
+            condition = translate_pandas_expression(condition)
+
+        if isinstance(condition, PandasFallbackExpr) and other is not _MISSING:
+            condition = condition.original
 
         # Pandas-style where:
         # - ColumnExpr condition (always pandas-style)
@@ -6486,6 +6525,13 @@ class DataStore(PandasCompatMixin):
             >>> ds.with_column('doubled', ds['value'] * 2)
         """
         from .lazy_ops import LazyColumnAssignment
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if is_pandas_col_expression(expr):
+            expr = translate_pandas_expression(expr)
 
         self._add_lazy_op(LazyColumnAssignment(name, expr))
         # Note: Don't return self - @immutable decorator will return the copy
@@ -6653,6 +6699,35 @@ class DataStore(PandasCompatMixin):
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction
         from .lazy_ops import LazySQLQuery
+        from .pandas_col_compat import (
+            PandasFallbackExpr,
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...).agg_fn()`` values into chdb-ds
+        # AggregateFunction nodes. Duplicated in LazyGroupBy.agg so direct
+        # calls into DataStore.agg (without a LazyGroupBy hop) also work.
+        if kwargs:
+            kwargs = {
+                alias: (
+                    translate_pandas_expression(value)
+                    if is_pandas_col_expression(value)
+                    else value
+                )
+                for alias, value in kwargs.items()
+            }
+
+        for alias, value in kwargs.items():
+            if isinstance(value, PandasFallbackExpr):
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': "
+                    f"{value.original!r} contains operations that cannot be "
+                    f"pushed to SQL (e.g. .astype, numpy ufunc, .apply). "
+                    f"SQL aggregations require pushable expressions; rewrite "
+                    f"using col(...) arithmetic / accessors only, or "
+                    f"precompute the column via assign() first."
+                )
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(
@@ -6773,6 +6848,22 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction, Function
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...)`` values so assign treats them like any
+        # other chdb-ds expression (and they push down to SQL).
+        if kwargs:
+            kwargs = {
+                alias: (
+                    translate_pandas_expression(value)
+                    if is_pandas_col_expression(value)
+                    else value
+                )
+                for alias, value in kwargs.items()
+            }
 
         # Check if we have groupby and aggregate expressions
         has_groupby = len(self._groupby_fields) > 0
@@ -6789,9 +6880,19 @@ class DataStore(PandasCompatMixin):
         # Separate SQL expressions from pandas expressions (lambda, scalar, etc.)
         sql_kwargs = {}
         pandas_kwargs = {}
+        fallback_kwargs = {}  # pd.col fallback exprs (force LazyColumnAssignment path)
+
+        from .pandas_col_compat import PandasFallbackExpr
+
+        from .case_when import CaseWhenExpr
 
         for alias, expr in kwargs.items():
-            if isinstance(expr, ColumnExpr):
+            if isinstance(expr, PandasFallbackExpr):
+                # pd.col(...).astype/np.log/etc.: not SQL-pushable, not a
+                # scalar/lambda either. Route through LazyColumnAssignment
+                # so ExpressionEvaluator unwraps it on the live DataFrame.
+                fallback_kwargs[alias] = expr
+            elif isinstance(expr, ColumnExpr):
                 # Use canonical classification methods for clear separation
                 if expr.is_pandas_only():
                     # Executor mode (transform), method mode without expr - must use Pandas
@@ -6802,6 +6903,18 @@ class DataStore(PandasCompatMixin):
                 else:
                     # Fallback: execute and use result
                     pandas_kwargs[alias] = expr._execute()
+            elif (
+                isinstance(expr, CaseWhenExpr)
+                and expr.contains_pandas_fallback()
+            ):
+                # Bare CaseWhenExpr from ``ds.when(pd.col(...).astype(...))...``
+                # — has the same SQL-serialization problem as the
+                # ColumnExpr-wrapped case above (caught via is_pandas_only).
+                # Wrap in a ColumnExpr so the planner segments it through
+                # ExpressionEvaluator, same as the ColumnExpr branch.
+                pandas_kwargs[alias] = ColumnExpr(
+                    expr=expr, datastore=self
+                )._execute()
             elif isinstance(expr, (Function, Expression)):
                 sql_kwargs[alias] = expr
             else:
@@ -6912,6 +7025,14 @@ class DataStore(PandasCompatMixin):
                     select_items.append(expr_with_alias)
 
             result = result.select(*select_items)
+
+        # Process pd.col fallback expressions: each as its own
+        # LazyColumnAssignment so the planner segments it correctly.
+        if fallback_kwargs:
+            from .lazy_ops import LazyColumnAssignment
+
+            for alias, expr in fallback_kwargs.items():
+                result._add_lazy_op(LazyColumnAssignment(alias, expr))
 
         # Process pandas expressions (if any)
         if pandas_kwargs:
@@ -7521,7 +7642,34 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .pandas_col_compat import is_pandas_col_expression, translate_pandas_expression
         from copy import copy
+
+        # Translate ``pd.col(...)`` keys to a chdb-ds expression node and
+        # re-dispatch so the rest of __getitem__ handles ``ds[pd.col("x") > 5]``
+        # exactly like ``ds[ds["x"] > 5]``.
+        if is_pandas_col_expression(key):
+            from .pandas_col_compat import PandasFallbackExpr
+
+            translated = translate_pandas_expression(key)
+            if isinstance(translated, PandasFallbackExpr):
+                # Untranslatable pd.col chain (e.g. .astype, np.log) — route
+                # as a pandas-only filter, same path as filter(PandasFallbackExpr).
+                return self.filter(translated)
+            if isinstance(translated, Condition):
+                return self[translated]
+            if isinstance(translated, Expression):
+                # Bare ``pd.col("x")``: behave like ``ds["x"]``.
+                if isinstance(translated, Field):
+                    return self[translated.name]
+                # ArithmeticExpression / Function with no column-selection
+                # semantics in pandas; fall through and let the user wrap it
+                # explicitly (e.g. inside .assign(...)).
+                raise TypeError(
+                    "DataStore.__getitem__ with a non-boolean pd.col expression is "
+                    f"ambiguous: {key!r}. Use ds.assign(name=expr) or wrap as a "
+                    "boolean condition."
+                )
 
         # Handle table selection in connection/database mode
         if isinstance(key, str) and self._connection_mode in ("connection", "database"):
