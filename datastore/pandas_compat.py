@@ -375,6 +375,25 @@ class PandasCompatMixin:
             return src.dtypes
         if self._is_pristine_sql_source():
             return self._probe_dtypes_from_sql_source()
+        # SQL-pushdownable pipeline: probe the output dtypes with LIMIT 0.
+        # Pushdownable ops never cast dtypes (astype and other value casts are
+        # NOT pushdownable -- they fall through below), so the probe's per-column
+        # dtypes are authoritative. As with .columns, only trust the probe when
+        # the lazy ops don't change the column set (transform_columns is the
+        # identity -- filters / ORDER BY / LIMIT); column-altering ops (select /
+        # rename / drop / assign) are applied post-SQL, so fall through to
+        # execution. See chdb-lazy-metadata-optimizations.md.
+        if self._can_sql_pushdown() and self._cached_result is None:
+            try:
+                probe = self._probe_schema()
+                probe_cols = list(probe.columns)
+                cols = probe_cols
+                for op in (self._lazy_ops or []):
+                    cols = op.transform_columns(cols)
+                if cols == probe_cols:
+                    return probe.dtypes
+            except Exception:
+                pass
         return self._get_df().dtypes
 
     @property
@@ -2910,6 +2929,24 @@ class PandasCompatMixin:
     @property
     def index(self):
         """The index (row labels) of the DataFrame."""
+        # chDB's default index is a RangeIndex, fully determined by the row
+        # count. With no custom index (set_index), no grouping, and a
+        # SQL-pushdownable pipeline, derive it from COUNT(*) instead of
+        # materializing rows. count_rows() self-corrects (cheap COUNT, or a real
+        # execution when a LIMIT / non-pushdownable step is present), so the
+        # length is always right -- including for filtered pipelines, whose lazy
+        # op lives in the SQL. Custom/group indexes fall back.
+        # See chdb-lazy-metadata-optimizations.md.
+        if (
+            self._index_info is None
+            and not self._groupby_fields
+            and self._can_sql_pushdown()
+            and self._cached_result is None
+        ):
+            try:
+                return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
+            except Exception:
+                pass
         return self._get_df().index
 
     @index.setter

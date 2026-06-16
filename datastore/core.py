@@ -3914,7 +3914,12 @@ class DataStore(PandasCompatMixin):
         src = self._get_source_df_if_pristine()
         if src is not None:
             return src.shape
-        if self._is_pristine_sql_source():
+        # SQL-pushdownable pipeline: rows via COUNT(*), columns via .columns
+        # (itself probe-or-execute). Both self-correct, so this is valid for any
+        # pushdownable pipeline -- a bare filter resolves with no materialization;
+        # a column-altering op (projection/rename/...) makes .columns execute,
+        # which is still correct. See chdb-lazy-metadata-optimizations.md.
+        if self._can_sql_pushdown() and self._cached_result is None:
             return (self.count_rows(), len(self.columns))
         return self._get_df().shape
 
@@ -3963,16 +3968,21 @@ class DataStore(PandasCompatMixin):
                 return pd.Index(base_cols + computed_cols)
             except Exception:
                 pass
-        # For JOINs or complex SQL sources: probe schema with LIMIT 0
-        # This avoids materializing the full result just to get column names
-        if (
-            self._joins
-            and self._can_sql_pushdown()
-            and self._cached_result is None
-        ):
+        # SQL-pushdownable pipeline: probe the output schema with LIMIT 0 instead
+        # of materializing the full result. The probe reflects to_sql() (source +
+        # filters / ORDER BY / LIMIT). Column-altering lazy ops (select / rename /
+        # drop / assign) are applied post-SQL and are NOT in the probe SQL, so we
+        # only trust the probe when the lazy ops don't change the column set
+        # (transform_columns is the identity); otherwise we fall through to
+        # execution for correctness. See chdb-lazy-metadata-optimizations.md.
+        if self._can_sql_pushdown() and self._cached_result is None:
             try:
-                probe_df = self._probe_schema()
-                return probe_df.columns
+                probe_cols = list(self._probe_schema().columns)
+                cols = probe_cols
+                for op in (self._lazy_ops or []):
+                    cols = op.transform_columns(cols)
+                if cols == probe_cols:
+                    return pd.Index(probe_cols)
             except Exception:
                 pass
         return self._get_df().columns
