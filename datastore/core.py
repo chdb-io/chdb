@@ -3974,8 +3974,17 @@ class DataStore(PandasCompatMixin):
         # drop / assign) are applied post-SQL and are NOT in the probe SQL, so we
         # only trust the probe when the lazy ops don't change the column set
         # (transform_columns is the identity); otherwise we fall through to
-        # execution for correctness. See chdb-lazy-metadata-optimizations.md.
-        if self._can_sql_pushdown() and self._cached_result is None:
+        # execution for correctness.
+        #
+        # Remote sources are excluded: _probe_schema() wraps the pipeline in a
+        # nested subquery (SELECT * FROM (...) LIMIT 0), which chDB HANGS on for
+        # remote() sources -- the same reason count_rows()/count() avoid nested
+        # subqueries for remote. Filtered-remote metadata falls back to execution.
+        if (
+            self._can_sql_pushdown()
+            and self._cached_result is None
+            and not self._is_remote_source()
+        ):
             try:
                 probe_cols = list(self._probe_schema().columns)
                 cols = probe_cols
@@ -4048,17 +4057,23 @@ class DataStore(PandasCompatMixin):
         count_base._offset_value = None
         return count_base.to_sql()
 
-    def _probe_schema(self) -> pd.DataFrame:
-        """Return an empty DataFrame with correct columns and dtypes.
+    def _probe_schema(self, limit: int = 0) -> pd.DataFrame:
+        """Return a (near-)empty DataFrame with the pipeline's columns and dtypes.
 
-        Executes ``SELECT * FROM (subquery) LIMIT 0`` -- lightweight because
-        no rows are transferred. Used by aggregate helpers (nunique,
-        value_counts, describe, memory_usage) to discover column metadata.
+        Executes ``SELECT * FROM (subquery) LIMIT {limit}`` -- lightweight because
+        at most ``limit`` rows are transferred.
+
+        ``limit=0`` transfers no rows and is enough to discover column NAMES
+        (used by .columns and the aggregate helpers nunique / value_counts /
+        describe / memory_usage). ``limit=1`` transfers a single row, which chDB
+        needs to materialize string columns as their real pandas dtype -- an
+        empty (LIMIT 0) result degrades string columns to ``object`` -- so the
+        ``.dtypes`` path uses ``limit=1``.
         """
         if self._executor is None:
             self.connect()
         subquery_sql = self.to_sql()
-        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT {int(limit)}"
         return self._executor.execute(probe_sql).to_df()
 
     def count(self):
@@ -4242,9 +4257,13 @@ class DataStore(PandasCompatMixin):
             )
             return len(self._execute())
 
-        # If LIMIT is applied, execute with LIMIT and return actual count
-        if self._limit_value is not None:
-            self._logger.debug("count_rows() executing due to LIMIT")
+        # If LIMIT or OFFSET is applied, execute and return the actual count.
+        # The flat and subquery COUNT paths below both drop LIMIT/OFFSET (see
+        # _build_count_subquery, which clears _limit_value/_offset_value), so an
+        # offset-only pipeline (e.g. ds[k:]) would over-count by the offset.
+        # Fall back to execution for a correct post-offset count.
+        if self._limit_value is not None or self._offset_value is not None:
+            self._logger.debug("count_rows() executing due to LIMIT/OFFSET")
             return len(self._execute())
 
         # Ensure we're connected

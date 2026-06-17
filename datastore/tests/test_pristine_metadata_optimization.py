@@ -691,11 +691,28 @@ class TestRemoteDescribeNotSelectStar:
         assert ds._cached_result is None
 
     def test_after_filter_remote_uses_execute(self, clickhouse_connection):
-        """After filter on remote source, metadata MUST go through execution."""
+        """After filter on remote source, metadata MUST go through execution,
+        never a LIMIT 0 schema probe.
+
+        The probe wraps the whole pipeline in a nested subquery
+        ``SELECT * FROM (... remote ...) LIMIT 0``; chDB HANGS on nested
+        subqueries over remote() sources -- the very reason count_rows()/count()
+        fall back to flat SQL for remote. So filtered-remote metadata must fall
+        back to flat execution and must not issue the nested probe. Regression
+        guard for the macOS CI hang.
+        """
         ds = clickhouse_connection.table("system", "tables")
         ds2 = ds[ds["database"] == "system"]
         assert ds2._is_pristine_sql_source() is False
-        # Accessing shape on filtered remote source should work correctly
-        rows, ncols = ds2.shape
+        assert ds2._is_remote_source() is True
+
+        # .shape -> len(.columns); .columns must NOT call _probe_schema() (the
+        # nested LIMIT 0 subquery that hangs chDB on remote sources). It must
+        # fall back to flat execution instead.
+        with patch.object(
+            ds2, "_probe_schema", wraps=ds2._probe_schema
+        ) as mock_probe:
+            rows, ncols = ds2.shape
+            mock_probe.assert_not_called()
         assert rows > 0
         assert ncols > 5
