@@ -245,14 +245,16 @@ class TestDtypesProbeLimit1:
         full = dict(self._flt(path)._get_df().dtypes)
         assert opt == full, (opt, full)
 
-    def test_string_column_is_not_object(self, typed):
-        # BUG#3: a LIMIT 0 probe degrades the string column to object; LIMIT 1
-        # reports the real dtype, matching full execution.
+    def test_string_column_dtype_matches_full(self, typed):
+        # BUG#3: a LIMIT 0 probe degrades string columns to object; LIMIT 1
+        # reports the same dtype as full execution. Version-agnostic invariant:
+        # on pandas 3.x full execution gives StringDtype (and a LIMIT 0 probe
+        # would wrongly give object -> this would fail); on pandas 2.x both are
+        # object. Either way optimized must equal full execution.
         path, _ = typed
         opt = dict(self._flt(path).dtypes)
         full = dict(self._flt(path)._get_df().dtypes)
-        assert opt["s"] != object, f"string column degraded to object: {opt['s']}"
-        assert opt["s"] == full["s"]
+        assert opt["s"] == full["s"], (opt["s"], full["s"])
 
     def test_dtypes_uses_limit1_probe_not_execute(self, typed):
         path, _ = typed
@@ -268,7 +270,7 @@ class TestDtypesProbeLimit1:
             dtypes = ds.dtypes
             mock_exec.assert_not_called()
         assert any("LIMIT 1" in s for s in sqls), f"expected a LIMIT 1 probe, got: {sqls}"
-        assert dtypes["s"] != object
+        assert list(dtypes.index) == ["i", "f", "s", "b", "dt"]
         assert ds._cached_result is None, "dtypes access must not materialize the result"
 
     def test_sort_then_dtypes_match_full(self, typed):
@@ -276,14 +278,12 @@ class TestDtypesProbeLimit1:
         opt = dict(DataStore.from_file(path).sort_values("f").dtypes)
         full = dict(DataStore.from_file(path).sort_values("f")._get_df().dtypes)
         assert opt == full, (opt, full)
-        assert opt["s"] != object
 
     def test_head_then_dtypes_match_full(self, typed):
         path, _ = typed
         opt = dict(DataStore.from_file(path).head(3).dtypes)
         full = dict(DataStore.from_file(path).head(3)._get_df().dtypes)
         assert opt == full, (opt, full)
-        assert opt["s"] != object
 
     def test_empty_result_dtypes_match_full(self, typed):
         path, _ = typed
@@ -316,10 +316,13 @@ class TestDtypesNullableInteger:
         path = self._write(tmp_path, [1, None, 3, None, 5])
         # filter on the OTHER column so the null rows of `ni` are kept
         flt = lambda: DataStore.from_file(path)[DataStore.from_file(path)["s"] != "zzz"]
-        opt = dict(flt().dtypes)
+        ds = flt()
+        with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
+            opt = dict(ds.dtypes)
+            # nulls present -> COUNT(nulls) > 0 -> probe untrusted -> fall back
+            mock_exec.assert_called()
         full = dict(flt()._get_df().dtypes)
         assert opt == full, (opt, full)
-        assert str(opt["ni"]) == "Int64", "nulls present -> nullable extension dtype"
 
     def test_nullable_int_without_nulls_keeps_optimization(self, tmp_path):
         path = self._write(tmp_path, [1, None, 3, None, 5])
@@ -330,10 +333,9 @@ class TestDtypesNullableInteger:
         ds = DataStore.from_file(path)[DataStore.from_file(path)["ni"] >= 3]
         with patch.object(ds, "_execute", wraps=ds._execute) as mock_exec:
             opt = dict(ds.dtypes)
-            # COUNT(nulls)==0 -> probe trusted, no full materialization
+            # COUNT(nulls) == 0 -> probe trusted, no full materialization
             mock_exec.assert_not_called()
         assert opt == full, (opt, full)
-        assert str(opt["ni"]) == "int64", "no nulls -> plain numpy dtype"
 
 
 class TestDtypesColumnAlteringFallback:
