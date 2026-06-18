@@ -375,7 +375,77 @@ class PandasCompatMixin:
             return src.dtypes
         if self._is_pristine_sql_source():
             return self._probe_dtypes_from_sql_source()
+        # SQL-pushdownable pipeline: probe the output dtypes with LIMIT 1.
+        # LIMIT 1 (not 0): an empty result degrades string columns to numpy
+        # ``object``, while a single row lets chDB materialize the real pandas
+        # dtype (e.g. StringDtype). Pushdownable ops never cast dtypes (astype and
+        # other value casts are NOT pushdownable -- they fall through below), so
+        # the probe's per-column dtypes are authoritative. As with .columns, only
+        # trust the probe when the lazy ops don't change the column set
+        # (transform_columns is the identity -- filters / ORDER BY / LIMIT);
+        # column-altering ops (select / rename / drop / assign) are applied
+        # post-SQL, so fall through to execution.
+        #
+        # Remote sources are excluded: _probe_schema() nests a subquery
+        # (SELECT * FROM (...) LIMIT n) that chDB HANGS on for remote() sources,
+        # so filtered-remote dtypes fall back to execution.
+        if (
+            self._can_sql_pushdown()
+            and self._cached_result is None
+            and not self._is_remote_source()
+        ):
+            try:
+                probe = self._probe_schema(limit=1)
+                probe_cols = list(probe.columns)
+                cols = probe_cols
+                for op in (self._lazy_ops or []):
+                    cols = op.transform_columns(cols)
+                if cols == probe_cols and self._dtype_probe_is_reliable(probe):
+                    return probe.dtypes
+            except Exception:
+                pass
         return self._get_df().dtypes
+
+    def _dtype_probe_is_reliable(self, probe: "pd.DataFrame") -> bool:
+        """Whether a LIMIT 1 dtype probe can be trusted for every column.
+
+        chDB's pandas dtype for an integer/bool column is null-PRESENCE dependent,
+        not schema-driven: chDB types parquet ints as ``Nullable(Int64)`` yet a
+        result with no nulls materializes as numpy ``int64`` and one with nulls as
+        pandas ``Int64`` (likewise ``bool`` vs ``boolean``). A single sampled row
+        can't reveal nulls elsewhere, so the probe's ``int64``/``bool`` is only
+        right when the full result has no nulls in that column. We confirm that
+        with a COUNT aggregate that transfers no data rows; if any probed
+        integer/bool column actually contains a null, the probe would disagree
+        with full execution, so we fall back. String / float / datetime columns
+        use str / NaN / NaT regardless of nulls, so they are always reliable.
+
+        Any failure here returns False (fall back), so this can only cause MORE
+        execution, never an incorrect dtype.
+        """
+        from .utils import format_identifier
+
+        risky = [
+            c
+            for c in probe.columns
+            if pd.api.types.is_bool_dtype(probe[c].dtype)
+            or pd.api.types.is_integer_dtype(probe[c].dtype)
+        ]
+        if not risky:
+            return True
+        if self._executor is None:
+            self.connect()
+        # countIf(col IS NULL) per risky column -- a single result row, no data
+        # transfer. Remote sources never reach here (gated out by the caller), so
+        # this nested aggregate subquery is safe.
+        exprs = ", ".join(
+            f"countIf({format_identifier(c, self.quote_char)} IS NULL)"
+            for c in risky
+        )
+        result = self._executor.execute(f"SELECT {exprs} FROM ({self.to_sql()})")
+        if not result.rows:
+            return False
+        return all(int(v) == 0 for v in result.rows[0])
 
     @property
     def values(self):
@@ -2910,6 +2980,35 @@ class PandasCompatMixin:
     @property
     def index(self):
         """The index (row labels) of the DataFrame."""
+        from .lazy_ops import LazyRelationalOp
+
+        # chDB's default index is a RangeIndex, fully determined by the row
+        # count. With no custom index (set_index), no grouping, no ORDER BY, and
+        # a SQL-pushdownable pipeline, derive it from COUNT(*) instead of
+        # materializing rows. count_rows() self-corrects (cheap COUNT, or a real
+        # execution when a LIMIT / OFFSET / non-pushdownable step is present), so
+        # the length is always right -- including for filtered pipelines, whose
+        # lazy op lives in the SQL.
+        #
+        # ORDER BY is excluded: a sorted result preserves the original positional
+        # labels (it is NOT reset to a contiguous RangeIndex), so the shortcut
+        # would return the wrong labels -- it must fall back to full execution.
+        # Custom/group indexes fall back too.
+        has_order_by = bool(self._orderby_fields) or any(
+            isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
+            for op in (self._lazy_ops or [])
+        )
+        if (
+            self._index_info is None
+            and not self._groupby_fields
+            and not has_order_by
+            and self._can_sql_pushdown()
+            and self._cached_result is None
+        ):
+            try:
+                return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
+            except Exception:
+                pass
         return self._get_df().index
 
     @index.setter
