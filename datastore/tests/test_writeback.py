@@ -645,6 +645,270 @@ class TestToClickHouseDataFrameUpload:
 
 
 # ============================================================================
+# to_clickhouse — pure in-memory DataFrame source (no ClickHouse connection)
+# ============================================================================
+
+
+def _local_df():
+    """A small in-memory DataFrame standing in for 'data the user built in
+    Python', with no ClickHouse connection behind it."""
+    return pd.DataFrame({
+        "city": ["Beijing", "Shanghai", "Guangzhou"],
+        "amount": [100.0, 300.0, 400.0],
+        "status": ["completed", "pending", "completed"],
+    })
+
+
+class TestToClickHouseLocalDataFrame:
+    """A DataStore wrapping a pure in-memory DataFrame (source_type ==
+    'dataframe') persists to ClickHouse when an explicit target server is
+    given. The data is materialized locally and uploaded via Python(df) — the
+    same DataFrame-upload path a Pandas-only pipeline takes, just with no
+    source server in play."""
+
+    def test_requires_explicit_host(self):
+        """No target host → there is no server to write to. Must raise a clear
+        DataStoreError (not silently no-op, not the generic source guard).
+        Both an omitted host and a blank host string are rejected the same way."""
+        ds = DataStore(_local_df())
+        with pytest.raises(DataStoreError, match="in-memory DataFrame"):
+            ds.to_clickhouse(f"{DATABASE}.wb_localdf_nohost")
+        with pytest.raises(DataStoreError, match="in-memory DataFrame"):
+            ds.to_clickhouse(f"{DATABASE}.wb_localdf_nohost",
+                             host="", user=USER, password=PASSWORD)
+        # the failed attempts must not mutate the store's identity
+        assert ds.source_type == "dataframe"
+
+    def test_create_view_local_dataframe_with_host_still_rejected(self):
+        """Scope guard: the relaxation is for to_clickhouse only. create_view
+        on a pure df is rejected even WITH an explicit host — a local df has no
+        server-side SQL source for a view definition."""
+        ds = DataStore(_local_df())
+        with pytest.raises(QueryError, match="requires a ClickHouse connection"):
+            ds.create_view(f"{DATABASE}.wb_localdf_view",
+                           host=HOST, user=USER, password=PASSWORD)
+        assert ds.source_type == "dataframe"
+
+    def test_create_materialized_view_local_dataframe_with_host_still_rejected(self):
+        """Scope guard: create_materialized_view on a pure df is rejected even
+        WITH an explicit host."""
+        ds = DataStore(_local_df())
+        with pytest.raises(QueryError, match="requires a ClickHouse connection"):
+            ds.create_materialized_view(
+                name=f"{DATABASE}.wb_localdf_mv",
+                to=f"{DATABASE}.wb_localdf_mv_tgt",
+                host=HOST, user=USER, password=PASSWORD,
+            )
+        assert ds.source_type == "dataframe"
+
+    def test_save_view_and_mv_local_dataframe_rejected(self):
+        """Scope guard: save() has no host param (it writes to the source
+        server), so a pure df has nowhere to go — save(type='view'/'
+        materialized_view') is rejected. Only to_clickhouse (data upload) is
+        relaxed for local DataFrames."""
+        ds = DataStore(_local_df())
+        with pytest.raises(DataStoreError):
+            ds.save(f"{DATABASE}.wb_localdf_save_view", type="view")
+        with pytest.raises(DataStoreError):
+            ds.save(f"{DATABASE}.wb_localdf_save_mv",
+                    type="materialized_view", to=f"{DATABASE}.wb_localdf_save_tgt")
+        assert ds.source_type == "dataframe"
+
+    def test_fail_creates_and_inserts_exact_values(self):
+        target = "wb_localdf_fail"
+        _drop(target)
+        try:
+            DataStore(_local_df()).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, order_by="city",
+            )
+            assert _count(target) == 3
+            got = _select_all(target, order_by="city")
+            assert list(got["city"]) == ["Beijing", "Guangzhou", "Shanghai"]
+            assert list(got["amount"]) == [100.0, 400.0, 300.0]
+            assert list(got["status"]) == ["completed", "completed", "pending"]
+        finally:
+            _drop(target)
+
+    def test_fail_when_target_exists_raises(self):
+        target = "wb_localdf_exists"
+        _drop(target)
+        try:
+            DataStore(_local_df()).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, order_by="city",
+            )
+            with pytest.raises(ExecutionError, match="already exists"):
+                DataStore(_local_df()).to_clickhouse(
+                    f"{DATABASE}.{target}",
+                    host=HOST, user=USER, password=PASSWORD, order_by="city",
+                )
+        finally:
+            _drop(target)
+
+    def test_replace_new_creates_then_refuses_existing(self):
+        """replace + target absent → create+insert; replace + target present →
+        the non-atomic upload path refuses rather than risk a data-loss window,
+        and the temporary source_type override is restored after the raise."""
+        target = "wb_localdf_replace"
+        _drop(target)
+        try:
+            DataStore(_local_df()).to_clickhouse(
+                f"{DATABASE}.{target}", if_exists="replace",
+                host=HOST, user=USER, password=PASSWORD, order_by="city",
+            )
+            assert _count(target) == 3
+            got = _select_all(target, order_by="city")
+            assert list(got["city"]) == ["Beijing", "Guangzhou", "Shanghai"]
+            assert list(got["amount"]) == [100.0, 400.0, 300.0]
+
+            ds = DataStore(_local_df())
+            with pytest.raises(QueryError, match="Cannot atomically replace"):
+                ds.to_clickhouse(
+                    f"{DATABASE}.{target}", if_exists="replace",
+                    host=HOST, user=USER, password=PASSWORD, order_by="city",
+                )
+            assert ds.source_type == "dataframe"   # restored after exception
+            assert _count(target) == 3             # original data untouched
+        finally:
+            _drop(target)
+
+    def test_append_accumulates(self):
+        target = "wb_localdf_append"
+        _drop(target)
+        try:
+            DataStore(_local_df()).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, order_by="city",
+            )
+            DataStore(_local_df()).to_clickhouse(
+                f"{DATABASE}.{target}", if_exists="append",
+                host=HOST, user=USER, password=PASSWORD,
+            )
+            assert _count(target) == 6
+            got = _select_all(target, order_by="city, amount")
+            # each of the 3 source rows now appears twice
+            assert list(got["city"]) == [
+                "Beijing", "Beijing", "Guangzhou", "Guangzhou",
+                "Shanghai", "Shanghai",
+            ]
+            assert list(got["amount"]) == [100.0, 100.0, 400.0, 400.0, 300.0, 300.0]
+        finally:
+            _drop(target)
+
+    def test_engine_order_by_list_and_partition_by(self):
+        target = "wb_localdf_engine"
+        _drop(target)
+        try:
+            DataStore(_local_df()).to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD,
+                engine="MergeTree()", order_by=["city", "status"],
+                partition_by="status",
+            )
+            assert _count(target) == 3
+            engine_full = str(_q(
+                f"SELECT engine_full FROM remote('{HOST}','system','tables',"
+                f"'{USER}','{PASSWORD}') "
+                f"WHERE database='{DATABASE}' AND name='{target}'"
+            ).iloc[0, 0]).upper()
+            assert "PARTITION BY" in engine_full
+            assert "ORDER BY" in engine_full
+            got = _select_all(target, order_by="city")
+            assert list(got["city"]) == ["Beijing", "Guangzhou", "Shanghai"]
+            assert list(got["amount"]) == [100.0, 400.0, 300.0]
+            assert list(got["status"]) == ["completed", "completed", "pending"]
+        finally:
+            _drop(target)
+
+    def test_index_true_with_index_label(self):
+        target = "wb_localdf_index"
+        _drop(target)
+        try:
+            df = _local_df().set_index(pd.Index([10, 20, 30], name="rid"))
+            DataStore(df).to_clickhouse(
+                f"{DATABASE}.{target}", index=True, index_label="row_id",
+                host=HOST, user=USER, password=PASSWORD, order_by="row_id",
+            )
+            cols = dict(_columns(target))
+            assert "row_id" in cols and "rid" not in cols
+            got = _select_all(target, order_by="row_id")
+            assert list(got["row_id"]) == [10, 20, 30]
+        finally:
+            _drop(target)
+
+    def test_pandas_transform_on_local_df_flows_through(self):
+        """A computed column added via a Pandas transform on a local df still
+        lands on the server (it's all the same upload path)."""
+        target = "wb_localdf_computed"
+        _drop(target)
+        try:
+            ds = DataStore(_local_df()).transform(
+                lambda df: df.assign(amount_x2=df["amount"] * 2)
+            )
+            ds.to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, order_by="city",
+            )
+            got = _select_all(target, order_by="city")
+            assert "amount_x2" in got.columns
+            assert all(got["amount_x2"] == got["amount"] * 2)
+        finally:
+            _drop(target)
+
+    def test_source_type_restored_and_store_still_usable(self):
+        """The temporary source_type override must not leak: the store is still
+        a 'dataframe' store afterwards and remains usable as a local df."""
+        target = "wb_localdf_restore"
+        _drop(target)
+        try:
+            ds = DataStore(_local_df())
+            assert ds.source_type == "dataframe"
+            ds.to_clickhouse(
+                f"{DATABASE}.{target}",
+                host=HOST, user=USER, password=PASSWORD, order_by="city",
+            )
+            assert ds.source_type == "dataframe"
+            assert len(ds) == 3
+        finally:
+            _drop(target)
+
+
+@requires_target
+class TestToClickHouseLocalDataFrameCrossServer:
+    """Persist a pure local DataFrame onto a *different* server — the
+    'push to ClickHouse Cloud' shape: a distinct host with distinct
+    credentials, reached over the network."""
+
+    def test_uploads_to_target_server_only(self):
+        target = "wb_localdf_cross"
+        _drop(target, db=TARGET.database, srv=TARGET)
+        try:
+            DataStore(_local_df()).to_clickhouse(
+                f"{TARGET.database}.{target}",
+                host=TARGET.host, user=TARGET.user, password=TARGET.password,
+                order_by="city",
+            )
+            assert _count(target, db=TARGET.database, srv=TARGET) == 3
+            got = _select_all(
+                target, db=TARGET.database, order_by="city", srv=TARGET
+            )
+            assert list(got["city"]) == ["Beijing", "Guangzhou", "Shanghai"]
+            assert list(got["amount"]) == [100.0, 400.0, 300.0]
+            assert list(got["status"]) == ["completed", "completed", "pending"]
+
+            # The table must NOT have been created on the source server.
+            on_source = _q(
+                f"SELECT count() FROM remote('{HOST}','system','tables',"
+                f"'{USER}','{PASSWORD}') WHERE database='{TARGET.database}' "
+                f"AND name='{target}'"
+            ).iloc[0, 0]
+            assert int(on_source) == 0
+        finally:
+            _drop(target, db=TARGET.database, srv=TARGET)
+
+
+# ============================================================================
 # Schema evolution
 # ============================================================================
 
