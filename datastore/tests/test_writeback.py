@@ -873,6 +873,39 @@ class TestToClickHouseLocalDataFrame:
         finally:
             _drop(target)
 
+    def test_from_df_and_from_dataframe_factories(self):
+        """A DataFrame wrapped via the from_df / from_dataframe factories (which
+        keep source_type='chdb' and stash the frame in _source_df, unlike the
+        DataStore(df) constructor which uses source_type='dataframe') must write
+        just the same. Both representations are 'a local frame with no source
+        server', so to_clickhouse routes both through the upload path."""
+        for factory in (DataStore.from_df, DataStore.from_dataframe):
+            target = f"wb_localdf_{factory.__name__}"
+            _drop(target)
+            try:
+                ds = factory(_local_df())
+                # sanity: this is the non-'dataframe' representation
+                assert ds.source_type != "dataframe"
+                ds.to_clickhouse(
+                    f"{DATABASE}.{target}",
+                    host=HOST, user=USER, password=PASSWORD, order_by="city",
+                )
+                got = _select_all(target, order_by="city")
+                assert len(got) == 3
+                assert list(got["city"]) == ["Beijing", "Guangzhou", "Shanghai"]
+                assert list(got["amount"]) == [100.0, 400.0, 300.0]
+                assert list(got["status"]) == ["completed", "completed", "pending"]
+                # the temporary source_type override must be restored
+                assert ds.source_type != "dataframe"
+            finally:
+                _drop(target)
+
+    def test_from_df_factory_requires_explicit_host(self):
+        """The no-host guard applies to the from_df representation too."""
+        ds = DataStore.from_df(_local_df())
+        with pytest.raises(DataStoreError, match="in-memory DataFrame"):
+            ds.to_clickhouse(f"{DATABASE}.wb_localdf_fromdf_nohost")
+
 
 @requires_target
 class TestToClickHouseLocalDataFrameCrossServer:

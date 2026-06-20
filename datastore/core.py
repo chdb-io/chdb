@@ -5316,10 +5316,11 @@ class DataStore(PandasCompatMixin):
            native connection (source → target, one hop). chDB only ships the
            statement; rows do not round-trip through it.
         3. **DataFrame upload** — pipeline contains Pandas-only ops, OR the
-           DataStore wraps a pure in-memory DataFrame (``source_type ==
-           "dataframe"``) → _execute() locally, then upload via the Python()
-           table function. For a pure-DataFrame source an explicit ``host`` is
-           required (there is no source server to default to); pass
+           DataStore wraps a pure in-memory DataFrame (``DataStore(df)`` or
+           ``DataStore.from_df`` / ``from_dataframe``) → _execute() locally,
+           then upload via the Python() table function. For a pure-DataFrame
+           source an explicit ``host`` is required (there is no source server
+           to default to); pass
            ``host``/``user``/``password`` (and ``secure=True`` for ClickHouse
            Cloud, or use a ``host:9440`` / ``*.clickhouse.cloud`` host which
            auto-enables TLS).
@@ -5371,18 +5372,30 @@ class DataStore(PandasCompatMixin):
                 f"Must be one of: 'fail', 'replace', 'append'"
             )
 
-        # A pure in-memory DataFrame (source_type == "dataframe") has no source
-        # server, so writeback must be told where to go via an explicit target.
-        # When one is given we route through the normal DataFrame-upload path
-        # (a df pipeline is never SQL-pushable, so _to_clickhouse_impl already
-        # materializes locally and uploads via the Python(df) table function);
-        # the only server involved is the ClickHouse target, so the source is
-        # treated as ClickHouse for guard/adapter selection. This is scoped to
-        # to_clickhouse on purpose — create_view / create_materialized_view /
-        # save() need a server-side SQL source a local df cannot provide, and
-        # non-ClickHouse sources (mysql/postgresql) remain rejected by
-        # _require_clickhouse_for_writeback.
-        writing_local_df = (self.source_type or "").lower() == "dataframe"
+        # A DataStore wrapping a pure in-memory DataFrame has no source server
+        # of its own, so writeback must be told where to go via an explicit
+        # target. Both ways of wrapping a frame qualify: the DataStore(df)
+        # constructor (source_type == "dataframe") and the from_df /
+        # from_dataframe factories (default source_type, frame stashed in
+        # _source_df). A pandas-only op on a *ClickHouse-sourced* store also
+        # caches its result into _source_df, but that store keeps its source
+        # host — so gate on "has no source host" to tell "local frame, no
+        # server" apart from "remote source, locally materialized" (the latter
+        # must keep defaulting its target to the source server, not error for a
+        # missing host). When a target is given we route through the normal
+        # DataFrame-upload path (such a pipeline is never SQL-pushable, so
+        # _to_clickhouse_impl materializes locally and uploads via the
+        # Python(df) table function); the only server involved is the
+        # ClickHouse target, so the source is treated as ClickHouse for
+        # guard/adapter selection. This is scoped to to_clickhouse on purpose —
+        # create_view / create_materialized_view / save() need a server-side
+        # SQL source a local df cannot provide, and non-ClickHouse sources
+        # (mysql/postgresql) remain rejected by _require_clickhouse_for_writeback.
+        wraps_local_df = (
+            (self.source_type or "").lower() == "dataframe"
+            or getattr(self, "_source_df", None) is not None
+        )
+        writing_local_df = wraps_local_df and not self._remote_params.get("host")
         if writing_local_df and not host:
             # `not host` (rather than `is None`) so an empty/blank host string
             # gets the clear message here instead of a generic "no connection
