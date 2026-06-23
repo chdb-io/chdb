@@ -5315,8 +5315,15 @@ class DataStore(PandasCompatMixin):
            remote(source, ...) so the target pulls source rows over its own
            native connection (source → target, one hop). chDB only ships the
            statement; rows do not round-trip through it.
-        3. **DataFrame upload** — pipeline contains Pandas-only ops →
-           _execute() locally, then upload via the Python() table function.
+        3. **DataFrame upload** — pipeline contains Pandas-only ops, OR the
+           DataStore wraps a pure in-memory DataFrame (``DataStore(df)`` or
+           ``DataStore.from_df`` / ``from_dataframe``) → _execute() locally,
+           then upload via the Python() table function. For a pure-DataFrame
+           source an explicit ``host`` is required (there is no source server
+           to default to); pass
+           ``host``/``user``/``password`` (and ``secure=True`` for ClickHouse
+           Cloud, or use a ``host:9440`` / ``*.clickhouse.cloud`` host which
+           auto-enables TLS).
 
         For ``if_exists="replace"`` with the pure-remote path,
         ``CREATE OR REPLACE TABLE … AS SELECT`` is used for atomic
@@ -5341,12 +5348,16 @@ class DataStore(PandasCompatMixin):
             partition_by: PARTITION BY expression
             enable_schema_evolution: Auto-adapt column differences (append only)
             host: Target ClickHouse host:port. Defaults to source server.
+                Required when this DataStore wraps a pure in-memory DataFrame
+                (no source server to default to).
             user: Target server user. Defaults to source connection user.
             password: Target server password. Defaults to source connection password.
             secure: Use encrypted connection to target server.
 
         Raises:
             ValueError: If if_exists is not one of "fail"/"replace"/"append".
+            DataStoreError: If this DataStore wraps a pure in-memory DataFrame
+                and no explicit ``host`` is given.
             QueryError: For the DataFrame-upload path with if_exists="replace"
                 when the target already exists (a non-atomic overwrite is
                 refused).
@@ -5361,7 +5372,47 @@ class DataStore(PandasCompatMixin):
                 f"Must be one of: 'fail', 'replace', 'append'"
             )
 
-        with self._target_server_context(host, user, password, secure):
+        # A DataStore wrapping a pure in-memory DataFrame has no source server
+        # of its own, so writeback must be told where to go via an explicit
+        # target. Both ways of wrapping a frame qualify: the DataStore(df)
+        # constructor (source_type == "dataframe") and the from_df /
+        # from_dataframe factories (default source_type, frame stashed in
+        # _source_df). A pandas-only op on a *ClickHouse-sourced* store also
+        # caches its result into _source_df, but that store keeps its source
+        # host — so gate on "has no source host" to tell "local frame, no
+        # server" apart from "remote source, locally materialized" (the latter
+        # must keep defaulting its target to the source server, not error for a
+        # missing host). When a target is given we route through the normal
+        # DataFrame-upload path (such a pipeline is never SQL-pushable, so
+        # _to_clickhouse_impl materializes locally and uploads via the
+        # Python(df) table function); the only server involved is the
+        # ClickHouse target, so the source is treated as ClickHouse for
+        # guard/adapter selection. This is scoped to to_clickhouse on purpose —
+        # create_view / create_materialized_view / save() need a server-side
+        # SQL source a local df cannot provide, and non-ClickHouse sources
+        # (mysql/postgresql) remain rejected by _require_clickhouse_for_writeback.
+        wraps_local_df = (
+            (self.source_type or "").lower() == "dataframe"
+            or getattr(self, "_source_df", None) is not None
+        )
+        writing_local_df = wraps_local_df and not self._remote_params.get("host")
+        if writing_local_df and not host:
+            # `not host` (rather than `is None`) so an empty/blank host string
+            # gets the clear message here instead of a generic "no connection
+            # info" failure deeper in the upload path.
+            from .exceptions import DataStoreError
+
+            raise DataStoreError(
+                "Writing an in-memory DataFrame to ClickHouse needs an explicit "
+                "target server: to_clickhouse(name, host=..., user=..., "
+                "password=...). A pure DataFrame DataStore has no source server "
+                "to default to."
+            )
+
+        with self._target_server_context(
+            host, user, password, secure,
+            as_clickhouse_target=writing_local_df,
+        ):
             self._to_clickhouse_impl(
                 name=name,
                 if_exists=if_exists,
@@ -7910,6 +7961,7 @@ class DataStore(PandasCompatMixin):
         user: Optional[str] = None,
         password: Optional[str] = None,
         secure: bool = False,
+        as_clickhouse_target: bool = False,
     ):
         """Temporarily override ``_remote_params`` so downstream helpers
         (``_execute_remote_ddl``, ``_get_adapter``, etc.) operate against
@@ -7923,8 +7975,16 @@ class DataStore(PandasCompatMixin):
         create_view / create_materialized_view docstrings promise; falling back
         to "default"/"" would silently break writeback whenever the source uses
         non-default credentials.
+
+        ``as_clickhouse_target`` additionally overrides ``source_type`` to
+        "clickhouse" for the duration. The writeback guard and adapter machinery
+        are keyed on the *source* type; this makes them treat the explicitly
+        given target as a ClickHouse server. Used by ``to_clickhouse`` when
+        uploading a pure in-memory DataFrame (``source_type == "dataframe"``),
+        whose only server in play is the target.
         """
         original = self._remote_params.copy()
+        original_source_type = self.source_type
         # Omitted creds inherit the source connection's values. Use `or` (not a
         # dict default) so a source connection that stored user/password as
         # None — key present, value None — still resolves to valid auth
@@ -7961,10 +8021,13 @@ class DataStore(PandasCompatMixin):
             }
 
         self._remote_params = new_params
+        if as_clickhouse_target:
+            self.source_type = "clickhouse"
         try:
             yield
         finally:
             self._remote_params = original
+            self.source_type = original_source_type
 
     def _require_connection_params(self):
         """
@@ -7989,8 +8052,14 @@ class DataStore(PandasCompatMixin):
         uploads). For a non-ClickHouse source the adapter would emit
         ``mysql()`` / ``postgresql()`` / ... which don't accept the ``query=``
         form, surfacing as a confusing runtime error. Fail early and clearly
-        instead. (Pure-DataFrame stores are caught earlier by
-        ``_require_connection_params`` — they have no host.)
+        instead.
+
+        Pure-DataFrame stores (source_type == "dataframe") still reach this
+        guard via create_view / create_materialized_view and are rejected here
+        (a local df has no server-side SQL source for a view/MV definition).
+        to_clickhouse handles them separately: it uploads the df to the
+        explicit target and runs this guard with source_type overridden to
+        "clickhouse" (see _target_server_context's as_clickhouse_target).
         """
         if (self.source_type or "").lower() not in _CLICKHOUSE_SOURCE_TYPES:
             raise QueryError(
