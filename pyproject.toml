@@ -36,6 +36,14 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest", "pytest-cov"]
 publish = ["twine", "wheel"]
+# Pull in clickhouse-connect to use chDB as a clickhouse-connect backend
+# (`clickhouse_connect.get_client(backend="chdb")`). clickhouse-connect 1.0+ needs Python 3.10+.
+clickhouse-connect = ["clickhouse-connect>=1.3.0"]
+
+# chDB registers itself with clickhouse-connect through these entry points. clickhouse-connect
+# discovers them at runtime; it never imports chdb directly.
+[project.entry-points."clickhouse_connect.backends"]
+chdb = "chdb.cc_backend:backend"
 
 [project.urls]
 Homepage = "https://clickhouse.com/chdb"
