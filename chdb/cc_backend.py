@@ -73,6 +73,23 @@ logger = logging.getLogger(__name__)
 
 _columns_only_re = re.compile(r"LIMIT 0\s*$", re.IGNORECASE)
 
+# Pattern a ClickHouse setting name must match before we are willing to interpolate it into
+# a ``SET <name> = <value>`` statement (see ChdbClient._validate_setting_name).
+_SETTING_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _quote_sql_string(text: str) -> str:
+    """Single-quote a string literal for chDB SQL, escaping backslashes and quotes.
+
+    Used for paths interpolated into ``INSERT INTO ... FROM INFILE '<path>'`` clauses --
+    ``tempfile.NamedTemporaryFile`` respects the platform's TMPDIR which may contain
+    apostrophes on user machines (typical on macOS when the temp dir is under
+    ``/var/folders/.../T/`` -- but also possible under a user-set TMPDIR), so the path
+    must be escaped the same way a value would be.
+    """
+    escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
 # chdb's `send_query` emits each ClickHouse block as a self-contained encoding in the
 # requested format. For formats that have row-level (or block-level) self-description
 # and no global header/footer/file structure, concatenating chunks yields a valid
@@ -348,43 +365,54 @@ class ChdbClient(Client):
         # chdb.send_query on the same connection deadlocks inside the engine).
         self._conn, self._lock = _acquire_chdb_connection(self._connection_string)
         self._closed = False
-        self._client_settings: dict[str, str] = {}
-        self._initial_settings = dict(settings or {})
-        # Backs the `database` property below; set before super().__init__ because the base
-        # constructor assigns self.database (triggering the property setter). `_active_database`
-        # tracks the database the session has actually been switched to via USE.
-        self._database: str | None = None
-        self._active_database: str | None = None
-        self._read_format = "Native"
-        self._write_format = "Native"
-        self._transform = NativeTransform()
-        self._integration_libs: set[str] = set()
-        self.uri = f"chdb://{self._chdb_path}"
-        self.write_compression = None
-        self.compression = None
+        # If any of the rest of __init__ raises (super().__init__, set_client_setting,
+        # extension import, ...), self.close() never gets called and the shared connection's
+        # refcount stays elevated -- on a :memory: path that would leak indefinitely. The
+        # try/except releases the refcount once before re-raising, so the next ChdbClient on
+        # the same path either reuses or recreates a clean connection.
+        try:
+            self._client_settings: dict[str, str] = {}
+            self._initial_settings = dict(settings or {})
+            # Backs the `database` property below; set before super().__init__ because the
+            # base constructor assigns self.database (triggering the property setter).
+            # `_active_database` tracks the database the session has actually been switched
+            # to via USE.
+            self._database: str | None = None
+            self._active_database: str | None = None
+            self._read_format = "Native"
+            self._write_format = "Native"
+            self._transform = NativeTransform()
+            self._integration_libs: set[str] = set()
+            self.uri = f"chdb://{self._chdb_path}"
+            self.write_compression = None
+            self.compression = None
 
-        # coerce_int handles None-or-string flexibility
-        super().__init__(
-            database=database,
-            uri=self.uri,
-            query_limit=coerce_int(query_limit),
-            query_retries=0,
-            server_host_name=None,
-            tz_source=tz_source,
-            tz_mode=tz_mode,
-            show_clickhouse_errors=show_clickhouse_errors,
-            autoconnect=True,
-        )
+            # coerce_int handles None-or-string flexibility
+            super().__init__(
+                database=database,
+                uri=self.uri,
+                query_limit=coerce_int(query_limit),
+                query_retries=0,
+                server_host_name=None,
+                tz_source=tz_source,
+                tz_mode=tz_mode,
+                show_clickhouse_errors=show_clickhouse_errors,
+                autoconnect=True,
+            )
 
-        for k, v in self._initial_settings.items():
-            self.set_client_setting(k, v)
+            for k, v in self._initial_settings.items():
+                self.set_client_setting(k, v)
 
-        # chDB-only API (Python() table function, UDFs, native cursor, session path) is
-        # exposed through this namespace; the base Client has no `.chdb`, so accessing it on
-        # an HTTP client raises AttributeError, exactly as intended.
-        from chdb.cc_extension import ChdbExtension
+            # chDB-only API (Python() table function, UDFs, native cursor, session path) is
+            # exposed through this namespace; the base Client has no `.chdb`, so accessing
+            # it on an HTTP client raises AttributeError, exactly as intended.
+            from chdb.cc_extension import ChdbExtension
 
-        self.chdb = ChdbExtension(self)
+            self.chdb = ChdbExtension(self)
+        except BaseException:
+            _release_chdb_connection(self._connection_string)
+            self._closed = True
+            raise
 
         logger.info(
             "ChdbClient connected: chdb=%s, server_version=%s, path=%s",
@@ -420,6 +448,20 @@ class ChdbClient(Client):
         return out
 
     @staticmethod
+    def _validate_setting_name(key: str) -> str:
+        """Reject a setting name that does not look like a ClickHouse identifier.
+
+        The setting name is interpolated directly into a ``SET <name> = <value>`` statement,
+        and even though ``_validate_setting`` filters against the known-settings catalogue when
+        the user picks the strict ``invalid_setting_action``, the permissive mode lets arbitrary
+        keys flow through. Restricting the name to the identifier shape ClickHouse itself uses
+        (``[A-Za-z_][A-Za-z0-9_]*``) closes the SQL-shape hole without affecting any real setting.
+        """
+        if not isinstance(key, str) or not _SETTING_NAME_RE.match(key):
+            raise ProgrammingError(f"Invalid setting name {key!r}: must match {_SETTING_NAME_RE.pattern}")
+        return key
+
+    @staticmethod
     def _quote_setting_value(value: str) -> str:
         """SQL-quote a setting value so chdb sees the expected literal type.
 
@@ -435,7 +477,7 @@ class ChdbClient(Client):
     def _append_settings_clause(self, sql, settings):
         if not settings:
             return sql
-        extras = ", ".join(f"{k} = {self._quote_setting_value(v)}" for k, v in settings.items())
+        extras = ", ".join(f"{self._validate_setting_name(k)} = {self._quote_setting_value(v)}" for k, v in settings.items())
         if isinstance(sql, bytes):
             # raw_query can receive a bytes SQL when binary parameter substitution
             # produced non-UTF-8 byte sequences. chdb accepts bytes natively, so
@@ -450,7 +492,7 @@ class ChdbClient(Client):
         """Apply a setting to the underlying chdb session via SET."""
         try:
             with self._lock:
-                self._conn.query(f"SET {key} = {self._quote_setting_value(value)}", "TabSeparated")
+                self._conn.query(f"SET {self._validate_setting_name(key)} = {self._quote_setting_value(value)}", "TabSeparated")
         except Exception as ex:  # noqa: BLE001
             logger.debug("Failed to apply SET %s=%s to chdb session: %s", key, value, ex)
 
@@ -483,7 +525,7 @@ class ChdbClient(Client):
                     self._persist_setting(name, value)
                 else:
                     with self._lock:
-                        self._conn.query(f"SET {name} = DEFAULT", "TabSeparated")
+                        self._conn.query(f"SET {self._validate_setting_name(name)} = DEFAULT", "TabSeparated")
             except Exception:  # noqa: BLE001
                 logger.debug("Failed to restore setting %s after command()", name, exc_info=True)
 
@@ -492,10 +534,24 @@ class ChdbClient(Client):
         """chdb's `params` kwarg expects bare names (`x`); bind_query produces `param_x`."""
         return {(k[6:] if k.startswith("param_") else k): v for k, v in bind_params.items()} if bind_params else {}
 
-    def _exec_raw_query(self, sql: str, fmt: str = "Native", params: dict[str, Any] | None = None) -> bytes:
-        """Run a query against chdb under the per-client lock and return raw bytes."""
+    def _exec_raw_query(
+        self,
+        sql: str,
+        fmt: str = "Native",
+        params: dict[str, Any] | None = None,
+        *,
+        use_database: bool = True,
+    ) -> bytes:
+        """Run a query against chdb under the per-client lock and return raw bytes.
+
+        ``use_database`` matches the public ``raw_query`` / ``raw_stream`` flag: when ``False``,
+        skip the lazy ``USE`` that would otherwise rebind the session to ``self.database`` before
+        this query (the previously-applied database stays in effect; this query is not
+        re-anchored to the configured one).
+        """
         self._ensure_open()
-        self._apply_database()
+        if use_database:
+            self._apply_database()
         with self._lock:
             try:
                 result = self._conn.query(sql, fmt, params=params or {})
@@ -619,7 +675,9 @@ class ChdbClient(Client):
         # parameter substitution (e.g. `$xx$` placeholders) yields non-UTF-8 SQL.
         final_query = self._append_settings_clause(final_query, self._filter_per_call_settings(settings))
         # HTTP path defaults to server's TabSeparated when no fmt is provided.
-        return self._exec_raw_query(final_query, fmt or "TabSeparated", params=self._strip_param_prefix(bound))
+        return self._exec_raw_query(
+            final_query, fmt or "TabSeparated", params=self._strip_param_prefix(bound), use_database=use_database
+        )
 
     def raw_stream(
         self,
@@ -643,10 +701,11 @@ class ChdbClient(Client):
             # Formats with global structure (Arrow IPC, Parquet, JSON, *WithNames, ...)
             # can't be assembled from chdb's per-block chunks. Fetch as a single
             # well-formed payload and wrap as an in-memory stream.
-            data = self._exec_raw_query(final_query, output_fmt, params=params)
+            data = self._exec_raw_query(final_query, output_fmt, params=params, use_database=use_database)
             return io.BytesIO(data)
         self._ensure_open()
-        self._apply_database()
+        if use_database:
+            self._apply_database()
         # Acquire the lock for the lifetime of the streaming read so concurrent
         # callers don't interleave queries on the same chdb connection.
         self._lock.acquire()
@@ -775,9 +834,9 @@ class ChdbClient(Client):
 
             per_call = self._filter_per_call_settings(settings)
             settings_clause = (
-                f" SETTINGS {', '.join(f'{k} = {self._quote_setting_value(v)}' for k, v in per_call.items())}" if per_call else ""
+                f" SETTINGS {', '.join(f'{self._validate_setting_name(k)} = {self._quote_setting_value(v)}' for k, v in per_call.items())}" if per_call else ""
             )
-            sql = f"INSERT INTO {table}{cols} FROM INFILE '{tmp.name}'{settings_clause} FORMAT {fmt}"
+            sql = f"INSERT INTO {table}{cols} FROM INFILE {_quote_sql_string(tmp.name)}{settings_clause} FORMAT {fmt}"
             self._exec_raw_query(sql, "TabSeparated")
             return QuerySummary({})
         finally:
@@ -980,9 +1039,9 @@ class ChdbClient(Client):
             cols = ", ".join(quote_identifier(c) for c in context.column_names)
             per_call = self._filter_per_call_settings(context.settings)
             settings_clause = (
-                f" SETTINGS {', '.join(f'{k} = {self._quote_setting_value(v)}' for k, v in per_call.items())}" if per_call else ""
+                f" SETTINGS {', '.join(f'{self._validate_setting_name(k)} = {self._quote_setting_value(v)}' for k, v in per_call.items())}" if per_call else ""
             )
-            sql = f"INSERT INTO {context.table} ({cols}) FROM INFILE '{tmp.name}'{settings_clause} FORMAT Native"
+            sql = f"INSERT INTO {context.table} ({cols}) FROM INFILE {_quote_sql_string(tmp.name)}{settings_clause} FORMAT Native"
             self._exec_raw_query(sql, "TabSeparated")
             return QuerySummary({})
         finally:
@@ -1039,7 +1098,10 @@ class _ChdbStreamFile(io.RawIOBase):
     def __init__(self, streaming_result, lock: threading.Lock):
         super().__init__()
         self._sr = streaming_result
-        self._buf = b""
+        # Mutable accumulator: repeated `bytes += chunk` would be O(n^2) for many small reads
+        # because it builds a fresh bytes object every concatenation. A bytearray we extend
+        # in place is amortized O(n).
+        self._buf = bytearray()
         self._eof = False
         self._released = [False]
         # Guarantees lock release even if close() is never called; see _finalize_stream.
@@ -1070,8 +1132,8 @@ class _ChdbStreamFile(io.RawIOBase):
         if self._released[0]:
             return b""
         if size is None or size < 0:
-            parts = [self._buf]
-            self._buf = b""
+            parts = [bytes(self._buf)]
+            self._buf.clear()
             while not self._eof:
                 chunk = self._pull()
                 if not chunk:
@@ -1082,11 +1144,11 @@ class _ChdbStreamFile(io.RawIOBase):
             chunk = self._pull()
             if not chunk:
                 break
-            self._buf += chunk
+            self._buf.extend(chunk)
         if not self._buf:
             return b""
-        out = self._buf[:size]
-        self._buf = self._buf[size:]
+        out = bytes(self._buf[:size])
+        del self._buf[:size]
         return out
 
     def readinto(self, buf) -> int:

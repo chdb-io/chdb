@@ -70,35 +70,49 @@ def main() -> int:
     parser.add_argument("pytest_args", nargs="*", help="Extra args passed through to pytest")
     args = parser.parse_args()
 
-    tmp = None
-    if args.cc_repo:
-        # Work on a copy so we don't drop a conftest into the user's checkout.
-        tmp = Path(tempfile.mkdtemp(prefix="cc-upstream-"))
+    tmp = Path(tempfile.mkdtemp(prefix="cc-upstream-"))
+    try:
         repo = tmp / "clickhouse-connect"
-        shutil.copytree(args.cc_repo, repo, ignore=shutil.ignore_patterns(".git", "build", "*.egg-info", "__pycache__"))
-    else:
-        tmp = Path(tempfile.mkdtemp(prefix="cc-upstream-"))
-        repo = tmp / "clickhouse-connect"
-        _clone_tag(_installed_cc_version(), repo)
+        if args.cc_repo:
+            # Work on a copy so we don't drop a conftest into the user's checkout.
+            shutil.copytree(
+                args.cc_repo, repo, ignore=shutil.ignore_patterns(".git", "build", "*.egg-info", "__pycache__")
+            )
+        else:
+            _clone_tag(_installed_cc_version(), repo)
 
-    # Inject the redirect conftest at the checkout root (loaded before the integration conftest).
-    shutil.copyfile(INJECTED_CONFTEST, repo / "conftest.py")
+        # Inject the redirect conftest at the checkout root (loaded before the integration
+        # conftest). Detect rather than silently overwrite: if clickhouse-connect later ships
+        # a root conftest with required fixtures or hooks, replacing it would break collection
+        # and produce misleading gate results -- bail with a clear error so the maintainer
+        # composes the two intentionally.
+        root_conftest = repo / "conftest.py"
+        if root_conftest.exists():
+            raise SystemExit(
+                f"Refusing to overwrite an existing root conftest at {root_conftest!r}. "
+                "Merge it with _force_chdb_conftest.py by hand and re-run."
+            )
+        shutil.copyfile(INJECTED_CONFTEST, root_conftest)
 
-    env = dict(os.environ)
-    env["CHDB_SUITE_SKIP_FILE"] = str(SKIP_FILE)
-    env["CHDB_SUITE_XFAIL_FILE"] = str(XFAIL_FILE)
-    # Force single-process: the redirect monkeypatch must apply in the test process.
-    cmd = [
-        sys.executable, "-m", "pytest", *args.tests.split(),
-        "-p", "no:cacheprovider", "-p", "no:xdist", "-o", "addopts=",
-        "-rsxX", *args.pytest_args,
-    ]
-    print(f"Running: {' '.join(cmd)}\n  cwd={repo}\n  skip_list={SKIP_FILE.name} xfail={XFAIL_FILE.name}")
-    rc = subprocess.run(cmd, cwd=repo, env=env)
-
-    if not args.keep and tmp is not None:
-        shutil.rmtree(tmp, ignore_errors=True)
-    return rc.returncode
+        env = dict(os.environ)
+        env["CHDB_SUITE_SKIP_FILE"] = str(SKIP_FILE)
+        env["CHDB_SUITE_XFAIL_FILE"] = str(XFAIL_FILE)
+        # Default to a tempdir-per-invocation chDB data path so consecutive runs do not
+        # inherit each other's databases on disk. The user can still override via the env var.
+        if "CHDB_UPSTREAM_SUITE_PATH" not in env:
+            env["CHDB_UPSTREAM_SUITE_PATH"] = str(tmp / "chdb-data")
+        # Force single-process: the redirect monkeypatch must apply in the test process.
+        cmd = [
+            sys.executable, "-m", "pytest", *args.tests.split(),
+            "-p", "no:cacheprovider", "-p", "no:xdist", "-o", "addopts=",
+            "-rsxX", *args.pytest_args,
+        ]
+        print(f"Running: {' '.join(cmd)}\n  cwd={repo}\n  skip_list={SKIP_FILE.name} xfail={XFAIL_FILE.name}")
+        rc = subprocess.run(cmd, cwd=repo, env=env)
+        return rc.returncode
+    finally:
+        if not args.keep:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -73,20 +73,27 @@ class ChdbExtension:
         """
         conn = self._client.chdb_connection
         module_globals = globals()
+        # Two distinct locks are needed: ``_python_tablefunc_lock`` serializes the brief
+        # globals-publish/unpublish window across concurrent query_python calls (so a second
+        # caller cannot see a half-published frame map); ``self._client._lock`` is the per-
+        # connection lock that serializes every chDB conn.query / send_query call across the
+        # whole backend -- without it, a concurrent regular query on the same shared
+        # connection would race with our conn.query here and either deadlock the engine or
+        # return corrupted bytes (the same constraint cc_backend.py's _exec_raw_query honors).
         with _python_tablefunc_lock:
             # chDB's Python() table function resolves a name off the calling frame; this
             # method's f_globals is this module, so publish the frames here for the call.
             clashes = {name: module_globals[name] for name in frames if name in module_globals}
             module_globals.update(frames)
             try:
-                if fmt == "DataFrame":
-                    import chdb
+                with self._client._lock:
+                    if fmt == "DataFrame":
+                        import chdb
 
-                    res = conn.query(sql, "Arrow")
-                    table = chdb.to_arrowTable(res)
-                    return table.to_pandas()
-                result = conn.query(sql, fmt)
-                return result
+                        res = conn.query(sql, "Arrow")
+                        table = chdb.to_arrowTable(res)
+                        return table.to_pandas()
+                    return conn.query(sql, fmt)
             except Exception as ex:  # noqa: BLE001
                 raise self._client.map_error(ex) from ex
             finally:

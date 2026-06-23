@@ -33,6 +33,17 @@ _HTTP_ONLY = {
     "connector_limit_per_host", "keepalive_timeout",
 }
 
+# Where the redirected `create_client` opens its chdb engine. By default (and per chdb-core's
+# process-singleton constraint) every redirected client in the same run shares the same
+# underlying engine via cc_backend.py's connection cache -- this is intentional and matches
+# how clickhouse-connect's session fixture treats the HTTP backend (one session-scoped
+# database name per pytest session, used across all tests). Cross-test isolation comes from
+# clickhouse-connect's existing fixture design (the session fixture creates a
+# `ch_connect__<random>__<ts>` test database) rather than per-test engine instances; the few
+# cases where that assumption breaks are catalogued in skip_list.txt.
+#
+# Override with CHDB_UPSTREAM_SUITE_PATH for a dedicated on-disk path; the runner sets this
+# automatically to a temp dir per invocation so consecutive runs do not share data on disk.
 _CHDB_PATH = os.getenv("CHDB_UPSTREAM_SUITE_PATH", ":memory:")
 
 _orig_create_client = _ccd.create_client

@@ -15,7 +15,12 @@ from datetime import timezone
 import pytest
 
 os.environ["TZ"] = "UTC"
-time.tzset()
+# time.tzset() is POSIX-only; on Windows the TZ env var still steers strftime/strptime
+# behavior in the C runtime, so we set TZ and only call tzset() when it exists. The chDB
+# backend is not supported on Windows anyway (cc_backend.py raises NotSupportedError on win32),
+# so the chDB backend tests will skip there — but we still want the module to import cleanly.
+if hasattr(time, "tzset"):
+    time.tzset()
 
 
 @pytest.fixture(autouse=True)

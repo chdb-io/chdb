@@ -473,17 +473,20 @@ def test_reusable_insert_context(client):
 # ---- database parameter ----
 
 
-def test_database_parameter_switches_default():
-    c = clickhouse_connect.get_client(backend="chdb")
+def test_database_parameter_switches_default(tmp_path):
+    # The shared :memory: connection cache (_CONN_CACHE) means default-path clients reuse
+    # one underlying chdb connection across the test session; literal database names like
+    # "other_db" or "scoped_test" would persist and make this test order-dependent. Use a
+    # dedicated on-disk path so this test has an isolated session.
+    db = str(tmp_path / "switch_default.db")
+    c = clickhouse_connect.get_client(backend="chdb", chdb_path=db)
     try:
         c.command("CREATE DATABASE other_db")
         c.command("CREATE TABLE other_db.scoped (id UInt32) ENGINE = Memory")
         c.command("INSERT INTO other_db.scoped VALUES (13)")
     finally:
         c.close()
-    # Note: chdb :memory: is per-connection, so this test only checks the USE
-    # mechanism — can't cross sessions on :memory:. Instead verify USE works inline:
-    c2 = clickhouse_connect.get_client(backend="chdb")
+    c2 = clickhouse_connect.get_client(backend="chdb", chdb_path=db)
     try:
         c2.command("CREATE DATABASE scoped_test")
         c2.command("USE scoped_test")
@@ -837,13 +840,17 @@ def test_raw_insert_decompresses_pre_compressed_payload(client, compression):
     """raw_insert with `compression=<enc>` accepts compressed bytes and decompresses client-side."""
     import gzip
 
-    import lz4.frame
-    import zstandard
+    # lz4 and zstandard are optional deps -- skip the relevant parametrization gracefully if
+    # they aren't installed (matches how pandas/pyarrow/numpy are guarded elsewhere in this file).
+    if compression == "lz4":
+        lz4_frame = pytest.importorskip("lz4.frame")
+    if compression == "zstd":
+        zstandard = pytest.importorskip("zstandard")
 
     csv = b"13,user_1\n79,user_2\n"
     encoded = {
-        "lz4": lz4.frame.compress(csv),
-        "zstd": zstandard.ZstdCompressor().compress(csv),
+        "lz4": (lz4_frame.compress(csv) if compression == "lz4" else b""),
+        "zstd": (zstandard.ZstdCompressor().compress(csv) if compression == "zstd" else b""),
         "gzip": gzip.compress(csv),
     }[compression]
     client.command(f"CREATE TABLE raw_compress_{compression} (id UInt32, v String) ENGINE = Memory")
