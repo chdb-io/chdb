@@ -7,7 +7,7 @@ cursor, and the on-disk vs in-memory session path. Per the design proposal these
 be bolted onto clickhouse-connect's base ``Client`` (which would bloat the shared
 interface); instead they live behind a namespace that exists *only* on a chDB client::
 
-    client = clickhouse_connect.get_client(backend="chdb", path=":memory:")
+    client = clickhouse_connect.get_client("chdb://memory")
     df = client.chdb.query_python("SELECT sum(a) FROM Python(my_df)", my_df=my_df)
     cur = client.chdb.cursor()
     path = client.chdb.session_path

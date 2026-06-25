@@ -5,7 +5,8 @@ This module makes chDB's in-process, embedded ClickHouse engine usable as a
 clickhouse-connect backend::
 
     import clickhouse_connect
-    client = clickhouse_connect.get_client(backend="chdb", path=":memory:")
+    client = clickhouse_connect.get_client("chdb://memory")               # in-memory
+    client = clickhouse_connect.get_client("chdb:///tmp/data.db")          # on-disk
     df = client.query_df("SELECT number FROM numbers(5)")
 
 It lives in the chdb-io/chdb repository -- *not* in clickhouse-connect -- and registers
@@ -1519,8 +1520,8 @@ class ChdbBackend:
     """Backend factory registered at the ``clickhouse_connect.backends`` entry point.
 
     Satisfies :class:`clickhouse_connect.driver.backend.Backend`: clickhouse-connect's
-    ``get_client(backend="chdb", ...)`` loads this object and calls ``create_client`` /
-    ``create_async_client``.
+    ``get_client("chdb://...")`` loads this object and calls ``create_client`` /
+    ``create_async_client`` with the URI's path and query parameters translated into kwargs.
     """
 
     backend_name = "chdb"

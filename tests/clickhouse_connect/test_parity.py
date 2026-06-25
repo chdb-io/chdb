@@ -72,7 +72,7 @@ def http_client():
 
 @pytest.fixture
 def chdb_client():
-    c = clickhouse_connect.get_client(backend="chdb")
+    c = clickhouse_connect.get_client("chdb://memory")
     yield c
     c.close()
 

@@ -2,8 +2,8 @@
 Tests for the chDB clickhouse-connect backend (relocated and adapted from the original
 clickhouse-connect PR #753 suite). The chDB backend now lives in the chdb package and
 registers with clickhouse-connect through the ``clickhouse_connect.backends`` entry point,
-so these construct clients with ``get_client(backend="chdb")`` and import the
-implementation from ``chdb.cc_backend``.
+so these construct clients with ``get_client("chdb://memory")`` (or ``"chdb:///path/to/db"``
+for on-disk) and import the implementation from ``chdb.cc_backend``.
 
 These tests do not require a ClickHouse server — chDB is the embedded engine. The module
 is skipped if either chdb or clickhouse-connect is unavailable (e.g. Windows, or a Python
@@ -36,9 +36,14 @@ if "chdb" not in _cc_registry.available_backend_names():
     pytest.skip("chdb backend is not registered with clickhouse-connect", allow_module_level=True)
 
 
+def _chdb_dsn(path: str = ":memory:") -> str:
+    """``:memory:`` -> ``chdb://memory``; an absolute path -> ``chdb://<path>`` (gives ``chdb:///abs/path``)."""
+    return "chdb://memory" if path == ":memory:" else f"chdb://{path}"
+
+
 @pytest.fixture
 def client():
-    c = clickhouse_connect.get_client(backend="chdb")
+    c = clickhouse_connect.get_client(_chdb_dsn())
     yield c
     c.close()
 
@@ -56,7 +61,7 @@ def test_server_version_populated(client):
 
 
 def test_uri_shape():
-    c = clickhouse_connect.get_client(backend="chdb", chdb_path=":memory:")
+    c = clickhouse_connect.get_client(_chdb_dsn())
     try:
         assert c.uri.startswith("chdb://")
     finally:
@@ -362,7 +367,7 @@ def test_mid_stream_exception_surfaces_as_stream_failure(client):
 
 def test_http_only_kwargs_silently_ignored():
     c = clickhouse_connect.get_client(
-        backend="chdb",
+        _chdb_dsn(),
         username="default",
         password="ignored",
         compress=True,
@@ -479,14 +484,14 @@ def test_database_parameter_switches_default(tmp_path):
     # "other_db" or "scoped_test" would persist and make this test order-dependent. Use a
     # dedicated on-disk path so this test has an isolated session.
     db = str(tmp_path / "switch_default.db")
-    c = clickhouse_connect.get_client(backend="chdb", chdb_path=db)
+    c = clickhouse_connect.get_client(_chdb_dsn(db))
     try:
         c.command("CREATE DATABASE other_db")
         c.command("CREATE TABLE other_db.scoped (id UInt32) ENGINE = Memory")
         c.command("INSERT INTO other_db.scoped VALUES (13)")
     finally:
         c.close()
-    c2 = clickhouse_connect.get_client(backend="chdb", chdb_path=db)
+    c2 = clickhouse_connect.get_client(_chdb_dsn(db))
     try:
         c2.command("CREATE DATABASE scoped_test")
         c2.command("USE scoped_test")
@@ -502,7 +507,7 @@ def test_database_parameter_switches_default(tmp_path):
 def test_database_param_forwarded_to_use(tmp_path):
     db = str(tmp_path / "dbparam.db")
     # First connection creates DB + table
-    a = clickhouse_connect.get_client(backend="chdb", chdb_path=db)
+    a = clickhouse_connect.get_client(_chdb_dsn(db))
     try:
         a.command("CREATE DATABASE analytics")
         a.command("CREATE TABLE analytics.events (id UInt32) ENGINE = MergeTree ORDER BY id")
@@ -510,7 +515,7 @@ def test_database_param_forwarded_to_use(tmp_path):
     finally:
         a.close()
     # Second connection uses the database= kwarg; unqualified table reference must work
-    b = clickhouse_connect.get_client(backend="chdb", chdb_path=db, database="analytics")
+    b = clickhouse_connect.get_client(_chdb_dsn(db), database="analytics")
     try:
         assert b.query("SELECT count() FROM events").result_rows[0][0] == 1
     finally:
@@ -523,7 +528,7 @@ def test_database_param_forwarded_to_use(tmp_path):
 def test_dbapi_cursor_round_trip():
     import clickhouse_connect.dbapi as dbapi
 
-    conn = dbapi.connect(backend="chdb")
+    conn = dbapi.connect(dsn=_chdb_dsn())
     try:
         cur = conn.cursor()
         try:
@@ -542,7 +547,7 @@ def test_dbapi_cursor_round_trip():
 def test_dbapi_executemany():
     import clickhouse_connect.dbapi as dbapi
 
-    conn = dbapi.connect(backend="chdb")
+    conn = dbapi.connect(dsn=_chdb_dsn())
     try:
         cur = conn.cursor()
         try:
@@ -564,7 +569,7 @@ def test_dbapi_executemany():
 
 def test_async_client_basic_flow():
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         try:
             assert await c.ping() is True
             r = await c.query("SELECT 13 AS x")
@@ -581,7 +586,7 @@ def test_async_client_basic_flow():
 
 def test_async_client_gather_serializes_without_error():
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         try:
             results = await asyncio.gather(
                 c.query("SELECT 13"),
@@ -600,7 +605,7 @@ def test_async_dataframe_insert():
     pd = pytest.importorskip("pandas")
 
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         try:
             await c.command("CREATE TABLE async_df (id UInt32, v Float64) ENGINE = Memory")
             df = pd.DataFrame({"id": [13, 79], "v": [1.5, 2.5]})
@@ -618,7 +623,7 @@ def test_async_dataframe_insert():
 
 
 def test_factory_dispatches_on_backend():
-    c = clickhouse_connect.get_client(backend="chdb")
+    c = clickhouse_connect.get_client(_chdb_dsn())
     try:
         from chdb.cc_backend import ChdbClient
 
@@ -665,27 +670,27 @@ def test_format_error_message_passes_through_plain_text():
 
 
 def test_query_after_close_raises():
-    c = clickhouse_connect.get_client(backend="chdb")
+    c = clickhouse_connect.get_client(_chdb_dsn())
     c.close()
     with pytest.raises(ProgrammingError):
         c.query("SELECT 1")
 
 
 def test_close_is_idempotent():
-    c = clickhouse_connect.get_client(backend="chdb")
+    c = clickhouse_connect.get_client(_chdb_dsn())
     c.close()
     c.close()  # must not raise
 
 
 def test_close_connections_closes_client():
-    c = clickhouse_connect.get_client(backend="chdb")
+    c = clickhouse_connect.get_client(_chdb_dsn())
     c.close_connections()
     with pytest.raises(ProgrammingError):
         c.query("SELECT 1")
 
 
 def test_context_manager_closes_client():
-    with clickhouse_connect.get_client(backend="chdb") as c:
+    with clickhouse_connect.get_client(_chdb_dsn()) as c:
         assert c.ping() is True
     with pytest.raises(ProgrammingError):
         c.query("SELECT 1")
@@ -697,14 +702,14 @@ def test_context_manager_closes_client():
 def test_chdb_path_persists_across_clients(tmp_path):
     db_path = str(tmp_path / "persisted.db")
 
-    a = clickhouse_connect.get_client(backend="chdb", chdb_path=db_path)
+    a = clickhouse_connect.get_client(_chdb_dsn(db_path))
     try:
         a.command("CREATE TABLE persisted (id UInt32) ENGINE = MergeTree ORDER BY id")
         a.insert("persisted", [[13], [79]], column_names=["id"])
     finally:
         a.close()
 
-    b = clickhouse_connect.get_client(backend="chdb", chdb_path=db_path)
+    b = clickhouse_connect.get_client(_chdb_dsn(db_path))
     try:
         rows = b.query("SELECT id FROM persisted ORDER BY id").result_rows
         assert rows == [(13,), (79,)]
@@ -736,7 +741,7 @@ def test_per_call_settings_do_not_leak_via_query(client):
 
 
 def test_show_clickhouse_errors_false_sanitizes_message():
-    c = clickhouse_connect.get_client(backend="chdb", show_clickhouse_errors=False)
+    c = clickhouse_connect.get_client(_chdb_dsn(), show_clickhouse_errors=False)
     try:
         with pytest.raises(DatabaseError) as ex_info:
             c.query("SELECT bad_function()")
@@ -750,7 +755,7 @@ def test_show_clickhouse_errors_false_sanitizes_message():
 
 
 def test_query_limit_auto_appends_limit():
-    c = clickhouse_connect.get_client(backend="chdb", query_limit=3)
+    c = clickhouse_connect.get_client(_chdb_dsn(), query_limit=3)
     try:
         rows = c.query("SELECT number FROM numbers(100)").result_rows
         assert len(rows) == 3
@@ -759,7 +764,7 @@ def test_query_limit_auto_appends_limit():
 
 
 def test_explicit_limit_not_overridden_by_query_limit():
-    c = clickhouse_connect.get_client(backend="chdb", query_limit=3)
+    c = clickhouse_connect.get_client(_chdb_dsn(), query_limit=3)
     try:
         rows = c.query("SELECT number FROM numbers(100) LIMIT 7").result_rows
         assert len(rows) == 7
@@ -999,7 +1004,7 @@ def test_query_df_stream(client):
 
 def test_async_external_data_rejected():
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         try:
             from clickhouse_connect.driver.external import ExternalData
 
@@ -1014,7 +1019,7 @@ def test_async_external_data_rejected():
 
 def test_async_query_error_propagates_as_database_error():
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         try:
             with pytest.raises(DatabaseError):
                 await c.query("SELECT bad_function()")
@@ -1026,7 +1031,7 @@ def test_async_query_error_propagates_as_database_error():
 
 def test_async_closed_client_query_raises():
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         await c.close()
         with pytest.raises(ProgrammingError):
             await c.query("SELECT 1")
@@ -1038,7 +1043,7 @@ def test_async_set_client_setting_is_sync(client):
     # Async client's set_client_setting is intentionally sync (no I/O wrap) for
     # symmetry with HTTP AsyncClient.
     async def run():
-        c = await clickhouse_connect.get_async_client(backend="chdb")
+        c = await clickhouse_connect.get_async_client(_chdb_dsn())
         try:
             c.set_client_setting("max_block_size", 99)  # NOT awaited
             assert c.get_client_setting("max_block_size") == "99"

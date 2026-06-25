@@ -54,12 +54,16 @@ def _strip(kwargs: dict) -> dict:
     return {k: v for k, v in kwargs.items() if k not in _HTTP_ONLY}
 
 
+def _chdb_dsn() -> str:
+    return "chdb://memory" if _CHDB_PATH == ":memory:" else f"chdb://{_CHDB_PATH}"
+
+
 def _chdb_create_client(**kwargs):
-    return _orig_create_client(backend="chdb", path=_CHDB_PATH, **_strip(kwargs))
+    return _orig_create_client(_chdb_dsn(), **_strip(kwargs))
 
 
 async def _chdb_create_async_client(**kwargs):
-    return await _orig_create_async_client(backend="chdb", path=_CHDB_PATH, **_strip(kwargs))
+    return await _orig_create_async_client(_chdb_dsn(), **_strip(kwargs))
 
 
 # Replace the attributes on the driver package *before* the integration conftest does its
