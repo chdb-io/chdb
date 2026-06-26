@@ -46,6 +46,44 @@ def _is_numeric_dtype(dtype) -> bool:
         return False
 
 
+def _translate_pd_col_operand(other: Any, op_label: str) -> Any:
+    """Translate a pandas 3.x ``pd.col(...)`` operand on the right-hand
+    side of a boolean operator (``&``, ``|``, ``^``) into a chdb-ds
+    Condition/Expression.
+
+    Mirrors ``Expression.wrap`` for arithmetic / comparison operators,
+    but here the caller wants a ``Condition`` (or anything its
+    ``isinstance`` ladder accepts), not an ``Expression``. We just hand
+    back whatever the translator returns; the caller's ladder will pick
+    up the right branch.
+
+    Untranslatable chains (.astype / numpy ufunc) cannot be combined
+    with a chdb-ds Condition tree because the resulting node would
+    have to be evaluated entirely in pandas, defeating the SQL
+    pushdown on the chdb-ds side. Raise a clear error pointing at the
+    pre-materialize workaround.
+    """
+    from .pandas_col_compat import (
+        is_pandas_col_expression,
+        translate_pandas_expression,
+        PandasFallbackExpr,
+    )
+
+    if not is_pandas_col_expression(other):
+        return other
+
+    translated = translate_pandas_expression(other)
+    if isinstance(translated, PandasFallbackExpr):
+        raise TypeError(
+            f"Cannot {op_label} ColumnExpr with an untranslatable "
+            "pd.col(...) chain (e.g. .astype, numpy ufunc, .apply). "
+            "Pre-materialize the chain first, then combine: "
+            "``ds = ds.assign(tmp=pd.col('x').astype(int)); "
+            "(ds['y'] > 0) & ds['tmp']``."
+        )
+    return translated
+
+
 def _is_datetime_dtype(dtype) -> bool:
     """Safely check if dtype is datetime. Handles pandas extension dtypes."""
     import numpy as np
@@ -579,6 +617,8 @@ class ColumnExpr:
         - method mode without SQL-compatible expression
         - expressions that reference pandas-only operations
         - DateTimeMethodExpr with methods known to have incompatible SQL behavior
+        - CaseWhenExpr that contains a PandasFallbackExpr (translated
+          pd.col chain that can't be pushed to SQL)
 
         This is the canonical method to determine execution path.
         Use this instead of checking _executor/_expr directly.
@@ -594,10 +634,23 @@ class ColumnExpr:
         # Check if expression contains pandas-only datetime methods
         if self._expr is not None:
             from .expressions import DateTimeMethodExpr
+            from .case_when import CaseWhenExpr
 
             if isinstance(self._expr, DateTimeMethodExpr):
                 if self._expr.method_name in self._PANDAS_ONLY_DT_METHODS:
                     return True
+
+            # CASE WHEN whose conditions / replacements contain a
+            # PandasFallbackExpr can only run through ExpressionEvaluator
+            # on a live DataFrame; the SQL path would trip
+            # ``PandasFallbackExpr.to_sql`` (NotImplementedError) or, in
+            # the replacement slot, the catch-all ``f"'{str(value)}'"``
+            # in ``_value_to_sql`` and emit malformed SQL.
+            if (
+                isinstance(self._expr, CaseWhenExpr)
+                and self._expr.contains_pandas_fallback()
+            ):
+                return True
 
         return False
 
@@ -2248,6 +2301,10 @@ class ColumnExpr:
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
 
+        # pandas 3.x pd.col(...): translate to a chdb-ds Condition so the
+        # rest of __and__ treats it the same as ``ds['x'] > 0``.
+        other = _translate_pd_col_operand(other, "AND")
+
         # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
         if self._exec_mode in ("method", "executor") or (
             isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
@@ -2278,6 +2335,8 @@ class ColumnExpr:
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__rand__", method_args=(other,))
 
+        other = _translate_pd_col_operand(other, "AND")
+
         self_cond = self._to_condition()
 
         if isinstance(other, LazyCondition):
@@ -2306,6 +2365,8 @@ class ColumnExpr:
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
+
+        other = _translate_pd_col_operand(other, "OR")
 
         # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
         if self._exec_mode in ("method", "executor") or (
@@ -2336,6 +2397,8 @@ class ColumnExpr:
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__ror__", method_args=(other,))
+
+        other = _translate_pd_col_operand(other, "OR")
 
         self_cond = self._to_condition()
 
@@ -5876,6 +5939,62 @@ class ColumnExpr:
             method_args=(dtype,),
             method_kwargs=dict(copy=copy, errors=errors),
         )
+
+    def case_when(self, caselist) -> "ColumnExpr":
+        """Pandas-style ``Series.case_when``: replace values where any
+        condition is True, otherwise keep this column's value.
+
+        Mirrors :meth:`pandas.Series.case_when` but routes through
+        :class:`CaseWhenExpr` (compiles to ``CASE WHEN ... END``) and
+        accepts ``pd.col(...)`` in conditions/replacements. pandas 3.0.3's
+        own ``Series.case_when`` crashes on ``pd.col`` input.
+
+        Args:
+            caselist: list of ``(condition, replacement)`` tuples. Each
+                side may be a ``pd.col(...)``, a chdb-ds
+                ``Condition`` / ``ColumnExpr``, or a scalar.
+
+        Example:
+            >>> bucket = ds["revenue"].case_when([
+            ...     (pd.col("revenue") < 25, "small"),
+            ...     (pd.col("revenue") < 45, "medium"),
+            ...     (pd.col("revenue") >= 45, "large"),
+            ... ])
+        """
+        from .case_when import CaseWhenExpr
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if not isinstance(caselist, list):
+            raise TypeError(
+                f"case_when expects a list of (condition, replacement) tuples, "
+                f"got {type(caselist).__name__}"
+            )
+
+        translated_cases = []
+        for i, entry in enumerate(caselist):
+            if not isinstance(entry, tuple) or len(entry) != 2:
+                raise ValueError(
+                    f"case_when entry {i} must be a (condition, replacement) "
+                    f"tuple of length 2, got {entry!r}"
+                )
+            cond, repl = entry
+            if is_pandas_col_expression(cond):
+                cond = translate_pandas_expression(cond)
+            if is_pandas_col_expression(repl):
+                repl = translate_pandas_expression(repl)
+            translated_cases.append((cond, repl))
+
+        # ELSE = self, matching pandas Series.case_when semantics.
+        default = self._expr if self._expr is not None else self
+        expr = CaseWhenExpr(
+            cases=translated_cases,
+            default=default,
+            datastore=self._datastore,
+        )
+        return ColumnExpr(expr=expr, datastore=self._datastore)
 
     def sort_values(
         self,

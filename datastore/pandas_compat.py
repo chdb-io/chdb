@@ -42,6 +42,69 @@ _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 _PANDAS_3_PLUS = _parse_pandas_version() >= (3, 0)
 
 
+def _translate_pd_col_in_key(key):
+    """Translate ``pd.col(...)`` in a loc/iloc/getitem key into chdb-ds
+    expressions. Handles the bare key and the ``(row, col)`` tuple shape.
+    No-op on pandas < 3.
+    """
+    from .pandas_col_compat import (
+        is_pandas_col_expression,
+        translate_pandas_expression,
+    )
+
+    if is_pandas_col_expression(key):
+        return translate_pandas_expression(key)
+
+    if isinstance(key, tuple) and len(key) == 2:
+        row, col = key
+        new_row = (
+            translate_pandas_expression(row)
+            if is_pandas_col_expression(row)
+            else row
+        )
+        new_col = (
+            translate_pandas_expression(col)
+            if is_pandas_col_expression(col)
+            else col
+        )
+        if new_row is not row or new_col is not col:
+            return (new_row, new_col)
+    return key
+
+
+def _translate_pd_col_in_sort_by(by):
+    """Translate ``pd.col(...)`` in ``sort_values(by=...)`` into chdb-ds
+    expressions. Accepts a single key or a list/tuple of mixed keys.
+    """
+    from .pandas_col_compat import (
+        is_pandas_col_expression,
+        translate_pandas_expression,
+    )
+
+    if is_pandas_col_expression(by):
+        return translate_pandas_expression(by)
+    if isinstance(by, (list, tuple)):
+        out = [
+            translate_pandas_expression(item) if is_pandas_col_expression(item) else item
+            for item in by
+        ]
+        return type(by)(out)
+    return by
+
+
+def _is_single_sort_key(by):
+    """True when ``by`` is a single non-iterable sort key.
+
+    Distinguishes a single chdb-ds expression (e.g. a translated
+    ``pd.col(...)``) from a list of sort keys. Strings are handled
+    separately in sort_values.
+    """
+    from .expressions import Expression as _DsExpr
+    from .column_expr import ColumnExpr
+
+    return isinstance(by, (_DsExpr, ColumnExpr))
+
+
 def _is_numeric_dtype(dtype) -> bool:
     """
     Safely check if a dtype is numeric.
@@ -71,28 +134,47 @@ class DataStoreLocIndexer:
         self._datastore = datastore
 
     def _convert_key(self, key):
-        """Convert ColumnExpr or tuple with ColumnExpr to pandas types."""
+        """Convert any chdb-ds boolean-like node in the key into something
+        vanilla ``pandas.loc[]`` can consume (a boolean Series, or a pandas
+        ``Expression`` that pandas itself knows how to evaluate).
+
+        Used by both the read fallback path in ``__getitem__`` (when
+        ``_can_pushdown_condition`` is False) and by ``__setitem__`` (which
+        has no SQL pushdown path at all). After ``_translate_pd_col_in_key``
+        the row key may now be a raw chdb-ds ``Condition`` (from a translated
+        ``pd.col`` expression) or a ``PandasFallbackExpr`` (untranslatable
+        chain like ``.astype`` / ``np.log``) — both used to leak straight
+        through and trip ``InvalidIndexError`` / ``KeyError`` in pandas.
+        """
         from .column_expr import ColumnExpr
+        from .conditions import Condition
         from .lazy_result import LazyCondition
+        from .pandas_col_compat import PandasFallbackExpr
 
-        # Handle single ColumnExpr key (boolean indexing)
-        if isinstance(key, ColumnExpr):
-            # Execute to get the underlying Series
-            return key._execute()
-        elif isinstance(key, LazyCondition):
-            return key._to_series()
+        key = _translate_pd_col_in_key(key)
 
-        # Handle tuple (row_indexer, column_indexer)
+        def _materialize_row(node):
+            if isinstance(node, ColumnExpr):
+                return node._execute()
+            if isinstance(node, LazyCondition):
+                return node._execute()
+            if isinstance(node, Condition):
+                from .expression_evaluator import ExpressionEvaluator
+
+                df = self._datastore._execute()
+                return ExpressionEvaluator(df, self._datastore).evaluate(node)
+            if isinstance(node, PandasFallbackExpr):
+                return node.original
+            return node
+
+        if isinstance(
+            key, (ColumnExpr, LazyCondition, Condition, PandasFallbackExpr)
+        ):
+            return _materialize_row(key)
+
         if isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
-
-            # Convert row key if it's a ColumnExpr
-            if isinstance(row_key, ColumnExpr):
-                row_key = row_key._execute()
-            elif isinstance(row_key, LazyCondition):
-                row_key = row_key._to_series()
-
-            return (row_key, col_key)
+            return (_materialize_row(row_key), col_key)
 
         return key
 
@@ -148,6 +230,9 @@ class DataStoreLocIndexer:
         from .lazy_ops import LazyRelationalOp
         from .expressions import Field
         from copy import copy
+
+        # Translate pd.col(...) so loc pushdown sees a chdb-ds Condition.
+        key = _translate_pd_col_in_key(key)
 
         # Check for loc[condition, columns] pattern that can be pushed to SQL
         if isinstance(key, tuple) and len(key) == 2:
@@ -1343,6 +1428,10 @@ class PandasCompatMixin:
         if inplace:
             raise ImmutableError("DataStore")
 
+        # Translate pd.col(...) before the ``list(by)`` below — pd.col
+        # deliberately raises when iterated.
+        by = _translate_pd_col_in_sort_by(by)
+
         # Check if we can use lazy SQL execution
         # Simple cases: axis=0, no key function, na_position='last', ignore_index=False
         # Also: no CategoricalDtype sort key — pandas sorts by category order,
@@ -1361,6 +1450,10 @@ class PandasCompatMixin:
             # Use lazy SQL ORDER BY for better performance
             # Normalize 'by' to a list
             if isinstance(by, str):
+                by_list = [by]
+            elif _is_single_sort_key(by):
+                # Already a single chdb-ds expression (Field/ArithmeticExpression);
+                # don't iterate it.
                 by_list = [by]
             else:
                 by_list = list(by)

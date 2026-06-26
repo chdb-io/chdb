@@ -282,6 +282,15 @@ class ExpressionEvaluator:
             method = getattr(source_series, expr._method_name)
             return method(*args, **kwargs)
 
+        # Pandas-fallback for untranslatable pd.col(...) expressions
+        # (e.g. ``.astype("category")``, ``np.log(...)``). Re-run the
+        # original pandas Expression against the live DataFrame; pandas
+        # owns the semantics, we just plug the result back into the tree.
+        from .pandas_col_compat import PandasFallbackExpr
+
+        if isinstance(expr, PandasFallbackExpr):
+            return expr.original._eval_expression(self.df)  # noqa: SLF001
+
         if isinstance(expr, Field):
             # Column reference - handle both string and integer column names
             col_name = expr.name
