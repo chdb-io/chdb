@@ -15,7 +15,6 @@ in older chDB versions. As of 2026-01-06, chDB correctly preserves dtypes.
 import numpy as np
 import pandas as pd
 import pytest
-from tests.xfail_markers import chdb_array_nullable
 
 import chdb
 
@@ -96,7 +95,6 @@ class TestChDBArrayNullableLimitation:
         assert pd.isna(pd_result.iloc[1])
         assert pd.isna(ds_result.iloc[1])
 
-    @chdb_array_nullable
     def test_raw_sql_split_without_ifnull_fails(self):
         """
         Using splitByWhitespace directly in SQL without ifNull fails

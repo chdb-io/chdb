@@ -33,8 +33,10 @@ class ChdbError(Exception):
 
 
 _arrow_format = set({"arrowtable"})
+_df_format = set({"dataframe", "datastore"})
 _process_result_format_funs = {
     "arrowtable": lambda x: to_arrowTable(x),
+    "datastore": lambda x: to_datastore(x),
 }
 
 g_udf_path = ""
@@ -52,9 +54,25 @@ try:
 except Exception:
     core_version = "unknown"
 
+def _preload_chdb_with_deepbind():
+    if sys.platform != "linux":
+        return
+    import ctypes
+    _RTLD_DEEPBIND = 0x00008
+    for candidate_dir in [_this_dir] + [p for p in __path__ if p != _this_dir]:
+        _abi3 = os.path.join(candidate_dir, "_chdb.abi3.so")
+        if os.path.exists(_abi3):
+            try:
+                ctypes.CDLL(_abi3, mode=sys.getdlopenflags() | _RTLD_DEEPBIND)
+            except OSError:
+                pass
+            return
+
+
 if sys.version_info[:2] >= (3, 7):
     cwd = os.getcwd()
     os.chdir(_this_dir)
+    _preload_chdb_with_deepbind()
     try:
         from . import _chdb  # noqa
     except ImportError:
@@ -98,6 +116,22 @@ def to_arrowTable(res):
         return pa.Table.from_batches([], schema=pa.schema([]))
     memview = res.get_memview()
     return pa.RecordBatchFileReader(memview.view()).read_all()
+
+
+def to_datastore(df):
+    """Wrap a pandas DataFrame in a chdb DataStore.
+
+    Requires the ``chdb`` pip package (providing the DataStore API) to be
+    installed alongside ``chdb-core``.
+    """
+    try:
+        from chdb.datastore import DataStore
+    except ImportError as e:
+        raise ImportError(
+            'DataStore output format requires the chdb package. '
+            'Install it via "pip install chdb".'
+        ) from e
+    return DataStore(df)
 
 
 g_conn_lock = threading.Lock()
@@ -167,9 +201,9 @@ def query(sql, output_format="CSV", path="", udf_path="", params=None, options=N
                 conn.set_progress_callback(progress_callback)
 
         try:
-            if lower_output_format == "dataframe":
+            if lower_output_format in _df_format:
                 res = conn.query_df(sql, params=params)
-                return res
+                return result_func(res)
 
             res = conn.query(sql, output_format, params=params)
 
@@ -187,8 +221,23 @@ sql = query
 
 PyReader = _chdb.PyReader
 
+# UDF module-level surfaces. Mirrored from chdb-core but guarded with hasattr
+# so chdb-ds keeps working against chdb-core releases that pre-date the
+# `promote create_function to module-level API` refactor (e.g. 26.3.0).
+_udf_exports = []
+for _name in ("create_function", "drop_function", "NullHandling", "ExceptionHandling"):
+    if hasattr(_chdb, _name):
+        globals()[_name] = getattr(_chdb, _name)
+        _udf_exports.append(_name)
+
 from . import agents, dbapi, session, udf, utils  # noqa: E402
 from .state import connect  # noqa: E402
+
+try:
+    from .udf import func  # noqa: E402
+    _udf_exports.append("func")
+except ImportError:
+    pass
 
 __all__ = [
     "_chdb",
@@ -199,10 +248,11 @@ __all__ = [
     "chdb_version",
     "engine_version",
     "to_arrowTable",
+    "to_datastore",
     "dbapi",
     "session",
     "udf",
     "utils",
     "connect",
     "agents",
-]
+] + _udf_exports

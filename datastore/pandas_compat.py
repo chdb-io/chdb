@@ -42,6 +42,69 @@ _PANDAS_HAS_LIMIT_AREA = _parse_pandas_version() >= (2, 1)
 _PANDAS_3_PLUS = _parse_pandas_version() >= (3, 0)
 
 
+def _translate_pd_col_in_key(key):
+    """Translate ``pd.col(...)`` in a loc/iloc/getitem key into chdb-ds
+    expressions. Handles the bare key and the ``(row, col)`` tuple shape.
+    No-op on pandas < 3.
+    """
+    from .pandas_col_compat import (
+        is_pandas_col_expression,
+        translate_pandas_expression,
+    )
+
+    if is_pandas_col_expression(key):
+        return translate_pandas_expression(key)
+
+    if isinstance(key, tuple) and len(key) == 2:
+        row, col = key
+        new_row = (
+            translate_pandas_expression(row)
+            if is_pandas_col_expression(row)
+            else row
+        )
+        new_col = (
+            translate_pandas_expression(col)
+            if is_pandas_col_expression(col)
+            else col
+        )
+        if new_row is not row or new_col is not col:
+            return (new_row, new_col)
+    return key
+
+
+def _translate_pd_col_in_sort_by(by):
+    """Translate ``pd.col(...)`` in ``sort_values(by=...)`` into chdb-ds
+    expressions. Accepts a single key or a list/tuple of mixed keys.
+    """
+    from .pandas_col_compat import (
+        is_pandas_col_expression,
+        translate_pandas_expression,
+    )
+
+    if is_pandas_col_expression(by):
+        return translate_pandas_expression(by)
+    if isinstance(by, (list, tuple)):
+        out = [
+            translate_pandas_expression(item) if is_pandas_col_expression(item) else item
+            for item in by
+        ]
+        return type(by)(out)
+    return by
+
+
+def _is_single_sort_key(by):
+    """True when ``by`` is a single non-iterable sort key.
+
+    Distinguishes a single chdb-ds expression (e.g. a translated
+    ``pd.col(...)``) from a list of sort keys. Strings are handled
+    separately in sort_values.
+    """
+    from .expressions import Expression as _DsExpr
+    from .column_expr import ColumnExpr
+
+    return isinstance(by, (_DsExpr, ColumnExpr))
+
+
 def _is_numeric_dtype(dtype) -> bool:
     """
     Safely check if a dtype is numeric.
@@ -71,28 +134,47 @@ class DataStoreLocIndexer:
         self._datastore = datastore
 
     def _convert_key(self, key):
-        """Convert ColumnExpr or tuple with ColumnExpr to pandas types."""
+        """Convert any chdb-ds boolean-like node in the key into something
+        vanilla ``pandas.loc[]`` can consume (a boolean Series, or a pandas
+        ``Expression`` that pandas itself knows how to evaluate).
+
+        Used by both the read fallback path in ``__getitem__`` (when
+        ``_can_pushdown_condition`` is False) and by ``__setitem__`` (which
+        has no SQL pushdown path at all). After ``_translate_pd_col_in_key``
+        the row key may now be a raw chdb-ds ``Condition`` (from a translated
+        ``pd.col`` expression) or a ``PandasFallbackExpr`` (untranslatable
+        chain like ``.astype`` / ``np.log``) — both used to leak straight
+        through and trip ``InvalidIndexError`` / ``KeyError`` in pandas.
+        """
         from .column_expr import ColumnExpr
+        from .conditions import Condition
         from .lazy_result import LazyCondition
+        from .pandas_col_compat import PandasFallbackExpr
 
-        # Handle single ColumnExpr key (boolean indexing)
-        if isinstance(key, ColumnExpr):
-            # Execute to get the underlying Series
-            return key._execute()
-        elif isinstance(key, LazyCondition):
-            return key._to_series()
+        key = _translate_pd_col_in_key(key)
 
-        # Handle tuple (row_indexer, column_indexer)
+        def _materialize_row(node):
+            if isinstance(node, ColumnExpr):
+                return node._execute()
+            if isinstance(node, LazyCondition):
+                return node._execute()
+            if isinstance(node, Condition):
+                from .expression_evaluator import ExpressionEvaluator
+
+                df = self._datastore._execute()
+                return ExpressionEvaluator(df, self._datastore).evaluate(node)
+            if isinstance(node, PandasFallbackExpr):
+                return node.original
+            return node
+
+        if isinstance(
+            key, (ColumnExpr, LazyCondition, Condition, PandasFallbackExpr)
+        ):
+            return _materialize_row(key)
+
         if isinstance(key, tuple) and len(key) == 2:
             row_key, col_key = key
-
-            # Convert row key if it's a ColumnExpr
-            if isinstance(row_key, ColumnExpr):
-                row_key = row_key._execute()
-            elif isinstance(row_key, LazyCondition):
-                row_key = row_key._to_series()
-
-            return (row_key, col_key)
+            return (_materialize_row(row_key), col_key)
 
         return key
 
@@ -148,6 +230,9 @@ class DataStoreLocIndexer:
         from .lazy_ops import LazyRelationalOp
         from .expressions import Field
         from copy import copy
+
+        # Translate pd.col(...) so loc pushdown sees a chdb-ds Condition.
+        key = _translate_pd_col_in_key(key)
 
         # Check for loc[condition, columns] pattern that can be pushed to SQL
         if isinstance(key, tuple) and len(key) == 2:
@@ -220,9 +305,30 @@ class DataStoreLocIndexer:
 
     def __setitem__(self, key, value):
         """Set item via loc, converting ColumnExpr to pandas types first."""
+        from .lazy_ops import LazyDataFrameSource
+
         converted_key = self._convert_key(key)
         df = self._datastore._get_df()
         df.loc[converted_key] = value
+
+        # Checkpoint: wrap the modified DataFrame as LazyDataFrameSource
+        # so that subsequent _execute() calls return this modified DataFrame
+        # instead of re-running the original SQL pipeline (which would lose
+        # the in-place modifications made by loc[]).
+        self._datastore._lazy_ops = [LazyDataFrameSource(df)]
+        self._datastore._table_function = None
+        self._datastore.table_name = None
+        self._datastore._select_fields = []
+        self._datastore._where_condition = None
+        self._datastore._joins = []
+        self._datastore._groupby_fields = []
+        self._datastore._having_condition = None
+        self._datastore._orderby_fields = []
+        self._datastore._limit_value = None
+        self._datastore._offset_value = None
+        self._datastore._distinct = False
+        self._datastore._source_df = df
+        self._datastore._computed_columns = {}
 
         # Invalidate cache since we modified the underlying DataFrame
         self._datastore._invalidate_cache()
@@ -354,7 +460,77 @@ class PandasCompatMixin:
             return src.dtypes
         if self._is_pristine_sql_source():
             return self._probe_dtypes_from_sql_source()
+        # SQL-pushdownable pipeline: probe the output dtypes with LIMIT 1.
+        # LIMIT 1 (not 0): an empty result degrades string columns to numpy
+        # ``object``, while a single row lets chDB materialize the real pandas
+        # dtype (e.g. StringDtype). Pushdownable ops never cast dtypes (astype and
+        # other value casts are NOT pushdownable -- they fall through below), so
+        # the probe's per-column dtypes are authoritative. As with .columns, only
+        # trust the probe when the lazy ops don't change the column set
+        # (transform_columns is the identity -- filters / ORDER BY / LIMIT);
+        # column-altering ops (select / rename / drop / assign) are applied
+        # post-SQL, so fall through to execution.
+        #
+        # Remote sources are excluded: _probe_schema() nests a subquery
+        # (SELECT * FROM (...) LIMIT n) that chDB HANGS on for remote() sources,
+        # so filtered-remote dtypes fall back to execution.
+        if (
+            self._can_sql_pushdown()
+            and self._cached_result is None
+            and not self._is_remote_source()
+        ):
+            try:
+                probe = self._probe_schema(limit=1)
+                probe_cols = list(probe.columns)
+                cols = probe_cols
+                for op in (self._lazy_ops or []):
+                    cols = op.transform_columns(cols)
+                if cols == probe_cols and self._dtype_probe_is_reliable(probe):
+                    return probe.dtypes
+            except Exception:
+                pass
         return self._get_df().dtypes
+
+    def _dtype_probe_is_reliable(self, probe: "pd.DataFrame") -> bool:
+        """Whether a LIMIT 1 dtype probe can be trusted for every column.
+
+        chDB's pandas dtype for an integer/bool column is null-PRESENCE dependent,
+        not schema-driven: chDB types parquet ints as ``Nullable(Int64)`` yet a
+        result with no nulls materializes as numpy ``int64`` and one with nulls as
+        pandas ``Int64`` (likewise ``bool`` vs ``boolean``). A single sampled row
+        can't reveal nulls elsewhere, so the probe's ``int64``/``bool`` is only
+        right when the full result has no nulls in that column. We confirm that
+        with a COUNT aggregate that transfers no data rows; if any probed
+        integer/bool column actually contains a null, the probe would disagree
+        with full execution, so we fall back. String / float / datetime columns
+        use str / NaN / NaT regardless of nulls, so they are always reliable.
+
+        Any failure here returns False (fall back), so this can only cause MORE
+        execution, never an incorrect dtype.
+        """
+        from .utils import format_identifier
+
+        risky = [
+            c
+            for c in probe.columns
+            if pd.api.types.is_bool_dtype(probe[c].dtype)
+            or pd.api.types.is_integer_dtype(probe[c].dtype)
+        ]
+        if not risky:
+            return True
+        if self._executor is None:
+            self.connect()
+        # countIf(col IS NULL) per risky column -- a single result row, no data
+        # transfer. Remote sources never reach here (gated out by the caller), so
+        # this nested aggregate subquery is safe.
+        exprs = ", ".join(
+            f"countIf({format_identifier(c, self.quote_char)} IS NULL)"
+            for c in risky
+        )
+        result = self._executor.execute(f"SELECT {exprs} FROM ({self.to_sql()})")
+        if not result.rows:
+            return False
+        return all(int(v) == 0 for v in result.rows[0])
 
     @property
     def values(self):
@@ -1187,6 +1363,35 @@ class PandasCompatMixin:
             )
         )
 
+    def _has_categorical_sort_key(self, by) -> bool:
+        """Return True if any column in ``by`` is a pandas CategoricalDtype.
+
+        Categorical columns sort by their declared category order in pandas,
+        which SQL ORDER BY (string/value literal order) cannot reproduce.
+
+        Only inspects the cached source DataFrame and any already-materialized
+        cache; never triggers execution to find out. For sources where we
+        don't yet have a pandas frame, we assume non-categorical (chDB has no
+        notion of categorical dtype, so any column it produced is not one).
+        """
+        df = self._source_df
+        if df is None:
+            df = getattr(self, "_cached_result", None)
+        if df is None or df.empty:
+            return False
+        if isinstance(by, str):
+            keys = [by]
+        else:
+            try:
+                keys = list(by)
+            except TypeError:
+                return False
+        for col in keys:
+            if isinstance(col, str) and col in df.columns:
+                if isinstance(df[col].dtype, pd.CategoricalDtype):
+                    return True
+        return False
+
     def sort_values(
         self,
         by,
@@ -1223,13 +1428,21 @@ class PandasCompatMixin:
         if inplace:
             raise ImmutableError("DataStore")
 
+        # Translate pd.col(...) before the ``list(by)`` below — pd.col
+        # deliberately raises when iterated.
+        by = _translate_pd_col_in_sort_by(by)
+
         # Check if we can use lazy SQL execution
         # Simple cases: axis=0, no key function, na_position='last', ignore_index=False
+        # Also: no CategoricalDtype sort key — pandas sorts by category order,
+        # but chDB has no categorical concept and would sort by string-literal
+        # order, producing a different result. Fall back to pandas.
         can_use_lazy = (
             axis == 0
             and key is None
             and na_position == 'last'
             and not ignore_index
+            and not self._has_categorical_sort_key(by)
             and hasattr(self, 'sort')  # Ensure sort() method exists
         )
 
@@ -1237,6 +1450,10 @@ class PandasCompatMixin:
             # Use lazy SQL ORDER BY for better performance
             # Normalize 'by' to a list
             if isinstance(by, str):
+                by_list = [by]
+            elif _is_single_sort_key(by):
+                # Already a single chdb-ds expression (Field/ArithmeticExpression);
+                # don't iterate it.
                 by_list = [by]
             else:
                 by_list = list(by)
@@ -1427,8 +1644,62 @@ class PandasCompatMixin:
         indicator=False,
         validate=None,
     ):
-        """Merge DataFrame objects."""
-        # Convert right to DataFrame if it's a DataStore
+        """Merge DataFrame objects.
+
+        Uses lazy SQL JOIN when both sides are DataStores with SQL sources
+        and no advanced pandas-only features are needed. Falls back to
+        pandas merge otherwise.
+        """
+        DataStore = type(self)
+
+        # Try lazy SQL JOIN path when both sides are DataStores with SQL sources
+        # and no pandas-only merge features are used
+        # Determine join key columns
+        if on is not None:
+            key_cols = set(on) if isinstance(on, (list, tuple)) else {on}
+        elif left_on is not None and right_on is not None:
+            lk = set(left_on) if isinstance(left_on, (list, tuple)) else {left_on}
+            rk = set(right_on) if isinstance(right_on, (list, tuple)) else {right_on}
+            key_cols = lk | rk
+        else:
+            key_cols = set()
+
+        # Check for overlapping non-key columns — SQL JOIN uses table.col
+        # naming (e.g., right.value) while pandas uses suffixes (_x/_y).
+        # Fall back to pandas when suffixes would be needed.
+        left_cols = set()
+        right_cols = set()
+        try:
+            if isinstance(right, DataStore):
+                left_cols = set(self._get_all_column_names())
+                right_cols = set(right._get_all_column_names())
+        except Exception:
+            pass
+        overlapping_non_key = (left_cols & right_cols) - key_cols
+
+        can_use_sql_join = (
+            isinstance(right, DataStore)
+            and not left_index
+            and not right_index
+            and not indicator
+            and not sort
+            and validate is None
+            and not overlapping_non_key
+            and (on is not None or (left_on is not None and right_on is not None))
+            and bool(self._table_function or self.table_name
+                     or self._source_df is not None)
+            and bool(right._table_function or right.table_name
+                     or right._source_df is not None)
+        )
+
+        if can_use_sql_join:
+            try:
+                return self.join(right, on=on, how=how,
+                                 left_on=left_on, right_on=right_on)
+            except Exception:
+                pass  # Fall back to pandas merge
+
+        # Pandas merge fallback
         if hasattr(right, '_get_df'):
             right = right._get_df()
         return self._wrap_result(
@@ -1461,8 +1732,30 @@ class PandasCompatMixin:
         sort=False,
         copy=True,
     ):
-        """Concatenate DataStore/DataFrame objects."""
-        # Convert DataStore objects to DataFrames
+        """Concatenate DataStore/DataFrame objects.
+
+        Uses lazy SQL UNION ALL when all objects are DataStores and axis=0.
+        Falls back to pandas concat otherwise.
+        """
+        DataStore = type(self)
+
+        # Lazy UNION ALL path for simple vertical concatenation.
+        # Only when ignore_index=True (UNION ALL resets index) and join='outer'.
+        if (
+            axis == 0
+            and ignore_index
+            and join == 'outer'
+            and keys is None
+            and not verify_integrity
+            and len(objs) >= 2
+            and all(isinstance(obj, DataStore) for obj in objs)
+        ):
+            result = objs[0]
+            for obj in objs[1:]:
+                result = result.union(obj, all=True)
+            return result
+
+        # Pandas concat fallback
         dfs = []
         for obj in objs:
             if hasattr(obj, '_get_df'):
@@ -2780,6 +3073,35 @@ class PandasCompatMixin:
     @property
     def index(self):
         """The index (row labels) of the DataFrame."""
+        from .lazy_ops import LazyRelationalOp
+
+        # chDB's default index is a RangeIndex, fully determined by the row
+        # count. With no custom index (set_index), no grouping, no ORDER BY, and
+        # a SQL-pushdownable pipeline, derive it from COUNT(*) instead of
+        # materializing rows. count_rows() self-corrects (cheap COUNT, or a real
+        # execution when a LIMIT / OFFSET / non-pushdownable step is present), so
+        # the length is always right -- including for filtered pipelines, whose
+        # lazy op lives in the SQL.
+        #
+        # ORDER BY is excluded: a sorted result preserves the original positional
+        # labels (it is NOT reset to a contiguous RangeIndex), so the shortcut
+        # would return the wrong labels -- it must fall back to full execution.
+        # Custom/group indexes fall back too.
+        has_order_by = bool(self._orderby_fields) or any(
+            isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"
+            for op in (self._lazy_ops or [])
+        )
+        if (
+            self._index_info is None
+            and not self._groupby_fields
+            and not has_order_by
+            and self._can_sql_pushdown()
+            and self._cached_result is None
+        ):
+            try:
+                return pd.RangeIndex(start=0, stop=self.count_rows(), step=1)
+            except Exception:
+                pass
         return self._get_df().index
 
     @index.setter

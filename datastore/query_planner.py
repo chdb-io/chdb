@@ -51,36 +51,69 @@ from .sql_executor import CaseWhenExpr, WhereMaskCaseExpr
 @dataclass
 class QueryPlan:
     """
-    Intermediate representation of an execution plan.
+    Intermediate representation of one SQL segment's execution plan.
 
-    This separates operations into SQL-pushable and Pandas-only phases,
-    and captures optimization opportunities like GroupBy SQL pushdown.
+    Produced by :meth:`QueryPlanner.plan_segments` (one ``QueryPlan`` per SQL
+    ``ExecutionSegment``). The SQL build pipeline (``build_sql_from_plan``
+    in :mod:`sql_executor`) consumes a ``QueryPlan`` and produces SQL by
+    chaining :meth:`SQLExecutionEngine._build_layer` over the plan's
+    ``layers``.
+
+    Data flow:
+
+    1. The planner segments lazy ops into SQL / Pandas / SQL / ... segments.
+    2. For each SQL segment, ``_create_segment`` builds a ``QueryPlan``
+       whose ``layers`` contain the FULL op list (including
+       ``LazyGroupByAgg``, ``LazyWhere``, ``LazyMask``, pushable
+       ``LazyApply``) per nested-subquery layer.
+    3. ``build_sql_from_plan`` runs ``_build_layered_sql`` which calls
+       ``_build_layer`` per layer; each layer dispatches by op type.
+    4. Any temp aliases the SQL builders introduce
+       (``temp_alias -> original_alias``) are recorded in
+       ``alias_renames``. After execution the post-processing step in
+       ``core.py`` reads ``alias_renames`` and renames the result
+       DataFrame columns back to the user-visible names.
 
     Attributes:
-        sql_ops: Operations that can be executed via SQL
-        df_ops: Operations that require Pandas execution
-        groupby_agg: Optional GroupBy aggregation that can be pushed to SQL
-        where_ops: List of LazyWhere/LazyMask operations that can be pushed to SQL
-        layers: Nested subquery layers (for LIMIT-before-WHERE patterns)
-        has_sql_source: Whether there's a SQL-compatible data source
-        first_df_op_idx: Index of first DataFrame-only operation in original chain
-        where_columns: Column names referenced in WHERE conditions (for conflict detection)
-        alias_renames: Dict mapping temp alias -> original alias (for conflict resolution)
+        sql_ops: Relational + column-assignment ops in the segment, with
+            special ops (``LazyGroupByAgg``, ``LazyWhere``, ``LazyMask``,
+            pushable ``LazyApply``) excluded. Kept for legacy helpers
+            (``_build_sql_with_builder``, ``_check_limit_before_where``)
+            that only know how to iterate WHERE/ORDER BY/LIMIT/OFFSET/
+            SELECT/ColumnAssignment.
+        df_ops: Operations that require Pandas execution (only used by the
+            removed ``plan()`` method; segmented planning splits these
+            into separate Pandas ``ExecutionSegment``s instead).
+        groupby_agg: Convenience pointer to the (single) ``LazyGroupByAgg``
+            in ``layers`` (or one synthesized from a pushable
+            ``LazyApply``). Read by post-execution code for set_index,
+            MultiIndex conversion, dtype corrections.
+        where_ops: Convenience list of ``LazyWhere``/``LazyMask`` ops in
+            ``layers``. Read by ``_build_sql_for_dataframe`` for CASE
+            WHEN temp alias mapping.
+        layers: Canonical input for SQL building. Each entry is a layer's
+            op list; layer 0 reads from the table source, layers 1+ read
+            from ``(inner_sql) AS __subqN__``.
+        has_sql_source: Whether the segment has a SQL-compatible source.
+        first_df_op_idx: Vestigial - was set by the removed ``plan()``
+            method. Always ``None`` from segmented planning.
+        where_columns: Source-column names referenced in pre-aggregation
+            WHEREs. Drives the planner's source-col / agg-alias conflict
+            detection (which pre-populates ``alias_renames``).
+        alias_renames: Map ``temp_alias -> original_alias``. Written
+            during SQL building, consumed at post-execution to rename
+            result DataFrame columns back to user-visible names.
     """
 
     sql_ops: List[LazyOp] = field(default_factory=list)
     df_ops: List[LazyOp] = field(default_factory=list)
     groupby_agg: Optional[LazyGroupByAgg] = None
-    where_ops: List[LazyOp] = field(
-        default_factory=list
-    )  # LazyWhere/LazyMask for SQL CASE WHEN
+    where_ops: List[LazyOp] = field(default_factory=list)
     layers: List[List[LazyOp]] = field(default_factory=list)
     has_sql_source: bool = False
     first_df_op_idx: Optional[int] = None
     where_columns: Set[str] = field(default_factory=set)
-    alias_renames: Dict[str, str] = field(
-        default_factory=dict
-    )  # temp_alias -> original_alias
+    alias_renames: Dict[str, str] = field(default_factory=dict)
 
     def has_two_phases(self) -> bool:
         """Check if execution requires both SQL and DataFrame phases."""
@@ -93,7 +126,7 @@ class QueryPlan:
     def describe(self) -> str:
         """Return a human-readable description of the plan."""
         lines = []
-        lines.append(f"QueryPlan:")
+        lines.append("QueryPlan:")
         lines.append(f"  SQL source: {self.has_sql_source}")
         lines.append(f"  SQL ops: {len(self.sql_ops)}")
         lines.append(f"  DataFrame ops: {len(self.df_ops)}")
@@ -205,89 +238,67 @@ class QueryPlanner:
     def __init__(self):
         self._logger = get_logger()
 
-    def plan(
-        self,
-        lazy_ops: List[LazyOp],
-        has_sql_source: bool,
-        schema: Dict[str, str] = None,
-    ) -> QueryPlan:
-        """
-        Analyze LazyOp chain and produce an execution plan.
-
-        Args:
-            lazy_ops: List of lazy operations to analyze
-            has_sql_source: Whether there's a SQL-compatible data source
-                           (table_function or table_name)
-            schema: Optional dict mapping column names to types (for type-aware SQL pushdown)
-
-        Returns:
-            QueryPlan with optimized execution strategy
-        """
-        plan = QueryPlan(has_sql_source=has_sql_source)
-
-        if not lazy_ops:
-            return plan
-
-        # Collect WHERE column names for alias conflict detection
-        plan.where_columns = self._collect_where_columns(lazy_ops)
-
-        # Find the SQL/DataFrame boundary
-        plan.first_df_op_idx, plan.groupby_agg, plan.where_ops, plan.alias_renames = (
-            self._find_sql_boundary(
-                lazy_ops, has_sql_source, plan.where_columns, schema
-            )
-        )
-
-        # Split operations
-        if plan.first_df_op_idx is not None:
-            plan.sql_ops = lazy_ops[: plan.first_df_op_idx]
-            plan.df_ops = lazy_ops[plan.first_df_op_idx :]
-        else:
-            plan.sql_ops = lazy_ops.copy()
-            plan.df_ops = []
-
-        # Remove GroupByAgg and converted LazyApply from sql_ops if being pushed separately
-        if plan.groupby_agg:
-            plan.sql_ops = [
-                op
-                for op in plan.sql_ops
-                if not isinstance(op, (LazyGroupByAgg, LazyApply))
-            ]
-
-        # Remove LazyWhere/LazyMask from sql_ops if they're being pushed separately
-        if plan.where_ops:
-            plan.sql_ops = [
-                op for op in plan.sql_ops if not isinstance(op, (LazyWhere, LazyMask))
-            ]
-
-        # Build layers for nested subqueries (LIMIT-before-WHERE patterns)
-        if has_sql_source:
-            plan.layers = self._build_layers(plan.sql_ops)
-
-        self._logger.debug(
-            "Query plan: %d SQL ops, %d DataFrame ops, %d where ops",
-            len(plan.sql_ops),
-            len(plan.df_ops),
-            len(plan.where_ops),
-        )
-
-        return plan
+    # NOTE: the legacy ``plan()`` method (which produced a single QueryPlan
+    # from a flat lazy_ops list) was removed - call sites (``_execute``,
+    # ``_build_execution_sql`` in core.py, and the test suite) now use
+    # ``plan_segments`` and take the plan from the first SQL segment when
+    # they need a single-plan view.
 
     def _collect_where_columns(self, ops: List[LazyOp]) -> Set[str]:
         """
-        Extract column names from WHERE conditions.
+        Extract source-column names referenced in pre-aggregation WHERE clauses.
 
-        This is used to detect alias conflicts when pushing GroupBy to SQL.
+        Convenience wrapper around
+        :meth:`_collect_where_columns_per_segment` that returns the source-col
+        set for the chain *up to* (and used as input by) the first
+        ``LazyGroupByAgg``. The result is consumed by alias-conflict detection:
+        an aggregate output alias that collides with a source column referenced
+        in a pre-agg WHERE has to be renamed to a temp alias so chDB doesn't
+        mis-bind the aggregate inside the WHERE.
+
+        Post-aggregation WHEREs are intentionally excluded - they operate on
+        the *output* of the aggregation (e.g. ``count > 5000``), so treating
+        them as source-col conflicts would force a useless rename and break
+        the outer reference.
 
         Args:
             ops: List of lazy operations
 
         Returns:
-            Set of column names referenced in WHERE conditions
+            Set of column names referenced in pre-aggregation WHERE conditions.
         """
-        where_columns = set()
+        # Plans currently carry at most one LazyGroupByAgg per QueryPlan, so
+        # the per-segment helper collapses to "ops before the (only) agg".
+        return self._collect_where_columns_per_segment(ops, segment_end=None)
 
-        for op in ops:
+    def _collect_where_columns_per_segment(
+        self,
+        ops: List[LazyOp],
+        segment_end: Optional[int] = None,
+    ) -> Set[str]:
+        """
+        Position-aware collector: source columns referenced in WHEREs that
+        come strictly before the chain's first ``LazyGroupByAgg`` (or before
+        ``segment_end`` if supplied).
+
+        This makes the conflict-detection semantics explicit: WHEREs after
+        the boundary act on aggregation output, not source rows, and must not
+        contribute source-col aliases.
+
+        Args:
+            ops: List of lazy operations
+            segment_end: Optional explicit upper bound (exclusive); when None,
+                stops at the first encountered ``LazyGroupByAgg``.
+
+        Returns:
+            Set of column names from WHERE conditions within the segment.
+        """
+        where_columns: Set[str] = set()
+        for idx, op in enumerate(ops):
+            if segment_end is not None and idx >= segment_end:
+                break
+            if segment_end is None and isinstance(op, LazyGroupByAgg):
+                break
             if (
                 isinstance(op, LazyRelationalOp)
                 and op.op_type == "WHERE"
@@ -295,170 +306,10 @@ class QueryPlanner:
             ):
                 try:
                     cond_sql = op.condition.to_sql(quote_char='"')
-                    # Extract quoted column names
                     where_columns.update(re.findall(r'"(\w+)"', cond_sql))
                 except Exception:
                     pass
-
         return where_columns
-
-    def _find_sql_boundary(
-        self,
-        ops: List[LazyOp],
-        has_sql_source: bool,
-        where_columns: Set[str],
-        schema: Dict[str, str] = None,
-    ) -> Tuple[Optional[int], Optional[LazyGroupByAgg], List[LazyOp], Dict[str, str]]:
-        """
-        Find the first operation that cannot be pushed to SQL.
-
-        Also detects GroupByAgg and LazyWhere/LazyMask that can be pushed to SQL.
-
-        Args:
-            ops: List of lazy operations
-            has_sql_source: Whether there's a SQL-compatible data source
-            where_columns: Column names in WHERE conditions (for conflict detection)
-            schema: Optional dict mapping column names to types (for type-aware SQL pushdown)
-
-        Returns:
-            Tuple of (first_df_op_idx, groupby_agg_op, where_ops, alias_renames)
-        """
-        first_df_op_idx = None
-        groupby_agg_op = None
-        where_ops = []  # LazyWhere/LazyMask that can be pushed to SQL
-        alias_renames = {}  # temp_alias -> original_alias for conflict resolution
-        pending_computed_columns = set()  # Track columns added by LazyColumnAssignment
-
-        for i, op in enumerate(ops):
-            if isinstance(op, LazyRelationalOp):
-                # Relational ops can be pushed to SQL
-                continue
-
-            elif isinstance(op, LazyColumnAssignment):
-                # Check if this column assignment can be pushed to SQL
-                if has_sql_source and op.can_push_to_sql():
-                    # Track this as a pending computed column for subsequent ops
-                    pending_computed_columns.add(op.column)
-                    self._logger.debug(
-                        "  [ColumnAssignment] Can push to SQL: %s", op.column
-                    )
-                    continue  # Include in SQL, continue looking
-                else:
-                    # Cannot push to SQL - this operation breaks the SQL chain
-                    self._logger.debug(
-                        "  [ColumnAssignment] Cannot push to SQL: %s", op.column
-                    )
-                    first_df_op_idx = i
-                    break
-
-            elif isinstance(op, LazyGroupByAgg) and groupby_agg_op is None:
-                # Check if GroupByAgg can be pushed to SQL
-                can_push = has_sql_source
-
-                # Special case: first() and last() aggregations cannot be pushed to SQL
-                # when preceded by ORDER BY operations, because SQL's GROUP BY executes
-                # before ORDER BY, making the sort order meaningless for SQL aggregation.
-                # In pandas, sort_values().groupby().first() returns the first row per
-                # group based on the sort order, but SQL's any()/argMax() doesn't respect this.
-                if can_push and op.agg_func in ("first", "last"):
-                    has_preceding_orderby = any(
-                        isinstance(prev_op, LazyRelationalOp)
-                        and prev_op.op_type == "ORDER BY"
-                        for prev_op in ops[:i]
-                    )
-                    if has_preceding_orderby:
-                        can_push = False
-                        self._logger.debug(
-                            "  [GroupBy] %s() cannot be pushed to SQL after ORDER BY",
-                            op.agg_func,
-                        )
-
-                if can_push and op.agg_dict:
-                    # Check for alias conflict with WHERE columns
-                    # ClickHouse has a quirk: if SELECT has `agg(col) AS col` where `col` is
-                    # also referenced in WHERE, ClickHouse will incorrectly try to use the
-                    # aggregate function in the WHERE clause, causing ILLEGAL_AGGREGATION error.
-                    # Example that fails:
-                    #   SELECT category, sum(int_col) AS int_col FROM t WHERE int_col > 200 GROUP BY category
-                    #
-                    # OPTIMIZATION: Instead of falling back to pandas, we use temporary aliases
-                    # for conflicting columns and rename them back after SQL execution.
-                    agg_aliases = self._get_agg_aliases(op, schema)
-                    conflict_aliases = agg_aliases & where_columns
-                    if conflict_aliases:
-                        # Record the aliases that need renaming
-                        for alias in conflict_aliases:
-                            temp_alias = f"__agg_{alias}__"
-                            alias_renames[temp_alias] = alias
-                        self._logger.debug(
-                            "  [GroupBy] Using temp aliases for conflict resolution: %s",
-                            alias_renames,
-                        )
-
-                if can_push:
-                    groupby_agg_op = op
-                    continue  # Include in SQL, continue looking
-                else:
-                    # Cannot push to SQL - this operation breaks the SQL chain
-                    first_df_op_idx = i
-                    break
-
-            elif isinstance(op, LazyApply) and groupby_agg_op is None:
-                # Check if LazyApply can be pushed to SQL
-                # LazyApply with simple aggregation pattern can be converted to GroupByAgg
-                if has_sql_source and op.can_push_to_sql():
-                    # Convert LazyApply to LazyGroupByAgg for SQL execution
-                    agg_func = op.get_detected_agg_func()
-                    groupby_agg_op = LazyGroupByAgg(
-                        groupby_cols=op.groupby_cols,
-                        agg_func=agg_func,
-                        sort=True,  # Default pandas behavior
-                        as_index=True,
-                        dropna=True,
-                    )
-                    self._logger.debug(
-                        "  [Apply] Converted to GroupByAgg: %s -> %s",
-                        op.describe(),
-                        agg_func,
-                    )
-                    continue  # Include in SQL, continue looking
-                else:
-                    # Cannot push to SQL - breaks the chain
-                    self._logger.debug(
-                        "  [Apply] Cannot push to SQL: %s", op.describe()
-                    )
-                    first_df_op_idx = i
-                    break
-
-            elif isinstance(op, (LazyWhere, LazyMask)):
-                # Check if LazyWhere/LazyMask can be pushed to SQL
-                # Pass schema and pending computed columns for type-aware checking
-                if has_sql_source and op.can_push_to_sql(
-                    schema, pending_computed_columns
-                ):
-                    where_ops.append(op)
-                    self._logger.debug("  [Where/Mask] Can push to SQL: CASE WHEN")
-                    continue  # Include in SQL, continue looking
-                else:
-                    # Cannot push to SQL - breaks the chain
-                    # (either function_config or type incompatibility)
-                    self._logger.debug(
-                        "  [Where/Mask] Falling back to Pandas (type incompatibility or config)"
-                    )
-                    first_df_op_idx = i
-                    break
-
-            elif isinstance(op, LazySQLQuery):
-                # LazySQLQuery is a SQL operation but executes via Python() table function
-                # It cannot be pushed further, so it marks a boundary
-                first_df_op_idx = i
-                break
-
-            # Any other operation (LazyGroupByFilter, etc.) breaks the SQL chain
-            first_df_op_idx = i
-            break
-
-        return first_df_op_idx, groupby_agg_op, where_ops, alias_renames
 
     def _get_agg_aliases(
         self, op: LazyGroupByAgg, schema: Dict[str, str] = None
@@ -498,6 +349,14 @@ class QueryPlanner:
         - OFFSET follows LIMIT (pandas: chained slices like [10:50][5:20])
         - LIMIT follows LIMIT (pandas: chained limits like [:50][:20])
         - WHERE follows computed column that came after LIMIT (dependency)
+        - LazyGroupByAgg follows LIMIT/OFFSET (pandas: ``head(N).groupby()``
+          aggregates over the first N rows; emitting LIMIT in the same SQL
+          layer as GROUP BY would otherwise mean "first N groups" instead).
+        - A pure-projection SELECT (e.g. ``df[['a','b']]``) follows a
+          WHERE in the same layer and the WHERE references columns that
+          would be dropped by the projection. This split keeps the
+          WHERE's columns alive in the inner subquery before the outer
+          layer projects them away.
 
         This preserves pandas-like execution order semantics in SQL.
 
@@ -513,6 +372,68 @@ class QueryPlanner:
         seen_offset = False  # Have we seen an OFFSET in current layer?
         pending_column_assignments = []  # Column assignments after LIMIT/OFFSET
         computed_columns_after_limit = set()  # Computed columns added after LIMIT
+
+        def _is_pure_projection_select(op):
+            """Pure projection SELECT = ``SELECT col1, col2, ...`` with no
+            ``*`` marker (pandas ``df[[cols]]``). Assignment-style SELECTs
+            (``df.assign(c=...)``) carry a ``*`` and stay in the same
+            layer so the assignments survive."""
+            return (
+                isinstance(op, LazyRelationalOp)
+                and op.op_type == "SELECT"
+                and op.fields
+                and not any(isinstance(f, str) and f == "*" for f in op.fields)
+            )
+
+        def _projection_field_names(op):
+            names = set()
+            for f in op.fields or []:
+                name = None
+                if isinstance(f, str):
+                    name = f
+                elif hasattr(f, "name"):
+                    name = getattr(f, "name", None)
+                if isinstance(name, str):
+                    names.add(name.strip('"`'))
+            return names
+
+        def _where_refs_columns_not_in(op_set, layer):
+            """Does any WHERE in ``layer`` reference a column outside
+            ``op_set`` (e.g. one created by an assignment-style
+            SELECT/LazyColumnAssignment in the same layer)? If yes, the
+            outer projection would drop that column before the WHERE
+            could bind to it, so we must split into a new layer that
+            wraps the inner WHERE."""
+            wheres = [
+                prev
+                for prev in layer
+                if isinstance(prev, LazyRelationalOp)
+                and prev.op_type == "WHERE"
+                and prev.condition is not None
+            ]
+            if not wheres:
+                return False
+            for w in wheres:
+                refs = self._extract_referenced_columns(w.condition)
+                if refs - op_set:
+                    return True
+            return False
+
+        def _start_new_layer_with(op):
+            """Push current_layer, drop any pending assignments into it
+            first, then begin a fresh layer containing ``op``."""
+            nonlocal current_layer, seen_limit, seen_offset
+            nonlocal computed_columns_after_limit, pending_column_assignments
+            if pending_column_assignments:
+                current_layer.extend(pending_column_assignments)
+                pending_column_assignments = []
+            layers.append(current_layer)
+            current_layer = [op]
+            seen_limit = isinstance(op, LazyRelationalOp) and op.op_type == "LIMIT"
+            seen_offset = (
+                isinstance(op, LazyRelationalOp) and op.op_type == "OFFSET"
+            )
+            computed_columns_after_limit = set()
 
         for op in ops:
             if isinstance(op, LazyRelationalOp):
@@ -532,19 +453,17 @@ class QueryPlanner:
                     # Second LIMIT means chained limits like [:50][:20]
                     # The second limit operates on the result of the first
                     needs_new_layer = True
+                elif _is_pure_projection_select(op):
+                    proj_fields = _projection_field_names(op)
+                    if _where_refs_columns_not_in(proj_fields, current_layer):
+                        # Pure projection that drops a column the layer's
+                        # WHERE depends on (e.g. ``assign(x=...)[where x>0][[id]]``).
+                        # Split into a new layer so the outer SELECT
+                        # projects after the inner WHERE has run.
+                        needs_new_layer = True
 
                 if needs_new_layer and current_layer:
-                    # Before starting new layer, add any pending column assignments
-                    # to ensure they're computed before WHERE/ORDER BY
-                    if pending_column_assignments:
-                        current_layer.extend(pending_column_assignments)
-                        pending_column_assignments = []
-
-                    layers.append(current_layer)
-                    current_layer = [op]
-                    seen_limit = op.op_type == "LIMIT"
-                    seen_offset = op.op_type == "OFFSET"
-                    computed_columns_after_limit = set()  # Reset for new layer
+                    _start_new_layer_with(op)
                 else:
                     # Add pending column assignments to current layer first
                     if pending_column_assignments:
@@ -567,6 +486,29 @@ class QueryPlanner:
                 else:
                     # No LIMIT/OFFSET yet, add directly to current layer
                     current_layer.append(op)
+            elif isinstance(op, LazyGroupByAgg) and (seen_limit or seen_offset):
+                # ``head(N).groupby(...).agg(...)`` semantics: pandas
+                # aggregates over the first N rows. If LIMIT and GROUP BY
+                # live in the same SQL layer we end up emitting
+                # ``... GROUP BY ... LIMIT N``, which limits the number of
+                # GROUPS instead of the number of input rows. Split into a
+                # new layer so the LIMIT applies to the inner subquery
+                # (i.e. ``SELECT ... FROM (SELECT ... LIMIT N) GROUP BY``).
+                _start_new_layer_with(op)
+            elif isinstance(op, LazyGroupByAgg) and any(
+                isinstance(prev, (LazyWhere, LazyMask)) for prev in current_layer
+            ):
+                # ``mask(cond, other).groupby(...).agg(...)`` (or ``where``)
+                # semantics: the mask must run BEFORE the GROUP BY so the
+                # aggregation sees masked values. In the same SQL layer,
+                # the wrapper-layer CASE-WHEN temp-alias machinery
+                # (``__tmp_<col>__``) collides with the agg's own select
+                # list (the inner SELECT only emits aggregations, not
+                # ``__tmp_*__``). Split into a new layer so the mask runs
+                # in the inner subquery and the GROUP BY runs on the
+                # masked output:
+                # ``SELECT ... agg() FROM (SELECT CASE WHEN ...) GROUP BY``.
+                _start_new_layer_with(op)
             else:
                 # Other operations - add pending column assignments first, then this op
                 if pending_column_assignments:
@@ -655,6 +597,7 @@ class QueryPlanner:
         lazy_ops: List[LazyOp],
         has_sql_source: bool,
         schema: Dict[str, str] = None,
+        local_source: bool = False,
     ) -> ExecutionPlan:
         """
         Analyze LazyOp chain and produce a segmented execution plan.
@@ -747,7 +690,11 @@ class QueryPlanner:
             preceding_ops = lazy_ops[:op_idx] if op_idx >= 0 else []
             following_ops = lazy_ops[op_idx + 1 :] if op_idx >= 0 else []
             if self._can_push_op_to_sql(
-                op, effective_schema, preceding_ops, following_ops
+                op,
+                effective_schema,
+                preceding_ops,
+                following_ops,
+                local_source=local_source,
             ):
                 op_types.append(("sql", op))
             else:
@@ -833,6 +780,7 @@ class QueryPlanner:
         schema: Dict[str, str] = None,
         preceding_ops: List[LazyOp] = None,
         following_ops: List[LazyOp] = None,
+        local_source: bool = False,
     ) -> bool:
         """
         Check if a single operation can be pushed to SQL.
@@ -842,6 +790,9 @@ class QueryPlanner:
             schema: Column schema for type-aware checking
             preceding_ops: List of operations that come before this one (for context-aware decisions)
             following_ops: List of operations that come after this one (for ORDER BY cost awareness)
+            local_source: True when the SQL source is an in-process PythonTableFunction
+                (from_df). For local sources there is no network/serialization cost,
+                so unbounded ORDER BY can be pushed down profitably.
 
         Returns:
             True if the operation can be executed via SQL
@@ -867,6 +818,11 @@ class QueryPlanner:
                 # remote servers to sort the entire dataset before returning results,
                 # which is very expensive for large remote tables.
                 # When no LIMIT follows, the sort happens in pandas after data fetch.
+                #
+                # Exception: in-process PythonTableFunction sources (from_df) have
+                # no network/serialization cost, and chDB's parallel ORDER BY is
+                # consistently faster than pandas single-threaded sort_values on
+                # large frames, so unbounded ORDER BY is pushed down for them.
                 following = following_ops or []
 
                 # Check if ORDER BY precedes a GROUP BY with non-order-sensitive
@@ -895,11 +851,17 @@ class QueryPlanner:
                     isinstance(f_op, LazyRelationalOp) and f_op.op_type == "LIMIT"
                     for f_op in following
                 )
-                if not has_limit:
+                if has_limit:
+                    return True
+                if local_source:
                     self._logger.debug(
-                        "  [ORDER BY] Skipping push to SQL: no LIMIT follows (unbounded sort)"
+                        "  [ORDER BY] Pushing to SQL: local PythonTableFunction source"
                     )
-                return has_limit
+                    return True
+                self._logger.debug(
+                    "  [ORDER BY] Skipping push to SQL: no LIMIT follows (unbounded sort)"
+                )
+                return False
 
             return True
 
@@ -1043,16 +1005,61 @@ class QueryPlanner:
                     elif isinstance(op, (LazyWhere, LazyMask)):
                         plan.where_ops.append(op)
 
-                # Remove special ops from sql_ops (they're handled separately)
+                # Build layers from the FULL op list. We keep LazyGroupByAgg,
+                # LazyWhere, LazyMask, and pushable LazyApply IN the layer
+                # contents so that the per-layer SQL builder
+                # (``_build_layer_sql``) can dispatch by op type and naturally
+                # emit GROUP BY / CASE WHEN / etc. in the correct subquery
+                # layer.
+                #
+                # When LazyApply is converted to a synthetic LazyGroupByAgg
+                # (see above) the layer is patched to use the synthetic op
+                # rather than the original LazyApply so SQL building sees a
+                # uniform representation.
+                raw_layers = self._build_layers(plan.sql_ops)
+
+                synthetic_groupby_agg = (
+                    plan.groupby_agg
+                    if any(
+                        isinstance(op, LazyApply) and op.can_push_to_sql()
+                        for op in plan.sql_ops
+                    )
+                    else None
+                )
+                if synthetic_groupby_agg is not None:
+                    # Replace the originating LazyApply in layers with the
+                    # synthesized LazyGroupByAgg so the layer ops list contains
+                    # the canonical operation to dispatch on.
+                    patched_layers = []
+                    replaced = False
+                    for layer_ops in raw_layers:
+                        new_layer = []
+                        for op in layer_ops:
+                            if (
+                                not replaced
+                                and isinstance(op, LazyApply)
+                                and op.can_push_to_sql()
+                            ):
+                                new_layer.append(synthetic_groupby_agg)
+                                replaced = True
+                            else:
+                                new_layer.append(op)
+                        patched_layers.append(new_layer)
+                    raw_layers = patched_layers
+
+                plan.layers = raw_layers
+
+                # ``plan.sql_ops`` still excludes the special ops because some
+                # legacy paths (e.g. ``_build_sql_with_builder``,
+                # ``_check_limit_before_where``) iterate plan.sql_ops without
+                # the dispatch logic. Keeping that contract avoids touching
+                # those paths in this phase.
                 plan.sql_ops = [
                     op
                     for op in plan.sql_ops
                     if not isinstance(op, (LazyGroupByAgg, LazyWhere, LazyMask))
                     and not (isinstance(op, LazyApply) and op.can_push_to_sql())
                 ]
-
-                # Build layers for nested subqueries
-                plan.layers = self._build_layers(plan.sql_ops)
 
                 segment.plan = plan
 

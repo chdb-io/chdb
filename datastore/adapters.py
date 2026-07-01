@@ -106,10 +106,19 @@ class SourceAdapter(ABC):
         pass
     
     def _escape_sql_string(self, value: str) -> str:
-        """Escape single quotes in SQL string values."""
+        """Escape a value for embedding inside a ClickHouse single-quoted
+        string literal.
+
+        Every adapter's SQL — ``remote()``, ``mysql()``, ``postgresql()``,
+        ``mongodb()`` table functions — is executed by chDB's ClickHouse
+        engine, where both the single quote AND the backslash are special
+        inside ``'...'``. Escape backslashes first, then double single quotes,
+        so a host / user / password / database / table containing either can't
+        alter the literal's parsing or inject SQL.
+        """
         if value is None:
             return ''
-        return value.replace("'", "''")
+        return value.replace("\\", "\\\\").replace("'", "''")
 
 
 class ClickHouseAdapter(SourceAdapter):
@@ -127,7 +136,7 @@ class ClickHouseAdapter(SourceAdapter):
     
     def get_table_function_name(self) -> str:
         return 'remoteSecure' if self.secure else 'remote'
-    
+
     def list_databases_sql(self) -> str:
         func = self.get_table_function_name()
         host = self._escape_sql_string(self.host)

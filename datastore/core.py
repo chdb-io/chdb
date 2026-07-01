@@ -4,6 +4,7 @@ Core DataStore class - main entry point for data operations
 
 import math
 import time
+from contextlib import contextmanager
 from datetime import datetime, date
 import pandas as pd
 import numpy as np
@@ -34,7 +35,7 @@ from .exceptions import (
 )
 from .connection import Connection, QueryResult
 from .executor import Executor
-from .table_functions import create_table_function, TableFunction
+from .table_functions import create_table_function, PythonTableFunction, TableFunction
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
 from .lazy_ops import LazyOp, LazyRelationalOp
@@ -61,6 +62,11 @@ __all__ = ["DataStore"]
 
 # Sentinel value to distinguish "no argument passed" from "None passed explicitly"
 _MISSING = object()
+
+# Source types that map to a ClickHouse connection (see ADAPTER_MAP in
+# adapters.py, where 'remote'/'remotesecure' both resolve to ClickHouseAdapter).
+# Compare against source_type.lower() since it is stored as given.
+_CLICKHOUSE_SOURCE_TYPES = frozenset({"clickhouse", "remote", "remotesecure"})
 
 
 class DataStore(PandasCompatMixin):
@@ -447,7 +453,7 @@ class DataStore(PandasCompatMixin):
             "postgresql",
             "postgres",
         ]
-        clickhouse_sources = {"clickhouse", "remote", "remotesecure"}
+        clickhouse_sources = _CLICKHOUSE_SOURCE_TYPES
         if source and source.lower() in remote_db_sources:
             # Merge port into host if provided separately
             host_val = kwargs.get("host", "")
@@ -744,8 +750,14 @@ class DataStore(PandasCompatMixin):
                 self._table_function or self.table_name or self._source_df is not None
             )
             schema = self.schema() if has_sql_source else self._schema
+            local_source = self._source_df is not None or isinstance(
+                self._table_function, PythonTableFunction
+            )
             exec_plan = planner.plan_segments(
-                self._lazy_ops, has_sql_source, schema=schema
+                self._lazy_ops,
+                has_sql_source,
+                schema=schema,
+                local_source=local_source,
             )
 
             lines.append("\nOperations:")
@@ -1165,6 +1177,7 @@ class DataStore(PandasCompatMixin):
     def _is_pristine_sql_source(self) -> bool:
         """Check if this is a raw SQL/file source with no operations."""
         return (not self._lazy_ops
+                and not self._joins
                 and (self._table_function is not None or self.table_name is not None))
 
     def _probe_dtypes_from_sql_source(self) -> "pd.Series":
@@ -1254,8 +1267,14 @@ class DataStore(PandasCompatMixin):
                     or self._source_df is not None
                 )
                 schema = self.schema() if has_sql_source else self._schema
+                local_source = self._source_df is not None or isinstance(
+                    self._table_function, PythonTableFunction
+                )
                 exec_plan = planner.plan_segments(
-                    self._lazy_ops, has_sql_source, schema=schema
+                    self._lazy_ops,
+                    has_sql_source,
+                    schema=schema,
+                    local_source=local_source,
                 )
 
                 self._logger.debug(exec_plan.describe())
@@ -1323,10 +1342,30 @@ class DataStore(PandasCompatMixin):
                         self._distinct = False
                         self._distinct_subset = None
 
+                        # Update _source_df to the execution result so the old
+                        # source DataFrame can be garbage collected. This points
+                        # to the same object as _cached_result (no extra memory).
+                        self._source_df = df
+
                         self._logger.debug(
                             "Pipeline checkpointed: lazy_ops replaced with DataFrame source"
                         )
                     else:
+                        # Pure SQL execution with a DataFrame source (via
+                        # PythonTableFunction): checkpoint to release the old
+                        # source DataFrame. After execution, the computed
+                        # columns are materialized in df, so the old
+                        # expressions and PythonTableFunction are no longer
+                        # needed.
+                        if self._source_df is not None:
+                            from .lazy_ops import LazyDataFrameSource
+
+                            self._source_df = df
+                            self._table_function = None
+                            self._lazy_ops = [LazyDataFrameSource(df)]
+                            self._select_fields = []
+                            self._computed_columns = {}
+
                         self._logger.debug("Pure SQL execution: SQL state preserved")
 
                     self._cache_version = 0
@@ -1431,8 +1470,14 @@ class DataStore(PandasCompatMixin):
                         settings_parts.append(f"{key}={value}")
                 sql = f"{sql} SETTINGS {', '.join(settings_parts)}"
 
+            # Use a generous truncation limit so debug logs preserve the
+            # full SQL of typical multi-clause queries (was 200 chars, which
+            # truncated mid-clause for remote ``GROUP BY`` queries with
+            # ``dropna`` IS NOT NULL filters - breaking log-based
+            # assertions in ``tests/test_remote_lazy_chain_pushdown.py``).
             self._logger.debug(
-                "  Executing SQL: %s", sql[:200] + "..." if len(sql) > 200 else sql
+                "  Executing SQL: %s",
+                sql[:2000] + "..." if len(sql) > 2000 else sql,
             )
 
             # For PythonTableFunction, use query_df to ensure row order preservation
@@ -1755,14 +1800,38 @@ class DataStore(PandasCompatMixin):
 
         from .query_planner import QueryPlanner
 
-        # Use QueryPlanner to analyze lazy operations (same logic as _execute)
+        # Use QueryPlanner segmented planning (same as _execute). This
+        # method models "the SQL ``_execute()`` would issue against the
+        # original source" - i.e. the FIRST step the executor runs.
+        # Cases:
+        # - First segment is SQL: return that segment's SQL.
+        # - First segment is Pandas (cost-aware planner, e.g. ORDER BY
+        #   without LIMIT): the executor first materializes data via a
+        #   plain ``SELECT * FROM source``, so return that. Returning a
+        #   later SQL-on-DataFrame segment would be misleading - its
+        #   FROM is ``Python(__df__)``, not the original source.
+        # - No segments / single Pandas-only segment: same fallback.
         planner = QueryPlanner()
         schema = self._schema or {}
-        plan = planner.plan(self._lazy_ops, has_sql_source=True, schema=schema)
+        local_source = self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        )
+        exec_plan = planner.plan_segments(
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=schema,
+            local_source=local_source,
+        )
+        first_segment = exec_plan.segments[0] if exec_plan.segments else None
+        if (
+            first_segment is None
+            or not first_segment.is_sql()
+            or first_segment.plan is None
+        ):
+            return self._generate_select_sql(self.quote_char)
 
-        # Use SQLExecutionEngine to build SQL from plan
         sql_engine = SQLExecutionEngine(self)
-        result = sql_engine.build_sql_from_plan(plan, schema)
+        result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
         return result.sql
 
     def _get_table_source(self) -> str:
@@ -3845,7 +3914,12 @@ class DataStore(PandasCompatMixin):
         src = self._get_source_df_if_pristine()
         if src is not None:
             return src.shape
-        if self._is_pristine_sql_source():
+        # SQL-pushdownable pipeline: rows via COUNT(*), columns via .columns
+        # (itself probe-or-execute). Both self-correct, so this is valid for any
+        # pushdownable pipeline -- a bare filter resolves with no materialization;
+        # a column-altering op (projection/rename/...) makes .columns execute,
+        # which is still correct. See chdb-lazy-metadata-optimizations.md.
+        if self._can_sql_pushdown() and self._cached_result is None:
             return (self.count_rows(), len(self.columns))
         return self._get_df().shape
 
@@ -3873,6 +3947,53 @@ class DataStore(PandasCompatMixin):
             schema = self.schema()
             if schema:
                 return pd.Index(schema.keys())
+        # When we have computed columns from assign() on a SQL source with no
+        # column-reducing ops (selections/filters), derive column names from
+        # schema + computed columns without materialization.
+        # Skip when there are column-reducing lazy ops (e.g., df[['a','b']])
+        # since _get_all_column_names() returns source columns, not selected ones.
+        if (
+            self._computed_columns
+            and (self._table_function is not None or self.table_name is not None)
+            and not self._joins
+            and self._can_sql_pushdown()
+            and self._cached_result is None
+            and self._source_df is None
+        ):
+            try:
+                base_cols = list(self._get_all_column_names())
+                computed_cols = [
+                    c for c in self._computed_columns if c not in base_cols
+                ]
+                return pd.Index(base_cols + computed_cols)
+            except Exception:
+                pass
+        # SQL-pushdownable pipeline: probe the output schema with LIMIT 0 instead
+        # of materializing the full result. The probe reflects to_sql() (source +
+        # filters / ORDER BY / LIMIT). Column-altering lazy ops (select / rename /
+        # drop / assign) are applied post-SQL and are NOT in the probe SQL, so we
+        # only trust the probe when the lazy ops don't change the column set
+        # (transform_columns is the identity); otherwise we fall through to
+        # execution for correctness.
+        #
+        # Remote sources are excluded: _probe_schema() wraps the pipeline in a
+        # nested subquery (SELECT * FROM (...) LIMIT 0), which chDB HANGS on for
+        # remote() sources -- the same reason count_rows()/count() avoid nested
+        # subqueries for remote. Filtered-remote metadata falls back to execution.
+        if (
+            self._can_sql_pushdown()
+            and self._cached_result is None
+            and not self._is_remote_source()
+        ):
+            try:
+                probe_cols = list(self._probe_schema().columns)
+                cols = probe_cols
+                for op in (self._lazy_ops or []):
+                    cols = op.transform_columns(cols)
+                if cols == probe_cols:
+                    return pd.Index(probe_cols)
+            except Exception:
+                pass
         return self._get_df().columns
 
     @columns.setter
@@ -3936,17 +4057,23 @@ class DataStore(PandasCompatMixin):
         count_base._offset_value = None
         return count_base.to_sql()
 
-    def _probe_schema(self) -> pd.DataFrame:
-        """Return an empty DataFrame with correct columns and dtypes.
+    def _probe_schema(self, limit: int = 0) -> pd.DataFrame:
+        """Return a (near-)empty DataFrame with the pipeline's columns and dtypes.
 
-        Executes ``SELECT * FROM (subquery) LIMIT 0`` -- lightweight because
-        no rows are transferred. Used by aggregate helpers (nunique,
-        value_counts, describe, memory_usage) to discover column metadata.
+        Executes ``SELECT * FROM (subquery) LIMIT {limit}`` -- lightweight because
+        at most ``limit`` rows are transferred.
+
+        ``limit=0`` transfers no rows and is enough to discover column NAMES
+        (used by .columns and the aggregate helpers nunique / value_counts /
+        describe / memory_usage). ``limit=1`` transfers a single row, which chDB
+        needs to materialize string columns as their real pandas dtype -- an
+        empty (LIMIT 0) result degrades string columns to ``object`` -- so the
+        ``.dtypes`` path uses ``limit=1``.
         """
         if self._executor is None:
             self.connect()
         subquery_sql = self.to_sql()
-        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT 0"
+        probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT {int(limit)}"
         return self._executor.execute(probe_sql).to_df()
 
     def count(self):
@@ -4130,9 +4257,13 @@ class DataStore(PandasCompatMixin):
             )
             return len(self._execute())
 
-        # If LIMIT is applied, execute with LIMIT and return actual count
-        if self._limit_value is not None:
-            self._logger.debug("count_rows() executing due to LIMIT")
+        # If LIMIT or OFFSET is applied, execute and return the actual count.
+        # The flat and subquery COUNT paths below both drop LIMIT/OFFSET (see
+        # _build_count_subquery, which clears _limit_value/_offset_value), so an
+        # offset-only pipeline (e.g. ds[k:]) would over-count by the offset.
+        # Fall back to execution for a correct post-offset count.
+        if self._limit_value is not None or self._offset_value is not None:
+            self._logger.debug("count_rows() executing due to LIMIT/OFFSET")
             return len(self._execute())
 
         # Ensure we're connected
@@ -4611,6 +4742,1255 @@ class DataStore(PandasCompatMixin):
         """
         self._delete_flag = True
 
+    # ========== Writeback Methods ==========
+
+    def _run_chdb_query(self, sql: str, output_format: str = "DataFrame", df=None):
+        """
+        Run a one-shot chdb query, reusing the persistent chdb Connection if
+        this DataStore has already established one (avoids the connect/close
+        overhead chdb.query() incurs on every call).
+
+        Falls back to chdb.query() when no Connection exists, to avoid
+        triggering Connection.connect() (which would freeze global
+        chdb_settings) just for a single remote DDL/metadata query.
+
+        Returns the same object types as chdb.query() — for DataFrame format
+        a pandas DataFrame, otherwise a chdb result object.
+
+        Args:
+            df: DataFrame referenced by a ``Python(df)`` table function in
+                ``sql``. chDB resolves ``Python(df)`` by scanning the calling
+                stack for a local named ``df``; accepting it here binds it in
+                the very frame that calls ``query()`` so resolution is explicit
+                and robust, rather than relying on ``df`` living several frames
+                up the call chain (mirrors connection.py ``_execute_df_query``).
+                Leave ``None`` when ``sql`` doesn't reference ``Python(df)``.
+        """
+        # `df` is deliberately a local of this frame: chDB's Python(df) table
+        # function looks it up here, where query() is actually invoked.
+        conn_obj = getattr(self._connection, "_conn", None) if self._connection else None
+        if conn_obj is not None:
+            return conn_obj.query(sql, output_format)
+        import chdb
+
+        return chdb.query(sql, output_format)
+
+    def _execute_remote_ddl(self, sql: str) -> str:
+        """
+        Execute DDL/DML on the remote ClickHouse server via remote(query=...).
+
+        Uses chdb's remote() table function with the query= parameter to send
+        arbitrary SQL (including DDL) over the native TCP protocol.
+
+        Args:
+            sql: SQL statement to execute on the remote server
+
+        Returns:
+            Execution status from the server
+
+        Raises:
+            ExecutionError: If the DDL execution fails
+        """
+        self._require_connection_params()
+
+        # Take host/user/password from the adapter (not raw _remote_params) so
+        # ClickHouse-Cloud / port / secure normalization is applied consistently
+        # with the rest of this file (e.g. _check_remote_table_exists). The
+        # adapter's ClickHouse escaper escapes each interpolated value for safe
+        # embedding inside a single-quoted literal (doubles ' and escapes \) —
+        # the surrounding quotes are added below — so neither a quote nor a
+        # backslash, in a connection param or in the embedded query, can break
+        # out of its literal or inject SQL.
+        adapter = self._get_adapter()
+        esc = adapter._escape_sql_string
+        func = adapter.get_table_function_name()
+        host = esc(adapter.host)
+        user = esc(adapter.user)
+        password = esc(adapter.password)
+        escaped_sql = esc(sql)
+
+        remote_sql = (
+            f"SELECT * FROM {func}('{host}', "
+            f"query = '{escaped_sql}', "
+            f"'{user}', '{password}')"
+        )
+
+        import chdb
+
+        try:
+            result = self._run_chdb_query(remote_sql, "TabSeparated")
+            if hasattr(result, "has_error") and result.has_error():
+                raise ExecutionError(
+                    f"Remote DDL execution failed:\n{result.error_message()}\nSQL: {sql}"
+                )
+            return result.bytes().decode("utf-8") if result else ""
+        except (RuntimeError, chdb.ChdbError) as e:
+            # Normalize both the module-level chdb.query() path (raises
+            # RuntimeError) and the persistent-connection path (raises
+            # chdb.ChdbError, which is NOT a RuntimeError subclass) into a
+            # consistent ExecutionError so callers / tests get one error type.
+            raise ExecutionError(
+                f"Remote DDL execution failed:\n{e}\nSQL: {sql}"
+            ) from e
+
+    def _get_remote_view_sql(self) -> str:
+        """
+        Generate SELECT SQL suitable for execution ON the remote server.
+
+        Replaces remote()/remoteSecure() table function calls with direct
+        database.table references for the primary table and all JOINed tables,
+        so the SQL can be used in VIEW/MV definitions or
+        CREATE TABLE ... AS SELECT on the remote server.
+
+        Returns:
+            SQL string with direct table references
+        """
+        q = self.quote_char
+        # Pick the SELECT form that reproduces _execute() for this pipeline
+        # (execution_format for lazy-op ordering / projections / LazyGroupByAgg,
+        # flat SQL for LazySQLQuery agg) — see _canonical_writeback_sql.
+        sql = self._canonical_writeback_sql()
+
+        def _fold(sql: str, tf, alias: str) -> str:
+            tf_sql = tf.to_sql(quote_char=q)
+            database = tf.params.get("database", "default")
+            table = tf.params.get("table")
+            direct_ref = (
+                f"{format_identifier(database, q)}.{format_identifier(table, q)}"
+            )
+            # Aliased form (flat SQL, and execution SQL when joins force an
+            # alias): "remote(...) AS alias" → "db.tbl" (alias redundant once
+            # folded to a real table reference).
+            sql = sql.replace(
+                f"{tf_sql} AS {format_identifier(alias, q)}", direct_ref
+            )
+            # Bare form: execution SQL renders the table function without an
+            # alias when there are no joins (and inside subqueries), so also
+            # fold any remaining bare "remote(...)" → "db.tbl".
+            sql = sql.replace(tf_sql, direct_ref)
+            return sql
+
+        if self._table_function:
+            sql = _fold(sql, self._table_function, self._get_table_alias())
+
+        for other_ds, _, _ in self._joins:
+            if isinstance(other_ds, DataStore) and other_ds._table_function:
+                sql = _fold(sql, other_ds._table_function, other_ds._get_table_alias())
+
+        return sql
+
+    def _build_view_select_sql(self) -> str:
+        """Build the SELECT body for a (materialized) VIEW definition.
+
+        A VIEW stores its SQL text on the target server, so the pipeline must
+        be entirely SQL-pushable — pandas-only ops (apply/UDF/local file/
+        Python(df)) cannot be persisted into a server-side definition.
+
+        SELECT form mirrors the writeback path:
+          - same_server (target == source server): fold ``remote(source,...)``
+            into direct ``db.tbl`` references so the view reads its source
+            tables locally on the same server.
+          - cross-server: keep ``remote(source,...)`` so each query against
+            the view pulls source data over the target server's own native
+            connection.
+        """
+        if not self._is_fully_sql_pushable():
+            raise QueryError(
+                "Cannot create VIEW: the pipeline contains pandas-only "
+                "operations (apply / UDF / local file / etc.) that cannot "
+                "be expressed as a server-side SQL definition. Materialize "
+                "the data first via to_clickhouse(), then create a view on "
+                "the resulting table."
+            )
+        target_host = self._remote_params["host"]
+        same_server = self._is_all_same_remote_server(target_host)
+        return self._writeback_select_sql(same_server)
+
+    def _uses_execution_format_for_writeback(self) -> bool:
+        """Whether the writeback SELECT should be generated with
+        ``execution_format=True``.
+
+        ``execution_format`` is normally what we want — it reproduces
+        ``_execute()``'s exact semantics: lazy-op ordering (e.g. ``head()``
+        before ``filter()`` → LIMIT before WHERE), column projections, and
+        ``LazyGroupByAgg`` (``groupby().sum()``), none of which the flat
+        ``_generate_select_sql()`` renders (it emits a bare
+        ``SELECT * FROM source``).
+
+        The one exception is a ``LazySQLQuery`` (produced by
+        ``groupby().agg(...)``): ``_build_execution_sql()`` cannot yet render it
+        and drops the aggregation, emitting a broken ``SELECT * ... GROUP BY``.
+        For those pipelines the aggregation is already materialized into
+        ``_select_fields`` / ``_groupby_fields``, so the flat SQL is correct —
+        fall back to it. (This is the limitation documented on
+        ``_is_fully_sql_pushable``.)
+        """
+        from .lazy_ops import LazySQLQuery
+        return not any(isinstance(op, LazySQLQuery) for op in self._lazy_ops)
+
+    def _canonical_writeback_sql(self) -> str:
+        """``remote(source, ...)``-form SELECT that reproduces ``_execute()``,
+        used as the cross-server writeback body, the base for
+        ``_get_remote_view_sql`` (same-server, before folding to ``db.tbl``),
+        and the ``DESCRIBE`` target for schema inference — so all writeback SQL
+        derives from one place and can't drift on lazy-op handling."""
+        return self.to_sql(execution_format=self._uses_execution_format_for_writeback())
+
+    def _writeback_select_sql(self, same_server: bool) -> str:
+        """The SELECT body used for every server-side writeback path
+        (``CREATE ... AS SELECT``, ``INSERT ... SELECT``, VIEW / MV
+        definitions). Centralized so the writeback callers can't drift apart
+        on which SQL form they emit.
+
+        - ``same_server``: fold ``remote(source, ...)`` into direct ``db.tbl``
+          references so the SELECT reads its source tables locally on the
+          target server.
+        - cross-server: keep ``remote(source, ...)`` so the target server
+          pulls source data over its own native connection.
+        """
+        return (
+            self._get_remote_view_sql()
+            if same_server
+            else self._canonical_writeback_sql()
+        )
+
+    def _parse_target_name(self, name: str) -> tuple:
+        """
+        Parse a target name into (database, table).
+
+        Supports "database.table" format. If no database is specified, falls
+        back to the source table function's database, then to the DataStore's
+        default database (set via ``from_clickhouse(..., database=...)`` or
+        ``use(...)``). Raises ``QueryError`` if none of those resolve a
+        database.
+
+        Args:
+            name: Target name, e.g. "mydb.mytable" or "mytable"
+
+        Returns:
+            (database, table) tuple
+
+        Raises:
+            QueryError: If ``name`` has no database and none can be inferred.
+        """
+        if "." in name:
+            parts = name.split(".", 1)
+            return parts[0], parts[1]
+        tf_params = self._table_function.params if self._table_function else {}
+        database = tf_params.get("database") or self._default_database
+        if not database:
+            raise QueryError(
+                f"Cannot resolve database for target '{name}'. "
+                f"Use 'database.table' format or ensure the DataStore "
+                f"has a default database configured."
+            )
+        return database, name
+
+    def _check_remote_table_exists(self, database: str, table: str) -> bool:
+        """
+        Check if a table exists on the remote ClickHouse server.
+
+        Uses a ``remote('host', 'system', 'tables', ...)`` lookup rather than
+        the native ``EXISTS TABLE`` statement, because chDB's
+        ``remote(query=...)`` table function is DDL-style — it returns a
+        per-replica status row (``<n>\\t<host>\\tOK``) regardless of what the
+        wrapped query selects, so ``EXISTS TABLE``'s actual ``0/1`` answer
+        is unreachable through that path.
+
+        Args:
+            database: Database name
+            table: Table name
+
+        Returns:
+            True if the table (or view, materialized view, dictionary) exists
+        """
+        adapter = self._get_adapter()
+        func = adapter.get_table_function_name()
+        host = adapter._escape_sql_string(adapter.host)
+        user = adapter._escape_sql_string(adapter.user)
+        password = adapter._escape_sql_string(adapter.password)
+        db = adapter._escape_sql_string(database)
+        tbl = adapter._escape_sql_string(table)
+
+        sql = (
+            f"SELECT count() AS cnt FROM "
+            f"{func}('{host}', 'system', 'tables', '{user}', '{password}') "
+            f"WHERE database = '{db}' AND name = '{tbl}'"
+        )
+        result = self._run_chdb_query(sql, "DataFrame")
+        return int(result.iloc[0, 0]) > 0
+
+    def _get_remote_table_schema(self, database: str, table: str) -> Dict[str, str]:
+        """
+        Get the schema of a remote table as {column_name: column_type}.
+
+        Args:
+            database: Database name
+            table: Table name
+
+        Returns:
+            Dict mapping column names to ClickHouse type strings
+        """
+        adapter = self._get_adapter()
+        func = adapter.get_table_function_name()
+        host = adapter._escape_sql_string(adapter.host)
+        user = adapter._escape_sql_string(adapter.user)
+        password = adapter._escape_sql_string(adapter.password)
+        db = adapter._escape_sql_string(database)
+        tbl = adapter._escape_sql_string(table)
+
+        sql = (
+            f"SELECT name, type FROM {func}('{host}', 'system', 'columns', "
+            f"'{user}', '{password}') "
+            f"WHERE database = '{db}' AND table = '{tbl}' ORDER BY position"
+        )
+
+        result = self._run_chdb_query(sql, "DataFrame")
+        return dict(zip(result["name"], result["type"]))
+
+    def _get_all_source_tables(self) -> set:
+        """
+        Recursively collect all (database, table) pairs this DataStore's SQL
+        pipeline depends on.
+
+        Includes the primary source table and any tables from SQL JOINs,
+        traversing nested JOINs (e.g., A JOIN (B JOIN C)) to capture all levels.
+        LazyJoin/LazyUnion tables (in _lazy_ops) are not collected here because
+        their data is read inside _execute().
+        """
+        tables: set = set()
+        if self._table_function:
+            db = self._table_function.params.get("database", "default")
+            tbl = self._table_function.params.get("table")
+            if tbl:
+                tables.add((db, tbl))
+        for other_ds, _, _ in self._joins:
+            if hasattr(other_ds, "_get_all_source_tables"):
+                tables.update(other_ds._get_all_source_tables())
+            elif hasattr(other_ds, "_table_function") and other_ds._table_function:
+                db = other_ds._table_function.params.get("database", "default")
+                tbl = other_ds._table_function.params.get("table")
+                if tbl:
+                    tables.add((db, tbl))
+        return tables
+
+    def _is_same_remote_table(self, database: str, table: str) -> bool:
+        """
+        Check if the target database.table overlaps with any of this DataStore's
+        source tables. Used to detect write-back-to-source scenarios.
+        """
+        return (database, table) in self._get_all_source_tables()
+
+    def _is_all_same_remote_server(self, target_host: str) -> bool:
+        """
+        Check if all source tables (primary + JOINs) reside on the same
+        remote ClickHouse server as the target.
+
+        When True + fully_sql, the entire pipeline can execute on the remote
+        server without any data passing through local chDB.
+        """
+        if not target_host:
+            return False
+
+        if not self._table_function:
+            return False
+        src_host = self._table_function.params.get("host", "")
+        if src_host != target_host:
+            return False
+
+        for other_ds, _, _ in self._joins:
+            if hasattr(other_ds, "_table_function") and other_ds._table_function:
+                join_host = other_ds._table_function.params.get("host", "")
+                if join_host != target_host:
+                    return False
+            else:
+                return False
+        return True
+
+    def _describe_query_schema(self, select_sql: str, df=None) -> Dict[str, str]:
+        """
+        Use DESCRIBE to get the exact ClickHouse types for a SELECT query.
+
+        Unlike LIMIT 0 which relies on the database to implicitly infer types
+        during CREATE TABLE ... AS SELECT, this uses DESCRIBE to get precise
+        column names, types, and nullability from the query compiler without
+        executing the query.
+
+        Args:
+            select_sql: A SELECT SQL string (may contain remote() table functions)
+            df: DataFrame to keep in scope when ``select_sql`` references a
+                ``Python(df)`` table function (passed through to
+                ``_run_chdb_query``); ``None`` for remote()-based SELECTs.
+
+        Returns:
+            OrderedDict mapping column names to ClickHouse type strings
+        """
+        from collections import OrderedDict
+
+        describe_sql = f"DESCRIBE ({select_sql})"
+        result = self._run_chdb_query(describe_sql, "DataFrame", df=df)
+        return OrderedDict(zip(result["name"], result["type"]))
+
+    def _is_fully_sql_pushable(self) -> bool:
+        """
+        Check if this DataStore's entire pipeline can be executed as a single
+        server-side SQL statement via INSERT INTO ... SELECT ... FROM remote().
+
+        Reuses QueryPlanner._can_push_op_to_sql() for classification, with
+        one exception: LazySQLQuery (generated by groupby().agg() etc.) is
+        treated as SQL-compatible here. Although plan_segments() classifies it
+        as a "pandas" segment (because it can't merge into a surrounding SQL
+        context), the query it contains IS valid SQL that can run server-side.
+
+        This exception exists because _execute()'s segment-based execution
+        currently cannot handle LazySQLQuery correctly when preceded by
+        SQL-state operations like WHERE + GROUP BY (it generates broken SQL
+        like SELECT * ... GROUP BY without aggregation). The server-side path
+        avoids this by using to_sql(execution_format=True) which delegates
+        to _build_execution_sql() for correct SQL generation.
+
+        Returns:
+            True if the pipeline can run as a single server-side SQL
+        """
+        if not (self._table_function or self.table_name):
+            return False
+
+        if not self._lazy_ops:
+            return True
+
+        from .lazy_ops import LazySQLQuery
+        from .query_planner import QueryPlanner
+
+        planner = QueryPlanner()
+        for i, op in enumerate(self._lazy_ops):
+            if isinstance(op, LazySQLQuery):
+                continue
+            preceding = self._lazy_ops[:i]
+            following = self._lazy_ops[i + 1:]
+            if not planner._can_push_op_to_sql(op, preceding_ops=preceding, following_ops=following):
+                return False
+
+        return True
+
+    def _materialize_for_writeback(
+        self,
+        index: bool,
+        index_label: Optional[Union[str, List[str]]],
+    ) -> "pd.DataFrame":
+        """``_execute()`` then index-normalize in one shot. Centralized so
+        every writeback caller treats the materialized DataFrame the same
+        way (and the ``Optional[DataFrame]`` from ``_execute`` is unwrapped
+        in exactly one place)."""
+        df = self._execute()
+        if df is None:
+            # Not an assert: must hold under `python -O` too, where asserts
+            # are stripped and this would otherwise surface as a cryptic
+            # AttributeError deeper in the writeback path.
+            raise ExecutionError(
+                "_execute() returned no data during writeback materialization"
+            )
+        return self._normalize_index_for_insert(df, index, index_label)
+
+    def _normalize_index_for_insert(
+        self,
+        df: "pd.DataFrame",
+        index: bool,
+        index_label: Optional[Union[str, List[str]]],
+    ) -> "pd.DataFrame":
+        """Apply ``index`` / ``index_label`` semantics to ``df`` once, so the
+        same flattened DataFrame can drive schema inference (``DESCRIBE
+        Python(df)`` in ``_create_target_table`` / ``_apply_schema_evolution``)
+        and the actual ``INSERT ... FROM Python(df)`` later. If we only did
+        this in ``_insert_dataframe_to_remote``, CREATE TABLE would see N
+        columns and the INSERT would push N+1 → ``NUMBER_OF_COLUMNS_DOESNT_MATCH``.
+
+        - ``index=False`` (default): drop the index entirely; mirrors the
+          ``index=False`` behavior of ``DataFrame.to_sql`` / ``to_csv``.
+        - ``index=True``: surface index levels as regular columns. Names
+          follow pandas' own ``reset_index()`` defaults (``"index"`` for an
+          unnamed single Index, ``"level_0"`` / ``"level_1"`` / ... for an
+          unnamed MultiIndex), so ``index_label`` can rename them.
+        """
+        if index:
+            is_multi = isinstance(df.index, pd.MultiIndex)
+            original_index_names = (
+                list(df.index.names) if is_multi else [df.index.name]
+            )
+            df = df.reset_index()
+            if index_label is not None:
+                labels = (
+                    [index_label] if isinstance(index_label, str)
+                    else list(index_label)
+                )
+                # Match pandas' to_sql: index_label must name every index
+                # level. zip() would otherwise silently truncate, leaving the
+                # index columns partially renamed with no error.
+                if len(labels) != len(original_index_names):
+                    raise ValueError(
+                        f"index_label has {len(labels)} name(s) but the index "
+                        f"has {len(original_index_names)} level(s); they must match."
+                    )
+                rename_map = {}
+                for level, (old, new) in enumerate(
+                    zip(original_index_names, labels)
+                ):
+                    if old is not None:
+                        col_name = old
+                    elif is_multi:
+                        col_name = f"level_{level}"
+                    else:
+                        col_name = "index"
+                    if col_name in df.columns and new != col_name:
+                        rename_map[col_name] = new
+                if rename_map:
+                    df = df.rename(columns=rename_map)
+        else:
+            # Drop a non-default index quietly — chDB's Python() adapter
+            # ignores the index but downstream column counts must agree
+            # with what DESCRIBE Python(df) reports above.
+            df = df.reset_index(drop=True)
+        return df
+
+    def _insert_dataframe_to_remote(
+        self,
+        df: "pd.DataFrame",
+        database: str,
+        table: str,
+    ) -> None:
+        """
+        Insert a local pandas DataFrame into a remote ClickHouse table.
+
+        Index handling must already have been applied by
+        ``_normalize_index_for_insert`` so the DataFrame's columns match the
+        target table 1:1.
+        """
+        target_tf = self._build_remote_table_function_sql(database, table)
+        insert_sql = f"INSERT INTO TABLE FUNCTION {target_tf} SELECT * FROM Python(df)"
+        # INSERT returns no rows — request a tabular format (like
+        # _execute_remote_ddl) rather than the default DataFrame, which would
+        # incur a pointless empty-DataFrame conversion. Pass df so chDB's
+        # Python(df) resolves it in the query() frame.
+        self._run_chdb_query(insert_sql, "TabSeparated", df=df)
+
+    def _build_remote_table_function_sql(self, database: str, table: str) -> str:
+        """
+        Build a remote()/remoteSecure() table function call for a target table.
+
+        Args:
+            database: Target database name
+            table: Target table name
+
+        Returns:
+            SQL string like remote('host', 'db', 'table', 'user', 'pass')
+        """
+        adapter = self._get_adapter()
+        return adapter.build_table_function(database, table)
+
+    def to_clickhouse(
+        self,
+        name: str,
+        if_exists: str = "fail",
+        index: bool = False,
+        index_label: Optional[Union[str, List[str]]] = None,
+        engine: str = "MergeTree()",
+        order_by: Optional[Union[str, List[str]]] = None,
+        partition_by: Optional[str] = None,
+        enable_schema_evolution: bool = False,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        secure: bool = False,
+    ) -> None:
+        """
+        Write DataStore data to a remote ClickHouse table.
+
+        Execution paths (in priority order):
+        1. **Pure remote** — fully SQL-pushable + all sources on the same
+           server as the target → the SELECT references the source tables
+           directly (db.tbl) and the whole statement runs on the target
+           server; no data passes through local chDB.
+        2. **Cross-server SQL** — fully SQL-pushable but sources live on a
+           different server from the target → the CREATE/INSERT still runs on
+           the target server (via _execute_remote_ddl), and its SELECT keeps
+           remote(source, ...) so the target pulls source rows over its own
+           native connection (source → target, one hop). chDB only ships the
+           statement; rows do not round-trip through it.
+        3. **DataFrame upload** — pipeline contains Pandas-only ops, OR the
+           DataStore wraps a pure in-memory DataFrame (``DataStore(df)`` or
+           ``DataStore.from_df`` / ``from_dataframe``) → _execute() locally,
+           then upload via the Python() table function. For a pure-DataFrame
+           source an explicit ``host`` is required (there is no source server
+           to default to); pass
+           ``host``/``user``/``password`` (and ``secure=True`` for ClickHouse
+           Cloud, or use a ``host:9440`` / ``*.clickhouse.cloud`` host which
+           auto-enables TLS).
+
+        For ``if_exists="replace"`` with the pure-remote path,
+        ``CREATE OR REPLACE TABLE … AS SELECT`` is used for atomic
+        replacement (no data-loss window).
+
+        Args:
+            name: Target table name. Supports "database.table" format.
+            if_exists: Behavior when table exists:
+                - "fail": Raise error
+                - "replace": For SQL-pushable pipelines (same- or
+                  cross-server), atomic CREATE OR REPLACE TABLE ... AS SELECT
+                  (no data-loss window). For Pandas-only pipelines (DataFrame
+                  upload), which can't be made atomic, raise if the target
+                  already exists; otherwise create + insert.
+                - "append": INSERT into existing table
+            index: Whether to write the DataFrame index as a column
+            index_label: Column name(s) for the index
+            engine: ClickHouse table engine (default: "MergeTree()")
+            order_by: ORDER BY columns for MergeTree-family engines. Optional —
+                when omitted it defaults to ``ORDER BY tuple()`` (no ordering
+                key), so a key is recommended but not required.
+            partition_by: PARTITION BY expression
+            enable_schema_evolution: Auto-adapt column differences (append only)
+            host: Target ClickHouse host:port. Defaults to source server.
+                Required when this DataStore wraps a pure in-memory DataFrame
+                (no source server to default to).
+            user: Target server user. Defaults to source connection user.
+            password: Target server password. Defaults to source connection password.
+            secure: Use encrypted connection to target server.
+
+        Raises:
+            ValueError: If if_exists is not one of "fail"/"replace"/"append".
+            DataStoreError: If this DataStore wraps a pure in-memory DataFrame
+                and no explicit ``host`` is given.
+            QueryError: For the DataFrame-upload path with if_exists="replace"
+                when the target already exists (a non-atomic overwrite is
+                refused).
+            ExecutionError: If a remote DDL/INSERT fails — including the
+                if_exists="fail" case, where the target already existing is
+                surfaced by ClickHouse rejecting CREATE TABLE (no library-side
+                pre-check), wrapped as ExecutionError.
+        """
+        if if_exists not in ("fail", "replace", "append"):
+            raise ValueError(
+                f"Invalid if_exists='{if_exists}'. "
+                f"Must be one of: 'fail', 'replace', 'append'"
+            )
+
+        # A DataStore wrapping a pure in-memory DataFrame has no source server
+        # of its own, so writeback must be told where to go via an explicit
+        # target. Both ways of wrapping a frame qualify: the DataStore(df)
+        # constructor (source_type == "dataframe") and the from_df /
+        # from_dataframe factories (default source_type, frame stashed in
+        # _source_df). A pandas-only op on a *ClickHouse-sourced* store also
+        # caches its result into _source_df, but that store keeps its source
+        # host — so gate on "has no source host" to tell "local frame, no
+        # server" apart from "remote source, locally materialized" (the latter
+        # must keep defaulting its target to the source server, not error for a
+        # missing host). When a target is given we route through the normal
+        # DataFrame-upload path (such a pipeline is never SQL-pushable, so
+        # _to_clickhouse_impl materializes locally and uploads via the
+        # Python(df) table function); the only server involved is the
+        # ClickHouse target, so the source is treated as ClickHouse for
+        # guard/adapter selection. This is scoped to to_clickhouse on purpose —
+        # create_view / create_materialized_view / save() need a server-side
+        # SQL source a local df cannot provide, and non-ClickHouse sources
+        # (mysql/postgresql) remain rejected by _require_clickhouse_for_writeback.
+        wraps_local_df = (
+            (self.source_type or "").lower() == "dataframe"
+            or getattr(self, "_source_df", None) is not None
+        )
+        writing_local_df = wraps_local_df and not self._remote_params.get("host")
+        if writing_local_df and not host:
+            # `not host` (rather than `is None`) so an empty/blank host string
+            # gets the clear message here instead of a generic "no connection
+            # info" failure deeper in the upload path.
+            from .exceptions import DataStoreError
+
+            raise DataStoreError(
+                "Writing an in-memory DataFrame to ClickHouse needs an explicit "
+                "target server: to_clickhouse(name, host=..., user=..., "
+                "password=...). A pure DataFrame DataStore has no source server "
+                "to default to."
+            )
+
+        with self._target_server_context(
+            host, user, password, secure,
+            as_clickhouse_target=writing_local_df,
+        ):
+            self._to_clickhouse_impl(
+                name=name,
+                if_exists=if_exists,
+                index=index,
+                index_label=index_label,
+                engine=engine,
+                order_by=order_by,
+                partition_by=partition_by,
+                enable_schema_evolution=enable_schema_evolution,
+            )
+
+    def _to_clickhouse_impl(
+        self,
+        name: str,
+        if_exists: str,
+        index: bool,
+        index_label: Optional[Union[str, List[str]]],
+        engine: str,
+        order_by: Optional[Union[str, List[str]]],
+        partition_by: Optional[str],
+        enable_schema_evolution: bool,
+    ) -> None:
+        """Core implementation of to_clickhouse, assumes _remote_params
+        already points to the target server."""
+
+        self._require_connection_params()
+        self._require_clickhouse_for_writeback()
+
+        database, table_name = self._parse_target_name(name)
+
+        q = self.quote_char
+        target_ref = (
+            f"{format_identifier(database, q)}.{format_identifier(table_name, q)}"
+        )
+
+        # ---- classify execution path ----
+        fully_sql = self._is_fully_sql_pushable()
+        target_host = self._remote_params["host"]
+        same_server = fully_sql and self._is_all_same_remote_server(target_host)
+
+        engine_clause = self._build_engine_clause(
+            engine, order_by, partition_by, q,
+        )
+
+        # ==================================================================
+        # REPLACE
+        # ==================================================================
+        if if_exists == "replace":
+            if fully_sql:
+                # Atomic CREATE OR REPLACE TABLE ... AS SELECT runs entirely
+                # on the target server — no data-loss window, no local data
+                # transit.
+                # - same_server: SELECT references source tables directly
+                #   (db.tbl), executed locally on that server.
+                # - cross-server: SELECT keeps the remote(source, ...) table
+                #   function, so the target server pulls source data itself
+                #   over its own native connection; chDB only ships the DDL.
+                select_sql = self._writeback_select_sql(same_server)
+                ddl = (
+                    f"CREATE OR REPLACE TABLE {target_ref} "
+                    f"{engine_clause} AS {select_sql}"
+                )
+                self._execute_remote_ddl(ddl)
+            else:
+                # Pandas-only pipeline (always cross-server here, since
+                # same_server implies fully_sql). Data must round-trip
+                # through local chDB, so DROP + CREATE + INSERT cannot be
+                # made atomic. Refuse to overwrite an existing target.
+                if self._check_remote_table_exists(database, table_name):
+                    raise QueryError(
+                        f"Cannot atomically replace '{database}.{table_name}'. "
+                        f"Drop the target table manually first, or pick a "
+                        f"different target name."
+                    )
+                local_df = self._materialize_for_writeback(index, index_label)
+                self._create_target_table(
+                    local_df, target_ref, engine_clause, q,
+                )
+                self._do_insert(
+                    False, local_df, database, table_name,
+                    target_ref, same_server,
+                )
+            return
+
+        # ==================================================================
+        # APPEND
+        # ==================================================================
+        if if_exists == "append":
+            table_exists = self._check_remote_table_exists(database, table_name)
+
+            # Materialize once if the pipeline isn't fully SQL-pushable, then
+            # share the same df with schema evolution, CREATE TABLE and INSERT.
+            local_df = (
+                self._materialize_for_writeback(index, index_label)
+                if not fully_sql else None
+            )
+
+            if enable_schema_evolution and table_exists:
+                self._apply_schema_evolution(
+                    local_df, database, table_name, target_ref, q,
+                )
+
+            if not table_exists:
+                self._create_target_table(
+                    local_df, target_ref, engine_clause, q,
+                )
+
+            self._do_insert(
+                fully_sql, local_df, database, table_name,
+                target_ref, same_server,
+            )
+            return
+
+        # ==================================================================
+        # FAIL (default)
+        # ==================================================================
+        local_df = (
+            self._materialize_for_writeback(index, index_label)
+            if not fully_sql else None
+        )
+        self._create_target_table(
+            local_df, target_ref, engine_clause, q,
+        )
+        self._do_insert(
+            fully_sql, local_df, database, table_name,
+            target_ref, same_server,
+        )
+
+    # ---- internal helpers for to_clickhouse ----
+
+    def _create_target_table(
+        self,
+        df: Optional["pd.DataFrame"],
+        target_ref: str,
+        engine_clause: str,
+        q: str,
+    ) -> None:
+        """CREATE TABLE on the remote server with schema inferred from the pipeline.
+
+        Both branches delegate type inference to chDB's query analyzer so the
+        resulting CREATE TABLE column types match exactly what the subsequent
+        INSERT will produce — no manual pandas-dtype → ClickHouse-type mapping,
+        no schema drift between CREATE and INSERT.
+
+        - ``df is not None``: pipeline contained Pandas-only ops, the
+          DataFrame has already been materialized. Use ``DESCRIBE Python(df)``
+          — chDB resolves ``df`` via stack-frame lookup (see
+          ``PythonTableCache::findQueryableObj``) and its PandasDataFrame
+          adapter (the same one INSERT uses) dictates the schema.
+        - ``df is None``: pipeline is fully SQL-pushable. Use
+          ``DESCRIBE (<select_sql>)`` so the remote server reports the precise
+          output types of the query (Decimal scale, LowCardinality, Nullable,
+          Array, etc.) without executing it.
+        """
+        if df is not None:
+            schema = self._describe_query_schema("SELECT * FROM Python(df)", df=df)
+        else:
+            schema = self._describe_query_schema(self._canonical_writeback_sql())
+
+        col_defs = ", ".join(
+            f"{format_identifier(c, q)} {t}" for c, t in schema.items()
+        )
+
+        create_ddl = f"CREATE TABLE {target_ref} ({col_defs}) {engine_clause}"
+        self._execute_remote_ddl(create_ddl)
+
+    def _do_insert(
+        self,
+        fully_sql: bool,
+        local_df: Optional["pd.DataFrame"],
+        database: str,
+        table_name: str,
+        target_ref: str,
+        same_server: bool,
+    ) -> None:
+        """Insert data into the (already existing) target table.
+
+        Mirrors the REPLACE branch: when the pipeline is SQL-pushable, the
+        INSERT runs entirely on the target server via native TCP — chDB only
+        ships the statement, data never round-trips through it.
+
+        - same_server: SELECT references source tables directly (``db.tbl``);
+          pure server-local INSERT...SELECT, zero network hops for the data.
+        - cross-server: SELECT keeps ``remote(source, ...)`` so the target
+          server pulls source data over its own native connection
+          (source → target, one hop). This avoids the previous
+          ``INSERT INTO TABLE FUNCTION remote(target) ... FROM remote(source)``
+          form, which routed every row through local chDB (two hops).
+        - non-SQL pipeline: pandas-only ops force local materialization, then
+          upload via the Python() table function. ``local_df`` must already
+          have its index normalized via ``_normalize_index_for_insert`` so it
+          matches the schema CREATE TABLE / ALTER TABLE saw.
+        """
+        if fully_sql:
+            select_sql = self._writeback_select_sql(same_server)
+            self._execute_remote_ddl(f"INSERT INTO {target_ref} {select_sql}")
+        else:
+            if local_df is None:
+                # Internal invariant: a non-SQL pipeline must have materialized
+                # local_df before reaching the insert. Use a real exception, not
+                # assert (stripped under `python -O`), to fail deterministically.
+                raise ExecutionError(
+                    "Internal error: DataFrame-upload writeback reached the "
+                    "insert step without a materialized DataFrame."
+                )
+            self._insert_dataframe_to_remote(local_df, database, table_name)
+
+    def _apply_schema_evolution(
+        self,
+        df: Optional["pd.DataFrame"],
+        database: str,
+        table_name: str,
+        target_ref: str,
+        q: str,
+    ) -> None:
+        """ALTER TABLE ADD COLUMN for columns the pipeline will write but the
+        target table is missing.
+
+        Compares the *pipeline output* schema (what INSERT will actually
+        produce) against the target table — not the source table's schema.
+        Projections, renames, joins, computed columns and aggregations are
+        therefore all honored.
+
+        Schema inference shares the exact same path as ``_create_target_table``
+        so CREATE / ALTER / INSERT never disagree on types:
+          - ``df is not None``: pipeline already materialized →
+            ``DESCRIBE Python(df)`` (df name resolved via chDB stack-frame
+            lookup, hence the parameter must be named ``df``).
+          - ``df is None``: fully SQL-pushable → ``DESCRIBE (<select_sql>)``
+            asks chDB's analyzer for the precise output types.
+
+        New columns keep the pipeline's exact type. Rows already in the target
+        get ClickHouse's per-type zero value (0 / "" / [] / 1970-01-01 / ...);
+        no Nullable wrapping is added, so downstream queries don't have to
+        unwrap Optional columns.
+        """
+        target_schema = self._get_remote_table_schema(database, table_name)
+        if df is not None:
+            output_schema = self._describe_query_schema("SELECT * FROM Python(df)", df=df)
+        else:
+            output_schema = self._describe_query_schema(self._canonical_writeback_sql())
+
+        for col_name, col_type in output_schema.items():
+            if col_name in target_schema:
+                continue
+            alter_sql = (
+                f"ALTER TABLE {target_ref} "
+                f"ADD COLUMN IF NOT EXISTS "
+                f"{format_identifier(col_name, q)} {col_type}"
+            )
+            self._execute_remote_ddl(alter_sql)
+
+    def create_view(
+        self,
+        name: str,
+        replace: bool = True,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        secure: bool = False,
+    ) -> None:
+        """
+        Create a VIEW on the remote ClickHouse server from this DataStore's query.
+
+        The VIEW saves the query definition; data is computed on read.
+
+        Security note: for a *cross-server* source, the stored view definition
+        contains a ``remote('host', 'db', 'tbl', 'user', 'password')`` call, so
+        the source credentials are persisted in the view's SQL text and are
+        readable via ``SHOW CREATE``, ``system.tables`` and the query log. Use a
+        least-privilege / read-only source user, or a named collection, when the
+        view crosses servers. (Same-server views fold the source to ``db.tbl``
+        and embed no credentials.)
+
+        Args:
+            name: View name. Supports "database.view_name" format.
+            replace: If True, uses CREATE OR REPLACE VIEW
+            host: Target ClickHouse host:port. Defaults to source server.
+            user: Target server user.
+            password: Target server password.
+            secure: Use encrypted connection to target server.
+
+        Raises:
+            ExecutionError: If the DDL execution fails
+        """
+        with self._target_server_context(host, user, password, secure):
+            self._require_connection_params()
+            self._require_clickhouse_for_writeback()
+
+            database, view_name = self._parse_target_name(name)
+            q = self.quote_char
+            view_ref = (
+                f"{format_identifier(database, q)}.{format_identifier(view_name, q)}"
+            )
+
+            view_sql = self._build_view_select_sql()
+
+            or_replace = "OR REPLACE " if replace else ""
+            ddl = f"CREATE {or_replace}VIEW {view_ref} AS {view_sql}"
+
+            self._execute_remote_ddl(ddl)
+
+    def create_materialized_view(
+        self,
+        name: str,
+        to: str,
+        engine: str = "MergeTree()",
+        order_by: Optional[Union[str, List[str]]] = None,
+        partition_by: Optional[str] = None,
+        populate: bool = False,
+        if_target_exists: str = "fail",
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        secure: bool = False,
+    ) -> None:
+        """
+        Create a MATERIALIZED VIEW on the remote ClickHouse server, backed by
+        a *separate* physical target table (``CREATE MV ... TO target``).
+
+        Why TO form (and only TO form):
+          - data and trigger are decoupled — DROPping the MV never destroys
+            data;
+          - target table can be ALTERed / TTLed / OPTIMIZEd independently;
+          - multiple MVs can fan-in to the same target;
+          - once ClickHouse ships ``CREATE OR REPLACE MATERIALIZED VIEW``
+            (PR #100539, not yet released), the trigger swap will be atomic
+            without touching ``target``.
+
+        Replacing an existing MV is intentionally **not** supported here. As
+        of current ClickHouse releases:
+          - ``CREATE OR REPLACE MATERIALIZED VIEW`` is not yet implemented
+            (and historically gets silently misparsed as a plain VIEW —
+            dangerous);
+          - emulating it with ``DROP VIEW + CREATE`` opens a window in which
+            source INSERTs are dropped on the floor (no trigger active).
+        Drop the old MV explicitly when you really want to swap it; we'll
+        re-enable replace semantics once the upstream PR lands.
+
+        The target table is auto-created on first use. Schema is inferred
+        from the pipeline output via ``DESCRIBE (<select>)`` so types are
+        guaranteed consistent with the SELECT — same machinery as
+        ``to_clickhouse``.
+
+        Args:
+            name: Materialized view (trigger) name. Supports
+                ``"database.mv_name"`` format. Must not already exist.
+            to: Physical target table name. Supports ``"database.table"``
+                format. Required — see ``if_target_exists`` for handling
+                of an existing target.
+            engine: Storage engine for the target table when auto-created.
+                Defaults to ``"MergeTree()"`` to match ``to_clickhouse`` and
+                avoid surprising the common case (filter / project / simple
+                groupby). For pre-aggregated MVs use
+                ``"AggregatingMergeTree()"`` together with ``-State``
+                aggregate functions in the SELECT.
+            order_by: ORDER BY columns for the target (MergeTree family).
+            partition_by: PARTITION BY expression for the target.
+            populate: If True, backfill existing source rows by issuing
+                ``INSERT INTO target SELECT ...`` after the trigger is
+                installed. Note: emulates ClickHouse's ``POPULATE`` keyword
+                (which is incompatible with ``TO``); rows inserted into the
+                source during the backfill window may be processed twice or
+                missed — backfill large tables only when the source is
+                quiescent, or backfill manually with a deterministic
+                watermark.
+            if_target_exists: How to handle a pre-existing target table:
+                - ``"fail"`` (default): raise ``QueryError``;
+                - ``"append"``: reuse the existing target (fan-in pattern,
+                  multiple MVs writing into one table). The library does
+                  not validate schema compatibility — that's on you.
+            host: Target ClickHouse host:port. Defaults to source server.
+            user, password, secure: Target server credentials.
+
+        Raises:
+            ValueError: If ``if_target_exists`` is invalid.
+            QueryError: If pipeline isn't fully SQL-pushable, if ``fail``
+                was requested for a pre-existing target, or if the MV
+                already exists.
+            ExecutionError: If a DDL execution fails on the remote server.
+        """
+        if if_target_exists not in ("fail", "append"):
+            raise ValueError(
+                f"if_target_exists must be 'fail' or 'append', "
+                f"got '{if_target_exists}'"
+            )
+
+        with self._target_server_context(host, user, password, secure):
+            self._require_connection_params()
+            self._require_clickhouse_for_writeback()
+
+            mv_db, mv_name = self._parse_target_name(name)
+            target_db, target_table = self._parse_target_name(to)
+            q = self.quote_char
+            mv_ref = (
+                f"{format_identifier(mv_db, q)}.{format_identifier(mv_name, q)}"
+            )
+            target_ref = (
+                f"{format_identifier(target_db, q)}."
+                f"{format_identifier(target_table, q)}"
+            )
+
+            select_sql = self._build_view_select_sql()
+
+            # ---- mv trigger: must not already exist ----
+            # We deliberately don't offer a `replace` mode — see method
+            # docstring for why. Check first so we fail before creating the
+            # target table (otherwise a retry would hit the
+            # `if_target_exists` check and require append).
+            if self._check_remote_table_exists(mv_db, mv_name):
+                raise QueryError(
+                    f"Materialized view '{mv_db}.{mv_name}' already exists. "
+                    f"Drop it explicitly before recreating — atomic replace "
+                    f"is not yet supported by ClickHouse for materialized "
+                    f"views (see PR ClickHouse/ClickHouse#100539)."
+                )
+
+            # ---- target table: create or reuse ----
+            if self._check_remote_table_exists(target_db, target_table):
+                if if_target_exists == "fail":
+                    raise QueryError(
+                        f"Target table '{target_db}.{target_table}' already "
+                        f"exists. Use if_target_exists='append' to fan in to "
+                        f"the existing table, or pick a different target."
+                    )
+            else:
+                engine_clause = self._build_engine_clause(
+                    engine, order_by, partition_by, q,
+                )
+                self._create_target_table(
+                    None, target_ref, engine_clause, q,
+                )
+
+            ddl = (
+                f"CREATE MATERIALIZED VIEW {mv_ref} TO {target_ref} "
+                f"AS {select_sql}"
+            )
+            self._execute_remote_ddl(ddl)
+
+            # ---- optional backfill (POPULATE-equivalent for TO form) ----
+            if populate:
+                # ClickHouse rejects POPULATE together with TO, so we emulate
+                # it: trigger is already installed (catches new writes), now
+                # push existing source rows into the target. Same caveat as
+                # native POPULATE — concurrent writes during this window may
+                # be double-counted or missed.
+                self._execute_remote_ddl(
+                    f"INSERT INTO {target_ref} {select_sql}"
+                )
+
+    def _build_engine_clause(
+        self,
+        engine: str,
+        order_by: Optional[Union[str, List[str]]],
+        partition_by: Optional[str],
+        q: str,
+    ) -> str:
+        """Build the ``ENGINE = ... ORDER BY (...) PARTITION BY ... SETTINGS ...``
+        clause used by both ``to_clickhouse`` and ``create_materialized_view``
+        so the two stay in lock-step on engine semantics.
+
+        For MergeTree-family engines we always emit ``SETTINGS
+        allow_nullable_key = 1`` because schema inference goes through
+        ``DESCRIBE`` (of either ``remote()`` or ``Python(df)``), which
+        conservatively wraps column types in ``Nullable(...)``. Without this
+        setting, any ORDER BY referencing such a column is rejected with
+        ``ILLEGAL_COLUMN``. The setting is a no-op for non-nullable columns
+        and never alters write semantics, so it's safe to enable
+        unconditionally.
+        """
+        if order_by is None:
+            order_by_clause = "tuple()"
+        elif isinstance(order_by, list):
+            order_by_clause = ", ".join(
+                format_identifier(c, q) for c in order_by
+            )
+        else:
+            order_by_clause = order_by
+
+        is_mergetree = "MergeTree" in engine
+        parts = [f"ENGINE = {engine}"]
+        if is_mergetree:
+            parts.append(f"ORDER BY ({order_by_clause})")
+        if partition_by:
+            parts.append(f"PARTITION BY ({partition_by})")
+        if is_mergetree:
+            parts.append("SETTINGS allow_nullable_key = 1")
+        return " ".join(parts)
+
+    def save(
+        self,
+        name: str,
+        type: str = "table",
+        if_exists: str = "fail",
+        to: Optional[str] = None,
+    ) -> None:
+        """
+        Unified writeback entry point (writes to the source server).
+
+        Saves the DataStore's data or query definition to a remote ClickHouse
+        target. Delegates to specialized methods based on the type parameter.
+
+        To write to a *different* server, use ``to_clickhouse()``,
+        ``create_view()``, or ``create_materialized_view()`` directly
+        with explicit ``host``/``user``/``password`` arguments.
+
+        Args:
+            name: Target name. Supports "database.name" format. For
+                ``type="materialized_view"`` this is the MV trigger name;
+                the physical target table is given by ``to``.
+            type: Target type:
+                - "table": Permanent table (default)
+                - "view": VIEW (saves query definition, computed on read)
+                - "materialized_view": Materialized view in TO form;
+                  ``to`` is required.
+            if_exists: Behavior when target exists:
+                - For "table": "fail" | "replace" | "append"
+                - For "view": "fail" | "replace"
+                - For "materialized_view": "fail" only — atomic MV replace
+                  is not yet supported by ClickHouse (see
+                  ``create_materialized_view``). The target table is reused if
+                  present; for finer control over it, call
+                  ``create_materialized_view`` directly.
+            to: Required for ``type="materialized_view"`` — the physical
+                target table backing the MV. Ignored for other types.
+
+        Raises:
+            ValueError: If type or if_exists is invalid, or if ``to`` is
+                missing for materialized views.
+            QueryError: For materialized-view validation (e.g. the MV already
+                exists), and for the DataFrame-upload "replace" path when the
+                target exists.
+            ExecutionError: For the table/view paths, an existing target with
+                if_exists="fail" surfaces as a remote CREATE failure wrapped as
+                ExecutionError (not QueryError).
+        """
+        if type not in ("table", "view", "materialized_view"):
+            raise ValueError(
+                f"Invalid type='{type}'. Must be one of: 'table', 'view', 'materialized_view'"
+            )
+
+        if type == "table":
+            self.to_clickhouse(
+                name=name,
+                if_exists=if_exists,
+                enable_schema_evolution=(if_exists == "append"),
+            )
+        elif type == "view":
+            if if_exists not in ("fail", "replace"):
+                raise ValueError(
+                    f"Views only support if_exists='fail' or 'replace', got '{if_exists}'"
+                )
+            self.create_view(name=name, replace=(if_exists == "replace"))
+        elif type == "materialized_view":
+            if if_exists != "fail":
+                raise ValueError(
+                    f"Materialized views currently only support "
+                    f"if_exists='fail' (got '{if_exists}'). Atomic replace "
+                    f"is not yet supported by ClickHouse for MVs — see "
+                    f"create_materialized_view docstring for details. "
+                    f"Drop the MV explicitly if you want to recreate it."
+                )
+            if to is None:
+                raise ValueError(
+                    "save(type='materialized_view', ...) requires `to=` "
+                    "(the physical target table). Materialized views are "
+                    "always created in TO form so data and trigger can be "
+                    "managed independently."
+                )
+            # The target table is assumed to be either fresh (auto-create)
+            # or shared (fan-in via append). For a stricter "fail if target
+            # exists" check, call create_materialized_view directly.
+            self.create_materialized_view(
+                name=name,
+                to=to,
+                if_target_exists="append",
+            )
+
     # ========== Query Building Methods ==========
 
     @immutable
@@ -4744,6 +6124,32 @@ class DataStore(PandasCompatMixin):
                 "Must provide either 'condition' for row filtering or 'items'/'like'/'regex' for column selection"
             )
 
+        # Translate ``pd.col(...)`` up front so the rest of filter()
+        # only sees chdb-ds Condition / ColumnExpr objects. Storing a
+        # pandas Expression in _where_condition would later trip the
+        # ``__bool__`` check in _has_sql_state and break __repr__.
+        from .pandas_col_compat import (
+            PandasFallbackExpr,
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if is_pandas_col_expression(condition):
+            condition = translate_pandas_expression(condition)
+
+        # Untranslatable pd.col expression (e.g. uses .astype / numpy ufunc):
+        # route as a pandas-only filter op, same path as method-mode ColumnExpr.
+        if isinstance(condition, PandasFallbackExpr):
+            self._track_operation(
+                "pandas", "filter(pd_col_fallback)", {"lazy": True}
+            )
+            self._add_lazy_op(
+                LazyRelationalOp(
+                    "PANDAS_FILTER", "pd_col_fallback", condition=condition
+                )
+            )
+            return self
+
         # Handle LazyCondition (e.g., from isin(), between()) - extract underlying Condition
         from .lazy_result import LazyCondition
 
@@ -4852,6 +6258,19 @@ class DataStore(PandasCompatMixin):
             >>> ds.where(ds['age'] > 18)     # Replace False values with NaN
         """
         from .column_expr import ColumnExpr
+        from .pandas_col_compat import (
+            PandasFallbackExpr,
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...)`` up front so both the SQL-style and
+        # pandas-style branches see a real Condition / ColumnExpr.
+        if is_pandas_col_expression(condition):
+            condition = translate_pandas_expression(condition)
+
+        if isinstance(condition, PandasFallbackExpr) and other is not _MISSING:
+            condition = condition.original
 
         # Pandas-style where:
         # - ColumnExpr condition (always pandas-style)
@@ -5133,6 +6552,38 @@ class DataStore(PandasCompatMixin):
         """
         from .lazy_ops import LazyUnion
 
+        # When both sides have SQL sources, use SQL UNION ALL directly
+        # This avoids materializing both sides into Python DataFrames
+        has_sql_source = bool(self._table_function or self.table_name)
+        other_has_sql_source = bool(
+            hasattr(other, '_table_function') and (other._table_function or getattr(other, 'table_name', None))
+        )
+        if has_sql_source and other_has_sql_source:
+            from .table_functions import SubqueryTableFunction
+            left_cols = list(self._get_all_column_names())
+            right_cols = list(other._get_all_column_names())
+            if set(left_cols) == set(right_cols):
+                if left_cols != right_cols:
+                    other = other.select(*left_cols)
+                left_sql = self._generate_select_sql(self.quote_char)
+                other_sql = other._generate_select_sql(other.quote_char)
+                union_keyword = "UNION ALL" if all else "UNION"
+                union_sql = f"({left_sql}) {union_keyword} ({other_sql})"
+                self._table_function = SubqueryTableFunction(union_sql)
+                self._cached_result = None
+                self._cached_at_version = -1
+                self._select_fields = []
+                self._where_condition = None
+                self._joins = []
+                self._groupby_fields = []
+                self._having_condition = None
+                self._orderby_fields = []
+                self._limit_value = None
+                self._offset_value = None
+                self._distinct = False
+                self._select_star = False
+                return  # @immutable returns the copy
+
         # Add LazyUnion operation - pass the DataStore/DataFrame directly
         # Execution is deferred until needed
         self._add_lazy_op(LazyUnion(other=other, all=all))
@@ -5154,6 +6605,13 @@ class DataStore(PandasCompatMixin):
             >>> ds.with_column('doubled', ds['value'] * 2)
         """
         from .lazy_ops import LazyColumnAssignment
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if is_pandas_col_expression(expr):
+            expr = translate_pandas_expression(expr)
 
         self._add_lazy_op(LazyColumnAssignment(name, expr))
         # Note: Don't return self - @immutable decorator will return the copy
@@ -5321,6 +6779,35 @@ class DataStore(PandasCompatMixin):
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction
         from .lazy_ops import LazySQLQuery
+        from .pandas_col_compat import (
+            PandasFallbackExpr,
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...).agg_fn()`` values into chdb-ds
+        # AggregateFunction nodes. Duplicated in LazyGroupBy.agg so direct
+        # calls into DataStore.agg (without a LazyGroupBy hop) also work.
+        if kwargs:
+            kwargs = {
+                alias: (
+                    translate_pandas_expression(value)
+                    if is_pandas_col_expression(value)
+                    else value
+                )
+                for alias, value in kwargs.items()
+            }
+
+        for alias, value in kwargs.items():
+            if isinstance(value, PandasFallbackExpr):
+                raise QueryError(
+                    f"Invalid aggregate expression for '{alias}': "
+                    f"{value.original!r} contains operations that cannot be "
+                    f"pushed to SQL (e.g. .astype, numpy ufunc, .apply). "
+                    f"SQL aggregations require pushable expressions; rewrite "
+                    f"using col(...) arithmetic / accessors only, or "
+                    f"precompute the column via assign() first."
+                )
 
         # Check if we have SQL-style keyword arguments with expressions
         has_sql_agg = any(
@@ -5441,6 +6928,22 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .functions import AggregateFunction, Function
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        # Translate ``pd.col(...)`` values so assign treats them like any
+        # other chdb-ds expression (and they push down to SQL).
+        if kwargs:
+            kwargs = {
+                alias: (
+                    translate_pandas_expression(value)
+                    if is_pandas_col_expression(value)
+                    else value
+                )
+                for alias, value in kwargs.items()
+            }
 
         # Check if we have groupby and aggregate expressions
         has_groupby = len(self._groupby_fields) > 0
@@ -5457,9 +6960,19 @@ class DataStore(PandasCompatMixin):
         # Separate SQL expressions from pandas expressions (lambda, scalar, etc.)
         sql_kwargs = {}
         pandas_kwargs = {}
+        fallback_kwargs = {}  # pd.col fallback exprs (force LazyColumnAssignment path)
+
+        from .pandas_col_compat import PandasFallbackExpr
+
+        from .case_when import CaseWhenExpr
 
         for alias, expr in kwargs.items():
-            if isinstance(expr, ColumnExpr):
+            if isinstance(expr, PandasFallbackExpr):
+                # pd.col(...).astype/np.log/etc.: not SQL-pushable, not a
+                # scalar/lambda either. Route through LazyColumnAssignment
+                # so ExpressionEvaluator unwraps it on the live DataFrame.
+                fallback_kwargs[alias] = expr
+            elif isinstance(expr, ColumnExpr):
                 # Use canonical classification methods for clear separation
                 if expr.is_pandas_only():
                     # Executor mode (transform), method mode without expr - must use Pandas
@@ -5470,6 +6983,18 @@ class DataStore(PandasCompatMixin):
                 else:
                     # Fallback: execute and use result
                     pandas_kwargs[alias] = expr._execute()
+            elif (
+                isinstance(expr, CaseWhenExpr)
+                and expr.contains_pandas_fallback()
+            ):
+                # Bare CaseWhenExpr from ``ds.when(pd.col(...).astype(...))...``
+                # — has the same SQL-serialization problem as the
+                # ColumnExpr-wrapped case above (caught via is_pandas_only).
+                # Wrap in a ColumnExpr so the planner segments it through
+                # ExpressionEvaluator, same as the ColumnExpr branch.
+                pandas_kwargs[alias] = ColumnExpr(
+                    expr=expr, datastore=self
+                )._execute()
             elif isinstance(expr, (Function, Expression)):
                 sql_kwargs[alias] = expr
             else:
@@ -5580,6 +7105,14 @@ class DataStore(PandasCompatMixin):
                     select_items.append(expr_with_alias)
 
             result = result.select(*select_items)
+
+        # Process pd.col fallback expressions: each as its own
+        # LazyColumnAssignment so the planner segments it correctly.
+        if fallback_kwargs:
+            from .lazy_ops import LazyColumnAssignment
+
+            for alias, expr in fallback_kwargs.items():
+                result._add_lazy_op(LazyColumnAssignment(alias, expr))
 
         # Process pandas expressions (if any)
         if pandas_kwargs:
@@ -6039,8 +7572,6 @@ class DataStore(PandasCompatMixin):
         """
         import time
 
-        import chdb
-
         self._require_connection_params()
 
         rewritten_sql = self._rewrite_table_references(query)
@@ -6051,7 +7582,7 @@ class DataStore(PandasCompatMixin):
         sql_preview = rewritten_sql[:80] + "..." if len(rewritten_sql) > 80 else rewritten_sql
 
         start = time.perf_counter()
-        result_df = chdb.query(rewritten_sql, output_format="DataFrame")
+        result_df = self._run_chdb_query(rewritten_sql, "DataFrame")
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         with profiler.step(
@@ -6191,7 +7722,34 @@ class DataStore(PandasCompatMixin):
         """
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .pandas_col_compat import is_pandas_col_expression, translate_pandas_expression
         from copy import copy
+
+        # Translate ``pd.col(...)`` keys to a chdb-ds expression node and
+        # re-dispatch so the rest of __getitem__ handles ``ds[pd.col("x") > 5]``
+        # exactly like ``ds[ds["x"] > 5]``.
+        if is_pandas_col_expression(key):
+            from .pandas_col_compat import PandasFallbackExpr
+
+            translated = translate_pandas_expression(key)
+            if isinstance(translated, PandasFallbackExpr):
+                # Untranslatable pd.col chain (e.g. .astype, np.log) — route
+                # as a pandas-only filter, same path as filter(PandasFallbackExpr).
+                return self.filter(translated)
+            if isinstance(translated, Condition):
+                return self[translated]
+            if isinstance(translated, Expression):
+                # Bare ``pd.col("x")``: behave like ``ds["x"]``.
+                if isinstance(translated, Field):
+                    return self[translated.name]
+                # ArithmeticExpression / Function with no column-selection
+                # semantics in pandas; fall through and let the user wrap it
+                # explicitly (e.g. inside .assign(...)).
+                raise TypeError(
+                    "DataStore.__getitem__ with a non-boolean pd.col expression is "
+                    f"ambiguous: {key!r}. Use ds.assign(name=expr) or wrap as a "
+                    "boolean condition."
+                )
 
         # Handle table selection in connection/database mode
         if isinstance(key, str) and self._connection_mode in ("connection", "database"):
@@ -6544,6 +8102,81 @@ class DataStore(PandasCompatMixin):
 
         return new_ds
 
+    @contextmanager
+    def _target_server_context(
+        self,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        secure: bool = False,
+        as_clickhouse_target: bool = False,
+    ):
+        """Temporarily override ``_remote_params`` so downstream helpers
+        (``_execute_remote_ddl``, ``_get_adapter``, etc.) operate against
+        the specified target server instead of the source server.
+
+        When nothing is overridden the context is a genuine no-op. *host*
+        defaults to the source server, so an explicit *user*/*password* still
+        applies against it even when *host* is omitted. Omitted *user*/
+        *password* fall back to the *source* connection's credentials (a target
+        on the same cluster usually shares them) — as the to_clickhouse /
+        create_view / create_materialized_view docstrings promise; falling back
+        to "default"/"" would silently break writeback whenever the source uses
+        non-default credentials.
+
+        ``as_clickhouse_target`` additionally overrides ``source_type`` to
+        "clickhouse" for the duration. The writeback guard and adapter machinery
+        are keyed on the *source* type; this makes them treat the explicitly
+        given target as a ClickHouse server. Used by ``to_clickhouse`` when
+        uploading a pure in-memory DataFrame (``source_type == "dataframe"``),
+        whose only server in play is the target.
+        """
+        original = self._remote_params.copy()
+        original_source_type = self.source_type
+        # Omitted creds inherit the source connection's values. Use `or` (not a
+        # dict default) so a source connection that stored user/password as
+        # None — key present, value None — still resolves to valid auth
+        # ("default"/"") instead of flowing a None through to the adapter as an
+        # empty username.
+        eff_user = user if user is not None else (original.get("user") or "default")
+        eff_password = (
+            password if password is not None else (original.get("password") or "")
+        )
+
+        if host is None:
+            # No target host → stay on the source server. Always apply the
+            # effective creds: eff_user/eff_password turn a source connection
+            # that stored user/password as None into "default"/"" so
+            # _get_adapter() can't emit an empty username, and an explicit
+            # user/password override takes effect here too. When nothing
+            # actually changes this remains a no-op (new_params == original).
+            new_params = {**original, "user": eff_user, "password": eff_password}
+            # Honor an explicit secure=True (switch the source connection to
+            # TLS / remoteSecure) too. secure defaults to False and a bool can't
+            # distinguish "omitted" from "explicit False", so only upgrade —
+            # never silently downgrade a secure source connection.
+            if secure:
+                new_params["secure"] = True
+        else:
+            from .adapters import normalize_clickhouse_connection
+
+            norm_host, norm_secure = normalize_clickhouse_connection(host, secure)
+            new_params = {
+                "host": norm_host,
+                "user": eff_user,
+                "password": eff_password,
+                "secure": norm_secure,
+            }
+
+        self._remote_params = new_params
+        if as_clickhouse_target:
+            self.source_type = "clickhouse"
+        try:
+            yield
+        finally:
+            self._remote_params = original
+            self.source_type = original_source_type
+
     def _require_connection_params(self):
         """
         Raise error if connection parameters are missing.
@@ -6557,6 +8190,31 @@ class DataStore(PandasCompatMixin):
             raise DataStoreError(
                 "Cannot perform metadata operation - no connection info.\n"
                 'Hint: DataStore(source="clickhouse", host="...", user="...", password="...")'
+            )
+
+    def _require_clickhouse_for_writeback(self) -> None:
+        """Guard writeback to a ClickHouse connection.
+
+        Writeback drives the remote server through ClickHouse-specific table
+        functions (``remote(..., query=...)`` for DDL, ``Python(df)`` for
+        uploads). For a non-ClickHouse source the adapter would emit
+        ``mysql()`` / ``postgresql()`` / ... which don't accept the ``query=``
+        form, surfacing as a confusing runtime error. Fail early and clearly
+        instead.
+
+        Pure-DataFrame stores (source_type == "dataframe") still reach this
+        guard via create_view / create_materialized_view and are rejected here
+        (a local df has no server-side SQL source for a view/MV definition).
+        to_clickhouse handles them separately: it uploads the df to the
+        explicit target and runs this guard with source_type overridden to
+        "clickhouse" (see _target_server_context's as_clickhouse_target).
+        """
+        if (self.source_type or "").lower() not in _CLICKHOUSE_SOURCE_TYPES:
+            raise QueryError(
+                f"Writeback (to_clickhouse / create_view / "
+                f"create_materialized_view) requires a ClickHouse connection, "
+                f"but this DataStore's source is '{self.source_type}'. "
+                f"Non-ClickHouse sources are not supported for writeback."
             )
 
     def _get_adapter(self) -> "SourceAdapter":
@@ -6592,13 +8250,11 @@ class DataStore(PandasCompatMixin):
         """
         import time
 
-        import chdb
-
         profiler = get_profiler()
         sql_preview = sql[:80] + "..." if len(sql) > 80 else sql
 
         start = time.perf_counter()
-        result = chdb.query(sql, output_format="DataFrame")
+        result = self._run_chdb_query(sql, "DataFrame")
         elapsed_ms = (time.perf_counter() - start) * 1000
 
         with profiler.step(

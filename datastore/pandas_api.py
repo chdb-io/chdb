@@ -406,6 +406,8 @@ def read_parquet(path, columns=None, **kwargs) -> "DataStoreType":
     if needs_pandas:
         pandas_df = pd.read_parquet(path, columns=columns, **kwargs)
         return DataStore.from_df(pandas_df)
+    elif isinstance(path, str) and path.startswith("s3://"):
+        return DataStore.from_s3(path, format="Parquet")
     else:
         # Use chDB SQL engine
         return DataStore.from_file(path, format="Parquet")
@@ -1018,6 +1020,22 @@ def concat(objs, axis=0, join="outer", ignore_index=False, keys=None, **kwargs):
         >>> result = concat([df1, df2], axis=1)
     """
     DataStore = _get_datastore_class()
+
+    # Lazy UNION ALL path for simple vertical concatenation of DataStores.
+    # Only when ignore_index=True (UNION ALL resets index) and join='outer'.
+    if (
+        axis == 0
+        and ignore_index
+        and join == "outer"
+        and keys is None
+        and not kwargs.get("verify_integrity", False)
+        and all(isinstance(obj, DataStore) for obj in objs)
+        and len(objs) >= 2
+    ):
+        result = objs[0]
+        for obj in objs[1:]:
+            result = result.union(obj, all=True)
+        return result
 
     # Check if any input is a DataStore (vs plain pandas DataFrame)
     has_datastore = False

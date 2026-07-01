@@ -1,17 +1,17 @@
 ---
 name: chdb-datastore
 description: >-
-  Drop-in pandas replacement with ClickHouse performance. Use
-  `import chdb.datastore as pd` (or `from datastore import DataStore`)
-  and write standard pandas code — same API, 10-100x faster on large
-  datasets. Supports 16+ data sources (MySQL, PostgreSQL, S3, MongoDB,
-  ClickHouse, Iceberg, Delta Lake, etc.) and 10+ file formats (Parquet,
-  CSV, JSON, Arrow, ORC, etc.) with cross-source joins. Use this skill
-  when the user wants to analyze data with pandas-style syntax, speed
-  up slow pandas code, query remote databases or cloud storage as
-  DataFrames, or join data across different sources — even if they
-  don't explicitly mention chdb or DataStore. Do NOT use for raw SQL
-  queries, ClickHouse server administration, or non-Python languages.
+  Use when the user has tabular data (pandas DataFrame, parquet, csv,
+  Arrow, json) and wants to filter, group, aggregate, join, or speed
+  up slow pandas. Provides chDB DataStore — same pandas API,
+  ClickHouse engine underneath. Also handles reading from S3, MySQL,
+  PostgreSQL, MongoDB, ClickHouse Cloud, Iceberg, Delta Lake as
+  DataFrames and joining across sources.
+  TRIGGER when: user mentions DataFrame, parquet, csv, "fast pandas",
+  "speed up pandas", or cross-source DataFrame joins; user imports
+  `chdb.datastore` or `from datastore import DataStore`.
+  SKIP this skill for raw SQL syntax (use chdb-sql instead),
+  ClickHouse server administration, or non-Python DataStore API work.
 license: Apache-2.0
 compatibility: Requires Python 3.9+, macOS or Linux. pip install chdb.
 metadata:
@@ -143,4 +143,4 @@ target.insert_into("category", "total", "count").select_from(
 
 > Note: This skill teaches how to *use* chdb DataStore.
 > For raw SQL queries, use the `chdb-sql` skill.
-> For contributing to chdb source code, see CLAUDE.md in the project root.
+> For contributing to chdb source code, see AGENTS.md in the project root.

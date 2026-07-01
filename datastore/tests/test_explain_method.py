@@ -389,5 +389,195 @@ class TestExplainMethod(unittest.TestCase):
         self.assertLess(order_pos, limit_pos, "sort should come before limit")
 
 
+class TestExplainEngineLabelingForPushedOps(unittest.TestCase):
+    """Regression tests: ops pushed into a chDB segment must be labeled [chDB] in explain().
+
+    These tests pin down a previous bug where LazyGroupByAgg.execution_engine() and
+    LazyApply.execution_engine() returned the non-canonical literal 'SQL'. The
+    explain() renderer only recognizes 'chDB'/'Pandas', so 'SQL' silently fell into
+    the Pandas branch and the GroupBy/apply lines were rendered as 🐼 [Pandas] even
+    though the segment header said [chDB] and the generated SQL clearly contained
+    GROUP BY pushed to chDB.
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.mkdtemp()
+        self.parquet_file = os.path.join(self.temp_dir, "amazon_sample.parquet")
+
+        import pandas as pd
+        pd.DataFrame({
+            'product_category': ['A', 'B', 'A', 'B', 'C'] * 10,
+            'star_rating': [5, 4, 3, 5, 2] * 10,
+            'verified_purchase': [True, False, True, True, True] * 10,
+        }).to_parquet(self.parquet_file)
+
+    def tearDown(self):
+        if os.path.exists(self.parquet_file):
+            os.unlink(self.parquet_file)
+        if os.path.exists(self.temp_dir):
+            os.rmdir(self.temp_dir)
+
+    def _extract_op_line(self, output: str, op_number: int) -> str:
+        """Return the single explain() line beginning with ' [<op_number>] '."""
+        prefix = f" [{op_number}]"
+        for line in output.splitlines():
+            if line.startswith(prefix):
+                return line
+        raise AssertionError(
+            f"Could not find op [{op_number}] line in explain output:\n{output}"
+        )
+
+    def test_explain_labels_pushable_groupby_agg_dict_list_as_chdb(self):
+        """Mirrors the user-reported scenario: agg({'col': ['mean', 'count']}).
+
+        The GroupBy is pushed to chDB (GROUP BY appears in the generated SQL),
+        so explain() must label that op as [chDB], not [Pandas].
+        """
+        ds = DataStore.from_file(self.parquet_file)
+        res = (
+            ds[ds['verified_purchase'] == True]
+            .groupby('product_category')
+            .agg({'star_rating': ['mean', 'count']})
+        )
+
+        output = _capture_explain(res)
+
+        # Segment header must say chDB from source
+        self.assertIn("Segment 1 [chDB] (from source)", output)
+
+        # The GroupBy op line must be labeled chDB, not Pandas
+        groupby_line = next(
+            line for line in output.splitlines() if "GroupBy(" in line
+        )
+        self.assertIn("[chDB]", groupby_line)
+        self.assertNotIn("[Pandas]", groupby_line)
+
+        # Sanity: GROUP BY must actually appear in the pushed-down SQL
+        self.assertIn("GROUP BY", output)
+
+    def test_explain_labels_pushable_groupby_agg_func_as_chdb(self):
+        """Simple groupby('col').mean() must also render as [chDB]."""
+        ds = DataStore.from_file(self.parquet_file)
+        res = ds.groupby('product_category').mean()
+
+        output = _capture_explain(res)
+
+        groupby_line = next(
+            line for line in output.splitlines() if "GroupBy(" in line
+        )
+        self.assertIn("[chDB]", groupby_line)
+        self.assertNotIn("[Pandas]", groupby_line)
+        self.assertIn("GROUP BY", output)
+
+    def test_explain_labels_non_pushable_groupby_agg_list_as_pandas(self):
+        """When agg_dict is itself a list (not a dict-of-lists), it cannot be
+        pushed to chDB, so the GroupBy op line must render as [Pandas]."""
+        from datastore.lazy_ops import LazyGroupByAgg
+        ds = DataStore.from_file(self.parquet_file)
+
+        op = LazyGroupByAgg(
+            groupby_cols=['product_category'],
+            agg_dict=['sum', 'mean'],  # list, not dict -> cannot push
+        )
+        self.assertFalse(op.can_push_to_sql())
+        self.assertEqual(op.execution_engine(), 'Pandas')
+
+    def test_explain_labels_pushable_apply_as_chdb(self):
+        """groupby().apply(lambda x: x.sum()) is detected as a simple aggregation
+        and pushed to chDB, so explain() must label that op as [chDB]."""
+        ds = DataStore.from_file(self.parquet_file)
+        res = ds.groupby('product_category').apply(lambda x: x.sum())
+
+        output = _capture_explain(res)
+
+        apply_line = next(
+            (line for line in output.splitlines() if "apply" in line.lower()),
+            None,
+        )
+        if apply_line is not None:
+            self.assertIn("[chDB]", apply_line)
+            self.assertNotIn("[Pandas]", apply_line)
+
+    def test_lazy_groupby_agg_execution_engine_returns_canonical_literal(self):
+        """Direct unit test: LazyGroupByAgg.execution_engine() must return the
+        canonical 'chDB'/'Pandas' literal that explain() understands.
+
+        Returning 'SQL' here previously caused explain() to mislabel pushed-down
+        GroupBy ops as Pandas.
+        """
+        from datastore.lazy_ops import LazyGroupByAgg
+
+        pushable = LazyGroupByAgg(
+            groupby_cols=['product_category'], agg_func='mean'
+        )
+        self.assertTrue(pushable.can_push_to_sql())
+        self.assertEqual(pushable.execution_engine(), 'chDB')
+
+        pushable_dict = LazyGroupByAgg(
+            groupby_cols=['product_category'],
+            agg_dict={'star_rating': ['mean', 'count']},
+        )
+        self.assertTrue(pushable_dict.can_push_to_sql())
+        self.assertEqual(pushable_dict.execution_engine(), 'chDB')
+
+        non_pushable = LazyGroupByAgg(
+            groupby_cols=['product_category'],
+            agg_dict=['sum', 'mean'],
+        )
+        self.assertFalse(non_pushable.can_push_to_sql())
+        self.assertEqual(non_pushable.execution_engine(), 'Pandas')
+
+
+class TestBuildExecutionSQLFirstSegment(unittest.TestCase):
+    """``_build_execution_sql`` (the backend for ``to_sql()`` and
+    ``explain()``'s SQL preview) returns the SQL the executor would
+    issue against the *original source* - i.e. the FIRST step of
+    ``_execute()``.
+
+    Regression for PR #577 Copilot comment: a previous implementation
+    used ``next(seg for seg in segments if seg.is_sql())`` which would
+    happily pick a LATER ``SQL-on-Python(__df__)`` segment when the
+    first segment was Pandas (cost-aware planner case for ORDER BY
+    without LIMIT). That returned a Python-table-function SQL whose
+    ``FROM`` clause does not match the original source the user sees in
+    the executor's first call.
+    """
+
+    def setUp(self):
+        import pandas as pd
+
+        self.temp_dir = tempfile.mkdtemp()
+        self.parquet_file = os.path.join(self.temp_dir, "data.parquet")
+        pd.DataFrame({"a": list(range(10)), "b": list(range(10))}).to_parquet(
+            self.parquet_file
+        )
+
+    def tearDown(self):
+        if os.path.exists(self.parquet_file):
+            os.unlink(self.parquet_file)
+        if os.path.exists(self.temp_dir):
+            os.rmdir(self.temp_dir)
+
+    def test_first_segment_sql_returns_source_bound_sql(self):
+        ds = DataStore.from_file(self.parquet_file)
+        sql = ds[ds["a"] > 5].to_sql()
+        self.assertIn("file(", sql)
+        self.assertNotIn("Python(", sql)
+        self.assertNotIn("__df__", sql)
+        self.assertIn('"a" > 5', sql)
+
+    def test_first_segment_pandas_returns_source_select(self):
+        """When the chain starts with a Pandas segment (e.g. ORDER BY
+        without LIMIT under the cost-aware planner), ``to_sql()`` must
+        return the initial ``SELECT * FROM <source>`` the executor
+        issues to materialize rows for Pandas - NOT a downstream
+        ``Python(__df__)`` SQL fragment."""
+        ds = DataStore.from_file(self.parquet_file)
+        sql = ds.sort_values("a").to_sql()
+        self.assertIn("file(", sql)
+        self.assertNotIn("Python(", sql)
+        self.assertNotIn("__df__", sql)
+
+
 if __name__ == '__main__':
     unittest.main()

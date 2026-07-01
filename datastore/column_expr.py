@@ -46,6 +46,44 @@ def _is_numeric_dtype(dtype) -> bool:
         return False
 
 
+def _translate_pd_col_operand(other: Any, op_label: str) -> Any:
+    """Translate a pandas 3.x ``pd.col(...)`` operand on the right-hand
+    side of a boolean operator (``&``, ``|``, ``^``) into a chdb-ds
+    Condition/Expression.
+
+    Mirrors ``Expression.wrap`` for arithmetic / comparison operators,
+    but here the caller wants a ``Condition`` (or anything its
+    ``isinstance`` ladder accepts), not an ``Expression``. We just hand
+    back whatever the translator returns; the caller's ladder will pick
+    up the right branch.
+
+    Untranslatable chains (.astype / numpy ufunc) cannot be combined
+    with a chdb-ds Condition tree because the resulting node would
+    have to be evaluated entirely in pandas, defeating the SQL
+    pushdown on the chdb-ds side. Raise a clear error pointing at the
+    pre-materialize workaround.
+    """
+    from .pandas_col_compat import (
+        is_pandas_col_expression,
+        translate_pandas_expression,
+        PandasFallbackExpr,
+    )
+
+    if not is_pandas_col_expression(other):
+        return other
+
+    translated = translate_pandas_expression(other)
+    if isinstance(translated, PandasFallbackExpr):
+        raise TypeError(
+            f"Cannot {op_label} ColumnExpr with an untranslatable "
+            "pd.col(...) chain (e.g. .astype, numpy ufunc, .apply). "
+            "Pre-materialize the chain first, then combine: "
+            "``ds = ds.assign(tmp=pd.col('x').astype(int)); "
+            "(ds['y'] > 0) & ds['tmp']``."
+        )
+    return translated
+
+
 def _is_datetime_dtype(dtype) -> bool:
     """Safely check if dtype is datetime. Handles pandas extension dtypes."""
     import numpy as np
@@ -579,6 +617,8 @@ class ColumnExpr:
         - method mode without SQL-compatible expression
         - expressions that reference pandas-only operations
         - DateTimeMethodExpr with methods known to have incompatible SQL behavior
+        - CaseWhenExpr that contains a PandasFallbackExpr (translated
+          pd.col chain that can't be pushed to SQL)
 
         This is the canonical method to determine execution path.
         Use this instead of checking _executor/_expr directly.
@@ -594,10 +634,23 @@ class ColumnExpr:
         # Check if expression contains pandas-only datetime methods
         if self._expr is not None:
             from .expressions import DateTimeMethodExpr
+            from .case_when import CaseWhenExpr
 
             if isinstance(self._expr, DateTimeMethodExpr):
                 if self._expr.method_name in self._PANDAS_ONLY_DT_METHODS:
                     return True
+
+            # CASE WHEN whose conditions / replacements contain a
+            # PandasFallbackExpr can only run through ExpressionEvaluator
+            # on a live DataFrame; the SQL path would trip
+            # ``PandasFallbackExpr.to_sql`` (NotImplementedError) or, in
+            # the replacement slot, the catch-all ``f"'{str(value)}'"``
+            # in ``_value_to_sql`` and emit malformed SQL.
+            if (
+                isinstance(self._expr, CaseWhenExpr)
+                and self._expr.contains_pandas_fallback()
+            ):
+                return True
 
         return False
 
@@ -656,9 +709,31 @@ class ColumnExpr:
         """Execute expression mode - evaluate the expression tree."""
         from .expression_evaluator import ExpressionEvaluator
         from .conditions import Condition
+        from .expressions import Field
 
-        # Get the executed DataFrame from the DataStore
-        df = self._datastore._execute()
+        # Column pruning: only materialize columns referenced by the expression
+        # instead of SELECT * which wastes memory for wide DataFrames.
+        # Only prune for SQL-backed DataStores (file/table) to avoid dtype changes
+        # when the pruning goes through a SQL segment on in-memory data.
+        # Also skip pruning when DISTINCT is active since it depends on all columns.
+        has_sql_source = bool(
+            self._datastore._table_function or getattr(self._datastore, 'table_name', None)
+        )
+        has_distinct = getattr(self._datastore, '_distinct', False)
+        needed_fields = set()
+        if has_sql_source and not has_distinct and self._expr is not None:
+            for node in self._expr.find(Field):
+                needed_fields.add(node.name)
+
+        if needed_fields:
+            all_cols = set(self._datastore._get_all_column_names())
+            if needed_fields < all_cols:
+                pruned = self._datastore.select(*sorted(needed_fields))
+                df = pruned._execute()
+            else:
+                df = self._datastore._execute()
+        else:
+            df = self._datastore._execute()
 
         # Use unified expression evaluator (respects function_config)
         evaluator = ExpressionEvaluator(df, self._datastore)
@@ -955,9 +1030,6 @@ class ColumnExpr:
                 normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
             )
 
-        # Get the DataFrame from datastore
-        df = self._datastore._execute()
-
         # Get column name from expression
         col_name = None
         if self._source is not None:
@@ -970,8 +1042,30 @@ class ColumnExpr:
 
         # If we can't determine the column, fall back to pandas
         if col_name is None or (
-            not isinstance(self._source._expr, Field) and col_name not in df.columns
+            self._source is not None
+            and not isinstance(self._source._expr, Field)
         ):
+            series = (
+                self._source._execute()
+                if self._source is not None
+                else self._execute_expression()
+            )
+            return series.value_counts(
+                normalize=normalize, sort=sort, ascending=ascending, dropna=dropna
+            )
+
+        # Column pruning: only materialize the needed column instead of SELECT *
+        # Only for SQL-backed sources to avoid dtype changes on in-memory data
+        has_sql_source = bool(
+            self._datastore._table_function or getattr(self._datastore, 'table_name', None)
+        )
+        if has_sql_source:
+            pruned = self._datastore.select(col_name)
+            df = pruned._execute()
+        else:
+            df = self._datastore._execute()
+
+        if col_name not in df.columns:
             series = (
                 self._source._execute()
                 if self._source is not None
@@ -1159,11 +1253,78 @@ class ColumnExpr:
         sort = getattr(self, "_groupby_sort", True)
 
         try:
+            col_name = self._get_column_name()
+
+            # Single-SQL path: push GROUP BY into the SQL query to avoid
+            # materializing the full intermediate DataFrame.
+            # Skip for in-memory DataStores to preserve pandas aggregation semantics
+            # (e.g., sum of all-NaN returns 0 in pandas but NULL in SQL).
+            has_sql_source = bool(
+                datastore._table_function or getattr(datastore, 'table_name', None)
+            )
+            engine = get_execution_engine()
+            # Skip when WHERE references the aggregation column — chDB resolves
+            # aliases in WHERE, so "WHERE col > X" + "agg(col) AS col" triggers
+            # ILLEGAL_AGGREGATION.
+            has_where_alias_conflict = False
+            if datastore._where_condition is not None and col_name:
+                where_sql = datastore._where_condition.to_sql(quote_char='"')
+                if f'"{col_name}"' in where_sql:
+                    has_where_alias_conflict = True
+            if has_sql_source and engine != ExecutionEngine.PANDAS and not has_where_alias_conflict:
+                from copy import copy
+                from .lazy_ops import LazyGroupByAgg
+                dropna_val = getattr(self, "_groupby_dropna", True)
+                new_ds = copy(datastore)
+                new_ds._groupby_fields = []
+                new_ds._add_lazy_op(
+                    LazyGroupByAgg(
+                        groupby_cols=groupby_col_names,
+                        agg_func=self._pandas_agg_func or self._agg_func_name,
+                        sort=sort,
+                        as_index=False,
+                        dropna=dropna_val,
+                        selected_columns=[col_name],
+                    )
+                )
+                result_df = new_ds._execute()
+                datastore._groupby_fields = original_groupby
+
+                # SQL GROUP BY doesn't support dropna — it keeps NULL/empty
+                # groups. Filter them out to match pandas dropna=True.
+                if dropna_val and len(result_df) > 0:
+                    for gc in groupby_col_names:
+                        if gc in result_df.columns:
+                            mask = result_df[gc].notna()
+                            if result_df[gc].dtype == object:
+                                mask = mask & (result_df[gc] != '')
+                            result_df = result_df[mask]
+                    result_df = result_df.reset_index(drop=True)
+
+                if as_index:
+                    if len(groupby_col_names) == 1:
+                        result_series = result_df.set_index(groupby_col_names[0])[col_name]
+                    else:
+                        result_series = result_df.set_index(groupby_col_names)[col_name]
+                    result_series.name = col_name
+                    return result_series
+                else:
+                    return result_df
+
             df = datastore._execute()
+
+            # Column pruning: drop columns not needed for groupby + aggregation
+            # to reduce memory before passing DataFrame to chDB for SQL execution
+            needed_cols = set(groupby_col_names)
+            if col_name and col_name in df.columns:
+                needed_cols.add(col_name)
+            if needed_cols and len(needed_cols) < len(df.columns):
+                cols_to_keep = [c for c in df.columns if c in needed_cols]
+                if len(cols_to_keep) == len(needed_cols):
+                    df = df[cols_to_keep]
 
             # Check execution engine configuration
             engine = get_execution_engine()
-            col_name = self._get_column_name()
 
             if engine == ExecutionEngine.PANDAS:
                 # Use pure pandas groupby with as_index, sort, and dropna parameters
@@ -2140,6 +2301,10 @@ class ColumnExpr:
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__and__", method_args=(other,))
 
+        # pandas 3.x pd.col(...): translate to a chdb-ds Condition so the
+        # rest of __and__ treats it the same as ``ds['x'] > 0``.
+        other = _translate_pd_col_operand(other, "AND")
+
         # For executor mode (e.g., cross-DataStore comparison result), use pandas & on executed results
         if self._exec_mode in ("method", "executor") or (
             isinstance(other, ColumnExpr) and other._exec_mode in ("method", "executor")
@@ -2170,6 +2335,8 @@ class ColumnExpr:
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__rand__", method_args=(other,))
 
+        other = _translate_pd_col_operand(other, "AND")
+
         self_cond = self._to_condition()
 
         if isinstance(other, LazyCondition):
@@ -2198,6 +2365,8 @@ class ColumnExpr:
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__or__", method_args=(other,))
+
+        other = _translate_pd_col_operand(other, "OR")
 
         # For executor/method mode (e.g., cross-DataStore comparison result), use pandas | on executed results
         if self._exec_mode in ("method", "executor") or (
@@ -2228,6 +2397,8 @@ class ColumnExpr:
         # Handle numpy arrays and pandas Series by deferring to method mode
         if isinstance(other, (np.ndarray, pd.Series)):
             return ColumnExpr(source=self, method_name="__ror__", method_args=(other,))
+
+        other = _translate_pd_col_operand(other, "OR")
 
         self_cond = self._to_condition()
 
@@ -3150,8 +3321,67 @@ class ColumnExpr:
         return len(self._execute())
 
     def __iter__(self):
-        """Iterate over executed values."""
+        """Iterate over values - SeriesGroupBy semantics when grouped, Series otherwise.
+
+        Mirrors :py:meth:`pandas.core.groupby.SeriesGroupBy.__iter__` when this
+        ColumnExpr is the direct result of ``ds.groupby(...)[col]`` (Expression
+        mode with a simple ``Field``): iteration yields ``(group_key, sub_series)``
+        pairs.
+
+        For all other forms - plain column expressions, computed expressions
+        like ``ds['a'] + ds['b']``, and crucially **aggregated results** like
+        ``ds.groupby('g')['v'].sum() * 2`` (which propagate ``_groupby_fields``
+        downstream but are no longer a SeriesGroupBy) - iteration falls back to
+        iterating over the values of the executed Series.
+
+        Example:
+            >>> # SeriesGroupBy form: yields (key, Series) per group
+            >>> for key, sub in ds.groupby('cat')['v']:
+            ...     print(key, sub.tolist())
+            ...
+            >>> # Plain column form: yields scalar values
+            >>> for v in ds['v']:
+            ...     print(v)
+            ...
+            >>> # Aggregated form: still yields scalar values (after agg+arith)
+            >>> for v in ds.groupby('cat')['v'].sum() * 2:
+            ...     print(v)
+        """
+        # Only a "pure" ds.groupby(...)[col] ColumnExpr is a SeriesGroupBy.
+        # Other modes propagate _groupby_fields for downstream pushdown
+        # bookkeeping (some, like ``transform``, even re-copy ``_expr=Field``
+        # onto an op-mode result), but their iter must keep yielding scalar
+        # values to match pandas Series semantics. So we require that NONE of
+        # the derived-mode entry fields are set.
+        if (
+            self._groupby_fields
+            and isinstance(self._expr, Field)
+            and self._source is None
+            and self._op_type is None
+            and self._agg_func_name is None
+        ):
+            return self._iter_groupby_series()
         return iter(self._execute())
+
+    def _iter_groupby_series(self):
+        """Yield ``(key, sub_Series)`` pairs - SeriesGroupBy iteration via pandas.
+
+        Caller must have already verified ``isinstance(self._expr, Field)`` and
+        ``self._groupby_fields``.
+        """
+        df = self._datastore._get_df()
+        groupby_cols = [
+            gf.name if isinstance(gf, Field) else str(gf)
+            for gf in self._groupby_fields
+        ]
+        # Match LazyGroupBy._pandas_groupby() convention: single column -> scalar by,
+        # multi-column -> list, so scalar/tuple key semantics align between
+        # ``for k, g in gb:`` and ``for k, s in gb['col']:``.
+        by = groupby_cols[0] if len(groupby_cols) == 1 else groupby_cols
+        series_gb = df.groupby(
+            by, sort=self._groupby_sort, dropna=self._groupby_dropna
+        )[self._expr.name]
+        return iter(series_gb)
 
     def __getitem__(self, key):
         """
@@ -5462,7 +5692,11 @@ class ColumnExpr:
         self, value=None, method=None, axis=None, inplace=False, limit=None
     ) -> "ColumnExpr":
         """
-        Fill NA/NaN values using pandas (lazy).
+        Fill NA/NaN values (lazy).
+
+        When value is a simple scalar and no method/limit is specified,
+        uses SQL ifNull() for efficient execution without full materialization.
+        Otherwise falls back to pandas fillna().
 
         Args:
             value: Value to use to fill holes (can be ColumnExpr or scalar)
@@ -5480,6 +5714,26 @@ class ColumnExpr:
         """
         if inplace:
             raise ImmutableError("ColumnExpr")
+
+        # Use SQL ifNull() for simple numeric scalar fills when we have an expression tree
+        # This avoids materializing the full DataFrame just to fill NAs
+        # Only for numeric values to avoid type mismatch (e.g., ifNull(Float64_col, 'string'))
+        # Only for SQL-backed sources - ifNull expression doesn't evaluate correctly
+        # on in-memory DataStores when chained with further operations (e.g., .abs())
+        has_sql_source = bool(
+            self._datastore
+            and (self._datastore._table_function or getattr(self._datastore, 'table_name', None))
+        )
+        if (
+            has_sql_source
+            and value is not None
+            and method is None
+            and limit is None
+            and self._expr is not None
+            and not isinstance(value, (pd.Series, pd.DataFrame))
+            and isinstance(value, (int, float))
+        ):
+            return self.fillna_sql(value)
 
         return ColumnExpr(
             source=self,
@@ -5685,6 +5939,62 @@ class ColumnExpr:
             method_args=(dtype,),
             method_kwargs=dict(copy=copy, errors=errors),
         )
+
+    def case_when(self, caselist) -> "ColumnExpr":
+        """Pandas-style ``Series.case_when``: replace values where any
+        condition is True, otherwise keep this column's value.
+
+        Mirrors :meth:`pandas.Series.case_when` but routes through
+        :class:`CaseWhenExpr` (compiles to ``CASE WHEN ... END``) and
+        accepts ``pd.col(...)`` in conditions/replacements. pandas 3.0.3's
+        own ``Series.case_when`` crashes on ``pd.col`` input.
+
+        Args:
+            caselist: list of ``(condition, replacement)`` tuples. Each
+                side may be a ``pd.col(...)``, a chdb-ds
+                ``Condition`` / ``ColumnExpr``, or a scalar.
+
+        Example:
+            >>> bucket = ds["revenue"].case_when([
+            ...     (pd.col("revenue") < 25, "small"),
+            ...     (pd.col("revenue") < 45, "medium"),
+            ...     (pd.col("revenue") >= 45, "large"),
+            ... ])
+        """
+        from .case_when import CaseWhenExpr
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if not isinstance(caselist, list):
+            raise TypeError(
+                f"case_when expects a list of (condition, replacement) tuples, "
+                f"got {type(caselist).__name__}"
+            )
+
+        translated_cases = []
+        for i, entry in enumerate(caselist):
+            if not isinstance(entry, tuple) or len(entry) != 2:
+                raise ValueError(
+                    f"case_when entry {i} must be a (condition, replacement) "
+                    f"tuple of length 2, got {entry!r}"
+                )
+            cond, repl = entry
+            if is_pandas_col_expression(cond):
+                cond = translate_pandas_expression(cond)
+            if is_pandas_col_expression(repl):
+                repl = translate_pandas_expression(repl)
+            translated_cases.append((cond, repl))
+
+        # ELSE = self, matching pandas Series.case_when semantics.
+        default = self._expr if self._expr is not None else self
+        expr = CaseWhenExpr(
+            cases=translated_cases,
+            default=default,
+            datastore=self._datastore,
+        )
+        return ColumnExpr(expr=expr, datastore=self._datastore)
 
     def sort_values(
         self,

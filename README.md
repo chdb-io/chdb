@@ -14,6 +14,10 @@
 [![Twitter](https://img.shields.io/twitter/url/http/shields.io.svg?style=social&label=Twitter)](https://twitter.com/chdb_io)
 </div>
 
+<div align="center">
+   <sub>Contributing? See <a href="./CONTRIBUTING.md"><code>CONTRIBUTING.md</code></a> — setup, the modify-then-test workflow, PR conventions, CI, and releases. <a href="./AGENTS.md"><code>AGENTS.md</code></a> (kept short and stays in agent context) captures the chdb-ds design and testing principles.</sub>
+</div>
+
 # chDB
 
 
@@ -573,8 +577,10 @@ curl -sL https://raw.githubusercontent.com/chdb-io/chdb/main/install_skill.sh | 
 - Demo chDB at [ClickHouse v23.7 livehouse!](https://t.co/todc13Kn19) and [Slides](https://docs.google.com/presentation/d/1ikqjOlimRa7QAg588TAB_Fna-Tad2WMg7_4AgnbQbFA/edit?usp=sharing)
 
 ## Contributing
-Contributions are what make the open source community such an amazing place to be learn, inspire, and create. Any contributions you make are **greatly appreciated**.
-There are something you can help:
+Contributions are what make the open source community such an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup, the modify-then-test workflow, PR & commit conventions, CI, and releases. Things you can help with:
+
 - [ ] Help test and report bugs
 - [ ] Help improve documentation
 - [ ] Help improve code quality and performance

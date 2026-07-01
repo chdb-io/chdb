@@ -361,6 +361,11 @@ class LazyColumnAssignment(LazyOp):
         from .function_executor import function_config
         from .expressions import ArithmeticExpression
         from .column_expr import ColumnExpr
+        from .pandas_col_compat import PandasFallbackExpr
+
+        # pd.col fallback nodes always force pandas execution.
+        if isinstance(expr, PandasFallbackExpr):
+            return True
 
         # Check ColumnExpr FIRST (before checking left/right attributes)
         if isinstance(expr, ColumnExpr):
@@ -877,9 +882,25 @@ class LazyRelationalOp(LazyOp):
             return result
         elif self.op_type == "PANDAS_FILTER" and self.condition is not None:
             # Method-mode ColumnExpr condition (e.g., cumsum() > 6, rank() > 3)
+            # or pd.col fallback expression (e.g., pd.col('x').astype(int) > 0)
             # Execute the condition to get boolean Series
             from .column_expr import ColumnExpr
+            from .pandas_col_compat import PandasFallbackExpr
+            from .expression_evaluator import ExpressionEvaluator
 
+            if isinstance(self.condition, PandasFallbackExpr):
+                evaluator = ExpressionEvaluator(df, context)
+                bool_series = evaluator.evaluate(self.condition)
+                if len(bool_series) == len(df):
+                    result = df[bool_series.values]
+                else:
+                    result = df.loc[bool_series.index[bool_series]]
+                self._logger.debug(
+                    "      -> Pandas filter (pd.col fallback): %d -> %d rows",
+                    rows_before,
+                    len(result),
+                )
+                return result
             if isinstance(self.condition, ColumnExpr):
                 # Set datastore for proper execution context
                 if self.condition._datastore is None:
@@ -1184,8 +1205,14 @@ class LazyGroupByAgg(LazyOp):
         return True
 
     def execution_engine(self) -> str:
-        """Return which engine this operation should use."""
-        return "SQL"
+        """Return which engine this operation should use.
+
+        Returns 'chDB' when the aggregation can be pushed down to SQL,
+        otherwise 'Pandas'. Returning the canonical literal lets
+        DataStore.explain() label this op consistently with the segment
+        it lives in.
+        """
+        return "chDB" if self.can_push_to_sql() else "Pandas"
 
 
 class LazyDataFrameSource(LazyOp):
@@ -1683,9 +1710,15 @@ class LazyApply(LazyOp):
         return self._is_simple_agg
 
     def execution_engine(self) -> str:
-        """Return which engine this operation should use."""
+        """Return which engine this operation should use.
+
+        Returns the canonical 'chDB' / 'Pandas' literal so that
+        DataStore.explain() can label this op consistently with the
+        segment it lives in. Returning 'SQL' here previously caused
+        pushed-down apply() ops to be mislabeled as Pandas in the plan.
+        """
         if self.can_push_to_sql():
-            return "SQL"
+            return "chDB"
         return "Pandas"
 
 
@@ -1885,6 +1918,7 @@ class LazyWhere(LazyOp):
         from .expression_evaluator import ExpressionEvaluator
         from .column_expr import ColumnExpr
         from .conditions import Condition
+        from .pandas_col_compat import PandasFallbackExpr
 
         op_name = "Mask" if self._is_mask else "Where"
         self._log_execute(op_name, f"other={self.other}")
@@ -1896,6 +1930,9 @@ class LazyWhere(LazyOp):
             evaluator = ExpressionEvaluator(df, context)
             bool_series = evaluator.evaluate(cond_expr)
         elif isinstance(cond, Condition):
+            evaluator = ExpressionEvaluator(df, context)
+            bool_series = evaluator.evaluate(cond)
+        elif isinstance(cond, PandasFallbackExpr):
             evaluator = ExpressionEvaluator(df, context)
             bool_series = evaluator.evaluate(cond)
         elif isinstance(cond, pd.Series):

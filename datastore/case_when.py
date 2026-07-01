@@ -145,6 +145,27 @@ class CaseWhenExpr(Expression):
             # Try to convert to string
             return f"'{str(value)}'"
 
+    def contains_pandas_fallback(self) -> bool:
+        """True iff any condition / replacement / default in this CASE
+        contains a :class:`PandasFallbackExpr` — meaning the expression
+        cannot be serialized to SQL and must be evaluated in pandas.
+
+        Used by ``evaluate`` (force np.select) and by
+        ``ColumnExpr.is_pandas_only`` (route the containing assign() /
+        with_column() through the pandas segment, so the planner never
+        tries to splice this CASE into a SELECT clause).
+        """
+        from .pandas_col_compat import PandasFallbackExpr
+
+        for cond, val in self._cases:
+            if isinstance(cond, PandasFallbackExpr):
+                return True
+            if isinstance(val, PandasFallbackExpr):
+                return True
+        if isinstance(self._default, PandasFallbackExpr):
+            return True
+        return False
+
     def evaluate(self, df: pd.DataFrame) -> pd.Series:
         """
         Execute the CASE WHEN expression using the configured engine.
@@ -152,6 +173,8 @@ class CaseWhenExpr(Expression):
         Engine selection is based on function_config settings:
         - Default: SQL (chDB) for better performance
         - Can use pandas (np.select) if configured via function_config.use_pandas('when')
+        - PandasFallbackExpr anywhere in the tree forces pandas (the SQL
+          path has no way to serialize a fallback wrapper).
 
         Args:
             df: DataFrame to evaluate against
@@ -160,6 +183,10 @@ class CaseWhenExpr(Expression):
             pd.Series with the computed values
         """
         from .function_executor import function_config
+
+        if self.contains_pandas_fallback():
+            _logger.debug("[CaseWhenExpr] Contains pd.col fallback, using Pandas engine")
+            return self._evaluate_via_pandas(df)
 
         if function_config.should_use_pandas('when'):
             _logger.debug("[CaseWhenExpr] Using Pandas engine (np.select)")
@@ -230,7 +257,10 @@ class CaseWhenExpr(Expression):
         evaluator = ExpressionEvaluator(df, self._datastore)
 
         def _evaluate_value(val):
-            """Evaluate a value that could be Expression, ColumnExpr, or literal."""
+            """Evaluate a value that could be Expression, ColumnExpr,
+            PandasFallbackExpr (translated pd.col chain), or literal."""
+            from .pandas_col_compat import PandasFallbackExpr
+
             if isinstance(val, ColumnExpr):
                 # ColumnExpr - evaluate using evaluator
                 result = evaluator.evaluate(val)
@@ -238,6 +268,14 @@ class CaseWhenExpr(Expression):
                     return result.values
                 return result
             elif isinstance(val, Expression):
+                result = evaluator.evaluate(val)
+                if isinstance(result, pd.Series):
+                    return result.values
+                return result
+            elif isinstance(val, PandasFallbackExpr):
+                # Translated pd.col chain we couldn't push to SQL
+                # (.astype, np.log, ...). The evaluator unwraps and runs
+                # the original pandas Expression against ``df``.
                 result = evaluator.evaluate(val)
                 if isinstance(result, pd.Series):
                     return result.values
@@ -316,8 +354,10 @@ class CaseWhenBuilder:
         Add a WHEN condition.
 
         Args:
-            condition: Boolean condition (e.g., ds['score'] >= 90)
-            value: Value to use when condition is True
+            condition: Boolean condition (e.g., ds['score'] >= 90,
+                       or a pandas 3.x ``pd.col(...)`` expression).
+            value: Value to use when condition is True. May also be a
+                   ``pd.col(...)`` expression.
 
         Returns:
             self for method chaining
@@ -325,7 +365,17 @@ class CaseWhenBuilder:
         Example:
             >>> builder.when(ds['score'] >= 90, 'A')
             ...        .when(ds['score'] >= 80, 'B')
+            >>> builder.when(pd.col('score') >= 90, 'A')   # pandas 3.x
         """
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if is_pandas_col_expression(condition):
+            condition = translate_pandas_expression(condition)
+        if is_pandas_col_expression(value):
+            value = translate_pandas_expression(value)
         self._cases.append((condition, value))
         return self
 
@@ -336,7 +386,8 @@ class CaseWhenBuilder:
         This method MUST be called to complete the CASE WHEN expression.
 
         Args:
-            default: Default value when no condition matches
+            default: Default value when no condition matches. May be a
+                pandas 3.x ``pd.col(...)`` expression.
 
         Returns:
             CaseWhenExpr that can be assigned to a column
@@ -349,6 +400,14 @@ class CaseWhenBuilder:
         """
         if not self._cases:
             raise ValueError("CaseWhenBuilder requires at least one .when() condition before .otherwise()")
+
+        from .pandas_col_compat import (
+            is_pandas_col_expression,
+            translate_pandas_expression,
+        )
+
+        if is_pandas_col_expression(default):
+            default = translate_pandas_expression(default)
 
         return CaseWhenExpr(
             cases=self._cases.copy(),

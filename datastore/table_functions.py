@@ -97,6 +97,29 @@ class TableFunction(ABC):
         return False
 
 
+class SubqueryTableFunction(TableFunction):
+    """
+    Wraps a raw SQL subquery as a table source.
+
+    Used for UNION ALL and other composite SQL expressions.
+    """
+
+    def __init__(self, sql: str):
+        super().__init__()
+        self._sql = sql
+
+    @property
+    def can_read(self) -> bool:
+        return True
+
+    @property
+    def can_write(self) -> bool:
+        return False
+
+    def to_sql(self, quote_char: str = '"') -> str:
+        return f"({self._sql})"
+
+
 class FileTableFunction(TableFunction):
     """
     Wrapper for file() table function.
@@ -171,7 +194,7 @@ class FileTableFunction(TableFunction):
         Returns:
             True if row order is guaranteed to be preserved
         """
-        format_name = self.params.get("format", "").lower()
+        format_name = (self.params.get("format") or "").lower()
 
         # For Parquet files, check if preserve_order setting is enabled
         if format_name == "parquet":
@@ -375,7 +398,7 @@ class S3TableFunction(TableFunction):
         Returns:
             True if row order is guaranteed to be preserved
         """
-        format_name = self.params.get("format", "").lower()
+        format_name = (self.params.get("format") or "").lower()
 
         if format_name == "parquet":
             if format_settings:
