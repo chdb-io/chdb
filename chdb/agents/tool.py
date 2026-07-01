@@ -263,12 +263,15 @@ class ChDBTool:
           (so a dotted name is never mis-quoted as a single identifier). This is
           what lets the mcp-clickhouse `(database, table)` tools map onto ChDBTool.
         """
+        # `None` means "not provided"; any other value (including "") is a real
+        # database argument and must be validated — an empty string flows into
+        # quote_ident() and is rejected rather than silently treated as unqualified.
         if "(" in target:
-            if database:
+            if database is not None:
                 raise ChDBError("database qualifier is not valid for a table-function target")
             return target
         ident = quote_ident(target)
-        return "{}.{}".format(quote_ident(database), ident) if database else ident
+        return "{}.{}".format(quote_ident(database), ident) if database is not None else ident
 
     def describe(self, target, *, database=None, params=None):
         """Describe a table (optionally `database`-qualified) OR a table-function

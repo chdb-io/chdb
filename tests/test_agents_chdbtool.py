@@ -166,6 +166,15 @@ class TestQualifiedName(unittest.TestCase):
         finally:
             tool.close()
 
+    def test_empty_string_database_is_rejected_not_ignored(self):
+        # an explicit "" must not be silently treated as unqualified
+        tool = ChDBTool(read_only=True)
+        try:
+            with self.assertRaises(InvalidIdentifier):
+                tool.describe("t", database="")
+        finally:
+            tool.close()
+
 
 class TestDataFrameQuery(unittest.TestCase):
     def test_dataframe_query(self):
