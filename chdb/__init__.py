@@ -187,7 +187,7 @@ sql = query
 
 PyReader = _chdb.PyReader
 
-from . import dbapi, session, udf, utils  # noqa: E402
+from . import agents, dbapi, session, udf, utils  # noqa: E402
 from .state import connect  # noqa: E402
 
 __all__ = [
@@ -204,4 +204,5 @@ __all__ = [
     "udf",
     "utils",
     "connect",
+    "agents",
 ]
