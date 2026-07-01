@@ -2802,7 +2802,8 @@ class DataStore(PandasCompatMixin):
         (``__arrow_c_stream__`` / ``__arrow_c_array__``) — a ``pyarrow.Table``,
         ``polars.DataFrame``, a pandas 3.x DataFrame, another DataStore, a DuckDB
         relation, etc. — as well as raw pyarrow ``Table`` / ``RecordBatch`` /
-        ``RecordBatchReader`` objects.
+        ``RecordBatchReader`` objects, and a plain ``pandas.DataFrame`` (which on
+        pandas 2.x has no PyCapsule interface, so it is handled directly).
 
         Like pandas 3.0's ``DataFrame.from_arrow``, ingest currently relies on
         pyarrow to materialize a pandas frame, so it is *not* zero-copy on import.
@@ -2826,6 +2827,12 @@ class DataStore(PandasCompatMixin):
             2  3    c
         """
         import pyarrow as pa
+
+        # A pandas DataFrame goes straight through from_df: its own dtypes are the
+        # faithful representation, and pandas 2.x DataFrames don't implement the
+        # PyCapsule interface (so the hasattr branch below would miss them).
+        if isinstance(data, pd.DataFrame):
+            return cls.from_df(data, name=name)
 
         if isinstance(data, pa.Table):
             table = data

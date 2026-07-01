@@ -23,6 +23,14 @@ import pyarrow.parquet as pq
 import pytest
 
 from datastore import DataStore
+from datastore.pandas_col_compat import PANDAS_3_PLUS
+
+# CI runs the suite under both pandas 2.x and pandas 3.x. A few things are pandas
+# 3.0-only: the ``pd.DataFrame.from_arrow`` constructor and the default string dtype.
+requires_pandas3 = pytest.mark.skipif(
+    not PANDAS_3_PLUS,
+    reason="requires pandas 3.0+ (pd.DataFrame.from_arrow / default string dtype)",
+)
 
 
 @pytest.fixture
@@ -132,6 +140,7 @@ class TestArrowCStream:
         assert tbl.num_rows == 5
         assert tbl.schema.field("id").type == pa.uint64()
 
+    @requires_pandas3
     def test_pandas_from_arrow_consumes_datastore(self, parquet_path):
         ds = DataStore.from_file(parquet_path)
         pdf = pd.DataFrame.from_arrow(ds.filter(ds.id > 3))  # pandas 3.0 standard
@@ -234,6 +243,7 @@ class TestPandas3xIngestDtypes:
         assert tbl.column("b").to_pylist() == [True, None, False]
         assert tbl.column("f").to_pylist() == [1.5, None, 3.5]
 
+    @requires_pandas3
     def test_pandas3_default_string_dtype(self):
         df = pd.DataFrame({"s": ["a", "b", "c"]})
         # pandas 3.0 defaults object strings to the new string dtype
@@ -268,6 +278,7 @@ class TestPandas3xIngestDtypes:
         assert tbl.column("c").to_pylist() == ["a", "b", "a"]
 
 
+@requires_pandas3
 class TestPandas3xConsumer:
     """pandas 3.x consuming a DataStore via ``pd.DataFrame.from_arrow`` (the 3.0 API)."""
 
@@ -322,3 +333,101 @@ class TestNativeArrowTypes:
     def test_all_null_column(self, tmp_path):
         path = self._write(tmp_path, pa.table({"a": pa.array([None, None], pa.int64())}))
         assert DataStore.from_file(path).to_arrow().column("a").to_pylist() == [None, None]
+
+
+# --------------------------------------------------------------------------------------
+# Nested / binary / awkward-name types
+#
+# Type fidelity is verified via the NATIVE from_file path (chDB emits Arrow directly),
+# which is independent of the installed pandas version.
+# --------------------------------------------------------------------------------------
+class TestNestedAndBinaryTypes:
+    def _write(self, tmp_path, table):
+        path = tmp_path / "nested.parquet"
+        pq.write_table(table, path)
+        return str(path)
+
+    def test_map_type(self, tmp_path):
+        vals = [[("a", 1), ("b", 2)], [("c", 3)]]
+        path = self._write(
+            tmp_path, pa.table({"m": pa.array(vals, pa.map_(pa.string(), pa.int64()))})
+        )
+        tbl = DataStore.from_file(path).to_arrow()
+        assert pa.types.is_map(tbl.schema.field("m").type)
+        assert tbl.column("m").to_pylist() == vals
+
+    def test_struct_type(self, tmp_path):
+        vals = [{"x": 1, "y": "a"}, {"x": 2, "y": "b"}]
+        path = self._write(
+            tmp_path,
+            pa.table({"s": pa.array(vals, pa.struct([("x", pa.int64()), ("y", pa.string())]))}),
+        )
+        tbl = DataStore.from_file(path).to_arrow()
+        assert pa.types.is_struct(tbl.schema.field("s").type)
+        assert tbl.column("s").to_pylist() == vals
+
+    def test_fixed_size_binary(self, tmp_path):
+        vals = [
+            b"1234567890123456",
+            b"\x00\x11\x22\x33\x44\x55\x66\x77\x88\x99\xaa\xbb\xcc\xdd\xee\xff",
+        ]
+        path = self._write(tmp_path, pa.table({"b": pa.array(vals, pa.binary(16))}))
+        tbl = DataStore.from_file(path).to_arrow()
+        assert pa.types.is_fixed_size_binary(tbl.schema.field("b").type)
+        assert tbl.column("b").to_pylist() == vals
+
+    def test_awkward_column_names(self, tmp_path):
+        tbl_in = pa.Table.from_arrays(
+            [pa.array([1, 2]), pa.array([3, 4]), pa.array([5, 6])],
+            names=["a b", "名前", "with-dash"],
+        )
+        path = self._write(tmp_path, tbl_in)
+        out = DataStore.from_file(path).to_arrow()
+        assert out.column_names == ["a b", "名前", "with-dash"]
+        assert out.column("名前").to_pylist() == [3, 4]
+
+
+# --------------------------------------------------------------------------------------
+# Streaming + requested_schema (Arrow C stream). Pure pyarrow, pandas-version agnostic.
+# --------------------------------------------------------------------------------------
+class TestArrowStreaming:
+    def test_multibatch_reader_ingest(self):
+        tbl = pa.table({"n": list(range(30))})
+        reader = pa.RecordBatchReader.from_batches(tbl.schema, tbl.to_batches(max_chunksize=10))
+        ds = DataStore.from_arrow(reader)  # must drain all batches
+        assert sorted(ds.to_df()["n"].tolist()) == list(range(30))
+
+    def test_c_stream_consumable_via_reader(self, tmp_path):
+        path = tmp_path / "stream.parquet"
+        pq.write_table(pa.table({"n": list(range(1000))}), path)
+        ds = DataStore.from_file(str(path))
+        result = pa.RecordBatchReader.from_stream(ds).read_all()
+        assert result.num_rows == 1000
+
+    def test_requested_schema_compatible_cast(self, tmp_path):
+        path = tmp_path / "cast.parquet"
+        pq.write_table(pa.table({"v": pa.array([1, 2, 3], pa.int64())}), path)
+        ds = DataStore.from_file(str(path))
+        out = pa.RecordBatchReader.from_stream(
+            ds, schema=pa.schema([("v", pa.int32())])
+        ).read_all()
+        assert out.schema.field("v").type == pa.int32()
+        assert out.column("v").to_pylist() == [1, 2, 3]
+
+    def test_requested_schema_incompatible_raises(self, tmp_path):
+        path = tmp_path / "bad.parquet"
+        pq.write_table(pa.table({"v": pa.array([1, 2, 3], pa.int64())}), path)
+        ds = DataStore.from_file(str(path))
+        with pytest.raises(pa.lib.ArrowException):
+            pa.RecordBatchReader.from_stream(
+                ds, schema=pa.schema([("v", pa.list_(pa.int64()))])
+            ).read_all()
+
+
+class TestIbisInterop:
+    def test_ingest_from_ibis(self):
+        ibis = pytest.importorskip("ibis")
+        # ibis produces Arrow; DataStore.from_arrow ingests it.
+        expr = ibis.memtable(pa.table({"n": [1, 2, 3]}))
+        ds = DataStore.from_arrow(expr.to_pyarrow())
+        assert ds.to_df()["n"].tolist() == [1, 2, 3]
