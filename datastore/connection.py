@@ -155,6 +155,26 @@ class Connection:
             friendly_msg = translate_remote_error(e)
             raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
 
+    def query_arrow(self, sql: str):
+        """
+        Execute a SQL query and return a ``pyarrow.Table`` directly from chDB.
+
+        Unlike :meth:`execute` (which materializes a pandas DataFrame via the
+        ``Dataframe`` output format), this requests chDB's ``ArrowTable`` output,
+        preserving ClickHouse's native Arrow types with no pandas round-trip.
+
+        Args:
+            sql: SQL query string
+
+        Returns:
+            pyarrow.Table
+        """
+        if self._conn is None:
+            raise ConnectionError("Not connected. Call connect() first.")
+
+        self._log_query(sql, "Connection", "ArrowTable")
+        return self._conn.query(sql, "ArrowTable")
+
     def query_df(
         self,
         sql: str,

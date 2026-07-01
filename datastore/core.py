@@ -2794,6 +2794,67 @@ class DataStore(PandasCompatMixin):
         return cls.from_df(df, name=name)
 
     @classmethod
+    def from_arrow(cls, data, name: str = None) -> "DataStore":
+        """
+        Create a DataStore from any Arrow-compatible object.
+
+        Accepts anything implementing the Arrow PyCapsule interface
+        (``__arrow_c_stream__`` / ``__arrow_c_array__``) — a ``pyarrow.Table``,
+        ``polars.DataFrame``, a pandas 3.x DataFrame, another DataStore, a DuckDB
+        relation, etc. — as well as raw pyarrow ``Table`` / ``RecordBatch`` /
+        ``RecordBatchReader`` objects.
+
+        Like pandas 3.0's ``DataFrame.from_arrow``, ingest currently relies on
+        pyarrow to materialize a pandas frame, so it is *not* zero-copy on import.
+        The zero-copy, native-typed path is on export — see :meth:`to_arrow` and
+        :meth:`__arrow_c_stream__`.
+
+        Args:
+            data: Arrow-compatible object.
+            name: Optional source name (used in ``explain()`` output).
+
+        Returns:
+            DataStore wrapping the data.
+
+        Example:
+            >>> import pyarrow as pa
+            >>> tbl = pa.table({"n": [1, 2, 3], "name": ["a", "b", "c"]})
+            >>> ds = DataStore.from_arrow(tbl)
+            >>> ds.filter(ds.n > 1).to_df()
+               n name
+            1  2    b
+            2  3    c
+        """
+        import pyarrow as pa
+
+        if isinstance(data, pa.Table):
+            table = data
+        elif isinstance(data, pa.RecordBatch):
+            table = pa.Table.from_batches([data])
+        elif isinstance(data, pa.RecordBatchReader):
+            table = data.read_all()
+        elif hasattr(data, "__arrow_c_stream__") or hasattr(data, "__arrow_c_array__"):
+            # pyarrow >= 14 consumes any PyCapsule producer (Polars, pandas 3.x,
+            # DuckDB, another DataStore, ...).
+            table = pa.table(data)
+        else:
+            raise TypeError(
+                "from_arrow() expects an Arrow-compatible object implementing the "
+                "Arrow PyCapsule interface (__arrow_c_stream__ / __arrow_c_array__); "
+                f"got {type(data).__name__}"
+            )
+
+        # Arrow-backed pandas (``pd.ArrowDtype``) keeps the source's Arrow types
+        # faithfully (nullable ints stay nullable, no int->float coercion), which
+        # chDB's Python() table function reads directly. Fall back to the default
+        # numpy-backed conversion if a type has no Arrow-backed mapping.
+        try:
+            df = table.to_pandas(types_mapper=pd.ArrowDtype)
+        except Exception:
+            df = table.to_pandas()
+        return cls.from_df(df, name=name)
+
+    @classmethod
     def uri(cls, uri: str, **kwargs) -> "DataStore":
         """
         Create DataStore from a URI string with automatic type inference.
@@ -3500,6 +3561,164 @@ class DataStore(PandasCompatMixin):
             >>> df = ds.select("*").filter(ds.age > 18).to_pandas()
         """
         return self.to_df()
+
+    def to_arrow(self, types: str = "native"):
+        """
+        Execute all operations and return a ``pyarrow.Table``.
+
+        Unlike :meth:`to_df`, this avoids a pandas round-trip whenever the whole
+        pipeline pushes down to a single chDB SQL query: chDB emits Arrow
+        directly, so the result keeps ClickHouse's *native* Arrow types
+        (``UInt64`` -> ``uint64``, ``Decimal`` -> ``decimal128``,
+        ``LowCardinality`` -> ``dictionary``, ``Array`` -> ``list``, ...) with no
+        numpy materialization.
+
+        Because ``pyarrow.Table`` implements the Arrow PyCapsule interface, the
+        returned table (and this DataStore itself, via :meth:`__arrow_c_stream__`)
+        can be consumed zero-copy by Polars, DuckDB, pyarrow and pandas 3.x
+        (``pd.DataFrame.from_arrow(ds)``) with no per-library glue.
+
+        Args:
+            types: ``"native"`` (default) returns ClickHouse-native Arrow types
+                for pushed-down queries, falling back to the pandas result for
+                pipelines that need pandas-side ops. ``"pandas"`` always routes
+                through :meth:`to_df`, so the Arrow dtypes line up exactly with
+                ``to_df()`` (pandas-flavored, e.g. ``UInt64`` seen as ``int64``).
+
+        Returns:
+            pyarrow.Table
+
+        Note:
+            Arrow has no row index, so any index produced by ``to_df()`` (e.g.
+            group keys from ``groupby(as_index=True)``) appears as regular
+            columns here.
+
+        Example:
+            >>> ds = DataStore.from_file("data.parquet")
+            >>> tbl = ds.filter(ds.age > 18).to_arrow()
+            >>> import polars as pl
+            >>> pl.from_arrow(ds)          # zero-copy, no glue code
+        """
+        import pyarrow as pa
+
+        if types not in ("native", "pandas"):
+            raise ValueError(
+                f"to_arrow(types=...) must be 'native' or 'pandas', got {types!r}"
+            )
+
+        if types == "native":
+            table = self._try_native_arrow()
+            if table is not None:
+                return table
+
+        return pa.Table.from_pandas(self._execute(), preserve_index=False)
+
+    def __arrow_c_stream__(self, requested_schema=None):
+        """
+        Arrow PyCapsule interface — the pandas 3.0 interchange standard.
+
+        Exposes this DataStore as an Arrow C stream so any Arrow consumer
+        (Polars, DuckDB, pyarrow, ``pd.DataFrame.from_arrow``) can pull the
+        results directly, without depending on this library. Delegates to the
+        ``pyarrow.Table`` produced by :meth:`to_arrow`.
+        """
+        return self.to_arrow().__arrow_c_stream__(requested_schema)
+
+    def _try_native_arrow(self):
+        """
+        Return a ``pyarrow.Table`` produced by a single pushed-down chDB SQL
+        query, or ``None`` when the result can't be produced natively (DataFrame
+        source, pandas-side ops, or a non-SELECT/DML state) so the caller falls
+        back to converting the pandas result.
+        """
+        # DataFrame-backed stores already hold pandas types; there is no
+        # ClickHouse source to read natively, so let the pandas path handle them.
+        if self._source_df is not None:
+            return None
+        if not (self._table_function or self.table_name):
+            return None
+        if isinstance(self._table_function, PythonTableFunction):
+            return None
+        # Only plain SELECT queries can be read as Arrow (not writeback/DML).
+        if self._delete_flag or self._update_fields or self._insert_columns:
+            return None
+
+        try:
+            sql, alias_renames = self._single_sql_query()
+        except Exception as e:  # planning / SQL-build issue -> fall back to pandas
+            self._logger.debug("to_arrow native path unavailable, using pandas: %s", e)
+            return None
+        if sql is None:
+            return None
+
+        if self._executor is None:
+            self.connect()
+        self._logger.debug(
+            "to_arrow native SQL: %s", sql[:2000] + "..." if len(sql) > 2000 else sql
+        )
+        table = self._executor.query_arrow(sql)
+
+        # Rename temp SQL aliases (e.g. ``__agg_score__`` -> ``score``) back to
+        # their user-facing names — the same rename _execute() applies to the
+        # pandas result via _postprocess_sql_result(). Arrow has no row index, so
+        # (unlike to_df) group keys stay as regular columns.
+        if alias_renames:
+            rename_back = {
+                temp: orig
+                for temp, orig in alias_renames.items()
+                if temp in table.column_names
+            }
+            if rename_back:
+                table = table.rename_columns(
+                    [rename_back.get(c, c) for c in table.column_names]
+                )
+        return table
+
+    def _single_sql_query(self):
+        """
+        Return ``(sql, alias_renames)`` iff the entire pipeline collapses to ONE
+        first-segment SQL query against the original source (so the query result
+        is the *final* result); return ``(None, None)`` otherwise. Mirrors the
+        segment planning done in :meth:`_execute`.
+        """
+        from .query_planner import QueryPlanner
+
+        if not self._lazy_ops:
+            # Plain ``SELECT * FROM source`` — fully pushable, no aliases.
+            return self._append_format_settings(self.to_sql(execution_format=True)), {}
+
+        schema = self.schema()
+        planner = QueryPlanner()
+        exec_plan = planner.plan_segments(
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=schema,
+            local_source=False,  # non-Python source (excluded in _try_native_arrow)
+        )
+        if len(exec_plan.segments) != 1:
+            return None, None
+        seg = exec_plan.segments[0]
+        if not (seg.is_sql() and seg.is_first_segment and seg.plan is not None):
+            return None, None
+
+        build_result = SQLExecutionEngine(self).build_sql_from_plan(seg.plan, schema)
+        return (
+            self._append_format_settings(build_result.sql),
+            build_result.alias_renames or {},
+        )
+
+    def _append_format_settings(self, sql: Optional[str]) -> Optional[str]:
+        """Append ``SETTINGS ...`` from ``self._format_settings`` (parity with
+        the first SQL segment in :meth:`_execute`)."""
+        if sql and self._format_settings:
+            settings_parts = []
+            for key, value in self._format_settings.items():
+                if isinstance(value, str):
+                    settings_parts.append(f"{key}='{value}'")
+                else:
+                    settings_parts.append(f"{key}={value}")
+            sql = f"{sql} SETTINGS {', '.join(settings_parts)}"
+        return sql
 
     def to_dict(self, orient: str = "dict", *, into=dict, index: bool = True):
         """
