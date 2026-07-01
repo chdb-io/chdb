@@ -230,7 +230,7 @@ for _name in ("create_function", "drop_function", "NullHandling", "ExceptionHand
         globals()[_name] = getattr(_chdb, _name)
         _udf_exports.append(_name)
 
-from . import dbapi, session, udf, utils  # noqa: E402
+from . import agents, dbapi, session, udf, utils  # noqa: E402
 from .state import connect  # noqa: E402
 
 try:
@@ -254,4 +254,5 @@ __all__ = [
     "udf",
     "utils",
     "connect",
+    "agents",
 ] + _udf_exports
