@@ -52,11 +52,22 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["datastore*", "chdb"]
+include = ["datastore*", "chdb", "chdb.agents"]
 namespaces = true
 
 [tool.setuptools.exclude-package-data]
 chdb = ["*.dylib", "*.so"]
+
+# Ship the agents contract + conformance fixture (non-.py data) in the wheel, so
+# `import chdb.agents` and the conformance runner work on a real `pip install`,
+# not only in the source tree.
+[tool.setuptools.package-data]
+chdb = [
+    "agents/CONTRACT.md",
+    "agents/conformance/*.jsonl",
+    "agents/conformance/*.md",
+    "agents/conformance/fixtures/*",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

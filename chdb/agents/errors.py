@@ -21,9 +21,11 @@ __all__ = [
     "parse_error",
 ]
 
-# `Code: N. DB::Exception: <msg>. (TYPE)` — TYPE is the trailing (UPPER_SNAKE).
+# `Code: N. DB::Exception: <msg>. (TYPE)` — TYPE is the LAST (UPPER_SNAKE) token.
+# `msg` is greedy so a parenthesized UPPER_SNAKE inside the message body (e.g.
+# "... (SOME_ENUM) ...") stays in the message and the real trailing type wins.
 _ERR_RE = re.compile(
-    r"Code:\s*(?P<code>\d+)\.\s*DB::Exception:\s*(?P<msg>.*?)\.?\s*\((?P<type>[A-Z0-9_]+)\)",
+    r"Code:\s*(?P<code>\d+)\.\s*DB::Exception:\s*(?P<msg>.*)\((?P<type>[A-Z0-9_]+)\)",
     re.S,
 )
 
@@ -82,6 +84,7 @@ def parse_error(exc_or_message):
         return ChDBError(message.strip())
     code = int(m.group("code"))
     type_ = m.group("type")
-    msg = m.group("msg").strip()
+    # greedy msg keeps the trailing ". " that precedes the (TYPE); trim it
+    msg = m.group("msg").strip().rstrip(".").strip()
     cls = _CODE_TO_CLASS.get(code) or _TYPE_TO_CLASS.get(type_, ChDBError)
     return cls(msg, code=code, type=type_)

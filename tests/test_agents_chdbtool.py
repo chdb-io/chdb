@@ -29,6 +29,16 @@ class TestErrorParser(unittest.TestCase):
         self.assertIsInstance(e, ChDBError)
         self.assertEqual(e.type, "UNKNOWN")
 
+    def test_parse_type_with_parenthesized_body(self):
+        # a parenthesized UPPER_SNAKE inside the message body must NOT hijack the
+        # trailing type (regression for the greedy-vs-non-greedy regex fix)
+        e = parse_error(
+            "Code: 62. DB::Exception: Cannot parse (SOME_ENUM value) near x. (SYNTAX_ERROR)"
+        )
+        self.assertEqual(e.code, 62)
+        self.assertEqual(e.type, "SYNTAX_ERROR")
+        self.assertIn("SOME_ENUM", e.message)
+
 
 class TestQuoteIdent(unittest.TestCase):
     def test_plain(self):

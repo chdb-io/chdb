@@ -42,6 +42,8 @@ class QueryResult:
             "row_count": self.row_count,
             "truncated": self.truncated,
             "column_names": self.column_names,
+            "elapsed_s": self.elapsed_s,
+            "bytes_read": self.bytes_read,
         }
 
     def __repr__(self):
@@ -106,19 +108,23 @@ class ChDBTool:
         if not isinstance(sql, str) or sql.strip() == "":
             raise ChDBError("sql must be a non-empty string")
         cap = self.max_rows if max_rows is None else max(1, int(max_rows))
+        # Both the engine call and the decode go through parse_error: malformed or
+        # non-JSON engine output (edge-case statements, empty results) becomes a
+        # typed ChDBError rather than a bare JSONDecodeError leaking to the caller.
         try:
             res = self._session.query(sql, "JSON", params=params or {})
-        except Exception as e:  # engine failure -> typed error
+            obj = json.loads(res.bytes().decode() or "{}")
+        except Exception as e:
             raise parse_error(e)
-        obj = json.loads(res.bytes().decode() or "{}")
         data = obj.get("data", []) or []
         meta = obj.get("meta", []) or []
         stats = obj.get("statistics", {}) or {}
         cols = [m.get("name") for m in meta]
         truncated = len(data) > cap
         rows = data[:cap] if truncated else data
-        # secondary byte guard: trim further if the serialized slice is large
-        if not truncated and self.max_bytes:
+        # Secondary byte guard, applied whether or not the row cap already fired:
+        # a few very large rows under max_rows must still be capped by max_bytes.
+        if self.max_bytes:
             size = 0
             for i, r in enumerate(rows):
                 size += len(json.dumps(r, separators=(",", ":")))
@@ -126,7 +132,7 @@ class ChDBTool:
                     rows = rows[:i]
                     truncated = True
                     break
-        return QueryResult(rows, truncated, cols, stats.get("elapsed"), stats.get("rows_read"))
+        return QueryResult(rows, truncated, cols, stats.get("elapsed"), stats.get("bytes_read"))
 
     async def aquery(self, sql, *, params=None, max_rows=None):
         """Async wrapper. chDB has no native async engine call, so this runs
