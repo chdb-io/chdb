@@ -58,20 +58,28 @@ class TestAgentsConformance(unittest.TestCase):
     def _invoke(self, case):
         method = case["method"]
         args = _sub(case.get("args", {}))
+        # A case may declare its own tool config (for constructor-level features
+        # like max_execution_time / file_allowlist / attachments); otherwise reuse
+        # the shared read-only tool.
+        if "tool" in case:
+            tool = ChDBTool(**_sub(case["tool"]))
+            self.addCleanup(tool.close)
+        else:
+            tool = self.tool
         if method == "call":
-            return self.tool.call(args["name"], args.get("arguments"))
+            return tool.call(args["name"], args.get("arguments"))
         if method == "query":
-            return self.tool.query(args["sql"], params=args.get("params"), max_rows=args.get("max_rows"))
+            return tool.query(args["sql"], params=args.get("params"), max_rows=args.get("max_rows"))
         if method == "list_databases":
-            return self.tool.list_databases()
+            return tool.list_databases()
         if method == "list_tables":
-            return self.tool.list_tables(args.get("database"))
+            return tool.list_tables(args.get("database"))
         if method == "describe":
-            return self.tool.describe(args["target"])
+            return tool.describe(args["target"])
         if method == "get_sample_data":
-            return self.tool.get_sample_data(args["target"], limit=args.get("limit", 5))
+            return tool.get_sample_data(args["target"], limit=args.get("limit", 5))
         if method == "list_functions":
-            return self.tool.list_functions(like=args.get("like"), limit=args.get("limit", 200))
+            return tool.list_functions(like=args.get("like"), limit=args.get("limit", 200))
         self.fail("unknown method in case: " + method)
 
     def _assert(self, case, exp):

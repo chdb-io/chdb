@@ -12,6 +12,11 @@ Each line is one case:
 `args` for `method: "call"` are `{name, arguments}` (the tool-dispatch path);
 for every other method they are the method's keyword arguments.
 
+A case may include an optional `tool` object with constructor-level config
+(`max_execution_time`, `file_allowlist`, `attachments`, `read_only`, ...). When
+present, the runner builds a dedicated tool from it for that case; otherwise it
+reuses a shared read-only tool. `{{fixtures}}` is substituted inside `tool` too.
+
 `expect` is one of:
 
 | key | meaning |

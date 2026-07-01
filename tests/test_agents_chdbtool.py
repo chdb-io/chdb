@@ -6,10 +6,21 @@ identifier quoting, tool_specs shape, and aquery.
 """
 
 import asyncio
+import os
+import tempfile
 import unittest
 
 from chdb.agents import ChDBTool, ChDBError, ChDBReadOnlyError, quote_ident, InvalidIdentifier
 from chdb.agents.errors import parse_error
+from chdb.agents.safety import quote_string
+
+
+def _sample_csv():
+    d = tempfile.mkdtemp()
+    p = os.path.join(d, "sample.csv")
+    with open(p, "w") as fh:
+        fh.write("id,name\n1,alice\n2,bob\n")
+    return p
 
 
 class TestErrorParser(unittest.TestCase):
@@ -100,6 +111,58 @@ class TestAquery(unittest.IsolatedAsyncioTestCase):
             sync = tool.query("SELECT toInt32(1) AS x").rows
             asy = (await tool.aquery("SELECT toInt32(1) AS x")).rows
             self.assertEqual(sync, asy)
+        finally:
+            tool.close()
+
+
+class TestQuoteString(unittest.TestCase):
+    def test_escapes_quote_and_backslash(self):
+        self.assertEqual(quote_string("a'b"), "'a\\'b'")
+        self.assertEqual(quote_string("a\\b"), "'a\\\\b'")
+
+    def test_reject_nul(self):
+        with self.assertRaises(InvalidIdentifier):
+            quote_string("a\x00b")
+
+
+class TestAttachFile(unittest.TestCase):
+    def test_attach_file_readonly_raises(self):
+        tool = ChDBTool(read_only=True)
+        try:
+            with self.assertRaises(ChDBReadOnlyError):
+                tool.attach_file("rep", _sample_csv())
+        finally:
+            tool.close()
+
+    def test_attach_file_writable(self):
+        tool = ChDBTool(read_only=False)
+        try:
+            tool.attach_file("rep_w", _sample_csv())
+            self.assertEqual(tool.query("SELECT toInt32(count()) AS c FROM rep_w").rows, [{"c": 2}])
+        finally:
+            tool.close()
+
+
+class TestDataFrameQuery(unittest.TestCase):
+    def test_dataframe_query(self):
+        import pandas as pd
+
+        tool = ChDBTool(read_only=True)
+        try:
+            df = pd.DataFrame({"c": ["a", "a", "b"], "p": [1.0, 2.0, 3.0]})
+            r = tool.dataframe_query(
+                "SELECT c, sum(p) AS s FROM Python(orders) GROUP BY c ORDER BY c",
+                {"orders": df},
+            )
+            self.assertEqual(r.rows, [{"c": "a", "s": 3}, {"c": "b", "s": 3}])
+        finally:
+            tool.close()
+
+    def test_dataframe_query_requires_mapping(self):
+        tool = ChDBTool(read_only=True)
+        try:
+            with self.assertRaises(ChDBError):
+                tool.dataframe_query("SELECT 1", {})
         finally:
             tool.close()
 

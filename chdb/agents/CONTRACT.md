@@ -20,10 +20,17 @@ a case to the shared fixture documenting the divergence — not silently differ.
 | `describe_table` | Columns/types of a table **or** a table-function expression |
 | `get_sample_data` | A few sample rows from a table or table function |
 | `list_functions` | List available SQL functions |
+| `attach_file` | Register a local file as a queryable named table (writable tools only) |
 
 Bindings expose these as native tools (Python methods on `ChDBTool`; TS
 `chdbTools()`; MCP tools in mcp-clickhouse) but the **capability set, argument
 meaning, error classification, and safety guarantees are identical**.
+
+**Language-optional capability (not in the cross-language conformance):**
+`dataframe_query` — query in-process DataFrames via the `Python()` table
+function. Meaningful only in languages/deployments where the agent runtime and
+the engine share a process (Python co-located; not applicable to a remote MCP or
+to TS, which has no in-process pandas). Bindings may omit it.
 
 ## The four pillars (normative)
 
@@ -57,6 +64,21 @@ meaning, error classification, and safety guarantees are identical**.
 - Direct library methods raise a typed error (`ChDBError` and subclasses).
 - Error classification is shared: parse `Code: N. DB::Exception: <msg>. (TYPE)`;
   map by code (`164→READONLY`, `62→SYNTAX`, `46/47/60/81/115→UNKNOWN_*`).
+
+### P5 — Resource and source controls (normative, optional-per-deployment)
+- **Query timeout** — an optional `max_execution_time` (seconds) bounds runaway
+  queries at the engine (`TIMEOUT_EXCEEDED`). Off by default; set per deployment.
+- **File allowlist** — an optional list of path prefixes. When set, `file()` /
+  `s3()` / `url()` literal paths outside it are rejected (`ACCESS_DENIED`), and
+  `attach_file` refuses out-of-allowlist paths. Best-effort on raw SQL (literal
+  args only) — `readonly=2` remains the real write backstop; OS-level sandboxing
+  is the real filesystem backstop.
+- **Source catalog** — `attach_file(name, path[, format])` registers a file as a
+  view. It is a write, so it works only on a writable tool; a read-only tool
+  declares files at construction (`attachments=`), materialized **before** the
+  read-only lock. The path/format are baked in via `quote_string` (a stored view
+  can't carry bound params); `quote_string` is the shared literal-escaping helper
+  (backslash + single-quote), used only where the engine cannot bind.
 
 ## Silent-conversion policy
 No coercion beyond JSON decode. 64-bit integers are returned in their exact form
