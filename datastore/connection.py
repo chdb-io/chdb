@@ -173,7 +173,12 @@ class Connection:
             raise ConnectionError("Not connected. Call connect() first.")
 
         self._log_query(sql, "Connection", "ArrowTable")
-        return self._conn.query(sql, "ArrowTable")
+        try:
+            return self._conn.query(sql, "ArrowTable")
+        except Exception as e:
+            self._logger.error("[chDB] Arrow query failed: %s", e)
+            friendly_msg = translate_remote_error(e)
+            raise ExecutionError(f"Query execution failed: {friendly_msg}\nSQL: {sql}")
 
     def query_df(
         self,

@@ -3618,7 +3618,15 @@ class DataStore(PandasCompatMixin):
             if table is not None:
                 return table
 
-        return pa.Table.from_pandas(self._execute(), preserve_index=False)
+        # Fallback: convert the pandas result. Arrow has no row index, so surface
+        # a meaningful index (a named index, or group keys from
+        # groupby(as_index=True), or a MultiIndex) as regular columns rather than
+        # dropping it — matching the native path and the docstring Note. A plain
+        # unnamed RangeIndex carries no data and is left out.
+        df = self._execute()
+        if df.index.names != [None]:
+            df = df.reset_index()
+        return pa.Table.from_pandas(df, preserve_index=False)
 
     def __arrow_c_stream__(self, requested_schema=None):
         """

@@ -431,3 +431,52 @@ class TestIbisInterop:
         expr = ibis.memtable(pa.table({"n": [1, 2, 3]}))
         ds = DataStore.from_arrow(expr.to_pyarrow())
         assert ds.to_df()["n"].tolist() == [1, 2, 3]
+
+
+# --------------------------------------------------------------------------------------
+# Regressions for review feedback (PR #596)
+# --------------------------------------------------------------------------------------
+class TestFallbackIndexHandling:
+    """The pandas-fallback path must surface a meaningful index (group keys / named
+    index) as columns instead of dropping it — matching the native path."""
+
+    def test_from_df_groupby_keeps_group_keys(self):
+        # DataFrame source -> _try_native_arrow returns None -> fallback path.
+        ds = DataStore.from_df(
+            pd.DataFrame({"city": ["NY", "LA", "NY", "SF"], "score": [1.0, 2.0, 3.0, 4.0]})
+        )
+        tbl = ds.groupby("city").agg({"score": "sum"}).to_arrow()
+        assert "city" in tbl.column_names
+        got = dict(zip(tbl.column("city").to_pylist(), tbl.column("score").to_pylist()))
+        assert got == {"NY": 4.0, "LA": 2.0, "SF": 4.0}
+
+    def test_types_pandas_groupby_keeps_group_keys(self, parquet_path):
+        ds = DataStore.from_file(parquet_path)
+        tbl = ds.groupby("city").agg({"score": "sum"}).to_arrow(types="pandas")
+        assert "city" in tbl.column_names
+
+    def test_named_index_surfaced_as_column(self):
+        ds = DataStore.from_df(pd.DataFrame({"a": [1, 2], "b": [3, 4]})).set_index("a")
+        tbl = ds.to_arrow()
+        assert set(tbl.column_names) == {"a", "b"}
+
+    def test_plain_rangeindex_not_surfaced(self):
+        ds = DataStore.from_df(pd.DataFrame({"a": [1, 2, 3]}))
+        tbl = ds.filter(ds.a > 1).to_arrow()
+        assert tbl.column_names == ["a"]  # no spurious index column
+
+
+class TestQueryArrowErrorHandling:
+    """query_arrow must translate raw chDB errors into ExecutionError, like execute()."""
+
+    def test_query_arrow_wraps_errors_as_executionerror(self):
+        from datastore.connection import Connection
+        from datastore.exceptions import ExecutionError
+
+        conn = Connection(":memory:")
+        conn.connect()
+        try:
+            with pytest.raises(ExecutionError):
+                conn.query_arrow("SELECT bad syntax !!!")
+        finally:
+            conn.close()
