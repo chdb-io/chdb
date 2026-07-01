@@ -1,5 +1,9 @@
 # chDB Agent Tool — cross-language contract
 
+> **Status: beta / experimental (introduced in chdb 4.2.0).** The surface may
+> change in a minor release while it stabilizes across bindings; pin a version if
+> you depend on it.
+
 One behavior, many bindings. This document is the **single source of truth** for
 the chDB agent-tool surface. `chdb.agents.ChDBTool` (Python) is the reference
 implementation; the TypeScript binding (`chdb-node`) and any future language
