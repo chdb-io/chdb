@@ -143,6 +143,30 @@ class TestAttachFile(unittest.TestCase):
             tool.close()
 
 
+class TestQualifiedName(unittest.TestCase):
+    def test_describe_and_sample_with_database(self):
+        # (database, table) qualification is what lets mcp-clickhouse's
+        # describe_table(database, table) / get_sample_data(...) map onto ChDBTool.
+        tool = ChDBTool(read_only=False)
+        try:
+            tool.query("CREATE DATABASE dq")
+            tool.query("CREATE TABLE dq.t (x Int32, y String) ENGINE = MergeTree ORDER BY x")
+            tool.query("INSERT INTO dq.t VALUES (1, 'a'), (2, 'b')")
+            cols = [c["name"] for c in tool.describe("t", database="dq")]
+            self.assertEqual(cols, ["x", "y"])
+            self.assertEqual(tool.get_sample_data("t", database="dq", limit=1).row_count, 1)
+        finally:
+            tool.close()
+
+    def test_database_qualifier_rejected_for_table_function(self):
+        tool = ChDBTool(read_only=True)
+        try:
+            with self.assertRaises(ChDBError):
+                tool.describe("numbers(5)", database="dq")
+        finally:
+            tool.close()
+
+
 class TestDataFrameQuery(unittest.TestCase):
     def test_dataframe_query(self):
         import pandas as pd
