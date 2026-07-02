@@ -3,7 +3,16 @@
 `ChDBTool` is the single Python implementation that agent frameworks shim, and
 the reference implementation of the language-neutral contract in CONTRACT.md
 (exercised by conformance/cases.jsonl, shared with the TypeScript binding).
+
+.. note::
+   **Beta / experimental (introduced in chdb 4.2.0).** ``chdb.agents`` is a new
+   API that downstream integrations (mcp-clickhouse, langchain, llama-index)
+   build on. Its surface may change in a minor release while it stabilizes — pin
+   a version if you depend on it. The behavior it does expose is governed by
+   CONTRACT.md.
 """
+
+__beta__ = True
 
 from .errors import (
     ChDBError,
@@ -11,7 +20,7 @@ from .errors import (
     ChDBSyntaxError,
     ChDBUnknownObjectError,
 )
-from .safety import InvalidIdentifier, quote_ident
+from .safety import InvalidIdentifier, quote_ident, quote_string
 from .tool import ChDBTool, QueryResult
 
 __all__ = [
@@ -23,4 +32,6 @@ __all__ = [
     "ChDBUnknownObjectError",
     "InvalidIdentifier",
     "quote_ident",
+    "quote_string",
+    "__beta__",
 ]

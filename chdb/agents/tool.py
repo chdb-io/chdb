@@ -252,14 +252,31 @@ class ChDBTool:
         sql = "SELECT name FROM system.tables WHERE database = {db:String} ORDER BY name"
         return [r["name"] for r in self.query(sql, params={"db": database}).rows]
 
-    def describe(self, target, *, params=None):
-        """Describe a table OR a table-function expression (e.g. file('x.parquet')).
+    def _qualify(self, target, database=None):
+        """Turn (target[, database]) into a safe SQL source reference.
 
-        A bare identifier is backtick-quoted; an expression containing '(' is a
-        table function and passed through as SQL (its literal args are the one
-        place a value rides in text — read-only + no-write makes that inert).
+        - `target` containing '(' is a table-function expression, passed through
+          as SQL (its literal args are the one place a value rides in text —
+          read-only + no-write makes that inert); a database qualifier is invalid.
+        - otherwise `target` is a table identifier, backtick-quoted; when
+          `database` is given each part is quoted independently as `db`.`table`
+          (so a dotted name is never mis-quoted as a single identifier). This is
+          what lets the mcp-clickhouse `(database, table)` tools map onto ChDBTool.
         """
-        ref = target if "(" in target else quote_ident(target)
+        # `None` means "not provided"; any other value (including "") is a real
+        # database argument and must be validated — an empty string flows into
+        # quote_ident() and is rejected rather than silently treated as unqualified.
+        if "(" in target:
+            if database is not None:
+                raise ChDBError("database qualifier is not valid for a table-function target")
+            return target
+        ident = quote_ident(target)
+        return "{}.{}".format(quote_ident(database), ident) if database is not None else ident
+
+    def describe(self, target, *, database=None, params=None):
+        """Describe a table (optionally `database`-qualified) OR a table-function
+        expression (e.g. file('x.parquet'))."""
+        ref = self._qualify(target, database)
         rows = self.query("DESCRIBE TABLE {} ".format(ref), params=params).rows
         return [
             {"name": r.get("name"), "type": r.get("type"),
@@ -267,8 +284,8 @@ class ChDBTool:
             for r in rows
         ]
 
-    def get_sample_data(self, target, *, limit=5):
-        ref = target if "(" in target else quote_ident(target)
+    def get_sample_data(self, target, *, database=None, limit=5):
+        ref = self._qualify(target, database)
         return self.query(
             "SELECT * FROM {} LIMIT {{n:UInt32}}".format(ref),
             params={"n": int(limit)},
@@ -296,10 +313,10 @@ class ChDBTool:
             {"name": "list_databases", "description": "List databases.", "input_schema": s()},
             {"name": "list_tables", "description": "List tables in a database (current if omitted).",
              "input_schema": s(database={"type": "string"})},
-            {"name": "describe_table", "description": "Describe a table or table function (columns and types).",
-             "input_schema": s(target={"type": "string"})},
+            {"name": "describe_table", "description": "Describe a table (optionally database-qualified) or table function.",
+             "input_schema": s(target={"type": "string"}, database={"type": "string"})},
             {"name": "get_sample_data", "description": "Return a few sample rows from a table or table function.",
-             "input_schema": s(target={"type": "string"}, limit={"type": "integer"})},
+             "input_schema": s(target={"type": "string"}, database={"type": "string"}, limit={"type": "integer"})},
             {"name": "list_functions", "description": "List available SQL functions.",
              "input_schema": s(like={"type": "string"}, limit={"type": "integer"})},
             {"name": "attach_file", "description": "Register a local file as a queryable named table (writable tools only).",
@@ -319,9 +336,9 @@ class ChDBTool:
                 out = method(args.get("sql", ""), params=args.get("params"))
                 result = out.to_dict()
             elif method_name == "describe":
-                result = method(args["target"])
+                result = method(args["target"], database=args.get("database"))
             elif method_name == "get_sample_data":
-                result = method(args["target"], limit=args.get("limit", 5)).to_dict()
+                result = method(args["target"], database=args.get("database"), limit=args.get("limit", 5)).to_dict()
             elif method_name == "list_tables":
                 result = method(args.get("database"))
             elif method_name == "list_functions":
