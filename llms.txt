@@ -1,0 +1,61 @@
+# chDB
+
+> chDB is an in-process OLAP SQL engine powered by ClickHouse, embedded as a Python / Bun / Node.js / Go / Rust / C library and compiled to WebAssembly for the browser. It runs ClickHouse's full SQL dialect with 1000+ functions, queries Parquet / CSV / JSON files in place, references pandas / Polars DataFrames directly inside SQL via the `Python(df)` table function, and joins across external sources — S3, Postgres, MySQL, MongoDB, Iceberg, Delta Lake, and remote ClickHouse — in a single query, all without spinning up a server.
+
+Things to remember when using chDB:
+
+- chDB is the embedded form of ClickHouse: same SQL dialect (NOT PostgreSQL-compatible), same 1000+ functions, same MergeTree engine, no daemon required.
+- Query files in place — `file('data.parquet')`, `s3('https://...', 'key', 'secret')`, `url('https://...')`. No load step.
+- DataFrames are first-class via the `Python(df)` table function: `chdb.query("SELECT * FROM Python(df) WHERE x > 10", output_format="DataFrame")` — DataFrame in, DataFrame out, no `register()` call.
+- Query across sources in one statement: `s3()`, `postgresql()`, `mysql()`, `mongodb()`, `iceberg()`, `deltaLake()`, and `remoteSecure('host:9440', db.table, 'user', 'pass')` for a remote ClickHouse cluster — join local files, DataFrames, and remote systems together.
+- Use `chdb.session.Session('path/to/dir')` for persistent storage; in-memory is the default. The DataStore API (`import datastore as pd`) is a pandas-compatible interface that compiles to optimized SQL — up to 247× faster than pandas on COUNT.
+
+## Clients
+
+- [Python](https://clickhouse.com/docs/chdb/install/python)
+- [Bun](https://clickhouse.com/docs/chdb/install/bun)
+- [Node.js](https://clickhouse.com/docs/chdb/install/nodejs)
+- [Go](https://clickhouse.com/docs/chdb/install/go)
+- [Rust](https://clickhouse.com/docs/chdb/install/rust)
+- [C and C++](https://clickhouse.com/docs/chdb/install/c)
+- [WebAssembly — chDB in the browser](https://wasm.chdb.io/)
+
+## Documentation
+
+- [Python SQL API](https://clickhouse.com/docs/chdb/api/python): `chdb.query()`, `Session`, formats, UDFs, streaming, DB-API 2.0.
+- [DataStore — pandas-compatible fast DataFrame](https://clickhouse.com/docs/chdb/datastore): drop-in pandas replacement with 630+ methods, compiles to optimized SQL.
+- [Query across sources](https://clickhouse.com/docs/chdb/guides/query-remote-clickhouse): join local files and DataFrames with S3, Postgres, MySQL, MongoDB, Iceberg, Delta Lake, and remote ClickHouse via table functions.
+- [SQL reference](https://clickhouse.com/docs/chdb/reference/sql-reference): all 1000+ ClickHouse functions, data types, and syntax.
+
+## Use chDB behind a ClickHouse client
+
+Already using a ClickHouse client library? Point it at an embedded chDB engine — same client API, no server.
+
+- [chDB behind @clickhouse/client (Node.js, experimental)](https://github.com/chdb-io/chdb-node): pass a chDB connection into `createClient({ connection })` via `chdb/connection` to run queries in-process.
+- chDB as a clickhouse-connect backend (Python) — *coming soon*: `clickhouse_connect.get_client("chdb://memory")` will run the standard Python client against an in-process engine.
+
+## AI agents and integrations
+
+- [chdb-node query builder and agent adapters](https://github.com/chdb-io/chdb-node): a typed Layer 3 fluent query builder for Node.js/Bun, plus tool adapters for the Vercel AI SDK (`chdb/ai-sdk`) and Mastra (`chdb/mastra`) that hand agents an embedded SQL tool.
+- [langchain-chdb](https://github.com/chdb-io/langchain-chdb): LangChain provider with vector store, document loader, and agent toolkit.
+- [chdb-sqlalchemy](https://github.com/chdb-io/chdb-sqlalchemy): SQLAlchemy dialect — connects ORM-based stacks and LangChain `SQLDatabaseToolkit`.
+- [Awesome chDB](https://github.com/chdb-io/awesome-chdb): curated list of chDB tools, integrations, and tutorials.
+- [chDB cookbook](https://github.com/chdb-io/cookbook): runnable notebooks for agent, analytics, and ML patterns.
+
+## Examples
+
+- [chDB demos and example notebooks](https://github.com/chdb-io/chdb/tree/main/examples): TPC-H, MovieLens DNN, vector search, Hugging Face Parquet.
+- [NYC Taxi analytics agent on AWS Lambda MicroVMs](https://github.com/nklmish/chdb-lambda-microvm-demo): an AI agent that carries its own query engine — each MicroVM embeds a snapshot-hot chDB for in-process SQL and cross-cloud federation (S3, ClickHouse Cloud, and more) in one statement; chDB is a Lambda MicroVM launch partner.
+- [chDB 4.0 launch with Hex partnership](https://clickhouse.com/blog/chdb.4-0-pandas-hex): "Write Pandas, run ClickHouse, ship from Hex" — the DataStore story.
+- [DataFrame zero-copy journey](https://clickhouse.com/blog/chdb-journey-to-zero-copy): how chDB reaches zero-copy DataFrame interop and 247× faster-than-pandas COUNT.
+
+## Optional
+
+- [Architecture deep dive](https://github.com/chdb-io/chdb/blob/main/docs/ARCHITECTURE.md): how libchdb embeds the ClickHouse query engine.
+- [ClickBench — embedded engines](https://benchmark.clickhouse.com/): chDB benchmarked against other embedded and local SQL engines.
+- [Origin blog — rocket engine on a bicycle](https://clickhouse.com/blog/chdb-embedded-clickhouse-rocket-engine-on-a-bicycle): project history and design philosophy by Auxten.
+- [Main repository (Apache 2.0)](https://github.com/chdb-io/chdb): source, releases, issues, contribution guide.
+
+## Migration from DuckDB
+
+- [Migrate from DuckDB to chDB](https://clickhouse.com/docs/chdb/guides/migration-from-duckdb): API mapping, SQL dialect differences, and a federation walkthrough.
