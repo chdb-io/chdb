@@ -121,6 +121,19 @@ class TestToolSpecs(unittest.TestCase):
             {t["name"] for t in load_descriptors()["tools"]}, set(_TOOL_METHODS)
         )
 
+    def test_load_descriptors_returns_a_defensive_copy(self):
+        # a caller mutating the result must not corrupt what tool_specs()/
+        # capabilities() generate for everyone else in-process
+        d = load_descriptors()
+        d["contract_version"] = "9.9.9"
+        d["tools"][0]["name"] = "mutated"
+        d["tools"][0]["params"].clear()
+        fresh = load_descriptors()
+        self.assertEqual(fresh["contract_version"], CONTRACT_VERSION)
+        self.assertEqual(fresh["tools"][0]["name"], "run_select_query")
+        self.assertEqual(tool_specs()[0]["name"], "run_select_query")
+        self.assertEqual(tool_specs()[0]["input_schema"]["required"], ["sql"])
+
     def test_contract_version_single_source(self):
         self.assertEqual(load_descriptors()["contract_version"], CONTRACT_VERSION)
         caps = capabilities()
@@ -198,6 +211,18 @@ class TestArgumentValidation(unittest.TestCase):
             out = tool.call("get_sample_data", {"target": "numbers(100)", "limit": None})
             self.assertTrue(out["ok"])
             self.assertEqual(out["result"]["row_count"], 5)
+        finally:
+            tool.close()
+
+    def test_call_malformed_arguments_returns_envelope(self):
+        # the dispatch path never throws for caller mistakes (P4): a non-object
+        # arguments payload is an envelope, same as an unknown tool name
+        tool = ChDBTool(read_only=True)
+        try:
+            for bad in ("SELECT 1", 42, ["sql"]):
+                out = tool.call("run_select_query", bad)
+                self.assertFalse(out["ok"])
+                self.assertEqual(out["error"]["type"], "INVALID_ARGUMENT")
         finally:
             tool.close()
 

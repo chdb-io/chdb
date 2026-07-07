@@ -337,10 +337,17 @@ class ChDBTool:
     def call(self, name, arguments=None):
         """Dispatch a tool call, returning an error ENVELOPE instead of raising,
         so the model reads the engine message and can self-correct (P4)."""
-        args = dict(arguments or {})
         method_name = _TOOL_METHODS.get(name)
         if method_name is None:
             return {"ok": False, "error": {"code": 0, "type": "UNKNOWN_TOOL", "message": "unknown tool: " + str(name)}}
+        # Caller mistakes on the dispatch path never throw (P4): a non-object
+        # arguments payload comes back as an envelope, same as an unknown tool.
+        # (dict("...") would raise here, and the TypeScript spread would
+        # silently turn a string into {0: 'S', 1: 'E', ...} garbage.)
+        if arguments is not None and not isinstance(arguments, dict):
+            return {"ok": False, "error": {"code": 0, "type": "INVALID_ARGUMENT",
+                                           "message": "arguments must be an object, got " + type(arguments).__name__}}
+        args = dict(arguments or {})
         try:
             method = getattr(self, method_name)
             if method_name == "query":

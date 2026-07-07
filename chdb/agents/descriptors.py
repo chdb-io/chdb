@@ -13,6 +13,7 @@ hand-copying text that then drifts between languages:
   ``features["dataframe_query"]`` instead of guessing from the package version).
 """
 
+import copy
 import json
 import os
 
@@ -30,18 +31,40 @@ _descriptors_cache = None
 
 
 def load_descriptors():
-    """Return the parsed descriptors.json (cached after the first read)."""
+    """Return the parsed descriptors.json (the file is read once and cached;
+    each call returns a deep copy, so a caller mutating the result cannot
+    corrupt what tool_specs()/capabilities() generate for everyone else)."""
     global _descriptors_cache
     if _descriptors_cache is None:
-        with open(_DESCRIPTORS_PATH, "r", encoding="utf-8") as fh:
-            _descriptors_cache = json.load(fh)
-    return _descriptors_cache
+        try:
+            with open(_DESCRIPTORS_PATH, "r", encoding="utf-8") as fh:
+                _descriptors_cache = json.load(fh)
+        except Exception as e:
+            # A missing/broken descriptors.json takes down every tool_specs()/
+            # capabilities() consumer — surface it as a diagnosable typed error
+            # instead of a raw IOError/JSONDecodeError.
+            raise ChDBError(
+                "cannot load agent tool descriptors from {!r}: {}".format(_DESCRIPTORS_PATH, e)
+            )
+    return copy.deepcopy(_descriptors_cache)
+
+
+# The param types descriptors.json may declare. An unknown type must fail
+# loudly: silently rendering it as a permissive schema would degrade the
+# model-visible argument contract without any signal.
+_PARAM_TYPES = ("string", "integer", "object")
 
 
 def _json_schema(params):
     properties = {}
     required = []
     for p in params:
+        if p["type"] not in _PARAM_TYPES:
+            raise ChDBError(
+                "unknown descriptor param type {!r} for {!r} (expected one of {})".format(
+                    p["type"], p["name"], ", ".join(_PARAM_TYPES)
+                )
+            )
         prop = {"type": p["type"]}
         if p.get("description"):
             prop["description"] = p["description"]

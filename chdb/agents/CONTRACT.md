@@ -123,6 +123,9 @@ to TS, which has no in-process pandas). Bindings may omit it.
 - The **tool-dispatch** path (`call()` / the tool executor) returns a structured
   envelope `{ ok: false, error: { code, type, message } }` instead of throwing,
   so an agent can read the engine message and self-correct.
+- That includes caller mistakes on the dispatch path itself: an unknown tool
+  name and a non-object `arguments` payload both come back as envelopes
+  (`UNKNOWN_TOOL` / `INVALID_ARGUMENT`), never as a raised exception.
 - Direct library methods raise a typed error (`ChDBError` and subclasses).
 - Error classification is shared: parse `Code: N. DB::Exception: <msg>. (TYPE)`;
   map by code (`164→READONLY`, `62→SYNTAX`, `46/47/60/81/115→UNKNOWN_*`).

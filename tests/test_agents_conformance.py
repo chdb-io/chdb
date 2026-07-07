@@ -22,21 +22,23 @@ _FIXTURES = os.path.abspath(os.path.join(_AGENTS, "fixtures"))
 
 
 def _load_fixture():
-    """Return (header, cases). The first record without an "id" is the header
-    ({"fixture": ..., "contract_version": ...}); everything else is a case."""
-    header = None
-    cases = []
+    """Return (header, cases). The FIRST record must be the header
+    ({"fixture": ..., "contract_version": ...}, no "id") and every later record
+    must be a case (with "id") — anything else is a malformed fixture and fails
+    loudly instead of being silently reclassified (a case that lost its "id"
+    must not vanish by being mistaken for a second header)."""
+    records = []
     with open(_CASES, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
-            if not line:
-                continue
-            obj = json.loads(line)
-            if "id" in obj:
-                cases.append(obj)
-            else:
-                header = obj
-    return header, cases
+            if line:
+                records.append(json.loads(line))
+    if not records or "id" in records[0]:
+        raise ValueError("cases.jsonl must start with a header record (no 'id')")
+    bad = [r for r in records[1:] if "id" not in r]
+    if bad:
+        raise ValueError("cases.jsonl has non-header records without an 'id': {!r}".format(bad))
+    return records[0], records[1:]
 
 
 def _sub(args):
