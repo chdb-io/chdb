@@ -10,6 +10,7 @@ Things to remember when using chDB:
 - Query across sources in one statement: `s3()`, `postgresql()`, `mysql()`, `mongodb()`, `iceberg()`, `deltaLake()`, and `remoteSecure('host:9440', db.table, 'user', 'pass')` for a remote ClickHouse cluster — join local files, DataFrames, and remote systems together.
 - Use `chdb.session.Session('path/to/dir')` for persistent storage; in-memory is the default. The DataStore API (`import datastore as pd`) is a pandas-compatible interface that compiles to optimized SQL — up to 247× faster than pandas on COUNT.
 - Documentation pages under `clickhouse.com/docs` return clean Markdown when requested with an `Accept: text/markdown` header — prefer that over parsing the HTML.
+- How the packages relate: [chdb-core](https://github.com/chdb-io/chdb-core) builds the engine — ClickHouse compiled as the `libchdb` library, shipped as prebuilt binaries (the `chdb-core` package on PyPI). `chdb` (Python) and chdb-node / chdb-bun / chdb-go / chdb-rust are thin bindings over the same `libchdb` C ABI, so SQL behavior is identical in every language. Engine bugs and SQL issues belong in chdb-core; installation and API ergonomics belong in the binding's own repo.
 
 ---
 
@@ -28,7 +29,7 @@ You can use it when you want to get the power of ClickHouse in a programming lan
 
 ## Key features
 - **In-process SQL OLAP Engine** - Powered by ClickHouse, no need to install ClickHouse server
-- **Multiple data formats** - Input & Output support for Parquet, CSV, JSON, Arrow, ORC and [70+ more formats](/interfaces/formats)
+- **Multiple data formats** - Input & Output support for Parquet, CSV, JSON, Arrow, ORC and [70+ more formats](https://clickhouse.com/docs/interfaces/formats)
 - **Minimized data copy** - From C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
 - **Rich Python Ecosystem Integration** - Native support for Pandas, Arrow, DB API 2.0, seamlessly fits into existing data science workflows
 - **Zero dependencies** - No need for external database installations
@@ -67,54 +68,54 @@ result = df[df['age'] > 25].groupby('city')['salary'].mean()
 - **SQL pushdown** - Filters and aggregations run at the data source
 - **Universal data sources** - Read from files, S3, databases, data lakes
 
-Learn more: [DataStore Documentation](datastore/index.md)
+Learn more: [DataStore Documentation](https://clickhouse.com/docs/chdb/datastore)
 
 ## What languages are supported by chDB?
 chDB has the following language bindings:
 
-* [Python](install/python.md) - [API Reference](api/python.md)
-* [Go](install/go.md)
-* [Rust](install/rust.md)
-* [NodeJS](install/nodejs.md)
-* [Bun](install/bun.md)
-* [C and C++](install/c.md)
+* [Python](https://clickhouse.com/docs/chdb/install/python) - [API Reference](https://clickhouse.com/docs/chdb/api/python)
+* [Go](https://clickhouse.com/docs/chdb/install/go)
+* [Rust](https://clickhouse.com/docs/chdb/install/rust)
+* [NodeJS](https://clickhouse.com/docs/chdb/install/nodejs)
+* [Bun](https://clickhouse.com/docs/chdb/install/bun)
+* [C and C++](https://clickhouse.com/docs/chdb/install/c)
 
 ## How do I get started?
-* If you're using [Go](install/go.md), [Rust](install/rust.md), [NodeJS](install/nodejs.md), [Bun](install/bun.md) or [C and C++](install/c.md), take a look at the corresponding language pages.
-* If you're using Python, see the [getting started developer guide](getting-started.md) or the [chDB on-demand course](https://learn.clickhouse.com/user_catalog_class/show/1901178).
+* If you're using [Go](https://clickhouse.com/docs/chdb/install/go), [Rust](https://clickhouse.com/docs/chdb/install/rust), [NodeJS](https://clickhouse.com/docs/chdb/install/nodejs), [Bun](https://clickhouse.com/docs/chdb/install/bun) or [C and C++](https://clickhouse.com/docs/chdb/install/c), take a look at the corresponding language pages.
+* If you're using Python, see the [getting started developer guide](https://clickhouse.com/docs/chdb/getting-started) or the [chDB on-demand course](https://learn.clickhouse.com/user_catalog_class/show/1901178).
 
 ### For pandas Users
 Start with the DataStore API for a familiar pandas experience with ClickHouse performance:
 
-* [DataStore Quickstart](datastore/quickstart.md) - Installation and one-line migration
-* [Migration from pandas](guides/migration-from-pandas.md) - Step-by-step migration guide
-* [Pandas Cookbook](guides/pandas-cookbook.md) - Common patterns
-* [Key Differences](guides/pandas-differences.md) - Important differences from pandas
-* [Performance Guide](guides/pandas-performance.md) - Optimization tips
+* [DataStore Quickstart](https://clickhouse.com/docs/chdb/datastore/quickstart) - Installation and one-line migration
+* [Migration from pandas](https://clickhouse.com/docs/chdb/guides/migration-from-pandas) - Step-by-step migration guide
+* [Pandas Cookbook](https://clickhouse.com/docs/chdb/guides/pandas-cookbook) - Common patterns
+* [Key Differences](https://clickhouse.com/docs/chdb/guides/pandas-differences) - Important differences from pandas
+* [Performance Guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) - Optimization tips
 
 ### DataStore API Reference
-* [Factory Methods](datastore/factory-methods.md) - Create from files, databases, cloud storage
-* [Query Building](datastore/query-building.md) - SQL-style operations
-* [Pandas Compatibility](datastore/pandas-compat.md) - 209 compatible methods
-* [Accessors](datastore/accessors.md) - .str, .dt, .arr, .json, .url, .ip, .geo
-* [Configuration](configuration/index.md) - Engine, logging, profiling
-* [Debugging](debugging/index.md) - explain(), profiling, logging
+* [Factory Methods](https://clickhouse.com/docs/chdb/datastore/factory-methods) - Create from files, databases, cloud storage
+* [Query Building](https://clickhouse.com/docs/chdb/datastore/query-building) - SQL-style operations
+* [Pandas Compatibility](https://clickhouse.com/docs/chdb/datastore/pandas-compat) - 209 compatible methods
+* [Accessors](https://clickhouse.com/docs/chdb/datastore/accessors) - .str, .dt, .arr, .json, .url, .ip, .geo
+* [Configuration](https://clickhouse.com/docs/chdb/configuration) - Engine, logging, profiling
+* [Debugging](https://clickhouse.com/docs/chdb/debugging) - explain(), profiling, logging
 
 ### SQL API Guides
-* [Python API Reference](api/python.md) - Complete SQL API documentation
-* [JupySQL](guides/jupysql.md)
-* [Querying Pandas](guides/querying-pandas.md)
-* [Querying Apache Arrow](guides/querying-apache-arrow.md)
-* [Querying data in S3](guides/querying-s3-bucket.md)
-* [Querying Parquet files](guides/querying-parquet.md)
-* [Querying remote ClickHouse](guides/query-remote-clickhouse.md)
-* [Using clickhouse-local database](guides/clickhouse-local.md)
+* [Python API Reference](https://clickhouse.com/docs/chdb/api/python) - Complete SQL API documentation
+* [JupySQL](https://clickhouse.com/docs/chdb/guides/jupysql)
+* [Querying Pandas](https://clickhouse.com/docs/chdb/guides/pandas)
+* [Querying Apache Arrow](https://clickhouse.com/docs/chdb/guides/apache-arrow)
+* [Querying data in S3](https://clickhouse.com/docs/chdb/guides/querying-s3)
+* [Querying Parquet files](https://clickhouse.com/docs/chdb/guides/querying-parquet)
+* [Querying remote ClickHouse](https://clickhouse.com/docs/chdb/guides/query-remote-clickhouse)
+* [Using clickhouse-local database](https://clickhouse.com/docs/chdb/guides/clickhouse-local)
 
 ## An introductory video
 Watch a brief introduction to chDB and learn how it brings ClickHouse's power to your Python environment:
 
 <div class='vimeo-container'>
-<iframe width="560" height="315" src="https://www.youtube.com/embed/e_yL0dlX6k4" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+[Watch the video](https://www.youtube.com/watch?v=e_yL0dlX6k4)
 </div>
 
 ## Performance benchmarks
@@ -122,9 +123,7 @@ chDB delivers exceptional performance across different scenarios:
 
 - **[ClickBench of embedded engines](https://benchmark.clickhouse.com/#eyJzeXN0ZW0iOnsiQXRoZW5hIChwYXJ0aXRpb25lZCkiOnRydWUsIkF0aGVuYSAoc2luZ2xlKSI6dHJ1ZSwiQXVyb3JhIGZvciBNeVNRTCI6dHJ1ZSwiQXVyb3JhIGZvciBQb3N0Z3JlU1FMIjp0cnVlLCJCeXRlSG91c2UiOnRydWUsImNoREIiOnRydWUsIkNpdHVzIjp0cnVlLCJjbGlja2hvdXNlLWxvY2FsIChwYXJ0aXRpb25lZCkiOnRydWUsImNsaWNraG91c2UtbG9jYWwgKHNpbmdsZSkiOnRydWUsIkNsaWNrSG91c2UiOnRydWUsIkNsaWNrSG91c2UgKHR1bmVkKSI6dHJ1ZSwiQ2xpY2tIb3VzZSAoenN0ZCkiOnRydWUsIkNsaWNrSG91c2UgQ2xvdWQiOnRydWUsIkNsaWNrSG91c2UgKHdlYikiOnRydWUsIkNyYXRlREIiOnRydWUsIkRhdGFiZW5kIjp0cnVlLCJEYXRhRnVzaW9uIChzaW5nbGUpIjp0cnVlLCJBcGFjaGUgRG9yaXMiOnRydWUsIkRydWlkIjp0cnVlLCJEdWNrREIgKFBhcnF1ZXQpIjp0cnVlLCJEdWNrREIiOnRydWUsIkVsYXN0aWNzZWFyY2giOnRydWUsIkVsYXN0aWNzZWFyY2ggKHR1bmVkKSI6ZmFsc2UsIkdyZWVucGx1bSI6dHJ1ZSwiSGVhdnlBSSI6dHJ1ZSwiSHlkcmEiOnRydWUsIkluZm9icmlnaHQiOnRydWUsIktpbmV0aWNhIjp0cnVlLCJNYXJpYURCIENvbHVtblN0b3JlIjp0cnVlLCJNYXJpYURCIjpmYWxzZSwiTW9uZXREQiI6dHJ1ZSwiTW9uZ29EQiI6dHJ1ZSwiTXlTUUwgKE15SVNBTSkiOnRydWUsIk15U1FMIjp0cnVlLCJQaW5vdCI6dHJ1ZSwiUG9zdGdyZVNRTCI6dHJ1ZSwiUG9zdGdyZVNRTCAodHVuZWQpIjpmYWxzZSwiUXVlc3REQiAocGFydGl0aW9uZWQpIjp0cnVlLCJRdWVzdERCIjp0cnVlLCJSZWRzaGlmdCI6dHJ1ZSwiU2VsZWN0REIiOnRydWUsIlNpbmdsZVN0b3JlIjp0cnVlLCJTbm93Zmxha2UiOnRydWUsIlNRTGl0ZSI6dHJ1ZSwiU3RhclJvY2tzIjp0cnVlLCJUaW1lc2NhbGVEQiAoY29tcHJlc3Npb24pIjp0cnVlLCJUaW1lc2NhbGVEQiI6dHJ1ZX0sInR5cGUiOnsic3RhdGVsZXNzIjpmYWxzZSwibWFuYWdlZCI6ZmFsc2UsIkphdmEiOmZhbHNlLCJjb2x1bW4tb3JpZW50ZWQiOmZhbHNlLCJDKysiOmZhbHNlLCJNeVNRTCBjb21wYXRpYmxlIjpmYWxzZSwicm93LW9yaWVudGVkIjpmYWxzZSwiQyI6ZmFsc2UsIlBvc3RncmVTUUwgY29tcGF0aWJsZSI6ZmFsc2UsIkNsaWNrSG91c2UgZGVyaXZhdGl2ZSI6ZmFsc2UsImVtYmVkZGVkIjp0cnVlLCJzZXJ2ZXJsZXNzIjpmYWxzZSwiUnVzdCI6ZmFsc2UsInNlYXJjaCI6ZmFsc2UsImRvY3VtZW50IjpmYWxzZSwidGltZS1zZXJpZXMiOmZhbHNlfSwibWFjaGluZSI6eyJzZXJ2ZXJsZXNzIjp0cnVlLCIxNmFjdSI6dHJ1ZSwiTCI6dHJ1ZSwiTSI6dHJ1ZSwiUyI6dHJ1ZSwiWFMiOnRydWUsImM2YS5tZXRhbCwgNTAwZ2IgZ3AyIjp0cnVlLCJjNmEuNHhsYXJnZSwgNTAwZ2IgZ3AyIjp0cnVlLCJjNS40eGxhcmdlLCA1MDBnYiBncDIiOnRydWUsIjE2IHRocmVhZHMiOnRydWUsIjIwIHRocmVhZHMiOnRydWUsIjI0IHRocmVhZHMiOnRydWUsIjI4IHRocmVhZHMiOnRydWUsIjMwIHRocmVhZHMiOnRydWUsIjQ4IHRocmVhZHMiOnRydWUsIjYwIHRocmVhZHMiOnRydWUsIm01ZC4yNHhsYXJnZSI6dHJ1ZSwiYzVuLjR4bGFyZ2UsIDIwMGdiIGdwMiI6dHJ1ZSwiYzZhLjR4bGFyZ2UsIDE1MDBnYiBncDIiOnRydWUsImRjMi44eGxhcmdlIjp0cnVlLCJyYTMuMTZ4bGFyZ2UiOnRydWUsInJhMy40eGxhcmdlIjp0cnVlLCJyYTMueGxwbHVzIjp0cnVlLCJTMjQiOnRydWUsIlMyIjp0cnVlLCIyWEwiOnRydWUsIjNYTCI6dHJ1ZSwiNFhMIjp0cnVlLCJYTCI6dHJ1ZX0sImNsdXN0ZXJfc2l6ZSI6eyIxIjp0cnVlLCIyIjp0cnVlLCI0Ijp0cnVlLCI4Ijp0cnVlLCIxNiI6dHJ1ZSwiMzIiOnRydWUsIjY0Ijp0cnVlLCIxMjgiOnRydWUsInNlcnZlcmxlc3MiOnRydWUsInVuZGVmaW5lZCI6dHJ1ZX0sIm1ldHJpYyI6ImhvdCIsInF1ZXJpZXMiOlt0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlXX0=)** - SQL API performance comparison
 - **[DataFrame Benchmark](https://benchmark.clickhouse.com/#eyJzeXN0ZW0iOnsiQWxsb3lEQiI6dHJ1ZSwiQWxsb3lEQiAodHVuZWQpIjp0cnVlLCJBdGhlbmEgKHBhcnRpdGlvbmVkKSI6dHJ1ZSwiQXRoZW5hIChzaW5nbGUpIjp0cnVlLCJBdXJvcmEgZm9yIE15U1FMIjp0cnVlLCJBdXJvcmEgZm9yIFBvc3RncmVTUUwiOnRydWUsIkJ5Q29uaXR5Ijp0cnVlLCJCeXRlSG91c2UiOnRydWUsImNoREIgKERhdGFGcmFtZSkiOnRydWUsImNoREIgKFBhcnF1ZXQsIHBhcnRpdGlvbmVkKSI6dHJ1ZSwiY2hEQiI6dHJ1ZSwiQ2l0dXMiOnRydWUsIkNsaWNrSG91c2UgQ2xvdWQgKGF3cykiOnRydWUsIkNsaWNrSG91c2UgQ2xvdWQgKGF6dXJlKSI6dHJ1ZSwiQ2xpY2tIb3VzZSBDbG91ZCAoZ2NwKSI6dHJ1ZSwiQ2xpY2tIb3VzZSAoZGF0YSBsYWtlLCBwYXJ0aXRpb25lZCkiOnRydWUsIkNsaWNrSG91c2UgKGRhdGEgbGFrZSwgc2luZ2xlKSI6dHJ1ZSwiQ2xpY2tIb3VzZSAoUGFycXVldCwgcGFydGl0aW9uZWQpIjp0cnVlLCJDbGlja0hvdXNlIChQYXJxdWV0LCBzaW5nbGUpIjp0cnVlLCJDbGlja0hvdXNlICh3ZWIpIjp0cnVlLCJDbGlja0hvdXNlIjp0cnVlLCJDbGlja0hvdXNlICh0dW5lZCkiOnRydWUsIkNsaWNrSG91c2UgKHR1bmVkLCBtZW1vcnkpIjp0cnVlLCJDbG91ZGJlcnJ5Ijp0cnVlLCJDcmF0ZURCIjp0cnVlLCJDcnVuY2h5IEJyaWRnZSBmb3IgQW5hbHl0aWNzIChQYXJxdWV0KSI6dHJ1ZSwiRGF0YWJlbmQiOnRydWUsIkRhdGFGdXNpb24gKFBhcnF1ZXQsIHBhcnRpdGlvbmVkKSI6dHJ1ZSwiRGF0YUZ1c2lvbiAoUGFycXVldCwgc2luZ2xlKSI6dHJ1ZSwiQXBhY2hlIERvcmlzIjp0cnVlLCJEcnVpZCI6dHJ1ZSwiRHVja0RCIChEYXRhRnJhbWUpIjp0cnVlLCJEdWNrREIgKFBhcnF1ZXQsIHBhcnRpdGlvbmVkKSI6dHJ1ZSwiRHVja0RCIjp0cnVlLCJFbGFzdGljc2VhcmNoIjp0cnVlLCJFbGFzdGljc2VhcmNoICh0dW5lZCkiOmZhbHNlLCJHbGFyZURCIjp0cnVlLCJHcmVlbnBsdW0iOnRydWUsIkhlYXZ5QUkiOnRydWUsIkh5ZHJhIjp0cnVlLCJJbmZvYnJpZ2h0Ijp0cnVlLCJLaW5ldGljYSI6dHJ1ZSwiTWFyaWFEQiBDb2x1bW5TdG9yZSI6dHJ1ZSwiTWFyaWFEQiI6ZmFsc2UsIk1vbmV0REIiOnRydWUsIk1vbmdvREIiOnRydWUsIk1vdGhlcmR1Y2siOnRydWUsIk15U1FMIChNeUlTQU0pIjp0cnVlLCJNeVNRTCI6dHJ1ZSwiT3hsYSI6dHJ1ZSwiUGFuZGFzIChEYXRhRnJhbWUpIjp0cnVlLCJQYXJhZGVEQiAoUGFycXVldCwgcGFydGl0aW9uZWQpIjp0cnVlLCJQYXJhZGVEQiAoUGFycXVldCwgc2luZ2xlKSI6dHJ1ZSwiUGlub3QiOnRydWUsIlBvbGFycyAoRGF0YUZyYW1lKSI6dHJ1ZSwiUG9zdGdyZVNRTCAodHVuZWQpIjpmYWxzZSwiUG9zdGdyZVNRTCI6dHJ1ZSwiUXVlc3REQiAocGFydGl0aW9uZWQpIjp0cnVlLCJRdWVzdERCIjp0cnVlLCJSZWRzaGlmdCI6dHJ1ZSwiU2luZ2xlU3RvcmUiOnRydWUsIlNub3dmbGFrZSI6dHJ1ZSwiU1FMaXRlIjp0cnVlLCJTdGFyUm9ja3MiOnRydWUsIlRhYmxlc3BhY2UiOnRydWUsIlRlbWJvIE9MQVAgKGNvbHVtbmFyKSI6dHJ1ZSwiVGltZXNjYWxlREIgKGNvbXByZXNzaW9uKSI6dHJ1ZSwiVGltZXNjYWxlREIiOnRydWUsIlVtYnJhIjp0cnVlfSwidHlwZSI6eyJDIjpmYWxzZSwiY29sdW1uLW9yaWVudGVkIjpmYWxzZSwiUG9zdGdyZVNRTCBjb21wYXRpYmxlIjpmYWxzZSwibWFuYWdlZCI6ZmFsc2UsImdjcCI6ZmFsc2UsInN0YXRlbGVzcyI6ZmFsc2UsIkphdmEiOmZhbHNlLCJDKysiOmZhbHNlLCJNeVNRTCBjb21wYXRpYmxlIjpmYWxzZSwicm93LW9yaWVudGVkIjpmYWxzZSwiQ2xpY2tIb3VzZSBkZXJpdmF0aXZlIjpmYWxzZSwiZW1iZWRkZWQiOmZhbHNlLCJzZXJ2ZXJsZXNzIjpmYWxzZSwiZGF0YWZyYW1lIjp0cnVlLCJhd3MiOmZhbHNlLCJhenVyZSI6ZmFsc2UsImFuYWx5dGljYWwiOmZhbHNlLCJSdXN0IjpmYWxzZSwic2VhcmNoIjpmYWxzZSwiZG9jdW1lbnQiOmZhbHNlLCJzb21ld2hhdCBQb3N0Z3JlU1FMIGNvbXBhdGlibGUiOmZhbHNlLCJ0aW1lLXNlcmllcyI6ZmFsc2V9LCJtYWNoaW5lIjp7IjE2IHZDUFUgMTI4R0IiOnRydWUsIjggdkNQVSA2NEdCIjp0cnVlLCJzZXJ2ZXJsZXNzIjp0cnVlLCIxNmFjdSI6dHJ1ZSwiYzZhLjR4bGFyZ2UsIDUwMGdiIGdwMiI6dHJ1ZSwiTCI6dHJ1ZSwiTSI6dHJ1ZSwiUyI6dHJ1ZSwiWFMiOnRydWUsImM2YS5tZXRhbCwgNTAwZ2IgZ3AyIjp0cnVlLCIxOTJHQiI6dHJ1ZSwiMjRHQiI6dHJ1ZSwiMzYwR0IiOnRydWUsIjQ4R0IiOnRydWUsIjcyMEdCIjp0cnVlLCI5NkdCIjp0cnVlLCJkZXYiOnRydWUsIjcwOEdCIjp0cnVlLCJjNW4uNHhsYXJnZSwgNTAwZ2IgZ3AyIjp0cnVlLCJBbmFseXRpY3MtMjU2R0IgKDY0IHZDb3JlcywgMjU2IEdCKSI6dHJ1ZSwiYzUuNHhsYXJnZSwgNTAwZ2IgZ3AyIjp0cnVlLCJjNmEuNHhsYXJnZSwgMTUwMGdiIGdwMiI6dHJ1ZSwiY2xvdWQiOnRydWUsImRjMi44eGxhcmdlIjp0cnVlLCJyYTMuMTZ4bGFyZ2UiOnRydWUsInJhMy40eGxhcmdlIjp0cnVlLCJyYTMueGxwbHVzIjp0cnVlLCJTMiI6dHJ1ZSwiUzI0Ijp0cnVlLCIyWEwiOnRydWUsIjNYTCI6dHJ1ZSwiNFhMIjp0cnVlLCJYTCI6dHJ1ZSwiTDEgLSAxNkNQVSAzMkdCIjp0cnVlLCJjNmEuNHhsYXJnZSwgNTAwZ2IgZ3AzIjp0cnVlfSwiY2x1c3Rlcl9zaXplIjp7IjEiOnRydWUsIjIiOnRydWUsIjQiOnRydWUsIjgiOnRydWUsIjE2Ijp0cnVlLCIzMiI6dHJ1ZSwiNjQiOnRydWUsIjEyOCI6dHJ1ZSwic2VydmVybGVzcyI6dHJ1ZX0sIm1ldHJpYyI6ImhvdCIsInF1ZXJpZXMiOlt0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlXX0=)** - DataFrame engines comparison
-- **[DataStore vs Pandas](datastore/index.md#performance)** - Up to 20x faster than pandas on common operations
-
-<Image img={dfBench} alt='DataFrame benchmark results' size="md"/>
+- **[DataStore vs Pandas](https://clickhouse.com/docs/chdb/datastore#performance)** - Up to 20x faster than pandas on common operations
 
 ## About chDB
 - Read the full story about the birth of the chDB project on [blog](https://clickhouse.com/blog/chdb-embedded-clickhouse-rocket-engine-on-a-bicycle)
@@ -183,7 +182,7 @@ pip install pandas pyarrow
 
 ## Querying a JSON file in S3
 Let's now have a look at how to query a JSON file that's stored in an S3 bucket. 
-The [YouTube dislikes dataset](/getting-started/example-datasets/youtube-dislikes) contains more than 4 billion rows of dislikes on YouTube videos up to 2021.
+The [YouTube dislikes dataset](https://clickhouse.com/docs/getting-started/example-datasets/youtube-dislikes) contains more than 4 billion rows of dislikes on YouTube videos up to 2021.
 We're going to work with one of the JSON files from that dataset.
 
 Import chdb:
@@ -279,7 +278,7 @@ This is fine to do with variables defined in your program, but don't do it with 
 
 ## Configuring the output format
 The default output format is `CSV`, but we can change that via the `output_format` parameter. 
-chDB supports the ClickHouse data formats, as well as [some of its own](/chdb/reference/data-formats.md), including `DataFrame`, which returns a Pandas DataFrame:
+chDB supports the ClickHouse data formats, as well as [some of its own](https://clickhouse.com/docs/chdb/reference/data-formats), including `DataFrame`, which returns a Pandas DataFrame:
 
 ```python
 result = chdb.query(
@@ -351,7 +350,7 @@ sess.query("CREATE DATABASE IF NOT EXISTS youtube")
 ```
 
 Now we can create a `dislikes` table based on the schema from the JSON file, using the `CREATE...EMPTY AS` technique.
-We'll use the [`schema_inference_make_columns_nullable`](/operations/settings/formats/#schema_inference_make_columns_nullable) setting so that column types aren't all made `Nullable`.
+We'll use the [`schema_inference_make_columns_nullable`](https://clickhouse.com/docs/operations/settings/formats/#schema_inference_make_columns_nullable) setting so that column types aren't all made `Nullable`.
 
 ```python
 sess.query(f"""
@@ -497,16 +496,16 @@ chdb.query(
 9                    RC Cars OFF Road          2.051021
 ```
 
-You can also read more about querying Pandas DataFrames in the [Querying Pandas developer guide](guides/querying-pandas.md).
+You can also read more about querying Pandas DataFrames in the [Querying Pandas developer guide](https://clickhouse.com/docs/chdb/guides/pandas).
 
 ## Next steps
 Hopefully, this guide has given you a good overview of chDB. 
 To learn more about how to use it, see the following developer guides:
 
-* [Querying Pandas DataFrames](guides/querying-pandas.md)
-* [Querying Apache Arrow](guides/querying-apache-arrow.md)
-* [Using chDB in JupySQL](guides/jupysql.md)
-* [Using chDB with an existing clickhouse-local database](guides/clickhouse-local.md)
+* [Querying Pandas DataFrames](https://clickhouse.com/docs/chdb/guides/pandas)
+* [Querying Apache Arrow](https://clickhouse.com/docs/chdb/guides/apache-arrow)
+* [Using chDB in JupySQL](https://clickhouse.com/docs/chdb/guides/jupysql)
+* [Using chDB with an existing clickhouse-local database](https://clickhouse.com/docs/chdb/guides/clickhouse-local)
 
 ---
 
@@ -1179,12 +1178,12 @@ Instructions for how to get setup with chDB are available below for the followin
 
 | Language                               | API Reference                       |
 |----------------------------------------|-------------------------------------|
-| [Python](/chdb/install/python) | [Python API](/chdb/api/python) |
-| [NodeJS](/chdb/install/nodejs) |                                     |
-| [Go](/chdb/install/go)         |                                     |
-| [Rust](/chdb/install/rust)     |                                     |
-| [Bun](/chdb/install/bun)       |                                     |
-| [C and C++](/chdb/install/c)   |                                     |
+| [Python](https://clickhouse.com/docs/chdb/install/python) | [Python API](https://clickhouse.com/docs/chdb/api/python) |
+| [NodeJS](https://clickhouse.com/docs/chdb/install/nodejs) |                                     |
+| [Go](https://clickhouse.com/docs/chdb/install/go)         |                                     |
+| [Rust](https://clickhouse.com/docs/chdb/install/rust)     |                                     |
+| [Bun](https://clickhouse.com/docs/chdb/install/bun)       |                                     |
+| [C and C++](https://clickhouse.com/docs/chdb/install/c)   |                                     |
 
 ---
 
@@ -6805,7 +6804,7 @@ ds = DataStore()
 | `from_random(rows, cols)` | Create with random data |
 | `run_sql(query)` | Create from SQL query |
 
-See [Factory Methods](factory-methods.md) for details.
+See [Factory Methods](https://clickhouse.com/docs/chdb/datastore/factory-methods) for details.
 
 ### Query Methods
 | Method | Returns | Description |
@@ -6824,10 +6823,10 @@ See [Factory Methods](factory-methods.md) for details.
 | `union(other, all=False)` | DataStore | Combine DataStores |
 | `when(cond, val)` | CaseWhen | CASE WHEN |
 
-See [Query Building](query-building.md) for details.
+See [Query Building](https://clickhouse.com/docs/chdb/datastore/query-building) for details.
 
 ### Pandas-compatible methods
-See [Pandas Compatibility](pandas-compat.md) for the complete list of 209 methods.
+See [Pandas Compatibility](https://clickhouse.com/docs/chdb/datastore/pandas-compat) for the complete list of 209 methods.
 
 **Indexing:**
 `head()`, `tail()`, `sample()`, `loc`, `iloc`, `at`, `iat`, `query()`, `isin()`, `where()`, `mask()`, `get()`, `xs()`, `pop()`
@@ -6871,7 +6870,7 @@ See [Pandas Compatibility](pandas-compat.md) for the complete list of 209 method
 | `to_markdown()` | Markdown table |
 | `to_html()` | HTML table |
 
-See [I/O Operations](io.md) for details.
+See [I/O Operations](https://clickhouse.com/docs/chdb/datastore/io) for details.
 
 ### Debugging Methods
 | Method | Description |
@@ -6879,7 +6878,7 @@ See [I/O Operations](io.md) for details.
 | `explain(verbose=False)` | Show execution plan |
 | `clear_cache()` | Clear cached results |
 
-See [Debugging](../debugging/index.md) for details.
+See [Debugging](https://clickhouse.com/docs/chdb/debugging) for details.
 
 ### Magic Methods
 | Method | Description |
@@ -6939,7 +6938,7 @@ col = ds['name']  # Returns ColumnExpr
 | `.ip` | IP address operations | 9 methods |
 | `.geo` | Geo/distance operations | 14 methods |
 
-See [Accessors](accessors.md) for complete documentation.
+See [Accessors](https://clickhouse.com/docs/chdb/datastore/accessors) for complete documentation.
 
 ### Arithmetic Operations
 ```python
@@ -7112,7 +7111,7 @@ F.row_number().over(order_by='date')
 F.lag('price', 1).over(partition_by='product', order_by='date')
 ```
 
-See [Aggregation](aggregation.md#f-namespace) for details.
+See [Aggregation](https://clickhouse.com/docs/chdb/datastore/aggregation#f-namespace) for details.
 
 ### Field
 Reference to a column by name.
@@ -7353,7 +7352,7 @@ Use `verbose=True` for more details:
 query.explain(verbose=True)
 ```
 
-See [Debugging: explain()](../debugging/explain.md) for complete documentation.
+See [Debugging: explain()](https://clickhouse.com/docs/chdb/debugging/explain) for complete documentation.
 
 ---
 
@@ -7471,7 +7470,7 @@ config.set_execution_engine('pandas')
 # All operations use pandas
 ```
 
-See [Configuration: Execution Engine](../configuration/execution-engine.md) for details.
+See [Configuration: Execution Engine](https://clickhouse.com/docs/chdb/configuration/execution-engine) for details.
 
 ---
 
@@ -8032,15 +8031,13 @@ DataStore is chDB's pandas-compatible API that combines the familiar pandas Data
 - **ClickHouse Extensions**: Additional accessors (`.arr`, `.json`, `.url`, `.ip`, `.geo`) not available in pandas
 
 ## Architecture
-<Image size="md" img={data_store} alt="DataStore Architecture" />
-
 DataStore uses **lazy evaluation** with **dual-engine execution**:
 
 1. **Lazy Operation Chain**: Operations are recorded, not executed immediately
 2. **Smart Engine Selection**: QueryPlanner routes each segment to optimal engine (chDB for SQL, Pandas for complex ops)
 3. **Intermediate Caching**: Results cached at each step for fast iterative exploration
 
-See [Execution Model](execution-model.md) for details.
+See [Execution Model](https://clickhouse.com/docs/chdb/datastore/execution-model) for details.
 
 ## One-Line migration from Pandas
 ```python
@@ -8067,7 +8064,7 @@ DataStore delivers significant performance improvements over pandas, especially 
 | Filter+Sort+Head | 1,537ms | 350ms | **4.40x** |
 | GroupBy agg | 406ms | 141ms | **2.88x** |
 
-*Benchmark on 10M rows. See [benchmark script](https://github.com/chdb-io/chdb/blob/main/refs/benchmark_datastore_vs_pandas.py) and [Performance Guide](../guides/pandas-performance.md) for details.*
+*Benchmark on 10M rows. See [benchmark script](https://github.com/chdb-io/chdb/blob/main/refs/benchmark_datastore_vs_pandas.py) and [Performance Guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) for details.*
 
 ## When to use DataStore
 **Use DataStore when:**
@@ -8109,31 +8106,31 @@ DataStore delivers significant performance improvements over pandas, especially 
 
 ## Documentation navigation
 ### Getting Started
-- [Quickstart](quickstart.md) - Installation and basic usage
-- [Migration from Pandas](../guides/migration-from-pandas.md) - Step-by-step migration guide
+- [Quickstart](https://clickhouse.com/docs/chdb/datastore/quickstart) - Installation and basic usage
+- [Migration from Pandas](https://clickhouse.com/docs/chdb/guides/migration-from-pandas) - Step-by-step migration guide
 
 ### API reference
-- [Factory Methods](factory-methods.md) - Creating DataStore from various sources
-- [Query Building](query-building.md) - SQL-style query operations
-- [Pandas Compatibility](pandas-compat.md) - All 209 pandas-compatible methods
-- [Accessors](accessors.md) - String, DateTime, Array, JSON, URL, IP, Geo accessors
-- [Aggregation](aggregation.md) - Aggregate and window functions
-- [I/O Operations](io.md) - Reading and writing data
+- [Factory Methods](https://clickhouse.com/docs/chdb/datastore/factory-methods) - Creating DataStore from various sources
+- [Query Building](https://clickhouse.com/docs/chdb/datastore/query-building) - SQL-style query operations
+- [Pandas Compatibility](https://clickhouse.com/docs/chdb/datastore/pandas-compat) - All 209 pandas-compatible methods
+- [Accessors](https://clickhouse.com/docs/chdb/datastore/accessors) - String, DateTime, Array, JSON, URL, IP, Geo accessors
+- [Aggregation](https://clickhouse.com/docs/chdb/datastore/aggregation) - Aggregate and window functions
+- [I/O Operations](https://clickhouse.com/docs/chdb/datastore/io) - Reading and writing data
 
 ### Advanced topics
-- [Execution Model](execution-model.md) - Lazy evaluation and caching
-- [Class Reference](class-reference.md) - Complete API reference
+- [Execution Model](https://clickhouse.com/docs/chdb/datastore/execution-model) - Lazy evaluation and caching
+- [Class Reference](https://clickhouse.com/docs/chdb/datastore/class-reference) - Complete API reference
 
 ### Configuration & debugging
-- [Configuration](../configuration/index.md) - All configuration options
-- [Performance Mode](../configuration/performance-mode.md) - SQL-first mode for maximum throughput
-- [Debugging](../debugging/index.md) - Explain, profiling, and logging
+- [Configuration](https://clickhouse.com/docs/chdb/configuration) - All configuration options
+- [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) - SQL-first mode for maximum throughput
+- [Debugging](https://clickhouse.com/docs/chdb/debugging) - Explain, profiling, and logging
 
 ### Pandas user guides
-- [Pandas Cookbook](../guides/pandas-cookbook.md) - Common patterns
-- [Key Differences](../guides/pandas-differences.md) - Important differences from pandas
-- [Performance Guide](../guides/pandas-performance.md) - Optimization tips
-- [SQL for Pandas Users](../guides/pandas-to-sql.md) - Understanding the SQL behind pandas operations
+- [Pandas Cookbook](https://clickhouse.com/docs/chdb/guides/pandas-cookbook) - Common patterns
+- [Key Differences](https://clickhouse.com/docs/chdb/guides/pandas-differences) - Important differences from pandas
+- [Performance Guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) - Optimization tips
+- [SQL for Pandas Users](https://clickhouse.com/docs/chdb/guides/pandas-to-sql) - Understanding the SQL behind pandas operations
 
 ## Quick example
 ```python
@@ -8161,9 +8158,9 @@ df = result.to_df()  # Returns pandas DataFrame
 ```
 
 ## Next steps
-- **New to DataStore?** Start with the [Quickstart Guide](quickstart.md)
-- **Coming from pandas?** Read the [Migration Guide](../guides/migration-from-pandas.md)
-- **Want to learn more?** Explore the [API Reference](class-reference.md)
+- **New to DataStore?** Start with the [Quickstart Guide](https://clickhouse.com/docs/chdb/datastore/quickstart)
+- **Coming from pandas?** Read the [Migration Guide](https://clickhouse.com/docs/chdb/guides/migration-from-pandas)
+- **Want to learn more?** Explore the [API Reference](https://clickhouse.com/docs/chdb/datastore/class-reference)
 
 ---
 
@@ -8579,7 +8576,7 @@ ds = DataStore.from_s3(
 ```
 
 ### GCS, Azure, HDFS
-See [Factory Methods](factory-methods.md) for cloud storage options.
+See [Factory Methods](https://clickhouse.com/docs/chdb/datastore/factory-methods) for cloud storage options.
 
 ---
 
@@ -9029,7 +9026,7 @@ result = ds['value'].shift(-1)  # Lead
 | `to_numpy()` | NumPy array |
 | `to_clipboard()` | Clipboard |
 
-See [I/O Operations](io.md) for detailed documentation.
+See [I/O Operations](https://clickhouse.com/docs/chdb/datastore/io) for detailed documentation.
 
 ---
 
@@ -9077,7 +9074,7 @@ pd.testing.assert_frame_equal(
 )
 ```
 
-See [Key Differences](../guides/pandas-differences.md) for complete details.
+See [Key Differences](https://clickhouse.com/docs/chdb/guides/pandas-differences) for complete details.
 
 ---
 
@@ -9996,10 +9993,10 @@ result = ds.sql("""
 ```
 
 ## Next Steps
-- Learn about all [Factory Methods](factory-methods.md) for creating DataStore
-- Explore [Query Building](query-building.md) for SQL-style operations
-- Check out [Accessors](accessors.md) for string, datetime, and more
-- Read the [Performance Guide](../guides/pandas-performance.md) for optimization tips
+- Learn about all [Factory Methods](https://clickhouse.com/docs/chdb/datastore/factory-methods) for creating DataStore
+- Explore [Query Building](https://clickhouse.com/docs/chdb/datastore/query-building) for SQL-style operations
+- Check out [Accessors](https://clickhouse.com/docs/chdb/datastore/accessors) for string, datetime, and more
+- Read the [Performance Guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) for optimization tips
 
 ---
 
@@ -10009,7 +10006,7 @@ result = ds.sql("""
 
 Learn how to use a clickhouse-local database with chDB
 
-[clickhouse-local](/operations/utilities/clickhouse-local) is a CLI with an embedded version of ClickHouse.
+[clickhouse-local](https://clickhouse.com/docs/operations/utilities/clickhouse-local) is a CLI with an embedded version of ClickHouse.
 It gives users the power of ClickHouse without having to install a server.
 In this guide, we will learn how to use a clickhouse-local database from chDB.
 
@@ -10041,7 +10038,7 @@ ipython
 ```
 
 ## Installing clickhouse-local
-Downloading and installing clickhouse-local is the same as [downloading and installing ClickHouse](/install).
+Downloading and installing clickhouse-local is the same as [downloading and installing ClickHouse](https://clickhouse.com/docs/install).
 We can do this by running the following command:
 
 ```bash
@@ -10150,18 +10147,18 @@ in the table of contents, please edit the frontmatter of the files directly.
 <!--AUTOGENERATED_START-->
 | Page | Description |
 |-----|-----|
-| [How to query a remote ClickHouse server](/chdb/guides/query-remote-clickhouse) | In this guide, we will learn how to query a remote ClickHouse server from chDB. |
-| [How to query Apache Arrow with chDB](/chdb/guides/apache-arrow) | In this guide, we will learn how to query Apache Arrow tables with chDB |
-| [How to query data in an S3 bucket](/chdb/guides/querying-s3) | Learn how to query data in an S3 bucket with chDB. |
-| [How to query Pandas DataFrames with chDB](/chdb/guides/pandas) | Learn how to query Pandas DataFrames with chDB |
-| [How to query Parquet files](/chdb/guides/querying-parquet) | Learn how to query Parquet files with chDB. |
-| [JupySQL and chDB](/chdb/guides/jupysql) | How to install chDB for Bun |
-| [Key differences from pandas](/chdb/guides/pandas-differences) | Important differences between DataStore and pandas |
-| [Migration from pandas](/chdb/guides/migration-from-pandas) | Step-by-step guide to migrate from pandas to DataStore |
-| [Pandas cookbook](/chdb/guides/pandas-cookbook) | Common pandas patterns and their DataStore equivalents |
-| [Performance guide](/chdb/guides/pandas-performance) | Performance optimization tips for DataStore vs pandas |
-| [SQL for pandas users](/chdb/guides/pandas-to-sql) | Understanding how pandas operations map to SQL in DataStore |
-| [Using a clickhouse-local database](/chdb/guides/clickhouse-local) | Learn how to use a clickhouse-local database with chDB |
+| [How to query a remote ClickHouse server](https://clickhouse.com/docs/chdb/guides/query-remote-clickhouse) | In this guide, we will learn how to query a remote ClickHouse server from chDB. |
+| [How to query Apache Arrow with chDB](https://clickhouse.com/docs/chdb/guides/apache-arrow) | In this guide, we will learn how to query Apache Arrow tables with chDB |
+| [How to query data in an S3 bucket](https://clickhouse.com/docs/chdb/guides/querying-s3) | Learn how to query data in an S3 bucket with chDB. |
+| [How to query Pandas DataFrames with chDB](https://clickhouse.com/docs/chdb/guides/pandas) | Learn how to query Pandas DataFrames with chDB |
+| [How to query Parquet files](https://clickhouse.com/docs/chdb/guides/querying-parquet) | Learn how to query Parquet files with chDB. |
+| [JupySQL and chDB](https://clickhouse.com/docs/chdb/guides/jupysql) | How to install chDB for Bun |
+| [Key differences from pandas](https://clickhouse.com/docs/chdb/guides/pandas-differences) | Important differences between DataStore and pandas |
+| [Migration from pandas](https://clickhouse.com/docs/chdb/guides/migration-from-pandas) | Step-by-step guide to migrate from pandas to DataStore |
+| [Pandas cookbook](https://clickhouse.com/docs/chdb/guides/pandas-cookbook) | Common pandas patterns and their DataStore equivalents |
+| [Performance guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) | Performance optimization tips for DataStore vs pandas |
+| [SQL for pandas users](https://clickhouse.com/docs/chdb/guides/pandas-to-sql) | Understanding how pandas operations map to SQL in DataStore |
+| [Using a clickhouse-local database](https://clickhouse.com/docs/chdb/guides/clickhouse-local) | Learn how to use a clickhouse-local database with chDB |
 <!--AUTOGENERATED_END-->
 
 ---
@@ -10172,11 +10169,11 @@ in the table of contents, please edit the frontmatter of the files directly.
 
 How to install chDB for Bun
 
-[JupySQL](https://jupysql.ploomber.io/en/latest/quick-start.html) is a Python library that lets you run SQL in Jupyter notebooks and the IPython shell.
+JupySQL is a Python library that lets you run SQL in Jupyter notebooks and the IPython shell.
 In this guide, we're going to learn how to query data using chDB and JupySQL.
 
 <div class='vimeo-container'>
-<iframe width="560" height="315" src="https://www.youtube.com/embed/2wjl3OijCto?si=EVf2JhjS5fe4j6Cy" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+[Watch the video](https://www.youtube.com/watch?v=2wjl3OijCto)
 </div>
 
 ## Setup
@@ -10210,7 +10207,7 @@ If you're using Jupyter Lab, you'll need to create a notebook before following t
 :::
 
 ## Downloading a dataset
-We're going to use one of [Jeff Sackmann's tennis_atp](https://github.com/JeffSackmann/tennis_atp) dataset, which contains metadata about players and their rankings over time.
+We're going to use one of Jeff Sackmann's tennis_atp dataset, which contains metadata about players and their rankings over time.
 Let's start by downloading the rankings files:
 
 ```python
@@ -10575,8 +10572,6 @@ plot = (
 )
 ```
 
-<Image img={PlayersPerRank} size="md" alt="Histogram of player rankings in ATP dataset" />
-
 ---
 
 # Migration from pandas
@@ -10837,7 +10832,7 @@ DataStore is significantly faster for large datasets:
 ### Issue: Operation Not Working
 Some pandas operations may not be supported. Check:
 
-1. Is the operation in the [compatibility list](../datastore/pandas-compat.md)?
+1. Is the operation in the [compatibility list](https://clickhouse.com/docs/chdb/datastore/pandas-compat)?
 2. Try converting to pandas first: `ds.to_df().operation()`
 
 ### Issue: Different Results
@@ -11407,7 +11402,7 @@ While DataStore is highly compatible with pandas, there are important difference
 |--------|--------|-----------|
 | **Execution** | Eager (immediate) | Lazy (deferred) |
 | **Return types** | DataFrame/Series | DataStore/ColumnExpr |
-| **Row order** | Preserved | Preserved (automatic); not guaranteed in [performance mode](../configuration/performance-mode.md) |
+| **Row order** | Preserved | Preserved (automatic); not guaranteed in [performance mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) |
 | **inplace** | Supported | Not supported |
 | **Index** | Full support | Simplified |
 | **Memory** | All data in memory | Data at source |
@@ -11544,7 +11539,7 @@ DataStore automatically tracks original row positions internally (using `rowNumb
 ### When Order May Differ
 - After `groupby()` aggregations (use `sort_values()` to ensure consistent order)
 - After `merge()` / `join()` with certain join types
-- In **performance mode** (`config.use_performance_mode()`): row order is not guaranteed for any operation. See [Performance Mode](../configuration/performance-mode.md).
+- In **performance mode** (`config.use_performance_mode()`): row order is not guaranteed for any operation. See [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode).
 
 ---
 
@@ -11885,7 +11880,7 @@ df['result'] = df.apply(complex_function, axis=1)
 :::note Important
 Even in scenarios where DataStore is "slower", performance is typically **on par with pandas** - the difference is negligible for practical use. DataStore's advantages in complex operations far outweigh these edge cases.
 
-For fine-grained control over execution, see [Execution Engine Configuration](../configuration/execution-engine.md).
+For fine-grained control over execution, see [Execution Engine Configuration](https://clickhouse.com/docs/chdb/configuration/execution-engine).
 :::
 
 ---
@@ -11931,7 +11926,7 @@ result = (ds
 
 **Expected improvement**: Up to 2-8x faster for filter+groupby workloads, reduced memory usage for large Parquet files.
 
-See [Performance Mode](../configuration/performance-mode.md) for full details.
+See [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) for full details.
 
 ### 2. Use Parquet Instead of CSV
 ```python
@@ -12085,7 +12080,7 @@ print(f"Approach 2: {time2:.0f}ms")
 :::tip
 For automatic optimal engine selection, use `config.set_execution_engine('auto')` (default).
 For maximum throughput on aggregation workloads, use `config.use_performance_mode()`.
-See [Execution Engine](../configuration/execution-engine.md) and [Performance Mode](../configuration/performance-mode.md) for details.
+See [Execution Engine](https://clickhouse.com/docs/chdb/configuration/execution-engine) and [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) for details.
 :::
 
 ---
@@ -12592,7 +12587,7 @@ FROM Python(df)
 0   0.693855  2024-09-19    0.000003  2020-02-09
 ```
 
-If you want to learn more about querying Pandas DataFrames, see the [Pandas DataFrames developer guide](querying-pandas.md).
+If you want to learn more about querying Pandas DataFrames, see the [Pandas DataFrames developer guide](https://clickhouse.com/docs/chdb/guides/pandas).
 
 ---
 
@@ -13199,14 +13194,14 @@ ipython
 You can also use the code in a Python script or in your favorite notebook.
 
 ## Exploring Parquet metadata
-We're going to explore a Parquet file from the [Amazon reviews](/getting-started/example-datasets/amazon-reviews) dataset.
+We're going to explore a Parquet file from the [Amazon reviews](https://clickhouse.com/docs/getting-started/example-datasets/amazon-reviews) dataset.
 But first, let's install `chDB`:
 
 ```python
 
 ```
 
-When querying Parquet files, we can use the [`ParquetMetadata`](/interfaces/formats/ParquetMetadata) input format to have it return Parquet metadata rather than the content of the file.
+When querying Parquet files, we can use the [`ParquetMetadata`](https://clickhouse.com/docs/interfaces/formats/ParquetMetadata) input format to have it return Parquet metadata rather than the content of the file.
 Let's use the `DESCRIBE` clause to see the fields returned when we use this format:
 
 ```python
@@ -13377,14 +13372,14 @@ ipython
 You can also use the code in a Python script or in your favorite notebook.
 
 ## Listing files in an S3 bucket
-Let's start by listing all the files in [an S3 bucket that contains Amazon reviews](/getting-started/example-datasets/amazon-reviews).
-To do this, we can use the [`s3` table function](/sql-reference/table-functions/s3) and pass in the path to a file or a wildcard to a set of files.
+Let's start by listing all the files in [an S3 bucket that contains Amazon reviews](https://clickhouse.com/docs/getting-started/example-datasets/amazon-reviews).
+To do this, we can use the [`s3` table function](https://clickhouse.com/docs/sql-reference/table-functions/s3) and pass in the path to a file or a wildcard to a set of files.
 
 :::tip
 If you pass just the bucket name it will throw an exception.
 :::
 
-We're also going to use the [`One`](/interfaces/formats/One) input format so that the file isn't parsed, instead a single row is returned per file and we can access the file via the `_file` virtual column and the path via the `_path` virtual column.
+We're also going to use the [`One`](https://clickhouse.com/docs/interfaces/formats/One) input format so that the file isn't parsed, instead a single row is returned per file and we can access the file via the `_file` virtual column and the path via the `_path` virtual column.
 
 ```python
 
@@ -13527,7 +13522,7 @@ LIMIT 10
 This query won't work because it's a public bucket!
 :::
 
-An alternative way is to used [named collections](/operations/named-collections), but this approach isn't yet supported by chDB.
+An alternative way is to used [named collections](https://clickhouse.com/docs/operations/named-collections), but this approach isn't yet supported by chDB.
 
 ---
 
@@ -13708,7 +13703,7 @@ function_config.use_chdb('length', 'substring')
 function_config.use_pandas('upper', 'lower')
 ```
 
-See [Function Config](function-config.md) for details.
+See [Function Config](https://clickhouse.com/docs/chdb/configuration/function-config) for details.
 
 ---
 
@@ -13802,7 +13797,7 @@ config.use_performance_mode()
 ```
 
 :::tip Performance Mode
-If you are running heavy aggregation workloads and don't need exact pandas output compatibility (row order, MultiIndex, dtype corrections), consider using [Performance Mode](performance-mode.md). It automatically sets the engine to `chdb` and removes all pandas compatibility overhead.
+If you are running heavy aggregation workloads and don't need exact pandas output compatibility (row order, MultiIndex, dtype corrections), consider using [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode). It automatically sets the engine to `chdb` and removes all pandas compatibility overhead.
 :::
 
 ---
@@ -14101,7 +14096,7 @@ config.set_log_format("verbose")  # More details
 config.enable_debug()  # Sets DEBUG level + verbose format
 ```
 
-See [Logging](../debugging/logging.md) for details.
+See [Logging](https://clickhouse.com/docs/chdb/debugging/logging) for details.
 
 ### Cache Configuration
 ```python
@@ -14139,7 +14134,7 @@ config.set_cross_datastore_engine('pandas')
 print(config.execution_engine)
 ```
 
-See [Execution Engine](execution-engine.md) for details.
+See [Execution Engine](https://clickhouse.com/docs/chdb/configuration/execution-engine) for details.
 
 ### Compatibility Mode
 ```python
@@ -14155,7 +14150,7 @@ config.use_pandas_compat()
 print(config.compat_mode)  # 'pandas' or 'performance'
 ```
 
-See [Performance Mode](performance-mode.md) for details.
+See [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) for details.
 
 ### Profiling Configuration
 ```python
@@ -14170,7 +14165,7 @@ config.set_profiling_enabled(False)
 print(config.profiling_enabled)
 ```
 
-See [Profiling](../debugging/profiling.md) for details.
+See [Profiling](https://clickhouse.com/docs/chdb/debugging/profiling) for details.
 
 ### Dtype Correction
 ```python
@@ -14281,11 +14276,11 @@ config.enable_debug()        # See what operations are used
 ---
 
 ## Related Documentation
-- [Execution Engine](execution-engine.md) - Engine selection details
-- [Performance Mode](performance-mode.md) - SQL-first mode for maximum throughput
-- [Function Config](function-config.md) - Per-function engine configuration
-- [Logging](../debugging/logging.md) - Logging configuration
-- [Profiling](../debugging/profiling.md) - Performance profiling
+- [Execution Engine](https://clickhouse.com/docs/chdb/configuration/execution-engine) - Engine selection details
+- [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) - SQL-first mode for maximum throughput
+- [Function Config](https://clickhouse.com/docs/chdb/configuration/function-config) - Per-function engine configuration
+- [Logging](https://clickhouse.com/docs/chdb/debugging/logging) - Logging configuration
+- [Profiling](https://clickhouse.com/docs/chdb/debugging/profiling) - Performance profiling
 
 ---
 
@@ -14543,9 +14538,9 @@ detailed = ds[ds["val"] > 100].head(10)
 ---
 
 ## Related Documentation
-- [Execution Engine](execution-engine.md) — Engine selection (auto/chdb/pandas)
-- [Performance Guide](../guides/pandas-performance.md) — General optimization tips
-- [Key Differences from pandas](../guides/pandas-differences.md) — Behavioral differences
+- [Execution Engine](https://clickhouse.com/docs/chdb/configuration/execution-engine) — Engine selection (auto/chdb/pandas)
+- [Performance Guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) — General optimization tips
+- [Key Differences from pandas](https://clickhouse.com/docs/chdb/guides/pandas-differences) — Behavioral differences
 
 ---
 
@@ -15019,7 +15014,7 @@ WHERE amount > 1000
 GROUP BY region
 ```
 
-See [explain() Documentation](explain.md) for details.
+See [explain() Documentation](https://clickhouse.com/docs/chdb/debugging/explain) for details.
 
 ---
 
@@ -15064,7 +15059,7 @@ to_df (SQL execution)         0.567s      1
 Total                         1.939s      7
 ```
 
-See [Profiling Guide](profiling.md) for details.
+See [Profiling Guide](https://clickhouse.com/docs/chdb/debugging/profiling) for details.
 
 ---
 
@@ -15093,7 +15088,7 @@ DEBUG - Execution time: 0.089s
 DEBUG - Cache: Storing result (key: abc123)
 ```
 
-See [Logging Configuration](logging.md) for details.
+See [Logging Configuration](https://clickhouse.com/docs/chdb/debugging/logging) for details.
 
 ---
 
@@ -15216,9 +15211,9 @@ print(query.to_sql())
 ---
 
 ## Next Steps
-- [explain() Method](explain.md) - Detailed execution plan documentation
-- [Profiling Guide](profiling.md) - Performance measurement
-- [Logging Configuration](logging.md) - Log level and format setup
+- [explain() Method](https://clickhouse.com/docs/chdb/debugging/explain) - Detailed execution plan documentation
+- [Profiling Guide](https://clickhouse.com/docs/chdb/debugging/profiling) - Performance measurement
+- [Logging Configuration](https://clickhouse.com/docs/chdb/debugging/logging) - Log level and format setup
 
 ---
 
@@ -15987,7 +15982,7 @@ The supported data formats from ClickHouse are:
 | Markdown                        | ✗     | ✔      |
 | Form                            | ✔     | ✗      |
 
-For further information and examples, see [ClickHouse formats for input and output data](/interfaces/formats).
+For further information and examples, see [ClickHouse formats for input and output data](https://clickhouse.com/docs/interfaces/formats).
 
 ---
 
@@ -15999,8 +15994,8 @@ Data Formats for chDB
 
 | Reference page       |
 |----------------------|
-| [Data Formats](/chdb/reference/data-formats)  |
-| [SQL Reference](/chdb/reference/sql-reference) |
+| [Data Formats](https://clickhouse.com/docs/chdb/reference/data-formats)  |
+| [SQL Reference](https://clickhouse.com/docs/chdb/reference/sql-reference) |
 
 ---
 
@@ -16014,16 +16009,16 @@ chdb supports the same SQL syntax, statements, engines and functions as ClickHou
 
 | Topic                      |
 |----------------------------|
-| [SQL Syntax](/sql-reference/syntax)          |
-| [Statements](/sql-reference/statements)          |
-| [Table Engines](/engines/table-engines)       |
-| [Database Engines](/engines/database-engines)    |
-| [Regular Functions](/sql-reference/functions)   |
-| [Aggregate Functions](/sql-reference/aggregate-functions) |
-| [Table Functions](/sql-reference/table-functions)     | 
-| [Window Functions](/sql-reference/window-functions)    |
+| [SQL Syntax](https://clickhouse.com/docs/sql-reference/syntax)          |
+| [Statements](https://clickhouse.com/docs/sql-reference/statements)          |
+| [Table Engines](https://clickhouse.com/docs/engines/table-engines)       |
+| [Database Engines](https://clickhouse.com/docs/engines/database-engines)    |
+| [Regular Functions](https://clickhouse.com/docs/sql-reference/functions)   |
+| [Aggregate Functions](https://clickhouse.com/docs/sql-reference/aggregate-functions) |
+| [Table Functions](https://clickhouse.com/docs/sql-reference/table-functions)     | 
+| [Window Functions](https://clickhouse.com/docs/sql-reference/window-functions)    |
 
-For further information and examples, see the [ClickHouse SQL Reference](/sql-reference).
+For further information and examples, see the [ClickHouse SQL Reference](https://clickhouse.com/docs/sql-reference).
 
 ---
 
@@ -16043,7 +16038,7 @@ DataStore bridges the gap between pandas' intuitive API and SQL's powerful query
 
 ### Architecture Overview
 
-![DataStore Architecture](_static/datastore_architecture.png)
+![DataStore Architecture](https://raw.githubusercontent.com/chdb-io/chdb/main/docs/_static/datastore_architecture.png)
 
 The diagram above shows the four-layer architecture:
 1. **User API**: pandas-like interface that returns lazy objects
@@ -16683,16 +16678,16 @@ conn.chdb.queryAsync('SELECT 1', { format: 'arrow' })  // bytes/text/json/toArro
 conn.chdb.session.path                                 // bound on-disk path
 ```
 
-See [docs/design/pluggable-connection.md](docs/design/pluggable-connection.md)
+See [docs/design/pluggable-connection.md](https://github.com/chdb-io/chdb-node/blob/main/docs/design/pluggable-connection.md)
 for the full design, the `Connection` interface, the `.chdb` extension
 namespace, the `tests/clickhouse-js/skip_list.json` parity blacklist,
 and the sync policy with `@clickhouse/client`.
 
 ### Design docs
 
-- [Layered API design](docs/design/architecture.md): the Layer 1 / Layer 2 / Layer 3 architecture, package shape, and intended user-facing surfaces.
-- [Layer 1 native binding reviewer guide](docs/design/layer1-native-binding.md): the PR #43 design and implementation map, organized by commit and review feedback.
-- [chDB ↔ `@clickhouse/client` integration (experimental)](docs/design/pluggable-connection.md): the `chdb/connection` surface, the `Connection` interface chdb-node implements, the `.chdb` extension namespace, and the parity-test sync policy.
+- [Layered API design](https://github.com/chdb-io/chdb-node/blob/main/docs/design/architecture.md): the Layer 1 / Layer 2 / Layer 3 architecture, package shape, and intended user-facing surfaces.
+- [Layer 1 native binding reviewer guide](https://github.com/chdb-io/chdb-node/blob/main/docs/design/layer1-native-binding.md): the PR #43 design and implementation map, organized by commit and review feedback.
+- [chDB ↔ `@clickhouse/client` integration (experimental)](https://github.com/chdb-io/chdb-node/blob/main/docs/design/pluggable-connection.md): the `chdb/connection` surface, the `Connection` interface chdb-node implements, the `.chdb` extension namespace, and the parity-test sync policy.
 
 ### Runtimes
 
@@ -16921,8 +16916,8 @@ different data path while connections are still open returns an error.
 
 ### Golang API docs
 
-- See [lowApi.md](lowApi.md) for the low level APIs.
-- See [chdb.md](chdb.md) for high level APIs.
+- See [lowApi.md](https://github.com/chdb-io/chdb-go/blob/main/lowApi.md) for the low level APIs.
+- See [chdb.md](https://github.com/chdb-io/chdb-go/blob/main/chdb.md) for high level APIs.
 
 ---
 
@@ -17004,12 +16999,12 @@ cargo test -- --test-threads=1
 
 ## Examples
 
-- **Runnable examples**: See the [examples/](examples/) directory
+- **Runnable examples**: See the [examples/](https://github.com/chdb-io/chdb-rust/blob/main/examples) directory
   ```bash
   cargo run --example <name>
   ```
-- **Detailed documentation**: See [docs/examples.md](docs/examples.md) for comprehensive examples and explanations
-- **Test examples**: See [tests/](tests/) directory for additional usage examples
+- **Detailed documentation**: See [docs/examples.md](https://github.com/chdb-io/chdb-rust/blob/main/docs/examples.md) for comprehensive examples and explanations
+- **Test examples**: See [tests/](https://github.com/chdb-io/chdb-rust/blob/main/tests) directory for additional usage examples
 
 ## Contributing
 

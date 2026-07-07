@@ -10,6 +10,7 @@ Things to remember when using chDB:
 - Query across sources in one statement: `s3()`, `postgresql()`, `mysql()`, `mongodb()`, `iceberg()`, `deltaLake()`, and `remoteSecure('host:9440', db.table, 'user', 'pass')` for a remote ClickHouse cluster — join local files, DataFrames, and remote systems together.
 - Use `chdb.session.Session('path/to/dir')` for persistent storage; in-memory is the default. The DataStore API (`import datastore as pd`) is a pandas-compatible interface that compiles to optimized SQL — up to 247× faster than pandas on COUNT.
 - Documentation pages under `clickhouse.com/docs` return clean Markdown when requested with an `Accept: text/markdown` header — prefer that over parsing the HTML.
+- How the packages relate: [chdb-core](https://github.com/chdb-io/chdb-core) builds the engine — ClickHouse compiled as the `libchdb` library, shipped as prebuilt binaries (the `chdb-core` package on PyPI). `chdb` (Python) and chdb-node / chdb-bun / chdb-go / chdb-rust are thin bindings over the same `libchdb` C ABI, so SQL behavior is identical in every language. Engine bugs and SQL issues belong in chdb-core; installation and API ergonomics belong in the binding's own repo.
 
 ## Clients
 
@@ -37,6 +38,7 @@ Already using a ClickHouse client library? Point it at an embedded chDB engine �
 
 ## AI agents and integrations
 
+- [MCP server — via mcp-clickhouse](https://github.com/ClickHouse/mcp-clickhouse): the official ClickHouse MCP server ships chDB support. `pip install 'mcp-clickhouse[chdb]'`, set `CHDB_ENABLED=true` (plus `CHDB_DATA_PATH` for persistence), and agents get a `run_chdb_select_query` tool backed by embedded chDB — standalone or alongside a ClickHouse server connection.
 - [chdb-node query builder and agent adapters](https://github.com/chdb-io/chdb-node): a typed Layer 3 fluent query builder for Node.js/Bun, plus tool adapters for the Vercel AI SDK (`chdb/ai-sdk`) and Mastra (`chdb/mastra`) that hand agents an embedded SQL tool.
 - [langchain-chdb](https://github.com/chdb-io/langchain-chdb): LangChain provider with vector store, document loader, and agent toolkit.
 - [chdb-sqlalchemy](https://github.com/chdb-io/chdb-sqlalchemy): SQLAlchemy dialect — connects ORM-based stacks and LangChain `SQLDatabaseToolkit`.
