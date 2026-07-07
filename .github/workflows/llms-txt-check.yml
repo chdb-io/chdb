@@ -1,0 +1,93 @@
+name: llms.txt checks
+
+on:
+  pull_request:
+    paths:
+      - "llms.txt"
+      - "llms-full.txt"
+      - "scripts/generate_llms_full.py"
+  schedule:
+    # Weekly sweep so docs-site slug renames surface even when llms.txt is untouched
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-links:
+    name: Every llms.txt link resolves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links
+        run: |
+          set -u
+          dead=0
+          links=$(grep -oE '\]\(https://[^)]+\)' llms.txt | sed 's/^](//; s/)$//' | sort -u)
+          echo "Checking $(echo "$links" | wc -l) unique links"
+          for url in $links; do
+            code=000
+            for attempt in 1 2 3; do
+              code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "$url" || echo 000)
+              # Only 404/410 mean the target is gone; 403/429 are rate limits, 000 is transient
+              case "$code" in
+                404|410) sleep $((attempt * 5)) ;;
+                000|429|403) sleep $((attempt * 5)) ;;
+                *) break ;;
+              esac
+            done
+            case "$code" in
+              404|410) echo "DEAD  $code $url"; dead=$((dead + 1)) ;;
+              200)     echo "ok    $code $url" ;;
+              *)       echo "warn  $code $url (not treated as dead)" ;;
+            esac
+          done
+          if [ "$dead" -gt 0 ]; then
+            echo "::error::$dead dead link(s) in llms.txt"
+            exit 1
+          fi
+
+  coverage-diff:
+    name: Coverage vs clickhouse.com/docs/llms.txt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diff curated links against the docs-site index
+        run: |
+          set -u
+          # The docs site auto-generates /docs/llms.txt from page frontmatter
+          # (ClickHouse/clickhouse-docs plugins/llms-txt-plugin.ts), so its chdb
+          # entries are the authoritative list of published chDB doc pages.
+          curl -sL --max-time 60 "https://clickhouse.com/docs/llms.txt" -o /tmp/docs_llms.txt
+          if ! grep -q "clickhouse.com/docs/chdb" /tmp/docs_llms.txt; then
+            echo "::warning::could not fetch a usable docs llms.txt; skipping coverage diff"
+            exit 0
+          fi
+          grep -oE 'https://clickhouse\.com/docs/chdb[^) ]*' /tmp/docs_llms.txt | sed 's:/$::' | sort -u > /tmp/docs_urls.txt
+          grep -oE '\]\(https://clickhouse\.com/docs/chdb[^)]*\)' llms.txt | sed 's/^](//; s/)$//; s:/$::' | sort -u > /tmp/curated_urls.txt
+
+          {
+            echo "## llms.txt coverage vs docs site"
+            echo
+            echo "Docs site publishes $(wc -l < /tmp/docs_urls.txt) chDB pages; llms.txt curates $(wc -l < /tmp/curated_urls.txt) of them."
+            echo
+            missing_from_docs=$(comm -23 /tmp/curated_urls.txt /tmp/docs_urls.txt)
+            if [ -n "$missing_from_docs" ]; then
+              echo "### ⚠️ In llms.txt but NOT in the docs index (renamed or unpublished?)"
+              echo
+              echo "$missing_from_docs" | sed 's/^/- /'
+              echo
+            fi
+            uncurated=$(comm -13 /tmp/curated_urls.txt /tmp/docs_urls.txt)
+            if [ -n "$uncurated" ]; then
+              echo "### ℹ️ Published docs pages not in llms.txt (curation candidates, not errors)"
+              echo
+              echo "$uncurated" | sed 's/^/- /'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Informational only: the hard pass/fail signal is the HTTP check job.
+          echo "Coverage diff written to job summary"
