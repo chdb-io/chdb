@@ -10,9 +10,20 @@ import os
 import tempfile
 import unittest
 
-from chdb.agents import ChDBTool, ChDBError, ChDBReadOnlyError, quote_ident, InvalidIdentifier
+from chdb.agents import (
+    CONTRACT_VERSION,
+    ChDBTool,
+    ChDBError,
+    ChDBReadOnlyError,
+    InvalidIdentifier,
+    capabilities,
+    load_descriptors,
+    quote_ident,
+    tool_specs,
+)
 from chdb.agents.errors import parse_error
 from chdb.agents.safety import quote_string
+from chdb.agents.tool import _TOOL_METHODS
 
 
 def _sample_csv():
@@ -82,6 +93,41 @@ class TestToolSpecs(unittest.TestCase):
         finally:
             tool.close()
 
+    def test_dialects(self):
+        # module-level generation from descriptors.json, no session needed
+        anthropic = tool_specs("anthropic")
+        openai = tool_specs("openai")
+        mcp = tool_specs("mcp")
+        self.assertEqual(len(anthropic), len(openai))
+        self.assertEqual(len(anthropic), len(mcp))
+        run = anthropic[0]
+        self.assertEqual(run["name"], "run_select_query")
+        self.assertEqual(run["input_schema"]["required"], ["sql"])
+        self.assertIn("description", run["input_schema"]["properties"]["sql"])
+        fn = openai[0]
+        self.assertEqual(fn["type"], "function")
+        self.assertEqual(fn["function"]["name"], "run_select_query")
+        self.assertEqual(fn["function"]["parameters"], run["input_schema"])
+        self.assertEqual(mcp[0]["inputSchema"], run["input_schema"])
+
+    def test_unknown_dialect_is_typed_error(self):
+        with self.assertRaises(ChDBError) as ctx:
+            tool_specs("langchain")
+        self.assertEqual(ctx.exception.type, "INVALID_ARGUMENT")
+
+    def test_descriptors_cover_exactly_the_dispatch_table(self):
+        # every descriptor is dispatchable and every dispatchable tool is described
+        self.assertEqual(
+            {t["name"] for t in load_descriptors()["tools"]}, set(_TOOL_METHODS)
+        )
+
+    def test_contract_version_single_source(self):
+        self.assertEqual(load_descriptors()["contract_version"], CONTRACT_VERSION)
+        caps = capabilities()
+        self.assertEqual(caps["contract_version"], CONTRACT_VERSION)
+        self.assertTrue(caps["features"]["dataframe_query"])  # Python-only capability
+        self.assertEqual(set(caps["tools"]), set(_TOOL_METHODS))
+
 
 class TestReadOnlyOptOut(unittest.TestCase):
     def test_readonly_blocks_write(self):
@@ -111,6 +157,47 @@ class TestAquery(unittest.IsolatedAsyncioTestCase):
             sync = tool.query("SELECT toInt32(1) AS x").rows
             asy = (await tool.aquery("SELECT toInt32(1) AS x")).rows
             self.assertEqual(sync, asy)
+        finally:
+            tool.close()
+
+    async def test_acall_matches_call(self):
+        tool = ChDBTool(read_only=True)
+        try:
+            args = {"sql": "SELECT toInt32(7) AS x"}
+            sync = tool.call("run_select_query", args)
+            asy = await tool.acall("run_select_query", args)
+            self.assertTrue(sync["ok"] and asy["ok"])
+            self.assertEqual(sync["result"]["rows"], asy["result"]["rows"])
+            # the error envelope crosses the thread boundary intact (P4)
+            bad = await tool.acall("run_select_query", {"sql": "SELECT BAD_FUNC()"})
+            self.assertFalse(bad["ok"])
+            self.assertEqual(bad["error"]["type"], "UNKNOWN_FUNCTION")
+        finally:
+            tool.close()
+
+
+class TestArgumentValidation(unittest.TestCase):
+    def test_non_numeric_max_rows_is_typed(self):
+        tool = ChDBTool(read_only=True)
+        try:
+            with self.assertRaises(ChDBError) as ctx:
+                tool.query("SELECT 1", max_rows="lots")
+            self.assertEqual(ctx.exception.type, "INVALID_ARGUMENT")
+        finally:
+            tool.close()
+
+    def test_non_numeric_constructor_cap_is_typed(self):
+        with self.assertRaises(ChDBError) as ctx:
+            ChDBTool(max_rows="lots")
+        self.assertEqual(ctx.exception.type, "INVALID_ARGUMENT")
+
+    def test_call_treats_null_limit_as_omitted(self):
+        # models routinely send null for optional args on the envelope path
+        tool = ChDBTool(read_only=True)
+        try:
+            out = tool.call("get_sample_data", {"target": "numbers(100)", "limit": None})
+            self.assertTrue(out["ok"])
+            self.assertEqual(out["result"]["row_count"], 5)
         finally:
             tool.close()
 

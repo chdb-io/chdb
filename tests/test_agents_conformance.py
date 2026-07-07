@@ -12,7 +12,7 @@ import os
 import unittest
 
 import chdb.agents
-from chdb.agents import ChDBTool, ChDBError
+from chdb.agents import CONTRACT_VERSION, ChDBTool, ChDBError, capabilities
 
 # Locate the fixture next to the installed chdb.agents package, so this runner
 # works whether run from the repo or against an installed wheel.
@@ -21,14 +21,22 @@ _CASES = os.path.join(_AGENTS, "cases.jsonl")
 _FIXTURES = os.path.abspath(os.path.join(_AGENTS, "fixtures"))
 
 
-def _load_cases():
+def _load_fixture():
+    """Return (header, cases). The first record without an "id" is the header
+    ({"fixture": ..., "contract_version": ...}); everything else is a case."""
+    header = None
     cases = []
     with open(_CASES, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
-            if line:
-                cases.append(json.loads(line))
-    return cases
+            if not line:
+                continue
+            obj = json.loads(line)
+            if "id" in obj:
+                cases.append(obj)
+            else:
+                header = obj
+    return header, cases
 
 
 def _sub(args):
@@ -80,6 +88,11 @@ class TestAgentsConformance(unittest.TestCase):
             return tool.get_sample_data(args["target"], limit=args.get("limit", 5))
         if method == "list_functions":
             return tool.list_functions(like=args.get("like"), limit=args.get("limit", 200))
+        if method == "dataframe_query":
+            import pandas as pd
+
+            dfs = {k: pd.DataFrame(v) for k, v in args["dataframes"].items()}
+            return tool.dataframe_query(args["sql"], dfs)
         self.fail("unknown method in case: " + method)
 
     def _assert(self, case, exp):
@@ -110,10 +123,20 @@ class TestAgentsConformance(unittest.TestCase):
         if "describe_column" in exp:
             self.assertIn(exp["describe_column"], [c["name"] for c in result])
 
+    def test_fixture_header_matches_contract_version(self):
+        header, _ = _load_fixture()
+        self.assertIsNotNone(header, "cases.jsonl must start with a header record")
+        self.assertEqual(header["contract_version"], CONTRACT_VERSION)
+
     def test_conformance_cases(self):
-        cases = _load_cases()
+        _, cases = _load_fixture()
         self.assertGreater(len(cases), 0, "no conformance cases loaded")
+        features = capabilities()["features"]
         for case in cases:
+            # capability-gated cases run only where the binding has the feature
+            req = case.get("requires")
+            if req and not features.get(req):
+                continue
             with self.subTest(case=case["id"]):
                 self._assert(case, case["expect"])
 

@@ -1,0 +1,124 @@
+{
+  "$comment": "Single source of truth for the model-visible agent-tool surface (names, descriptions, argument schemas). Governed by CONTRACT.md; a copy of this file is vendored byte-identical in every chdb-io binding (chdb-node integrations/agents/descriptors.json). Bindings GENERATE their tool_specs()/framework schemas from this file — hand-editing a generated schema instead of this file is a contract violation. Changing this file is a contract change: bump contract_version here, in the code constant, and in conformance/cases.jsonl's header.",
+  "contract_version": "0.2.0",
+  "tools": [
+    {
+      "name": "run_select_query",
+      "id": "chdb-run-select-query",
+      "description": "Run a read-only ClickHouse SQL query with chDB, an in-process ClickHouse engine (full SQL dialect: 1000+ functions, window functions, arrays, JSON). Pass values via `params` as {name:Type} placeholders (e.g. WHERE id = {id:Int64}); never concatenate values into the SQL. Read external data inline with table functions: file('path'[, 'format']), s3('url','format'), url(...), postgresql(...), mysql(...). Returns rows plus a `truncated` flag. First use list_tables / describe_table to learn the schema.",
+      "params": [
+        {
+          "name": "sql",
+          "type": "string",
+          "required": true,
+          "description": "A complete read-only ClickHouse SQL statement; use {name:Type} placeholders for values."
+        },
+        {
+          "name": "params",
+          "type": "object",
+          "description": "Values bound to the {name:Type} placeholders in `sql`."
+        }
+      ]
+    },
+    {
+      "name": "list_databases",
+      "id": "chdb-list-databases",
+      "description": "List the databases available in the chDB session.",
+      "params": []
+    },
+    {
+      "name": "list_tables",
+      "id": "chdb-list-tables",
+      "description": "List the tables in a database (the current database if `database` is omitted).",
+      "params": [
+        {
+          "name": "database",
+          "type": "string",
+          "description": "Database to list tables from; current database if omitted."
+        }
+      ]
+    },
+    {
+      "name": "describe_table",
+      "id": "chdb-describe-table",
+      "description": "Describe the columns and types of a table (optionally database-qualified) or a table-function expression, e.g. s3('https://bucket/f.parquet','Parquet') or file('data.csv').",
+      "params": [
+        {
+          "name": "target",
+          "type": "string",
+          "required": true,
+          "description": "A table name or a table-function expression, e.g. \"events\" or \"s3('s3://b/f.parquet','Parquet')\"."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "description": "Database qualifier for a table name (invalid for a table function)."
+        }
+      ]
+    },
+    {
+      "name": "get_sample_data",
+      "id": "chdb-get-sample-data",
+      "description": "Return a few sample rows from a table or table-function expression, to see real values before querying.",
+      "params": [
+        {
+          "name": "target",
+          "type": "string",
+          "required": true,
+          "description": "A table name or a table-function expression."
+        },
+        {
+          "name": "database",
+          "type": "string",
+          "description": "Database qualifier for a table name (invalid for a table function)."
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Number of sample rows (default 5)."
+        }
+      ]
+    },
+    {
+      "name": "list_functions",
+      "id": "chdb-list-functions",
+      "description": "List available ClickHouse SQL functions, optionally filtered by an ILIKE pattern.",
+      "params": [
+        {
+          "name": "like",
+          "type": "string",
+          "description": "ILIKE pattern to filter function names, e.g. \"%array%\"."
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "description": "Max function names to return (default 200)."
+        }
+      ]
+    },
+    {
+      "name": "attach_file",
+      "id": "chdb-attach-file",
+      "description": "Register a local file as a queryable named table (a view over file()). Writable tools only; on a read-only tool this returns a READONLY error — declare files via the tool's attachments option instead.",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "The table name to register the file under."
+        },
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "Path to the local file."
+        },
+        {
+          "name": "format",
+          "type": "string",
+          "description": "chDB/ClickHouse input format (auto-detected from the extension if omitted)."
+        }
+      ]
+    }
+  ]
+}
