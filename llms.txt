@@ -9,6 +9,7 @@ Things to remember when using chDB:
 - DataFrames are first-class via the `Python(df)` table function: `chdb.query("SELECT * FROM Python(df) WHERE x > 10", output_format="DataFrame")` — DataFrame in, DataFrame out, no `register()` call.
 - Query across sources in one statement: `s3()`, `postgresql()`, `mysql()`, `mongodb()`, `iceberg()`, `deltaLake()`, and `remoteSecure('host:9440', db.table, 'user', 'pass')` for a remote ClickHouse cluster — join local files, DataFrames, and remote systems together.
 - Use `chdb.session.Session('path/to/dir')` for persistent storage; in-memory is the default. The DataStore API (`import datastore as pd`) is a pandas-compatible interface that compiles to optimized SQL — up to 247× faster than pandas on COUNT.
+- Documentation pages under `clickhouse.com/docs` return clean Markdown when requested with an `Accept: text/markdown` header — prefer that over parsing the HTML.
 
 ## Clients
 
@@ -45,6 +46,7 @@ Already using a ClickHouse client library? Point it at an embedded chDB engine �
 ## Examples
 
 - [chDB demos and example notebooks](https://github.com/chdb-io/chdb/tree/main/examples): TPC-H, MovieLens DNN, vector search, Hugging Face Parquet.
+- [OTEL ingestion buffer in Node.js](https://github.com/chdb-io/cookbook/tree/main/otel-ingestion-buffer): move OTEL/LLM-trace data from S3 into ClickHouse without the rows ever passing through JavaScript — one SQL statement reads length-delimited protobuf, merges partial events, enriches, and exports over the native protocol.
 - [NYC Taxi analytics agent on AWS Lambda MicroVMs](https://github.com/nklmish/chdb-lambda-microvm-demo): an AI agent that carries its own query engine — each MicroVM embeds a snapshot-hot chDB for in-process SQL and cross-cloud federation (S3, ClickHouse Cloud, and more) in one statement; chDB is a Lambda MicroVM launch partner.
 - [chDB 4.0 launch with Hex partnership](https://clickhouse.com/blog/chdb.4-0-pandas-hex): "Write Pandas, run ClickHouse, ship from Hex" — the DataStore story.
 - [DataFrame zero-copy journey](https://clickhouse.com/blog/chdb-journey-to-zero-copy): how chDB reaches zero-copy DataFrame interop and 247× faster-than-pandas COUNT.
@@ -58,4 +60,4 @@ Already using a ClickHouse client library? Point it at an embedded chDB engine �
 
 ## Migration from DuckDB
 
-- [Migrate from DuckDB to chDB](https://clickhouse.com/docs/chdb/guides/migration-from-duckdb): API mapping, SQL dialect differences, and a federation walkthrough.
+- [Migrate from DuckDB to chDB](https://github.com/chdb-io/cookbook/tree/main/migration-from-duckdb): a static DuckDB→chDB API analyzer plus a runnable 18-query benchmark with side-by-side SQL and DataFrame round-trip notes.
