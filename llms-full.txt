@@ -16024,7 +16024,7 @@ For further information and examples, see the [ClickHouse SQL Reference](https:/
 
 # chDB architecture deep dive
 
-**URL:** https://github.com/chdb-io/chdb/blob/main/docs/ARCHITECTURE.md
+**URL:** https://github.com/chdb-io/chdb/blob/main/dev-docs/ARCHITECTURE.md
 
 # DataStore Architecture & Design Principles
 

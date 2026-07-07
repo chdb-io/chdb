@@ -64,6 +64,7 @@ chdb = ["*.dylib", "*.so"]
 [tool.setuptools.package-data]
 chdb = [
     "agents/CONTRACT.md",
+    "agents/descriptors.json",
     "agents/conformance/*.jsonl",
     "agents/conformance/*.md",
     "agents/conformance/fixtures/*",
@@ -87,7 +88,7 @@ extend-exclude = [
     "build",
     "dist",
     ".eggs",
-    "docs/conf.py",
+    "sphinx/conf.py",
     "datastore/tests",
 ]
 

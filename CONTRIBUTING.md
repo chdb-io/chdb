@@ -75,7 +75,7 @@ git clone https://github.com/chdb-io/chdb && cd chdb
 python -m pip install --upgrade pip      # pip ≥ 21.3 needed for PEP 660 editable install
 pip install -r requirements-dev.txt
 pip install -e .
-# For doc builds: pip install -r docs/requirements.txt
+# For doc builds: pip install -r sphinx/requirements.txt
 ```
 
 Pure-Python repository. No C++ build, no submodules. `pip install -e .`
@@ -97,7 +97,7 @@ copy the verify command, iterate.
 | **A. `datastore/*.py`** (most common) | No | **Full suite (default):** `cd datastore && python -m pytest tests/ -v --tb=short -x` (~1 min, ~10k tests, fail-fast). `make test` runs the same suite without `-x`. Targeted (`pytest tests/test_<file>.py`) is fine while debugging, but **the full suite is what you sign off on**. |
 | **B. `datastore/tests/*.py` only** | No | Same as A |
 | **C. `chdb/__init__.py` or `chdb/datastore.py` shim** | Effective yes | `pip uninstall -y chdb && pip install -e .`, restart Python, verify both `import chdb` and `from chdb import datastore` succeed |
-| **D. `docs/`** | No | `make docs` (HTML on :8001) or `make docs-md` |
+| **D. `sphinx/`** | No | `make docs` (HTML on :8001) or `make docs-md` |
 | **E. `examples/` / `benchmark/` / `refs/` scripts** | No | `python <path-to-script>.py` |
 | **F. `agent/skills/*` content** | No | `bash install_skill.sh --project`, inspect `./.agents/skills/` |
 | **G. C++ / SQL engine** | — | Wrong repo — go to [chdb-io/chdb-core](https://github.com/chdb-io/chdb-core) |
@@ -180,17 +180,17 @@ pattern.
 
 ## Documentation changes
 
-`docs/` is built with Sphinx. The Sphinx-side dependencies aren't in
+`sphinx/` (the legacy Sphinx site) is built from the `sphinx/` directory. The Sphinx-side dependencies aren't in
 `requirements-dev.txt`; install them once before building:
 
 ```bash
-pip install -r docs/requirements.txt
+pip install -r sphinx/requirements.txt
 make docs        # builds HTML and serves on :8001
 make docs-md     # builds markdown into buildlib/markdowndocs/
 ```
 
 For doc-only PRs, the test suite still has to be green, but you can
-skip running it locally if you only touched `docs/`.
+skip running it locally if you only touched `sphinx/`.
 
 ## CI
 
@@ -234,9 +234,9 @@ artefact in `dist/`.
 
 - [`AGENTS.md`](./AGENTS.md) — chdb-ds design and testing principles
   (LLM-facing, kept short)
-- [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) — high-level
+- [`dev-docs/ARCHITECTURE.md`](./dev-docs/ARCHITECTURE.md) — high-level
   DataStore architecture
-- [`docs/PANDAS_COMPATIBILITY.md`](./docs/PANDAS_COMPATIBILITY.md)
+- [`dev-docs/PANDAS_COMPATIBILITY.md`](./dev-docs/PANDAS_COMPATIBILITY.md)
 - User docs: <https://chdb.readthedocs.io/en/latest/index.html>
 
 When asked to *use* chDB, the readthedocs site is canonical. When

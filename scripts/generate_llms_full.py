@@ -3,7 +3,7 @@
 
 Pulls every page under docs/chdb from the ClickHouse/clickhouse-docs repo
 (the source the docs site renders at clickhouse.com/docs/chdb), appends
-repo-native references (docs/ARCHITECTURE.md and the language-binding
+repo-native references (dev-docs/ARCHITECTURE.md and the language-binding
 READMEs), and writes llms-full.txt at the repo root.
 
 Each page becomes a block of:
@@ -54,10 +54,10 @@ SECTION_ORDER = [
 EXTRA_SOURCES = [
     (
         "chDB architecture deep dive",
-        "https://github.com/chdb-io/chdb/blob/main/docs/ARCHITECTURE.md",
-        os.path.join(REPO_ROOT, "docs", "ARCHITECTURE.md"),
+        "https://github.com/chdb-io/chdb/blob/main/dev-docs/ARCHITECTURE.md",
+        os.path.join(REPO_ROOT, "dev-docs", "ARCHITECTURE.md"),
         "chdb-io/chdb",
-        "docs",
+        "dev-docs",
     ),
 ]
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")

@@ -266,3 +266,4 @@ libchdb.so
 .cursor/rules/
 .cursor/hooks/
 chdb.code-workspace
+/research/
