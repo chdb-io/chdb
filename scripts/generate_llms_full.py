@@ -61,6 +61,14 @@ EXTRA_SOURCES = [
     ),
 ]
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")
+
+# Verified-dead targets in upstream content (404 repo / NXDOMAIN domain).
+# Matched by prefix; the link is unwrapped to its anchor text so agents don't
+# chase it. The weekly llms-txt-check CI surfaces new candidates for this list.
+DEAD_LINK_PREFIXES = (
+    "https://github.com/JeffSackmann/tennis_atp",   # dataset repo removed from GitHub
+    "https://jupysql.ploomber.io",                  # Ploomber docs domain no longer resolves
+)
 BINDING_READMES = [
     ("chdb-node — Node.js binding", "chdb-io/chdb-node"),
     ("chdb-bun — Bun binding", "chdb-io/chdb-bun"),
@@ -164,6 +172,12 @@ def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir=""):
         return m.group(0)
 
     body = re.sub(r"(\[[^\]]*\]\()([^)\s]+)\)", absolute_target, body)
+
+    # Unwrap links whose targets are known to be dead, keeping the anchor text
+    for prefix in DEAD_LINK_PREFIXES:
+        body = re.sub(
+            r"!?\[([^\]]*)\]\(" + re.escape(prefix) + r"[^)]*\)", r"\1", body
+        )
 
     # Collapse the blank runs the removals leave behind
     body = re.sub(r"\n{3,}", "\n\n", body)

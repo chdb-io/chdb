@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   check-links:
-    name: Every llms.txt link resolves
+    name: Every llms.txt / llms-full.txt link resolves
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,27 +25,31 @@ jobs:
         run: |
           set -u
           dead=0
-          links=$(grep -oE '\]\(https://[^)]+\)' llms.txt | sed 's/^](//; s/)$//' | sort -u)
-          echo "Checking $(echo "$links" | wc -l) unique links"
+          # Markdown link targets plus the '**URL:**' provenance lines in llms-full.txt
+          links=$({ grep -ohE '\]\(https?://[^)]+\)' llms.txt llms-full.txt | sed 's/^](//; s/)$//'
+                    grep -ohE '^\*\*URL:\*\* \S+' llms-full.txt | sed 's/^\*\*URL:\*\* //'; } | sort -u)
+          echo "Checking $(echo "$links" | wc -l) unique links across llms.txt and llms-full.txt"
           for url in $links; do
             code=000
             for attempt in 1 2 3; do
               code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "$url" || echo 000)
-              # Only 404/410 mean the target is gone; 403/429 are rate limits, 000 is transient
               case "$code" in
-                404|410) sleep $((attempt * 5)) ;;
-                000|429|403) sleep $((attempt * 5)) ;;
-                *) break ;;
+                200) break ;;
+                *)   sleep $((attempt * 5)) ;;
               esac
             done
+            # Dead = gone (404/410) or unreachable after retries (000: NXDOMAIN or
+            # connection failure — vanished domains never return 404).
+            # 403/429 stay warnings: npmjs/crates.io/clickpy block bots but the
+            # pages are alive (verified via their APIs).
             case "$code" in
-              404|410) echo "DEAD  $code $url"; dead=$((dead + 1)) ;;
-              200)     echo "ok    $code $url" ;;
-              *)       echo "warn  $code $url (not treated as dead)" ;;
+              404|410|000) echo "DEAD  $code $url"; dead=$((dead + 1)) ;;
+              200)         echo "ok    $code $url" ;;
+              *)           echo "warn  $code $url (not treated as dead)" ;;
             esac
           done
           if [ "$dead" -gt 0 ]; then
-            echo "::error::$dead dead link(s) in llms.txt"
+            echo "::error::$dead dead link(s) — fix the entry in llms.txt, or for llms-full.txt fix upstream / add to DEAD_LINK_PREFIXES in scripts/generate_llms_full.py and regenerate"
             exit 1
           fi
 
