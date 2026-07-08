@@ -1,0 +1,64 @@
+name: 'Verify Docs'
+
+# Validates docs/ as a drop-in replacement for the docs/products/chdb slice
+# of the aggregated ClickHouse docs — the same mechanism clickhouse-connect
+# uses for its slice. While docs/ is still a staging snapshot (see
+# docs/README.md) this simply proves the pipeline; once docs/ becomes the
+# source of truth it is the pre-merge gate for every docs change.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs_verify.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'docs/**'
+      - '.github/workflows/docs_verify.yml'
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    name: Mintlify checks
+    # Run inside the docs image so every dependency (git, python3, mint, node)
+    # is present -- nothing is installed, and this repo vendors no scripts.
+    container:
+      image: clickhouse/docs-builder
+    steps:
+      - name: Checkout chdb
+        uses: actions/checkout@v4
+
+      # Fetch the check driver from ClickHouse/ClickHouse rather than vendoring
+      # it. The driver shallow/sparse-clones the aggregator docs plus its CI
+      # scripts, so any check scripts come along for free.
+      - name: Fetch the docs check driver
+        run: |
+          curl -fsSL -o /tmp/mintlify_docs_check.py \
+            https://raw.githubusercontent.com/ClickHouse/ClickHouse/master/ci/jobs/scripts/docs/mintlify_docs_check.py
+
+      # Only page content ships to the aggregator: README.md is this repo's
+      # staging notice and _static/ holds images pinned to frozen public URLs
+      # (org profile, PyPI release pages) — neither is part of the docs slice.
+      # This filter is the same whitelist the future sync workflow will use.
+      - name: Stage the publishable slice
+        run: |
+          cp -r docs /tmp/docs-slice
+          rm -rf /tmp/docs-slice/_static /tmp/docs-slice/README.md
+
+      # The driver clones the aggregator, replaces the chDB folder with the
+      # staged slice (wiping it first, so deletions/renames are seen), and
+      # runs the checks from the docs root. --scoped runs a scoped validate of
+      # just the replaced folder (docs.json schema, navigation, MDX parse,
+      # snippet imports) instead of the full site-wide validate.
+      - name: Run Mintlify docs checks
+        run: |
+          python3 /tmp/mintlify_docs_check.py \
+            --repo https://github.com/ClickHouse/ClickHouse.git \
+            --ref master \
+            --replace /tmp/docs-slice:products/chdb \
+            --scoped
