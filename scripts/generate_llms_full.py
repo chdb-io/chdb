@@ -37,16 +37,18 @@ SITE_BASE = "https://clickhouse.com/docs"
 
 # Pages are emitted in this prefix order so a truncated read still gets the
 # essentials first. Anything unmatched sorts to the end alphabetically.
+# Prefixes are relative to the docs root of whichever source is used
+# (docs/chdb/ in the remote repo, docs/ in this repo).
 SECTION_ORDER = [
-    "docs/chdb/index.md",
-    "docs/chdb/getting-started",
-    "docs/chdb/install",
-    "docs/chdb/api",
-    "docs/chdb/datastore",
-    "docs/chdb/guides",
-    "docs/chdb/configuration",
-    "docs/chdb/debugging",
-    "docs/chdb/reference",
+    "index.",
+    "getting-started",
+    "install",
+    "api",
+    "datastore",
+    "guides",
+    "configuration",
+    "debugging",
+    "reference",
 ]
 
 # Repo-native content appended after the docs corpus:
@@ -102,16 +104,23 @@ def parse_frontmatter(text):
     return fm, text[m.end():]
 
 
-def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir=""):
+def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir="", site_map=None):
     # doc_ctx = (source dir of this docs page, {source path: published slug});
     # file-relative links resolve through the slug map because filenames and
-    # published slugs diverge (e.g. guides/querying-pandas.md -> /chdb/guides/pandas)
+    # published slugs diverge (e.g. guides/querying-pandas.md -> /chdb/guides/pandas).
+    # site_map maps aggregator-internal page paths ('/products/chdb/…', used by
+    # the Mintlify sources) to published slugs.
     # Upstream docs occasionally have a non-breaking space after '##', which
     # breaks both markdown rendering and the anchor-stripping below
     body = body.replace("\xa0", " ")
-    # Drop MDX import lines — most component tags are kept, matching how
-    # platform.claude.com serves its .md pages...
-    body = re.sub(r"^import\s+.*?;?\s*$", "", body, flags=re.MULTILINE)
+    # Drop MDX/ESM import lines only — Python and Go examples inside code
+    # fences also start with 'import', so require the JS "from '…'" clause
+    # (or a bare side-effect string import). Component tags themselves are
+    # kept, matching how platform.claude.com serves its .md pages...
+    body = re.sub(
+        r"^import\s+.*\bfrom\s+['\"][^'\"]+['\"];?\s*$", "", body, flags=re.MULTILINE
+    )
+    body = re.sub(r"^import\s+['\"][^'\"]+['\"];?\s*$", "", body, flags=re.MULTILINE)
     # ...except <Image img={var}/>, whose img reference dangles once the
     # import is gone — nothing useful survives, so drop the tag.
     body = re.sub(r"<Image\b[^>]*/?>", "", body)
@@ -146,10 +155,14 @@ def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir=""):
         if doc_ctx is not None:
             src_dir, slug_by_path = doc_ctx
             if path.startswith("/"):
-                # Site-absolute ('/interfaces/formats') is already a slug path,
-                # unless it points at a source file ('/chdb/x.md') — map that
-                # through the slug table like a relative link
+                # Site-absolute targets: aggregator-internal page paths
+                # ('/products/chdb/…') map through site_map to their published
+                # slug; '/chdb/x.md' source-file paths map through the slug
+                # table; anything else ('/interfaces/formats') already is a
+                # slug path.
                 resolved = re.sub(r"\.mdx?$", "", path)
+                if site_map:
+                    resolved = site_map.get(resolved, resolved)
                 resolved = slug_by_path.get("docs" + path, resolved)
             else:
                 fp = posixpath.normpath(posixpath.join(src_dir, path))
@@ -184,31 +197,58 @@ def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir=""):
     return body.strip()
 
 
-def order_key(path):
+def order_key(rel):
     for i, prefix in enumerate(SECTION_ORDER):
-        if path == prefix or path.startswith(prefix + "/") or path.startswith(prefix + "."):
-            return (i, path)
-    return (len(SECTION_ORDER), path)
+        if rel == prefix or rel.startswith((prefix + "/", prefix + ".")) or rel.startswith(prefix):
+            return (i, rel)
+    return (len(SECTION_ORDER), rel)
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--docs-source",
+        choices=["remote", "local"],
+        default="remote",
+        help="remote: fetch the live docs from the ClickHouse docs repo (default"
+        " until this repo's docs/ becomes the source of truth); local: build"
+        " from this repo's docs/ staging tree",
+    )
+    args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN")
 
-    tree = json.loads(
-        fetch(f"https://api.github.com/repos/{DOCS_REPO}/git/trees/{DOCS_BRANCH}?recursive=1", token)
-    )
-    pages = sorted(
-        (
-            entry["path"]
-            for entry in tree["tree"]
-            if entry["type"] == "blob"
-            and entry["path"].startswith(DOCS_PREFIX + "/")
-            and entry["path"].endswith((".md", ".mdx"))
-        ),
-        key=order_key,
-    )
-    if not pages:
-        sys.exit(f"no pages found under {DOCS_PREFIX} in {DOCS_REPO}")
+    # pages: list of (read path, path relative to the docs root)
+    if args.docs_source == "local":
+        docs_dir = os.path.join(REPO_ROOT, "docs")
+        pages = []
+        for root, _, files in os.walk(docs_dir):
+            if "_static" in root:
+                continue
+            for name in files:
+                if name.endswith((".md", ".mdx")) and name != "README.md":
+                    full = os.path.join(root, name)
+                    pages.append((full, os.path.relpath(full, docs_dir)))
+        pages.sort(key=lambda pr: order_key(pr[1]))
+        if not pages:
+            sys.exit(f"no pages found under {docs_dir}")
+    else:
+        tree = json.loads(
+            fetch(f"https://api.github.com/repos/{DOCS_REPO}/git/trees/{DOCS_BRANCH}?recursive=1", token)
+        )
+        pages = sorted(
+            (
+                (entry["path"], entry["path"][len(DOCS_PREFIX) + 1:])
+                for entry in tree["tree"]
+                if entry["type"] == "blob"
+                and entry["path"].startswith(DOCS_PREFIX + "/")
+                and entry["path"].endswith((".md", ".mdx"))
+            ),
+            key=lambda pr: order_key(pr[1]),
+        )
+        if not pages:
+            sys.exit(f"no pages found under {DOCS_PREFIX} in {DOCS_REPO}")
 
     # Reuse the hand-written preamble (H1 + blockquote + agent notes) from llms.txt.
     with open(os.path.join(REPO_ROOT, "llms.txt"), encoding="utf-8") as f:
@@ -222,21 +262,38 @@ def main():
     ]
 
     page_data = []
-    for path in pages:
-        raw = fetch(f"https://raw.githubusercontent.com/{DOCS_REPO}/{DOCS_BRANCH}/{path}", token)
+    for path, rel in pages:
+        if args.docs_source == "local":
+            with open(path, encoding="utf-8") as f:
+                raw = f.read()
+        else:
+            raw = fetch(f"https://raw.githubusercontent.com/{DOCS_REPO}/{DOCS_BRANCH}/{path}", token)
         fm, body = parse_frontmatter(raw)
-        slug = fm.get("slug") or "/" + path[len("docs/"):].rsplit(".", 1)[0]
-        page_data.append((path, fm, slug, body))
-    slug_by_path = {p: s for p, _, s, _ in page_data}
+        slug = fm.get("slug") or "/chdb/" + rel.rsplit(".", 1)[0]
+        page_data.append((path, rel, fm, slug, body))
+    slug_by_path = {p: s for p, _, _, s, _ in page_data}
+    # The Mintlify sources link pages by aggregator-internal path
+    # ('/products/chdb/<rel>'); map those to published slugs.
+    site_map = {}
+    for _, rel, _, slug, _ in page_data:
+        internal = "/products/chdb/" + rel.rsplit(".", 1)[0]
+        site_map[internal] = slug  # links may spell out '…/index' explicitly
+        site_map[re.sub(r"/index$", "", internal) or "/products/chdb"] = slug
 
-    for path, fm, slug, body in page_data:
+    for path, rel, fm, slug, body in page_data:
         title = fm.get("title") or slug
         block = [f"# {title}", "", f"**URL:** {SITE_BASE}{slug}", ""]
         if fm.get("description"):
             block += [fm["description"], ""]
-        block.append(clean_body(body, doc_ctx=(posixpath.dirname(path), slug_by_path)))
+        block.append(
+            clean_body(
+                body,
+                doc_ctx=(posixpath.dirname(path), slug_by_path),
+                site_map=site_map,
+            )
+        )
         blocks.append("\n".join(block))
-        print(f"  docs  {path} -> {SITE_BASE}{slug}", file=sys.stderr)
+        print(f"  docs  {rel} -> {SITE_BASE}{slug}", file=sys.stderr)
 
     for title, url, local_path, repo, repo_dir in EXTRA_SOURCES:
         with open(local_path, encoding="utf-8") as f:
