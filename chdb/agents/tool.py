@@ -19,7 +19,13 @@ import json
 
 from .descriptors import tool_specs as _tool_specs
 from .errors import ChDBError, ChDBReadOnlyError, parse_error
-from .safety import path_allowed, quote_ident, quote_string, scan_file_paths
+from .safety import (
+    FALLBACK_KNOWN_TABLE_FUNCTIONS,
+    find_source_calls,
+    path_allowed,
+    quote_ident,
+    quote_string,
+)
 
 __all__ = ["ChDBTool", "QueryResult"]
 
@@ -119,32 +125,92 @@ class ChDBTool:
 
             self._session = Session() if path in (":memory:", "", None) else Session(path)
 
-        # Exact 64-bit integers survive JSON as strings rather than lossy floats.
-        self._session.query("SET output_format_json_quote_64bit_integers=1", "CSV")
-        if self.max_execution_time is not None:
-            # engine-side wall-clock bound; a runaway query raises TIMEOUT_EXCEEDED
-            self._session.query("SET max_execution_time={}".format(self.max_execution_time), "CSV")
-        # Attachments must be materialized BEFORE the read-only lock, because
-        # CREATE VIEW is a write that readonly=2 rejects. This is why read-only
-        # tools declare files at construction rather than via attach_file().
-        for name, spec in (attachments or {}).items():
-            p, fmt = spec if isinstance(spec, (tuple, list)) else (spec, None)
-            self._create_file_view(name, p, fmt)
-        if self.read_only:
-            # readonly=2 (NOT 1): blocks INSERT/CREATE/ALTER/DROP while still
-            # allowing SELECT and the file()/s3()/url() table functions that are
-            # chDB's whole point. readonly=1 rejects those. Cannot be un-set.
-            self._session.query("SET readonly=2", "CSV")
+        # If any setup below throws (a readonly mismatch, a bad attachment path,
+        # an engine SET error), the constructor never returns, so a Session we
+        # own would otherwise leak (the caller has no instance to close()).
+        # Close it before re-throwing — mirrors the TypeScript binding.
+        try:
+            if not self._owns_session:
+                # An external session's readonly state is probed, never mutated:
+                # SET readonly=2 cannot be lowered again, so silently applying it
+                # would irreversibly lock the caller's shared session (and any
+                # other tool on it); silently skipping it would leave a tool that
+                # claims read_only but isn't. A mismatch fails construction and
+                # forces an explicit choice: let the tool own its session, pass
+                # read_only=False, or hand in a session already at readonly=2.
+                expected = 2 if self.read_only else 0
+                actual = self._probe_readonly()
+                if actual != expected:
+                    raise ChDBError(
+                        "external session has readonly={} but the tool was declared "
+                        "read_only={} (expects readonly={}); pass a matching session, "
+                        "change the read_only flag, or omit session so the tool owns one".format(
+                            actual, self.read_only, expected
+                        ),
+                        type="CONFIG_MISMATCH",
+                    )
+            # Exact 64-bit integers survive JSON as strings rather than lossy floats.
+            self._session.query("SET output_format_json_quote_64bit_integers=1", "CSV")
+            if self.max_execution_time is not None:
+                # engine-side wall-clock bound; a runaway query raises TIMEOUT_EXCEEDED
+                self._session.query("SET max_execution_time={}".format(self.max_execution_time), "CSV")
+            # Attachments must be materialized BEFORE the read-only lock, because
+            # CREATE VIEW is a write that readonly=2 rejects. This is why read-only
+            # tools declare files at construction rather than via attach_file().
+            for name, spec in (attachments or {}).items():
+                p, fmt = spec if isinstance(spec, (tuple, list)) else (spec, None)
+                self._create_file_view(name, p, fmt)
+            if self.read_only and self._owns_session:
+                # readonly=2 (NOT 1): blocks INSERT/CREATE/ALTER/DROP while still
+                # allowing SELECT and the file()/s3()/url() table functions that are
+                # chDB's whole point. readonly=1 rejects those. Cannot be un-set.
+                # (An external session was verified to be there already.)
+                self._session.query("SET readonly=2", "CSV")
+            # The allowlist gate judges table functions against what THIS engine
+            # exposes, so new source functions are gated by default instead of
+            # silently allowed by a stale hand-written list.
+            self._known_table_functions = (
+                self._snapshot_table_functions() if self.file_allowlist else None
+            )
+        except BaseException:
+            if self._owns_session and self._session is not None:
+                try:
+                    self._session.close()
+                except Exception:
+                    pass
+                self._session = None
+            raise
+
+    def _probe_readonly(self):
+        try:
+            res = self._session.query("SELECT toInt32(getSetting('readonly'))", "CSV")
+            return int(res.bytes().decode().strip().strip('"'))
+        except ChDBError:
+            raise
+        except Exception as e:
+            raise parse_error(e)
+
+    def _snapshot_table_functions(self):
+        """The live set of table-function names (lowercase), unioned with the
+        static fallback; the fallback alone if the engine can't answer."""
+        try:
+            res = self._session.query("SELECT lower(name) FROM system.table_functions", "CSV")
+            names = {line.strip().strip('"') for line in res.bytes().decode().splitlines()}
+            return frozenset(n for n in names if n) | FALLBACK_KNOWN_TABLE_FUNCTIONS
+        except Exception:
+            return FALLBACK_KNOWN_TABLE_FUNCTIONS
 
     # ---- core query -------------------------------------------------------
 
-    def query(self, sql, *, params=None, max_rows=None):
+    def query(self, sql, *, params=None, max_rows=None, _permit_fns=frozenset()):
         """Run read SQL. Values MUST be passed via `params` ({name:Type} + dict),
         never formatted into `sql`. Returns a `QueryResult`; raises `ChDBError`.
+        (`_permit_fns` is internal: dataframe_query exempts the Python() table
+        function it itself injects from the allowlist gate.)
         """
         if not isinstance(sql, str) or sql.strip() == "":
             raise ChDBError("sql must be a non-empty string")
-        self._enforce_allowlist(sql)
+        self._enforce_allowlist(sql, permit=_permit_fns)
         cap = self.max_rows if max_rows is None else max(1, _int_arg(max_rows, "max_rows"))
         # Both the engine call and the decode go through parse_error: malformed or
         # non-JSON engine output (edge-case statements, empty results) becomes a
@@ -181,16 +247,32 @@ class ChDBTool:
         `query` in a worker thread (documented, not faked)."""
         return await asyncio.to_thread(self.query, sql, params=params, max_rows=max_rows)
 
-    def _enforce_allowlist(self, sql):
-        """If a file_allowlist is set, reject file()/s3()/url() literal paths that
-        fall outside it. Best-effort (literal args only); readonly=2 is the real
-        write backstop. No allowlist configured -> no restriction."""
+    def _enforce_allowlist(self, sql, permit=frozenset()):
+        """With a file_allowlist set, every non-safe table-function call in the
+        SQL must carry a literal source argument inside the allowlist.
+
+        The scan runs over masked SQL (string literals/comments blanked, quoted
+        function names matched), against the table functions this engine
+        actually exposes — so a call with a computed/concatenated source, or
+        any external source function outside the allowlist, is rejected rather
+        than slipping through a literal-only regex. readonly=2 remains the
+        write backstop; OS sandboxing the filesystem backstop. No allowlist
+        configured -> no restriction."""
         if not self.file_allowlist:
             return
-        for _fn, path in scan_file_paths(sql):
-            if not path_allowed(path, self.file_allowlist):
+        known = self._known_table_functions or FALLBACK_KNOWN_TABLE_FUNCTIONS
+        for fn, arg in find_source_calls(sql, known):
+            if fn in permit:
+                continue
+            if arg is None:
                 raise ChDBError(
-                    "source path not in file_allowlist: {!r}".format(path),
+                    "table function {!r} without a literal source argument is not "
+                    "allowed when file_allowlist is set".format(fn),
+                    type="ACCESS_DENIED",
+                )
+            if not path_allowed(arg, self.file_allowlist):
+                raise ChDBError(
+                    "source path not in file_allowlist: {!r}".format(arg),
                     type="ACCESS_DENIED",
                 )
 
@@ -255,7 +337,10 @@ class ChDBTool:
         saved = {k: g.get(k, _MISSING) for k in dataframes}
         try:
             g.update(dataframes)
-            return self.query(sql, max_rows=max_rows)
+            # Python() resolves the names this method itself injected, so the
+            # allowlist gate (which treats python as an RCE-class source) is
+            # lifted for exactly this one function on this one call.
+            return self.query(sql, max_rows=max_rows, _permit_fns=frozenset(("python",)))
         finally:
             for k, v in saved.items():
                 if v is _MISSING:

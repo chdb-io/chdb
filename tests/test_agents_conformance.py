@@ -41,17 +41,20 @@ def _load_fixture():
     return records[0], records[1:]
 
 
+def _sub_value(v):
+    if isinstance(v, str):
+        return v.replace("{{fixtures}}", _FIXTURES)
+    if isinstance(v, dict):
+        return {k: _sub_value(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_sub_value(x) for x in v]
+    return v
+
+
 def _sub(args):
-    """Replace the {{fixtures}} token in any string arg with the abs path."""
-    out = {}
-    for k, v in args.items():
-        if isinstance(v, str):
-            out[k] = v.replace("{{fixtures}}", _FIXTURES)
-        elif isinstance(v, dict):
-            out[k] = _sub(v)
-        else:
-            out[k] = v
-    return out
+    """Replace the {{fixtures}} token in any string, recursively through
+    dicts and lists (tool configs carry lists, e.g. file_allowlist)."""
+    return _sub_value(args)
 
 
 class TestAgentsConformance(unittest.TestCase):

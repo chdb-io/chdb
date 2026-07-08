@@ -97,6 +97,13 @@ to TS, which has no in-process pandas). Bindings may omit it.
 - Read-only is **immutable for the session** (the engine forbids lowering
   `readonly`), so it is fixed at construction, never per-call. Opt out entirely
   with the binding's write flag (`read_only=False` / `allowWrite=true`).
+- **A caller-provided session is probed, never mutated**: the constructor reads
+  `getSetting('readonly')` and requires it to match the declared mode (2 for
+  read-only, 0 for writable); a mismatch fails construction with
+  `CONFIG_MISMATCH`. Silently applying `SET readonly=2` would irreversibly lock
+  the caller's shared session; silently skipping it would leave a tool that
+  claims read-only but is not. Sessions the tool creates itself keep the
+  set-at-construction behavior.
 - Escapes are blocked by the engine: `SET readonly=0` and writes inside
   multi-statement SQL both fail.
 
@@ -132,17 +139,25 @@ to TS, which has no in-process pandas). Bindings may omit it.
 - Binding-side validation failures (no engine round-trip) use `code: 0` with a
   shared `type`: `INVALID_ARGUMENT` (bad argument value, e.g. a non-numeric
   cap or an unknown `tool_specs` dialect), `ACCESS_DENIED` (allowlist),
-  `UNKNOWN_TOOL` (bad `call()` name), `TOOL_ERROR` (any other non-engine
-  failure surfaced through the envelope).
+  `CONFIG_MISMATCH` (a caller-provided session whose readonly state conflicts
+  with the declared mode), `UNKNOWN_TOOL` (bad `call()` name), `TOOL_ERROR`
+  (any other non-engine failure surfaced through the envelope).
 
 ### P5 — Resource and source controls (normative, optional-per-deployment)
 - **Query timeout** — an optional `max_execution_time` (seconds) bounds runaway
   queries at the engine (`TIMEOUT_EXCEEDED`). Off by default; set per deployment.
-- **File allowlist** — an optional list of path prefixes. When set, `file()` /
-  `s3()` / `url()` literal paths outside it are rejected (`ACCESS_DENIED`), and
-  `attach_file` refuses out-of-allowlist paths. Best-effort on raw SQL (literal
-  args only) — `readonly=2` remains the real write backstop; OS-level sandboxing
-  is the real filesystem backstop.
+- **File allowlist** — an optional list of path prefixes. When set, raw SQL is
+  scanned for **every table function the running engine exposes** (live
+  `system.table_functions` snapshot, unioned with a static fallback) that is
+  not in the shared safe-by-construction set: each such call must carry a
+  **literal** source argument inside the allowlist, else `ACCESS_DENIED`. The
+  scan runs over masked SQL — string literals and comments blanked
+  position-preserving, backtick/double-quote-wrapped function names matched —
+  so a path-looking string never false-positives and quoting, comments, or a
+  computed argument never bypass the gate. `attach_file` refuses
+  out-of-allowlist paths. `readonly=2` remains the write backstop; OS-level
+  sandboxing is the filesystem backstop. (`dataframe_query` exempts only the
+  `Python()` names it itself injects.)
 - **Source catalog** — `attach_file(name, path[, format])` registers a file as a
   view. It is a write, so it works only on a writable tool; a read-only tool
   declares files at construction (`attachments=`), materialized **before** the
