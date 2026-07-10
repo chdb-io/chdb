@@ -1,0 +1,5 @@
+# Optional second gate -- empty by design. The chosen workflow is empirical skip-list-only:
+# if a behavior differs and we expect it not to work in chDB, list it in skip_list.txt with a
+# category comment. Add an entry here only if a divergence should still run (e.g. byte-level
+# output mismatch we want to detect if it ever heals); a strict-xfail entry that starts
+# passing will fail the build, which is the signal to remove it from this file.
