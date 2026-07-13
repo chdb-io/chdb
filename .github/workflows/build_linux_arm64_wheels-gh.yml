@@ -78,7 +78,8 @@ jobs:
               python /tmp/get-pip.py || python -m ensurepip --upgrade || true
             fi
             python -m pip install --upgrade pip
-            python -m pip install setuptools tox pandas pyarrow wheel pytest pytest-cov
+            # pyarrow 25.0.0 corrupts parquet reads on linux-aarch64; remove this pin once a fixed pyarrow release is out
+            python -m pip install setuptools tox pandas "pyarrow<25" wheel pytest pytest-cov
             pyenv shell --unset
           done
       - uses: actions/checkout@v3
@@ -117,7 +118,8 @@ jobs:
 
               pyenv shell $version
               python -m pip install dist/*.whl --force-reinstall
-              python -m pip install pytest pytest-cov hypothesis ray "$PANDAS_CONSTRAINT"
+              # pyarrow 25.0.0 corrupts parquet reads on linux-aarch64; remove this pin once a fixed pyarrow release is out
+              python -m pip install pytest pytest-cov hypothesis ray "$PANDAS_CONSTRAINT" "pyarrow<25"
               echo "Installed pandas version:"
               python -c "import pandas; print(pandas.__version__)"
 
