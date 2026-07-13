@@ -17,12 +17,35 @@ Four contract pillars:
 import asyncio
 import json
 
+from .descriptors import tool_specs as _tool_specs
 from .errors import ChDBError, ChDBReadOnlyError, parse_error
-from .safety import path_allowed, quote_ident, quote_string, scan_file_paths
+from .safety import (
+    FALLBACK_KNOWN_TABLE_FUNCTIONS,
+    find_source_calls,
+    path_allowed,
+    quote_ident,
+    quote_string,
+)
 
 __all__ = ["ChDBTool", "QueryResult"]
 
 _MISSING = object()  # sentinel for "name absent from globals" in dataframe_query
+
+
+def _int_arg(value, name):
+    """Coerce a numeric argument to int, or raise a typed INVALID_ARGUMENT.
+
+    A non-numeric cap must fail loudly in every binding: silently ignoring it
+    would disable the result cap (the TypeScript binding once did exactly that
+    via NaN comparisons), and a bare ValueError would bypass the typed-error
+    contract that lets the model read the failure.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ChDBError(
+            "{} must be an integer, got {!r}".format(name, value), type="INVALID_ARGUMENT"
+        )
 
 
 class QueryResult:
@@ -86,9 +109,11 @@ class ChDBTool:
         session=None,
     ):
         self.read_only = bool(read_only)
-        self.max_rows = max(1, int(max_rows))
-        self.max_bytes = max(1, int(max_bytes))
-        self.max_execution_time = None if max_execution_time is None else max(0, int(max_execution_time))
+        self.max_rows = max(1, _int_arg(max_rows, "max_rows"))
+        self.max_bytes = max(1, _int_arg(max_bytes, "max_bytes"))
+        self.max_execution_time = (
+            None if max_execution_time is None else max(0, _int_arg(max_execution_time, "max_execution_time"))
+        )
         # None = no allowlist (all paths allowed); a list = only these prefixes.
         self.file_allowlist = list(file_allowlist) if file_allowlist else None
         self._owns_session = session is None
@@ -100,33 +125,93 @@ class ChDBTool:
 
             self._session = Session() if path in (":memory:", "", None) else Session(path)
 
-        # Exact 64-bit integers survive JSON as strings rather than lossy floats.
-        self._session.query("SET output_format_json_quote_64bit_integers=1", "CSV")
-        if self.max_execution_time is not None:
-            # engine-side wall-clock bound; a runaway query raises TIMEOUT_EXCEEDED
-            self._session.query("SET max_execution_time={}".format(self.max_execution_time), "CSV")
-        # Attachments must be materialized BEFORE the read-only lock, because
-        # CREATE VIEW is a write that readonly=2 rejects. This is why read-only
-        # tools declare files at construction rather than via attach_file().
-        for name, spec in (attachments or {}).items():
-            p, fmt = spec if isinstance(spec, (tuple, list)) else (spec, None)
-            self._create_file_view(name, p, fmt)
-        if self.read_only:
-            # readonly=2 (NOT 1): blocks INSERT/CREATE/ALTER/DROP while still
-            # allowing SELECT and the file()/s3()/url() table functions that are
-            # chDB's whole point. readonly=1 rejects those. Cannot be un-set.
-            self._session.query("SET readonly=2", "CSV")
+        # If any setup below throws (a readonly mismatch, a bad attachment path,
+        # an engine SET error), the constructor never returns, so a Session we
+        # own would otherwise leak (the caller has no instance to close()).
+        # Close it before re-throwing — mirrors the TypeScript binding.
+        try:
+            if not self._owns_session:
+                # An external session's readonly state is probed, never mutated:
+                # SET readonly=2 cannot be lowered again, so silently applying it
+                # would irreversibly lock the caller's shared session (and any
+                # other tool on it); silently skipping it would leave a tool that
+                # claims read_only but isn't. A mismatch fails construction and
+                # forces an explicit choice: let the tool own its session, pass
+                # read_only=False, or hand in a session already at readonly=2.
+                expected = 2 if self.read_only else 0
+                actual = self._probe_readonly()
+                if actual != expected:
+                    raise ChDBError(
+                        "external session has readonly={} but the tool was declared "
+                        "read_only={} (expects readonly={}); pass a matching session, "
+                        "change the read_only flag, or omit session so the tool owns one".format(
+                            actual, self.read_only, expected
+                        ),
+                        type="CONFIG_MISMATCH",
+                    )
+            # Exact 64-bit integers survive JSON as strings rather than lossy floats.
+            self._session.query("SET output_format_json_quote_64bit_integers=1", "CSV")
+            if self.max_execution_time is not None:
+                # engine-side wall-clock bound; a runaway query raises TIMEOUT_EXCEEDED
+                self._session.query("SET max_execution_time={}".format(self.max_execution_time), "CSV")
+            # Attachments must be materialized BEFORE the read-only lock, because
+            # CREATE VIEW is a write that readonly=2 rejects. This is why read-only
+            # tools declare files at construction rather than via attach_file().
+            for name, spec in (attachments or {}).items():
+                p, fmt = spec if isinstance(spec, (tuple, list)) else (spec, None)
+                self._create_file_view(name, p, fmt)
+            if self.read_only and self._owns_session:
+                # readonly=2 (NOT 1): blocks INSERT/CREATE/ALTER/DROP while still
+                # allowing SELECT and the file()/s3()/url() table functions that are
+                # chDB's whole point. readonly=1 rejects those. Cannot be un-set.
+                # (An external session was verified to be there already.)
+                self._session.query("SET readonly=2", "CSV")
+            # The allowlist gate judges table functions against what THIS engine
+            # exposes, so new source functions are gated by default instead of
+            # silently allowed by a stale hand-written list.
+            self._known_table_functions = (
+                self._snapshot_table_functions() if self.file_allowlist else None
+            )
+        except BaseException:
+            if self._owns_session and self._session is not None:
+                try:
+                    self._session.close()
+                except Exception:
+                    pass
+                self._session = None
+            raise
+
+    def _probe_readonly(self):
+        try:
+            res = self._session.query("SELECT toInt32(getSetting('readonly'))", "CSV")
+            return int(res.bytes().decode().strip().strip('"'))
+        except ChDBError:
+            raise
+        except Exception as e:
+            raise parse_error(e)
+
+    def _snapshot_table_functions(self):
+        """The live set of table-function names (lowercase), unioned with the
+        static fallback; the fallback alone if the engine can't answer."""
+        try:
+            res = self._session.query("SELECT lower(name) FROM system.table_functions", "CSV")
+            names = {line.strip().strip('"') for line in res.bytes().decode().splitlines()}
+            return frozenset(n for n in names if n) | FALLBACK_KNOWN_TABLE_FUNCTIONS
+        except Exception:
+            return FALLBACK_KNOWN_TABLE_FUNCTIONS
 
     # ---- core query -------------------------------------------------------
 
-    def query(self, sql, *, params=None, max_rows=None):
+    def query(self, sql, *, params=None, max_rows=None, _permit_fns=frozenset()):
         """Run read SQL. Values MUST be passed via `params` ({name:Type} + dict),
         never formatted into `sql`. Returns a `QueryResult`; raises `ChDBError`.
+        (`_permit_fns` is internal: dataframe_query exempts the Python() table
+        function it itself injects from the allowlist gate.)
         """
         if not isinstance(sql, str) or sql.strip() == "":
             raise ChDBError("sql must be a non-empty string")
-        self._enforce_allowlist(sql)
-        cap = self.max_rows if max_rows is None else max(1, int(max_rows))
+        self._enforce_allowlist(sql, permit=_permit_fns)
+        cap = self.max_rows if max_rows is None else max(1, _int_arg(max_rows, "max_rows"))
         # Both the engine call and the decode go through parse_error: malformed or
         # non-JSON engine output (edge-case statements, empty results) becomes a
         # typed ChDBError rather than a bare JSONDecodeError leaking to the caller.
@@ -143,10 +228,14 @@ class ChDBTool:
         rows = data[:cap] if truncated else data
         # Secondary byte guard, applied whether or not the row cap already fired:
         # a few very large rows under max_rows must still be capped by max_bytes.
+        # Rows are measured in UTF-8 BYTES of their compact JSON encoding —
+        # ensure_ascii would count "汉" as the 6 chars of "\\u6c49" while the
+        # TypeScript binding counts UTF-16 units; UTF-8 bytes is the one measure
+        # both bindings can produce identically (CONTRACT.md P3).
         if self.max_bytes:
             size = 0
             for i, r in enumerate(rows):
-                size += len(json.dumps(r, separators=(",", ":")))
+                size += len(json.dumps(r, separators=(",", ":"), ensure_ascii=False).encode("utf-8"))
                 if size > self.max_bytes:
                     rows = rows[:i]
                     truncated = True
@@ -158,16 +247,32 @@ class ChDBTool:
         `query` in a worker thread (documented, not faked)."""
         return await asyncio.to_thread(self.query, sql, params=params, max_rows=max_rows)
 
-    def _enforce_allowlist(self, sql):
-        """If a file_allowlist is set, reject file()/s3()/url() literal paths that
-        fall outside it. Best-effort (literal args only); readonly=2 is the real
-        write backstop. No allowlist configured -> no restriction."""
+    def _enforce_allowlist(self, sql, permit=frozenset()):
+        """With a file_allowlist set, every non-safe table-function call in the
+        SQL must carry a literal source argument inside the allowlist.
+
+        The scan runs over masked SQL (string literals/comments blanked, quoted
+        function names matched), against the table functions this engine
+        actually exposes — so a call with a computed/concatenated source, or
+        any external source function outside the allowlist, is rejected rather
+        than slipping through a literal-only regex. readonly=2 remains the
+        write backstop; OS sandboxing the filesystem backstop. No allowlist
+        configured -> no restriction."""
         if not self.file_allowlist:
             return
-        for _fn, path in scan_file_paths(sql):
-            if not path_allowed(path, self.file_allowlist):
+        known = self._known_table_functions or FALLBACK_KNOWN_TABLE_FUNCTIONS
+        for fn, arg in find_source_calls(sql, known):
+            if fn in permit:
+                continue
+            if arg is None:
                 raise ChDBError(
-                    "source path not in file_allowlist: {!r}".format(path),
+                    "table function {!r} without a literal source argument is not "
+                    "allowed when file_allowlist is set".format(fn),
+                    type="ACCESS_DENIED",
+                )
+            if not path_allowed(arg, self.file_allowlist):
+                raise ChDBError(
+                    "source path not in file_allowlist: {!r}".format(arg),
                     type="ACCESS_DENIED",
                 )
 
@@ -232,7 +337,10 @@ class ChDBTool:
         saved = {k: g.get(k, _MISSING) for k in dataframes}
         try:
             g.update(dataframes)
-            return self.query(sql, max_rows=max_rows)
+            # Python() resolves the names this method itself injected, so the
+            # allowlist gate (which treats python as an RCE-class source) is
+            # lifted for exactly this one function on this one call.
+            return self.query(sql, max_rows=max_rows, _permit_fns=frozenset(("python",)))
         finally:
             for k, v in saved.items():
                 if v is _MISSING:
@@ -286,50 +394,45 @@ class ChDBTool:
 
     def get_sample_data(self, target, *, database=None, limit=5):
         ref = self._qualify(target, database)
+        n = _int_arg(limit, "limit")
         return self.query(
             "SELECT * FROM {} LIMIT {{n:UInt32}}".format(ref),
-            params={"n": int(limit)},
-            max_rows=int(limit),
+            params={"n": n},
+            max_rows=n,
         )
 
     def list_functions(self, *, like=None, limit=200):
+        n = _int_arg(limit, "limit")
         if like:
             sql = "SELECT name FROM system.functions WHERE name ILIKE {like:String} ORDER BY name LIMIT {n:UInt32}"
-            rows = self.query(sql, params={"like": like, "n": int(limit)}, max_rows=int(limit)).rows
+            rows = self.query(sql, params={"like": like, "n": n}, max_rows=n).rows
         else:
             sql = "SELECT name FROM system.functions ORDER BY name LIMIT {n:UInt32}"
-            rows = self.query(sql, params={"n": int(limit)}, max_rows=int(limit)).rows
+            rows = self.query(sql, params={"n": n}, max_rows=n).rows
         return [r["name"] for r in rows]
 
     # ---- agent integration ------------------------------------------------
 
-    def tool_specs(self):
-        """JSON-schema tool definitions for the callables, for auto-registration
-        into any framework. Names match mcp-clickhouse for corpus consistency."""
-        s = lambda **p: {"type": "object", "properties": p}
-        return [
-            {"name": "run_select_query", "description": "Run a read-only ClickHouse SQL query via chDB and return rows.",
-             "input_schema": s(sql={"type": "string"}, params={"type": "object"})},
-            {"name": "list_databases", "description": "List databases.", "input_schema": s()},
-            {"name": "list_tables", "description": "List tables in a database (current if omitted).",
-             "input_schema": s(database={"type": "string"})},
-            {"name": "describe_table", "description": "Describe a table (optionally database-qualified) or table function.",
-             "input_schema": s(target={"type": "string"}, database={"type": "string"})},
-            {"name": "get_sample_data", "description": "Return a few sample rows from a table or table function.",
-             "input_schema": s(target={"type": "string"}, database={"type": "string"}, limit={"type": "integer"})},
-            {"name": "list_functions", "description": "List available SQL functions.",
-             "input_schema": s(like={"type": "string"}, limit={"type": "integer"})},
-            {"name": "attach_file", "description": "Register a local file as a queryable named table (writable tools only).",
-             "input_schema": s(name={"type": "string"}, path={"type": "string"}, format={"type": "string"})},
-        ]
+    def tool_specs(self, dialect="anthropic"):
+        """Tool definitions for auto-registration into any framework, generated
+        from descriptors.json (the single source of the model-visible surface).
+        `dialect` selects the shape: 'anthropic' | 'openai' | 'mcp'."""
+        return _tool_specs(dialect)
 
     def call(self, name, arguments=None):
         """Dispatch a tool call, returning an error ENVELOPE instead of raising,
         so the model reads the engine message and can self-correct (P4)."""
-        args = dict(arguments or {})
         method_name = _TOOL_METHODS.get(name)
         if method_name is None:
             return {"ok": False, "error": {"code": 0, "type": "UNKNOWN_TOOL", "message": "unknown tool: " + str(name)}}
+        # Caller mistakes on the dispatch path never throw (P4): a non-object
+        # arguments payload comes back as an envelope, same as an unknown tool.
+        # (dict("...") would raise here, and the TypeScript spread would
+        # silently turn a string into {0: 'S', 1: 'E', ...} garbage.)
+        if arguments is not None and not isinstance(arguments, dict):
+            return {"ok": False, "error": {"code": 0, "type": "INVALID_ARGUMENT",
+                                           "message": "arguments must be an object, got " + type(arguments).__name__}}
+        args = dict(arguments or {})
         try:
             method = getattr(self, method_name)
             if method_name == "query":
@@ -338,11 +441,16 @@ class ChDBTool:
             elif method_name == "describe":
                 result = method(args["target"], database=args.get("database"))
             elif method_name == "get_sample_data":
-                result = method(args["target"], database=args.get("database"), limit=args.get("limit", 5)).to_dict()
+                # In the model-facing envelope a JSON null argument means "omitted"
+                # (models routinely send null for optional args); the direct
+                # method path stays strict and raises INVALID_ARGUMENT on None.
+                limit = args.get("limit")
+                result = method(args["target"], database=args.get("database"), limit=5 if limit is None else limit).to_dict()
             elif method_name == "list_tables":
                 result = method(args.get("database"))
             elif method_name == "list_functions":
-                result = method(like=args.get("like"), limit=args.get("limit", 200))
+                limit = args.get("limit")
+                result = method(like=args.get("like"), limit=200 if limit is None else limit)
             elif method_name == "attach_file":
                 result = method(args["name"], args["path"], args.get("format"))
             else:
@@ -352,6 +460,12 @@ class ChDBTool:
             return {"ok": False, "error": e.to_dict()}
         except Exception as e:  # non-engine failure still reaches the model
             return {"ok": False, "error": {"code": 0, "type": "TOOL_ERROR", "message": str(e)}}
+
+    async def acall(self, name, arguments=None):
+        """Async form of `call` for async-first frameworks (AutoGen's run_json,
+        Pydantic AI, ...). chDB has no native async engine call, so this runs
+        `call` in a worker thread (documented, not faked) — same as `aquery`."""
+        return await asyncio.to_thread(self.call, name, arguments)
 
     def close(self):
         if self._owns_session and self._session is not None:

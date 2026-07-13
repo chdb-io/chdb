@@ -12,7 +12,7 @@ import os
 import unittest
 
 import chdb.agents
-from chdb.agents import ChDBTool, ChDBError
+from chdb.agents import CONTRACT_VERSION, ChDBTool, ChDBError, capabilities
 
 # Locate the fixture next to the installed chdb.agents package, so this runner
 # works whether run from the repo or against an installed wheel.
@@ -21,27 +21,40 @@ _CASES = os.path.join(_AGENTS, "cases.jsonl")
 _FIXTURES = os.path.abspath(os.path.join(_AGENTS, "fixtures"))
 
 
-def _load_cases():
-    cases = []
+def _load_fixture():
+    """Return (header, cases). The FIRST record must be the header
+    ({"fixture": ..., "contract_version": ...}, no "id") and every later record
+    must be a case (with "id") — anything else is a malformed fixture and fails
+    loudly instead of being silently reclassified (a case that lost its "id"
+    must not vanish by being mistaken for a second header)."""
+    records = []
     with open(_CASES, "r", encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
             if line:
-                cases.append(json.loads(line))
-    return cases
+                records.append(json.loads(line))
+    if not records or "id" in records[0]:
+        raise ValueError("cases.jsonl must start with a header record (no 'id')")
+    bad = [r for r in records[1:] if "id" not in r]
+    if bad:
+        raise ValueError("cases.jsonl has non-header records without an 'id': {!r}".format(bad))
+    return records[0], records[1:]
+
+
+def _sub_value(v):
+    if isinstance(v, str):
+        return v.replace("{{fixtures}}", _FIXTURES)
+    if isinstance(v, dict):
+        return {k: _sub_value(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_sub_value(x) for x in v]
+    return v
 
 
 def _sub(args):
-    """Replace the {{fixtures}} token in any string arg with the abs path."""
-    out = {}
-    for k, v in args.items():
-        if isinstance(v, str):
-            out[k] = v.replace("{{fixtures}}", _FIXTURES)
-        elif isinstance(v, dict):
-            out[k] = _sub(v)
-        else:
-            out[k] = v
-    return out
+    """Replace the {{fixtures}} token in any string, recursively through
+    dicts and lists (tool configs carry lists, e.g. file_allowlist)."""
+    return _sub_value(args)
 
 
 class TestAgentsConformance(unittest.TestCase):
@@ -80,6 +93,11 @@ class TestAgentsConformance(unittest.TestCase):
             return tool.get_sample_data(args["target"], limit=args.get("limit", 5))
         if method == "list_functions":
             return tool.list_functions(like=args.get("like"), limit=args.get("limit", 200))
+        if method == "dataframe_query":
+            import pandas as pd
+
+            dfs = {k: pd.DataFrame(v) for k, v in args["dataframes"].items()}
+            return tool.dataframe_query(args["sql"], dfs)
         self.fail("unknown method in case: " + method)
 
     def _assert(self, case, exp):
@@ -110,10 +128,20 @@ class TestAgentsConformance(unittest.TestCase):
         if "describe_column" in exp:
             self.assertIn(exp["describe_column"], [c["name"] for c in result])
 
+    def test_fixture_header_matches_contract_version(self):
+        header, _ = _load_fixture()
+        self.assertIsNotNone(header, "cases.jsonl must start with a header record")
+        self.assertEqual(header["contract_version"], CONTRACT_VERSION)
+
     def test_conformance_cases(self):
-        cases = _load_cases()
+        _, cases = _load_fixture()
         self.assertGreater(len(cases), 0, "no conformance cases loaded")
+        features = capabilities()["features"]
         for case in cases:
+            # capability-gated cases run only where the binding has the feature
+            req = case.get("requires")
+            if req and not features.get(req):
+                continue
             with self.subTest(case=case["id"]):
                 self._assert(case, case["expect"])
 

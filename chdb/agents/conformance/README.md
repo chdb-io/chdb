@@ -3,14 +3,29 @@
 `cases.jsonl` is a language-neutral list of behaviors every chDB agent-tool
 binding must satisfy. It is the executable half of `../CONTRACT.md`.
 
-Each line is one case:
+The first line is a header record (no `id`):
 
 ```json
-{"id": "...", "pillar": "P1|P2|P3|P4|introspection", "method": "query|call|list_databases|list_tables|describe|get_sample_data|list_functions", "args": {...}, "expect": {...}}
+{"fixture": "chdb-agents-conformance", "contract_version": "..."}
+```
+
+Runners assert `contract_version` equals their binding's `CONTRACT_VERSION`
+(so a stale vendored fixture fails loudly) and skip the record. Every other
+line is one case:
+
+```json
+{"id": "...", "pillar": "P1|P2|P3|P4|introspection", "method": "query|call|list_databases|list_tables|describe|get_sample_data|list_functions|dataframe_query", "args": {...}, "expect": {...}}
 ```
 
 `args` for `method: "call"` are `{name, arguments}` (the tool-dispatch path);
 for every other method they are the method's keyword arguments.
+
+A case may include `"requires": "<feature>"`: it runs only on bindings whose
+`capabilities().features[<feature>]` is true (e.g. `dataframe_query` is
+Python-only), and is skipped elsewhere. Cases without `requires` are core —
+every binding must pass them. For `method: "dataframe_query"`,
+`args.dataframes` maps each `Python(<name>)` reference to `{column: [values]}`,
+which the runner materializes as a real DataFrame.
 
 A case may include an optional `tool` object with constructor-level config
 (`max_execution_time`, `file_allowlist`, `attachments`, `read_only`, ...). When
