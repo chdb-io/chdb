@@ -572,6 +572,16 @@ curl -sL https://raw.githubusercontent.com/chdb-io/chdb/main/install_skill.sh | 
 ```
 
 
+## Agent Framework Integrations
+
+`chdb.agents` ships an agent-safe tool surface (`ChDBTool`: read-only by default, capped results, errors returned as envelopes the model can self-correct from), and every framework binding below is a thin shell over it — same tool names, descriptions, and behavior everywhere:
+
+- **[LlamaIndex](https://github.com/chdb-io/llama-index-tools-chdb)** — `pip install llama-index-tools-chdb`, then `ChDBToolSpec().to_tool_list()`.
+- **[Pydantic AI](https://github.com/chdb-io/pydantic-ai-chdb)** — `pip install pydantic-ai-chdb`, then `Agent(..., capabilities=[ChDBCapability()])`; typed engine errors become `ModelRetry`.
+- **[smolagents](chdb/agents/smolagents.py)** — built in: `from chdb.agents.smolagents import chdb_smol_tools` (requires `pip install smolagents`).
+- **[MCP](https://github.com/ClickHouse/mcp-clickhouse)** — mcp-clickhouse runs chdb in-process (`CHDB_ENABLED=true`) for any MCP-speaking agent.
+- **[Node.js](https://github.com/chdb-io/chdb-node)** — the `chdb` npm package ships Vercel AI SDK (`chdb/ai-sdk`) and Mastra (`chdb/mastra`) adapters.
+
 ## Events
 
 - Demo chDB at [ClickHouse v23.7 livehouse!](https://t.co/todc13Kn19) and [Slides](https://docs.google.com/presentation/d/1ikqjOlimRa7QAg588TAB_Fna-Tad2WMg7_4AgnbQbFA/edit?usp=sharing)
