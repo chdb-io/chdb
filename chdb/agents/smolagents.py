@@ -202,9 +202,13 @@ def chdb_smol_tools(
     only for writable suites (``read_only=False``); on a read-only session,
     declare files via ``attachments`` instead.
 
-    Pass an existing ``chdb.agents.ChDBTool`` as ``engine`` to control its
-    lifecycle yourself (the other arguments are then ignored).
+    Lifecycle: when the factory creates the engine itself, the FIRST
+    returned tool owns it — ``tools[0].close()`` releases the session for
+    the whole suite. Pass an existing ``chdb.agents.ChDBTool`` as ``engine``
+    to control its lifecycle yourself instead (the other arguments are then
+    ignored and no tool will close it).
     """
+    factory_owns_engine = engine is None
     if engine is None:
         engine = ChDBTool(
             path,
@@ -227,4 +231,10 @@ def chdb_smol_tools(
     if not getattr(engine, "read_only", True):
         tool_classes.append(ChDBAttachFileTool)
 
-    return [tool_class(engine=engine) for tool_class in tool_classes]
+    tools = [tool_class(engine=engine) for tool_class in tool_classes]
+    if factory_owns_engine:
+        # Hand ownership of the factory-created session to the first tool,
+        # so the suite has exactly one deterministic closer and a plain
+        # `chdb_smol_tools()` call cannot leak the engine.
+        tools[0]._owns_engine = True
+    return tools

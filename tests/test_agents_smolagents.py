@@ -37,13 +37,29 @@ class TestSmolagentsTools(unittest.TestCase):
         try:
             self.assertEqual([t.name for t in read_only], READ_ONLY_TOOLS)
         finally:
-            read_only[0].engine.close()
+            read_only[0].close()
 
         writable = chdb_smol_tools(read_only=False)
         try:
             self.assertEqual([t.name for t in writable][-1], "attach_file")
         finally:
-            writable[0].engine.close()
+            writable[0].close()
+
+    def test_factory_hands_engine_ownership_to_first_tool(self):
+        from chdb.agents import ChDBTool
+        from chdb.agents.smolagents import chdb_smol_tools
+
+        tools = chdb_smol_tools()
+        self.assertTrue(tools[0]._owns_engine)
+        self.assertTrue(all(not t._owns_engine for t in tools[1:]))
+        tools[0].close()
+
+        engine = ChDBTool()
+        try:
+            injected = chdb_smol_tools(engine=engine)
+            self.assertTrue(all(not t._owns_engine for t in injected))
+        finally:
+            engine.close()
 
     def test_descriptions_and_inputs_come_from_descriptors(self):
         from chdb.agents import load_descriptors
@@ -64,7 +80,7 @@ class TestSmolagentsTools(unittest.TestCase):
                         not params[name].get("required", False),
                     )
         finally:
-            tools[0].engine.close()
+            tools[0].close()
 
     def test_call_path_returns_envelopes(self):
         from chdb.agents.smolagents import ChDBRunSelectQueryTool
@@ -75,7 +91,7 @@ class TestSmolagentsTools(unittest.TestCase):
             self.assertTrue(ok["ok"])
             self.assertEqual(ok["result"]["rows"], [{"x": 42}])
 
-            err = json.loads(tool(sql="SELEC bad"))
+            err = json.loads(tool(sql="SELECT nonexistent_column FROM system.one"))
             self.assertFalse(err["ok"])
             self.assertEqual(err["error"]["type"], "UNKNOWN_IDENTIFIER")
 
@@ -89,22 +105,23 @@ class TestSmolagentsTools(unittest.TestCase):
     def test_attach_then_query_shares_engine(self):
         from chdb.agents.smolagents import chdb_smol_tools
 
-        d = tempfile.mkdtemp()
-        csv = os.path.join(d, "people.csv")
-        with open(csv, "w") as fh:
-            fh.write("name,age\nada,36\ngrace,45\n")
+        with tempfile.TemporaryDirectory() as d:
+            csv = os.path.join(d, "people.csv")
+            with open(csv, "w") as fh:
+                fh.write("name,age\nada,36\ngrace,45\n")
 
-        tools = {t.name: t for t in chdb_smol_tools(read_only=False)}
-        try:
-            attached = json.loads(tools["attach_file"](name="people", path=csv))
-            self.assertTrue(attached["ok"])
-            queried = json.loads(
-                tools["run_select_query"](sql="SELECT count() AS n FROM people")
-            )
-            self.assertTrue(queried["ok"])
-            self.assertEqual(queried["result"]["rows"], [{"n": "2"}])
-        finally:
-            tools["run_select_query"].engine.close()
+            suite = chdb_smol_tools(read_only=False)
+            tools = {t.name: t for t in suite}
+            try:
+                attached = json.loads(tools["attach_file"](name="people", path=csv))
+                self.assertTrue(attached["ok"])
+                queried = json.loads(
+                    tools["run_select_query"](sql="SELECT count() AS n FROM people")
+                )
+                self.assertTrue(queried["ok"])
+                self.assertEqual(queried["result"]["rows"], [{"n": "2"}])
+            finally:
+                suite[0].close()
 
     def test_injected_engine_not_closed(self):
         from chdb.agents import ChDBTool
