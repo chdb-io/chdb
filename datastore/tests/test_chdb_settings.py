@@ -379,8 +379,9 @@ class TestExternalSortDefault:
         conn = Connection(':memory:')
         conn.connect()
         try:
-            value, _ = self._query_setting(conn, 'max_bytes_ratio_before_external_sort')
-            assert float(value) == 0.5
+            value, changed = self._query_setting(conn, 'max_bytes_ratio_before_external_sort')
+            assert changed == '0'
+            assert float(value) > 0
         finally:
             conn.close()
 
@@ -409,12 +410,9 @@ class TestExternalSortDefault:
 
         set_chdb_setting('max_bytes_before_external_sort', 'not_a_valid_size')
         conn = Connection(':memory:')
-        try:
-            with pytest.raises(DataStoreConnectionError, match="Failed to connect"):
-                conn.connect()
-        finally:
-            if conn._conn is not None:
-                conn.close()
+        with pytest.raises(DataStoreConnectionError, match="Failed to connect"):
+            conn.connect()
+        assert conn._conn is None
 
     def test_no_server_limit_skips_external_sort_default(self):
         _run_chdb_in_subprocess("""
@@ -427,11 +425,11 @@ class TestExternalSortDefault:
             conn.connect()
             try:
                 r = conn._conn.query(
-                    "SELECT value FROM system.settings "
+                    "SELECT changed FROM system.settings "
                     "WHERE name = 'max_bytes_before_external_sort'",
                     'TSV',
                 )
-                assert str(r).strip() == '0', f"Expected '0' but got: {r}"
+                assert str(r).strip() == '0', f"Expected setting to be unchanged but got: {r}"
             finally:
                 conn.close()
         """)

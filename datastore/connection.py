@@ -96,7 +96,15 @@ class Connection:
             self._conn = chdb.connect(conn_str)
             if self._conn is not None:
                 _freeze_chdb_settings()
-                self._apply_external_sort_default()
+                try:
+                    self._apply_external_sort_default()
+                except Exception:
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    self._conn = None
+                    raise
             self._logger.debug("[chDB] Connected: %s", conn_str)
             return self
         except Exception as e:
