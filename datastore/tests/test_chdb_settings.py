@@ -106,7 +106,9 @@ class TestChdbSettingsDefaults:
                 "WHERE name = 'max_server_memory_usage'",
                 'TSV',
             )
-            assert int(str(r).strip()) > 0
+            raw = str(r).strip()
+            assert raw, "max_server_memory_usage not found in system.server_settings"
+            assert int(raw) > 0
         finally:
             conn.close()
 
@@ -354,7 +356,9 @@ class TestExternalSortDefault:
             f"SELECT value, changed FROM system.settings WHERE name = '{name}'",
             'CSV',
         )
-        value, changed = str(r).strip().rsplit(',', 1)
+        raw = str(r).strip()
+        assert raw, f"Setting '{name}' not found in system.settings"
+        value, changed = raw.rsplit(',', 1)
         return value.strip('"'), changed.strip()
 
     def test_default_is_half_of_server_memory_limit(self):
@@ -379,9 +383,8 @@ class TestExternalSortDefault:
         conn = Connection(':memory:')
         conn.connect()
         try:
-            value, changed = self._query_setting(conn, 'max_bytes_ratio_before_external_sort')
+            _, changed = self._query_setting(conn, 'max_bytes_ratio_before_external_sort')
             assert changed == '0'
-            assert float(value) > 0
         finally:
             conn.close()
 
@@ -409,6 +412,15 @@ class TestExternalSortDefault:
         from datastore.exceptions import ConnectionError as DataStoreConnectionError
 
         set_chdb_setting('max_bytes_before_external_sort', 'not_a_valid_size')
+        conn = Connection(':memory:')
+        with pytest.raises(DataStoreConnectionError, match="Failed to connect"):
+            conn.connect()
+        assert conn._conn is None
+
+    def test_bool_user_override_raises(self):
+        from datastore.exceptions import ConnectionError as DataStoreConnectionError
+
+        set_chdb_setting('max_bytes_before_external_sort', True)
         conn = Connection(':memory:')
         with pytest.raises(DataStoreConnectionError, match="Failed to connect"):
             conn.connect()

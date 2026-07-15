@@ -115,10 +115,13 @@ class Connection:
         settings = {**get_chdb_settings(), **self.connection_params}
         user_value = settings.get('max_bytes_before_external_sort')
         if user_value is not None:
+            if isinstance(user_value, bool):
+                raise ValueError(f"Invalid max_bytes_before_external_sort value: {user_value!r}")
             if isinstance(user_value, (int, float)):
                 self._conn.query(f"SET max_bytes_before_external_sort = {int(user_value)}")
             else:
-                self._conn.query(f"SET max_bytes_before_external_sort = '{user_value}'")
+                escaped = str(user_value).replace("\\", "\\\\").replace("'", "\\'")
+                self._conn.query(f"SET max_bytes_before_external_sort = '{escaped}'")
             return
         try:
             raw = self._conn.query(
