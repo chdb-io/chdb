@@ -19,6 +19,7 @@ from .descriptors import CONTRACT_VERSION, capabilities, load_descriptors, tool_
 from .errors import (
     ChDBError,
     ChDBReadOnlyError,
+    ChDBResourceError,
     ChDBSyntaxError,
     ChDBUnknownObjectError,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "QueryResult",
     "ChDBError",
     "ChDBReadOnlyError",
+    "ChDBResourceError",
     "ChDBSyntaxError",
     "ChDBUnknownObjectError",
     "InvalidIdentifier",

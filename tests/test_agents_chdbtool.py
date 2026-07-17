@@ -8,6 +8,7 @@ identifier quoting, tool_specs shape, and aquery.
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 
 from chdb.agents import (
@@ -344,7 +345,7 @@ class TestExternalSessionProbe(unittest.TestCase):
 
 class TestConstructorLeak(unittest.TestCase):
     def test_owned_session_closed_when_setup_throws(self):
-        # a bad attachment under an allowlist throws ACCESS_DENIED during setup;
+        # a bad attachment under an allowlist throws ALLOWLIST_DENIED during setup;
         # the Session the tool just created must be closed before the rethrow
         # (verified by the next construction working — chDB is single-engine)
         with self.assertRaises(ChDBError):
@@ -383,7 +384,7 @@ class TestDataFrameQuery(unittest.TestCase):
             self.assertEqual(r.rows, [{"s": 6}])
             with self.assertRaises(ChDBError) as ctx:
                 tool.query("SELECT * FROM Python(t)")
-            self.assertEqual(ctx.exception.type, "ACCESS_DENIED")
+            self.assertEqual(ctx.exception.type, "ALLOWLIST_DENIED")
         finally:
             tool.close()
 
@@ -398,3 +399,53 @@ class TestDataFrameQuery(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNetworkWatchdog(unittest.TestCase):
+    """G3-3: binding-side deadline for network-source queries (CONTRACT P5).
+
+    The real failure this guards against (a black-holed endpoint hanging the
+    native call forever) can't be reproduced portably, so these tests stand in
+    a slow fake session and verify the watchdog/poisoning contract around it.
+    """
+
+    class _SlowSession:
+        def query(self, sql, fmt="CSV", params=None):
+            time.sleep(2.5)
+            return None
+
+    def test_deadline_fires_poisons_tool_and_close_is_safe(self):
+        tool = ChDBTool(network_timeout=1)
+        real_session = tool._session
+        tool._session = self._SlowSession()
+        t0 = time.time()
+        with self.assertRaises(ChDBError) as ctx:
+            tool.query("SELECT count() FROM url('https://example.invalid/x.csv', 'CSV')")
+        self.assertEqual(ctx.exception.type, "NETWORK_TIMEOUT")
+        self.assertTrue(ctx.exception.hint)
+        self.assertLess(time.time() - t0, 2.0)
+        with self.assertRaises(ChDBError) as ctx2:
+            tool.query("SELECT 1")
+        self.assertEqual(ctx2.exception.type, "TOOL_ERROR")
+        tool.close()
+        self.assertIsNone(tool._session)
+        real_session.close()
+
+    def test_envelope_carries_network_timeout_and_hint(self):
+        tool = ChDBTool(network_timeout=1)
+        real_session = tool._session
+        tool._session = self._SlowSession()
+        out = tool.call("run_select_query", {"sql": "SELECT 1 FROM s3('https://example.invalid/x.parquet')"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"]["type"], "NETWORK_TIMEOUT")
+        self.assertTrue(out["error"].get("hint"))
+        real_session.close()
+
+    def test_local_queries_bypass_watchdog(self):
+        with ChDBTool(network_timeout=1) as tool:
+            r = tool.query("SELECT toInt32(1) AS x")
+            self.assertEqual(r.rows, [{"x": 1}])
+
+    def test_network_timeout_disabled_by_none(self):
+        with ChDBTool(network_timeout=None) as tool:
+            self.assertIsNone(tool.network_timeout)

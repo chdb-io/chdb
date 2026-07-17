@@ -1,6 +1,6 @@
 {
   "$comment": "Single source of truth for the model-visible agent-tool surface (names, descriptions, argument schemas). Governed by CONTRACT.md; a copy of this file is vendored byte-identical in every chdb-io binding (chdb-node integrations/agents/descriptors.json). Bindings GENERATE their tool_specs()/framework schemas from this file — hand-editing a generated schema instead of this file is a contract violation. Changing this file is a contract change: bump contract_version here, in the code constant, and in conformance/cases.jsonl's header.",
-  "contract_version": "0.2.0",
+  "contract_version": "0.3.0",
   "tools": [
     {
       "name": "run_select_query",

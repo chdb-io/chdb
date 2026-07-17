@@ -20,6 +20,7 @@ __all__ = [
     "find_source_calls",
     "SAFE_TABLE_FUNCTIONS",
     "FALLBACK_KNOWN_TABLE_FUNCTIONS",
+    "NETWORK_TABLE_FUNCTIONS",
 ]
 
 
@@ -222,6 +223,41 @@ def _literal_first_arg(sql, args_start):
     if not m:
         return None
     return _UNESCAPE_RE.sub(lambda e: "'" if e.group(0) == "''" else e.group(1), m.group("body"))
+
+
+# Network-reaching table functions — these get the watchdog deadline
+# (CONTRACT P5). file()/sqlite and *local* lake variants deliberately absent.
+NETWORK_TABLE_FUNCTIONS = frozenset(
+    {
+        "url",
+        "urlcluster",
+        "urlwithheaders",
+        "s3",
+        "s3cluster",
+        "gcs",
+        "azureblobstorage",
+        "azureblobstoragecluster",
+        "remote",
+        "remotesecure",
+        "hdfs",
+        "hdfscluster",
+        "mongodb",
+        "postgresql",
+        "mysql",
+        "redis",
+        "odbc",
+        "jdbc",
+        "icebergs3",
+        "icebergs3cluster",
+        "icebergazure",
+        "icebergazurecluster",
+        "iceberghdfs",
+        "iceberghdfscluster",
+        "deltalake",
+        "deltalakeazure",
+        "hudi",
+    }
+)
 
 
 def find_source_calls(sql, known):

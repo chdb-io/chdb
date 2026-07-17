@@ -24,7 +24,7 @@ __all__ = ["CONTRACT_VERSION", "load_descriptors", "tool_specs", "capabilities"]
 # The agent-tool contract version (semver). Bumped whenever descriptors.json,
 # conformance/cases.jsonl, or normative CONTRACT.md text changes. Tests assert
 # it equals the contract_version field of both data files.
-CONTRACT_VERSION = "0.2.0"
+CONTRACT_VERSION = "0.3.0"
 
 _DESCRIPTORS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "descriptors.json")
 _descriptors_cache = None
@@ -130,6 +130,8 @@ def capabilities():
             "attachments": True,
             "file_allowlist": True,
             "max_execution_time": True,
+            "resource_caps": True,
+            "network_watchdog": True,
             "async": True,
             "streaming": False,
         },

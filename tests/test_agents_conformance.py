@@ -112,6 +112,10 @@ class TestAgentsConformance(unittest.TestCase):
             self.assertEqual(result["ok"], exp["envelope_ok"])
             if exp.get("error_type"):
                 self.assertEqual(result["error"]["type"], exp["error_type"])
+            if "result_has_hint" in exp:
+                self.assertEqual(bool(result.get("result", {}).get("hint")), exp["result_has_hint"])
+            if "error_has_hint" in exp:
+                self.assertEqual(bool(result.get("error", {}).get("hint")), exp["error_has_hint"])
             return
         if "rows" in exp:
             self.assertEqual(result.rows, exp["rows"])

@@ -16,6 +16,7 @@ import re
 __all__ = [
     "ChDBError",
     "ChDBReadOnlyError",
+    "ChDBResourceError",
     "ChDBSyntaxError",
     "ChDBUnknownObjectError",
     "parse_error",
@@ -31,20 +32,32 @@ _ERR_RE = re.compile(
 
 
 class ChDBError(Exception):
-    """Base error. `code`/`type`/`message` are always populated."""
+    """Base error. `code`/`type`/`message` are always populated; `hint` is an
+    optional model-facing recovery instruction (set for resource-limit errors,
+    where the model must learn "narrow the query" rather than "give up" or
+    "retry unchanged")."""
 
-    def __init__(self, message, code=0, type="UNKNOWN"):
+    def __init__(self, message, code=0, type="UNKNOWN", hint=None):
         super().__init__(message)
         self.code = code
         self.type = type
         self.message = message
+        self.hint = hint
 
     def to_dict(self):
-        return {"code": self.code, "type": self.type, "message": self.message}
+        d = {"code": self.code, "type": self.type, "message": self.message}
+        if self.hint:
+            d["hint"] = self.hint
+        return d
 
 
 class ChDBReadOnlyError(ChDBError):
     """A write/DDL was rejected because the tool session is read-only (code 164)."""
+
+
+class ChDBResourceError(ChDBError):
+    """Engine resource limit hit (rows/bytes/time/memory). The SQL is valid;
+    the `hint` tells the model to narrow, not abandon."""
 
 
 class ChDBSyntaxError(ChDBError):
@@ -53,6 +66,15 @@ class ChDBSyntaxError(ChDBError):
 
 class ChDBUnknownObjectError(ChDBError):
     """Unknown table / database / function / column / setting."""
+
+
+# Model-facing; wording binding-identical (CONTRACT P5).
+NETWORK_HINT = (
+    "The query referenced a remote source (url()/s3()/...) and did not return "
+    "within the network deadline. Network egress may be disabled or firewalled "
+    "in this environment. Use file() on data already available locally, or ask "
+    "the operator to enable egress. Do not retry the same query unchanged."
+)
 
 
 # ClickHouse error code -> ChDBError subclass. Kept small and explicit; the
@@ -65,7 +87,21 @@ _CODE_TO_CLASS = {
     60: ChDBUnknownObjectError,      # UNKNOWN_TABLE
     81: ChDBUnknownObjectError,      # UNKNOWN_DATABASE
     115: ChDBUnknownObjectError,     # UNKNOWN_SETTING
+    158: ChDBResourceError,          # TOO_MANY_ROWS
+    159: ChDBResourceError,          # TIMEOUT_EXCEEDED
+    241: ChDBResourceError,          # MEMORY_LIMIT_EXCEEDED
+    307: ChDBResourceError,          # TOO_MANY_BYTES
+    396: ChDBResourceError,          # TOO_MANY_ROWS_OR_BYTES (max_result_rows/bytes)
 }
+
+
+# Model-facing; wording binding-identical (CONTRACT P4).
+RESOURCE_HINT = (
+    "The query exceeded a resource limit; the SQL itself is valid. "
+    "Narrow it and retry: add a WHERE filter, select fewer columns, "
+    "aggregate before returning, or add/lower LIMIT. "
+    "Do not retry the same query unchanged."
+)
 
 _TYPE_TO_CLASS = {
     "READONLY": ChDBReadOnlyError,
@@ -87,4 +123,5 @@ def parse_error(exc_or_message):
     # greedy msg keeps the trailing ". " that precedes the (TYPE); trim it
     msg = m.group("msg").strip().rstrip(".").strip()
     cls = _CODE_TO_CLASS.get(code) or _TYPE_TO_CLASS.get(type_, ChDBError)
-    return cls(msg, code=code, type=type_)
+    hint = RESOURCE_HINT if cls is ChDBResourceError else None
+    return cls(msg, code=code, type=type_, hint=hint)
