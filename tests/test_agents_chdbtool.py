@@ -449,3 +449,46 @@ class TestNetworkWatchdog(unittest.TestCase):
     def test_network_timeout_disabled_by_none(self):
         with ChDBTool(network_timeout=None) as tool:
             self.assertIsNone(tool.network_timeout)
+
+    def test_real_hang_poisons_tool_and_a_new_tool_works(self):
+        """End-to-end against a real black-holed endpoint: the native url() call
+        hangs (TLS handshake never answered), the watchdog abandons it, and a
+        NEW tool in the same process keeps working — chdb allows multiple live
+        sessions per process, so 'create a new ChDBTool' is real advice."""
+        import socket
+        import threading as _threading
+
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(4)
+        port = srv.getsockname()[1]
+
+        held = []  # keep accepted sockets open: a GC'd socket sends RST and
+        # the engine errors fast instead of hanging on the silent TLS handshake
+
+        def _accept_forever():
+            while True:
+                try:
+                    held.append(srv.accept()[0])
+                except OSError:
+                    return
+
+        _threading.Thread(target=_accept_forever, daemon=True).start()
+        self.addCleanup(srv.close)
+        self.addCleanup(lambda: [c.close() for c in held])
+
+        tool = ChDBTool(network_timeout=2)
+        t0 = time.time()
+        with self.assertRaises(ChDBError) as ctx:
+            tool.query(
+                "SELECT count() FROM url('https://127.0.0.1:{}/x.csv', 'LineAsString')".format(port)
+            )
+        self.assertEqual(ctx.exception.type, "NETWORK_TIMEOUT")
+        self.assertLess(time.time() - t0, 10)
+        tool.close()
+
+        # The abandoned native call is still blocked in a daemon thread; a
+        # fresh tool must be able to construct and query regardless.
+        with ChDBTool(network_timeout=2) as fresh:
+            r = fresh.query("SELECT toInt32(42) AS x")
+            self.assertEqual(r.rows, [{"x": 42}])

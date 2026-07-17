@@ -15,8 +15,8 @@ Four contract pillars:
 """
 
 import asyncio
-import concurrent.futures
 import json
+import threading
 
 from .descriptors import tool_specs as _tool_specs
 from .errors import NETWORK_HINT, ChDBError, ChDBReadOnlyError, parse_error
@@ -318,21 +318,33 @@ class ChDBTool:
 
     def _run_with_network_deadline(self, sql, params):
         """Engine call with a deadline (CONTRACT P5). The blocked native call
-        can't be cancelled, so on expiry it is abandoned and the tool poisoned."""
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(self._session.query, sql, "JSON", params=params or {})
-        try:
-            return future.result(timeout=self.network_timeout)
-        except TimeoutError:
+        can't be cancelled, so on expiry it is abandoned and the tool poisoned.
+        Runs on a daemon thread: an executor's non-daemon worker would make a
+        truly stuck call block interpreter exit at the atexit join."""
+        session = self._session
+        outcome = {}
+        done = threading.Event()
+
+        def _call():
+            try:
+                outcome["res"] = session.query(sql, "JSON", params=params or {})
+            except BaseException as e:
+                outcome["exc"] = e
+            finally:
+                done.set()
+
+        threading.Thread(target=_call, daemon=True, name="chdb-network-query").start()
+        if not done.wait(self.network_timeout):
             self._poisoned = True
-            _ABANDONED_SESSIONS.append(self._session)
+            _ABANDONED_SESSIONS.append(session)
             raise ChDBError(
                 "network-source query did not return within {}s".format(self.network_timeout),
                 type="NETWORK_TIMEOUT",
                 hint=NETWORK_HINT,
             )
-        finally:
-            executor.shutdown(wait=False)
+        if "exc" in outcome:
+            raise outcome["exc"]
+        return outcome["res"]
 
     async def aquery(self, sql, *, params=None, max_rows=None):
         """Async wrapper. chDB has no native async engine call, so this runs
