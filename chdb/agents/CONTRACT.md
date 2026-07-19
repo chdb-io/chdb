@@ -175,10 +175,14 @@ to TS, which has no in-process pandas). Bindings may omit it.
   None/0 disables) applies to queries referencing a network-source table
   function (the shared `NETWORK_TABLE_FUNCTIONS` set; `file()` and local lake
   variants exempt). Two layers: at construction the session gets a fast-fail
-  baseline (`http_connection_timeout=min(nt,10)`, receive/send = nt,
-  `http_max_tries=1`, `http_make_head_request=0`); at query time the engine
-  call runs under a `network_timeout` deadline and expiry raises/envelopes
-  `NETWORK_TIMEOUT` with a hint. The watchdog is load-bearing, not cosmetic:
+  baseline (`http_connection_timeout` / `http_send_timeout` /
+  `http_receive_timeout` = min(nt, 10), `http_max_tries=1`,
+  `http_make_head_request=0` — the TLS handshake is bounded by
+  max(send, receive), not by connection_timeout, and one attempt costs ~4-5x
+  the setting); at query time the engine call runs under a `network_timeout`
+  deadline and expiry raises/envelopes `NETWORK_TIMEOUT` with a hint. An
+  engine-side timeout (`Poco::TimeoutException`) on a network-source query
+  gets the same hint attached. The watchdog is load-bearing, not cosmetic:
   a black-holed HTTPS endpoint hangs the engine call unboundedly on affected
   builds (blocked TLS handshake ignores every engine-side timeout), so there
   is no error to translate unless the binding imposes one. The abandoned call

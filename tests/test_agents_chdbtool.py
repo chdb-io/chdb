@@ -446,6 +446,21 @@ class TestNetworkWatchdog(unittest.TestCase):
             r = tool.query("SELECT toInt32(1) AS x")
             self.assertEqual(r.rows, [{"x": 1}])
 
+    def test_engine_timeout_on_network_query_gets_hint(self):
+        tool = ChDBTool(network_timeout=30)
+        real_session = tool._session
+
+        class PocoTimeoutSession:
+            def query(self, sql, fmt="CSV", params=None):
+                raise RuntimeError("Code: 1001. DB::Exception: Poco::TimeoutException: Timeout. (STD_EXCEPTION)")
+
+        tool._session = PocoTimeoutSession()
+        with self.assertRaises(ChDBError) as ctx:
+            tool.query("SELECT 1 FROM url('https://example.invalid/x.csv', 'CSV')")
+        self.assertEqual(ctx.exception.code, 1001)
+        self.assertTrue(ctx.exception.hint)
+        real_session.close()
+
     def test_network_timeout_disabled_by_none(self):
         with ChDBTool(network_timeout=None) as tool:
             self.assertIsNone(tool.network_timeout)

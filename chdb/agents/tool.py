@@ -203,12 +203,14 @@ class ChDBTool:
                 self._session.query("SET max_execution_time={}".format(self.max_execution_time), "CSV")
             if self.network_timeout is not None:
                 # Fail fast on dead endpoints: one attempt, no HEAD probe. The
-                # watchdog in query() is the backstop where this doesn't bite.
-                self._session.query(
-                    "SET http_connection_timeout={}".format(min(self.network_timeout, 10)), "CSV"
-                )
-                self._session.query("SET http_receive_timeout={}".format(self.network_timeout), "CSV")
-                self._session.query("SET http_send_timeout={}".format(self.network_timeout), "CSV")
+                # TLS handshake is bounded by max(send, receive) — NOT by
+                # connection_timeout — and one attempt costs ~4-5x the setting
+                # (verified against chdb-core main), so keep send/receive small.
+                # The watchdog in query() is the backstop where none of this bites.
+                cap_s = min(self.network_timeout, 10)
+                self._session.query("SET http_connection_timeout={}".format(cap_s), "CSV")
+                self._session.query("SET http_receive_timeout={}".format(cap_s), "CSV")
+                self._session.query("SET http_send_timeout={}".format(cap_s), "CSV")
                 self._session.query("SET http_max_tries=1", "CSV")
                 self._session.query("SET http_make_head_request=0", "CSV")
             # Attachments must be materialized BEFORE the read-only lock, because
@@ -343,7 +345,13 @@ class ChDBTool:
                 hint=NETWORK_HINT,
             )
         if "exc" in outcome:
-            raise outcome["exc"]
+            exc = outcome["exc"]
+            err = exc if isinstance(exc, ChDBError) else parse_error(exc)
+            # Engine-side timeout on a network source (Poco::TimeoutException,
+            # code 1001) deserves the same guidance as a watchdog expiry.
+            if err.hint is None and "Poco::TimeoutException" in err.message:
+                err.hint = NETWORK_HINT
+            raise err
         return outcome["res"]
 
     async def aquery(self, sql, *, params=None, max_rows=None):
