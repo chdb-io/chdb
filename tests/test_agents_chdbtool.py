@@ -397,8 +397,6 @@ class TestDataFrameQuery(unittest.TestCase):
             tool.close()
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestNetworkWatchdog(unittest.TestCase):
@@ -492,6 +490,13 @@ class TestNetworkWatchdog(unittest.TestCase):
     def test_network_timeout_disabled_by_none(self):
         with ChDBTool(network_timeout=None) as tool:
             self.assertIsNone(tool.network_timeout)
+        with ChDBTool(network_timeout=0) as tool:
+            self.assertIsNone(tool.network_timeout)
+
+    def test_network_timeout_rejects_non_numeric(self):
+        with self.assertRaises(ChDBError) as ctx:
+            ChDBTool(network_timeout="")
+        self.assertEqual(ctx.exception.type, "INVALID_ARGUMENT")
 
     def test_real_hang_poisons_tool_and_a_new_tool_works(self):
         """End-to-end against a real black-holed endpoint: the native url() call
@@ -535,3 +540,7 @@ class TestNetworkWatchdog(unittest.TestCase):
         with ChDBTool(network_timeout=2) as fresh:
             r = fresh.query("SELECT toInt32(42) AS x")
             self.assertEqual(r.rows, [{"x": 42}])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -35,7 +35,9 @@ _MISSING = object()  # sentinel for "name absent from globals" in dataframe_quer
 
 # Sessions with a watchdog-abandoned call still in flight. Destroying one
 # mid-call is UB, so they leak here for process lifetime instead of crashing.
+# All mutations go through _ABANDONED_LOCK.
 _ABANDONED_SESSIONS = []
+_ABANDONED_LOCK = threading.Lock()
 
 
 def _int_arg(value, name):
@@ -137,8 +139,13 @@ class ChDBTool:
         # Deadline for queries referencing network sources (url()/s3()/...).
         # Binding-side: a firewalled endpoint can hang the engine past every
         # engine-side timeout (blocked TLS handshake). None/0 disables.
+        # Only None and 0 disable the watchdog; any other value (including a
+        # non-numeric one) goes through validation instead of silently
+        # disabling a guardrail.
         self.network_timeout = (
-            None if not network_timeout else max(1, _int_arg(network_timeout, "network_timeout"))
+            None
+            if network_timeout is None or network_timeout == 0
+            else max(1, _int_arg(network_timeout, "network_timeout"))
         )
         self._poisoned = False
         # Engine memory bound (bytes); exceeding raises MEMORY_LIMIT_EXCEEDED.
@@ -342,10 +349,11 @@ class ChDBTool:
                 done.set()
                 with lock:
                     if state["abandoned"]:
-                        try:
-                            _ABANDONED_SESSIONS.remove(session)
-                        except ValueError:
-                            pass
+                        with _ABANDONED_LOCK:
+                            try:
+                                _ABANDONED_SESSIONS.remove(session)
+                            except ValueError:
+                                pass
                         if owns:
                             try:
                                 session.close()
@@ -360,7 +368,8 @@ class ChDBTool:
                 if not done.is_set():
                     state["abandoned"] = True
                     self._poisoned = True
-                    _ABANDONED_SESSIONS.append(session)
+                    with _ABANDONED_LOCK:
+                        _ABANDONED_SESSIONS.append(session)
                     raise ChDBError(
                         "network-source query did not return within {}s".format(self.network_timeout),
                         type="NETWORK_TIMEOUT",
