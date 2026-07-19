@@ -187,8 +187,11 @@ to TS, which has no in-process pandas). Bindings may omit it.
   builds (blocked TLS handshake ignores every engine-side timeout), so there
   is no error to translate unless the binding imposes one. The abandoned call
   cannot be cancelled: afterwards the tool is **poisoned** (further queries →
-  `TOOL_ERROR`, `close()` leaves the session alone, the session leaks for
-  process lifetime). Bindings document this; they don't hide it.
+  `TOOL_ERROR`, `close()` leaves the session alone). The parked session is
+  released — closed when tool-owned — if the abandoned call ever settles; it
+  leaks for process lifetime only if the call never returns. In bindings with
+  a single-active-session constraint (TS), constructing a replacement tool may
+  need to wait for that settle. Bindings document this; they don't hide it.
 - **Result-bytes backstop (0.3.0)** — optional `max_result_bytes`; break mode
   truncates **without a flag**, so set it well above `max_bytes` and treat it
   as an OOM backstop only. Off by default.

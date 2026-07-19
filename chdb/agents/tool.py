@@ -322,10 +322,16 @@ class ChDBTool:
         """Engine call with a deadline (CONTRACT P5). The blocked native call
         can't be cancelled, so on expiry it is abandoned and the tool poisoned.
         Runs on a daemon thread: an executor's non-daemon worker would make a
-        truly stuck call block interpreter exit at the atexit join."""
+        truly stuck call block interpreter exit at the atexit join. If the
+        abandoned call ever settles, the parked session is released (closed if
+        tool-owned) — matching the TS binding, where a single-active-session
+        constraint makes releasing it a requirement, not a nicety."""
         session = self._session
+        owns = self._owns_session
         outcome = {}
         done = threading.Event()
+        lock = threading.Lock()
+        state = {"abandoned": False}
 
         def _call():
             try:
@@ -334,16 +340,32 @@ class ChDBTool:
                 outcome["exc"] = e
             finally:
                 done.set()
+                with lock:
+                    if state["abandoned"]:
+                        try:
+                            _ABANDONED_SESSIONS.remove(session)
+                        except ValueError:
+                            pass
+                        if owns:
+                            try:
+                                session.close()
+                            except Exception:
+                                pass
 
         threading.Thread(target=_call, daemon=True, name="chdb-network-query").start()
         if not done.wait(self.network_timeout):
-            self._poisoned = True
-            _ABANDONED_SESSIONS.append(session)
-            raise ChDBError(
-                "network-source query did not return within {}s".format(self.network_timeout),
-                type="NETWORK_TIMEOUT",
-                hint=NETWORK_HINT,
-            )
+            with lock:
+                # The call may have settled between the wait timing out and us
+                # taking the lock — if so, use the result instead of poisoning.
+                if not done.is_set():
+                    state["abandoned"] = True
+                    self._poisoned = True
+                    _ABANDONED_SESSIONS.append(session)
+                    raise ChDBError(
+                        "network-source query did not return within {}s".format(self.network_timeout),
+                        type="NETWORK_TIMEOUT",
+                        hint=NETWORK_HINT,
+                    )
         if "exc" in outcome:
             exc = outcome["exc"]
             err = exc if isinstance(exc, ChDBError) else parse_error(exc)

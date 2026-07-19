@@ -446,6 +446,34 @@ class TestNetworkWatchdog(unittest.TestCase):
             r = tool.query("SELECT toInt32(1) AS x")
             self.assertEqual(r.rows, [{"x": 1}])
 
+    def test_abandoned_session_released_when_call_settles(self):
+        from chdb.agents.tool import _ABANDONED_SESSIONS
+
+        tool = ChDBTool(network_timeout=1)
+        real_session = tool._session
+
+        class SlowCloseableSession:
+            closed = False
+
+            def query(self, sql, fmt="CSV", params=None):
+                time.sleep(2.5)
+                return None
+
+            def close(self):
+                self.closed = True
+
+        stub = SlowCloseableSession()
+        tool._session = stub
+        with self.assertRaises(ChDBError):
+            tool.query("SELECT 1 FROM url('https://example.invalid/x.csv', 'CSV')")
+        self.assertIn(stub, _ABANDONED_SESSIONS)
+        deadline = time.time() + 5
+        while stub in _ABANDONED_SESSIONS and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertNotIn(stub, _ABANDONED_SESSIONS)
+        self.assertTrue(stub.closed)
+        real_session.close()
+
     def test_engine_timeout_on_network_query_gets_hint(self):
         tool = ChDBTool(network_timeout=30)
         real_session = tool._session
