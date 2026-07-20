@@ -16,11 +16,13 @@ Four contract pillars:
 
 import asyncio
 import json
+import threading
 
 from .descriptors import tool_specs as _tool_specs
-from .errors import ChDBError, ChDBReadOnlyError, parse_error
+from .errors import NETWORK_HINT, ChDBError, ChDBReadOnlyError, parse_error
 from .safety import (
     FALLBACK_KNOWN_TABLE_FUNCTIONS,
+    NETWORK_TABLE_FUNCTIONS,
     find_source_calls,
     path_allowed,
     quote_ident,
@@ -30,6 +32,12 @@ from .safety import (
 __all__ = ["ChDBTool", "QueryResult"]
 
 _MISSING = object()  # sentinel for "name absent from globals" in dataframe_query
+
+# Sessions with a watchdog-abandoned call still in flight. Destroying one
+# mid-call is UB, so they leak here for process lifetime instead of crashing.
+# All mutations go through _ABANDONED_LOCK.
+_ABANDONED_SESSIONS = []
+_ABANDONED_LOCK = threading.Lock()
 
 
 def _int_arg(value, name):
@@ -48,6 +56,14 @@ def _int_arg(value, name):
         )
 
 
+# Attached to truncated envelope results so the model narrows instead of re-running.
+TRUNCATION_HINT = (
+    "Result truncated at the row/byte cap; more rows exist. "
+    "If you need them, aggregate, filter with WHERE, or select fewer columns "
+    "instead of re-running the same query."
+)
+
+
 class QueryResult:
     """Result of a query: decoded rows plus honest truncation / stat metadata."""
 
@@ -62,7 +78,7 @@ class QueryResult:
         self.bytes_read = bytes_read
 
     def to_dict(self):
-        return {
+        d = {
             "rows": self.rows,
             "row_count": self.row_count,
             "truncated": self.truncated,
@@ -70,6 +86,9 @@ class QueryResult:
             "elapsed_s": self.elapsed_s,
             "bytes_read": self.bytes_read,
         }
+        if self.truncated:
+            d["hint"] = TRUNCATION_HINT
+        return d
 
     def __repr__(self):
         t = " truncated" if self.truncated else ""
@@ -104,6 +123,9 @@ class ChDBTool:
         max_rows=1000,
         max_bytes=1_000_000,
         max_execution_time=None,
+        network_timeout=60,
+        max_memory_usage=None,
+        max_result_bytes=None,
         file_allowlist=None,
         attachments=None,
         session=None,
@@ -113,6 +135,27 @@ class ChDBTool:
         self.max_bytes = max(1, _int_arg(max_bytes, "max_bytes"))
         self.max_execution_time = (
             None if max_execution_time is None else max(0, _int_arg(max_execution_time, "max_execution_time"))
+        )
+        # Deadline for queries referencing network sources (url()/s3()/...).
+        # Binding-side: a firewalled endpoint can hang the engine past every
+        # engine-side timeout (blocked TLS handshake). None/0 disables.
+        # Only None and 0 disable the watchdog; any other value (including a
+        # non-numeric one) goes through validation instead of silently
+        # disabling a guardrail.
+        self.network_timeout = (
+            None
+            if network_timeout is None or network_timeout == 0
+            else max(1, _int_arg(network_timeout, "network_timeout"))
+        )
+        self._poisoned = False
+        # Engine memory bound (bytes); exceeding raises MEMORY_LIMIT_EXCEEDED.
+        self.max_memory_usage = (
+            None if max_memory_usage is None else max(1, _int_arg(max_memory_usage, "max_memory_usage"))
+        )
+        # Engine result-size backstop (bytes). Break mode truncates WITHOUT a
+        # flag — keep it well above max_bytes so the flagged cap fires first.
+        self.max_result_bytes = (
+            None if max_result_bytes is None else max(1, _int_arg(max_result_bytes, "max_result_bytes"))
         )
         # None = no allowlist (all paths allowed); a list = only these prefixes.
         self.file_allowlist = list(file_allowlist) if file_allowlist else None
@@ -151,9 +194,32 @@ class ChDBTool:
                     )
             # Exact 64-bit integers survive JSON as strings rather than lossy floats.
             self._session.query("SET output_format_json_quote_64bit_integers=1", "CSV")
+            # Engine-side row bound: without it the decode path buffers the whole
+            # result before max_rows applies (OOM in small sandboxes). cap+1 under
+            # 'break' keeps the truncated flag exact.
+            self._session.query("SET max_block_size=8192", "CSV")
+            self._session.query("SET result_overflow_mode='break'", "CSV")
+            self._session.query("SET max_result_rows={}".format(self.max_rows + 1), "CSV")
+            if self.max_result_bytes is not None:
+                self._session.query("SET max_result_bytes={}".format(self.max_result_bytes), "CSV")
+            if self.max_memory_usage is not None:
+                # loud engine OOM guard: exceeding raises MEMORY_LIMIT_EXCEEDED
+                self._session.query("SET max_memory_usage={}".format(self.max_memory_usage), "CSV")
             if self.max_execution_time is not None:
                 # engine-side wall-clock bound; a runaway query raises TIMEOUT_EXCEEDED
                 self._session.query("SET max_execution_time={}".format(self.max_execution_time), "CSV")
+            if self.network_timeout is not None:
+                # Fail fast on dead endpoints: one attempt, no HEAD probe. The
+                # TLS handshake is bounded by max(send, receive) — NOT by
+                # connection_timeout — and one attempt costs ~4-5x the setting
+                # (verified against chdb-core main), so keep send/receive small.
+                # The watchdog in query() is the backstop where none of this bites.
+                cap_s = min(self.network_timeout, 10)
+                self._session.query("SET http_connection_timeout={}".format(cap_s), "CSV")
+                self._session.query("SET http_receive_timeout={}".format(cap_s), "CSV")
+                self._session.query("SET http_send_timeout={}".format(cap_s), "CSV")
+                self._session.query("SET http_max_tries=1", "CSV")
+                self._session.query("SET http_make_head_request=0", "CSV")
             # Attachments must be materialized BEFORE the read-only lock, because
             # CREATE VIEW is a write that readonly=2 rejects. This is why read-only
             # tools declare files at construction rather than via attach_file().
@@ -210,14 +276,31 @@ class ChDBTool:
         """
         if not isinstance(sql, str) or sql.strip() == "":
             raise ChDBError("sql must be a non-empty string")
+        if self._poisoned:
+            raise ChDBError(
+                "a previous network-source query was abandoned after its deadline; "
+                "this tool's engine session may be blocked — create a new ChDBTool",
+                type="TOOL_ERROR",
+            )
         self._enforce_allowlist(sql, permit=_permit_fns)
-        cap = self.max_rows if max_rows is None else max(1, _int_arg(max_rows, "max_rows"))
+        # Clamped to the constructor cap: the engine bound was fixed there, so a
+        # larger per-call cap would truncate silently.
+        cap = (
+            self.max_rows
+            if max_rows is None
+            else min(max(1, _int_arg(max_rows, "max_rows")), self.max_rows)
+        )
         # Both the engine call and the decode go through parse_error: malformed or
         # non-JSON engine output (edge-case statements, empty results) becomes a
         # typed ChDBError rather than a bare JSONDecodeError leaking to the caller.
         try:
-            res = self._session.query(sql, "JSON", params=params or {})
+            if self.network_timeout and find_source_calls(sql, NETWORK_TABLE_FUNCTIONS):
+                res = self._run_with_network_deadline(sql, params)
+            else:
+                res = self._session.query(sql, "JSON", params=params or {})
             obj = json.loads(res.bytes().decode() or "{}")
+        except ChDBError:
+            raise  # watchdog/typed errors pass through, never re-wrapped
         except Exception as e:
             raise parse_error(e)
         data = obj.get("data", []) or []
@@ -241,6 +324,66 @@ class ChDBTool:
                     truncated = True
                     break
         return QueryResult(rows, truncated, cols, stats.get("elapsed"), stats.get("bytes_read"))
+
+    def _run_with_network_deadline(self, sql, params):
+        """Engine call with a deadline (CONTRACT P5). The blocked native call
+        can't be cancelled, so on expiry it is abandoned and the tool poisoned.
+        Runs on a daemon thread: an executor's non-daemon worker would make a
+        truly stuck call block interpreter exit at the atexit join. If the
+        abandoned call ever settles, the parked session is released (closed if
+        tool-owned) — matching the TS binding, where a single-active-session
+        constraint makes releasing it a requirement, not a nicety."""
+        session = self._session
+        owns = self._owns_session
+        outcome = {}
+        done = threading.Event()
+        lock = threading.Lock()
+        state = {"abandoned": False}
+
+        def _call():
+            try:
+                outcome["res"] = session.query(sql, "JSON", params=params or {})
+            except BaseException as e:
+                outcome["exc"] = e
+            finally:
+                done.set()
+                with lock:
+                    if state["abandoned"]:
+                        with _ABANDONED_LOCK:
+                            try:
+                                _ABANDONED_SESSIONS.remove(session)
+                            except ValueError:
+                                pass
+                        if owns:
+                            try:
+                                session.close()
+                            except Exception:
+                                pass
+
+        threading.Thread(target=_call, daemon=True, name="chdb-network-query").start()
+        if not done.wait(self.network_timeout):
+            with lock:
+                # The call may have settled between the wait timing out and us
+                # taking the lock — if so, use the result instead of poisoning.
+                if not done.is_set():
+                    state["abandoned"] = True
+                    self._poisoned = True
+                    with _ABANDONED_LOCK:
+                        _ABANDONED_SESSIONS.append(session)
+                    raise ChDBError(
+                        "network-source query did not return within {}s".format(self.network_timeout),
+                        type="NETWORK_TIMEOUT",
+                        hint=NETWORK_HINT,
+                    )
+        if "exc" in outcome:
+            exc = outcome["exc"]
+            err = exc if isinstance(exc, ChDBError) else parse_error(exc)
+            # Engine-side timeout on a network source (Poco::TimeoutException,
+            # code 1001) deserves the same guidance as a watchdog expiry.
+            if err.hint is None and "Poco::TimeoutException" in err.message:
+                err.hint = NETWORK_HINT
+            raise err
+        return outcome["res"]
 
     async def aquery(self, sql, *, params=None, max_rows=None):
         """Async wrapper. chDB has no native async engine call, so this runs
@@ -268,12 +411,12 @@ class ChDBTool:
                 raise ChDBError(
                     "table function {!r} without a literal source argument is not "
                     "allowed when file_allowlist is set".format(fn),
-                    type="ACCESS_DENIED",
+                    type="ALLOWLIST_DENIED",
                 )
             if not path_allowed(arg, self.file_allowlist):
                 raise ChDBError(
                     "source path not in file_allowlist: {!r}".format(arg),
-                    type="ACCESS_DENIED",
+                    type="ALLOWLIST_DENIED",
                 )
 
     # ---- source catalog ---------------------------------------------------
@@ -288,7 +431,7 @@ class ChDBTool:
         """
         if self.file_allowlist and not path_allowed(path, self.file_allowlist):
             raise ChDBError(
-                "attach path not in file_allowlist: {!r}".format(path), type="ACCESS_DENIED"
+                "attach path not in file_allowlist: {!r}".format(path), type="ALLOWLIST_DENIED"
             )
         src = "file({}".format(quote_string(path))
         if format:
@@ -468,6 +611,10 @@ class ChDBTool:
         return await asyncio.to_thread(self.call, name, arguments)
 
     def close(self):
+        if self._poisoned:
+            # Abandoned call may still be inside the session; don't touch it.
+            self._session = None
+            return
         if self._owns_session and self._session is not None:
             try:
                 self._session.close()

@@ -8,6 +8,7 @@ identifier quoting, tool_specs shape, and aquery.
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 
 from chdb.agents import (
@@ -344,7 +345,7 @@ class TestExternalSessionProbe(unittest.TestCase):
 
 class TestConstructorLeak(unittest.TestCase):
     def test_owned_session_closed_when_setup_throws(self):
-        # a bad attachment under an allowlist throws ACCESS_DENIED during setup;
+        # a bad attachment under an allowlist throws ALLOWLIST_DENIED during setup;
         # the Session the tool just created must be closed before the rethrow
         # (verified by the next construction working — chDB is single-engine)
         with self.assertRaises(ChDBError):
@@ -383,7 +384,7 @@ class TestDataFrameQuery(unittest.TestCase):
             self.assertEqual(r.rows, [{"s": 6}])
             with self.assertRaises(ChDBError) as ctx:
                 tool.query("SELECT * FROM Python(t)")
-            self.assertEqual(ctx.exception.type, "ACCESS_DENIED")
+            self.assertEqual(ctx.exception.type, "ALLOWLIST_DENIED")
         finally:
             tool.close()
 
@@ -394,6 +395,151 @@ class TestDataFrameQuery(unittest.TestCase):
                 tool.dataframe_query("SELECT 1", {})
         finally:
             tool.close()
+
+
+
+
+class TestNetworkWatchdog(unittest.TestCase):
+    """G3-3: binding-side deadline for network-source queries (CONTRACT P5).
+
+    The real failure this guards against (a black-holed endpoint hanging the
+    native call forever) can't be reproduced portably, so these tests stand in
+    a slow fake session and verify the watchdog/poisoning contract around it.
+    """
+
+    class _SlowSession:
+        def query(self, sql, fmt="CSV", params=None):
+            time.sleep(2.5)
+            return None
+
+    def test_deadline_fires_poisons_tool_and_close_is_safe(self):
+        tool = ChDBTool(network_timeout=1)
+        real_session = tool._session
+        tool._session = self._SlowSession()
+        t0 = time.time()
+        with self.assertRaises(ChDBError) as ctx:
+            tool.query("SELECT count() FROM url('https://example.invalid/x.csv', 'CSV')")
+        self.assertEqual(ctx.exception.type, "NETWORK_TIMEOUT")
+        self.assertTrue(ctx.exception.hint)
+        self.assertLess(time.time() - t0, 2.0)
+        with self.assertRaises(ChDBError) as ctx2:
+            tool.query("SELECT 1")
+        self.assertEqual(ctx2.exception.type, "TOOL_ERROR")
+        tool.close()
+        self.assertIsNone(tool._session)
+        real_session.close()
+
+    def test_envelope_carries_network_timeout_and_hint(self):
+        tool = ChDBTool(network_timeout=1)
+        real_session = tool._session
+        tool._session = self._SlowSession()
+        out = tool.call("run_select_query", {"sql": "SELECT 1 FROM s3('https://example.invalid/x.parquet')"})
+        self.assertFalse(out["ok"])
+        self.assertEqual(out["error"]["type"], "NETWORK_TIMEOUT")
+        self.assertTrue(out["error"].get("hint"))
+        real_session.close()
+
+    def test_local_queries_bypass_watchdog(self):
+        with ChDBTool(network_timeout=1) as tool:
+            r = tool.query("SELECT toInt32(1) AS x")
+            self.assertEqual(r.rows, [{"x": 1}])
+
+    def test_abandoned_session_released_when_call_settles(self):
+        from chdb.agents.tool import _ABANDONED_SESSIONS
+
+        tool = ChDBTool(network_timeout=1)
+        real_session = tool._session
+
+        class SlowCloseableSession:
+            closed = False
+
+            def query(self, sql, fmt="CSV", params=None):
+                time.sleep(2.5)
+                return None
+
+            def close(self):
+                self.closed = True
+
+        stub = SlowCloseableSession()
+        tool._session = stub
+        with self.assertRaises(ChDBError):
+            tool.query("SELECT 1 FROM url('https://example.invalid/x.csv', 'CSV')")
+        self.assertIn(stub, _ABANDONED_SESSIONS)
+        deadline = time.time() + 5
+        while stub in _ABANDONED_SESSIONS and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertNotIn(stub, _ABANDONED_SESSIONS)
+        self.assertTrue(stub.closed)
+        real_session.close()
+
+    def test_engine_timeout_on_network_query_gets_hint(self):
+        tool = ChDBTool(network_timeout=30)
+        real_session = tool._session
+
+        class PocoTimeoutSession:
+            def query(self, sql, fmt="CSV", params=None):
+                raise RuntimeError("Code: 1001. DB::Exception: Poco::TimeoutException: Timeout. (STD_EXCEPTION)")
+
+        tool._session = PocoTimeoutSession()
+        with self.assertRaises(ChDBError) as ctx:
+            tool.query("SELECT 1 FROM url('https://example.invalid/x.csv', 'CSV')")
+        self.assertEqual(ctx.exception.code, 1001)
+        self.assertTrue(ctx.exception.hint)
+        real_session.close()
+
+    def test_network_timeout_disabled_by_none(self):
+        with ChDBTool(network_timeout=None) as tool:
+            self.assertIsNone(tool.network_timeout)
+        with ChDBTool(network_timeout=0) as tool:
+            self.assertIsNone(tool.network_timeout)
+
+    def test_network_timeout_rejects_non_numeric(self):
+        with self.assertRaises(ChDBError) as ctx:
+            ChDBTool(network_timeout="")
+        self.assertEqual(ctx.exception.type, "INVALID_ARGUMENT")
+
+    def test_real_hang_poisons_tool_and_a_new_tool_works(self):
+        """End-to-end against a real black-holed endpoint: the native url() call
+        hangs (TLS handshake never answered), the watchdog abandons it, and a
+        NEW tool in the same process keeps working — chdb allows multiple live
+        sessions per process, so 'create a new ChDBTool' is real advice."""
+        import socket
+        import threading as _threading
+
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(4)
+        port = srv.getsockname()[1]
+
+        held = []  # keep accepted sockets open: a GC'd socket sends RST and
+        # the engine errors fast instead of hanging on the silent TLS handshake
+
+        def _accept_forever():
+            while True:
+                try:
+                    held.append(srv.accept()[0])
+                except OSError:
+                    return
+
+        _threading.Thread(target=_accept_forever, daemon=True).start()
+        self.addCleanup(srv.close)
+        self.addCleanup(lambda: [c.close() for c in held])
+
+        tool = ChDBTool(network_timeout=2)
+        t0 = time.time()
+        with self.assertRaises(ChDBError) as ctx:
+            tool.query(
+                "SELECT count() FROM url('https://127.0.0.1:{}/x.csv', 'LineAsString')".format(port)
+            )
+        self.assertEqual(ctx.exception.type, "NETWORK_TIMEOUT")
+        self.assertLess(time.time() - t0, 10)
+        tool.close()
+
+        # The abandoned native call is still blocked in a daemon thread; a
+        # fresh tool must be able to construct and query regardless.
+        with ChDBTool(network_timeout=2) as fresh:
+            r = fresh.query("SELECT toInt32(42) AS x")
+            self.assertEqual(r.rows, [{"x": 42}])
 
 
 if __name__ == "__main__":

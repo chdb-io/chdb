@@ -4,7 +4,7 @@
 > change in a minor release while it stabilizes across bindings; pin a version if
 > you depend on it.
 >
-> **Contract version: `0.2.0`** — exposed as `CONTRACT_VERSION` and via
+> **Contract version: `0.3.0`** — exposed as `CONTRACT_VERSION` and via
 > `capabilities()` in every binding. Downstream consumers probe capabilities
 > instead of guessing from a package version (see *Versioning & capabilities*).
 
@@ -118,6 +118,19 @@ to TS, which has no in-process pandas). Bindings may omit it.
 - Every result is capped by `max_rows` (and a `max_bytes` guard). When the engine
   produced more than the cap, the result sets `truncated = true`. Truncation is
   **never silent**.
+- The row cap is **also enforced engine-side** (0.3.0): the session sets
+  `max_result_rows = max_rows + 1`, `result_overflow_mode='break'`,
+  `max_block_size=8192` — an unbounded SELECT stops at block granularity
+  instead of materializing everything before the trim, and the `+1` keeps the
+  `truncated` flag exact. A per-call `max_rows` above the constructor cap is
+  clamped to it (the engine bound is fixed at construction).
+- The engine bound guards mistakes, not adversaries: a `SETTINGS` clause can
+  override engine limits under readonly=2 (the client-side trim still applies).
+  Engine quirk on affected builds (fixed upstream, unreleased): a query-level
+  `SETTINGS` clause persists for the whole session — cases using one run on a
+  dedicated tool.
+- Truncated envelope results carry a `hint` (narrow, don't re-run unchanged);
+  wording binding-identical.
 - `max_bytes` counts **UTF-8 bytes of each row's compact JSON encoding** (no
   spaces, non-ASCII kept raw). This is normative because it is model-visible:
   counting UTF-16 units or ASCII-escaped characters instead moves the truncation
@@ -135,22 +148,58 @@ to TS, which has no in-process pandas). Bindings may omit it.
   (`UNKNOWN_TOOL` / `INVALID_ARGUMENT`), never as a raised exception.
 - Direct library methods raise a typed error (`ChDBError` and subclasses).
 - Error classification is shared: parse `Code: N. DB::Exception: <msg>. (TYPE)`;
-  map by code (`164→READONLY`, `62→SYNTAX`, `46/47/60/81/115→UNKNOWN_*`).
+  map by code (`164→READONLY`, `62→SYNTAX`, `46/47/60/81/115→UNKNOWN_*`,
+  `158/159/241/307/396→RESOURCE` — rows / timeout / memory / bytes / result-size limits).
+- **The resource family (0.3.0)** gets its own error class
+  (`ChDBResourceError` or equivalent) and a `hint` field: the SQL was valid,
+  narrow it — don't abandon, don't retry unchanged. Hint wording
+  binding-identical.
 - Binding-side validation failures (no engine round-trip) use `code: 0` with a
   shared `type`: `INVALID_ARGUMENT` (bad argument value, e.g. a non-numeric
-  cap or an unknown `tool_specs` dialect), `ACCESS_DENIED` (allowlist),
+  cap or an unknown `tool_specs` dialect), `ALLOWLIST_DENIED` (allowlist;
+  **renamed from `ACCESS_DENIED` in 0.3.0** — it collided with engine error
+  497 of the same name),
   `CONFIG_MISMATCH` (a caller-provided session whose readonly state conflicts
-  with the declared mode), `UNKNOWN_TOOL` (bad `call()` name), `TOOL_ERROR`
-  (any other non-engine failure surfaced through the envelope).
+  with the declared mode), `NETWORK_TIMEOUT` (the network watchdog abandoned a
+  query referencing a remote source — carries a hint; see P5), `UNKNOWN_TOOL`
+  (bad `call()` name), `TOOL_ERROR` (any other non-engine failure surfaced
+  through the envelope, including any query attempted after a watchdog
+  abandonment poisoned the tool).
 
 ### P5 — Resource and source controls (normative, optional-per-deployment)
 - **Query timeout** — an optional `max_execution_time` (seconds) bounds runaway
   queries at the engine (`TIMEOUT_EXCEEDED`). Off by default; set per deployment.
+- **Memory bound (0.3.0)** — optional `max_memory_usage` (bytes); exceeding
+  raises `MEMORY_LIMIT_EXCEEDED`. Off by default.
+- **Network watchdog (0.3.0)** — `network_timeout` (seconds, default 60,
+  None/0 disables) applies to queries referencing a network-source table
+  function (the shared `NETWORK_TABLE_FUNCTIONS` set; `file()` and local lake
+  variants exempt). Two layers: at construction the session gets a fast-fail
+  baseline (`http_connection_timeout` / `http_send_timeout` /
+  `http_receive_timeout` = min(nt, 10), `http_max_tries=1`,
+  `http_make_head_request=0` — the TLS handshake is bounded by
+  max(send, receive), not by connection_timeout, and one attempt costs ~4-5x
+  the setting); at query time the engine call runs under a `network_timeout`
+  deadline and expiry raises/envelopes `NETWORK_TIMEOUT` with a hint. An
+  engine-side timeout (`Poco::TimeoutException`) on a network-source query
+  gets the same hint attached. The watchdog is load-bearing, not cosmetic:
+  a black-holed HTTPS endpoint hangs the engine call unboundedly on affected
+  builds (blocked TLS handshake ignores every engine-side timeout), so there
+  is no error to translate unless the binding imposes one. The abandoned call
+  cannot be cancelled: afterwards the tool is **poisoned** (further queries →
+  `TOOL_ERROR`, `close()` leaves the session alone). The parked session is
+  released — closed when tool-owned — if the abandoned call ever settles; it
+  leaks for process lifetime only if the call never returns. In bindings with
+  a single-active-session constraint (TS), constructing a replacement tool may
+  need to wait for that settle. Bindings document this; they don't hide it.
+- **Result-bytes backstop (0.3.0)** — optional `max_result_bytes`; break mode
+  truncates **without a flag**, so set it well above `max_bytes` and treat it
+  as an OOM backstop only. Off by default.
 - **File allowlist** — an optional list of path prefixes. When set, raw SQL is
   scanned for **every table function the running engine exposes** (live
   `system.table_functions` snapshot, unioned with a static fallback) that is
   not in the shared safe-by-construction set: each such call must carry a
-  **literal** source argument inside the allowlist, else `ACCESS_DENIED`. The
+  **literal** source argument inside the allowlist, else `ALLOWLIST_DENIED`. The
   scan runs over masked SQL — string literals and comments blanked
   position-preserving, backtick/double-quote-wrapped function names matched —
   so a path-looking string never false-positives and quoting, comments, or a
