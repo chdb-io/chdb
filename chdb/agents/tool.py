@@ -294,7 +294,7 @@ class ChDBTool:
         # non-JSON engine output (edge-case statements, empty results) becomes a
         # typed ChDBError rather than a bare JSONDecodeError leaking to the caller.
         try:
-            if self.network_timeout and any(True for _ in find_source_calls(sql, NETWORK_TABLE_FUNCTIONS)):
+            if self.network_timeout and find_source_calls(sql, NETWORK_TABLE_FUNCTIONS):
                 res = self._run_with_network_deadline(sql, params)
             else:
                 res = self._session.query(sql, "JSON", params=params or {})
