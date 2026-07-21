@@ -40,6 +40,14 @@ publish = ["twine", "wheel"]
 # (`clickhouse_connect.get_client(backend="chdb")`). clickhouse-connect 1.0+ needs Python 3.10+.
 clickhouse-connect = ["clickhouse-connect>=1.3.0"]
 
+# chdb.durable — Durable Analytical Object: an addressable, single-writer engine
+# whose state lives in object storage you own. The S3-compatible backend
+# (AWS/MinIO/R2, and GCS via its S3 interop endpoint) needs boto3; the native
+# GCS and Azure Blob backends are separate opt-in extras.
+durable = ["boto3>=1.36"]  # IfMatch/IfNoneMatch conditional writes on PutObject
+durable-gcs = ["google-cloud-storage"]
+durable-azure = ["azure-storage-blob"]
+
 # chDB registers itself with clickhouse-connect through these entry points. clickhouse-connect
 # discovers them at runtime; it never imports chdb directly.
 [project.entry-points."clickhouse_connect.backends"]
@@ -60,7 +68,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["datastore*", "chdb", "chdb.agents"]
+include = ["datastore*", "chdb", "chdb.agents", "chdb.durable", "chdb.durable.backends"]
 namespaces = true
 
 [tool.setuptools.exclude-package-data]
