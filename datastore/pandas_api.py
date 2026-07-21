@@ -413,6 +413,41 @@ def read_parquet(path, columns=None, **kwargs) -> "DataStoreType":
         return DataStore.from_file(path, format="Parquet")
 
 
+def read_iceberg(table_identifier, catalog_name=None, **kwargs) -> "DataStoreType":
+    """
+    Read an Apache Iceberg table into DataStore (pandas 3.0 API parity).
+
+    Delegates to pandas.read_iceberg (PyIceberg-backed) and wraps the result
+    in a DataStore, so downstream operations get the usual lazy SQL engine.
+
+    Args:
+        table_identifier: Iceberg table identifier, e.g. "namespace.table"
+        catalog_name: Name of the PyIceberg catalog to use
+        **kwargs: Additional pandas.read_iceberg() arguments
+            (catalog_properties, columns, row_filter, case_sensitive,
+            snapshot_id, limit, scan_properties)
+
+    Returns:
+        DataStore: A DataStore object containing the Iceberg table data
+
+    Raises:
+        NotImplementedError: If the installed pandas has no read_iceberg
+            (requires pandas >= 3.0)
+
+    Example:
+        >>> from datastore import read_iceberg
+        >>> ds = read_iceberg("sales.orders", catalog_name="my_catalog")
+    """
+    if not hasattr(pd, "read_iceberg"):
+        raise NotImplementedError(
+            "read_iceberg requires pandas >= 3.0 (pandas.read_iceberg not available)"
+        )
+
+    DataStore = _get_datastore_class()
+    pandas_df = pd.read_iceberg(table_identifier, catalog_name=catalog_name, **kwargs)
+    return DataStore.from_df(pandas_df)
+
+
 def read_json(path_or_buf, orient=None, lines=False, **kwargs) -> "DataStoreType":
     """
     Read a JSON file into DataStore.

@@ -248,25 +248,46 @@ def _build_replace(expr, to_replace, value=_REPLACE_SENTINEL, regex: bool = Fals
     func_type=FunctionType.SCALAR,
     category=FunctionCategory.STRING,
     aliases=['replaceAll', 'replace'],  # 'replace' alias for str accessor
-    doc='Replace substring occurrences. Maps to replace(s, from, to). Use regex=True for regex.',
+    doc='Replace substring occurrences. Maps to replace(s, from, to). Use regex=True for regex. '
+        'pat may be a dict of {pattern: replacement} (pandas 3.0), applied sequentially.',
 )
-def _build_str_replace(expr, pattern: str, replacement: str, regex: bool = False, alias=None):
+def _build_str_replace(expr, pattern, replacement=None, regex: bool = False, alias=None):
     """
     Replace substrings in a string column (pandas str.replace compatible).
 
     Args:
         expr: The expression to operate on
-        pattern: Substring pattern to find
-        replacement: Replacement string
+        pattern: Substring pattern to find, or a dict of {pattern: replacement}
+            (pandas 3.0 form; replacement must then be omitted)
+        replacement: Replacement string (required unless pattern is a dict)
         regex: If True, use regex replacement
         alias: Optional alias for the result
 
     Examples:
-        str.replace('a', 'b')     -> replaces all 'a' with 'b'
-        str.replace('a+', 'b', regex=True) -> regex replacement
+        str.replace('a', 'b')                -> replaces all 'a' with 'b'
+        str.replace('a+', 'b', regex=True)   -> regex replacement
+        str.replace({'a': 'b', 'c': 'd'})    -> sequential replacements
     """
     from .functions import Function
     from .expressions import Literal
+
+    if isinstance(pattern, dict):
+        # pandas 3.0: str.replace({'old': 'new', ...}); repl must not be given.
+        if replacement is not None:
+            raise ValueError("repl cannot be used when pat is a dictionary")
+        func_name = 'replaceRegexpAll' if regex else 'replaceAll'
+        items = list(pattern.items())
+        if not items:
+            # Identity: single-argument coalesce returns the column unchanged.
+            return Function('coalesce', expr, alias=alias)
+        result = expr
+        for pat, repl in items[:-1]:
+            result = Function(func_name, result, Literal(str(pat)), Literal(str(repl)))
+        last_pat, last_repl = items[-1]
+        return Function(func_name, result, Literal(str(last_pat)), Literal(str(last_repl)), alias=alias)
+
+    if replacement is None:
+        raise TypeError("repl must be a string when pat is not a dictionary")
 
     if regex:
         return Function('replaceRegexpAll', expr, Literal(pattern), Literal(replacement), alias=alias)
@@ -818,6 +839,21 @@ def _build_isalnum(expr, alias=None):
     from .expressions import Literal
 
     return Function('match', expr, Literal('^[a-zA-Z0-9]+$'), alias=alias)
+
+
+@register_function(
+    name='isascii',
+    clickhouse_name='match',
+    func_type=FunctionType.SCALAR,
+    category=FunctionCategory.STRING,
+    doc='Check if all characters are ASCII, like str.isascii() (pandas 3.0). '
+        'Empty strings are True.',
+)
+def _build_isascii(expr, alias=None):
+    from .functions import Function
+    from .expressions import Literal
+
+    return Function('match', expr, Literal('^[\\x00-\\x7F]*$'), alias=alias)
 
 
 @register_function(
