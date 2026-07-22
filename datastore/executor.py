@@ -83,6 +83,22 @@ class Executor:
         self._ensure_connected()
         return self.connection.query_df(sql, df, df_name, preserve_order=preserve_order)
 
+    def query_arrow(self, sql: str):
+        """
+        Execute a SQL query via Connection and return a ``pyarrow.Table``.
+
+        Asks chDB for its native ``ArrowTable`` output, so the result keeps
+        ClickHouse's Arrow types with no pandas round-trip.
+
+        Args:
+            sql: SQL query string
+
+        Returns:
+            pyarrow.Table
+        """
+        self._ensure_connected()
+        return self.connection.query_arrow(sql)
+
     def execute_expression(
         self, expr_sql: str, df: pd.DataFrame, result_column: str = "__result__"
     ) -> pd.Series:
