@@ -227,6 +227,7 @@ from .pandas_api import (  # noqa: E402
     # IO Functions
     read_csv,
     read_parquet,
+    read_iceberg,
     read_json,
     read_excel,
     read_sql,
@@ -355,6 +356,7 @@ __all__ = [
     # Pandas-Compatible IO Functions
     'read_csv',
     'read_parquet',
+    'read_iceberg',
     'read_json',
     'read_excel',
     'read_sql',

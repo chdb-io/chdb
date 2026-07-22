@@ -734,7 +734,10 @@ class FunctionExecutorConfig:
 
         # Apply and map
         self._pandas_implementations["apply"] = lambda s, func: s.apply(func)
-        self._pandas_implementations["map"] = lambda s, arg: s.map(arg)
+        # kwargs are forwarded to the mapper callable by pandas 3.0+ Series.map
+        self._pandas_implementations["map"] = lambda s, arg, na_action=None, **kw: s.map(
+            arg, na_action=na_action, **kw
+        )
 
         # Comparison with shift
         self._pandas_implementations["eq"] = lambda s, other: s.eq(other)

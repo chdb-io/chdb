@@ -2174,6 +2174,29 @@ class PandasCompatMixin:
         """Write DataFrame to feather format."""
         return self._get_df().to_feather(path, **kwargs)
 
+    def to_iceberg(self, table_identifier, catalog_name=None, **kwargs):
+        """
+        Write the DataStore to an Apache Iceberg table (pandas 3.0 API parity).
+
+        Materializes the result and delegates to pandas.DataFrame.to_iceberg
+        (PyIceberg-backed).
+
+        Args:
+            table_identifier: Iceberg table identifier, e.g. "namespace.table"
+            catalog_name: Name of the PyIceberg catalog to use
+            **kwargs: Additional DataFrame.to_iceberg() arguments
+                (catalog_properties, location, append, snapshot_properties)
+
+        Raises:
+            NotImplementedError: If the installed pandas has no
+                DataFrame.to_iceberg (requires pandas >= 3.0)
+        """
+        if not hasattr(pd.DataFrame, "to_iceberg"):
+            raise NotImplementedError(
+                "to_iceberg requires pandas >= 3.0 (DataFrame.to_iceberg not available)"
+            )
+        return self._get_df().to_iceberg(table_identifier, catalog_name=catalog_name, **kwargs)
+
     def to_sql(
         self,
         name,

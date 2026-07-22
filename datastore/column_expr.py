@@ -5663,13 +5663,16 @@ class ColumnExpr:
         # For scalar results or other types, can't use .get()
         return default
 
-    def map(self, arg, na_action=None) -> "ColumnExpr":
+    def map(self, arg, na_action=None, **kwargs) -> "ColumnExpr":
         """
         Map values of Series according to input mapping or function (lazy).
 
         Args:
             arg: Mapping correspondence (dict, Series, or function)
             na_action: If 'ignore', propagate NaN values without passing to mapping
+            **kwargs: Additional keyword arguments passed through to
+                pandas Series.map, which forwards them to ``arg`` when it is a
+                callable (pandas 3.0+)
 
         Returns:
             ColumnExpr: Lazy wrapper returning Series with mapped values
@@ -5680,12 +5683,28 @@ class ColumnExpr:
             1    3.0
             2    2.0
             Name: grade, dtype: float64
+            >>> ds['x'].map(lambda v, add: v + add, add=10)  # pandas 3.0+
         """
+        if kwargs:
+            import inspect
+
+            # Fail at the call site on pandas < 3 (whose Series.map has no
+            # **kwargs), consistent with the eager NotImplementedError raised
+            # by the other pandas-3.0 additions, instead of an opaque
+            # TypeError at lazy execution time.
+            supports_kwargs = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD
+                for p in inspect.signature(pd.Series.map).parameters.values()
+            )
+            if not supports_kwargs:
+                raise NotImplementedError(
+                    "Passing extra keyword arguments to map() requires pandas >= 3.0"
+                )
         return ColumnExpr(
             source=self,
             method_name="map",
             method_args=(arg,),
-            method_kwargs=dict(na_action=na_action),
+            method_kwargs=dict(na_action=na_action, **kwargs),
         )
 
     def fillna(
