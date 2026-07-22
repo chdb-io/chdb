@@ -275,16 +275,21 @@ def _build_str_replace(expr, pattern, replacement=None, regex: bool = False, ali
         # pandas 3.0: str.replace({'old': 'new', ...}); repl must not be given.
         if replacement is not None:
             raise ValueError("repl cannot be used when pat is a dictionary")
-        func_name = 'replaceRegexpAll' if regex else 'replaceAll'
         items = list(pattern.items())
+        for pat, repl in items:
+            # No silent str() coercion: pandas raises for e.g. {'a': None}, and
+            # stringifying would write literal 'None' into the data instead.
+            if not isinstance(pat, str) or not isinstance(repl, str):
+                raise TypeError("patterns and replacements in the dictionary must be strings")
         if not items:
             # Identity: single-argument coalesce returns the column unchanged.
             return Function('coalesce', expr, alias=alias)
+        func_name = 'replaceRegexpAll' if regex else 'replaceAll'
         result = expr
         for pat, repl in items[:-1]:
-            result = Function(func_name, result, Literal(str(pat)), Literal(str(repl)))
+            result = Function(func_name, result, Literal(pat), Literal(repl))
         last_pat, last_repl = items[-1]
-        return Function(func_name, result, Literal(str(last_pat)), Literal(str(last_repl)), alias=alias)
+        return Function(func_name, result, Literal(last_pat), Literal(last_repl), alias=alias)
 
     if replacement is None:
         raise TypeError("repl must be a string when pat is not a dictionary")

@@ -2191,8 +2191,6 @@ class PandasCompatMixin:
             NotImplementedError: If the installed pandas has no
                 DataFrame.to_iceberg (requires pandas >= 3.0)
         """
-        import pandas as pd
-
         if not hasattr(pd.DataFrame, "to_iceberg"):
             raise NotImplementedError(
                 "to_iceberg requires pandas >= 3.0 (DataFrame.to_iceberg not available)"

@@ -5685,6 +5685,21 @@ class ColumnExpr:
             Name: grade, dtype: float64
             >>> ds['x'].map(lambda v, add: v + add, add=10)  # pandas 3.0+
         """
+        if kwargs:
+            import inspect
+
+            # Fail at the call site on pandas < 3 (whose Series.map has no
+            # **kwargs), consistent with the eager NotImplementedError raised
+            # by the other pandas-3.0 additions, instead of an opaque
+            # TypeError at lazy execution time.
+            supports_kwargs = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD
+                for p in inspect.signature(pd.Series.map).parameters.values()
+            )
+            if not supports_kwargs:
+                raise NotImplementedError(
+                    "Passing extra keyword arguments to map() requires pandas >= 3.0"
+                )
         return ColumnExpr(
             source=self,
             method_name="map",

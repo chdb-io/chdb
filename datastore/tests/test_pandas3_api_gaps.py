@@ -104,11 +104,50 @@ class TestStrReplaceDict:
 
         assert list(ds_result) == list(pd_result)
 
+    def test_replace_dict_regex_values(self):
+        import re
+
+        mapping = {"[ch]at": "X", "X+": "Y"}
+        pd_df = pd.DataFrame({"s": self.DATA})
+        ds = DataStore.from_df(pd_df)
+
+        result = list(ds["s"].str.replace(mapping, regex=True))
+
+        expected = []
+        for v in self.DATA:
+            for pat, repl in mapping.items():
+                v = re.sub(pat, repl, v)
+            expected.append(v)
+        assert result == expected
+
+    @pytest.mark.skipif(not PANDAS_3, reason="dict pat form is pandas 3.0+")
+    def test_replace_dict_regex_mirrors_pandas(self):
+        mapping = {"[ch]at": "X", "X+": "Y"}
+
+        # pandas operations
+        pd_df = pd.DataFrame({"s": self.DATA})
+        pd_result = pd_df["s"].str.replace(mapping, regex=True)
+
+        # DataStore operations (mirror of pandas)
+        ds = DataStore.from_df(pd_df)
+        ds_result = ds["s"].str.replace(mapping, regex=True)
+
+        assert list(ds_result) == list(pd_result)
+
     def test_replace_dict_with_repl_raises(self):
         ds = DataStore.from_df(pd.DataFrame({"s": self.DATA}))
 
         with pytest.raises(ValueError, match="dictionary"):
             ds["s"].str.replace({"cat": "dog"}, "oops")
+
+    def test_replace_dict_non_string_entries_raise(self):
+        ds = DataStore.from_df(pd.DataFrame({"s": self.DATA}))
+
+        # A None replacement must not be silently stringified into 'None'.
+        with pytest.raises(TypeError, match="strings"):
+            ds["s"].str.replace({"cat": None})
+        with pytest.raises(TypeError, match="strings"):
+            ds["s"].str.replace({1: "one"})
 
     def test_replace_dict_empty_is_identity(self):
         ds = DataStore.from_df(pd.DataFrame({"s": self.DATA}))
@@ -152,7 +191,7 @@ class TestMapKwargs:
         assert list(ds_result) == list(pd_result)
         assert list(ds_result) == [11, 12, 13]
 
-    def test_map_dict_and_na_action_unchanged(self):
+    def test_map_dict_mapping_unchanged(self):
         pd_df = pd.DataFrame({"g": ["A", "B", "A"]})
         pd_result = pd_df["g"].map({"A": 4.0, "B": 3.0})
 
@@ -160,6 +199,27 @@ class TestMapKwargs:
         ds_result = ds["g"].map({"A": 4.0, "B": 3.0})
 
         assert list(ds_result) == list(pd_result)
+
+    def test_map_na_action_ignore_with_missing_values(self):
+        # pandas operations
+        pd_df = pd.DataFrame({"g": ["A", "B", None]})
+        pd_result = pd_df["g"].map({"A": 4.0, "B": 3.0}, na_action="ignore")
+
+        # DataStore operations (mirror of pandas)
+        ds = DataStore.from_df(pd_df)
+        ds_result = ds["g"].map({"A": 4.0, "B": 3.0}, na_action="ignore")
+
+        result = list(ds_result)
+        assert result[:2] == list(pd_result)[:2] == [4.0, 3.0]
+        assert pd.isna(result[2]) and pd.isna(list(pd_result)[2])
+
+    @pytest.mark.skipif(PANDAS_3, reason="eager error contract only applies before pandas 3.0")
+    def test_map_kwargs_raise_eagerly_on_pandas2(self):
+        ds = DataStore.from_df(pd.DataFrame({"a": [1, 2, 3]}))
+
+        # Must fail at the call site, not at lazy execution time.
+        with pytest.raises(NotImplementedError, match="pandas >= 3.0"):
+            ds["a"].map(lambda v, add: v + add, add=10)
 
 
 class TestIcebergDelegation:
