@@ -96,10 +96,44 @@ class Connection:
             self._conn = chdb.connect(conn_str)
             if self._conn is not None:
                 _freeze_chdb_settings()
+                try:
+                    self._apply_external_sort_default()
+                except Exception:
+                    try:
+                        self._conn.close()
+                    except Exception:
+                        pass
+                    self._conn = None
+                    raise
             self._logger.debug("[chDB] Connected: %s", conn_str)
             return self
         except Exception as e:
             raise ConnectionError(f"Failed to connect to chdb: {e}")
+
+    def _apply_external_sort_default(self) -> None:
+        """Enable external sort with half of the server memory limit as threshold."""
+        settings = {**get_chdb_settings(), **self.connection_params}
+        user_value = settings.get('max_bytes_before_external_sort')
+        if user_value is not None:
+            if isinstance(user_value, bool):
+                raise ValueError(f"Invalid max_bytes_before_external_sort value: {user_value!r}")
+            if isinstance(user_value, (int, float)):
+                self._conn.query(f"SET max_bytes_before_external_sort = {int(user_value)}")
+            else:
+                escaped = str(user_value).replace("\\", "\\\\").replace("'", "\\'")
+                self._conn.query(f"SET max_bytes_before_external_sort = '{escaped}'")
+            return
+        try:
+            raw = self._conn.query(
+                "SELECT value FROM system.server_settings WHERE name = 'max_server_memory_usage'",
+                'TSV',
+            )
+            server_limit = int(str(raw).strip() or 0)
+            if server_limit <= 0:
+                return
+            self._conn.query(f"SET max_bytes_before_external_sort = {server_limit // 2}")
+        except Exception as e:
+            self._logger.debug("[chDB] Could not apply external sort default: %s", e)
 
     def cursor(self):
         """Get a cursor for executing queries."""

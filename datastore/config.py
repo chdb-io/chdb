@@ -343,7 +343,7 @@ def use_pandas_compat() -> None:
 _chdb_settings: Dict[str, Any] = {
     'memory_worker_correct_memory_tracker': 1,
     'max_server_memory_usage': 0,
-    'max_server_memory_usage_to_ram_ratio': 0,
+    'max_server_memory_usage_to_ram_ratio': 0.9,
 }
 _chdb_settings_frozen: bool = False
 

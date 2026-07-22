@@ -32,7 +32,7 @@ def _reset_chdb_settings_state():
     _config_module._chdb_settings = {
         'memory_worker_correct_memory_tracker': 1,
         'max_server_memory_usage': 0,
-        'max_server_memory_usage_to_ram_ratio': 0,
+        'max_server_memory_usage_to_ram_ratio': 0.9,
     }
     _config_module._chdb_settings_frozen = False
 
@@ -74,7 +74,7 @@ class TestChdbSettingsDefaults:
         assert settings == {
             'memory_worker_correct_memory_tracker': 1,
             'max_server_memory_usage': 0,
-            'max_server_memory_usage_to_ram_ratio': 0,
+            'max_server_memory_usage_to_ram_ratio': 0.9,
         }
 
     def test_default_applied_to_connection(self):
@@ -95,14 +95,20 @@ class TestChdbSettingsDefaults:
         conn.connect()
         try:
             r = conn._conn.query(
-                "SELECT name, value FROM system.server_settings "
-                "WHERE name IN ('max_server_memory_usage', 'max_server_memory_usage_to_ram_ratio') "
-                "ORDER BY name",
+                "SELECT value FROM system.server_settings "
+                "WHERE name = 'max_server_memory_usage_to_ram_ratio'",
                 'CSV',
             )
-            result = str(r)
-            assert '"max_server_memory_usage","0"' in result
-            assert '"max_server_memory_usage_to_ram_ratio","0"' in result
+            assert '"0.9"' in str(r)
+
+            r = conn._conn.query(
+                "SELECT value FROM system.server_settings "
+                "WHERE name = 'max_server_memory_usage'",
+                'TSV',
+            )
+            raw = str(r).strip()
+            assert raw, "max_server_memory_usage not found in system.server_settings"
+            assert int(raw) > 0
         finally:
             conn.close()
 
@@ -178,7 +184,7 @@ class TestChdbSettingsDataStoreConfig:
         assert config.chdb_settings == {
             'memory_worker_correct_memory_tracker': 1,
             'max_server_memory_usage': 0,
-            'max_server_memory_usage_to_ram_ratio': 0,
+            'max_server_memory_usage_to_ram_ratio': 0.9,
         }
 
     def test_config_set_chdb_setting(self):
@@ -342,6 +348,115 @@ class TestChdbSettingsDataStoreInternal:
         """)
 
 
+class TestExternalSortDefault:
+    """Verify max_bytes_before_external_sort is derived from the server memory limit."""
+
+    def _query_setting(self, conn, name):
+        r = conn._conn.query(
+            f"SELECT value, changed FROM system.settings WHERE name = '{name}'",
+            'CSV',
+        )
+        raw = str(r).strip()
+        assert raw, f"Setting '{name}' not found in system.settings"
+        value, changed = raw.rsplit(',', 1)
+        return value.strip('"'), changed.strip()
+
+    def test_default_is_half_of_server_memory_limit(self):
+        conn = Connection(':memory:')
+        conn.connect()
+        try:
+            raw = conn._conn.query(
+                "SELECT value FROM system.server_settings "
+                "WHERE name = 'max_server_memory_usage'",
+                'TSV',
+            )
+            server_limit = int(str(raw).strip())
+            assert server_limit > 0
+
+            value, changed = self._query_setting(conn, 'max_bytes_before_external_sort')
+            assert int(value) == server_limit // 2
+            assert changed == '1'
+        finally:
+            conn.close()
+
+    def test_ratio_valve_kept_at_engine_default(self):
+        conn = Connection(':memory:')
+        conn.connect()
+        try:
+            _, changed = self._query_setting(conn, 'max_bytes_ratio_before_external_sort')
+            assert changed == '0'
+        finally:
+            conn.close()
+
+    def test_user_override_applied_as_is(self):
+        set_chdb_setting('max_bytes_before_external_sort', 123456789)
+        conn = Connection(':memory:')
+        conn.connect()
+        try:
+            value, changed = self._query_setting(conn, 'max_bytes_before_external_sort')
+            assert int(value) == 123456789
+            assert changed == '1'
+        finally:
+            conn.close()
+
+    def test_instance_param_override_applied_as_is(self):
+        conn = Connection(':memory:', max_bytes_before_external_sort=987654321)
+        conn.connect()
+        try:
+            value, _ = self._query_setting(conn, 'max_bytes_before_external_sort')
+            assert int(value) == 987654321
+        finally:
+            conn.close()
+
+    def test_invalid_user_override_raises(self):
+        from datastore.exceptions import ConnectionError as DataStoreConnectionError
+
+        set_chdb_setting('max_bytes_before_external_sort', 'not_a_valid_size')
+        conn = Connection(':memory:')
+        with pytest.raises(DataStoreConnectionError, match="Failed to connect"):
+            conn.connect()
+        assert conn._conn is None
+
+    def test_bool_user_override_raises(self):
+        from datastore.exceptions import ConnectionError as DataStoreConnectionError
+
+        set_chdb_setting('max_bytes_before_external_sort', True)
+        conn = Connection(':memory:')
+        with pytest.raises(DataStoreConnectionError, match="Failed to connect"):
+            conn.connect()
+        assert conn._conn is None
+
+    def test_no_server_limit_skips_external_sort_default(self):
+        _run_chdb_in_subprocess("""
+            from datastore.config import set_chdb_setting
+            from datastore.connection import Connection
+
+            set_chdb_setting('max_server_memory_usage_to_ram_ratio', 0)
+
+            conn = Connection(':memory:')
+            conn.connect()
+            try:
+                r = conn._conn.query(
+                    "SELECT changed FROM system.settings "
+                    "WHERE name = 'max_bytes_before_external_sort'",
+                    'TSV',
+                )
+                assert str(r).strip() == '0', f"Expected setting to be unchanged but got: {r}"
+            finally:
+                conn.close()
+        """)
+
+    def test_applied_via_global_executor(self):
+        executor = get_executor()
+        executor._ensure_connected()
+
+        value, changed = self._query_setting(
+            executor.connection, 'max_bytes_before_external_sort'
+        )
+        assert int(value) > 0
+        assert changed == '1'
+
+
 class TestChdbSettingsConnectionString:
     """Verify connection string is built correctly."""
 
@@ -351,7 +466,7 @@ class TestChdbSettingsConnectionString:
         assert ':memory:?' in conn_str
         assert 'memory_worker_correct_memory_tracker=1' in conn_str
         assert 'max_server_memory_usage=0' in conn_str
-        assert 'max_server_memory_usage_to_ram_ratio=0' in conn_str
+        assert 'max_server_memory_usage_to_ram_ratio=0.9' in conn_str
 
     def test_connection_string_override(self):
         set_chdb_setting('memory_worker_correct_memory_tracker', 0)
