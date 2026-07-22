@@ -121,15 +121,15 @@ def to_arrowTable(res):
 def to_datastore(df):
     """Wrap a pandas DataFrame in a chdb DataStore.
 
-    Requires the ``chdb`` pip package (providing the DataStore API) to be
-    installed alongside ``chdb-core``.
+    Requires pandas and pyarrow (declared dependencies of the ``chdb`` pip
+    package, but absent on ``pip install --no-deps`` installs).
     """
     try:
         from chdb.datastore import DataStore
     except ImportError as e:
         raise ImportError(
-            'DataStore output format requires the chdb package. '
-            'Install it via "pip install chdb".'
+            'DataStore output format requires pandas and pyarrow. '
+            'Install them via "pip install pandas pyarrow".'
         ) from e
     return DataStore(df)
 
