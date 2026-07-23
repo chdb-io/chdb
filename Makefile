@@ -21,7 +21,7 @@ clean:
 
 docs:
 	@echo "Building documentation..."
-	@PYTHONPATH=src sphinx-build -b html docs buildlib/docs --keep-going -v -E
+	@PYTHONPATH=src sphinx-build -b html sphinx buildlib/docs --keep-going -v -E
 	@echo "Documentation built in buildlib/docs/"
 	@echo "Starting documentation server on port 8000..."
 	@(sleep 1; python3 -c "import webbrowser; webbrowser.open('http://127.0.0.1:8001/')" 2>/dev/null &)
@@ -29,5 +29,5 @@ docs:
 
 docs-md:
 	@echo "Building markdown documentation..."
-	@PYTHONPATH=src sphinx-build -b markdown docs buildlib/markdowndocs --keep-going -v -E
+	@PYTHONPATH=src sphinx-build -b markdown sphinx buildlib/markdowndocs --keep-going -v -E
 	@echo "Markdown documentation built in buildlib/markdowndocs/"

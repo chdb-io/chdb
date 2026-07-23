@@ -188,9 +188,9 @@ ds['timestamp'].dt.hour
 
 ### Documentation
 
-- **[Pandas Compatibility Guide](docs/PANDAS_COMPATIBILITY.md)** - Full list of supported methods
-- **[Function Reference](docs/FUNCTIONS.md)** - 334 ClickHouse SQL functions
-- **[Migration Guide](docs/PANDAS_MIGRATION_GUIDE.md)** - Step-by-step guide for pandas users
+- **[Pandas Compatibility Guide](dev-docs/PANDAS_COMPATIBILITY.md)** - Full list of supported methods
+- **[Function Reference](dev-docs/FUNCTIONS.md)** - 334 ClickHouse SQL functions
+- **[Migration Guide](dev-docs/PANDAS_MIGRATION_GUIDE.md)** - Step-by-step guide for pandas users
 
 ---
 
@@ -549,7 +549,7 @@ For more examples, see [examples](examples) and [tests](tests).
 ## Documentation
 - For chdb specific examples and documentation refer to [chDB docs](https://clickhouse.com/docs/en/chdb)
 - For SQL syntax, please refer to [ClickHouse SQL Reference](https://clickhouse.com/docs/en/sql-reference/syntax)
-- For DataStore API, see [Pandas Compatibility Guide](docs/PANDAS_COMPATIBILITY.md)
+- For DataStore API, see [Pandas Compatibility Guide](dev-docs/PANDAS_COMPATIBILITY.md)
 
 
 ## AI Coding Agent Skills

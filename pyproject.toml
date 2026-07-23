@@ -104,7 +104,7 @@ extend-exclude = [
     "build",
     "dist",
     ".eggs",
-    "docs/conf.py",
+    "sphinx/conf.py",
     "datastore/tests",
 ]
 

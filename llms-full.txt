@@ -188,7 +188,7 @@ We're going to work with one of the JSON files from that dataset.
 Import chdb:
 
 ```python
-
+import chdb
 ```
 
 We can write the following query to describe the structure of one of the JSON files:
@@ -989,6 +989,7 @@ For simple, one-off queries:
 ```go
 package main
 
+import (
     "fmt"
     "github.com/chdb-io/chdb-go/chdb"
 )
@@ -1009,6 +1010,7 @@ For complex queries with persistent state:
 ```go
 package main
 
+import (
     "fmt"
     "github.com/chdb-io/chdb-go/chdb"
 )
@@ -1060,6 +1062,7 @@ chDB-go implements Go's `database/sql` interface:
 ```go
 package main
 
+import (
     "database/sql"
     "fmt"
     _ "github.com/chdb-io/chdb-go/chdb/driver"
@@ -1097,6 +1100,7 @@ For processing large datasets that don't fit in memory, use streaming queries:
 ```go
 package main
 
+import (
     "fmt"
     "log"
     "github.com/chdb-io/chdb-go/chdb"
@@ -1400,6 +1404,7 @@ python3 -m chdb "SELECT version()" JSON
 
 ### Basic python usage
 ```python
+import chdb
 
 # Simple query
 result = chdb.query("SELECT 1 as id, 'Hello World' as message", "CSV")
@@ -1415,6 +1420,7 @@ print(f"Execution time: {result.elapsed()} seconds")
 For better resource management and performance:
 
 ```python
+import chdb
 
 # Create connection (in-memory by default)
 conn = chdb.connect(":memory:")
@@ -1448,7 +1454,7 @@ conn.close()
 chDB supports 70+ data formats for direct file querying:
 
 ```python
-
+import chdb
 # Prepare your data
 # ...
 
@@ -1496,6 +1502,8 @@ print(pretty_result)
 ### DataFrame operations
 #### Legacy DataFrame API
 ```python
+import chdb.dataframe as cdf
+import pandas as pd
 
 # Join multiple DataFrames
 df1 = pd.DataFrame({'a': [1, 2, 3], 'b': ["one", "two", "three"]})
@@ -1515,6 +1523,9 @@ print(summary)
 
 #### Python table engine (recommended)
 ```python
+import chdb
+import pandas as pd
+import pyarrow as pa
 
 # Query Pandas DataFrame directly
 df = pd.DataFrame({
@@ -1632,6 +1643,7 @@ See also: [test_stateful.py](https://github.com/chdb-io/chdb-core/blob/main/test
 Standard database interface for compatibility with existing Python applications:
 
 ```python
+import chdb.dbapi as dbapi
 
 # Check driver information
 print(f"chDB driver version: {dbapi.get_client_info()}")
@@ -1828,7 +1840,7 @@ while True:
 stream.close()  # Important: explicit cleanup
 
 # Example 3: Arrow integration for external libraries
-
+import pyarrow as pa
 from deltalake import write_deltalake
 
 # Stream results in Arrow format
@@ -1851,6 +1863,8 @@ sess.close()
 ### Python table engine
 #### Query Pandas DataFrames
 ```python
+import chdb
+import pandas as pd
 
 # Complex DataFrame with nested data
 df = pd.DataFrame({
@@ -1905,8 +1919,9 @@ print(window_result)
 Implement custom data readers for specialized data sources:
 
 ```python
-
+import chdb
 from typing import List, Tuple, Any
+import json
 
 class DatabaseReader(chdb.PyReader):
     """Custom reader for database-like data sources"""
@@ -1962,6 +1977,8 @@ class DatabaseReader(chdb.PyReader):
 chDB automatically handles complex nested data structures:
 
 ```python
+import pandas as pd
+import chdb
 
 # DataFrame with mixed JSON objects
 df_with_json = pd.DataFrame({
@@ -2014,6 +2031,7 @@ chDB consistently outperforms other embedded engines:
 
 ### Performance tips
 ```python
+import chdb
 
 # 1. Use appropriate output formats
 df_result = chdb.query("SELECT * FROM large_table", "DataFrame")  # For analysis
@@ -5294,6 +5312,7 @@ comparisons like “field_type == STRING” where field_type is a single type va
 Basic Query Example:
 
 ```python
+import chdb.dbapi as dbapi
 
 print("chdb driver version: {0}".format(dbapi.get_client_info()))
 
@@ -5314,6 +5333,7 @@ conn.close()
 Working with Data:
 
 ```python
+import chdb.dbapi as dbapi
 
 conn = dbapi.connect()
 cur = conn.cursor()
@@ -5350,6 +5370,7 @@ conn.close()
 Connection Management:
 
 ```python
+import chdb.dbapi as dbapi
 
 # In-memory database (default)
 conn1 = dbapi.connect()
@@ -6763,7 +6784,7 @@ DataStore(data=None, columns=None, index=None, dtype=None, copy=None)
 ds = DataStore({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
 
 # From pandas DataFrame
-
+import pandas as pd
 ds = DataStore(pd.DataFrame({'a': [1, 2, 3]}))
 
 # Empty DataStore
@@ -7913,7 +7934,7 @@ DataStore.from_dataframe(df, name=None)  # alias
 **Examples:**
 
 ```python
-
+import pandas
 from chdb.datastore import DataStore
 
 pdf = pandas.DataFrame({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
@@ -7933,7 +7954,7 @@ ds = pd.DataFrame({
 })
 
 # From pandas DataFrame
-
+import pandas
 pdf = pandas.DataFrame({'a': [1, 2, 3]})
 ds = pd.DataFrame(pdf)
 ```
@@ -8042,7 +8063,7 @@ See [Execution Model](https://clickhouse.com/docs/chdb/datastore/execution-model
 ## One-Line migration from Pandas
 ```python
 # Before (pandas)
-
+import pandas as pd
 df = pd.read_csv("data.csv")
 result = df[df['age'] > 25].groupby('city')['salary'].mean()
 
@@ -9656,7 +9677,7 @@ pip install "chdb[all]>=4.0"
 
 ### Verify Installation
 ```python
-
+import chdb
 print(chdb.__version__)  # Should print 4.x.x or higher
 
 from chdb import datastore as pd
@@ -9668,6 +9689,7 @@ The simplest way to start using DataStore is to change your import statement:
 
 ```python
 # Before (pandas)
+import pandas as pd
 
 # After (DataStore)
 from chdb import datastore as pd
@@ -9688,6 +9710,7 @@ Eve,23,LA,48000,Product,2,inactive,eve@company.com
 """)
 
 # Original pandas code
+import pandas as pd
 
 df = pd.read_csv("employees.csv")
 result = (df[df['salary'] > 50000]
@@ -9720,7 +9743,7 @@ ds = pd.DataFrame({
 })
 
 # From a pandas DataFrame
-
+import pandas
 pdf = pandas.DataFrame({'a': [1, 2, 3], 'b': [4, 5, 6]})
 ds = pd.DataFrame(pdf)
 
@@ -10587,6 +10610,7 @@ The simplest migration is changing your import:
 
 ```python
 # Before (pandas)
+import pandas as pd
 
 # After (DataStore)
 from chdb import datastore as pd
@@ -10605,6 +10629,7 @@ pip install "chdb>=4.0"
 ### Change the Import
 ```python
 # Change this:
+import pandas as pd
 
 # To this:
 from chdb import datastore as pd
@@ -10770,7 +10795,7 @@ ds = ds.sort('id')  # Explicit ordering
 ### Pattern 1: Read-Analyze-Write
 ```python
 # pandas
-
+import pandas as pd
 df = pd.read_csv("data.csv")
 result = df[df['amount'] > 100].groupby('category')['amount'].sum()
 result.to_csv("output.csv")
@@ -10801,6 +10826,7 @@ df_pivoted = df.pivot_table(...)  # pandas-specific
 ### Pattern 3: Mixed Workflow
 ```python
 from chdb import datastore as pd
+import pandas
 
 # Start with DataStore for fast filtering
 ds = pd.read_csv("huge_file.csv")  # 10M rows
@@ -10875,7 +10901,7 @@ ds['col'] = ds['col'].astype('int64')
 ### Week 1: Test Compatibility
 ```python
 # Keep both imports
-
+import pandas as pd
 from chdb import datastore as ds
 
 # Compare results
@@ -10918,6 +10944,7 @@ Yes! Convert between them freely:
 
 ```python
 from chdb import datastore as ds
+import pandas as pd
 
 # DataStore to pandas
 df = ds_result.to_pandas()
@@ -10964,7 +10991,7 @@ Common pandas patterns and their DataStore equivalents. Most code works unchange
 ### Read CSV
 ```python
 # Pandas
-
+import pandas as pd
 df = pd.read_csv("data.csv")
 
 # DataStore - same!
@@ -10975,7 +11002,7 @@ df = pd.read_csv("data.csv")
 ### Read Multiple Files
 ```python
 # Pandas
-
+import glob
 dfs = [pd.read_csv(f) for f in glob.glob("data/*.csv")]
 df = pd.concat(dfs)
 
@@ -11414,6 +11441,7 @@ While DataStore is highly compatible with pandas, there are important difference
 Operations execute immediately:
 
 ```python
+import pandas as pd
 
 df = pd.read_csv("data.csv")  # Loads entire file NOW
 result = df[df['age'] > 25]   # Filters NOW
@@ -11606,7 +11634,7 @@ df.loc['user123']
 pandas doesn't recognize DataStore objects:
 
 ```python
-
+import pandas as pd
 from chdb import datastore as ds
 
 pdf = pd.DataFrame({'a': [1, 2, 3]})
@@ -12302,6 +12330,7 @@ LEFT JOIN departments d ON e.dept_id = d.dept_id
 ## Complete Example
 ### pandas Code
 ```python
+import pandas as pd
 
 df = pd.read_csv("sales.csv")
 
@@ -12455,7 +12484,7 @@ You can learn more about ClickPy in [its GitHub repository](https://github.com/C
 Let's import chDB:
 
 ```python
-
+import chdb
 ```
 
 We're going to query ClickPy using the `remoteSecure` function.
@@ -12645,7 +12674,7 @@ If you want to download more files, use `aws s3 ls` to get a list of all the fil
 Next, we'll import the Parquet module from the `pyarrow` package:
 
 ```python
-
+import pyarrow.parquet as pq
 ```
 
 And then we can read the Parquet file into an Apache Arrow table:
@@ -12689,7 +12718,7 @@ Now let's query the Arrow table from chDB.
 First, let's import chDB:
 
 ```python
-
+import chdb
 ```
 
 And then we can describe the table:
@@ -12806,7 +12835,8 @@ We're going to query some data from the [StatsBomb GitHub repository](https://gi
 Let's first import requests and pandas:
 
 ```python
-
+import requests
+import pandas as pd
 ```
 
 Then, we'll load one of the matches JSON files into a DataFrame:
@@ -12917,7 +12947,7 @@ Next, let's see how to query these DataFrames using chDB.
 We'll import the library:
 
 ```python
-
+import chdb
 ```
 
 We can query Pandas DataFrames by using the `Python` table function:
@@ -13198,7 +13228,7 @@ We're going to explore a Parquet file from the [Amazon reviews](https://clickhou
 But first, let's install `chDB`:
 
 ```python
-
+import chdb
 ```
 
 When querying Parquet files, we can use the [`ParquetMetadata`](https://clickhouse.com/docs/interfaces/formats/ParquetMetadata) input format to have it return Parquet metadata rather than the content of the file.
@@ -13382,6 +13412,7 @@ If you pass just the bucket name it will throw an exception.
 We're also going to use the [`One`](https://clickhouse.com/docs/interfaces/formats/One) input format so that the file isn't parsed, instead a single row is returned per file and we can access the file via the `_file` virtual column and the path via the `_path` virtual column.
 
 ```python
+import chdb
 
 chdb.query("""
 SELECT
@@ -14081,6 +14112,7 @@ config.enable_profiling()       # Enable performance profiling
 ### Logging Configuration
 ```python
 from chdb.datastore.config import config
+import logging
 
 # Set log level
 config.set_log_level(logging.DEBUG)
@@ -14241,6 +14273,7 @@ config.set_cache_enabled(False)  # Disable caching for fresh results
 ### Production
 ```python
 from chdb.datastore.config import config
+import logging
 
 config.set_log_level(logging.WARNING)  # Minimal logging
 config.set_execution_engine('auto')    # Optimal engine selection
@@ -15259,7 +15292,7 @@ result = ds.filter(ds['age'] > 25).to_df()
 
 ## Setting Log Level
 ```python
-
+import logging
 from chdb.datastore.config import config
 
 # Using standard logging levels
@@ -15349,6 +15382,7 @@ ERROR - Cannot convert column 'price' to float
 ## Custom Logging Configuration
 ### Using Python Logging
 ```python
+import logging
 
 # Configure root logger
 logging.basicConfig(
@@ -15367,6 +15401,7 @@ ds_logger.setLevel(logging.DEBUG)
 
 ### Log to File
 ```python
+import logging
 
 # Create file handler
 file_handler = logging.FileHandler('datastore_debug.log')
@@ -15382,6 +15417,7 @@ ds_logger.addHandler(file_handler)
 
 ### Suppress Logging
 ```python
+import logging
 
 # Suppress all DataStore logs
 logging.getLogger('chdb.datastore').setLevel(logging.CRITICAL)
@@ -15474,7 +15510,7 @@ DEBUG - Result conversion: 2.345ms
 ## Production Configuration
 ### Recommended Settings
 ```python
-
+import logging
 from chdb.datastore.config import config
 
 # Production: minimal logging
@@ -15485,7 +15521,7 @@ config.set_profiling_enabled(False)
 
 ### Log Rotation
 ```python
-
+import logging
 from logging.handlers import RotatingFileHandler
 
 # Create rotating file handler
@@ -15514,6 +15550,8 @@ export CHDB_LOG_FORMAT=verbose
 ```
 
 ```python
+import os
+import logging
 
 # Read from environment
 log_level = os.environ.get('CHDB_LOG_LEVEL', 'WARNING')
@@ -16024,7 +16062,7 @@ For further information and examples, see the [ClickHouse SQL Reference](https:/
 
 # chDB architecture deep dive
 
-**URL:** https://github.com/chdb-io/chdb/blob/main/docs/ARCHITECTURE.md
+**URL:** https://github.com/chdb-io/chdb/blob/main/dev-docs/ARCHITECTURE.md
 
 # DataStore Architecture & Design Principles
 
@@ -16126,6 +16164,7 @@ Not everyone loves pandas syntax. DataStore offers two equivalent approaches:
 
 **Pandas-style** (familiar to pandas users):
 ```python
+import datastore as pd
 
 df = pd.read_csv("data.csv")
 result = df[df['age'] > 25].groupby('city')['salary'].mean()
@@ -16813,6 +16852,7 @@ Enter your SQL commands; type 'exit' to quit.
 ```go
 package main
 
+import (
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16860,6 +16900,7 @@ func main() {
 ```go
 package main
 
+import (
         "database/sql"
         "log"
 
