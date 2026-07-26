@@ -113,7 +113,118 @@ class TestNonPristinePushdownMetadata:
         _ = ds2.dtypes
         _ = ds2.shape
         _ = ds2.index
+        _ = ds2.size
+        _ = ds2.empty
         assert ds2._cached_result is None, "metadata access must not materialize the result"
+
+    def test_size_uses_count_not_execute(self, filtered):
+        ds2, pd_result = filtered
+        with patch.object(ds2, "count_rows", wraps=ds2.count_rows) as mock_count, \
+                patch.object(ds2, "_execute", wraps=ds2._execute) as mock_exec:
+            size = ds2.size
+            mock_count.assert_called()
+            mock_exec.assert_not_called()
+        assert size == pd_result.size
+
+    def test_empty_uses_count_not_execute(self, filtered):
+        ds2, pd_result = filtered
+        with patch.object(ds2, "count_rows", wraps=ds2.count_rows) as mock_count, \
+                patch.object(ds2, "_execute", wraps=ds2._execute) as mock_exec:
+            empty = ds2.empty
+            mock_count.assert_called()
+            mock_exec.assert_not_called()
+        assert empty == pd_result.empty
+
+
+class TestMetadataMemoization:
+    """Repeated and cross-accessor metadata reads on the SAME lazy frame reuse a
+    single schema probe and a single COUNT(*) instead of re-querying the engine.
+
+    The memo is keyed by ``_cache_version`` and is a pure function of the pipeline
+    definition, so a derived frame (new ``__copy__``) starts empty and never
+    inherits its parent's answers, and adding an op invalidates it. Guards the
+    step-3 (memoize via ``_cache_version``) optimization.
+    """
+
+    @pytest.fixture
+    def filtered(self, tmp_path):
+        path, _ = _make_parquet(tmp_path)
+        ds = DataStore.from_file(path)
+        return ds[ds["value"] > 0]        # pushdownable filter -> non-pristine
+
+    def _capture(self, ds):
+        ds.connect()
+        sqls = []
+        original = ds._executor.execute
+        cap = patch.object(
+            ds._executor, "execute",
+            side_effect=lambda s, *a, **k: (sqls.append(s), original(s, *a, **k))[1],
+        )
+        return sqls, cap
+
+    def test_repeated_columns_probe_once(self, filtered):
+        ds = filtered
+        sqls, cap = self._capture(ds)
+        with cap:
+            first = list(ds.columns)
+            _ = ds.columns
+            _ = ds.columns
+        assert sum("LIMIT 0" in s for s in sqls) == 1, sqls
+        assert first == list(ds.columns)
+
+    def test_repeated_count_counts_once(self, filtered):
+        ds = filtered
+        sqls, cap = self._capture(ds)
+        with cap:
+            a = ds.count_rows()
+            b = ds.count_rows()
+            c = len(ds.index)              # .index resolves from the same COUNT
+        assert a == b == c
+        assert sum("count()" in s.lower() for s in sqls) == 1, sqls
+
+    def test_dtypes_probe_serves_later_columns(self, filtered):
+        # A LIMIT 1 (.dtypes) probe carries correct column NAMES too, so a later
+        # .columns needs no additional probe -- and never a LIMIT 0 one.
+        ds = filtered
+        sqls, cap = self._capture(ds)
+        with cap:
+            _ = ds.dtypes
+            cols = list(ds.columns)
+        assert sum("LIMIT 1" in s for s in sqls) == 1, sqls
+        assert not any("LIMIT 0" in s for s in sqls), sqls
+        assert cols == ["id", "value", "category"]
+
+    def test_full_metadata_sweep_collapses_queries(self, filtered):
+        # The common "inspect everything" pattern -- shape + columns + dtypes +
+        # len + index + size + empty -- collapses (regardless of access count) to
+        # ONE columns probe (LIMIT 0, shared by shape/columns/size), ONE dtypes
+        # probe (LIMIT 1, which then also serves later columns reads), and ONE
+        # COUNT(*) (shared by len/index/size/empty). Without the memo each accessor
+        # would re-hit the engine. (dtype-reliability countIf checks are neither a
+        # LIMIT probe nor a count() and don't affect these tallies.)
+        ds = filtered
+        sqls, cap = self._capture(ds)
+        with cap:
+            _ = ds.shape
+            _ = ds.columns
+            _ = ds.dtypes
+            _ = len(ds)
+            _ = ds.index
+            _ = ds.size
+            _ = ds.empty
+        assert sum("LIMIT 0" in s for s in sqls) == 1, sqls
+        assert sum("LIMIT 1" in s for s in sqls) == 1, sqls
+        assert sum("count()" in s.lower() for s in sqls) == 1, sqls
+
+    def test_derived_frame_gets_fresh_memo(self, filtered):
+        ds = filtered
+        n = ds.count_rows()
+        assert ("count", ds._cache_version) in ds._metadata_memo
+        ds2 = ds[ds["id"] >= 0]            # derive -> __copy__ -> fresh memo
+        assert ds2._metadata_memo == {}, "derived frame must not inherit parent's memo"
+        # original is unchanged and keeps its memoized answer
+        assert ("count", ds._cache_version) in ds._metadata_memo
+        assert ds.count_rows() == n
 
 
 class TestProjectionColumnsCorrectness:

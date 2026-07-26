@@ -418,6 +418,8 @@ class DataStore(PandasCompatMixin):
         self._cache_version: int = 0  # Incremented when operations are added
         self._cached_at_version: int = -1  # Version when cache was created
         self._cache_timestamp: Optional[float] = None  # For TTL support
+        # Memoized metadata probes/counts, keyed by _cache_version (see _meta_memo)
+        self._metadata_memo: Dict[Any, Any] = {}
 
         # Computed columns tracking for chained assign support
         # Maps column alias -> original Expression (before any aliasing)
@@ -584,6 +586,8 @@ class DataStore(PandasCompatMixin):
         self._cache_version: int = 0
         self._cached_at_version: int = -1
         self._cache_timestamp: Optional[float] = None
+        # Memoized metadata probes/counts, keyed by _cache_version (see _meta_memo)
+        self._metadata_memo: Dict[Any, Any] = {}
 
         # Computed columns tracking for chained assign support
         self._computed_columns: Dict[str, Expression] = {}
@@ -1315,6 +1319,10 @@ class DataStore(PandasCompatMixin):
                 if is_cache_enabled():
                     self._cached_result = df
                     self._cache_timestamp = time.time()
+                    # The plan just materialized (and _cache_version resets to 0
+                    # below); drop probe/count memos so no pre-execution entry can
+                    # be re-read. Post-execution metadata comes from _cached_result.
+                    self._metadata_memo = {}
 
                     # Checkpoint if we executed any Pandas operations or multiple SQL segments
                     # This enables incremental execution for future operations
@@ -4291,6 +4299,22 @@ class DataStore(PandasCompatMixin):
         count_base._offset_value = None
         return count_base.to_sql()
 
+    def _meta_memo(self) -> dict:
+        """Per-pipeline memo for metadata probes/counts, keyed by _cache_version.
+
+        Entries are pure functions of the pipeline definition, so they stay valid
+        until an operation is added (which bumps _cache_version) and are dropped by
+        __copy__ so a derived pipeline never inherits its parent's answers. This
+        lets repeated and cross-accessor metadata reads on the same lazy frame --
+        .shape (count + columns), then .dtypes / len() / .index / .size / .empty --
+        reuse one schema probe and one COUNT(*) instead of re-querying the engine.
+        """
+        memo = self.__dict__.get("_metadata_memo")
+        if memo is None:
+            memo = {}
+            self.__dict__["_metadata_memo"] = memo
+        return memo
+
     def _probe_schema(self, limit: int = 0) -> pd.DataFrame:
         """Return a (near-)empty DataFrame with the pipeline's columns and dtypes.
 
@@ -4303,12 +4327,26 @@ class DataStore(PandasCompatMixin):
         needs to materialize string columns as their real pandas dtype -- an
         empty (LIMIT 0) result degrades string columns to ``object`` -- so the
         ``.dtypes`` path uses ``limit=1``.
+
+        The result is memoized per _cache_version. A probe that transferred >=1 row
+        carries both correct column names and reliable dtypes, so it also satisfies
+        any lower-limit (columns-only) request -- e.g. a prior ``.dtypes`` probe
+        serves a later ``.columns`` with no extra query.
         """
+        memo = self._meta_memo()
+        ver = self._cache_version
+        cached = memo.get("probe")
+        if cached is not None and cached[0] == ver and cached[1] >= limit:
+            return cached[2]
         if self._executor is None:
             self.connect()
         subquery_sql = self.to_sql()
         probe_sql = f"SELECT * FROM ({subquery_sql}) LIMIT {int(limit)}"
-        return self._executor.execute(probe_sql).to_df()
+        df = self._executor.execute(probe_sql).to_df()
+        # Keep the probe with the most rows -- it subsumes smaller-limit requests.
+        if cached is None or cached[0] != ver or limit >= cached[1]:
+            memo["probe"] = (ver, limit, df)
+        return df
 
     def count(self):
         """
@@ -4485,6 +4523,11 @@ class DataStore(PandasCompatMixin):
             This is more efficient than len() for large datasets as it uses SQL COUNT(*)
             instead of executing the entire DataFrame.
         """
+        memo = self._meta_memo()
+        memo_key = ("count", self._cache_version)
+        if memo_key in memo:
+            return memo[memo_key]
+
         if not self._can_sql_pushdown():
             self._logger.debug(
                 "count_rows() falling back to execution due to non-SQL operations"
@@ -4549,9 +4592,9 @@ class DataStore(PandasCompatMixin):
                     "count_rows() executing flat SQL: %s", count_sql
                 )
                 result = self._executor.execute(count_sql)
-                if result.rows:
-                    return int(result.rows[0][0])
-                return 0
+                total = int(result.rows[0][0]) if result.rows else 0
+                memo[memo_key] = total
+                return total
 
         # Complex case (GROUP BY / HAVING / DISTINCT / JOINs / computed columns):
         # Remote sources cannot use nested subqueries (hangs in chDB),
@@ -4568,9 +4611,9 @@ class DataStore(PandasCompatMixin):
         self._logger.debug("count_rows() executing SQL: %s", count_sql)
         result = self._executor.execute(count_sql)
 
-        if result.rows:
-            return int(result.rows[0][0])
-        return 0
+        total = int(result.rows[0][0]) if result.rows else 0
+        memo[memo_key] = total
+        return total
 
     def info(
         self, verbose=None, buf=None, max_cols=None, memory_usage=None, show_counts=None
@@ -8891,6 +8934,12 @@ class DataStore(PandasCompatMixin):
         new_ds._update_fields = self._update_fields.copy()
         new_ds._format_settings = self._format_settings.copy()
         new_ds._lazy_ops = self._lazy_ops.copy()  # Copy lazy operations
+
+        # Metadata memo (probe/count) is keyed by _cache_version and is a pure
+        # function of THIS pipeline; a derived pipeline must start empty rather
+        # than share/inherit the parent's answers (two children of a common
+        # ancestor can otherwise collide on the same version key).
+        new_ds._metadata_memo = {}
 
         # Copy operation history
         if hasattr(self, "_operation_history"):
