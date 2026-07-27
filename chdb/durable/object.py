@@ -44,6 +44,14 @@ def validate_oid(oid: str) -> str:
     return oid
 
 
+def _quote_ident(name: str) -> str:
+    """Backtick-quote a ClickHouse identifier so a database name with `-` (or
+    any character needing quoting) is valid in DDL/USE, and can't break out of
+    the statement. Not imported from clickhouse_connect to keep this package
+    free of that dependency."""
+    return "`" + name.replace("\\", "\\\\").replace("`", "\\`") + "`"
+
+
 class DurableObject:
     def __init__(self, oid: str, backend: Backend, *, owner: Optional[str] = None,
                  db: str = "mem", read_only: bool = False, lease_ttl: float = 60.0):
@@ -127,7 +135,7 @@ class DurableObject:
                 self._lease_expires = now + self.ttl
             try:
                 self._start_session()
-                self.session.query(f"CREATE DATABASE IF NOT EXISTS {self.db}")
+                self.session.query(f"CREATE DATABASE IF NOT EXISTS {_quote_ident(self.db)}")
             except Exception:
                 self._abort_open()
                 raise
@@ -221,9 +229,15 @@ class DurableObject:
             local = os.path.join(self._bkp, "base.tar.gz")
             with open(local, "wb") as f:
                 f.write(base_blob)
-            self.session.query(f"RESTORE DATABASE {self.db} FROM File('{local}')", "CSV")
+            self.session.query(f"RESTORE DATABASE {_quote_ident(self.db)} FROM File('{local}')", "CSV")
         else:
-            self.session.query(f"CREATE DATABASE IF NOT EXISTS {self.db}")
+            self.session.query(f"CREATE DATABASE IF NOT EXISTS {_quote_ident(self.db)}")
+        # Replay in the object's database context: WAL statements were executed
+        # against a session whose current database the caller had set, and the
+        # manifest's db is that context (the object owns it). Without this,
+        # unqualified statements silently replay into `default` — invisible to
+        # the caller and dropped by the next `BACKUP DATABASE {db}` checkpoint.
+        self.session.query(f"USE {_quote_ident(self.db)}", "CSV")
         from .wal import replay
         for seg_key in self.wal:
             seg = self.backend.get(seg_key)
@@ -326,7 +340,7 @@ class DurableObject:
         local = os.path.join(self._bkp, f"ckpt-{self.generation}-{new_seq}-{stamp}.tar.gz")
         if os.path.exists(local):
             os.remove(local)
-        self.session.query(f"BACKUP DATABASE {self.db} TO File('{local}')", "CSV")
+        self.session.query(f"BACKUP DATABASE {_quote_ident(self.db)} TO File('{local}')", "CSV")
         with open(local, "rb") as f:
             data = f.read()
         key = f"checkpoints/{self.generation}-{new_seq}-{stamp}.tar.gz"

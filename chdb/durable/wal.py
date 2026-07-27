@@ -21,6 +21,9 @@ result on replay as it did originally:
   - If you need a timestamp/id, compute it in the caller and log the literal.
   - Non-deterministic or bulk transformations belong in a `checkpoint()` (which
     snapshots actual state), not in WAL statements.
+  - Unqualified table names replay with the object's database (the manifest's
+    `db`) as the current database. Statements touching any *other* database
+    must qualify it explicitly.
 
 A future V2 may store row data as Parquet segments (so replay is data, not
 re-execution, and `ns.scan()` can read segments via `s3()` without restoring),
