@@ -558,7 +558,11 @@ class PandasCompatMixin:
         src = self._get_source_df_if_pristine()
         if src is not None:
             return src.size
-        if self._is_pristine_sql_source():
+        # Any SQL-pushdownable pipeline: rows via COUNT(*), columns via .columns
+        # (both self-correcting -- count_rows() executes on LIMIT/OFFSET, .columns
+        # executes on column-altering ops). Mirrors .shape and subsumes the
+        # pristine SQL source case, avoiding full materialization for filters etc.
+        if self._can_sql_pushdown() and self._cached_result is None:
             return self.count_rows() * len(self.columns)
         return self._get_df().size
 
@@ -568,7 +572,10 @@ class PandasCompatMixin:
         src = self._get_source_df_if_pristine()
         if src is not None:
             return len(src) == 0
-        if self._is_pristine_sql_source():
+        # Any SQL-pushdownable pipeline: emptiness from COUNT(*) (self-correcting;
+        # count_rows() falls back to execution for LIMIT/OFFSET). Mirrors .shape
+        # and subsumes the pristine SQL source case.
+        if self._can_sql_pushdown() and self._cached_result is None:
             return self.count_rows() == 0
         return self._get_df().empty
 
