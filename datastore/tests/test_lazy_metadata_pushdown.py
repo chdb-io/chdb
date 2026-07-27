@@ -227,6 +227,43 @@ class TestMetadataMemoization:
         assert ds.count_rows() == n
 
 
+class TestMemoInvalidatedByMutation:
+    """count_rows()/shape/len memoize by _cache_version, so a data/schema
+    mutation on the SAME table-backed store (insert row-mode, create_table) must
+    invalidate the memo -- otherwise a re-count returns the pre-mutation value.
+    Regression guard: without _invalidate_cache() in insert(), count after insert
+    was stale (returned the memoized count)."""
+
+    def _table(self, name):
+        ds = DataStore(table=name)
+        ds.connect()
+        ds.create_table({"id": "UInt64", "foo": "String"}, drop_if_exists=True)
+        return ds
+
+    def test_count_reflects_row_insert_after_memoized_count(self):
+        ds = self._table("memo_insert_count")
+        try:
+            ds.insert([{"id": 1, "foo": "a"}, {"id": 2, "foo": "b"}])
+            assert ds.count_rows() == 2          # memoized
+            ds.insert([{"id": 3, "foo": "c"}])
+            assert ds.count_rows() == 3          # must re-query, not return stale 2
+            assert len(ds) == 3
+            assert ds.shape == (3, 2)
+            ds.insert([{"id": 4, "foo": "d"}, {"id": 5, "foo": "e"}])
+            assert ds.count_rows() == 5
+        finally:
+            ds.close()
+
+    def test_empty_reflects_insert(self):
+        ds = self._table("memo_insert_empty")
+        try:
+            assert ds.empty is True              # memoized empty
+            ds.insert([{"id": 1, "foo": "a"}])
+            assert ds.empty is False             # must re-query
+        finally:
+            ds.close()
+
+
 class TestProjectionColumnsCorrectness:
     """A column-reducing projection is NOT reflected in the LIMIT 0 probe SQL
     (it's a post-SQL lazy op), so the probe's columns differ from the projected

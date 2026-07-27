@@ -1122,9 +1122,14 @@ class DataStore(PandasCompatMixin):
         """
         Invalidate the cached result.
 
-        Called when new operations are added to the pipeline.
+        Called when new operations are added to the pipeline (and by data/schema
+        mutations such as insert()/create_table()). Also drops the metadata memo:
+        bumping _cache_version already makes existing probe/count entries
+        unreachable, and clearing keeps the dict from accumulating dead entries
+        across repeated mutations.
         """
         self._cache_version += 1
+        self._metadata_memo = {}
         self._logger.debug("Cache invalidated: version now %d", self._cache_version)
 
     def clear_cache(self):
@@ -4795,6 +4800,10 @@ class DataStore(PandasCompatMixin):
         self._executor.execute(sql)
         self._schema = schema
 
+        # The table's shape just changed under any cached metadata; invalidate so
+        # count_rows()/columns/shape re-query rather than reuse a pre-create memo.
+        self._invalidate_cache()
+
         return self
 
     def insert(
@@ -4853,6 +4862,8 @@ class DataStore(PandasCompatMixin):
             # Add LazyDataFrameSource so count_rows() knows to use execution
             self._lazy_ops = [LazyDataFrameSource(df)]
             self._computed_columns = set()
+            # Schema changed (a column was added) -- drop stale metadata probes.
+            self._metadata_memo = {}
             # Handle duplicate column names - use iloc for unique column access
             self._schema = {}
             for i, col in enumerate(df.columns):
@@ -4893,6 +4904,10 @@ class DataStore(PandasCompatMixin):
         sql = f"INSERT INTO {format_identifier(self.table_name, self.quote_char)} ({columns_sql}) VALUES {values_sql}"
 
         self._executor.execute(sql)
+
+        # Row count (and any materialized result) is now stale -- drop cached
+        # metadata so a subsequent count_rows()/shape/len re-queries the engine.
+        self._invalidate_cache()
 
         return self
 
