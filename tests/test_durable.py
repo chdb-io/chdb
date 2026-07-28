@@ -375,9 +375,50 @@ def test_reopen_honors_persisted_db(ns):
     print("  reopen honors persisted manifest db ✓")
 
 
+def test_wal_replay_unqualified_db_context(ns):
+    # WAL statements written against the object's current database (set via
+    # `USE`) use unqualified table names; replay must restore that database as
+    # current, or the statements land in `default` and are lost on the next
+    # checkpoint. Note: all other tests qualify names (mem.t), so only this
+    # one exercises the replay database context.
+    ns.destroy("obj-uq")
+    o = ns.open("obj-uq")  # ns default db = "mem"
+    o.query("USE mem", "CSV")  # set current db; USE via query is not logged
+    o.execute("CREATE TABLE t (n Int64) ENGINE=MergeTree ORDER BY n")  # unqualified
+    o.execute("INSERT INTO t VALUES (1), (2), (3)")                    # unqualified
+    o.flush()  # persist to WAL, but do not checkpoint — force a replay on reopen
+    o.close()
+    r = ns.open("obj-uq")  # replays the WAL
+    got = r.query("SELECT count() FROM mem.t", "CSV").data().strip()
+    r.close()
+    assert got == "3", got
+    print("  WAL replay restores the object's database context ✓")
+
+
+def test_database_name_needing_quotes():
+    # a db name with '-' is only valid backtick-quoted; unquoted it parses as
+    # subtraction and every CREATE/USE/BACKUP/RESTORE would fail. Exercises the
+    # full create -> backup -> restore -> WAL-replay path under such a name.
+    ns = cd.Namespace(URL, owner="w1", db="my-mem-db")
+    ns.destroy("obj-q")
+    o = ns.open("obj-q")
+    o.query("USE `my-mem-db`", "CSV")
+    o.execute("CREATE TABLE t (n Int64) ENGINE=MergeTree ORDER BY n")
+    o.execute("INSERT INTO t VALUES (42)")
+    o.flush()
+    o.close()
+    r = ns.open("obj-q")  # restore + replay under the quoted db
+    got = r.query("SELECT n FROM `my-mem-db`.t", "CSV").data().strip()
+    r.close()
+    assert got == "42", got
+    print("  database name needing quotes (my-mem-db) round-trips ✓")
+
+
 if __name__ == "__main__":
     print(f"backend URL: {URL}")
     ns = _fresh_ns()
+    test_wal_replay_unqualified_db_context(ns)
+    test_database_name_needing_quotes()
     test_checkpoint_roundtrip(ns)
     test_wal_incremental(ns)
     test_checkpoint_folds_wal(ns)
