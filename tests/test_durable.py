@@ -395,6 +395,26 @@ def test_wal_replay_unqualified_db_context(ns):
     print("  WAL replay restores the object's database context ✓")
 
 
+def test_cold_open_leaves_session_in_object_db():
+    # After a *cold* open (fresh object), the session must already be in the
+    # object's database, so unqualified writes land where checkpoint()'s
+    # `BACKUP DATABASE {db}` captures them. Uses no manual `USE` — that is the
+    # real consumer path (e.g. a store that just runs CREATE/INSERT). Before the
+    # fix these went to `default` and were dropped on reopen.
+    ns = cd.Namespace(URL, owner="w1", db="analyst")
+    ns.destroy("obj-cold")
+    o = ns.open("obj-cold")
+    o.execute("CREATE TABLE t (n Int64) ENGINE=MergeTree ORDER BY n")  # unqualified
+    o.execute("INSERT INTO t VALUES (7)")
+    o.checkpoint()  # BACKUP DATABASE analyst — must include t
+    o.close()
+    r = ns.open("obj-cold")
+    got = r.query("SELECT n FROM analyst.t", "CSV").data().strip()
+    r.close()
+    assert got == "7", got
+    print("  cold open leaves the session in the object's database ✓")
+
+
 def test_database_name_needing_quotes():
     # a db name with '-' is only valid backtick-quoted; unquoted it parses as
     # subtraction and every CREATE/USE/BACKUP/RESTORE would fail. Exercises the
@@ -418,6 +438,7 @@ if __name__ == "__main__":
     print(f"backend URL: {URL}")
     ns = _fresh_ns()
     test_wal_replay_unqualified_db_context(ns)
+    test_cold_open_leaves_session_in_object_db()
     test_database_name_needing_quotes()
     test_checkpoint_roundtrip(ns)
     test_wal_incremental(ns)
