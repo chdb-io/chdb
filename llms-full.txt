@@ -29,7 +29,7 @@ You can use it when you want to get the power of ClickHouse in a programming lan
 
 ## Key features
 - **In-process SQL OLAP Engine** - Powered by ClickHouse, no need to install ClickHouse server
-- **Multiple data formats** - Input & Output support for Parquet, CSV, JSON, Arrow, ORC and [70+ more formats](https://clickhouse.com/docs/interfaces/formats)
+- **Multiple data formats** - Input & Output support for Parquet, CSV, JSON, Arrow, ORC and [70+ more formats](https://clickhouse.com/docs/reference/formats/index)
 - **Minimized data copy** - From C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
 - **Rich Python Ecosystem Integration** - Native support for Pandas, Arrow, DB API 2.0, seamlessly fits into existing data science workflows
 - **Zero dependencies** - No need for external database installations
@@ -38,10 +38,12 @@ You can use it when you want to get the power of ClickHouse in a programming lan
 ## DataStore: Pandas-Compatible API
 **NEW!** DataStore provides a pandas-compatible API that combines familiar pandas syntax with ClickHouse performance.
 
-:::tip Get Started on Hex
+<Tip>
+**Get Started on Hex**
+
 - 📖 <a href="https://app.hex.tech/partnerships/app/chDB-Tutorial-032XsQ4qoKtlXxcw49joav/latest" target="_blank"><b>Getting Started Tutorial</b></a> — set up your first connection
 - 🚀 <a href="https://app.hex.tech/signup/clickhouse-30" target="_blank"><b>Extended 30-day Hex Trial</b></a> — full access to ClickHouse integrations
-:::
+</Tip>
 
 ### One-Line Migration
 ```python
@@ -115,7 +117,9 @@ Start with the DataStore API for a familiar pandas experience with ClickHouse pe
 Watch a brief introduction to chDB and learn how it brings ClickHouse's power to your Python environment:
 
 <div class='vimeo-container'>
+<Frame>
 [Watch the video](https://www.youtube.com/watch?v=e_yL0dlX6k4)
+</Frame>
 </div>
 
 ## Performance benchmarks
@@ -145,7 +149,7 @@ chDB is an in-process SQL OLAP Engine powered by ClickHouse
 
 In this guide, we're going to get up and running with the Python variant of chDB.
 We'll start by querying a JSON file on S3, before creating a table in chDB based on the JSON file, and doing some queries on the data.
-We'll also see how to have queries return data in different formats, including Apache Arrow and Panda, and finally we'll learn how to query Pandas DataFrames. 
+We'll also see how to have queries return data in different formats, including Apache Arrow and Panda, and finally we'll learn how to query Pandas DataFrames.
 
 ## Setup
 Let's first create a virtual environment:
@@ -181,8 +185,8 @@ pip install pandas pyarrow
 ```
 
 ## Querying a JSON file in S3
-Let's now have a look at how to query a JSON file that's stored in an S3 bucket. 
-The [YouTube dislikes dataset](https://clickhouse.com/docs/getting-started/example-datasets/youtube-dislikes) contains more than 4 billion rows of dislikes on YouTube videos up to 2021.
+Let's now have a look at how to query a JSON file that's stored in an S3 bucket.
+The [YouTube dislikes dataset](https://clickhouse.com/docs/get-started/sample-datasets/youtube-dislikes) contains more than 4 billion rows of dislikes on YouTube videos up to 2021.
 We're going to work with one of the JSON files from that dataset.
 
 Import chdb:
@@ -272,12 +276,12 @@ chdb.query(
 )
 ```
 
-:::warning
+<Warning>
 This is fine to do with variables defined in your program, but don't do it with user-provided input, otherwise your query is open to SQL injection.
-:::
+</Warning>
 
 ## Configuring the output format
-The default output format is `CSV`, but we can change that via the `output_format` parameter. 
+The default output format is `CSV`, but we can change that via the `output_format` parameter.
 chDB supports the ClickHouse data formats, as well as [some of its own](https://clickhouse.com/docs/chdb/reference/data-formats), including `DataFrame`, which returns a Pandas DataFrame:
 
 ```python
@@ -328,7 +332,7 @@ count(): [[315746,20686]]
 ```
 
 ## Creating a table from JSON file
-Next, let's have a look at how to create a table in chDB. 
+Next, let's have a look at how to create a table in chDB.
 We need to use a different API to do that, so let's first import that:
 
 ```python
@@ -350,14 +354,14 @@ sess.query("CREATE DATABASE IF NOT EXISTS youtube")
 ```
 
 Now we can create a `dislikes` table based on the schema from the JSON file, using the `CREATE...EMPTY AS` technique.
-We'll use the [`schema_inference_make_columns_nullable`](https://clickhouse.com/docs/operations/settings/formats/#schema_inference_make_columns_nullable) setting so that column types aren't all made `Nullable`.
+We'll use the [`schema_inference_make_columns_nullable`](https://clickhouse.com/docs/reference/settings/formats/schema-inference#schema_inference_make_columns_nullable) setting so that column types aren't all made `Nullable`.
 
 ```python
 sess.query(f"""
   CREATE TABLE youtube.dislikes
-  ORDER BY fetch_date 
-  EMPTY AS 
-  SELECT * 
+  ORDER BY fetch_date
+  EMPTY AS
+  SELECT *
   FROM s3('{path}','JSONLines')
   SETTINGS schema_inference_make_columns_nullable=0
   """
@@ -410,7 +414,7 @@ Next, let's populate that table:
 ```python
 sess.query(f"""
   INSERT INTO youtube.dislikes
-  SELECT * 
+  SELECT *
   FROM s3('{path}','JSONLines')
   SETTINGS schema_inference_make_columns_nullable=0
   """
@@ -423,9 +427,9 @@ Let's create a different table using that technique:
 ```python
 sess.query(f"""
   CREATE TABLE youtube.dislikes2
-  ORDER BY fetch_date 
-  AS 
-  SELECT * 
+  ORDER BY fetch_date
+  AS
+  SELECT *
   FROM s3('{path}','JSONLines')
   SETTINGS schema_inference_make_columns_nullable=0
   """
@@ -499,7 +503,7 @@ chdb.query(
 You can also read more about querying Pandas DataFrames in the [Querying Pandas developer guide](https://clickhouse.com/docs/chdb/guides/pandas).
 
 ## Next steps
-Hopefully, this guide has given you a good overview of chDB. 
+Hopefully, this guide has given you a good overview of chDB.
 To learn more about how to use it, see the following developer guides:
 
 * [Querying Pandas DataFrames](https://clickhouse.com/docs/chdb/guides/pandas)
@@ -518,7 +522,9 @@ How to install and use chDB with Bun runtime
 chDB-bun provides experimental FFI (Foreign Function Interface) bindings for chDB, enabling you to run ClickHouse queries directly in your Bun applications with zero external dependencies.
 
 ## Installation
-### Step 1: Install system dependencies
+<Steps>
+<Step title="Install system dependencies" id="install-system-dependencies">
+
 First, install the required system dependencies:
 
 #### Install libchdb
@@ -529,7 +535,9 @@ curl -sL https://lib.chdb.io | bash
 #### Install build tools
 You'll need either `gcc` or `clang` installed on your system:
 
-### Step 2: Install chDB-bun
+</Step>
+<Step title="Install chDB-bun" id="install-chdb-bun">
+
 ```bash
 # Install from the GitHub repository
 bun add github:chdb-io/chdb-bun
@@ -540,6 +548,9 @@ cd chdb-bun
 bun install
 bun run build
 ```
+
+</Step>
+</Steps>
 
 ## Usage
 chDB-bun supports two query modes: ephemeral queries for one-time operations and persistent sessions for maintaining database state.
@@ -587,7 +598,7 @@ try {
 
     // Insert data
     sess.query(`
-        INSERT INTO mydb.users VALUES 
+        INSERT INTO mydb.users VALUES
         (1, 'Alice', 'alice@example.com'),
         (2, 'Bob', 'bob@example.com'),
         (3, 'Charlie', 'charlie@example.com')
@@ -604,7 +615,7 @@ try {
 
     // Aggregate queries
     const stats = sess.query(`
-        SELECT 
+        SELECT
             COUNT(*) as total_users,
             MAX(id) as max_id,
             MIN(id) as min_id
@@ -629,30 +640,39 @@ How to install and use chDB with C and C++
 chDB provides a native C/C++ API for embedding ClickHouse functionality directly into your applications. The API supports both simple queries and advanced features like persistent connections and streaming query results.
 
 ## Installation
-### Step 1: Install libchdb
+<Steps>
+<Step title="Install libchdb" id="install-libchdb">
+
 Install the chDB library on your system:
 
 ```bash
 curl -sL https://lib.chdb.io | bash
 ```
 
-### Step 2: Include headers
+</Step>
+<Step title="Include headers" id="include-headers">
+
 Include the chDB header in your project:
 
 ```c
 #include <chdb.h>
 ```
 
-### Step 3: Link library
+</Step>
+<Step title="Link library" id="link-library">
+
 Compile and link your application with chDB:
 
 ```bash
 # C compilation
 gcc -o myapp myapp.c -lchdb
 
-# C++ compilation  
+# C++ compilation
 g++ -o myapp myapp.cpp -lchdb
 ```
+
+</Step>
+</Steps>
 
 ## C Examples
 ### Basic connection and queries
@@ -664,14 +684,14 @@ int main() {
     // Create connection arguments
     char* args[] = {"chdb", "--path", "/tmp/chdb-data"};
     int argc = 3;
-    
+
     // Connect to chDB
     chdb_connection* conn = chdb_connect(argc, args);
     if (!conn) {
         printf("Failed to connect to chDB\n");
         return 1;
     }
-    
+
     // Execute a query
     chdb_result* result = chdb_query(*conn, "SELECT version()", "CSV");
     if (!result) {
@@ -679,7 +699,7 @@ int main() {
         chdb_close_conn(conn);
         return 1;
     }
-    
+
     // Check for errors
     const char* error = chdb_result_error(result);
     if (error) {
@@ -690,12 +710,12 @@ int main() {
         size_t length = chdb_result_length(result);
         double elapsed = chdb_result_elapsed(result);
         uint64_t rows = chdb_result_rows_read(result);
-        
+
         printf("Result: %.*s\n", (int)length, data);
         printf("Elapsed: %.3f seconds\n", elapsed);
         printf("Rows: %llu\n", rows);
     }
-    
+
     // Cleanup
     chdb_destroy_query_result(result);
     chdb_close_conn(conn);
@@ -711,54 +731,54 @@ int main() {
 int main() {
     char* args[] = {"chdb", "--path", "/tmp/chdb-stream"};
     chdb_connection* conn = chdb_connect(3, args);
-    
+
     if (!conn) {
         printf("Failed to connect\n");
         return 1;
     }
-    
+
     // Start streaming query
-    chdb_result* stream_result = chdb_stream_query(*conn, 
+    chdb_result* stream_result = chdb_stream_query(*conn,
         "SELECT number FROM system.numbers LIMIT 1000000", "CSV");
-    
+
     if (!stream_result) {
         printf("Failed to start streaming query\n");
         chdb_close_conn(conn);
         return 1;
     }
-    
+
     uint64_t total_rows = 0;
-    
+
     // Process chunks
     while (true) {
         chdb_result* chunk = chdb_stream_fetch_result(*conn, stream_result);
         if (!chunk) break;
-        
+
         // Check if we have data in this chunk
         size_t chunk_length = chdb_result_length(chunk);
         if (chunk_length == 0) {
             chdb_destroy_query_result(chunk);
             break; // End of stream
         }
-        
+
         uint64_t chunk_rows = chdb_result_rows_read(chunk);
         total_rows += chunk_rows;
-        
+
         printf("Processed chunk: %llu rows, %zu bytes\n", chunk_rows, chunk_length);
-        
+
         // Process the chunk data here
         // char* data = chdb_result_buffer(chunk);
-        
+
         chdb_destroy_query_result(chunk);
-        
+
         // Progress reporting
         if (total_rows % 100000 == 0) {
             printf("Progress: %llu rows processed\n", total_rows);
         }
     }
-    
+
     printf("Streaming complete. Total rows: %llu\n", total_rows);
-    
+
     // Cleanup streaming query
     chdb_destroy_query_result(stream_result);
     chdb_close_conn(conn);
@@ -774,30 +794,30 @@ int main() {
 int main() {
     char* args[] = {"chdb"};
     chdb_connection* conn = chdb_connect(1, args);
-    
+
     const char* query = "SELECT number, toString(number) as str FROM system.numbers LIMIT 3";
-    
+
     // CSV format
     chdb_result* csv_result = chdb_query(*conn, query, "CSV");
-    printf("CSV Result:\n%.*s\n\n", 
-           (int)chdb_result_length(csv_result), 
+    printf("CSV Result:\n%.*s\n\n",
+           (int)chdb_result_length(csv_result),
            chdb_result_buffer(csv_result));
     chdb_destroy_query_result(csv_result);
-    
+
     // JSON format
     chdb_result* json_result = chdb_query(*conn, query, "JSON");
-    printf("JSON Result:\n%.*s\n\n", 
-           (int)chdb_result_length(json_result), 
+    printf("JSON Result:\n%.*s\n\n",
+           (int)chdb_result_length(json_result),
            chdb_result_buffer(json_result));
     chdb_destroy_query_result(json_result);
-    
+
     // Pretty format
     chdb_result* pretty_result = chdb_query(*conn, query, "Pretty");
-    printf("Pretty Result:\n%.*s\n\n", 
-           (int)chdb_result_length(pretty_result), 
+    printf("Pretty Result:\n%.*s\n\n",
+           (int)chdb_result_length(pretty_result),
            chdb_result_buffer(pretty_result));
     chdb_destroy_query_result(pretty_result);
-    
+
     chdb_close_conn(conn);
     return 0;
 }
@@ -813,7 +833,7 @@ int main() {
 class ChDBConnection {
 private:
     chdb_connection* conn;
-    
+
 public:
     ChDBConnection(const std::vector<std::string>& args) {
         // Convert string vector to char* array
@@ -821,40 +841,40 @@ public:
         for (const auto& arg : args) {
             argv.push_back(const_cast<char*>(arg.c_str()));
         }
-        
+
         conn = chdb_connect(argv.size(), argv.data());
         if (!conn) {
             throw std::runtime_error("Failed to connect to chDB");
         }
     }
-    
+
     ~ChDBConnection() {
         if (conn) {
             chdb_close_conn(conn);
         }
     }
-    
+
     std::string query(const std::string& sql, const std::string& format = "CSV") {
         chdb_result* result = chdb_query(*conn, sql.c_str(), format.c_str());
         if (!result) {
             throw std::runtime_error("Query execution failed");
         }
-        
+
         const char* error = chdb_result_error(result);
         if (error) {
             std::string error_msg(error);
             chdb_destroy_query_result(result);
             throw std::runtime_error("Query error: " + error_msg);
         }
-        
+
         std::string data(chdb_result_buffer(result), chdb_result_length(result));
-        
+
         // Get query statistics
         std::cout << "Query statistics:\n";
         std::cout << "  Elapsed: " << chdb_result_elapsed(result) << " seconds\n";
         std::cout << "  Rows read: " << chdb_result_rows_read(result) << "\n";
         std::cout << "  Bytes read: " << chdb_result_bytes_read(result) << "\n";
-        
+
         chdb_destroy_query_result(result);
         return data;
     }
@@ -864,23 +884,23 @@ int main() {
     try {
         // Create connection
         ChDBConnection db({{"chdb", "--path", "/tmp/chdb-cpp"}});
-        
+
         // Create and populate table
         db.query("CREATE TABLE test (id UInt32, value String) ENGINE = MergeTree() ORDER BY id");
         db.query("INSERT INTO test VALUES (1, 'hello'), (2, 'world'), (3, 'chdb')");
-        
+
         // Query with different formats
         std::cout << "CSV Results:\n" << db.query("SELECT * FROM test", "CSV") << "\n";
         std::cout << "JSON Results:\n" << db.query("SELECT * FROM test", "JSON") << "\n";
-        
+
         // Aggregation query
         std::cout << "Count: " << db.query("SELECT COUNT(*) FROM test") << "\n";
-        
+
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
-    
+
     return 0;
 }
 ```
@@ -894,7 +914,7 @@ int safe_query_example() {
     chdb_connection* conn = NULL;
     chdb_result* result = NULL;
     int return_code = 0;
-    
+
     // Create connection
     char* args[] = {"chdb"};
     conn = chdb_connect(1, args);
@@ -902,7 +922,7 @@ int safe_query_example() {
         printf("Failed to create connection\n");
         return 1;
     }
-    
+
     // Execute query
     result = chdb_query(*conn, "SELECT invalid_syntax", "CSV");
     if (!result) {
@@ -910,7 +930,7 @@ int safe_query_example() {
         return_code = 1;
         goto cleanup;
     }
-    
+
     // Check for query errors
     const char* error = chdb_result_error(result);
     if (error) {
@@ -918,12 +938,12 @@ int safe_query_example() {
         return_code = 1;
         goto cleanup;
     }
-    
+
     // Process successful result
-    printf("Result: %.*s\n", 
-           (int)chdb_result_length(result), 
+    printf("Result: %.*s\n",
+           (int)chdb_result_length(result),
            chdb_result_buffer(result));
-    
+
 cleanup:
     if (result) chdb_destroy_query_result(result);
     if (conn) chdb_close_conn(conn);
@@ -947,14 +967,18 @@ How to install and use chDB with Go
 chDB-go provides Go bindings for chDB, enabling you to run ClickHouse queries directly in your Go applications with zero external dependencies.
 
 ## Installation
-### Step 1: Install libchdb
+<Steps>
+<Step title="Install libchdb" id="install-libchdb">
+
 First, install the chDB library:
 
 ```bash
 curl -sL https://lib.chdb.io | bash
 ```
 
-### Step 2: Install chdb-go
+</Step>
+<Step title="Install chdb-go" id="install-chdb-go">
+
 Install the Go package:
 
 ```bash
@@ -966,6 +990,9 @@ Or add it to your `go.mod`:
 ```bash
 go get github.com/chdb-io/chdb-go
 ```
+
+</Step>
+</Steps>
 
 ## Usage
 ### Command line interface
@@ -1031,17 +1058,17 @@ func main() {
             name String
         ) ENGINE = MergeTree() ORDER BY id
     `, "")
-    
+
     if err != nil {
         panic(err)
     }
 
     // Insert data
     _, err = session.Query(`
-        INSERT INTO testdb.test_table VALUES 
+        INSERT INTO testdb.test_table VALUES
         (1, 'Alice'), (2, 'Bob'), (3, 'Charlie')
     `, "")
-    
+
     if err != nil {
         panic(err)
     }
@@ -1051,7 +1078,7 @@ func main() {
     if err != nil {
         panic(err)
     }
-    
+
     fmt.Println(result)
 }
 ```
@@ -1116,7 +1143,7 @@ func main() {
 
     // Execute a streaming query for large dataset
     streamResult, err := session.QueryStreaming(
-        "SELECT number, number * 2 as double FROM system.numbers LIMIT 1000000", 
+        "SELECT number, number * 2 as double FROM system.numbers LIMIT 1000000",
         "CSV",
     )
     if err != nil {
@@ -1125,7 +1152,7 @@ func main() {
     defer streamResult.Free()
 
     rowCount := 0
-    
+
     // Process data in chunks
     for {
         chunk := streamResult.GetNext()
@@ -1133,13 +1160,13 @@ func main() {
             // No more data
             break
         }
-        
+
         // Check for streaming errors
         if err := streamResult.Error(); err != nil {
             log.Printf("Streaming error: %v", err)
             break
         }
-        
+
         rowsRead := chunk.RowsRead()
         // You can process the chunk data here
         // For example, write to file, send over network, etc.
@@ -1149,7 +1176,7 @@ func main() {
             fmt.Printf("Processed %d rows so far...\n", rowCount)
         }
     }
-    
+
     fmt.Printf("Total rows processed: %d\n", rowCount)
 }
 ```
@@ -1180,14 +1207,14 @@ Index page for chDB language integrations
 
 Instructions for how to get setup with chDB are available below for the following languages and runtimes:
 
-| Language                               | API Reference                       |
-|----------------------------------------|-------------------------------------|
-| [Python](https://clickhouse.com/docs/chdb/install/python) | [Python API](https://clickhouse.com/docs/chdb/api/python) |
-| [NodeJS](https://clickhouse.com/docs/chdb/install/nodejs) |                                     |
-| [Go](https://clickhouse.com/docs/chdb/install/go)         |                                     |
-| [Rust](https://clickhouse.com/docs/chdb/install/rust)     |                                     |
-| [Bun](https://clickhouse.com/docs/chdb/install/bun)       |                                     |
-| [C and C++](https://clickhouse.com/docs/chdb/install/c)   |                                     |
+| Language                               |
+|----------------------------------------|
+| [Python](https://clickhouse.com/docs/chdb/install/python) |
+| [NodeJS](https://clickhouse.com/docs/chdb/install/nodejs) |
+| [Go](https://clickhouse.com/docs/chdb/install/go)         |
+| [Rust](https://clickhouse.com/docs/chdb/install/rust)     |
+| [Bun](https://clickhouse.com/docs/chdb/install/bun)       |
+| [C and C++](https://clickhouse.com/docs/chdb/install/c)   |
 
 ---
 
@@ -1251,7 +1278,7 @@ try {
 
     // Insert sample data
     session.query(`
-        INSERT INTO myapp.users (id, name, email) VALUES 
+        INSERT INTO myapp.users (id, name, email) VALUES
         (1, 'Alice', 'alice@example.com'),
         (2, 'Bob', 'bob@example.com'),
         (3, 'Charlie', 'charlie@example.com')
@@ -1266,7 +1293,7 @@ try {
 
     // Aggregate queries
     const stats = session.query(`
-        SELECT 
+        SELECT
             COUNT(*) as total_users,
             MAX(id) as max_id,
             MIN(created_at) as earliest_signup
@@ -1289,13 +1316,13 @@ const session = new Session("./data-processing");
 try {
     // Process CSV data from URL
     const result = session.query(`
-        SELECT 
+        SELECT
             COUNT(*) as total_records,
             COUNT(DISTINCT "UserID") as unique_users
-        FROM url('https://datasets.clickhouse.com/hits/hits.csv', 'CSV') 
+        FROM url('https://datasets.clickhouse.com/hits/hits.csv', 'CSV')
         LIMIT 1000
     `, "JSON");
-    
+
     console.log("External data analysis:", result);
 
     // Create table from external data
@@ -1307,7 +1334,7 @@ try {
 
     // Analyze the imported data
     const analysis = session.query(`
-        SELECT 
+        SELECT
             toDate("EventTime") as date,
             COUNT(*) as events,
             COUNT(DISTINCT "UserID") as unique_users
@@ -1316,7 +1343,7 @@ try {
         ORDER BY date
         LIMIT 10
     `, "Pretty");
-    
+
     console.log("Daily analytics:", analysis);
 
 } finally {
@@ -1352,7 +1379,7 @@ if (result.success) {
 // Error handling for sessions
 function safeSessionQuery() {
     const session = new Session("./error-test");
-    
+
     try {
         // This will throw an error due to invalid syntax
         const result = session.query("CREATE TABLE invalid syntax", "CSV");
@@ -1382,7 +1409,7 @@ safeSessionQuery();
 How to install chDB for Python
 
 ## Requirements
-- Python 3.8+ 
+- Python 3.8+
 - Supported platforms: macOS and Linux (x86_64 and ARM64)
 
 ## Installation
@@ -1461,15 +1488,15 @@ import chdb
 # Query Parquet files
 result = chdb.query("""
     SELECT customer_id, sum(amount) as total
-    FROM file('sales.parquet', Parquet) 
-    GROUP BY customer_id 
-    ORDER BY total DESC 
+    FROM file('sales.parquet', Parquet)
+    GROUP BY customer_id
+    ORDER BY total DESC
     LIMIT 10
 """, 'JSONEachRow')
 
 # Query CSV with headers
 result = chdb.query("""
-    SELECT * FROM file('data.csv', CSVWithNames) 
+    SELECT * FROM file('data.csv', CSVWithNames)
     WHERE column1 > 100
 """, 'DataFrame')
 
@@ -1486,7 +1513,7 @@ result = chdb.query("""
 df = chdb.query('SELECT * FROM system.numbers LIMIT 5', 'DataFrame')
 print(type(df))  # <class 'pandas.core.frame.DataFrame'>
 
-# Arrow Table for interoperability  
+# Arrow Table for interoperability
 arrow_table = chdb.query('SELECT * FROM system.numbers LIMIT 5', 'ArrowTable')
 print(type(arrow_table))  # <class 'pyarrow.lib.Table'>
 
@@ -1511,7 +1538,7 @@ df2 = pd.DataFrame({'c': [1, 2, 3], 'd': ["①", "②", "③"]})
 
 result_df = cdf.query(
     sql="SELECT * FROM __tbl1__ t1 JOIN __tbl2__ t2 ON t1.a = t2.c",
-    tbl1=df1, 
+    tbl1=df1,
     tbl2=df2
 )
 print(result_df)
@@ -1543,7 +1570,7 @@ df = pd.DataFrame({
 
 # Direct DataFrame querying with JSON support
 result = chdb.query("""
-    SELECT 
+    SELECT
         customer_id,
         sum(amount) as total_spent,
         toString(metadata.category) as category
@@ -1589,13 +1616,13 @@ sess.query("""
         product String,
         amount Decimal(10,2),
         sale_date Date
-    ) ENGINE = MergeTree() 
+    ) ENGINE = MergeTree()
     ORDER BY (sale_date, id)
 """)
 
 # Insert data
 sess.query("""
-    INSERT INTO sales VALUES 
+    INSERT INTO sales VALUES
         (1, 'Laptop', 999.99, '2024-01-15'),
         (2, 'Mouse', 29.99, '2024-01-16'),
         (3, 'Keyboard', 79.99, '2024-01-17')
@@ -1604,11 +1631,11 @@ sess.query("""
 # Create materialized views
 sess.query("""
     CREATE MATERIALIZED VIEW daily_sales AS
-    SELECT 
+    SELECT
         sale_date,
         count() as orders,
         sum(amount) as revenue
-    FROM sales 
+    FROM sales
     GROUP BY sale_date
 """)
 
@@ -1630,7 +1657,7 @@ sess = session.Session(
 # Query performance optimization
 result = sess.query("""
     SELECT product, sum(amount) as total
-    FROM sales 
+    FROM sales
     GROUP BY product
     ORDER BY total DESC
     SETTINGS max_threads = 4
@@ -1654,8 +1681,8 @@ cursor = conn.cursor()
 
 # Execute queries with parameters
 cursor.execute("""
-    SELECT number, number * ? as doubled 
-    FROM system.numbers 
+    SELECT number, number * ? as doubled
+    FROM system.numbers
     LIMIT ?
 """, (2, 5))
 
@@ -1681,115 +1708,27 @@ cursor.execute("""
     ORDER BY (id)
 """)
 cursor.executemany(
-    "INSERT INTO temp_users (id, name) VALUES (?, ?)", 
+    "INSERT INTO temp_users (id, name) VALUES (?, ?)",
     data
 )
 ```
 
-### User defined functions (UDF)
-Extend SQL with custom Python functions:
-
-#### Basic UDF usage
-```python
-from chdb.udf import chdb_udf
-from chdb import query
-
-# Simple mathematical function
-@chdb_udf()
-def add_numbers(a, b):
-    return int(a) + int(b)
-
-# String processing function
-@chdb_udf()
-def reverse_string(text):
-    return text[::-1]
-
-# JSON processing function  
-@chdb_udf()
-def extract_json_field(json_str, field):
-    import json
-    try:
-        data = json.loads(json_str)
-        return str(data.get(field, ''))
-    except:
-        return ''
-
-# Use UDFs in queries
-result = query("""
-    SELECT 
-        add_numbers('10', '20') as sum_result,
-        reverse_string('hello') as reversed,
-        extract_json_field('{"name": "John", "age": 30}', 'name') as name
-""")
-print(result)
-```
-
-#### Advanced UDF with custom return types
-```python
-# UDF with specific return type
-@chdb_udf(return_type="Float64")
-def calculate_bmi(height_str, weight_str):
-    height = float(height_str) / 100  # Convert cm to meters
-    weight = float(weight_str)
-    return weight / (height * height)
-
-# UDF for data validation
-@chdb_udf(return_type="UInt8") 
-def is_valid_email(email):
-    import re
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return 1 if re.match(pattern, email) else 0
-
-# Use in complex queries
-result = query("""
-    SELECT 
-        name,
-        calculate_bmi(height, weight) as bmi,
-        is_valid_email(email) as has_valid_email
-    FROM (
-        SELECT 
-            'John' as name, '180' as height, '75' as weight, 'john@example.com' as email
-        UNION ALL
-        SELECT 
-            'Jane' as name, '165' as height, '60' as weight, 'invalid-email' as email
-    )
-""", "Pretty")
-print(result)
-```
-
-#### UDF best practices
-1. **Stateless Functions**: UDFs should be pure functions without side effects
-2. **Import Inside Functions**: All required modules must be imported within the UDF
-3. **String Input/Output**: All UDF parameters are strings (TabSeparated format)
-4. **Error Handling**: Include try-catch blocks for robust UDFs
-5. **Performance**: UDFs are called for each row, so optimize for performance
+### Python user-defined functions (UDF)
+chDB supports native in-process Python UDFs with typed arguments, automatic type inference, and configurable NULL/exception handling.
 
 ```python
-# Well-structured UDF with error handling
-@chdb_udf(return_type="String")
-def safe_json_extract(json_str, path):
-    import json
-    try:
-        data = json.loads(json_str)
-        keys = path.split('.')
-        result = data
-        for key in keys:
-            if isinstance(result, dict) and key in result:
-                result = result[key]
-            else:
-                return 'null'
-        return str(result)
-    except Exception as e:
-        return f'error: {str(e)}'
+from chdb import query, func
+from chdb.sqltypes import INT64
 
-# Use with complex nested JSON
-query("""
-    SELECT safe_json_extract(
-        '{"user": {"profile": {"name": "Alice", "age": 25}}}',
-        'user.profile.name'
-    ) as extracted_name
-""")
+@func([INT64, INT64], INT64)
+def add(a, b):
+    return a + b
+
+result = query("SELECT add(2, 3)")
+print(result)  # 5
 ```
+
+For the complete guide covering registration methods, type system, NULL handling, exception handling, and DateTime support, see the [Python UDF guide](https://clickhouse.com/docs/chdb/guides/python-udf). For the full API reference, see the [Python UDF API reference](https://clickhouse.com/docs/chdb/api/python#user-defined-functions). The older `@chdb_udf` decorator is still available but superseded by this API — see [Legacy API](https://clickhouse.com/docs/chdb/api/python#legacy-udf).
 
 ### Streaming query processing
 Process large datasets with constant memory usage:
@@ -1801,8 +1740,8 @@ sess = session.Session()
 
 # Setup large dataset
 sess.query("""
-    CREATE TABLE large_data ENGINE = Memory() AS 
-    SELECT number as id, toString(number) as data 
+    CREATE TABLE large_data ENGINE = Memory() AS
+    SELECT number as id, toString(number) as data
     FROM numbers(1000000)
 """)
 
@@ -1813,7 +1752,7 @@ with sess.send_query("SELECT * FROM large_data", "CSV") as stream:
         chunk_rows = len(chunk.data().split('\n')) - 1
         total_rows += chunk_rows
         print(f"Processed chunk: {chunk_rows} rows")
-        
+
         # Early termination if needed
         if total_rows > 100000:
             break
@@ -1828,15 +1767,15 @@ while True:
     chunk = stream.fetch()
     if chunk is None:
         break
-    
+
     # Process chunk data
     lines = chunk.data().strip().split('\n')
     for line in lines:
         if line:  # Skip empty lines
             processed_count += 1
-    
+
     print(f"Processed {processed_count} records so far...")
-    
+
 stream.close()  # Important: explicit cleanup
 
 # Example 3: Arrow integration for external libraries
@@ -1882,7 +1821,7 @@ df = pd.DataFrame({
 
 # Advanced querying with JSON operations
 result = chdb.query("""
-    SELECT 
+    SELECT
         customer_name,
         count() as order_count,
         sum(toFloat64(orders.amount)) as total_spent,
@@ -1891,7 +1830,7 @@ result = chdb.query("""
                 arrayFlatten(
                     groupArray(orders.items)
                 )
-            ), 
+            ),
             ', '
         ) as all_items
     FROM Python(df)
@@ -1902,11 +1841,11 @@ result = chdb.query("""
 
 # Window functions on DataFrames
 window_result = chdb.query("""
-    SELECT 
+    SELECT
         customer_name,
         toFloat64(orders.amount) as amount,
         sum(toFloat64(orders.amount)) OVER (
-            PARTITION BY customer_name 
+            PARTITION BY customer_name
             ORDER BY toInt32(orders.order_id)
         ) as running_total
     FROM Python(df)
@@ -1925,14 +1864,14 @@ import json
 
 class DatabaseReader(chdb.PyReader):
     """Custom reader for database-like data sources"""
-    
+
     def __init__(self, connection_string: str):
         # Simulate database connection
         self.data = self._load_data(connection_string)
         self.cursor = 0
         self.batch_size = 1000
         super().__init__(self.data)
-    
+
     def _load_data(self, conn_str):
         # Simulate loading from database
         return {
@@ -1944,7 +1883,7 @@ class DatabaseReader(chdb.PyReader):
                 for i in range(1, 10001)
             ]
         }
-    
+
     def get_schema(self) -> List[Tuple[str, str]]:
         """Define table schema with explicit types"""
         return [
@@ -1953,14 +1892,14 @@ class DatabaseReader(chdb.PyReader):
             ("score", "Int64"),
             ("metadata", "String")  # JSON stored as string
         ]
-    
+
     def read(self, col_names: List[str], count: int) -> List[List[Any]]:
         """Read data in batches"""
         if self.cursor >= len(self.data["id"]):
             return []  # No more data
-        
+
         end_pos = min(self.cursor + min(count, self.batch_size), len(self.data["id"]))
-        
+
         # Return data for requested columns
         result = []
         for col in col_names:
@@ -1969,7 +1908,7 @@ class DatabaseReader(chdb.PyReader):
             else:
                 # Handle missing columns
                 result.append([None] * (end_pos - self.cursor))
-        
+
         self.cursor = end_pos
         return result
 
@@ -1993,7 +1932,7 @@ df_with_json = pd.DataFrame({
 
 # Control JSON inference with settings
 result = chdb.query("""
-    SELECT 
+    SELECT
         user_id,
         profile.name as name,
         profile.age as age,
@@ -2006,7 +1945,7 @@ print(result)
 
 # Advanced JSON operations
 complex_json = chdb.query("""
-    SELECT 
+    SELECT
         user_id,
         JSONLength(toString(profile)) as json_fields,
         JSONType(toString(profile), 'preferences') as pref_type,
@@ -2040,10 +1979,10 @@ native_result = chdb.query("SELECT * FROM large_table", "Native")   # For chDB-t
 
 # 2. Optimize queries with settings
 fast_result = chdb.query("""
-    SELECT customer_id, sum(amount) 
-    FROM sales 
+    SELECT customer_id, sum(amount)
+    FROM sales
     GROUP BY customer_id
-    SETTINGS 
+    SETTINGS
         max_threads = 8,
         max_memory_usage = '4G',
         use_uncompressed_cache = 1
@@ -2056,8 +1995,8 @@ sess = session.Session()
 
 # Setup large dataset
 sess.query("""
-    CREATE TABLE large_sales ENGINE = Memory() AS 
-    SELECT 
+    CREATE TABLE large_sales ENGINE = Memory() AS
+    SELECT
         number as sale_id,
         number % 1000 as customer_id,
         rand() % 1000 as amount
@@ -2077,9 +2016,9 @@ with sess.send_query("SELECT customer_id, sum(amount) as total FROM large_sales 
                 row = json.loads(line)
                 total_amount += row['total']
                 processed_rows += 1
-        
+
         print(f"Processed {processed_rows} customer records, running total: {total_amount}")
-        
+
         # Early termination for demo
         if processed_rows > 1000:
             break
@@ -2139,14 +2078,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(&[Arg::OutputFormat(OutputFormat::JSONEachRow)])
     )?;
     println!("ClickHouse version: {}", result.data_utf8()?);
-    
+
     // Query with CSV file
     let result = execute(
         "SELECT * FROM file('data.csv', 'CSV')",
         Some(&[Arg::OutputFormat(OutputFormat::JSONEachRow)])
     )?;
     println!("CSV data: {}", result.data_utf8()?);
-    
+
     Ok(())
 }
 ```
@@ -2166,7 +2105,7 @@ use tempdir::TempDir;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create a temporary directory for database storage
     let tmp = TempDir::new("chdb-rust")?;
-    
+
     // Build session with configuration
     let session = SessionBuilder::new()
         .with_data_path(tmp.path())
@@ -2176,7 +2115,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Create database and table
     session.execute(
-        "CREATE DATABASE demo; USE demo", 
+        "CREATE DATABASE demo; USE demo",
         Some(&[Arg::MultiQuery])
     )?;
 
@@ -2198,7 +2137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     println!("Query results:\n{}", result.data_utf8()?);
-    
+
     // Get query statistics
     println!("Rows read: {}", result.rows_read());
     println!("Bytes read: {}", result.bytes_read());
@@ -2282,7 +2221,7 @@ chdb.query(sql, output_format='CSV', path='', udf_path='')
 | `sql`           | str   | *required* | SQL query string to execute                                                                                                                                                                                                                                                                                     |
 | `output_format` | str   | `"CSV"`    | Output format for results. Supported formats:<br/>• `"CSV"` - Comma-separated values<br/>• `"JSON"` - JSON format<br/>• `"Arrow"` - Apache Arrow format<br/>• `"Parquet"` - Parquet format<br/>• `"DataFrame"` - Pandas DataFrame<br/>• `"ArrowTable"` - PyArrow Table<br/>• `"Debug"` - Enable verbose logging |
 | `path`          | str   | `""`       | Database file path. Defaults to in-memory database.<br/>Can be a file path or `":memory:"` for in-memory database                                                                                                                                                                                               |
-| `udf_path`      | str   | `""`       | Path to User-Defined Functions directory                                                                                                                                                                                                                                                                        |
+| `udf_path`      | str   | `""`       | Path to legacy subprocess-based UDF directory. Not needed for native Python UDFs ([`@func`](#func-decorator) / [`create_function`](#create-function))                                                                                                                                                                                                                                                                        |
 
 **Returns**
 
@@ -2294,7 +2233,7 @@ Returns the query result in the specified format:
 | `pd.DataFrame`     | When `output_format` is `"DataFrame"` or `"dataframe"`   |
 | `pa.Table`         | When `output_format` is `"ArrowTable"` or `"arrowtable"` |
 | chdb result object | For other formats                                        |
- 
+
 **Raises**
 
 | Exception     | Condition                                                        |
@@ -2324,11 +2263,6 @@ Returns the query result in the specified format:
 >>> result = chdb.query("CREATE TABLE test (id INT) ENGINE = Memory", path="mydb.chdb")
 ```
 
-```pycon
->>> # Query with UDF
->>> result = chdb.query("SELECT my_udf('test')", udf_path="/path/to/udfs")
-```
-
 ---
 
 ### `chdb.sql`
@@ -2351,7 +2285,7 @@ chdb.sql(sql, output_format='CSV', path='', udf_path='')
 | `sql`           | str   | *required* | SQL query string to execute                                                                                                                                                                                                                                                                              |
 | `output_format` | str   | `"CSV"`    | Output format for results. Supported formats:<br/>• `"CSV"` - Comma-separated values<br/>• `"JSON"` - JSON format<br/>• `"Arrow"` - Apache Arrow format<br/>• `"Parquet"` - Parquet format<br/>• `"DataFrame"` - Pandas DataFrame<br/>• `"ArrowTable"` - PyArrow Table<br/>• `"Debug"` - Enable verbose logging |
 | `path`          | str   | `""`       | Database file path. Defaults to in-memory database.<br/>Can be a file path or `":memory:"` for in-memory database                                                                                                                                                                                         |
-| `udf_path`      | str   | `""`       | Path to User-Defined Functions directory                                                                                                                                                                                                                                                                 |
+| `udf_path`      | str   | `""`       | Path to legacy subprocess-based UDF directory. Not needed for native Python UDFs ([`@func`](#func-decorator) / [`create_function`](#create-function))                                                                                                                                                                                                                                                                 |
 
 **Returns**
 
@@ -2391,11 +2325,6 @@ Returns the query result in the specified format:
 ```pycon
 >>> # Query with file-based database
 >>> result = chdb.query("CREATE TABLE test (id INT) ENGINE = Memory", path="mydb.chdb")
-```
-
-```pycon
->>> # Query with UDF
->>> result = chdb.query("SELECT my_udf('test')", udf_path="/path/to/udfs")
 ```
 
 ---
@@ -2545,10 +2474,10 @@ For a complete parameter list, see `clickhouse local --help --verbose`
 |----------------|---------------------------------|
 | `RuntimeError` | If connection to database fails |
 
-:::warning
+<Warning>
 Only one connection per process is supported.
 Creating a new connection will close any existing connection.
-:::
+</Warning>
 
 **Examples**
 
@@ -2615,7 +2544,9 @@ class chdb.session.Session(path=None)
 | `"file::memory:?verbose&log-level=test"`           | In-memory database with query params |
 | `"///path/to/test.db?param1=value1&param2=value2"` | Absolute path with query params      |
 
-:::note Connection string args handling
+<Info>
+**Connection string args handling**
+
 Connection strings containing query params like “[file:test.db?param1=value1&param2=value2](file:test.db?param1=value1&param2=value2)”
 “param1=value1” will be passed to ClickHouse engine as start up args.
 
@@ -2623,12 +2554,14 @@ For more details, see `clickhouse local –help –verbose`
 
 Some special args handling:
 - “mode=ro” would be “–readonly=1” for clickhouse (read-only mode)
-:::
+</Info>
 
-:::warning Important
+<Warning>
+**Important**
+
 - There can be only one session at a time. If you want to create a new session, you need to close the existing one.
 - Creating a new session will close the existing one.
-:::
+</Warning>
 
 ---
 
@@ -2646,10 +2579,10 @@ of the session state.
 cleanup()
 ```
 
-:::note
+<Note>
 This method will never raise an exception, making it safe to call in
 finally blocks or destructors.
-:::
+</Note>
 
 **Examples**
 
@@ -2679,14 +2612,16 @@ further queries.
 close()
 ```
 
-:::note
+<Note>
 This method is automatically called when the session is used as a context manager
 or when the session object is destroyed.
-:::
+</Note>
 
-:::warning Important
+<Warning>
+**Important**
+
 Any attempt to use the session after calling `close()` will result in an error.
-:::
+</Warning>
 
 **Examples**
 
@@ -2717,7 +2652,7 @@ query(sql, fmt='CSV', udf_path='')
 |------------|-------|------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `sql`      | str   | *required* | SQL query string to execute                                                                                                                                                                                                                                                                                                  |
 | `fmt`      | str   | `"CSV"`    | Output format for results. Available formats:<br/>• `"CSV"` - Comma-separated values<br/>• `"JSON"` - JSON format<br/>• `"TabSeparated"` - Tab-separated values<br/>• `"Pretty"` - Pretty-printed table format<br/>• `"JSONCompact"` - Compact JSON format<br/>• `"Arrow"` - Apache Arrow format<br/>• `"Parquet"` - Parquet format |
-| `udf_path` | str   | `""`       | Path to user-defined functions. If not specified, uses the UDF path from session initialization                                                                                                                                                                                                                              |
+| `udf_path` | str   | `""`       | Path to legacy subprocess-based UDF directory. Not needed for native Python UDFs ([`@func`](#func-decorator) / [`create_function`](#create-function)). If not specified, uses the UDF path from session initialization                                                                                                                                                                                                                              |
 
 **Returns**
 
@@ -2733,17 +2668,19 @@ The exact return type depends on the format parameter:
 | `RuntimeError` | If the session is closed or invalid |
 | `ValueError`   | If the SQL query is malformed       |
 
-:::note
+<Note>
 The “Debug” format isn't supported and will be automatically converted
 to “CSV” with a warning.
 For debugging, use connection string parameters instead.
-:::
+</Note>
 
-:::warning Warning
+<Warning>
+**Warning**
+
 This method executes the query synchronously and loads all results into
 memory. For large result sets, consider using [`send_query()`](#chdb-session-session-send_query) for
 streaming results.
-:::
+</Warning>
 
 **Examples**
 
@@ -2815,14 +2752,14 @@ send_query(sql, fmt='CSV') → StreamingResult
 | `RuntimeError` | If the session is closed or invalid |
 | `ValueError`   | If the SQL query is malformed       |
 
-:::note
+<Note>
 The “Debug” format isn't supported and will be automatically converted
 to “CSV” with a warning. For debugging, use connection string parameters instead.
-:::
+</Note>
 
-:::warning
+<Warning>
 The returned StreamingResult object should be consumed promptly or stored appropriately, as it maintains a connection to the database.
-:::
+</Warning>
 
 **Examples**
 
@@ -2873,7 +2810,7 @@ sql(sql, fmt='CSV', udf_path='')
 |------------|-------|------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `sql`      | str   | *required* | SQL query string to execute                                                                                                                                                                                                                                                                                                  |
 | `fmt`      | str   | `"CSV"`    | Output format for results. Available formats:<br/>• `"CSV"` - Comma-separated values<br/>• `"JSON"` - JSON format<br/>• `"TabSeparated"` - Tab-separated values<br/>• `"Pretty"` - Pretty-printed table format<br/>• `"JSONCompact"` - Compact JSON format<br/>• `"Arrow"` - Apache Arrow format<br/>• `"Parquet"` - Parquet format |
-| `udf_path` | str   | `""`       | Path to user-defined functions. If not specified, uses the UDF path from session initialization                                                                                                                                                                                                                              |
+| `udf_path` | str   | `""`       | Path to legacy subprocess-based UDF directory. Not needed for native Python UDFs ([`@func`](#func-decorator) / [`create_function`](#create-function)). If not specified, uses the UDF path from session initialization                                                                                                                                                                                                                              |
 
 **Returns**
 
@@ -2889,17 +2826,19 @@ The exact return type depends on the format parameter:
 | `RuntimeError` | If the session is closed or invalid |
 | `ValueError`   | If the SQL query is malformed       |
 
-:::note
+<Note>
 The “Debug” format isn't supported and will be automatically converted
 to “CSV” with a warning. For debugging, use connection string parameters
 instead.
-:::
+</Note>
 
-:::warning Warning
+<Warning>
+**Warning**
+
 This method executes the query synchronously and loads all results into
 memory.
 For large result sets, consider using [`send_query()`](#chdb-session-session-send_query) for streaming results.
-:::
+</Warning>
 
 **Examples**
 
@@ -3000,10 +2939,12 @@ For a complete parameter list, see `clickhouse local --help --verbose`
 |----------------|---------------------------------|
 | `RuntimeError` | If connection to database fails |
 
-:::warning Warning
+<Warning>
+**Warning**
+
 Only one connection per process is supported.
 Creating a new connection will close any existing connection.
-:::
+</Warning>
 
 **Examples**
 
@@ -3055,14 +2996,16 @@ connection becomes invalid and can't be used for further operations.
 close() → None
 ```
 
-:::note
+<Note>
 This method is idempotent - calling it multiple times is safe.
-:::
+</Note>
 
-:::warning Warning
+<Warning>
+**Warning**
+
 Any ongoing streaming queries will be cancelled when the connection
 is closed. Ensure all important data is processed before closing.
-:::
+</Warning>
 
 **Examples**
 
@@ -3103,10 +3046,10 @@ cursor() → Cursor
 |--------------|-----------------------------------------|
 | `Cursor`     | A cursor object for database operations |
 
-:::note
+<Note>
 Creating a new cursor will replace any existing cursor associated
 with this connection. Only one cursor per connection is supported.
-:::
+</Note>
 
 **Examples**
 
@@ -3162,10 +3105,12 @@ query(query: str, format: str = 'CSV') → Any
 | `RuntimeError` | If query execution fails                          |
 | `ImportError`  | If required packages for format aren't installed |
 
-:::warning Warning
+<Warning>
+**Warning**
+
 This method loads the entire result set into memory. For large
 results, consider using [`send_query()`](#chdb-state-sqlitelike-connection-send_query) for streaming.
-:::
+</Warning>
 
 **Examples**
 
@@ -3229,9 +3174,9 @@ send_query(query: str, format: str = 'CSV') → StreamingResult
 | `RuntimeError` | If query execution fails                          |
 | `ImportError`  | If required packages for format aren't installed |
 
-:::note
+<Note>
 Only the “Arrow” format supports the `record_batch()` method on the returned StreamingResult.
-:::
+</Note>
 
 **Examples**
 
@@ -3380,10 +3325,10 @@ record_batch(rows_per_batch: int = 1000000) → pa.RecordBatchReader
 |-------------|-------------|
 | `pa.RecordBatchReader` | PyArrow RecordBatchReader for iterating over batches |
 
-:::note
+<Note>
 This method is only available when the streaming query was initiated
 with `format="Arrow"`. Using it with other formats will raise an error.
-:::
+</Note>
 
 **Examples**
 
@@ -3445,10 +3390,10 @@ used for further operations.
 close() → None
 ```
 
-:::note
+<Note>
 This method is idempotent - calling it multiple times is safe.
 The cursor is also automatically closed when the connection is closed.
-:::
+</Note>
 
 **Examples**
 
@@ -3536,11 +3481,11 @@ This method commits any pending database transaction. In ClickHouse,
 most operations are auto-committed, but this method is provided for
 DB-API 2.0 compatibility.
 
-:::note
+<Note>
 ClickHouse typically auto-commits operations, so explicit commits
 are usually not necessary. This method is provided for compatibility
 with standard DB-API 2.0 workflow.
-:::
+</Note>
 
 **Syntax**
 
@@ -3573,11 +3518,11 @@ Currently, only name and type_code are provided, with other fields set to None.
 |-------------|-------------|
 | `list` | List of 7-tuples describing each column, or empty list if no SELECT query has been executed |
 
-:::note
+<Note>
 This follows the DB-API 2.0 specification for cursor.description.
 Only the first two elements (name and type_code) contain meaningful
 data in this implementation.
-:::
+</Note>
 
 **Examples**
 
@@ -3621,13 +3566,13 @@ execute(query: str) → None
 |-----------|-----------|
 | `Exception` | If query execution fails or result parsing fails |
 
-:::note
+<Note>
 This method follows DB-API 2.0 specifications for `cursor.execute()`.
 After execution, use `fetchone()`, `fetchmany()`, or `fetchall()` to
 retrieve results.
-:::
+</Note>
 
-:::note
+<Note>
 The method automatically converts ClickHouse data types to appropriate
 Python types:
 
@@ -3637,7 +3582,7 @@ Python types:
 - DateTime → datetime.datetime
 - Date → datetime.date
 - Bool → bool
-:::
+</Note>
 
 **Examples**
 
@@ -3683,11 +3628,13 @@ fetchall() → tuple
 |-------------|-------------|
 | `tuple` | Tuple containing all remaining row tuples from the result set. Returns empty tuple if no rows are available |
 
-:::warning Warning
+<Warning>
+**Warning**
+
 This method loads all remaining rows into memory at once. For large
 result sets, consider using [`fetchmany()`](#chdb-state-sqlitelike-cursor-fetchmany) to process results
 in batches.
-:::
+</Warning>
 
 **Examples**
 
@@ -3730,10 +3677,10 @@ fetchmany(size: int = 1) → tuple
 |-------------|-------------------------------------------------------------------------------------------------|
 | `tuple`     | Tuple containing up to 'size' row tuples. May contain fewer rows if the result set is exhausted |
 
-:::note
+<Note>
 This method follows DB-API 2.0 specifications. It will return fewer
 than ‘size’ rows if the result set is exhausted.
-:::
+</Note>
 
 **Examples**
 
@@ -3762,7 +3709,7 @@ This method retrieves the next available row from the current query
 result set. It returns a tuple containing the column values with
 appropriate Python type conversion applied.
 
-**Syntax** 
+**Syntax**
 
 ```python
 fetchone() → tuple | None
@@ -3774,11 +3721,11 @@ fetchone() → tuple | None
 |-------------------|-----------------------------------------------------------------------------|
 | `Optional[tuple]` | Next row as a tuple of column values, or None if no more rows are available |
 
-:::note
+<Note>
 This method follows DB-API 2.0 specifications. Column values are
 automatically converted to appropriate Python types based on
 ClickHouse column types.
-:::
+</Note>
 
 **Examples**
 
@@ -3829,14 +3776,16 @@ chdb.state.sqlitelike.to_arrowTable(res)
 |---------------|-------------------------------------------------|
 | `ImportError` | If pyarrow or pandas packages aren't installed |
 
-:::note
+<Note>
 This function requires both pyarrow and pandas to be installed.
 Install them with: `pip install pyarrow pandas`
-:::
+</Note>
 
-:::warning Warning
+<Warning>
+**Warning**
+
 Empty results return an empty PyArrow Table with no schema.
-:::
+</Warning>
 
 **Examples**
 
@@ -3885,10 +3834,10 @@ chdb.state.sqlitelike.to_df(r)
 |---------------|-------------------------------------------------|
 | `ImportError` | If pyarrow or pandas packages aren't installed |
 
-:::note
+<Note>
 This function uses multi-threading for the Arrow to Pandas conversion
 to improve performance on large datasets.
-:::
+</Note>
 
 **See also**
 - [`to_arrowTable()`](#chdb-state-sqlitelike-to_arrowtable) - For PyArrow Table format conversion
@@ -4057,10 +4006,10 @@ class chdb.dbapi.connections.Connection(path=None)
 ...     version = cur.fetchone()
 ```
 
-:::note
+<Note>
 ClickHouse doesn't support traditional transactions, so commit() and rollback()
 operations are no-ops but provided for DB-API compliance.
-:::
+</Note>
 
 ---
 
@@ -4093,10 +4042,10 @@ Commit the current transaction.
 commit()
 ```
 
-:::note
+<Note>
 This is a no-op for chDB/ClickHouse as it doesn’t support traditional
 transactions. Provided for DB-API 2.0 compliance.
-:::
+</Note>
 
 ---
 
@@ -4255,10 +4204,10 @@ Get the last query response.
 |--------------|---------------------------------------------|
 | -            | The raw response from the last query() call |
 
-:::note
+<Note>
 This property is updated each time query() is called directly.
 It doesn't reflect queries executed through cursors.
-:::
+</Note>
 
 ---
 
@@ -4271,10 +4220,10 @@ Roll back the current transaction.
 rollback()
 ```
 
-:::note
+<Note>
 This is a no-op for chDB/ClickHouse as it doesn’t support traditional
 transactions. Provided for DB-API 2.0 compliance.
-:::
+</Note>
 
 ---
 
@@ -4313,10 +4262,10 @@ class chdb.dbapi.cursors.Cursor(connection)
 >>> cur.close()
 ```
 
-:::note
+<Note>
 See [DB-API 2.0 Cursor Objects](https://www.python.org/dev/peps/pep-0249/#cursor-objects)
 for complete specification details.
-:::
+</Note>
 
 ---
 
@@ -4342,17 +4291,19 @@ callproc(procname, args=())
 |--------------|------------------------------------------|
 | `sequence`   | The original args parameter (unmodified) |
 
-:::note
+<Note>
 chDB/ClickHouse doesn't support stored procedures in the traditional sense.
 This method is provided for DB-API 2.0 compliance but doesn't perform
 any actual operation. Use execute() for all SQL operations.
-:::
+</Note>
 
-:::warning Compatibility
+<Warning>
+**Compatibility**
+
 This is a placeholder implementation. Traditional stored procedure
 features like OUT/INOUT parameters, multiple result sets, and server
 variables aren't supported by the underlying ClickHouse engine.
-:::
+</Warning>
 
 ---
 
@@ -4468,10 +4419,10 @@ executemany(query, args)
 ... )
 ```
 
-:::note
+<Note>
 This method improves performance for multiple-row INSERT and UPDATE operations
 by optimizing the query execution process.
-:::
+</Note>
 
 ---
 
@@ -4496,10 +4447,12 @@ fetchall()
 |--------------------------------------------------------|----------------------------------------|
 | [`ProgrammingError`](#chdb-dbapi-err-programmingerror) | If execute() hasn't been called first |
 
-:::warning Warning
+<Warning>
+**Warning**
+
 This method can consume large amounts of memory for big result sets.
 Consider using `fetchmany()` for large datasets.
-:::
+</Warning>
 
 **Example**
 
@@ -4620,9 +4573,9 @@ mogrify(query, args=None)
 "SELECT * FROM users WHERE id = 123"
 ```
 
-:::note
+<Note>
 This method follows the extension to DB-API 2.0 used by Psycopg.
-:::
+</Note>
 
 ---
 
@@ -4641,10 +4594,10 @@ nextset()
 |--------------|---------------------------------------------------------------|
 | `None`       | Always returns None as multiple result sets aren't supported |
 
-:::note
+<Note>
 chDB/ClickHouse doesn't support multiple result sets from a single query.
 This method is provided for DB-API 2.0 compliance but always returns None.
-:::
+</Note>
 
 ---
 
@@ -4663,10 +4616,10 @@ setinputsizes(*args)
 |------------|-------|-----------------------------------------|
 | `*args`    | -     | Parameter size specifications (ignored) |
 
-:::note
+<Note>
 This method does nothing but is required by DB-API 2.0 specification.
 chDB automatically handles parameter sizing internally.
-:::
+</Note>
 
 ---
 
@@ -4685,10 +4638,10 @@ setoutputsizes(*args)
 |------------|-------|--------------------------------------|
 | `*args`    | -     | Column size specifications (ignored) |
 
-:::note
+<Note>
 This method does nothing but is required by DB-API 2.0 specification.
 chDB automatically handles output sizing internally.
-:::
+</Note>
 
 ---
 
@@ -4728,10 +4681,10 @@ Each exception class represents a specific category of database errors:
 | `ProgrammingError`  | SQL syntax errors and API misuse                            |
 | `NotSupportedError` | Unsupported features or operations                          |
 
-:::note
+<Note>
 These exception classes are compliant with Python DB API 2.0 specification
 and provide consistent error handling across different database operations.
-:::
+</Note>
 
 **See also**
 - [Python Database API Specification v2.0](https://peps.python.org/pep-0249/)
@@ -4813,10 +4766,10 @@ Common scenarios include:
 - Transaction-related problems
 - Database-specific constraints violations
 
-:::note
+<Note>
 This serves as the parent class for more specific database error types
 such as [`DataError`](#chdb-dbapi-err-dataerror), [`OperationalError`](#chdb-dbapi-err-operationalerror), etc.
-:::
+</Note>
 
 ---
 
@@ -4829,9 +4782,9 @@ This is the base class for all error exceptions in chdb, excluding warnings.
 It serves as the parent class for all database error conditions that prevent
 successful completion of operations.
 
-:::note
+<Note>
 This exception hierarchy follows the Python DB API 2.0 specification.
-:::
+</Note>
 
 **See also**
 - [`Warning`](#chdb-dbapi-err-warning) - For non-fatal warnings that don’t prevent operation completion
@@ -4892,10 +4845,10 @@ implementation, such as:
 |----------------------------------------------------|----------------------------------------------------------------------------|
 | [`InterfaceError`](#chdb-dbapi-err-interfaceerror) | When database interface encounters errors unrelated to database operations |
 
-:::note
+<Note>
 These errors are typically programming errors or configuration issues
 that can be resolved by fixing the client code or configuration.
-:::
+</Note>
 
 ---
 
@@ -4919,16 +4872,18 @@ errors that aren't caused by the application, such as:
 |-----------|-----------|
 | [`InternalError`](#chdb-dbapi-err-internalerror) | When database encounters internal inconsistencies |
 
-:::warning Warning
+<Warning>
+**Warning**
+
 Internal errors may indicate serious database problems that require
 database administrator attention. These errors are typically not
 recoverable through application-level retry logic.
-:::
+</Warning>
 
-:::note
+<Note>
 These errors are generally outside the control of the application
 and may require database restart or repair operations.
-:::
+</Note>
 
 ---
 
@@ -4966,10 +4921,10 @@ NotSupportedError: Transactions are not supported
 NotSupportedError: WITH clause not supported in this database version
 ```
 
-:::note
+<Note>
 Check database documentation and driver capabilities to avoid
 these errors. Consider graceful fallbacks where possible.
-:::
+</Note>
 
 ---
 
@@ -4995,15 +4950,17 @@ and aren't necessarily under the control of the programmer, including:
 |--------------------------------------------------------|---------------------------------------------------------|
 | [`OperationalError`](#chdb-dbapi-err-operationalerror) | When database operations fail due to operational issues |
 
-:::note
+<Note>
 These errors are typically transient and may be resolved by retrying
 the operation or addressing system-level issues.
-:::
+</Note>
 
-:::warning Warning
+<Warning>
+**Warning**
+
 Some operational errors may indicate serious system problems that
 require administrative intervention.
-:::
+</Warning>
 
 ---
 
@@ -5059,10 +5016,10 @@ This is the base class for all chdb-related exceptions. It inherits from
 Python’s built-in Exception class and serves as the root of the exception
 hierarchy for database operations.
 
-:::note
+<Note>
 This exception class follows the Python DB API 2.0 specification
 for database exception handling.
-:::
+</Note>
 
 ---
 
@@ -5079,9 +5036,9 @@ Common scenarios include:
 - Precision loss in numeric conversions
 - Character set conversion warnings
 
-:::note
+<Note>
 This follows the Python DB API 2.0 specification for warning exceptions.
-:::
+</Note>
 
 ---
 
@@ -5402,27 +5359,273 @@ with dbapi.connect("test.chdb") as conn:
 5. **Parameter Binding**: Use parameterized queries when possible
 6. **Memory Management**: Avoid `fetchall()` for very large datasets
 
-:::note
+<Note>
 - chDB’s DB-API 2.0 interface is compatible with most Python database tools
 - The interface provides Level 1 thread safety (threads may share modules but not connections)
 - Connection strings support the same parameters as chDB sessions
 - All standard DB-API 2.0 exceptions are supported
-:::
+</Note>
 
-:::warning Warning
+<Warning>
+**Warning**
+
 - Always close cursors and connections to avoid resource leaks
 - Large result sets should be processed in batches
 - Parameter binding syntax follows format style: `%s`
-:::
+</Warning>
 
-## User-Defined Functions (UDF)
-User-defined functions module for chDB.
+## Python user-defined functions (UDF)
+chDB supports native Python UDFs that run in-process with typed arguments, automatic type inference, and configurable NULL/exception handling. Python functions registered as UDFs can be called directly from SQL queries.
 
-This module provides functionality for creating and managing user-defined functions (UDFs)
-in chDB. It allows you to extend chDB’s capabilities by writing custom Python functions
-that can be called from SQL queries.
+Examples below use the default CSV output format. Inline comments show the logical result values; the raw output prints `NULL` as `\N` and applies CSV quoting to string and date values.
 
-### `chdb.udf.chdb_udf`
+### `chdb.create_function`
+Register a Python function as a chDB SQL function.
+
+**Syntax**
+
+```python
+chdb.create_function(name, func, arg_types=None, return_type=None, *, on_null=None, on_error=None)
+```
+
+**Parameters**
+
+| Parameter     | Type            | Default       | Description                                                                 |
+|---------------|-----------------|---------------|-----------------------------------------------------------------------------|
+| `name`        | str             | *(required)*  | Name of the SQL function to register                                        |
+| `func`        | callable        | *(required)*  | Python function to register                                                 |
+| `arg_types`   | list of ChdbType/str/type, or None | `None`        | List of argument types. If `None`, inferred from type annotations           |
+| `return_type` | ChdbType/str/type, or None    | `None`        | Return type. If `None`, inferred from the function's return annotation; registration fails if the annotation is also missing      |
+| `on_null`     | str or NullHandling | `None` (skip) | How to handle NULL inputs: `"skip"` or `"pass"`. Keyword-only        |
+| `on_error`    | str or ExceptionHandling | `None` (propagate) | How to handle exceptions: `"propagate"` or `"ignore"`. Keyword-only |
+
+Each type parameter (`arg_types` elements and `return_type`) accepts:
+
+- A `ChdbType` constant: `INT64`, `STRING`, `FLOAT64`, etc.
+- A ClickHouse type string: `"Int64"`, `"String"`, `"DateTime64(6)"`, `"DateTime('UTC')"`, etc.
+- A Python type: `int`, `float`, `str`, `bool`, `bytes`, `datetime.date`, `datetime.datetime` — mapped per [Automatic type mapping](#udf-automatic-type-mapping)
+
+Registering a name that is already registered raises an error — UDFs are not silently replaced. Call [`drop_function`](#drop-function) first to re-register a function.
+
+**Example**
+
+```python
+from chdb import create_function, drop_function, query
+from chdb.sqltypes import INT64, STRING
+
+create_function("strlen", len, arg_types=[STRING], return_type=INT64)
+print(query("SELECT strlen('hello')"))  # 5
+
+drop_function("strlen")
+```
+
+---
+
+### `chdb.drop_function`
+Remove a previously registered Python UDF. Does nothing if the function is not registered, so it is safe to call unconditionally.
+
+**Syntax**
+
+```python
+chdb.drop_function(name)
+```
+
+**Parameters**
+
+| Parameter | Type | Description                          |
+|-----------|------|--------------------------------------|
+| `name`    | str  | Name of the SQL function to remove   |
+
+---
+
+### `@func` decorator
+Decorator to register a Python function as a chDB SQL function. The function remains callable as normal Python and is simultaneously available in SQL queries by its `__name__`.
+
+**Syntax**
+
+```python
+from chdb import func
+
+@func(arg_types=None, return_type=None, *, on_null=None, on_error=None)
+def my_function(...):
+    ...
+```
+
+**Parameters**
+
+Same as [`create_function`](#create-function) (excluding `name` and `func`, which are derived from the decorated function).
+
+**Examples**
+
+```python
+from chdb import func, query
+from chdb.sqltypes import INT64, STRING
+
+# Explicit types
+@func([INT64, INT64], INT64)
+def add(a, b):
+    return a + b
+
+# Types inferred from annotations
+@func()
+def multiply(a: int, b: int) -> int:
+    return a * b
+
+# Explicit return_type, arg_types inferred from annotations
+@func(return_type=STRING)
+def greet(name: str):
+    return f"Hello, {name}!"
+
+print(query("SELECT add(12, 22)"))       # 34
+print(query("SELECT multiply(3, 7)"))    # 21
+print(query("SELECT greet('world')"))    # Hello, world!
+```
+
+---
+
+### Type system
+#### Available types
+Import types from `chdb.sqltypes`:
+
+```python
+from chdb.sqltypes import (
+    BOOL,
+    INT8, INT16, INT32, INT64, INT128, INT256,
+    UINT8, UINT16, UINT32, UINT64, UINT128, UINT256,
+    FLOAT32, FLOAT64,
+    STRING,
+    DATE, DATE32, DATETIME, DATETIME64,
+)
+```
+
+#### Automatic type mapping
+When types are inferred from Python annotations, the following mapping is used:
+
+| Python Type          | ClickHouse Type  |
+|----------------------|------------------|
+| `bool`               | `Bool`           |
+| `int`                | `Int64`          |
+| `float`              | `Float64`        |
+| `str`                | `String`         |
+| `bytes`              | `String`         |
+| `bytearray`          | `String`         |
+| `datetime.date`      | `Date`           |
+| `datetime.datetime`  | `DateTime64(6)`  |
+
+#### Type specification methods
+Types can be specified in multiple ways:
+
+```python
+from chdb import create_function, func
+from chdb.sqltypes import INT64
+
+# 1. ChdbType constants
+create_function("f1", lambda x: x, arg_types=[INT64], return_type=INT64)
+
+# 2. ClickHouse type strings
+create_function("f2", lambda x: x, arg_types=["Int64"], return_type="Int64")
+
+# 3. Parameterized type strings
+create_function("f3", lambda x: x, arg_types=["DateTime('UTC')"], return_type="DateTime('UTC')")
+
+# 4. Python types — passed directly or used as annotations
+create_function("f4", lambda x: x, arg_types=[int], return_type=int)
+
+@func()
+def f5(x: int) -> int:
+    return x
+```
+
+---
+
+### NULL handling
+Control how NULL values are handled with the `on_null` parameter.
+
+| Value    | Enum                    | Behavior                                              |
+|----------|-------------------------|-------------------------------------------------------|
+| `"skip"` | `NullHandling.SKIP`     | Return NULL without calling the function (default)    |
+| `"pass"` | `NullHandling.PASS`     | Convert NULL to `None` and call the function          |
+
+```python
+from chdb import func, query, NullHandling
+
+# Default: NULL in → NULL out, function not called
+@func(return_type="Int64")
+def add_one(x: int) -> int:
+    return x + 1
+
+print(query("SELECT add_one(NULL)"))  # NULL
+
+# Pass NULL as None
+@func(return_type="Int64", on_null="pass")
+def null_safe(x):
+    return 0 if x is None else x + 1
+
+print(query("SELECT null_safe(NULL)"))  # 0
+```
+
+---
+
+### Exception handling
+Control how exceptions are handled with the `on_error` parameter.
+
+| Value         | Enum                           | Behavior                                    |
+|---------------|--------------------------------|---------------------------------------------|
+| `"propagate"` | `ExceptionHandling.PROPAGATE` | Raise the exception as a SQL error (default) |
+| `"ignore"`    | `ExceptionHandling.IGNORE`    | Catch the exception and return NULL          |
+
+```python
+from chdb import func, query
+
+# Default: exception propagates
+@func(arg_types=["Int64", "Int64"], return_type="Int64")
+def divide(a, b):
+    return a // b
+
+# print(query("SELECT divide(1, 0)"))  # Error: division by zero
+
+# Ignore: exception → NULL
+@func(arg_types=["Int64", "Int64"], return_type="Int64", on_error="ignore")
+def safe_divide(a, b):
+    return a // b
+
+print(query("SELECT safe_divide(1, 0)"))   # NULL
+print(query("SELECT safe_divide(10, 2)"))  # 5
+```
+
+---
+
+### DateTime and timezone support
+UDFs fully support `Date`, `Date32`, `DateTime`, and `DateTime64` types with timezone awareness.
+
+```python
+from chdb import func, query
+from datetime import datetime, timedelta, date
+
+@func(arg_types=["DateTime('UTC')"], return_type="DateTime('UTC')")
+def add_one_hour(dt):
+    return dt + timedelta(hours=1)
+
+@func()
+def get_year(d: date) -> int:
+    return d.year
+
+print(query("SELECT add_one_hour(toDateTime('2024-01-01 12:00:00', 'UTC'))"))  # 2024-01-01 13:00:00
+print(query("SELECT get_year(toDate('2024-06-15'))"))  # 2024
+```
+
+- Input ClickHouse `DateTime`/`DateTime64` values are converted to Python `datetime` objects with timezone info
+- Output Python `datetime` objects preserve timezone info when returned to ClickHouse
+- The `DATETIME64` type from `chdb.sqltypes` defaults to scale 6 (microseconds), equivalent to `DateTime64(6)`
+
+---
+
+### Legacy API
+<Warning>
+**Deprecated:** The `@chdb_udf` decorator is the legacy subprocess-based UDF mechanism: it runs your function in a separate Python process and passes all arguments as strings. It is still available, but the native Python UDF API ([`@func`](#func-decorator) / [`create_function`](#create-function)) is recommended — native UDFs run in-process with typed arguments, NULL handling, and exception control. See the [Python UDF guide](https://clickhouse.com/docs/chdb/guides/python-udf) for a complete walkthrough.
+</Warning>
+
+#### `chdb.udf.chdb_udf`
 Decorator for chDB Python UDF(User Defined Function).
 
 **Syntax**
@@ -5461,7 +5664,7 @@ def func_use_json(arg):
 
 ---
 
-### `chdb.udf.generate_udf`
+#### `chdb.udf.generate_udf`
 Generate UDF configuration and executable script files.
 
 This function creates the necessary files for a User Defined Function (UDF) in chDB:
@@ -5483,10 +5686,10 @@ chdb.udf.generate_udf(func_name, args, return_type, udf_body)
 | `return_type` | str   | ClickHouse return type for the function     |
 | `udf_body`    | str   | Python source code body of the UDF function |
 
-:::note
+<Note>
 This function is typically called by the @chdb_udf decorator and shouldn't
 be called directly by users.
-:::
+</Note>
 
 ---
 
@@ -5619,14 +5822,14 @@ chdb.utils.infer_data_type(values: List[Any]) → str
 
 | Return Type | Description                                                                                                                                                                                                                                                 |
 |-------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `str`       | A string representing the inferred data type. Possible return values are: ”int8”, “int16”, “int32”, “int64”, “int128”, “int256”, “uint8”, “uint16”,“uint32”, “uint64”, “uint128”, “uint256”, “decimal128”, “decimal256”, “float32”, “float64”, or “string”. | 
+| `str`       | A string representing the inferred data type. Possible return values are: ”int8”, “int16”, “int32”, “int64”, “int128”, “int256”, “uint8”, “uint16”,“uint32”, “uint64”, “uint128”, “uint256”, “decimal128”, “decimal256”, “float32”, “float64”, or “string”. |
 
-:::note
+<Note>
 - If all values in the list are None, the function returns “string”.
 - If any value in the list is a string, the function immediately returns “string”.
 - The function assumes that numeric values can be represented as integers,
   decimals, or floats based on their range and precision.
-:::
+</Note>
 
 ---
 
@@ -5762,12 +5965,12 @@ Query failed: Table 'non_existent_table' doesn't exist
 Syntax error: Syntax error near 'FROM'
 ```
 
-:::note
+<Note>
 This exception is automatically raised by chdb.query() and related
 functions when the underlying ClickHouse engine reports an error.
 You should catch this exception when handling potentially failing
 queries to provide appropriate error handling in your application.
-:::
+</Note>
 
 ## Version Information
 ### `chdb.chdb_version = ('3', '6', '0')`
@@ -7319,7 +7522,7 @@ When a trigger occurs, the accumulated SQL is executed:
 
 ```python
 # Execution triggered here
-df = result.to_df()  
+df = result.to_df()
 # The single optimized SQL query runs now
 ```
 
@@ -8196,7 +8399,7 @@ DataStore supports reading from and writing to various file formats and data sou
 ## Reading Data
 ### CSV Files
 ```python
-read_csv(filepath_or_buffer, sep=',', header='infer', names=None, 
+read_csv(filepath_or_buffer, sep=',', header='infer', names=None,
          usecols=None, dtype=None, nrows=None, skiprows=None,
          compression=None, encoding=None, **kwargs)
 ```
@@ -8322,7 +8525,7 @@ ds = pd.read_html("https://example.com/table.html")[0]
 Export to CSV format.
 
 ```python
-to_csv(path_or_buf=None, sep=',', na_rep='', header=True, 
+to_csv(path_or_buf=None, sep=',', na_rep='', header=True,
        index=True, mode='w', compression=None, **kwargs)
 ```
 
@@ -9546,7 +9749,7 @@ from chdb.datastore import DataStore
 
 # Execute raw SQL
 result = DataStore().sql("""
-    SELECT 
+    SELECT
         department,
         COUNT(*) as count,
         AVG(salary) as avg_salary
@@ -10002,7 +10205,7 @@ result = ds.filter(ds['age'] > 25)
 # For complex queries, use SQL directly
 ds = DataStore()
 result = ds.sql("""
-    SELECT category, 
+    SELECT category,
            SUM(amount) as total,
            COUNT(*) as count,
            AVG(amount) as avg
@@ -10029,7 +10232,7 @@ result = ds.sql("""
 
 Learn how to use a clickhouse-local database with chDB
 
-[clickhouse-local](https://clickhouse.com/docs/operations/utilities/clickhouse-local) is a CLI with an embedded version of ClickHouse.
+[clickhouse-local](https://clickhouse.com/docs/concepts/features/tools-and-utilities/clickhouse-local) is a CLI with an embedded version of ClickHouse.
 It gives users the power of ClickHouse without having to install a server.
 In this guide, we will learn how to use a clickhouse-local database from chDB.
 
@@ -10061,7 +10264,7 @@ ipython
 ```
 
 ## Installing clickhouse-local
-Downloading and installing clickhouse-local is the same as [downloading and installing ClickHouse](https://clickhouse.com/docs/install).
+Downloading and installing clickhouse-local is the same as [downloading and installing ClickHouse](https://clickhouse.com/docs/get-started/setup/install).
 We can do this by running the following command:
 
 ```bash
@@ -10161,13 +10364,13 @@ Index page for chDB guides
 
 Take a look at our chDB developer guides below:
 
-<!-- 
+{/*
 The following table of contents is autogenerated by https://github.com/ClickHouse/clickhouse-docs/blob/main/scripts/autogenerate-table-of-contents.sh
-from YAML frontmatter fields title, slug, description. If you've found an error 
+from YAML frontmatter fields title, slug, description. If you've found an error
 in the table of contents, please edit the frontmatter of the files directly.
--->
+*/}
 
-<!--AUTOGENERATED_START-->
+{/*AUTOGENERATED_START*/}
 | Page | Description |
 |-----|-----|
 | [How to query a remote ClickHouse server](https://clickhouse.com/docs/chdb/guides/query-remote-clickhouse) | In this guide, we will learn how to query a remote ClickHouse server from chDB. |
@@ -10180,9 +10383,10 @@ in the table of contents, please edit the frontmatter of the files directly.
 | [Migration from pandas](https://clickhouse.com/docs/chdb/guides/migration-from-pandas) | Step-by-step guide to migrate from pandas to DataStore |
 | [Pandas cookbook](https://clickhouse.com/docs/chdb/guides/pandas-cookbook) | Common pandas patterns and their DataStore equivalents |
 | [Performance guide](https://clickhouse.com/docs/chdb/guides/pandas-performance) | Performance optimization tips for DataStore vs pandas |
+| [Python user-defined functions (UDF)](https://clickhouse.com/docs/chdb/guides/python-udf) | Create native Python UDFs in chDB with typed arguments, NULL handling, and exception control. |
 | [SQL for pandas users](https://clickhouse.com/docs/chdb/guides/pandas-to-sql) | Understanding how pandas operations map to SQL in DataStore |
 | [Using a clickhouse-local database](https://clickhouse.com/docs/chdb/guides/clickhouse-local) | Learn how to use a clickhouse-local database with chDB |
-<!--AUTOGENERATED_END-->
+{/*AUTOGENERATED_END*/}
 
 ---
 
@@ -10190,13 +10394,15 @@ in the table of contents, please edit the frontmatter of the files directly.
 
 **URL:** https://clickhouse.com/docs/chdb/guides/jupysql
 
-How to install chDB for Bun
+How to query chDB with JupySQL in Jupyter notebooks and IPython
 
-JupySQL is a Python library that lets you run SQL in Jupyter notebooks and the IPython shell.
+[JupySQL](https://github.com/ploomber/jupysql) is a Python library that lets you run SQL in Jupyter notebooks and the IPython shell.
 In this guide, we're going to learn how to query data using chDB and JupySQL.
 
 <div class='vimeo-container'>
+<Frame>
 [Watch the video](https://www.youtube.com/watch?v=2wjl3OijCto)
+</Frame>
 </div>
 
 ## Setup
@@ -10225,25 +10431,24 @@ Or in Jupyter Lab, by running:
 jupyter lab
 ```
 
-:::note
+<Note>
 If you're using Jupyter Lab, you'll need to create a notebook before following the rest of the guide.
-:::
+</Note>
 
 ## Downloading a dataset
-We're going to use one of Jeff Sackmann's tennis_atp dataset, which contains metadata about players and their rankings over time.
-Let's start by downloading the rankings files:
+We're going to use the New York City taxi dataset, which contains around 3 million taxi rides along with the fare, tip, and pickup neighborhood of each one.
+The trips are split across several TSV files, so let's start by downloading those:
 
 ```python
 from urllib.request import urlretrieve
 ```
 
 ```python
-files = ['00s', '10s', '20s', '70s', '80s', '90s', 'current']
-base = "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master"
-for file in files:
+base = "https://datasets-documentation.s3.eu-west-3.amazonaws.com/nyc-taxi"
+for n in range(3):
   _ = urlretrieve(
-    f"{base}/atp_rankings_{file}.csv",
-    f"atp_rankings_{file}.csv",
+    f"{base}/trips_{n}.gz",
+    f"trips_{n}.gz",
   )
 ```
 
@@ -10255,10 +10460,10 @@ from chdb import dbapi
 ```
 
 And we'll create a chDB connection.
-Any data that we persist will be saved to the `atp.chdb` directory:
+Any data that we persist will be saved to the `taxi.chdb` directory:
 
 ```python
-conn = dbapi.connect(path="atp.chdb")
+conn = dbapi.connect(path="taxi.chdb")
 ```
 
 Let's now load the `sql` magic and create a connection to chDB:
@@ -10274,311 +10479,264 @@ Next, we'll display the display limit so that results of queries won't be trunca
 %config SqlMagic.displaylimit = None
 ```
 
-## Querying data in CSV files
-We've downloaded a bunch of files with the `atp_rankings` prefix.
+## Querying data in TSV files
+We've downloaded a bunch of files with the `trips_` prefix.
 Let's use the `DESCRIBE` clause to understand the schema:
 
 ```python
 %%sql
-DESCRIBE file('atp_rankings*.csv')
+DESCRIBE file('trips_*.gz')
 SETTINGS describe_compact_output=1,
          schema_inference_make_columns_nullable=0
 ```
 
 ```text
-+--------------+-------+
-|     name     |  type |
-+--------------+-------+
-| ranking_date | Int64 |
-|     rank     | Int64 |
-|    player    | Int64 |
-|    points    | Int64 |
-+--------------+-------+
++--------------------+----------+
+|        name        |   type   |
++--------------------+----------+
+|      trip_id       |  Int64   |
+|     vendor_id      |  Int64   |
+|    pickup_date     |   Date   |
+|  pickup_datetime   | DateTime |
+|    dropoff_date    |   Date   |
+|  dropoff_datetime  | DateTime |
+| store_and_fwd_flag |  Int64   |
+|    rate_code_id    |  Int64   |
++--------------------+----------+
+(40 more rows)
 ```
 
 We can also write a `SELECT` query directly against these files to see what the data looks like:
 
 ```python
-%sql SELECT * FROM file('atp_rankings*.csv') LIMIT 1
-```
-
-```text
-+--------------+------+--------+--------+
-| ranking_date | rank | player | points |
-+--------------+------+--------+--------+
-|   20000110   |  1   | 101736 |  4135  |
-+--------------+------+--------+--------+
-```
-
-The format of the data is a bit weird.
-Let's clean that date up and use the `REPLACE` clause to return the cleaned up `ranking_date`:
-
-```python
 %%sql
-SELECT * REPLACE (
-  toDate(parseDateTime32BestEffort(toString(ranking_date))) AS ranking_date
-)
-FROM file('atp_rankings*.csv')
-LIMIT 10
+SELECT trip_id, pickup_datetime, pickup_ntaname,
+       trip_distance, fare_amount, tip_amount
+FROM file('trips_*.gz')
+LIMIT 3
 SETTINGS schema_inference_make_columns_nullable=0
 ```
 
 ```text
-+--------------+------+--------+--------+
-| ranking_date | rank | player | points |
-+--------------+------+--------+--------+
-|  2000-01-10  |  1   | 101736 |  4135  |
-|  2000-01-10  |  2   | 102338 |  2915  |
-|  2000-01-10  |  3   | 101948 |  2419  |
-|  2000-01-10  |  4   | 103017 |  2184  |
-|  2000-01-10  |  5   | 102856 |  2169  |
-|  2000-01-10  |  6   | 102358 |  2107  |
-|  2000-01-10  |  7   | 102839 |  1966  |
-|  2000-01-10  |  8   | 101774 |  1929  |
-|  2000-01-10  |  9   | 102701 |  1846  |
-|  2000-01-10  |  10  | 101990 |  1739  |
-+--------------+------+--------+--------+
++------------+---------------------+----------------------------------------+---------------+-------------+------------+
+|  trip_id   |   pickup_datetime   |             pickup_ntaname             | trip_distance | fare_amount | tip_amount |
++------------+---------------------+----------------------------------------+---------------+-------------+------------+
+| 1199999902 | 2015-07-07 19:45:07 |      Lenox Hill-Roosevelt Island       |      2.59     |     14.5    |    3.26    |
+| 1199999919 | 2015-07-07 20:26:29 |                Airport                 |      2.4      |      9      |     0      |
+| 1199999944 | 2015-07-07 21:25:09 | SoHo-TriBeCa-Civic Center-Little Italy |      5.13     |      20     |     3      |
++------------+---------------------+----------------------------------------+---------------+-------------+------------+
 ```
 
-## Importing CSV files into chDB
-Now we're going to store the data from these CSV files in a table.
+If we look back at the schema, a few of the money-related columns — `trip_distance`, `fare_amount`, and `tip_amount` — were inferred as `String` rather than a numeric type.
+We'll clean those up when we import the data into a table.
+
+## Importing TSV files into chDB
+Now we're going to store the data from these TSV files in a table.
 The default database doesn't persist data on disk, so we need to create another database first:
 
 ```python
-%sql CREATE DATABASE atp
+%sql CREATE DATABASE taxi
 ```
 
-And now we're going to create a table called `rankings` whose schema will be derived from the structure of the data in the CSV files:
+And now we're going to create a table called `trips` whose schema will be derived from the structure of the data in the TSV files.
+We'll use the `REPLACE` clause to cast the money-related columns to `Float64`, and the [`transform`](https://clickhouse.com/docs/sql-reference/functions/other-functions#transform) function to turn the numeric `pickup_borocode` column into a human-readable borough name:
 
 ```python
 %%sql
-CREATE TABLE atp.rankings
-ENGINE=MergeTree
-ORDER BY ranking_date AS
+CREATE TABLE taxi.trips
+ENGINE = MergeTree
+ORDER BY pickup_datetime AS
 SELECT * REPLACE (
-  toDate(parseDateTime32BestEffort(toString(ranking_date))) AS ranking_date
-)
-FROM file('atp_rankings*.csv')
+    toFloat64OrZero(trip_distance) AS trip_distance,
+    toFloat64OrZero(fare_amount) AS fare_amount,
+    toFloat64OrZero(tip_amount) AS tip_amount,
+    toFloat64OrZero(total_amount) AS total_amount
+  ),
+  transform(pickup_borocode, [1, 2, 3, 4, 5],
+            ['Manhattan', 'Bronx', 'Brooklyn', 'Queens', 'Staten Island'],
+            'Unknown') AS pickup_borough
+FROM file('trips_*.gz')
 SETTINGS schema_inference_make_columns_nullable=0
 ```
 
 Let's do a quick check on the data in our table:
 
 ```python
-%sql SELECT * FROM atp.rankings LIMIT 10
+%sql SELECT count() AS trips FROM taxi.trips
 ```
 
 ```text
-+--------------+------+--------+--------+
-| ranking_date | rank | player | points |
-+--------------+------+--------+--------+
-|  2000-01-10  |  1   | 101736 |  4135  |
-|  2000-01-10  |  2   | 102338 |  2915  |
-|  2000-01-10  |  3   | 101948 |  2419  |
-|  2000-01-10  |  4   | 103017 |  2184  |
-|  2000-01-10  |  5   | 102856 |  2169  |
-|  2000-01-10  |  6   | 102358 |  2107  |
-|  2000-01-10  |  7   | 102839 |  1966  |
-|  2000-01-10  |  8   | 101774 |  1929  |
-|  2000-01-10  |  9   | 102701 |  1846  |
-|  2000-01-10  |  10  | 101990 |  1739  |
-+--------------+------+--------+--------+
++---------+
+|  trips  |
++---------+
+| 3000317 |
++---------+
 ```
 
-Looks good - the output, as expected, is the same as when querying the CSV files directly.
-
-We're going to follow the same process for the player metadata.
-This time the data is all in a single CSV file, so let's download that file:
+Just over 3 million trips — let's also bring in a second table.
+New York City's Taxi & Limousine Commission divides the city into taxi zones, and a lookup file maps each zone to its borough.
+Let's download that file:
 
 ```python
 _ = urlretrieve(
-    f"{base}/atp_players.csv",
-    "atp_players.csv",
+    f"{base}/taxi_zone_lookup.csv",
+    "taxi_zone_lookup.csv",
 )
 ```
 
-And then create a table called `players` based on the content of the CSV file.
-We'll also clean up the `dob` field so that its a `Date32` type.
-
-> In ClickHouse, the `Date` type only supports dates from 1970 onwards. Since the `dob` column contains dates from before 1970, we'll use the `Date32` type instead.
+And then create a table called `zones` based on the content of the CSV file:
 
 ```python
 %%sql
-CREATE TABLE atp.players
-Engine=MergeTree
-ORDER BY player_id AS
-SELECT * REPLACE (
-  makeDate32(
-    toInt32OrNull(substring(toString(dob), 1, 4)),
-    toInt32OrNull(substring(toString(dob), 5, 2)),
-    toInt32OrNull(substring(toString(dob), 7, 2))
-  )::Nullable(Date32) AS dob
-)
-FROM file('atp_players.csv')
+CREATE TABLE taxi.zones
+ENGINE = MergeTree
+ORDER BY LocationID AS
+SELECT * FROM file('taxi_zone_lookup.csv')
 SETTINGS schema_inference_make_columns_nullable=0
 ```
 
 Once that's finished running, we can have a look at the data we've ingested:
 
 ```python
-%sql SELECT * FROM atp.players LIMIT 10
+%sql SELECT * FROM taxi.zones LIMIT 5
 ```
 
 ```text
-+-----------+------------+-----------+------+------------+-----+--------+-------------+
-| player_id | name_first | name_last | hand |    dob     | ioc | height | wikidata_id |
-+-----------+------------+-----------+------+------------+-----+--------+-------------+
-|   100001  |  Gardnar   |   Mulloy  |  R   | 1913-11-22 | USA |  185   |    Q54544   |
-|   100002  |   Pancho   |   Segura  |  R   | 1921-06-20 | ECU |  168   |    Q54581   |
-|   100003  |   Frank    |  Sedgman  |  R   | 1927-10-02 | AUS |  180   |   Q962049   |
-|   100004  |  Giuseppe  |   Merlo   |  R   | 1927-10-11 | ITA |   0    |   Q1258752  |
-|   100005  |  Richard   |  Gonzalez |  R   | 1928-05-09 | USA |  188   |    Q53554   |
-|   100006  |   Grant    |   Golden  |  R   | 1929-08-21 | USA |  175   |   Q3115390  |
-|   100007  |    Abe     |   Segal   |  L   | 1930-10-23 | RSA |   0    |   Q1258527  |
-|   100008  |    Kurt    |  Nielsen  |  R   | 1930-11-19 | DEN |   0    |   Q552261   |
-|   100009  |   Istvan   |   Gulyas  |  R   | 1931-10-14 | HUN |   0    |    Q51066   |
-|   100010  |    Luis    |   Ayala   |  R   | 1932-09-18 | CHI |  170   |   Q1275397  |
-+-----------+------------+-----------+------+------------+-----+--------+-------------+
++------------+---------------+-------------------------+--------------+
+| LocationID |    Borough    |           Zone          | service_zone |
++------------+---------------+-------------------------+--------------+
+|     1      |      EWR      |      Newark Airport     |     EWR      |
+|     2      |     Queens    |       Jamaica Bay       |  Boro Zone   |
+|     3      |     Bronx     | Allerton/Pelham Gardens |  Boro Zone   |
+|     4      |   Manhattan   |      Alphabet City      | Yellow Zone  |
+|     5      | Staten Island |      Arden Heights      |  Boro Zone   |
++------------+---------------+-------------------------+--------------+
 ```
 
 ## Querying chDB
 Data ingestion is done, now it's time for the fun part - querying the data!
 
-Tennis players receive points based on how well they perform in the tournaments they play.
-The points for each player over a 52 week rolling period.
-We're going to write a query that finds the maximum points accumulate by each player along with their ranking at the time:
+Each borough is divided into a different number of taxi zones.
+We're going to write a query that joins the two tables to find out how many trips were picked up in each borough, and how many trips that works out to per taxi zone:
 
 ```python
 %%sql
-SELECT name_first, name_last,
-       max(points) as maxPoints,
-       argMax(rank, points) as rank,
-       argMax(ranking_date, points) as date
-FROM atp.players
-JOIN atp.rankings ON rankings.player = players.player_id
-GROUP BY ALL
-ORDER BY maxPoints DESC
-LIMIT 10
+SELECT pickup_borough AS borough,
+       zone_count,
+       count() AS trips,
+       round(count() / zone_count) AS trips_per_zone
+FROM taxi.trips
+JOIN (
+    SELECT Borough, count() AS zone_count
+    FROM taxi.zones
+    GROUP BY Borough
+) AS zones ON pickup_borough = zones.Borough
+GROUP BY borough, zone_count
+ORDER BY trips DESC
 ```
 
 ```text
-+------------+-----------+-----------+------+------------+
-| name_first | name_last | maxPoints | rank |    date    |
-+------------+-----------+-----------+------+------------+
-|   Novak    |  Djokovic |   16950   |  1   | 2016-06-06 |
-|   Rafael   |   Nadal   |   15390   |  1   | 2009-04-20 |
-|    Andy    |   Murray  |   12685   |  1   | 2016-11-21 |
-|   Roger    |  Federer  |   12315   |  1   | 2012-10-29 |
-|   Daniil   |  Medvedev |   10780   |  2   | 2021-09-13 |
-|   Carlos   |  Alcaraz  |    9815   |  1   | 2023-08-21 |
-|  Dominic   |   Thiem   |    9125   |  3   | 2021-01-18 |
-|   Jannik   |   Sinner  |    8860   |  2   | 2024-05-06 |
-|  Stefanos  | Tsitsipas |    8350   |  3   | 2021-09-20 |
-| Alexander  |   Zverev  |    8240   |  4   | 2021-08-23 |
-+------------+-----------+-----------+------+------------+
++---------------+------------+---------+----------------+
+|    borough    | zone_count |  trips  | trips_per_zone |
++---------------+------------+---------+----------------+
+|   Manhattan   |     69     | 2713990 |    39333.0     |
+|     Queens    |     69     |  187737 |     2721.0     |
+|    Brooklyn   |     61     |  52445  |     860.0      |
+|    Unknown    |     2      |  43802  |    21901.0     |
+|     Bronx     |     43     |   2300  |      53.0      |
+| Staten Island |     20     |    43   |      2.0       |
++---------------+------------+---------+----------------+
 ```
 
-It's quite interesting that some of the players in this list accumulated a lot of points without being number 1 with that points total.
+Manhattan and Queens have the same number of taxi zones, but Manhattan generates over 14 times as many pickups.
 
 ## Saving queries
 We can save queries using the `--save` parameter on the same line as the `%%sql` magic.
 The `--no-execute` parameter means that query execution will be skipped.
 
 ```python
-%%sql --save best_points --no-execute
-SELECT name_first, name_last,
-       max(points) as maxPoints,
-       argMax(rank, points) as rank,
-       argMax(ranking_date, points) as date
-FROM atp.players
-JOIN atp.rankings ON rankings.player = players.player_id
-GROUP BY ALL
-ORDER BY maxPoints DESC
+%%sql --save tips_by_neighborhood --no-execute
+SELECT pickup_ntaname AS neighborhood,
+       count() AS trips,
+       round(avg(tip_amount), 2) AS avg_tip
+FROM taxi.trips
+WHERE fare_amount > 0 AND pickup_ntaname != ''
+GROUP BY neighborhood
+ORDER BY avg_tip DESC
 ```
 
 When we run a saved query it will be converted into a Common Table Expression (CTE) before executing.
-In the following query we compute the maximum points achieved by players when they were ranked 1:
+In the following query we compute the neighborhoods with the highest average tip:
 
 ```python
-%sql select * FROM best_points WHERE rank=1
+%sql SELECT * FROM tips_by_neighborhood ORDER BY avg_tip DESC LIMIT 5
 ```
 
 ```text
-+-------------+-----------+-----------+------+------------+
-|  name_first | name_last | maxPoints | rank |    date    |
-+-------------+-----------+-----------+------+------------+
-|    Novak    |  Djokovic |   16950   |  1   | 2016-06-06 |
-|    Rafael   |   Nadal   |   15390   |  1   | 2009-04-20 |
-|     Andy    |   Murray  |   12685   |  1   | 2016-11-21 |
-|    Roger    |  Federer  |   12315   |  1   | 2012-10-29 |
-|    Carlos   |  Alcaraz  |    9815   |  1   | 2023-08-21 |
-|     Pete    |  Sampras  |    5792   |  1   | 1997-08-11 |
-|    Andre    |   Agassi  |    5652   |  1   | 1995-08-21 |
-|   Lleyton   |   Hewitt  |    5205   |  1   | 2002-08-12 |
-|   Gustavo   |  Kuerten  |    4750   |  1   | 2001-09-10 |
-| Juan Carlos |  Ferrero  |    4570   |  1   | 2003-10-20 |
-|    Stefan   |   Edberg  |    3997   |  1   | 1991-02-25 |
-|     Jim     |  Courier  |    3973   |  1   | 1993-08-23 |
-|     Ivan    |   Lendl   |    3420   |  1   | 1990-02-26 |
-|     Ilie    |  Nastase  |     0     |  1   | 1973-08-27 |
-+-------------+-----------+-----------+------+------------+
++-----------------------------------+-------+---------+
+|            neighborhood           | trips | avg_tip |
++-----------------------------------+-------+---------+
+| New Springville-Bloomfield-Travis |   2   |   35.0  |
+|       New Dorp-Midland Beach      |   2   |  23.74  |
+|      New Brighton-Silver Lake     |   3   |  16.67  |
+|           Newark Airport          |  201  |  11.89  |
+|   Grymes Hill-Clifton-Fox Hills   |   1   |   11.3  |
++-----------------------------------+-------+---------+
 ```
+
+The top entries are neighborhoods with only a handful of trips, so a single generous ride skews the average.
+Let's filter those out.
 
 ## Querying with parameters
 We can also use parameters in our queries.
 Parameters are just normal variables:
 
 ```python
-rank = 10
+min_trips = 10000
 ```
 
 And then we can use the `{{variable}}` syntax in our query.
-The following query finds the players who had the least number of days between when they first had a ranking in the top 10 and last had a ranking in the top 10:
+The following query finds the neighborhoods with the highest average tip among those with more than 10,000 trips:
 
 ```python
 %%sql
-SELECT name_first, name_last,
-       MIN(ranking_date) AS earliest_date,
-       MAX(ranking_date) AS most_recent_date,
-       most_recent_date - earliest_date AS days,
-       1 + (days/7) AS weeks
-FROM atp.rankings
-JOIN atp.players ON players.player_id = rankings.player
-WHERE rank <= {{rank}}
-GROUP BY ALL
-ORDER BY days
+SELECT * FROM tips_by_neighborhood
+WHERE trips >= {{min_trips}}
+ORDER BY avg_tip DESC
 LIMIT 10
 ```
 
 ```text
-+------------+-----------+---------------+------------------+------+-------+
-| name_first | name_last | earliest_date | most_recent_date | days | weeks |
-+------------+-----------+---------------+------------------+------+-------+
-|    Alex    | Metreveli |   1974-06-03  |    1974-06-03    |  0   |   1   |
-|   Mikael   |  Pernfors |   1986-09-22  |    1986-09-22    |  0   |   1   |
-|   Felix    |  Mantilla |   1998-06-08  |    1998-06-08    |  0   |   1   |
-|   Wojtek   |   Fibak   |   1977-07-25  |    1977-07-25    |  0   |   1   |
-|  Thierry   |  Tulasne  |   1986-08-04  |    1986-08-04    |  0   |   1   |
-|   Lucas    |  Pouille  |   2018-03-19  |    2018-03-19    |  0   |   1   |
-|    John    | Alexander |   1975-12-15  |    1975-12-15    |  0   |   1   |
-|  Nicolas   |   Massu   |   2004-09-13  |    2004-09-20    |  7   |   2   |
-|   Arnaud   |  Clement  |   2001-04-02  |    2001-04-09    |  7   |   2   |
-|  Ernests   |   Gulbis  |   2014-06-09  |    2014-06-23    |  14  |   3   |
-+------------+-----------+---------------+------------------+------+-------+
++----------------------------------------+--------+---------+
+|              neighborhood              | trips  | avg_tip |
++----------------------------------------+--------+---------+
+|                Airport                 | 151171 |   4.92  |
+|   Battery Park City-Lower Manhattan    | 89110  |   2.16  |
+|         North Side-South Side          | 11152  |   1.79  |
+| SoHo-TriBeCa-Civic Center-Little Italy | 144887 |   1.65  |
+|               Chinatown                | 54780  |   1.65  |
+|            Lower East Side             | 15753  |   1.64  |
+|              East Village              | 99881  |   1.61  |
+|  Hunters Point-Sunnyside-West Maspeth  | 10054  |   1.58  |
+|        Turtle Bay-East Midtown         | 197035 |   1.57  |
+|              West Village              | 210369 |   1.54  |
++----------------------------------------+--------+---------+
 ```
+
+Airport pickups tip the most by a wide margin — those long rides into the city add up.
 
 ## Plotting histograms
 JupySQL also has limited charting functionality.
 We can create box plots or histograms.
 
-We're going to create a histogram, but first let's write (and save) a query that computes the rankings within the top 100 that each player has achieved.
-We'll be able to use this to create a histogram that counts how many players achieved each ranking:
+We're going to create a histogram, but first let's write (and save) a query that returns the distance of each trip under 20 miles.
+We'll be able to use this to create a histogram that counts how many trips fall into each distance bucket:
 
 ```python
-%%sql --save players_per_rank --no-execute
-select distinct player, rank
-FROM atp.rankings
-WHERE rank <= 100
+%%sql --save trip_distances --no-execute
+SELECT trip_distance
+FROM taxi.trips
+WHERE trip_distance > 0 AND trip_distance < 20
 ```
 
 We can then create a histogram by running the following:
@@ -10588,12 +10746,17 @@ from sql.ggplot import ggplot, geom_histogram, aes
 
 plot = (
   ggplot(
-    table="players_per_rank",
-    with_="players_per_rank",
-    mapping=aes(x="rank", fill="#69f0ae", color="#fff"),
-  ) + geom_histogram(bins=100)
+    table="trip_distances",
+    with_="trip_distances",
+    mapping=aes(x="trip_distance", fill="#69f0ae", color="#fff"),
+  ) + geom_histogram(bins=50)
 )
 ```
+
+Most trips are short hops of one to three miles, with a long tail stretching out towards the airport runs.
+
+## Related
+- [Intro to JupySQL with chDB (YouTube)](https://www.youtube.com/watch?v=2wjl3OijCto)
 
 ---
 
@@ -10619,14 +10782,15 @@ from chdb import datastore as pd
 That's it! Most pandas code works unchanged.
 
 ## Step-by-Step Migration
-<VerticalStepper headerLevel="h3">
+<Steps>
+<Step title="Install chDB" id="step-1">
 
-### Install chDB
 ```bash
 pip install "chdb>=4.0"
 ```
+</Step>
+<Step title="Change the Import" id="step-2">
 
-### Change the Import
 ```python
 # Change this:
 import pandas as pd
@@ -10634,8 +10798,9 @@ import pandas as pd
 # To this:
 from chdb import datastore as pd
 ```
+</Step>
+<Step title="Test Your Code" id="step-3">
 
-### Test Your Code
 Run your existing code. Most operations work unchanged:
 
 ```python
@@ -10647,11 +10812,12 @@ result = df[df['age'] > 25]
 grouped = df.groupby('city')['salary'].mean()
 df.to_csv("output.csv")
 ```
+</Step>
+<Step title="Handle Any Differences" id="step-4">
 
-### Handle Any Differences
 A few operations behave differently. See [Key Differences](#differences) below.
-
-</VerticalStepper>
+</Step>
+</Steps>
 
 ---
 
@@ -10949,7 +11115,7 @@ import pandas as pd
 # DataStore to pandas
 df = ds_result.to_pandas()
 
-# pandas to DataStore  
+# pandas to DataStore
 ds = ds.DataFrame(pd_result)
 ```
 
@@ -11905,11 +12071,13 @@ def complex_function(row):
 df['result'] = df.apply(complex_function, axis=1)
 ```
 
-:::note Important
+<Info>
+**Important**
+
 Even in scenarios where DataStore is "slower", performance is typically **on par with pandas** - the difference is negligible for practical use. DataStore's advantages in complex operations far outweigh these edge cases.
 
 For fine-grained control over execution, see [Execution Engine Configuration](https://clickhouse.com/docs/chdb/configuration/execution-engine).
-:::
+</Info>
 
 ---
 
@@ -12105,11 +12273,11 @@ print(f"Approach 2: {time2:.0f}ms")
 | Custom Python lambda functions | Use pandas or convert late |
 | Very small data (&lt;1,000 rows) | Either (negligible difference) |
 
-:::tip
+<Tip>
 For automatic optimal engine selection, use `config.set_execution_engine('auto')` (default).
 For maximum throughput on aggregation workloads, use `config.use_performance_mode()`.
 See [Execution Engine](https://clickhouse.com/docs/chdb/configuration/execution-engine) and [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode) for details.
-:::
+</Tip>
 
 ---
 
@@ -12227,8 +12395,8 @@ df.groupby('city').agg({
 })
 
 # SQL
-SELECT city, 
-       SUM(sales) AS sales_sum, 
+SELECT city,
+       SUM(sales) AS sales_sum,
        AVG(sales) AS sales_mean,
        SUM(quantity) AS quantity_sum
 FROM data
@@ -12351,7 +12519,7 @@ result = (df
 
 ### Equivalent SQL
 ```sql
-SELECT 
+SELECT
     region,
     category,
     SUM(amount) AS amount_sum,
@@ -12436,6 +12604,334 @@ ds.groupby('region').agg({
 
 ---
 
+# Python user-defined functions (UDF)
+
+**URL:** https://clickhouse.com/docs/chdb/guides/python-udf
+
+Create native Python UDFs in chDB with typed arguments, NULL handling, and exception control.
+
+chDB allows you to register Python functions as SQL-callable UDFs. These run natively in-process — no subprocess spawning, no serialization overhead. Functions are type-safe, support automatic type inference from Python annotations, and offer configurable NULL and exception handling.
+
+## Quick start
+```python
+from chdb import query, func
+from chdb.sqltypes import INT64
+
+@func([INT64, INT64], INT64)
+def add(a, b):
+    return a + b
+
+result = query("SELECT add(2, 3)")
+print(result)  # 5
+```
+
+<Note>
+Examples in this guide run `query()` with the default CSV output format. Inline comments show the logical result values; the raw output prints `NULL` as `\N` and applies CSV quoting to string and date values (for example `"Hello, world!"`).
+</Note>
+
+## Registration methods
+### `@func` decorator
+The simplest way to register a UDF. The function's `__name__` becomes the SQL function name.
+
+```python
+from chdb import func
+from chdb.sqltypes import INT64, STRING
+
+# Explicit types
+@func([INT64, INT64], INT64)
+def add(a, b):
+    return a + b
+
+# Types inferred from annotations
+@func()
+def multiply(a: int, b: int) -> int:
+    return a * b
+
+# Explicit return_type, arg_types inferred from annotations
+@func(return_type=STRING)
+def greet(name: str):
+    return f"Hello, {name}!"
+```
+
+The decorated function remains callable as normal Python:
+
+```python
+add(2, 3)       # 5 (Python call)
+query("SELECT add(2, 3)")  # 5 (SQL call)
+```
+
+### `create_function`
+Register any callable (lambda, function, method) with an explicit name:
+
+```python
+from chdb import create_function, query
+from chdb.sqltypes import INT64, STRING
+
+create_function("strlen", len, arg_types=[STRING], return_type=INT64)
+query("SELECT strlen('hello')")  # 5
+
+create_function("double", lambda x: x * 2, arg_types=[INT64], return_type=INT64)
+query("SELECT double(21)")  # 42
+```
+
+### `drop_function`
+Remove a registered UDF. Dropping a name that is not registered does nothing, so it is safe to call unconditionally:
+
+```python
+from chdb import drop_function
+
+drop_function("strlen")
+# query("SELECT strlen('hello')")  # Error: function not found
+```
+
+<Note>
+Registering a name that is already registered raises an error — UDFs are not silently replaced. Call `drop_function(name)` first to re-register a function, for example when re-running a notebook cell.
+</Note>
+
+## Type system
+### Available types
+All types are importable from `chdb.sqltypes`:
+
+```python
+from chdb.sqltypes import (
+    # Boolean
+    BOOL,
+    # Signed integers
+    INT8, INT16, INT32, INT64, INT128, INT256,
+    # Unsigned integers
+    UINT8, UINT16, UINT32, UINT64, UINT128, UINT256,
+    # Floating point
+    FLOAT32, FLOAT64,
+    # String
+    STRING,
+    # Date and time
+    DATE, DATE32, DATETIME, DATETIME64,
+)
+```
+
+### Specifying types
+Types can be provided in four ways:
+
+| Method | Example | Description |
+|--------|---------|-------------|
+| `ChdbType` constant | `INT64`, `STRING` | Imported from `chdb.sqltypes` |
+| ClickHouse type string | `"Int64"`, `"String"` | Standard ClickHouse type names |
+| Parameterized string | `"DateTime('UTC')"`, `"DateTime64(6)"` | For types with parameters |
+| Python type | `int`, `str`, `float` | Passed directly in `arg_types`/`return_type`, or used as type annotations in the function signature |
+
+```python
+from chdb import create_function, func
+from chdb.sqltypes import INT64
+
+# All equivalent:
+create_function("f1", lambda x: x * 2, arg_types=[INT64], return_type=INT64)
+create_function("f2", lambda x: x * 2, arg_types=["Int64"], return_type="Int64")
+create_function("f3", lambda x: x * 2, arg_types=[int], return_type=int)
+
+@func()
+def f4(x: int) -> int:
+    return x * 2
+```
+
+### Automatic type inference
+When `arg_types` or `return_type` is omitted, chDB infers types from Python type annotations:
+
+| Python Type | ClickHouse Type |
+|-------------|-----------------|
+| `bool` | `Bool` |
+| `int` | `Int64` |
+| `float` | `Float64` |
+| `str` | `String` |
+| `bytes` | `String` |
+| `bytearray` | `String` |
+| `datetime.date` | `Date` |
+| `datetime.datetime` | `DateTime64(6)` |
+
+```python
+@func()
+def process(name: str, age: int) -> str:
+    return f"{name} is {age} years old"
+
+# Equivalent to:
+# @func([STRING, INT64], STRING)
+```
+
+<Note>
+If `arg_types` is provided explicitly, it must cover **all** parameters — partial explicit + partial inferred is not supported. This applies to both `create_function` and the `@func` decorator: either specify types for all parameters, or omit them entirely and let chDB infer from annotations.
+</Note>
+
+A return type is always required: if `return_type` is omitted and the function has no return annotation, registration fails. Argument types, by contrast, are optional — a parameter with neither an explicit type nor an annotation accepts any supported input type dynamically.
+
+## NULL handling
+The `on_null` parameter controls behavior when any input argument is NULL.
+
+| Value | Behavior |
+|-------|----------|
+| `"skip"` (default) | Return NULL immediately without calling the function |
+| `"pass"` | Convert NULL to Python `None` and call the function normally |
+
+You can also use the enum: `chdb.NullHandling.SKIP` / `chdb.NullHandling.PASS`.
+
+### Example: default (skip)
+```python
+@func(return_type="Int64")
+def increment(x: int) -> int:
+    return x + 1
+
+query("SELECT increment(NULL)")  # NULL
+query("SELECT increment(5)")     # 6
+```
+
+### Example: pass NULL as `None`
+```python
+@func(return_type="Int64", on_null="pass")
+def null_to_zero(x):
+    return 0 if x is None else x + 1
+
+query("SELECT null_to_zero(NULL)")  # 0
+query("SELECT null_to_zero(5)")     # 6
+```
+
+### Example: multiple arguments
+```python
+@func(arg_types=["Int64", "Int64"], return_type="Int64", on_null="pass")
+def add_or_zero(a, b):
+    return (a or 0) + (b or 0)
+
+query("SELECT add_or_zero(NULL, 5)")    # 5
+query("SELECT add_or_zero(NULL, NULL)") # 0
+query("SELECT add_or_zero(3, 7)")       # 10
+```
+
+## Exception handling
+The `on_error` parameter controls behavior when the Python function raises an exception.
+
+| Value | Behavior |
+|-------|----------|
+| `"propagate"` (default) | Raise the exception as a SQL error |
+| `"ignore"` | Catch the exception and return NULL for that row |
+
+You can also use the enum: `chdb.ExceptionHandling.PROPAGATE` / `chdb.ExceptionHandling.IGNORE`.
+
+### Example: default (propagate)
+```python
+@func(arg_types=["Int64", "Int64"], return_type="Int64")
+def divide(a, b):
+    return a // b
+
+query("SELECT divide(10, 2)")  # 5
+query("SELECT divide(1, 0)")   # Error: ZeroDivisionError
+```
+
+### Example: ignore errors
+```python
+@func(arg_types=["Int64", "Int64"], return_type="Int64", on_error="ignore")
+def safe_divide(a, b):
+    return a // b
+
+query("SELECT safe_divide(10, 2)")  # 5
+query("SELECT safe_divide(1, 0)")   # NULL
+```
+
+## Combining NULL and exception handling
+The `on_null` and `on_error` options can be combined:
+
+| on_null | on_error | NULL input | Exception |
+|---------|----------|------------|-----------|
+| `"skip"` | `"propagate"` | Return NULL | Raise error |
+| `"skip"` | `"ignore"` | Return NULL | Return NULL |
+| `"pass"` | `"propagate"` | Call with `None` | Raise error |
+| `"pass"` | `"ignore"` | Call with `None` | Return NULL |
+
+```python
+@func(
+    arg_types=["Int64", "Int64"],
+    return_type="Int64",
+    on_null="pass",
+    on_error="ignore",
+)
+def robust_divide(a, b):
+    if a is None or b is None:
+        return -1
+    return a // b
+
+query("SELECT robust_divide(10, 2)")     # 5
+query("SELECT robust_divide(NULL, 2)")   # -1
+query("SELECT robust_divide(1, 0)")      # NULL (exception caught)
+```
+
+## DateTime and timezone support
+UDFs fully support date and time types with timezone awareness.
+
+### Date types
+```python
+from datetime import date, timedelta
+
+@func()
+def next_day(d: date) -> date:
+    return d + timedelta(days=1)
+
+@func()
+def get_year(d: date) -> int:
+    return d.year
+
+query("SELECT next_day(toDate('2024-06-15'))")  # 2024-06-16
+query("SELECT get_year(toDate('2024-06-15'))")  # 2024
+```
+
+### DateTime with timezones
+```python
+from datetime import timedelta
+
+@func(arg_types=["DateTime('UTC')"], return_type="DateTime('UTC')")
+def add_one_hour(dt):
+    return dt + timedelta(hours=1)
+
+query("SELECT add_one_hour(toDateTime('2024-01-01 12:00:00', 'UTC'))")  # 2024-01-01 13:00:00
+```
+
+### DateTime64 (high precision)
+`DATETIME64` defaults to scale 6 (microseconds):
+
+```python
+from datetime import timedelta
+
+@func(arg_types=["DateTime64(6, 'UTC')"], return_type="DateTime64(6, 'UTC')")
+def add_microsecond(dt):
+    return dt + timedelta(microseconds=1)
+
+query("SELECT add_microsecond(toDateTime64('2024-01-01 12:00:00.000000', 6, 'UTC'))")  # 2024-01-01 12:00:00.000001
+```
+
+<Note>
+- Input `DateTime`/`DateTime64` values carry timezone info from ClickHouse
+- Output `datetime` objects preserve timezone info
+- Timezone conversion is handled automatically
+</Note>
+
+## Using UDFs with sessions
+UDFs are registered globally and available across all sessions in the same process:
+
+```python
+from chdb import session as chs, func
+from chdb.sqltypes import INT64
+
+@func([INT64], INT64)
+def double(x):
+    return x * 2
+
+sess = chs.Session()
+sess.query("CREATE TABLE t (x Int64) ENGINE = Memory")
+sess.query("INSERT INTO t VALUES (1), (2), (3)")
+result = sess.query("SELECT double(x) FROM t ORDER BY x", "CSV")
+print(result)
+# 2
+# 4
+# 6
+```
+
+---
+
 # How to query a remote ClickHouse server
 
 **URL:** https://clickhouse.com/docs/chdb/guides/query-remote-clickhouse
@@ -12491,15 +12987,15 @@ We're going to query ClickPy using the `remoteSecure` function.
 This function takes in a host name, table name, and username at a minimum.
 
 We can write the following query to return the number of downloads per day of the [`openai` package](https://clickpy.clickhouse.com/dashboard/openai) as a Pandas DataFrame:
- 
+
 ```python
 query = """
 SELECT
     toStartOfDay(date)::Date32 AS x,
     sum(count) AS y
 FROM remoteSecure(
-  'clickpy-clickhouse.clickhouse.com', 
-  'pypi.pypi_downloads_per_day', 
+  'clickpy-clickhouse.clickhouse.com',
+  'pypi.pypi_downloads_per_day',
   'play'
 )
 WHERE project = 'openai'
@@ -12533,8 +13029,8 @@ SELECT
     toStartOfDay(date)::Date32 AS x,
     sum(count) AS y
 FROM remoteSecure(
-  'clickpy-clickhouse.clickhouse.com', 
-  'pypi.pypi_downloads_per_day', 
+  'clickpy-clickhouse.clickhouse.com',
+  'pypi.pypi_downloads_per_day',
   'play'
 )
 WHERE project = 'scikit-learn'
@@ -12565,8 +13061,8 @@ We now have two DataFrames, which we can merge together based on date (which is 
 
 ```python
 df = openai_df.merge(
-  sklearn_df, 
-  on="x", 
+  sklearn_df,
+  on="x",
   suffixes=("_openai", "_sklearn")
 )
 df.head(n=5)
@@ -12598,7 +13094,7 @@ df.head(n=5)
 ```
 
 ## Querying Pandas DataFrames
-Next, let's say we want to find the dates with the best and worst ratios. 
+Next, let's say we want to find the dates with the best and worst ratios.
 We can go back to chDB and compute those values:
 
 ```python
@@ -12667,9 +13163,9 @@ aws s3 cp \
   s3://ookla-open-data/parquet/performance/type=mobile/year=2023/quarter=2/2023-04-01_performance_mobile_tiles.parquet .
 ```
 
-:::note
+<Note>
 If you want to download more files, use `aws s3 ls` to get a list of all the files and then update the above command.
-:::
+</Note>
 
 Next, we'll import the Parquet module from the `pyarrow` package:
 
@@ -12756,7 +13252,7 @@ chdb.query("SELECT count() FROM Python(arrow_table)", "DataFrame")
 0  3864546
 ```
 
-Now, let's do something a bit more interesting. 
+Now, let's do something a bit more interesting.
 The following query excludes the `quadkey` and `tile.*` columns and then computes the average and max values for all remaining column:
 
 ```python
@@ -12943,7 +13439,7 @@ Name: 0, dtype: object
 ```
 
 ## Querying Pandas DataFrames
-Next, let's see how to query these DataFrames using chDB. 
+Next, let's see how to query these DataFrames using chDB.
 We'll import the library:
 
 ```python
@@ -13122,7 +13618,7 @@ Then, create an `events` table based on `events_df`:
 ```python
 sess.query("""
 CREATE TABLE statsbomb.events ORDER BY id AS
-SELECT * 
+SELECT *
 FROM Python(events_df)
 """)
 ```
@@ -13224,20 +13720,20 @@ ipython
 You can also use the code in a Python script or in your favorite notebook.
 
 ## Exploring Parquet metadata
-We're going to explore a Parquet file from the [Amazon reviews](https://clickhouse.com/docs/getting-started/example-datasets/amazon-reviews) dataset.
+We're going to explore a Parquet file from the [Amazon reviews](https://clickhouse.com/docs/get-started/sample-datasets/amazon-reviews) dataset.
 But first, let's install `chDB`:
 
 ```python
 import chdb
 ```
 
-When querying Parquet files, we can use the [`ParquetMetadata`](https://clickhouse.com/docs/interfaces/formats/ParquetMetadata) input format to have it return Parquet metadata rather than the content of the file.
+When querying Parquet files, we can use the [`ParquetMetadata`](https://clickhouse.com/docs/reference/formats/Parquet/ParquetMetadata) input format to have it return Parquet metadata rather than the content of the file.
 Let's use the `DESCRIBE` clause to see the fields returned when we use this format:
 
 ```python
 query = """
 DESCRIBE s3(
-  'https://datasets-documentation.s3.eu-west-3.amazonaws.com/amazon_reviews/amazon_reviews_2015.snappy.parquet', 
+  'https://datasets-documentation.s3.eu-west-3.amazonaws.com/amazon_reviews/amazon_reviews_2015.snappy.parquet',
   ParquetMetadata
 )
 SETTINGS describe_compact_output=1
@@ -13265,7 +13761,7 @@ Let's have now have a look at the metadata for this file.
 query = """
 SELECT * EXCEPT(columns, row_groups)
 FROM s3(
-  'https://datasets-documentation.s3.eu-west-3.amazonaws.com/amazon_reviews/amazon_reviews_2015.snappy.parquet', 
+  'https://datasets-documentation.s3.eu-west-3.amazonaws.com/amazon_reviews/amazon_reviews_2015.snappy.parquet',
   ParquetMetadata
 )
 """
@@ -13302,7 +13798,7 @@ WITH rowGroups AS (
     ARRAY JOIN row_groups AS rg
     LIMIT 1
 )
-SELECT tupleElement(c, 'name') AS name, tupleElement(c, 'total_compressed_size') AS total_compressed_size, 
+SELECT tupleElement(c, 'name') AS name, tupleElement(c, 'total_compressed_size') AS total_compressed_size,
        tupleElement(c, 'total_uncompressed_size') AS total_uncompressed_size,
        tupleElement(tupleElement(c, 'statistics'), 'min') AS min,
        tupleElement(tupleElement(c, 'statistics'), 'max') AS max
@@ -13402,14 +13898,14 @@ ipython
 You can also use the code in a Python script or in your favorite notebook.
 
 ## Listing files in an S3 bucket
-Let's start by listing all the files in [an S3 bucket that contains Amazon reviews](https://clickhouse.com/docs/getting-started/example-datasets/amazon-reviews).
-To do this, we can use the [`s3` table function](https://clickhouse.com/docs/sql-reference/table-functions/s3) and pass in the path to a file or a wildcard to a set of files.
+Let's start by listing all the files in [an S3 bucket that contains Amazon reviews](https://clickhouse.com/docs/get-started/sample-datasets/amazon-reviews).
+To do this, we can use the [`s3` table function](https://clickhouse.com/docs/reference/functions/table-functions/s3) and pass in the path to a file or a wildcard to a set of files.
 
-:::tip
+<Tip>
 If you pass just the bucket name it will throw an exception.
-:::
+</Tip>
 
-We're also going to use the [`One`](https://clickhouse.com/docs/interfaces/formats/One) input format so that the file isn't parsed, instead a single row is returned per file and we can access the file via the `_file` virtual column and the path via the `_path` virtual column.
+We're also going to use the [`One`](https://clickhouse.com/docs/reference/formats/One) input format so that the file isn't parsed, instead a single row is returned per file and we can access the file via the `_file` virtual column and the path via the `_path` virtual column.
 
 ```python
 import chdb
@@ -13447,7 +13943,7 @@ chdb.query("""
 SELECT
     _file,
     count() AS count,
-    formatReadableQuantity(count) AS readableCount    
+    formatReadableQuantity(count) AS readableCount
 FROM s3('s3://datasets-documentation/amazon_reviews/*.parquet')
 GROUP BY ALL
 SETTINGS output_format_pretty_row_numbers=0
@@ -13474,7 +13970,7 @@ chdb.query("""
 SELECT
     _file,
     count() AS count,
-    formatReadableQuantity(count) AS readableCount    
+    formatReadableQuantity(count) AS readableCount
 FROM s3('https://datasets-documentation.s3.eu-west-3.amazonaws.com/amazon_reviews/*.parquet')
 GROUP BY ALL
 SETTINGS output_format_pretty_row_numbers=0
@@ -13549,11 +14045,11 @@ LIMIT 10
 """, 'PrettyCompact')
 ```
 
-:::note
+<Note>
 This query won't work because it's a public bucket!
-:::
+</Note>
 
-An alternative way is to used [named collections](https://clickhouse.com/docs/operations/named-collections), but this approach isn't yet supported by chDB.
+An alternative way is to used [named collections](https://clickhouse.com/docs/concepts/features/configuration/server-config/named-collections), but this approach isn't yet supported by chDB.
 
 ---
 
@@ -13827,9 +14323,11 @@ result = ds.filter(ds['date'] >= '2024-01-01').to_df()
 config.use_performance_mode()
 ```
 
-:::tip Performance Mode
+<Tip>
+**Performance Mode**
+
 If you are running heavy aggregation workloads and don't need exact pandas output compatibility (row order, MultiIndex, dtype corrections), consider using [Performance Mode](https://clickhouse.com/docs/chdb/configuration/performance-mode). It automatically sets the engine to `chdb` and removes all pandas compatibility overhead.
-:::
+</Tip>
 
 ---
 
@@ -13887,7 +14385,7 @@ ds = pd.read_csv("data.csv")
 # length() will use chdb
 ds['name_len'] = ds['name'].str.len()
 
-# substring() will use chdb  
+# substring() will use chdb
 ds['prefix'] = ds['name'].str.slice(0, 3)
 
 # upper() will use pandas
@@ -14389,9 +14887,9 @@ use_performance_mode()
 use_pandas_compat()
 ```
 
-:::note
+<Note>
 Setting performance mode automatically sets the execution engine to `chdb`. You do not need to call `config.use_chdb()` separately.
-:::
+</Note>
 
 ---
 
@@ -14683,7 +15181,7 @@ Operations that compile to SQL:
 
 ```text
   1. Source: file('sales.csv', 'CSVWithNames')
-  2. Filter: amount > 1000      
+  2. Filter: amount > 1000
   3. GroupBy: region
   4. Aggregate: sum(amount)
 ```
@@ -14851,9 +15349,9 @@ Operations:
 Generated SQL Query:
 ────────────────────────────────────────────────────────────────────────────────
 
-SELECT region, category, 
-       SUM(amount) AS sum, 
-       AVG(amount) AS mean, 
+SELECT region, category,
+       SUM(amount) AS sum,
+       AVG(amount) AS mean,
        COUNT(amount) AS count
 FROM file('sales.csv', 'csv')
 WHERE "date" >= '2024-01-01' AND "amount" > 100
@@ -15444,7 +15942,7 @@ DEBUG - Building filter: age > 25
 DEBUG - Building groupby: city
 DEBUG - Building aggregation: sum
 DEBUG - Generated SQL:
-        SELECT city, SUM(*) 
+        SELECT city, SUM(*)
         FROM file('data.csv', 'CSVWithNames')
         WHERE age > 25
         GROUP BY city
@@ -16020,7 +16518,7 @@ The supported data formats from ClickHouse are:
 | Markdown                        | ✗     | ✔      |
 | Form                            | ✔     | ✗      |
 
-For further information and examples, see [ClickHouse formats for input and output data](https://clickhouse.com/docs/interfaces/formats).
+For further information and examples, see [ClickHouse formats for input and output data](https://clickhouse.com/docs/reference/formats/index).
 
 ---
 
@@ -16034,6 +16532,7 @@ Data Formats for chDB
 |----------------------|
 | [Data Formats](https://clickhouse.com/docs/chdb/reference/data-formats)  |
 | [SQL Reference](https://clickhouse.com/docs/chdb/reference/sql-reference) |
+| [Python API Reference](https://clickhouse.com/docs/chdb/api/python) |
 
 ---
 
@@ -16047,16 +16546,16 @@ chdb supports the same SQL syntax, statements, engines and functions as ClickHou
 
 | Topic                      |
 |----------------------------|
-| [SQL Syntax](https://clickhouse.com/docs/sql-reference/syntax)          |
-| [Statements](https://clickhouse.com/docs/sql-reference/statements)          |
-| [Table Engines](https://clickhouse.com/docs/engines/table-engines)       |
-| [Database Engines](https://clickhouse.com/docs/engines/database-engines)    |
-| [Regular Functions](https://clickhouse.com/docs/sql-reference/functions)   |
-| [Aggregate Functions](https://clickhouse.com/docs/sql-reference/aggregate-functions) |
-| [Table Functions](https://clickhouse.com/docs/sql-reference/table-functions)     | 
-| [Window Functions](https://clickhouse.com/docs/sql-reference/window-functions)    |
+| [SQL Syntax](https://clickhouse.com/docs/reference/syntax)          |
+| [Statements](https://clickhouse.com/docs/reference/statements/index)          |
+| [Table Engines](https://clickhouse.com/docs/reference/engines/table-engines/index)       |
+| [Database Engines](https://clickhouse.com/docs/reference/engines/database-engines/index)    |
+| [Regular Functions](https://clickhouse.com/docs/reference/functions/index)   |
+| [Aggregate Functions](https://clickhouse.com/docs/reference/functions/aggregate-functions/index) |
+| [Table Functions](https://clickhouse.com/docs/reference/functions/table-functions/index)     |
+| [Window Functions](https://clickhouse.com/docs/reference/functions/window-functions/index)    |
 
-For further information and examples, see the [ClickHouse SQL Reference](https://clickhouse.com/docs/sql-reference).
+For further information and examples, see the [ClickHouse SQL Reference](https://clickhouse.com/docs/reference/home).
 
 ---
 
@@ -16410,11 +16909,11 @@ Accessors (via .str, .dt, .arr, etc.)
 ```
 User Code                    Lazy Building                 Execution
 ─────────────────────────────────────────────────────────────────────
-ds['age']                    → ColumnExpr                  
-  .filter(ds.age > 25)       → DataStore (SQL WHERE)      
-  .str.upper()               → ColumnExpr                  
-  .groupby('dept')           → LazyGroupBy                 
-  .mean()                    → LazySeries                  
+ds['age']                    → ColumnExpr
+  .filter(ds.age > 25)       → DataStore (SQL WHERE)
+  .str.upper()               → ColumnExpr
+  .groupby('dept')           → LazyGroupBy
+  .mean()                    → LazySeries
   .values                    ──────────────────────────────→ Execute!
                                                               ↓
                                                            Config check
@@ -16545,7 +17044,7 @@ When encountering an error:
 
 1. **Categorize**: Is this a user error, library bug, or missing feature?
 
-2. **Analyze**: 
+2. **Analyze**:
    - Check if similar operations work
    - Review the execution path
    - Identify where it diverges from expected behavior
@@ -16842,7 +17341,7 @@ sess.cleanup(); // cleanup session, this will delete the database
 ```
 
 ```bash
-chdb-io/chdb-go [main] » ./chdb-go 
+chdb-io/chdb-go [main] » ./chdb-go
 Enter your SQL commands; type 'exit' to quit.
  :) CREATE DATABASE IF NOT EXISTS testdb;
 
@@ -17047,6 +17546,27 @@ cargo test -- --test-threads=1
 - **Detailed documentation**: See [docs/examples.md](https://github.com/chdb-io/chdb-rust/blob/main/docs/examples.md) for comprehensive examples and explanations
 - **Test examples**: See [tests/](https://github.com/chdb-io/chdb-rust/blob/main/tests) directory for additional usage examples
 
+## Arrow Bulk Insert
+
+Apache Arrow bulk insert is enabled by default via the `arrow` feature (Arrow 59). Import Arrow types through `chdb_rust::arrow` so your `RecordBatch` types match the crate:
+
+```rust
+use chdb_rust::arrow::array::{Int64Array, RecordBatch};
+use chdb_rust::arrow::datatypes::{DataType, Field, Schema};
+```
+
+SQL-only users can disable it to avoid building Arrow:
+
+```toml
+chdb-rust = { version = "1.4", default-features = false }
+```
+
+See [docs/examples.md](https://github.com/chdb-io/chdb-rust/blob/main/docs/examples.md#fast-bulk-inserts-arrow) for usage, or run:
+
+```bash
+cargo run --example 08_arrow_insert
+```
+
 ## Contributing
 
 We welcome contributions! Here's how you can help:
@@ -17087,7 +17607,7 @@ We welcome contributions! Here's how you can help:
 - **Testing**: Add tests for new features and ensure all existing tests pass
 - **Documentation**: Update relevant documentation for user-facing changes
 - **Commit Messages**: Write clear, descriptive commit messages
-- **Pull Requests**: 
+- **Pull Requests**:
   - Provide a clear description of your changes
   - Reference any related issues
   - Ensure CI checks pass

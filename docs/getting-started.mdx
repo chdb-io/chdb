@@ -145,7 +145,7 @@ This is fine to do with variables defined in your program, but don't do it with 
 ## Configuring the output format {#configuring-the-output-format}
 
 The default output format is `CSV`, but we can change that via the `output_format` parameter. 
-chDB supports the ClickHouse data formats, as well as [some of its own](/products/chdb/reference/data-formats), including `DataFrame`, which returns a Pandas DataFrame:
+chDB supports the ClickHouse data formats, as well as [some of its own](/chdb/reference/data-formats), including `DataFrame`, which returns a Pandas DataFrame:
 
 ```python
 result = chdb.query(
@@ -218,7 +218,7 @@ sess.query("CREATE DATABASE IF NOT EXISTS youtube")
 ```
 
 Now we can create a `dislikes` table based on the schema from the JSON file, using the `CREATE...EMPTY AS` technique.
-We'll use the [`schema_inference_make_columns_nullable`](/reference/settings/formats#schema_inference_make_columns_nullable) setting so that column types aren't all made `Nullable`.
+We'll use the [`schema_inference_make_columns_nullable`](/reference/settings/formats/schema-inference#schema_inference_make_columns_nullable) setting so that column types aren't all made `Nullable`.
 
 ```python
 sess.query(f"""
@@ -366,14 +366,14 @@ chdb.query(
 9                    RC Cars OFF Road          2.051021
 ```
 
-You can also read more about querying Pandas DataFrames in the [Querying Pandas developer guide](/products/chdb/guides/querying-pandas).
+You can also read more about querying Pandas DataFrames in the [Querying Pandas developer guide](/chdb/guides/querying-pandas).
 
 ## Next steps {#next-steps}
 
 Hopefully, this guide has given you a good overview of chDB. 
 To learn more about how to use it, see the following developer guides:
 
-* [Querying Pandas DataFrames](/products/chdb/guides/querying-pandas)
-* [Querying Apache Arrow](/products/chdb/guides/querying-apache-arrow)
-* [Using chDB in JupySQL](/products/chdb/guides/jupysql)
-* [Using chDB with an existing clickhouse-local database](/products/chdb/guides/clickhouse-local)
+* [Querying Pandas DataFrames](/chdb/guides/querying-pandas)
+* [Querying Apache Arrow](/chdb/guides/querying-apache-arrow)
+* [Using chDB in JupySQL](/chdb/guides/jupysql)
+* [Using chDB with an existing clickhouse-local database](/chdb/guides/clickhouse-local)

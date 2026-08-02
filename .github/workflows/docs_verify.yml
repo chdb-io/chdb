@@ -1,10 +1,8 @@
 name: 'Verify Docs'
 
-# Validates docs/ as a drop-in replacement for the docs/products/chdb slice
-# of the aggregated ClickHouse docs — the same mechanism clickhouse-connect
-# uses for its slice. While docs/ is still a staging snapshot (see
-# docs/README.md) this simply proves the pipeline; once docs/ becomes the
-# source of truth it is the pre-merge gate for every docs change.
+# Validates docs/ as a drop-in replacement for the docs/chdb slice of the
+# aggregated ClickHouse docs. This is the pre-merge gate for the source tree
+# mirrored by docs_sync.yml.
 
 on:
   pull_request:
@@ -31,7 +29,7 @@ jobs:
       image: clickhouse/docs-builder
     steps:
       - name: Checkout chdb
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Fetch the check driver from ClickHouse/ClickHouse rather than vendoring
       # it. The driver shallow/sparse-clones the aggregator docs plus its CI
@@ -42,7 +40,7 @@ jobs:
             https://raw.githubusercontent.com/ClickHouse/ClickHouse/master/ci/jobs/scripts/docs/mintlify_docs_check.py
 
       # Only page content ships to the aggregator: README.md is this repo's
-      # staging notice and _static/ holds images pinned to frozen public URLs
+      # contributor guide and _static/ holds images pinned to frozen public URLs
       # (org profile, PyPI release pages) — neither is part of the docs slice.
       # This filter is the same whitelist the future sync workflow will use.
       - name: Stage the publishable slice
@@ -60,5 +58,5 @@ jobs:
           python3 /tmp/mintlify_docs_check.py \
             --repo https://github.com/ClickHouse/ClickHouse.git \
             --ref master \
-            --replace /tmp/docs-slice:products/chdb \
+            --replace /tmp/docs-slice:chdb \
             --scoped

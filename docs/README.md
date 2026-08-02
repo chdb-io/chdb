@@ -1,27 +1,26 @@
-# chDB docs — staging copy (not yet the source of truth)
+# chDB documentation
 
-This directory holds a snapshot of the official chDB documentation in its
-published form: the `docs/products/chdb` slice of the aggregated docs tree
-in [ClickHouse/ClickHouse](https://github.com/ClickHouse/ClickHouse/tree/master/docs/products/chdb)
-(44 `.mdx` pages + `navigation.json`), taken on 2026-07-08.
+This directory is the source of truth for the chDB documentation published at
+[clickhouse.com/docs/chdb](https://clickhouse.com/docs/chdb). Make chDB content
+changes here rather than in the mirrored
+[`ClickHouse/ClickHouse/docs/chdb`](https://github.com/ClickHouse/ClickHouse/tree/master/docs/chdb)
+directory.
 
-**Do not edit documentation here yet.** Until the docs-platform cutover
-(July 17, 2026) has stabilized, content changes still go through the
-current live pipeline; this copy exists so that structure, tooling, and
-CI checks can be prepared ahead of time:
+## Contributing
 
-- `.github/workflows/docs_verify.yml` validates this directory as a
-  drop-in replacement for the aggregator slice (same mechanism as
-  clickhouse-connect).
-- `scripts/generate_llms_full.py --docs-source local` builds
-  `llms-full.txt` from this directory.
+1. Edit the MDX pages and `navigation.json` in this directory.
+2. Run `python scripts/generate_llms_full.py` and commit the updated
+   `llms-full.txt` when documentation content changes.
+3. Open a pull request. `.github/workflows/docs_verify.yml` validates this
+   directory against the current ClickHouse documentation site configuration.
 
-After the cutover stabilizes, a final re-sync of this snapshot will be
-taken, this directory becomes the single source of truth for chDB docs,
-and changes flow the other way: edits here → sync PR → aggregated docs →
-clickhouse.com/docs/chdb. This notice will be replaced by contributor
-instructions at that point.
+After a documentation pull request is merged, add the `sync-docs` label when
+the change should be published immediately. A published chDB release or a
+manual workflow dispatch also triggers `.github/workflows/docs_sync.yml`.
+That workflow opens or refreshes an automated pull request which mirrors these
+pages into `ClickHouse/ClickHouse/docs/chdb`; merging that pull request deploys
+the content through the normal ClickHouse documentation pipeline.
 
-`_static/` is unrelated to the docs build: it holds images referenced by
-frozen public URLs (org profile, PyPI release pages, notebooks) and is
-excluded from any sync.
+`README.md` and `_static/` are repository-only files and are excluded from the
+published mirror. `_static/` contains images referenced by frozen public URLs
+such as the organization profile, PyPI release pages, and notebooks.

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Generate llms-full.txt: the full chDB documentation corpus in one file.
 
-Pulls every page under docs/chdb from the ClickHouse/clickhouse-docs repo
-(the source the docs site renders at clickhouse.com/docs/chdb), appends
-repo-native references (dev-docs/ARCHITECTURE.md and the language-binding
-READMEs), and writes llms-full.txt at the repo root.
+Reads every page under this repository's docs/ source-of-truth directory,
+appends repo-native references (dev-docs/ARCHITECTURE.md and the
+language-binding READMEs), and writes llms-full.txt at the repo root. A remote
+mode is available for comparing against the ClickHouse/ClickHouse mirror.
 
 Each page becomes a block of:
 
@@ -30,9 +30,9 @@ import sys
 import urllib.request
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DOCS_REPO = "ClickHouse/clickhouse-docs"
+DOCS_REPO = "ClickHouse/ClickHouse"
 DOCS_PREFIX = "docs/chdb"
-DOCS_BRANCH = "main"
+DOCS_BRANCH = "master"
 SITE_BASE = "https://clickhouse.com/docs"
 
 # Pages are emitted in this prefix order so a truncated read still gets the
@@ -108,7 +108,7 @@ def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir="", site_map=None):
     # doc_ctx = (source dir of this docs page, {source path: published slug});
     # file-relative links resolve through the slug map because filenames and
     # published slugs diverge (e.g. guides/querying-pandas.md -> /chdb/guides/pandas).
-    # site_map maps aggregator-internal page paths ('/products/chdb/…', used by
+    # site_map maps aggregator-internal page paths ('/chdb/…', used by
     # the Mintlify sources) to published slugs.
     # Upstream docs occasionally have a non-breaking space after '##', which
     # breaks both markdown rendering and the anchor-stripping below
@@ -156,7 +156,7 @@ def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir="", site_map=None):
             src_dir, slug_by_path = doc_ctx
             if path.startswith("/"):
                 # Site-absolute targets: aggregator-internal page paths
-                # ('/products/chdb/…') map through site_map to their published
+                # ('/chdb/…') map through site_map to their published
                 # slug; '/chdb/x.md' source-file paths map through the slug
                 # table; anything else ('/interfaces/formats') already is a
                 # slug path.
@@ -193,6 +193,7 @@ def clean_body(body, doc_ctx=None, gh_repo=None, gh_dir="", site_map=None):
         )
 
     # Collapse the blank runs the removals leave behind
+    body = re.sub(r"[ \t]+$", "", body, flags=re.MULTILINE)
     body = re.sub(r"\n{3,}", "\n\n", body)
     return body.strip()
 
@@ -211,10 +212,9 @@ def main():
     parser.add_argument(
         "--docs-source",
         choices=["remote", "local"],
-        default="remote",
-        help="remote: fetch the live docs from the ClickHouse docs repo (default"
-        " until this repo's docs/ becomes the source of truth); local: build"
-        " from this repo's docs/ staging tree",
+        default="local",
+        help="local: build from this repo's docs/ source tree (default); "
+        "remote: fetch the mirrored docs from ClickHouse/ClickHouse",
     )
     args = parser.parse_args()
     token = os.environ.get("GITHUB_TOKEN")
@@ -273,12 +273,12 @@ def main():
         page_data.append((path, rel, fm, slug, body))
     slug_by_path = {p: s for p, _, _, s, _ in page_data}
     # The Mintlify sources link pages by aggregator-internal path
-    # ('/products/chdb/<rel>'); map those to published slugs.
+    # ('/chdb/<rel>'); map those to published slugs.
     site_map = {}
     for _, rel, _, slug, _ in page_data:
-        internal = "/products/chdb/" + rel.rsplit(".", 1)[0]
+        internal = "/chdb/" + rel.rsplit(".", 1)[0]
         site_map[internal] = slug  # links may spell out '…/index' explicitly
-        site_map[re.sub(r"/index$", "", internal) or "/products/chdb"] = slug
+        site_map[re.sub(r"/index$", "", internal) or "/chdb"] = slug
 
     for path, rel, fm, slug, body in page_data:
         title = fm.get("title") or slug

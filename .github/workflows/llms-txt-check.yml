@@ -3,6 +3,7 @@ name: llms.txt checks
 on:
   pull_request:
     paths:
+      - "docs/**"
       - "llms.txt"
       - "llms-full.txt"
       - "scripts/generate_llms_full.py"
@@ -19,7 +20,7 @@ jobs:
     name: Every llms.txt / llms-full.txt link resolves
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Check links
         run: |
@@ -57,14 +58,13 @@ jobs:
     name: Coverage vs clickhouse.com/docs/llms.txt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Diff curated links against the docs-site index
         run: |
           set -u
-          # The docs site auto-generates /docs/llms.txt from page frontmatter
-          # (ClickHouse/clickhouse-docs plugins/llms-txt-plugin.ts), so its chdb
-          # entries are the authoritative list of published chDB doc pages.
+          # The docs site auto-generates /docs/llms.txt from page frontmatter,
+          # so its chdb entries are the authoritative list of published pages.
           curl -sL --max-time 60 "https://clickhouse.com/docs/llms.txt" -o /tmp/docs_llms.txt
           if ! grep -q "clickhouse.com/docs/chdb" /tmp/docs_llms.txt; then
             echo "::warning::could not fetch a usable docs llms.txt; skipping coverage diff"
