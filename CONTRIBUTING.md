@@ -237,7 +237,7 @@ artefact in `dist/`.
 - [`dev-docs/ARCHITECTURE.md`](./dev-docs/ARCHITECTURE.md) — high-level
   DataStore architecture
 - [`dev-docs/PANDAS_COMPATIBILITY.md`](./dev-docs/PANDAS_COMPATIBILITY.md)
-- User docs: <https://chdb.readthedocs.io/en/latest/index.html>
+- User docs: <https://clickhouse.com/docs/chdb>
 
-When asked to *use* chDB, the readthedocs site is canonical. When
+When asked to *use* chDB, the ClickHouse documentation site is canonical. When
 asked to *contribute to* chDB, this file is canonical.

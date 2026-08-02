@@ -31,6 +31,33 @@ jobs:
                     grep -ohE '^\*\*URL:\*\* \S+' llms-full.txt | sed 's/^\*\*URL:\*\* //'; } | sort -u)
           echo "Checking $(echo "$links" | wc -l) unique links across llms.txt and llms-full.txt"
           for url in $links; do
+            # Links to files in this repository should be checked against the
+            # PR checkout. A newly added or moved file does not exist on main
+            # until the PR merges, so an HTTP request would report a false 404.
+            local_path=""
+            case "$url" in
+              https://github.com/chdb-io/chdb/blob/main/*)
+                local_path="${url#https://github.com/chdb-io/chdb/blob/main/}"
+                ;;
+              https://github.com/chdb-io/chdb/tree/main/*)
+                local_path="${url#https://github.com/chdb-io/chdb/tree/main/}"
+                ;;
+              https://raw.githubusercontent.com/chdb-io/chdb/main/*)
+                local_path="${url#https://raw.githubusercontent.com/chdb-io/chdb/main/}"
+                ;;
+            esac
+            if [ -n "$local_path" ]; then
+              local_path="${local_path%%\?*}"
+              local_path="${local_path%%\#*}"
+              if [ -e "$local_path" ]; then
+                echo "ok    checkout $url"
+              else
+                echo "DEAD  checkout $url (missing: $local_path)"
+                dead=$((dead + 1))
+              fi
+              continue
+            fi
+
             code=000
             for attempt in 1 2 3; do
               code=$(curl -sL -o /dev/null -w "%{http_code}" --max-time 30 "$url" || echo 000)
