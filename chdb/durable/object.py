@@ -136,6 +136,12 @@ class DurableObject:
             try:
                 self._start_session()
                 self.session.query(f"CREATE DATABASE IF NOT EXISTS {_quote_ident(self.db)}")
+                # leave the session in the object's database, same as the restore
+                # path does before replay — so unqualified writes land in the db
+                # that checkpoint()'s `BACKUP DATABASE {db}` captures. Without this
+                # a fresh object's unqualified writes go to `default` and are lost
+                # on the next checkpoint/reopen.
+                self.session.query(f"USE {_quote_ident(self.db)}", "CSV")
             except Exception:
                 self._abort_open()
                 raise
