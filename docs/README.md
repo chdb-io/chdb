@@ -14,12 +14,13 @@ directory.
 3. Open a pull request. `.github/workflows/docs_verify.yml` validates this
    directory against the current ClickHouse documentation site configuration.
 
-After a documentation pull request is merged, add the `sync-docs` label when
-the change should be published immediately. A published chDB release or a
-manual workflow dispatch also triggers `.github/workflows/docs_sync.yml`.
-That workflow opens or refreshes an automated pull request which mirrors these
-pages into `ClickHouse/ClickHouse/docs/chdb`; merging that pull request deploys
-the content through the normal ClickHouse documentation pipeline.
+To publish a documentation change immediately, add the `sync-docs` label to
+its pull request before merging it. The merged pull request then triggers
+`.github/workflows/docs_sync.yml`; a published chDB release or a manual
+workflow dispatch also triggers it. The workflow opens or refreshes an
+automated pull request which mirrors these pages into
+`ClickHouse/ClickHouse/docs/chdb`; merging that pull request deploys the content
+through the normal ClickHouse documentation pipeline.
 
 `README.md` and `_static/` are repository-only files and are excluded from the
 published mirror. `_static/` contains images referenced by frozen public URLs
