@@ -55,7 +55,7 @@ Already using a ClickHouse client library? Point it at an embedded chDB engine �
 
 ## Optional
 
-- [Architecture deep dive](https://github.com/chdb-io/chdb/blob/main/docs/ARCHITECTURE.md): how libchdb embeds the ClickHouse query engine.
+- [Architecture deep dive](https://github.com/chdb-io/chdb/blob/main/dev-docs/ARCHITECTURE.md): how libchdb embeds the ClickHouse query engine.
 - [ClickBench — embedded engines](https://benchmark.clickhouse.com/): chDB benchmarked against other embedded and local SQL engines.
 - [Origin blog — rocket engine on a bicycle](https://clickhouse.com/blog/chdb-embedded-clickhouse-rocket-engine-on-a-bicycle): project history and design philosophy by Auxten.
 - [Main repository (Apache 2.0)](https://github.com/chdb-io/chdb): source, releases, issues, contribution guide.

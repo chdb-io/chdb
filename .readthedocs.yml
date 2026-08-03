@@ -5,10 +5,10 @@ build:
   tools:
     python: "3"  # latest 3.x CPython release
 sphinx:
-  configuration: docs/conf.py
+  configuration: sphinx/conf.py
 formats: all
 python:
   install:
-    - requirements: docs/requirements.txt
+    - requirements: sphinx/requirements.txt
     - method: pip
       path: .

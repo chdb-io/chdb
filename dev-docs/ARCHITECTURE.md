@@ -10,7 +10,7 @@ DataStore bridges the gap between pandas' intuitive API and SQL's powerful query
 
 ### Architecture Overview
 
-![DataStore Architecture](_static/datastore_architecture.png)
+![DataStore Architecture](../docs/_static/datastore_architecture.png)
 
 The diagram above shows the four-layer architecture:
 1. **User API**: pandas-like interface that returns lazy objects

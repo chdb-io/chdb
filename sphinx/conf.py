@@ -84,7 +84,7 @@ html_theme_options = {
 html_short_title = '%s-%s' % (project, version)
 
 # Static files directory
-html_static_path = ['_static']
+html_static_path = ['../docs/_static']
 
 napoleon_use_ivar = True
 napoleon_use_rtype = False

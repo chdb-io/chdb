@@ -221,9 +221,9 @@ coverage.xml
 build/*
 dist/*
 sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
+sphinx/api/*
+sphinx/_rst/*
+sphinx/_build/*
 cover/*
 MANIFEST
 
@@ -266,3 +266,4 @@ libchdb.so
 .cursor/rules/
 .cursor/hooks/
 chdb.code-workspace
+/research/
