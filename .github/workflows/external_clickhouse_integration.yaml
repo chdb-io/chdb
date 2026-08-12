@@ -19,13 +19,17 @@ on:
     branches:
       - main
     paths-ignore:
-      - '**/*.md'
+      - 'docs/**'
+      - '.github/workflows/build_*_wheels*.yml'
+      - '.github/workflows/external_clickhouse_integration.yaml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
     paths-ignore:
-      - '**/*.md'
+      - 'docs/**'
+      - '.github/workflows/build_*_wheels*.yml'
+      - '.github/workflows/external_clickhouse_integration.yaml'
   # Intentionally NOT triggered on `release: types: [created]` — at release
   # time the wheel-build workflows take over (build + upload to PyPI). The
   # writeback / external-ClickHouse integration was already validated at PR

@@ -1,0 +1,11 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "chDB",
+  "navigation": {
+    "groups": [
+      {
+        "$ref": "./navigation.json"
+      }
+    ]
+  }
+}

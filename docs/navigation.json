@@ -3,81 +3,81 @@
     {
       "group": "Get started",
       "pages": [
-        "chdb/index",
-        "chdb/getting-started"
+        "index",
+        "getting-started"
       ]
     },
     {
       "group": "Language integrations",
       "pages": [
-        "chdb/install/index",
-        "chdb/install/python",
-        "chdb/install/nodejs",
-        "chdb/install/go",
-        "chdb/install/rust",
-        "chdb/install/bun",
-        "chdb/install/c"
+        "install/index",
+        "install/python",
+        "install/nodejs",
+        "install/go",
+        "install/rust",
+        "install/bun",
+        "install/c"
       ]
     },
     {
       "group": "DataStore",
       "pages": [
-        "chdb/datastore/index",
-        "chdb/datastore/quickstart",
-        "chdb/datastore/factory-methods",
-        "chdb/datastore/query-building",
-        "chdb/datastore/aggregation",
-        "chdb/datastore/accessors",
-        "chdb/datastore/io",
-        "chdb/datastore/execution-model",
-        "chdb/datastore/pandas-compat",
-        "chdb/datastore/class-reference"
+        "datastore/index",
+        "datastore/quickstart",
+        "datastore/factory-methods",
+        "datastore/query-building",
+        "datastore/aggregation",
+        "datastore/accessors",
+        "datastore/io",
+        "datastore/execution-model",
+        "datastore/pandas-compat",
+        "datastore/class-reference"
       ]
     },
     {
       "group": "Configuration",
       "pages": [
-        "chdb/configuration/index",
-        "chdb/configuration/execution-engine",
-        "chdb/configuration/function-config",
-        "chdb/configuration/performance-mode"
+        "configuration/index",
+        "configuration/execution-engine",
+        "configuration/function-config",
+        "configuration/performance-mode"
       ]
     },
     {
       "group": "Debugging",
       "pages": [
-        "chdb/debugging/index",
-        "chdb/debugging/explain",
-        "chdb/debugging/logging",
-        "chdb/debugging/profiling"
+        "debugging/index",
+        "debugging/explain",
+        "debugging/logging",
+        "debugging/profiling"
       ]
     },
     {
       "group": "Developer guides",
       "pages": [
-        "chdb/guides/index",
-        "chdb/guides/jupysql",
-        "chdb/guides/querying-pandas",
-        "chdb/guides/querying-apache-arrow",
-        "chdb/guides/querying-s3-bucket",
-        "chdb/guides/querying-parquet",
-        "chdb/guides/query-remote-clickhouse",
-        "chdb/guides/clickhouse-local",
-        "chdb/guides/migration-from-pandas",
-        "chdb/guides/pandas-cookbook",
-        "chdb/guides/pandas-differences",
-        "chdb/guides/pandas-performance",
-        "chdb/guides/pandas-to-sql",
-        "chdb/guides/python-udf"
+        "guides/index",
+        "guides/jupysql",
+        "guides/querying-pandas",
+        "guides/querying-apache-arrow",
+        "guides/querying-s3-bucket",
+        "guides/querying-parquet",
+        "guides/query-remote-clickhouse",
+        "guides/clickhouse-local",
+        "guides/migration-from-pandas",
+        "guides/pandas-cookbook",
+        "guides/pandas-differences",
+        "guides/pandas-performance",
+        "guides/pandas-to-sql",
+        "guides/python-udf"
       ]
     },
     {
       "group": "Technical reference",
       "pages": [
-        "chdb/reference/index",
-        "chdb/reference/data-formats",
-        "chdb/reference/sql-reference",
-        "chdb/api/python"
+        "reference/index",
+        "reference/data-formats",
+        "reference/sql-reference",
+        "api/python"
       ]
     }
   ],
