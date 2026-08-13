@@ -50,6 +50,18 @@ Currently, chDB supports Python 3.9+ on macOS and Linux (x86_64 and ARM64).
 pip install chdb
 ```
 
+Install the DataStore, DataFrame, and Arrow integrations with:
+
+```bash
+pip install "chdb[dataframe]"
+```
+
+Install ADBC support with Python 3.10 or later:
+
+```bash
+pip install "chdb[adbc]"
+```
+
 <br>
 
 ---

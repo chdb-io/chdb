@@ -10,6 +10,7 @@ takes precedence and bootstraps the engine from chdb-core's _chdb extension.
 import sys
 import os
 import threading
+import importlib
 
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -110,7 +111,7 @@ def to_arrowTable(res):
         import pyarrow as pa
         import pandas as pd  # noqa
     except ImportError:
-        print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
+        print('Please install pyarrow and pandas via "pip install chdb[dataframe]"')
         raise ImportError("Failed to import pyarrow or pandas") from None
     if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
@@ -121,15 +122,14 @@ def to_arrowTable(res):
 def to_datastore(df):
     """Wrap a pandas DataFrame in a chdb DataStore.
 
-    Requires pandas and pyarrow (declared dependencies of the ``chdb`` pip
-    package, but absent on ``pip install --no-deps`` installs).
+    Requires the optional DataStore dependencies.
     """
     try:
         from chdb.datastore import DataStore
     except ImportError as e:
         raise ImportError(
             'DataStore output format requires pandas and pyarrow. '
-            'Install them via "pip install pandas pyarrow".'
+            'Install them via "pip install chdb[datastore]".'
         ) from e
     return DataStore(df)
 
@@ -230,8 +230,26 @@ for _name in ("create_function", "drop_function", "NullHandling", "ExceptionHand
         globals()[_name] = getattr(_chdb, _name)
         _udf_exports.append(_name)
 
-from . import agents, dbapi, session, udf, utils  # noqa: E402
-from .state import connect  # noqa: E402
+_lazy_submodules = {"agents", "dbapi", "session", "udf", "utils"}
+
+
+def __getattr__(name):
+    if name in _lazy_submodules:
+        module = importlib.import_module(f"{__name__}.{name}")
+        globals()[name] = module
+        return module
+    if name == "func":
+        from .udf import func as _func
+
+        globals()[name] = _func
+        return _func
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def connect(*args, **kwargs):
+    from .state import connect as _connect
+
+    return _connect(*args, **kwargs)
 
 try:
     from .udf import func  # noqa: E402
