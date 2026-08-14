@@ -91,10 +91,10 @@ chdb_no_product_function = pytest.mark.xfail(
     strict=True,
 )
 
-chdb_no_normalize_utf8 = pytest.mark.xfail(
-    reason="chDB: normalizeUTF8NFD function does not exist",
-    strict=True,
-)
+# FIXED: normalizeUTF8NFD is available in current chdb-core builds.
+def chdb_no_normalize_utf8(func):
+    """FIXED: normalizeUTF8NFD is available in current chdb-core builds."""
+    return func
 
 chdb_no_quantile_array = pytest.mark.xfail(
     reason="chDB does not support quantile with array parameter",
@@ -408,7 +408,7 @@ MARKER_REGISTRY = {
     "chdb_array_string_conversion": ("chdb", None, "numpy arrays may be converted to strings in SQL operations"),
     # Functions
     "chdb_no_product_function": ("chdb", None, "product() aggregate not available"),
-    "chdb_no_normalize_utf8": ("chdb", None, "normalizeUTF8NFD function not available"),
+    "chdb_no_normalize_utf8": ("fixed", None, "normalizeUTF8NFD function is available in current chdb-core builds"),
     "chdb_no_quantile_array": ("chdb", None, "quantile with array parameter not supported"),
     "chdb_median_in_where": ("chdb", None, "Aggregate in WHERE requires subquery"),
     # NULL/NaN
