@@ -1,2 +1,4 @@
 # Production dependencies
 chdb-core>=26.5.0
+pandas>=2.1.0
+pyarrow>=13.0.0

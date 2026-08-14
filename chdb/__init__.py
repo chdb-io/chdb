@@ -111,7 +111,7 @@ def to_arrowTable(res):
         import pyarrow as pa
         import pandas as pd  # noqa
     except ImportError:
-        print('Please install pyarrow and pandas via "pip install chdb[dataframe]"')
+        print('Please install pyarrow and pandas via "pip install pyarrow pandas"')
         raise ImportError("Failed to import pyarrow or pandas") from None
     if len(res) == 0:
         return pa.Table.from_batches([], schema=pa.schema([]))
@@ -122,14 +122,15 @@ def to_arrowTable(res):
 def to_datastore(df):
     """Wrap a pandas DataFrame in a chdb DataStore.
 
-    Requires the optional DataStore dependencies.
+    Requires pandas and pyarrow (declared dependencies of the ``chdb`` pip
+    package, but absent on ``pip install --no-deps`` installs).
     """
     try:
         from chdb.datastore import DataStore
     except ImportError as e:
         raise ImportError(
             'DataStore output format requires pandas and pyarrow. '
-            'Install them via "pip install chdb[datastore]".'
+            'Install them via "pip install pandas pyarrow".'
         ) from e
     return DataStore(df)
 

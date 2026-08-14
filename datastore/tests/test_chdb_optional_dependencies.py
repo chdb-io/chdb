@@ -10,7 +10,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
     import tomli as tomllib
 
 
-def test_import_and_basic_query_without_pandas_or_pyarrow():
+def test_import_and_basic_query_without_adbc_driver_manager():
     script = textwrap.dedent(
         """
         import importlib.abc
@@ -19,12 +19,7 @@ def test_import_and_basic_query_without_pandas_or_pyarrow():
 
         class Blocker(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
-                if (
-                    fullname == "pandas"
-                    or fullname.startswith("pandas.")
-                    or fullname == "pyarrow"
-                    or fullname.startswith("pyarrow.")
-                ):
+                if fullname == "adbc_driver_manager" or fullname.startswith("adbc_driver_manager."):
                     raise ImportError(f"blocked {fullname}")
                 return None
 
@@ -48,9 +43,15 @@ def test_import_and_basic_query_without_pandas_or_pyarrow():
     assert completed.returncode == 0, completed.stderr
 
 
-def test_pyproject_defines_adbc_extra():
+def test_pyproject_keeps_base_dependencies_and_defines_adbc_extra():
     project_root = Path(__file__).resolve().parents[2]
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text())
+
+    assert pyproject["project"]["dependencies"] == [
+        "chdb-core>=26.5.0",
+        "pandas>=2.1.0",
+        "pyarrow>=13.0.0",
+    ]
 
     optional_dependencies = pyproject["project"]["optional-dependencies"]
 
@@ -58,9 +59,6 @@ def test_pyproject_defines_adbc_extra():
         "chdb-core>=26.7.0",
         "adbc-driver-manager>=1.11.0; python_version >= '3.10'",
     ]
-    manager_requirement = "adbc-driver-manager>=1.11.0; python_version >= '3.10'"
-    assert manager_requirement in optional_dependencies["all"]
-    assert manager_requirement in optional_dependencies["dev"]
 
 
 def test_adbc_adapter_uses_chdb_core_library(monkeypatch):
