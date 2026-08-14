@@ -48,7 +48,7 @@ def test_pyproject_keeps_base_dependencies_and_defines_adbc_extra():
     pyproject = tomllib.loads((project_root / "pyproject.toml").read_text())
 
     assert pyproject["project"]["dependencies"] == [
-        "chdb-core>=26.5.0",
+        "chdb-core>=26.7.0",
         "pandas>=2.1.0",
         "pyarrow>=13.0.0",
     ]
