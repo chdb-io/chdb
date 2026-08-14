@@ -23,10 +23,28 @@ and update all tests that use it.
 """
 
 import sys
+from functools import lru_cache
 from typing import List
 
 import pytest
 import pandas as pd
+
+
+@lru_cache(maxsize=None)
+def _chdb_has_function(function_name: str) -> bool:
+    try:
+        import chdb
+
+        escaped_name = function_name.replace("'", "''")
+        result = chdb.query(
+            f"SELECT count() FROM system.functions WHERE name = '{escaped_name}'",
+            "CSV",
+        )
+    except Exception:
+        return False
+
+    count_text = str(result).strip().strip('"')
+    return count_text not in {"", "0"}
 
 
 # =============================================================================
@@ -91,10 +109,11 @@ chdb_no_product_function = pytest.mark.xfail(
     strict=True,
 )
 
-# FIXED: normalizeUTF8NFD is available in current chdb-core builds.
-def chdb_no_normalize_utf8(func):
-    """FIXED: normalizeUTF8NFD is available in current chdb-core builds."""
-    return func
+chdb_no_normalize_utf8 = pytest.mark.xfail(
+    condition=not _chdb_has_function("normalizeUTF8NFD"),
+    reason="chDB wheel does not provide normalizeUTF8NFD",
+    strict=True,
+)
 
 chdb_no_quantile_array = pytest.mark.xfail(
     reason="chDB does not support quantile with array parameter",
@@ -408,7 +427,7 @@ MARKER_REGISTRY = {
     "chdb_array_string_conversion": ("chdb", None, "numpy arrays may be converted to strings in SQL operations"),
     # Functions
     "chdb_no_product_function": ("chdb", None, "product() aggregate not available"),
-    "chdb_no_normalize_utf8": ("fixed", None, "normalizeUTF8NFD function is available in current chdb-core builds"),
+    "chdb_no_normalize_utf8": ("chdb", None, "normalizeUTF8NFD availability depends on the chdb-core wheel"),
     "chdb_no_quantile_array": ("chdb", None, "quantile with array parameter not supported"),
     "chdb_median_in_where": ("chdb", None, "Aggregate in WHERE requires subquery"),
     # NULL/NaN
