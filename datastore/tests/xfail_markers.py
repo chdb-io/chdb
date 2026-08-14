@@ -123,10 +123,9 @@ chdb_median_in_where = pytest.mark.xfail(
 # Fixed in conditions.py using ifNull() wrapping for pandas NULL semantics
 
 # String/Unicode
-chdb_unicode_filter = pytest.mark.xfail(
-    reason="Unicode string equality in SQL filter has encoding issues",
-    strict=True,
-)
+def chdb_unicode_filter(func):
+    """FIXED: Unicode string equality works in SQL filters."""
+    return func
 
 chdb_strip_whitespace = pytest.mark.xfail(
     reason="str.strip() doesn't handle all whitespace types correctly in chDB",
@@ -412,7 +411,7 @@ MARKER_REGISTRY = {
     # NULL/NaN
     # "chdb_nan_sum_behavior": ("chdb", None, "Sum of all-NaN returns NA (SQL standard)"),  # FIXED
     # String/Unicode
-    "chdb_unicode_filter": ("chdb", None, "Unicode in SQL filter has encoding issues"),
+    "chdb_unicode_filter": ("fixed", "chDB 26.7.0", "Unicode string equality works in SQL filters"),
     "chdb_strip_whitespace": ("chdb", None, "strip() doesn't handle all whitespace types"),
     # Datetime
     "chdb_datetime_timezone": ("fixed", "2026-01-14", "dt.year/month/day extraction - FIXED in chDB 4.0.0b3"),

@@ -179,7 +179,19 @@ def _extract_host_from_error(error_str: str) -> str:
     m = re.search(r'Connection refused \(([^)]+)\)', error_str)
     if m:
         return m.group(1).strip()
+    # Pattern: "remote('host:port', ...)" in the SQL attached to newer chdb errors
+    m = re.search(r"remote\('([^']+)'", error_str, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
     return ""
+
+
+def _is_connection_refused_error(error_str: str, code: str) -> bool:
+    """Return True for raw ClickHouse/chdb messages that mean remote connect failed."""
+    error_lower = error_str.lower()
+    if code == "NETWORK_ERROR" or "network_error" in error_lower or "connection refused" in error_lower:
+        return True
+    return "poco::ioexception" in error_lower and "i/o error" in error_lower
 
 
 def translate_remote_error(error: Exception, context: dict = None) -> str:
@@ -282,7 +294,7 @@ def translate_remote_error(error: Exception, context: dict = None) -> str:
         return msg
 
     # --- Connection refused ---
-    if code == "NETWORK_ERROR" or "connection refused" in error_str.lower():
+    if _is_connection_refused_error(error_str, code):
         resolved_host = _extract_host_from_error(error_str) or host
         msg = f"Connection refused to '{resolved_host}'."
         msg += (
@@ -324,7 +336,7 @@ def translate_remote_error(error: Exception, context: dict = None) -> str:
         # Try to find the root cause in nested errors
         if "DNS_ERROR" in error_str or "not found address of host" in error_str.lower():
             return translate_remote_error(error, {**ctx, "_code_override": "DNS_ERROR"})
-        if "NETWORK_ERROR" in error_str or "connection refused" in error_str.lower():
+        if _is_connection_refused_error(error_str, code):
             return translate_remote_error(error, {**ctx, "_code_override": "NETWORK_ERROR"})
         if "SOCKET_TIMEOUT" in error_str or "timed out" in error_str.lower():
             return translate_remote_error(error, {**ctx, "_code_override": "SOCKET_TIMEOUT"})

@@ -13,7 +13,6 @@ This batch focuses on:
 """
 
 import pytest
-from tests.xfail_markers import chdb_unicode_filter
 import pandas as pd
 import numpy as np
 from datastore import DataStore
@@ -222,7 +221,6 @@ class TestUnicodeAndSpecialCharacters:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @chdb_unicode_filter
     def test_unicode_string_values(self):
         """Unicode string values"""
         pd_df = pd.DataFrame({'name': ['アリス', 'ボブ', '中文'], 'value': [1, 2, 3]})
