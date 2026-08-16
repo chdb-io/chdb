@@ -231,6 +231,13 @@ class TestExtractHostFromError:
         msg = "Connection refused (127.0.0.1:9000)"
         assert _extract_host_from_error(msg) == "127.0.0.1:9000"
 
+    def test_remote_table_function_host_extraction(self):
+        msg = (
+            "Code: 1001. DB::Exception: Poco::IOException: I/O error. (STD_EXCEPTION)\n"
+            "SQL: SELECT 1 FROM remote('127.0.0.1:19999', 'default', 'test', 'default', '') LIMIT 1"
+        )
+        assert _extract_host_from_error(msg) == "127.0.0.1:19999"
+
     def test_no_host_found(self):
         msg = "Some generic error"
         assert _extract_host_from_error(msg) == ""
@@ -377,6 +384,18 @@ class TestTranslateConnectionRefused:
         result = translate_remote_error(err)
         assert "9000" in result
         assert "9440" in result
+
+    def test_poco_io_error_is_connection_refused(self):
+        """Newer chdb-core reports localhost refused connections as Poco I/O errors."""
+        err = RuntimeError(
+            "Streaming query failed: Code: 1001. DB::Exception: "
+            "Poco::IOException: I/O error. (STD_EXCEPTION)\n"
+            "SQL: SELECT 1 FROM remote('127.0.0.1:19999', 'default', 'test', 'default', '') LIMIT 1"
+        )
+        result = translate_remote_error(err)
+        assert "connection refused" in result.lower()
+        assert "server is running" in result.lower()
+        assert "127.0.0.1:19999" in result
 
 
 class TestTranslateTimeout:

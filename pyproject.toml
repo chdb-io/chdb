@@ -28,12 +28,16 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "chdb-core>=26.5.0",
+    "chdb-core>=26.7.0",
     "pandas>=2.1.0",
     "pyarrow>=13.0.0"
 ]
 
 [project.optional-dependencies]
+adbc = [
+    "chdb-core>=26.7.0",
+    "adbc-driver-manager>=1.11.0; python_version >= '3.10'",
+]
 dev = ["pytest", "pytest-cov"]
 publish = ["twine", "wheel"]
 # Pull in clickhouse-connect to use chDB as a clickhouse-connect backend
@@ -68,7 +72,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["datastore*", "chdb", "chdb.agents", "chdb.durable", "chdb.durable.backends"]
+include = ["datastore*", "chdb", "chdb.agents", "chdb.durable", "chdb.durable.backends", "adbc_driver_chdb"]
 namespaces = true
 
 [tool.setuptools.exclude-package-data]

@@ -10,6 +10,7 @@ takes precedence and bootstraps the engine from chdb-core's _chdb extension.
 import sys
 import os
 import threading
+import importlib
 
 _this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -230,8 +231,26 @@ for _name in ("create_function", "drop_function", "NullHandling", "ExceptionHand
         globals()[_name] = getattr(_chdb, _name)
         _udf_exports.append(_name)
 
-from . import agents, dbapi, session, udf, utils  # noqa: E402
-from .state import connect  # noqa: E402
+_lazy_submodules = {"agents", "dbapi", "session", "udf", "utils"}
+
+
+def __getattr__(name):
+    if name in _lazy_submodules:
+        module = importlib.import_module(f"{__name__}.{name}")
+        globals()[name] = module
+        return module
+    if name == "func":
+        from .udf import func as _func
+
+        globals()[name] = _func
+        return _func
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def connect(*args, **kwargs):
+    from .state import connect as _connect
+
+    return _connect(*args, **kwargs)
 
 try:
     from .udf import func  # noqa: E402

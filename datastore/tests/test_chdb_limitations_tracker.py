@@ -21,6 +21,7 @@ from tests.xfail_markers import (
     chdb_no_quantile_array,
     chdb_datetime_timezone,
 )
+from tests.test_utils import assert_series_equal
 
 # Import DataStore - adjust path as needed
 import sys
@@ -121,10 +122,11 @@ class TestFunctionAvailabilityLimitations:
         """Check if chDB now has normalizeUTF8NFD function."""
         df = pd.DataFrame({'text': ['cafe\u0301', 'naive\u0308']})  # cafe with accent
         ds = DataStore(df)
-        
-        result = ds['text'].str.normalize('NFD')._get_df()
-        # If this passes, normalize is now supported
-        assert len(result) == 2
+
+        pd_result = df['text'].str.normalize('NFD')
+        ds_result = ds['text'].str.normalize('NFD')
+
+        assert_series_equal(ds_result, pd_result)
 
     # xfail removed: quantile with array now works
     def test_quantile_array_param(self):
