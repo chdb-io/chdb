@@ -1,8 +1,7 @@
 name: 'Verify Docs'
 
-# Validates docs/ as a drop-in replacement for the docs/chdb slice of the
-# aggregated ClickHouse docs. This is the pre-merge gate for the source tree
-# mirrored by docs_sync.yml.
+# Validates docs/ as the chDB source consumed by the ClickHouse docs project.
+# This is the pre-merge gate for the Mintlify multi-repo documentation source.
 
 on:
   pull_request:
@@ -39,10 +38,9 @@ jobs:
           curl -fsSL -o /tmp/mintlify_docs_check.py \
             https://raw.githubusercontent.com/ClickHouse/ClickHouse/master/ci/jobs/scripts/docs/mintlify_docs_check.py
 
-      # Only page content ships to the aggregator: README.md is this repo's
+      # Only page content ships to the docs site: README.md is this repo's
       # contributor guide and _static/ holds images pinned to frozen public URLs
       # (org profile, PyPI release pages) — neither is part of the docs slice.
-      # This filter is the same whitelist the future sync workflow will use.
       - name: Stage the publishable slice
         run: |
           cp -r docs /tmp/docs-slice
