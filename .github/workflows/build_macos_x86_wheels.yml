@@ -43,20 +43,31 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
+
           INSTALLED=""
           set +e
           for v in 3.10 3.11 3.12 3.13 3.14; do
             echo "=== Installing Python $v ==="
             if pyenv install "$v:latest"; then
-              INSTALLED="$INSTALLED $v"
+              installed_version="$(plain_pyenv_version "$v")"
+              if [ -n "$installed_version" ]; then
+                INSTALLED="$INSTALLED $installed_version"
+              else
+                echo "WARNING: pyenv installed no non-free-threaded Python $v, skipping"
+              fi
             else
               echo "Normal install failed, retrying without ensurepip..."
               installed_ver=$(pyenv latest "$v" 2>/dev/null)
               if [ -n "$installed_ver" ]; then pyenv uninstall -f "$installed_ver" 2>/dev/null; fi
               PYTHON_CONFIGURE_OPTS="--without-ensurepip" pyenv install "$v:latest" || true
-              if pyenv versions --bare | grep -q "^$v\."; then
-                INSTALLED="$INSTALLED $v"
-                echo "Python $v binary installed (pip bootstrap deferred)"
+              installed_version="$(plain_pyenv_version "$v")"
+              if [ -n "$installed_version" ]; then
+                INSTALLED="$INSTALLED $installed_version"
+                echo "Python $installed_version binary installed (pip bootstrap deferred)"
               else
                 echo "WARNING: Python $v install failed completely, skipping"
               fi
@@ -72,10 +83,15 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
           for version in 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then continue; fi
-            echo "Installing dependencies for Python $version"
-            pyenv shell $version
+            PYTHON_VERSION="$(plain_pyenv_version "$version")"
+            if [ -z "$PYTHON_VERSION" ]; then continue; fi
+            echo "Installing dependencies for Python $PYTHON_VERSION"
+            pyenv shell "$PYTHON_VERSION"
             if ! python -m pip --version 2>/dev/null; then
               echo "pip missing, bootstrapping..."
               curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
@@ -92,7 +108,13 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.10
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
+          PYTHON_VERSION="$(plain_pyenv_version 3.10)"
+          if [ -z "$PYTHON_VERSION" ]; then echo "Python 3.10 not available"; exit 1; fi
+          pyenv shell "$PYTHON_VERSION"
           make wheel
       - name: Show files
         run: |
@@ -102,9 +124,14 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
 
           for version in 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
+            PYTHON_VERSION="$(plain_pyenv_version "$version")"
+            if [ -z "$PYTHON_VERSION" ]; then
               echo "Python $version not available, skipping"
               continue
             fi
@@ -116,21 +143,21 @@ jobs:
             fi
             for PANDAS_CONSTRAINT in "${PANDAS_CONSTRAINTS[@]}"; do
               echo "=============================================="
-              echo "Testing DataStore on Python $version with $PANDAS_CONSTRAINT"
+              echo "Testing DataStore on Python $PYTHON_VERSION with $PANDAS_CONSTRAINT"
               echo "=============================================="
 
-              pyenv shell $version
+              pyenv shell "$PYTHON_VERSION"
               python -m pip install dist/*.whl --force-reinstall
               python -m pip install pytest pytest-cov hypothesis "$PANDAS_CONSTRAINT"
               echo "Installed pandas version:"
               python -c "import pandas; print(pandas.__version__)"
 
-              echo "Running DataStore tests on Python $version with $PANDAS_CONSTRAINT ..."
+              echo "Running DataStore tests on Python $PYTHON_VERSION with $PANDAS_CONSTRAINT ..."
               cd datastore
               python -m pytest tests/ -v --tb=short -x
               cd ..
               echo "=============================================="
-              echo "DataStore tests PASSED on Python $version with $PANDAS_CONSTRAINT"
+              echo "DataStore tests PASSED on Python $PYTHON_VERSION with $PANDAS_CONSTRAINT"
               echo "=============================================="
               pyenv shell --unset
             done

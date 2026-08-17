@@ -43,11 +43,23 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
+
+          INSTALLED=""
           for v in 3.9 3.10 3.11 3.12 3.13 3.14; do
             echo "=== Installing Python $v ==="
             pyenv install "$v:latest"
+            installed_version="$(plain_pyenv_version "$v")"
+            if [ -z "$installed_version" ]; then
+              echo "pyenv installed no non-free-threaded Python $v"
+              exit 1
+            fi
+            INSTALLED="$INSTALLED $installed_version"
           done
-          pyenv global $(pyenv versions --bare)
+          pyenv global $INSTALLED
 
           echo "Installed versions:"
           pyenv versions
@@ -55,10 +67,15 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then continue; fi
-            echo "Installing dependencies for Python $version"
-            pyenv shell $version
+            PYTHON_VERSION="$(plain_pyenv_version "$version")"
+            if [ -z "$PYTHON_VERSION" ]; then continue; fi
+            echo "Installing dependencies for Python $PYTHON_VERSION"
+            pyenv shell "$PYTHON_VERSION"
             python -m pip install --upgrade pip
             python -m pip install setuptools tox pandas pyarrow wheel pytest pytest-cov
             pyenv shell --unset
@@ -70,7 +87,13 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
-          pyenv shell 3.9
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
+          PYTHON_VERSION="$(plain_pyenv_version 3.9)"
+          if [ -z "$PYTHON_VERSION" ]; then echo "Python 3.9 not available"; exit 1; fi
+          pyenv shell "$PYTHON_VERSION"
           make wheel
       - name: Show files
         run: |
@@ -80,9 +103,14 @@ jobs:
         run: |
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
 
           for version in 3.9 3.10 3.11 3.12 3.13 3.14; do
-            if ! pyenv versions --bare | grep -q "^$version"; then
+            PYTHON_VERSION="$(plain_pyenv_version "$version")"
+            if [ -z "$PYTHON_VERSION" ]; then
               echo "Python $version not available, skipping"
               continue
             fi
@@ -94,21 +122,21 @@ jobs:
             fi
             for PANDAS_CONSTRAINT in "${PANDAS_CONSTRAINTS[@]}"; do
               echo "=============================================="
-              echo "Testing DataStore on Python $version with $PANDAS_CONSTRAINT"
+              echo "Testing DataStore on Python $PYTHON_VERSION with $PANDAS_CONSTRAINT"
               echo "=============================================="
 
-              pyenv shell $version
+              pyenv shell "$PYTHON_VERSION"
               python -m pip install dist/*.whl --force-reinstall
               python -m pip install pytest pytest-cov hypothesis "$PANDAS_CONSTRAINT"
               echo "Installed pandas version:"
               python -c "import pandas; print(pandas.__version__)"
 
-              echo "Running DataStore tests on Python $version with $PANDAS_CONSTRAINT ..."
+              echo "Running DataStore tests on Python $PYTHON_VERSION with $PANDAS_CONSTRAINT ..."
               cd datastore
               python -m pytest tests/ -v --tb=short -x
               cd ..
               echo "=============================================="
-              echo "DataStore tests PASSED on Python $version with $PANDAS_CONSTRAINT"
+              echo "DataStore tests PASSED on Python $PYTHON_VERSION with $PANDAS_CONSTRAINT"
               echo "=============================================="
               pyenv shell --unset
             done

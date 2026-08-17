@@ -90,13 +90,20 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
 
-          # A *working* 3.14 must import the C extensions the wheel build /
-          # pytest need. A prior from-source build that lacked the headers
-          # leaves a broken 3.14.x dir behind (_ssl/_bz2/_ctypes/... missing),
-          # so don't trust the version's mere presence — probe it.
+          plain_pyenv_version() {
+            local pattern="${1//./\\.}"
+            pyenv versions --bare 2>/dev/null | grep -E "^${pattern}\.[0-9]+$" | tail -1
+          }
+
+          # chdb-core PyPI wheels are regular ABI wheels; avoid free-threaded
+          # pyenv builds such as 3.14.7t. A *working* 3.14 must also import
+          # the C extensions the wheel build / pytest need. A prior from-source
+          # build that lacked the headers leaves a broken 3.14.x dir behind
+          # (_ssl/_bz2/_ctypes/... missing), so don't trust the version's mere
+          # presence -- probe it.
           probe='import ssl, bz2, ctypes, curses, lzma, sqlite3'
           WORKING=""
-          for v in $(pyenv versions --bare 2>/dev/null | grep '^3\.14\.' || true); do
+          for v in $(pyenv versions --bare 2>/dev/null | grep -E '^3\.14\.[0-9]+$' || true); do
             if "$HOME/.pyenv/versions/$v/bin/python" -c "$probe" 2>/dev/null; then
               WORKING="$v"; break
             fi
@@ -118,7 +125,11 @@ jobs:
             fi
             # -f overwrites any broken partial build of the same version.
             pyenv install -f 3.14:latest
-            WORKING=$(pyenv versions --bare | grep '^3\.14\.' | tail -1)
+            WORKING=$(plain_pyenv_version 3.14)
+            if [ -z "$WORKING" ]; then
+              echo "No non-free-threaded Python 3.14 found; chdb-core PyPI wheels do not support Python 3.14t"
+              exit 1
+            fi
           fi
           pyenv global "$WORKING"
           python --version
