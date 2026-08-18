@@ -155,6 +155,7 @@ class ExecutionSegment:
     ops: List[LazyOp] = field(default_factory=list)
     plan: Optional[QueryPlan] = None  # For SQL segments
     is_first_segment: bool = False
+    decisions: List["PushdownDecision"] = field(default_factory=list)
 
     def is_sql(self) -> bool:
         """Check if this is a SQL segment."""
@@ -169,6 +170,33 @@ class ExecutionSegment:
         engine = "chDB" if self.is_sql() else "Pandas"
         source = " (from source)" if self.is_first_segment else " (on DataFrame)"
         return f"{engine}{source}: {len(self.ops)} ops"
+
+
+@dataclass(frozen=True)
+class PushdownDecision:
+    """Structured explanation for one operation's SQL eligibility.
+
+    ``eligible`` deliberately describes planner capability only.  Whether the
+    operation is executed by SQL in a particular run still depends on the
+    source and on the surrounding segment.  Keeping the two concepts separate
+    lets callers explain a plan without changing execution behaviour.
+    """
+
+    op_index: Optional[int]
+    op_type: str
+    eligible: bool
+    reason_code: str
+    detail: str
+
+    def as_dict(self) -> Dict[str, Any]:
+        """Return a JSON-friendly representation for explain consumers."""
+        return {
+            "op_index": self.op_index,
+            "op_type": self.op_type,
+            "eligible": self.eligible,
+            "reason_code": self.reason_code,
+            "detail": self.detail,
+        }
 
 
 @dataclass
@@ -216,6 +244,17 @@ class ExecutionPlan:
     def pandas_segment_count(self) -> int:
         """Return number of Pandas segments."""
         return sum(1 for seg in self.segments if seg.is_pandas())
+
+    def explain(self) -> List[Dict[str, Any]]:
+        """Return structured pushdown decisions in execution order."""
+        explanation = []
+        for segment_index, segment in enumerate(self.segments):
+            for decision in segment.decisions:
+                item = decision.as_dict()
+                item["segment_index"] = segment_index
+                item["segment_type"] = segment.segment_type
+                explanation.append(item)
+        return explanation
 
 
 class QueryPlanner:
@@ -644,8 +683,8 @@ class QueryPlanner:
         effective_schema = dict(schema) if schema else {}
 
         # Classify each operation as SQL-pushable or Pandas-only
-        op_types = []  # List of ('sql', op) or ('pandas', op)
-        for op in lazy_ops:
+        op_types = []  # List of ('sql', op, decision) or ('pandas', op, decision)
+        for op_idx, op in enumerate(lazy_ops):
             # Update effective schema based on column selection
             # LazyColumnSelection: df[["col1", "col2"]]
             # LazyRelationalOp SELECT: also used for column selection
@@ -686,19 +725,20 @@ class QueryPlanner:
                         )
 
             # Pass preceding and following operations for context-aware decisions
-            op_idx = lazy_ops.index(op) if op in lazy_ops else -1
-            preceding_ops = lazy_ops[:op_idx] if op_idx >= 0 else []
-            following_ops = lazy_ops[op_idx + 1 :] if op_idx >= 0 else []
-            if self._can_push_op_to_sql(
+            preceding_ops = lazy_ops[:op_idx]
+            following_ops = lazy_ops[op_idx + 1 :]
+            decision = self.explain_op_pushdown(
                 op,
                 effective_schema,
                 preceding_ops,
                 following_ops,
                 local_source=local_source,
-            ):
-                op_types.append(("sql", op))
+                op_index=op_idx,
+            )
+            if decision.eligible:
+                op_types.append(("sql", op, decision))
             else:
-                op_types.append(("pandas", op))
+                op_types.append(("pandas", op, decision))
 
         # Group consecutive operations of the same type into segments
         # Special case: when multiple LazyColumnAssignment ops target the same column,
@@ -706,11 +746,12 @@ class QueryPlanner:
         # Each assignment must see the result of the previous one.
         current_type = None
         current_ops = []
+        current_decisions = []
         is_first = True
         # Track columns assigned in current SQL segment for conflict detection
         assigned_columns_in_segment = set()
 
-        for op_type, op in op_types:
+        for op_type, op, decision in op_types:
             # Check if this is a column assignment that conflicts with previous ones in segment
             needs_new_segment = False
             if op_type == "sql" and isinstance(op, LazyColumnAssignment):
@@ -742,26 +783,38 @@ class QueryPlanner:
                 # Save previous segment
                 if current_ops:
                     segment = self._create_segment(
-                        current_type, current_ops, is_first, has_sql_source, schema
+                        current_type,
+                        current_ops,
+                        is_first,
+                        has_sql_source,
+                        schema,
+                        decisions=current_decisions,
                     )
                     exec_plan.segments.append(segment)
                     is_first = False
                 # Start new segment
                 current_type = op_type
                 current_ops = [op]
+                current_decisions = [decision]
                 # Reset column tracking for new segment
                 assigned_columns_in_segment = set()
                 if isinstance(op, LazyColumnAssignment):
                     assigned_columns_in_segment.add(op.column)
             else:
                 current_ops.append(op)
+                current_decisions.append(decision)
                 if isinstance(op, LazyColumnAssignment):
                     assigned_columns_in_segment.add(op.column)
 
         # Save last segment
         if current_ops:
             segment = self._create_segment(
-                current_type, current_ops, is_first, has_sql_source, schema
+                current_type,
+                current_ops,
+                is_first,
+                has_sql_source,
+                schema,
+                decisions=current_decisions,
             )
             exec_plan.segments.append(segment)
 
@@ -773,6 +826,84 @@ class QueryPlanner:
         )
 
         return exec_plan
+
+    def explain_op_pushdown(
+        self,
+        op: LazyOp,
+        schema: Dict[str, str] = None,
+        preceding_ops: List[LazyOp] = None,
+        following_ops: List[LazyOp] = None,
+        local_source: bool = False,
+        op_index: Optional[int] = None,
+    ) -> PushdownDecision:
+        """Classify an operation and explain the existing planner decision.
+
+        The eligibility check remains delegated to ``_can_push_op_to_sql`` so
+        this first explain slice cannot change routing.  Reason codes are
+        intentionally stable and small; later generic-compute adapters can
+        expose them without parsing log strings.
+        """
+        eligible = self._can_push_op_to_sql(
+            op,
+            schema=schema,
+            preceding_ops=preceding_ops,
+            following_ops=following_ops,
+            local_source=local_source,
+        )
+        op_type = self._describe_op_type(op)
+
+        if eligible:
+            return PushdownDecision(
+                op_index=op_index,
+                op_type=op_type,
+                eligible=True,
+                reason_code="sql_supported",
+                detail=f"{op_type} is supported by the SQL planner",
+            )
+
+        if isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY":
+            reason_code = "unbounded_sort"
+            detail = "ORDER BY is left in Pandas when no LIMIT or later aggregation bounds the sort"
+        elif isinstance(op, LazyRelationalOp) and op.op_type == "PANDAS_FILTER":
+            reason_code = "pandas_filter"
+            detail = "this filter uses the Pandas-only predicate path"
+        elif isinstance(op, LazyDataFrameSource):
+            reason_code = "dataframe_source"
+            detail = "a DataFrame source is materialized before SQL can resume"
+        elif isinstance(op, LazySQLQuery):
+            reason_code = "standalone_sql_query"
+            detail = "the operation owns a complete SQL query and is executed separately"
+        elif isinstance(op, LazyGroupByAgg):
+            reason_code = "unsupported_aggregation"
+            detail = "this aggregation shape is not safe for the current SQL builder"
+        elif isinstance(op, (LazyWhere, LazyMask, LazyColumnAssignment)):
+            reason_code = "unsupported_expression"
+            detail = "the expression cannot be converted to SQL for the current schema"
+        elif isinstance(op, (LazyApply, LazyFilter, LazyTransform)):
+            reason_code = "python_callable"
+            detail = "the operation contains Python callable semantics"
+        else:
+            reason_code = "pandas_only"
+            detail = f"{op_type} is not supported by the current SQL planner"
+
+        return PushdownDecision(
+            op_index=op_index,
+            op_type=op_type,
+            eligible=False,
+            reason_code=reason_code,
+            detail=detail,
+        )
+
+    @staticmethod
+    def _describe_op_type(op: LazyOp) -> str:
+        """Return a concise, UI-safe operation label."""
+        if isinstance(op, LazyRelationalOp):
+            return op.op_type
+        if isinstance(op, LazyGroupByAgg):
+            return "GROUP BY"
+        if isinstance(op, LazyApply):
+            return "APPLY"
+        return type(op).__name__
 
     def _can_push_op_to_sql(
         self,
@@ -936,6 +1067,7 @@ class QueryPlanner:
         is_first: bool,
         has_sql_source: bool,
         schema: Dict[str, str] = None,
+        decisions: List[PushdownDecision] = None,
     ) -> ExecutionSegment:
         """
         Create an ExecutionSegment from a list of operations.
@@ -956,6 +1088,7 @@ class QueryPlanner:
             segment_type=segment_type,
             ops=ops.copy(),
             is_first_segment=is_first,
+            decisions=list(decisions or []),
         )
 
         if segment_type == "sql":
