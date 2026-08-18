@@ -7,8 +7,12 @@ adapter without changing execution routing.
 
 from datastore.conditions import BinaryCondition
 from datastore.expressions import Field, Literal
-from datastore.lazy_ops import LazyApply, LazyRelationalOp
-from datastore.query_planner import QueryPlanner
+from datastore.lazy_ops import LazyApply, LazyGroupByAgg, LazyRelationalOp
+from datastore.query_planner import (
+    PUSHDOWN_REASON_DETAILS,
+    PushdownReasonCode,
+    QueryPlanner,
+)
 
 
 def test_supported_sql_operation_has_stable_decision_code():
@@ -23,14 +27,14 @@ def test_supported_sql_operation_has_stable_decision_code():
 
     assert decision.eligible is True
     assert decision.op_type == "WHERE"
-    assert decision.reason_code == "sql_supported"
+    assert decision.reason_code is PushdownReasonCode.SQL_SUPPORTED
     assert decision.detail
     assert decision.as_dict() == {
         "op_index": None,
         "op_type": "WHERE",
         "eligible": True,
-        "reason_code": "sql_supported",
-        "detail": "WHERE is supported by the SQL planner",
+        "reason_code": PushdownReasonCode.SQL_SUPPORTED.value,
+        "detail": PUSHDOWN_REASON_DETAILS[PushdownReasonCode.SQL_SUPPORTED],
     }
 
 
@@ -42,8 +46,34 @@ def test_python_callable_has_explicit_pandas_reason():
 
     assert decision.eligible is False
     assert decision.op_type == "APPLY"
-    assert decision.reason_code == "python_callable"
-    assert "Python callable" in decision.detail
+    assert decision.reason_code is PushdownReasonCode.PYTHON_CALLABLE
+    assert decision.detail == PUSHDOWN_REASON_DETAILS[PushdownReasonCode.PYTHON_CALLABLE]
+
+
+def test_reason_code_details_have_a_complete_one_to_one_mapping():
+    assert set(PUSHDOWN_REASON_DETAILS) == set(PushdownReasonCode)
+    assert all(PUSHDOWN_REASON_DETAILS[code] for code in PushdownReasonCode)
+
+
+def test_order_sensitive_and_meaningless_sorts_have_distinct_reasons():
+    planner = QueryPlanner()
+    order = LazyRelationalOp("ORDER BY", "sort", fields=[Field("value")])
+    meaningless_aggregation = LazyGroupByAgg(
+        groupby_cols=["category"], agg_func="sum"
+    )
+    order_sensitive_aggregation = LazyGroupByAgg(
+        groupby_cols=["category"], agg_func="first"
+    )
+
+    meaningless = planner.explain_op_pushdown(
+        order, following_ops=[meaningless_aggregation]
+    )
+    order_sensitive = planner.explain_op_pushdown(
+        order_sensitive_aggregation, preceding_ops=[order]
+    )
+
+    assert meaningless.reason_code is PushdownReasonCode.MEANINGLESS_SORT_BEFORE_AGGREGATION
+    assert order_sensitive.reason_code is PushdownReasonCode.ORDER_DEPENDENT_AGGREGATION
 
 
 def test_execution_plan_keeps_decisions_aligned_with_segments():
@@ -73,8 +103,7 @@ def test_execution_plan_keeps_decisions_aligned_with_segments():
         "sql",
     ]
     assert [item["reason_code"] for item in explanation] == [
-        "sql_supported",
-        "python_callable",
-        "sql_supported",
+        PushdownReasonCode.SQL_SUPPORTED.value,
+        PushdownReasonCode.PYTHON_CALLABLE.value,
+        PushdownReasonCode.SQL_SUPPORTED.value,
     ]
-

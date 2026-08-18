@@ -19,6 +19,7 @@ SQL building is handled by SQLExecutionEngine in sql_executor.py.
 
 from typing import List, Optional, Set, Dict, Any, Tuple, TYPE_CHECKING
 from dataclasses import dataclass, field
+from enum import Enum
 import re
 
 from .lazy_ops import (
@@ -46,6 +47,62 @@ if TYPE_CHECKING:
 # Import CaseWhenExpr from sql_executor (canonical location)
 # This re-export maintains backward compatibility for existing imports
 from .sql_executor import CaseWhenExpr, WhereMaskCaseExpr
+
+
+class PushdownReasonCode(str, Enum):
+    """Stable reason codes for SQL pushdown decisions."""
+
+    SQL_SUPPORTED = "sql_supported"
+    UNBOUNDED_SORT = "unbounded_sort"
+    MEANINGLESS_SORT_BEFORE_AGGREGATION = "meaningless_sort_before_aggregation"
+    PANDAS_FILTER = "pandas_filter"
+    DATAFRAME_SOURCE = "dataframe_source"
+    STANDALONE_SQL_QUERY = "standalone_sql_query"
+    UNSUPPORTED_AGGREGATION = "unsupported_aggregation"
+    ORDER_DEPENDENT_AGGREGATION = "order_dependent_aggregation"
+    UNSUPPORTED_EXPRESSION = "unsupported_expression"
+    PYTHON_CALLABLE = "python_callable"
+    DATAFRAME_CONTEXT = "dataframe_context"
+    PANDAS_ONLY = "pandas_only"
+
+
+PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.SQL_SUPPORTED: "The operation is supported by the SQL planner.",
+    PushdownReasonCode.UNBOUNDED_SORT: (
+        "ORDER BY is unbounded, so the sort remains in Pandas unless a later "
+        "LIMIT or aggregation bounds it."
+    ),
+    PushdownReasonCode.MEANINGLESS_SORT_BEFORE_AGGREGATION: (
+        "ORDER BY before a non-order-sensitive aggregation does not affect the result."
+    ),
+    PushdownReasonCode.PANDAS_FILTER: (
+        "The filter uses the Pandas-only predicate path."
+    ),
+    PushdownReasonCode.DATAFRAME_SOURCE: (
+        "A DataFrame source is materialized before SQL can resume."
+    ),
+    PushdownReasonCode.STANDALONE_SQL_QUERY: (
+        "The operation owns a complete SQL query and is executed separately."
+    ),
+    PushdownReasonCode.UNSUPPORTED_AGGREGATION: (
+        "This aggregation shape is not supported by the current SQL builder."
+    ),
+    PushdownReasonCode.ORDER_DEPENDENT_AGGREGATION: (
+        "This aggregation depends on row order that SQL GROUP BY cannot preserve."
+    ),
+    PushdownReasonCode.UNSUPPORTED_EXPRESSION: (
+        "The expression cannot be converted to SQL for the current schema or settings."
+    ),
+    PushdownReasonCode.PYTHON_CALLABLE: (
+        "The operation contains Python callable semantics."
+    ),
+    PushdownReasonCode.DATAFRAME_CONTEXT: (
+        "The operation runs on a DataFrame segment to preserve Pandas index semantics."
+    ),
+    PushdownReasonCode.PANDAS_ONLY: (
+        "The operation is not supported by the current SQL planner."
+    ),
+}
 
 
 @dataclass
@@ -185,7 +242,7 @@ class PushdownDecision:
     op_index: Optional[int]
     op_type: str
     eligible: bool
-    reason_code: str
+    reason_code: PushdownReasonCode
     detail: str
 
     def as_dict(self) -> Dict[str, Any]:
@@ -194,7 +251,7 @@ class PushdownDecision:
             "op_index": self.op_index,
             "op_type": self.op_type,
             "eligible": self.eligible,
-            "reason_code": self.reason_code,
+            "reason_code": self.reason_code.value,
             "detail": self.detail,
         }
 
@@ -853,46 +910,75 @@ class QueryPlanner:
         op_type = self._describe_op_type(op)
 
         if eligible:
-            return PushdownDecision(
-                op_index=op_index,
-                op_type=op_type,
-                eligible=True,
-                reason_code="sql_supported",
-                detail=f"{op_type} is supported by the SQL planner",
+            reason_code = PushdownReasonCode.SQL_SUPPORTED
+        else:
+            reason_code = self._unpushable_reason_code(
+                op, preceding_ops or [], following_ops or []
             )
 
-        if isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY":
-            reason_code = "unbounded_sort"
-            detail = "ORDER BY is left in Pandas when no LIMIT or later aggregation bounds the sort"
-        elif isinstance(op, LazyRelationalOp) and op.op_type == "PANDAS_FILTER":
-            reason_code = "pandas_filter"
-            detail = "this filter uses the Pandas-only predicate path"
-        elif isinstance(op, LazyDataFrameSource):
-            reason_code = "dataframe_source"
-            detail = "a DataFrame source is materialized before SQL can resume"
-        elif isinstance(op, LazySQLQuery):
-            reason_code = "standalone_sql_query"
-            detail = "the operation owns a complete SQL query and is executed separately"
-        elif isinstance(op, LazyGroupByAgg):
-            reason_code = "unsupported_aggregation"
-            detail = "this aggregation shape is not safe for the current SQL builder"
-        elif isinstance(op, (LazyWhere, LazyMask, LazyColumnAssignment)):
-            reason_code = "unsupported_expression"
-            detail = "the expression cannot be converted to SQL for the current schema"
-        elif isinstance(op, (LazyApply, LazyFilter, LazyTransform)):
-            reason_code = "python_callable"
-            detail = "the operation contains Python callable semantics"
-        else:
-            reason_code = "pandas_only"
-            detail = f"{op_type} is not supported by the current SQL planner"
+        return self._make_pushdown_decision(
+            op_index=op_index,
+            op_type=op_type,
+            eligible=eligible,
+            reason_code=reason_code,
+        )
 
+    @staticmethod
+    def _make_pushdown_decision(
+        op_index: Optional[int],
+        op_type: str,
+        eligible: bool,
+        reason_code: PushdownReasonCode,
+    ) -> PushdownDecision:
         return PushdownDecision(
             op_index=op_index,
             op_type=op_type,
-            eligible=False,
+            eligible=eligible,
             reason_code=reason_code,
-            detail=detail,
+            detail=PUSHDOWN_REASON_DETAILS[reason_code],
         )
+
+    @staticmethod
+    def _unpushable_reason_code(
+        op: LazyOp,
+        preceding_ops: List[LazyOp],
+        following_ops: List[LazyOp],
+    ) -> PushdownReasonCode:
+        """Map every known non-pushable planner branch to a stable code."""
+        if isinstance(op, LazyRelationalOp):
+            if op.op_type == "ORDER BY":
+                for following_op in following_ops:
+                    if isinstance(following_op, LazyGroupByAgg):
+                        if following_op.agg_func not in ("first", "last"):
+                            return PushdownReasonCode.MEANINGLESS_SORT_BEFORE_AGGREGATION
+                        break
+                return PushdownReasonCode.UNBOUNDED_SORT
+            if op.op_type == "PANDAS_FILTER":
+                return PushdownReasonCode.PANDAS_FILTER
+
+        if isinstance(op, LazyDataFrameSource):
+            return PushdownReasonCode.DATAFRAME_SOURCE
+        if isinstance(op, LazySQLQuery):
+            return PushdownReasonCode.STANDALONE_SQL_QUERY
+        if isinstance(op, LazyGroupByAgg):
+            if op.agg_func in ("first", "last") and any(
+                isinstance(previous, LazyRelationalOp)
+                and previous.op_type == "ORDER BY"
+                for previous in preceding_ops
+            ):
+                return PushdownReasonCode.ORDER_DEPENDENT_AGGREGATION
+            return PushdownReasonCode.UNSUPPORTED_AGGREGATION
+        if isinstance(op, (LazyWhere, LazyMask, LazyColumnAssignment)):
+            return PushdownReasonCode.UNSUPPORTED_EXPRESSION
+        if isinstance(op, (LazyApply, LazyFilter)):
+            return PushdownReasonCode.PYTHON_CALLABLE
+        if isinstance(op, LazyTransform) and callable(op.func):
+            return PushdownReasonCode.PYTHON_CALLABLE
+        if isinstance(op, LazyDistinct) and any(
+            isinstance(previous, LazyDataFrameSource) for previous in preceding_ops
+        ):
+            return PushdownReasonCode.DATAFRAME_CONTEXT
+        return PushdownReasonCode.PANDAS_ONLY
 
     @staticmethod
     def _describe_op_type(op: LazyOp) -> str:
