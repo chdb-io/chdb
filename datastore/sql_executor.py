@@ -890,12 +890,25 @@ class SQLExecutionEngine:
         return False
 
     def get_table_source(self) -> str:
-        """Get the SQL table source (table function or table name)."""
+        """Get the SQL table source (table function or table name).
+
+        The source is rendered for the engine that will run this SQL, so a
+        segment routed to a remote ClickHouse server reads its table directly
+        instead of through a table function pointing back at that server.
+        """
         if self.ds._table_function:
-            return self.ds._table_function.to_sql()
+            return self.ds._table_function.render_source(
+                quote_char=self.quote_char, target=self.sql_target()
+            )
         elif self.ds.table_name:
             return format_identifier(self.ds.table_name, self.quote_char)
         return ""
+
+    def sql_target(self) -> str:
+        """The execution target the DataStore is currently compiling SQL for."""
+        from .pushdown import LOCAL_CHDB
+
+        return getattr(self.ds, "_sql_target", LOCAL_CHDB)
 
     def _build_limit_by_clause(self) -> Optional[str]:
         """Build LIMIT 1 BY clause for drop_duplicates(subset=...).
@@ -2485,7 +2498,9 @@ class SQLExecutionEngine:
             parts.append(f"FROM {from_source}")
         elif self.ds._table_function:
             # Handle table function objects
-            if hasattr(self.ds._table_function, "to_sql"):
+            if hasattr(self.ds._table_function, "render_source"):
+                table_sql = self.get_table_source()
+            elif hasattr(self.ds._table_function, "to_sql"):
                 table_sql = self.ds._table_function.to_sql()
             else:
                 table_sql = str(self.ds._table_function)

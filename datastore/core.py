@@ -36,6 +36,13 @@ from .exceptions import (
 from .connection import Connection, QueryResult
 from .executor import Executor
 from .table_functions import create_table_function, PythonTableFunction, TableFunction
+from .pushdown import (
+    LOCAL_CHDB,
+    PushdownTrace,
+    RemoteSource,
+    SqlSegmentExecutor,
+    normalize_segment_result,
+)
 from .uri_parser import parse_uri
 from .pandas_compat import PandasCompatMixin
 from .lazy_ops import LazyOp, LazyRelationalOp
@@ -101,6 +108,13 @@ class DataStore(PandasCompatMixin):
         }
     )
     _MASKED_VALUE = "***"
+
+    # Pushdown state. Class-level defaults so every construction path (and
+    # every derived DataStore, which copies __dict__) starts on the local
+    # engine with no executor bound.
+    _sql_target: str = LOCAL_CHDB
+    _sql_segment_executor = None
+    _last_pushdown_trace = None
 
     def __init__(
         self,
@@ -967,6 +981,89 @@ class DataStore(PandasCompatMixin):
         from .table_functions import RemoteTableFunction
         return isinstance(self._table_function, RemoteTableFunction)
 
+    # ========== Pushdown to the server that owns the data ==========
+
+    def set_sql_segment_executor(
+        self, executor: Optional[SqlSegmentExecutor]
+    ) -> "DataStore":
+        """Send compiled SQL segments to ``executor`` instead of the local engine.
+
+        The executor decides which sources it can serve; a source it declines
+        keeps the existing local path. Derived DataStores inherit the binding, so
+        a whole operation chain built from a bound source stays pushed down.
+        Pass ``None`` to unbind.
+        """
+        if executor is not None and not isinstance(executor, SqlSegmentExecutor):
+            raise TypeError(
+                "executor must implement SqlSegmentExecutor, got "
+                f"{type(executor).__name__}"
+            )
+        self._sql_segment_executor = executor
+        return self
+
+    @property
+    def sql_segment_executor(self) -> Optional[SqlSegmentExecutor]:
+        """The segment executor bound to this DataStore, if any."""
+        return self._sql_segment_executor
+
+    @property
+    def last_pushdown_trace(self) -> Optional[PushdownTrace]:
+        """Trace of the most recent segment this DataStore pushed down."""
+        return self._last_pushdown_trace
+
+    def _pushdown_for_first_segment(self):
+        """Return ``(executor, source)`` when the first segment can be pushed down.
+
+        Only a remote ClickHouse source qualifies: the compiled SQL has to be a
+        query the target server can resolve on its own.
+        """
+        executor = self._sql_segment_executor
+        if executor is None or not self._is_remote_source():
+            return None, None
+        try:
+            source = self._table_function.remote_source()
+        except Exception:
+            # An unusable source descriptor is not a pushdown candidate; the
+            # local path still reports the underlying problem.
+            return None, None
+        if not executor.accepts(source):
+            return None, None
+        return executor, source
+
+    @contextmanager
+    def _compiling_for(self, target: str):
+        """Compile SQL for ``target`` inside this block, then restore the default."""
+        previous = self._sql_target
+        self._sql_target = target
+        try:
+            yield
+        finally:
+            self._sql_target = previous
+
+    def _execute_remote_sql_segment(
+        self, executor: SqlSegmentExecutor, source: RemoteSource, sql: str
+    ) -> pd.DataFrame:
+        """Run one compiled segment on the remote server and record its trace.
+
+        Any failure propagates. Falling back to the local engine here would mask
+        credential and dialect errors, and could scan the same data twice.
+        """
+        result = normalize_segment_result(executor.execute(sql, source))
+        frame = result.frame
+        self._last_pushdown_trace = PushdownTrace(
+            target=executor.target,
+            sql=sql,
+            source=source,
+            result_rows=len(frame),
+            metrics=dict(result.metrics or {}),
+        )
+        self._logger.debug(
+            "  Remote segment returned %d rows from %s",
+            len(frame),
+            source.qualified_name(),
+        )
+        return frame
+
     def _require_table_context(self, operation: str) -> None:
         """
         Raise a helpful error if this DataStore is in connection/database mode
@@ -1454,8 +1551,11 @@ class DataStore(PandasCompatMixin):
             self._ensure_sql_source()
 
         if segment.is_first_segment and (self._table_function or self.table_name):
-            # First segment: execute from original data source
-            if self._executor is None:
+            # First segment: execute from original data source, either locally or
+            # on the remote server that owns it.
+            pushdown_executor, pushdown_source = self._pushdown_for_first_segment()
+
+            if pushdown_executor is None and self._executor is None:
                 with profiler.step("Connection"):
                     self._logger.debug("Connecting to data source...")
                     self.connect()
@@ -1470,7 +1570,13 @@ class DataStore(PandasCompatMixin):
                 plan.sql_ops = segment.ops.copy()
 
             sql_engine = SQLExecutionEngine(self)
-            build_result = sql_engine.build_sql_from_plan(plan, schema)
+            target = (
+                pushdown_executor.target
+                if pushdown_executor is not None
+                else LOCAL_CHDB
+            )
+            with self._compiling_for(target):
+                build_result = sql_engine.build_sql_from_plan(plan, schema)
             sql = build_result.sql
 
             # Append format settings if present (e.g., input_format_parquet_preserve_order)
@@ -1503,7 +1609,14 @@ class DataStore(PandasCompatMixin):
                 "__orig_row_num__" in sql or "ORDER BY _row_id" in sql
             )
 
-            if (
+            if pushdown_executor is not None:
+                with profiler.step("SQL Execution (remote)"):
+                    df = self._execute_remote_sql_segment(
+                        pushdown_executor, pushdown_source, sql
+                    )
+                with profiler.step("Result to DataFrame"):
+                    df = self._postprocess_sql_result(df, plan)
+            elif (
                 isinstance(self._table_function, PythonTableFunction)
                 and not sql_has_row_order_handling
             ):
@@ -1844,7 +1957,12 @@ class DataStore(PandasCompatMixin):
             return self._generate_select_sql(self.quote_char)
 
         sql_engine = SQLExecutionEngine(self)
-        result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
+        # Show the SQL that will actually be issued: a segment bound for the
+        # remote server reads its table directly, not through remote().
+        executor, _ = self._pushdown_for_first_segment()
+        target = executor.target if executor is not None else LOCAL_CHDB
+        with self._compiling_for(target):
+            result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
         return result.sql
 
     def _get_table_source(self) -> str:

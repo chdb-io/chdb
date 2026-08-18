@@ -39,6 +39,14 @@ class TableFunction(ABC):
         """Generate SQL for the table function."""
         pass
 
+    def render_source(self, quote_char: str = '"', target: str = "local_chdb") -> str:
+        """Render this source for the engine that will run the SQL.
+
+        Only sources that mean different things to different engines override
+        this; everything else reads the same wherever the query executes.
+        """
+        return self.to_sql(quote_char=quote_char)
+
     def with_settings(self, **settings) -> "TableFunction":
         """
         Add format-specific settings to the table function.
@@ -863,6 +871,44 @@ class RemoteTableFunction(TableFunction):
         ]
 
         return f"{func_name}({', '.join(sql_params)})"
+
+    def render_source(self, quote_char: str = '"', target: str = "local_chdb") -> str:
+        """Read the table directly when the target server already owns it.
+
+        ``remote('host', 'db', 'tbl', ...)`` tells one engine to fetch rows from
+        another.  Sent to that same server it would open a pointless loopback
+        connection and require credentials the server may not accept from
+        itself, so the reference is compiled as ``"db"."tbl"`` instead.
+        """
+        from .pushdown import REMOTE_CLICKHOUSE
+
+        if target != REMOTE_CLICKHOUSE:
+            return self.to_sql(quote_char=quote_char)
+
+        source = self.remote_source()
+        table = f"{quote_char}{source.table}{quote_char}"
+        if not source.database:
+            return table
+        return f"{quote_char}{source.database}{quote_char}.{table}"
+
+    def remote_source(self):
+        """Describe the server and table behind this source, without secrets."""
+        from .adapters import normalize_clickhouse_connection
+        from .pushdown import RemoteSource
+
+        host = self.params.get("host")
+        table = self.params.get("table")
+        if not all([host, table]):
+            raise DataStoreError("'host' and 'table' are required for remote()")
+        host, secure = normalize_clickhouse_connection(
+            host, self.params.get("secure", False)
+        )
+        return RemoteSource(
+            host=host,
+            database=self.params.get("database", "default"),
+            table=table,
+            secure=secure,
+        )
 
 
 class IcebergTableFunction(TableFunction):
