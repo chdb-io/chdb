@@ -404,6 +404,7 @@ class TestNamingAndValidation:
         old_script = scripts / "fixed_name.py"
         old_config = configs / "fixed_name_function.xml"
         old_script.write_text("# original script")
+        old_script.chmod(0o700)  # deliberately private permissions
         old_config.write_text("<functions>original</functions>")
 
         monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: False)
@@ -423,6 +424,8 @@ class TestNamingAndValidation:
         # pre-existing artifacts restored, not deleted
         assert old_script.read_text() == "# original script"
         assert old_config.read_text() == "<functions>original</functions>"
+        # ... with their original permission bits, not a hardcoded 0o755
+        assert (old_script.stat().st_mode & 0o7777) == 0o700
         # no temp files left behind
         assert sorted(p.name for p in scripts.iterdir()) == ["fixed_name.py"]
         assert sorted(p.name for p in configs.iterdir()) == [

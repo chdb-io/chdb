@@ -524,11 +524,13 @@ def _deploy_impl(
     # for this name are restored rather than deleted. Writes go through a
     # temporary file + os.replace so the server's config watcher can never
     # observe a half-written artifact.
-    previous_contents: Dict[str, bytes] = {}
+    # {path: (contents, permission bits)} — restored verbatim on failure
+    previous_artifacts: Dict[str, Tuple[bytes, int]] = {}
     for path in (script_path, config_path):
         if os.path.exists(path):
             with open(path, "rb") as stream:
-                previous_contents[path] = stream.read()
+                data = stream.read()
+            previous_artifacts[path] = (data, os.stat(path).st_mode & 0o7777)
 
     try:
         _write_atomic(script_path, script_body.encode("utf-8"), mode=0o755)
@@ -548,12 +550,9 @@ def _deploy_impl(
     except Exception:
         for path in (script_path, config_path):
             try:
-                if path in previous_contents:
-                    _write_atomic(
-                        path,
-                        previous_contents[path],
-                        mode=0o755 if path == script_path else None,
-                    )
+                if path in previous_artifacts:
+                    data, mode = previous_artifacts[path]
+                    _write_atomic(path, data, mode=mode)
                 else:
                     os.remove(path)
             except OSError:
