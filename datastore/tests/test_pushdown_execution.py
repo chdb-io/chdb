@@ -226,3 +226,48 @@ def test_apply_does_not_warn_about_a_parameter_pandas_deprecated():
         if issubclass(warning.category, FutureWarning)
         and "convert_dtype" in str(warning.message)
     ] == []
+
+
+class PlanRecordingExecutor(RecordingExecutor):
+    """Records the placement report alongside the SQL it is handed."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.placements = None
+
+    def note_execution_plan(self, placements):
+        self.placements = placements
+
+
+def test_the_executor_learns_where_every_segment_runs():
+    executor = PlanRecordingExecutor()
+    chain(remote_store(executor)).to_pandas()
+
+    reported = [placement.as_dict() for placement in executor.placements]
+    assert len(reported) == 1
+    segment = reported[0]
+    assert segment["kind"] == "sql"
+    assert segment["engine"] == "remote_clickhouse"
+    assert segment["reasonCode"] == "sql_pushed_to_source"
+    assert f'"{DATABASE}"."{TABLE}"' in segment["sql"]
+    assert len(segment["ops"]) == 4
+
+
+def test_a_pandas_tail_is_reported_with_the_reason_it_stayed_local():
+    executor = PlanRecordingExecutor()
+    store = remote_store(executor)
+    filtered = store[store["event_type"] == "purchase"][["channel", "revenue"]]
+    # groupby().apply() carries a Python callable, so the planner cannot compile
+    # it and the chain ends in a pandas segment.
+    filtered.groupby("channel").apply(lambda frame: frame.head(1)).to_pandas()
+
+    reported = [placement.as_dict() for placement in executor.placements]
+    assert [segment["engine"] for segment in reported] == [
+        "remote_clickhouse",
+        "pandas",
+    ]
+    tail = reported[1]
+    assert tail["kind"] == "pandas"
+    assert tail["reasonCode"] == "python_callable"
+    assert tail["detail"]
+    assert tail["sql"] is None

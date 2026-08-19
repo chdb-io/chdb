@@ -22,7 +22,7 @@ import os
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Mapping, Optional
 
 from .exceptions import DataStoreError
 
@@ -116,6 +116,36 @@ def _escape_path(path: str) -> str:
     return path.replace("\\", "\\\\").replace("'", "''")
 
 
+@dataclass(frozen=True)
+class SegmentPlacement:
+    """Where one segment of a plan runs, and why.
+
+    A caller that only sees the result cannot tell a chain apart from a chain
+    that fell back halfway.  This says it plainly, one entry per segment: the
+    engine, the statement it runs (for SQL), the operations it covers, and the
+    reason the planner put it there.
+    """
+
+    index: int
+    kind: str
+    engine: str
+    reason_code: str
+    detail: str
+    ops: tuple = ()
+    sql: Optional[str] = None
+
+    def as_dict(self) -> dict:
+        return {
+            "index": self.index,
+            "kind": self.kind,
+            "engine": self.engine,
+            "reasonCode": self.reason_code,
+            "detail": self.detail,
+            "ops": list(self.ops),
+            "sql": self.sql,
+        }
+
+
 class SqlSegmentExecutor(ABC):
     """Executes one already-compiled SQL segment against a remote server.
 
@@ -126,6 +156,15 @@ class SqlSegmentExecutor(ABC):
     """
 
     target = REMOTE_CLICKHOUSE
+
+    def note_execution_plan(self, placements) -> None:
+        """Receive the placement of every segment before the first one runs.
+
+        Observability only: the executor runs the SQL it is handed either way.
+        Callers that report where a chain executed need the segments it never
+        sees - the ones that stay in pandas - and the reason each landed where it
+        did.  The default does nothing.
+        """
 
     @abstractmethod
     def accepts(self, source: RemoteSource) -> bool:

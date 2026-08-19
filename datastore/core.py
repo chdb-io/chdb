@@ -40,6 +40,7 @@ from .pushdown import (
     LOCAL_CHDB,
     REMOTE_CLICKHOUSE,
     PushdownTrace,
+    SegmentPlacement,
     RemoteSource,
     SqlSegmentExecutor,
     normalize_segment_result,
@@ -1070,6 +1071,65 @@ class DataStore(PandasCompatMixin):
         finally:
             self._sql_target = previous
 
+    def _segment_placements(self, sql: str) -> tuple:
+        """Describe where every segment of the running plan executes, and why."""
+        exec_plan = getattr(self, "_current_exec_plan", None)
+        if exec_plan is None:
+            return ()
+        placements = []
+        for index, segment in enumerate(exec_plan.segments, start=1):
+            ops = tuple(
+                op.describe() if hasattr(op, "describe") else type(op).__name__
+                for op in segment.ops
+            )
+            if segment.is_sql():
+                # The first SQL segment reads the source; a later one reads the
+                # frame the previous segment returned.
+                remote = segment.is_first_segment
+                placements.append(
+                    SegmentPlacement(
+                        index=index,
+                        kind="sql",
+                        engine=REMOTE_CLICKHOUSE if remote else LOCAL_CHDB,
+                        reason_code="sql_pushed_to_source"
+                        if remote
+                        else "sql_on_returned_frame",
+                        detail=(
+                            "compiled to one statement on the server that owns the table"
+                            if remote
+                            else "compiled to SQL over the frame the previous segment returned"
+                        ),
+                        ops=ops,
+                        sql=sql if remote else None,
+                    )
+                )
+                continue
+            blocked = next(
+                (
+                    decision
+                    for decision in segment.decisions
+                    if not decision.eligible
+                ),
+                None,
+            )
+            placements.append(
+                SegmentPlacement(
+                    index=index,
+                    kind="pandas",
+                    engine="pandas",
+                    reason_code=(
+                        blocked.reason_code.value if blocked else "pandas_only"
+                    ),
+                    detail=(
+                        blocked.detail
+                        if blocked
+                        else "no SQL translation for these operations"
+                    ),
+                    ops=ops,
+                )
+            )
+        return tuple(placements)
+
     def _execute_remote_sql_segment(
         self, executor: SqlSegmentExecutor, source: RemoteSource, sql: str
     ) -> pd.DataFrame:
@@ -1078,6 +1138,11 @@ class DataStore(PandasCompatMixin):
         Any failure propagates. Falling back to the local engine here would mask
         credential and dialect errors, and could scan the same data twice.
         """
+        try:
+            executor.note_execution_plan(self._segment_placements(sql))
+        except Exception:
+            # Reporting must never decide whether a query runs.
+            pass
         result = normalize_segment_result(executor.execute(sql, source))
         frame = result.frame
         self._last_pushdown_trace = PushdownTrace(
@@ -1412,6 +1477,10 @@ class DataStore(PandasCompatMixin):
                     schema=schema,
                     local_source=local_source,
                 )
+                # Kept for the placement report a bound executor receives: the
+                # segments it never sees are exactly the ones a caller needs to
+                # understand where the chain ran.
+                self._current_exec_plan = exec_plan
 
                 self._logger.debug(exec_plan.describe())
 
