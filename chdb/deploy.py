@@ -27,8 +27,9 @@ surface as ClickHouse-side errors at query time.
 Type declarations mirror local chdb registration: the same annotation
 inference table (including numpy scalars), loud errors for unknown
 annotations and missing return types, and every declared type wrapped in
-Nullable like the engine's makeNullable, and composite types (Array/Map/
-Tuple) are rejected exactly as local registration rejects them.
+Nullable like the engine's makeNullable, and any type outside local
+registration's whitelist (integers, floats, Bool, String, Date/DateTime —
+isSupportedUDFType) is rejected with the same error shape.
 
 DateTime values arrive as aware datetimes: a type with an explicit timezone
 (``DateTime('UTC')``) attaches that zone, a plain DateTime attaches the host
@@ -206,17 +207,28 @@ _NOT_INSIDE_NULLABLE = {
     "Object",
 }
 
-# Composite types that local chdb UDF registration rejects ("unsupported
-# argument N type ..."); deployment rejects them the same way.
-_UNSUPPORTED_COMPOSITE = {"Array", "Map", "Tuple", "Nested"}
+# The exact whitelist local chdb UDF registration enforces
+# (isSupportedUDFType in PythonScalarUDF.cpp); Bool is the engine's alias
+# for UInt8 and passes the same check. Everything else — Decimal, UUID,
+# FixedString, Enum, LowCardinality, IPv4/6, Array/Map/Tuple, explicit
+# Nullable(...) argument declarations — is rejected there, so deployment
+# rejects it the same way. Nullability is applied implicitly on both sides.
+_SUPPORTED_BASE_TYPES = {
+    "UInt8", "UInt16", "UInt32", "UInt64", "UInt128", "UInt256",
+    "Int8", "Int16", "Int32", "Int64", "Int128", "Int256",
+    "Float32", "Float64", "Bool",
+    "String", "Date", "Date32", "DateTime", "DateTime64",
+}
 
 
-def _reject_composite(fn_name: str, what: str, ch_type: str) -> None:
+def _reject_unsupported(fn_name: str, what: str, ch_type: str) -> None:
     base = ch_type.split("(")[0].strip()
-    if base in _UNSUPPORTED_COMPOSITE:
+    if base not in _SUPPORTED_BASE_TYPES:
         raise ValueError(
             f"Cannot deploy {fn_name}(): unsupported {what} type "
-            f"'{ch_type}' — local chdb UDFs do not support composite types"
+            f"'{ch_type}' — matching local chdb UDF registration, which "
+            "supports integers, floats, Bool, String and Date/DateTime "
+            "types (nullability is applied implicitly)"
         )
 
 
@@ -293,10 +305,13 @@ def _resolve_types(
             f"Cannot deploy {fn.__name__}(): return type not specified — "
             "annotate the return or pass return_type=..."
         )
-    # Strict local alignment: chdb rejects composite types at registration.
+    # Strict local alignment: reject everything isSupportedUDFType rejects.
+    # Arguments are validated as declared (local rejects explicit
+    # Nullable(...) there); the return type is validated after stripping
+    # Nullable (local removeNullable's it first).
     for index, (_, arg_type) in enumerate(resolved, start=1):
-        _reject_composite(fn.__name__, f"argument {index}", arg_type)
-    _reject_composite(fn.__name__, "return", ch_return)
+        _reject_unsupported(fn.__name__, f"argument {index}", arg_type)
+    _reject_unsupported(fn.__name__, "return", _strip_nullable(ch_return))
     return resolved, ch_return
 
 
@@ -340,8 +355,6 @@ def _converter_expr(ch_type: str) -> str:
         return "int"
     if base.startswith("Float"):
         return "float"
-    if base.startswith("Decimal"):
-        return "_parse_decimal"
     if base == "Bool":
         return "_parse_bool"
     if base in ("Date", "Date32"):
@@ -361,11 +374,6 @@ def _identity(value):
 
 def _parse_bool(value):
     return value in ("true", "1", "True")
-
-
-def _parse_decimal(value):
-    from decimal import Decimal
-    return Decimal(value)
 
 
 def _parse_date(value):

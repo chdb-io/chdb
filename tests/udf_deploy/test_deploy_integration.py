@@ -170,9 +170,11 @@ class TestSessionScopedDeploy:
         def itest_incr(x):
             return x + 1  # would TypeError if ever called with None
 
+        # nullability is implicit (auto-wrap), exactly like local chdb — an
+        # explicit Nullable(...) argument declaration would be rejected
         info = deploy.deploy(
             itest_incr,
-            arg_types=["Nullable(Int64)"],
+            arg_types=["Int64"],
             return_type="Nullable(Int64)",
         )
         assert _select(connection, f"SELECT {info.remote_name}(41)") == "42"

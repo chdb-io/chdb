@@ -260,8 +260,6 @@ class TestTypeResolution:
         assert deploy._on_error_ignores(chdb.ExceptionHandling.IGNORE) is True
 
     def test_decimal_and_temporal_converters(self):
-        assert deploy._converter_expr("Decimal(38, 10)") == "_parse_decimal"
-        assert deploy._converter_expr("Decimal128(10)") == "_parse_decimal"
         assert deploy._converter_expr("Date") == "_parse_date"
         assert deploy._converter_expr("Date32") == "_parse_date"
         assert deploy._converter_expr("DateTime64(3)") == "_make_datetime_parser(None)"
@@ -275,20 +273,48 @@ class TestTypeResolution:
             == "_make_datetime_parser('Asia/Shanghai')"
         )
 
-    def test_composite_types_rejected_like_local(self):
+    def test_unsupported_types_rejected_like_local(self):
+        """Mirror of isSupportedUDFType: everything local registration
+        rejects, deployment rejects with the same error shape."""
         def fn(xs) -> int:
             return 0
 
-        with pytest.raises(ValueError, match="unsupported argument 1 type"):
-            deploy._resolve_types(fn, ["Array(Int64)"], "Int64")
-        with pytest.raises(ValueError, match="unsupported argument 1 type"):
-            deploy._resolve_types(fn, ["Map(String, Int64)"], "Int64")
-
-        def fn2(x: int):
-            return [x]
+        rejected_args = [
+            "Array(Int64)",
+            "Map(String, Int64)",
+            "Tuple(Int64, String)",
+            "Decimal(38, 10)",
+            "UUID",
+            "FixedString(8)",
+            "Enum8('a' = 1)",
+            "LowCardinality(String)",
+            "IPv4",
+            # local rejects explicitly-declared Nullable arguments too:
+            # nullability is applied implicitly by the engine
+            "Nullable(Int64)",
+        ]
+        for bad in rejected_args:
+            with pytest.raises(ValueError, match="unsupported argument 1 type"):
+                deploy._resolve_types(fn, [bad], "Int64")
 
         with pytest.raises(ValueError, match="unsupported return type"):
-            deploy._resolve_types(fn2, None, "Array(Int64)")
+            deploy._resolve_types(fn, ["Int64"], "Array(Int64)")
+
+    def test_supported_type_edges_accepted(self):
+        def fn(a, b, c, d) -> int:
+            return 0
+
+        args, ret = deploy._resolve_types(
+            fn,
+            ["Int256", "UInt128", "DateTime64(6, 'UTC')", "Bool"],
+            # local removeNullable's the return before checking, so an
+            # explicitly Nullable return is accepted
+            "Nullable(Int64)",
+        )
+        assert [t for _, t in args] == [
+            "Int256", "UInt128", "DateTime64(6, 'UTC')", "Bool",
+        ]
+        assert ret == "Nullable(Int64)"
 
 
 # ---------------------------------------------------------------------------
@@ -394,18 +420,6 @@ class TestArtifactGeneration:
             "swallow", deploy._function_source(swallow), ["String"]
         )
         assert _run_script(script, "x\n") == "\\N\n"
-
-    def test_decimal_precision_preserved(self):
-        def echo_decimal(value) -> str:
-            return str(value)
-
-        script = deploy._generate_script(
-            "echo_decimal",
-            deploy._function_source(echo_decimal),
-            ["Decimal(38, 10)"],
-        )
-        big = "1234567890123456789.0123456789"
-        assert _run_script(script, big + "\n") == big + "\n"
 
     def test_date_and_datetime_parsed(self):
         def year_of(d) -> int:
