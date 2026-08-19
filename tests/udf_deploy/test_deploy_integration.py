@@ -180,6 +180,30 @@ class TestSessionScopedDeploy:
         assert _select(connection, f"SELECT {info.remote_name}(41)") == "42"
         assert _select(connection, f"SELECT {info.remote_name}(NULL)") == "\\N"
 
+    def test_sql_alias_types_deploy(self, connection):
+        # aliases resolve like DataTypeFactory: BIGINT -> Int64, TEXT -> String
+        def itest_alias(n, s) -> str:
+            return f"{type(n).__name__}:{n + 1}|{s.upper()}"
+
+        info = deploy.deploy(
+            itest_alias, arg_types=["BIGINT", "TEXT"], return_type="TEXT"
+        )
+        assert (
+            _select(connection, f"SELECT {info.remote_name}(41, 'ok')")
+            == "int:42|OK"
+        )
+
+    def test_http_error_paths(self, connection):
+        # server reachable but the query is invalid -> HTTP error with body
+        with pytest.raises(RuntimeError, match="ClickHouse HTTP error"):
+            deploy._http_query(connection, "SELECT definitely not sql !!!")
+        # unreachable endpoint -> clear connectivity error
+        dead = dsconfig.register_connection(
+            "dead", host="127.0.0.1", port=1, default=False
+        )
+        with pytest.raises(RuntimeError, match="Cannot reach ClickHouse"):
+            deploy._http_query(dead, "SELECT 1", timeout=2)
+
     def test_cleanup_session_drops_temp_function(self, connection):
         def itest_negate(x: int) -> int:
             return -x

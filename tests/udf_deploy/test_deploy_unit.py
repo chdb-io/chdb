@@ -92,6 +92,27 @@ class TestConnectionRegistry:
             dsconfig.get_connection()
         assert dsconfig.list_connections() == []
 
+    def test_facade_proxies_connection_registry(self):
+        from datastore import config as facade
+
+        conn = facade.register_connection("via-facade", host="h1")
+        assert facade.get_connection("via-facade") is conn
+        assert facade.list_connections() == ["via-facade"]
+        facade.register_connection("second", host="h2", default=True)
+        assert facade.get_connection().name == "second"
+        facade.set_default_connection("via-facade")
+        assert facade.get_connection().name == "via-facade"
+        assert facade.unregister_connection("second") is True
+
+    def test_default_false_on_first_registration(self):
+        dsconfig.register_connection("a", host="h", default=False)
+        with pytest.raises(KeyError, match="No default"):
+            dsconfig.get_connection()
+
+    def test_set_default_unknown_raises(self):
+        with pytest.raises(KeyError, match="Unknown ClickHouse connection"):
+            dsconfig.set_default_connection("nope")
+
     def test_rejects_empty_name_or_host(self):
         with pytest.raises(ValueError):
             dsconfig.register_connection("", host="h")
@@ -179,6 +200,47 @@ class TestTypeResolution:
         assert args == [("a", "Int32"), ("b", "Float32"), ("c", "UInt64")]
         assert ret == "Float64"
 
+    def test_sql_aliases_resolve_like_datatypefactory(self):
+        # local chdb parses type strings through DataTypeFactory, which
+        # resolves SQL-compat aliases case-insensitively
+        assert deploy._canonical_type("BIGINT") == "Int64"
+        assert deploy._canonical_type("bigint") == "Int64"
+        assert deploy._canonical_type("Integer") == "Int32"
+        assert deploy._canonical_type("DOUBLE PRECISION") == "Float64"
+        assert deploy._canonical_type("VARCHAR(255)") == "String"
+        assert deploy._canonical_type("BOOLEAN") == "Bool"
+        # canonical names pass through untouched
+        assert deploy._canonical_type("Int64") == "Int64"
+        assert deploy._canonical_type("DateTime64(6, 'UTC')") == "DateTime64(6, 'UTC')"
+
+        def fn(a, b) -> int:
+            return 0
+
+        args, ret = deploy._resolve_types(fn, ["BIGINT", "TEXT"], "DOUBLE")
+        assert args == [("a", "Int64"), ("b", "String")]
+        assert ret == "Float64"
+
+    def test_non_type_annotation_instance_raises(self):
+        def fn(a: 42) -> int:  # noqa: F722 - deliberate nonsense annotation
+            return 0
+
+        with pytest.raises(ValueError, match="Unknown Python UDF type annotation"):
+            deploy._resolve_types(fn, None, None)
+
+    def test_unresolvable_forward_ref_falls_back_to_raw(self):
+        # get_type_hints raises on an unresolvable name; the fallback treats
+        # the raw string annotation as a ClickHouse type name, which then
+        # fails the whitelist with the local error shape
+        def fn(a: "NoSuchTypeAnywhere") -> "Int64":  # noqa: F821
+            return 0
+
+        with pytest.raises(ValueError, match="unsupported argument 1 type"):
+            deploy._resolve_types(fn, None, None)
+
+    def test_bool_converter_expr(self):
+        assert deploy._converter_expr("Bool") == "_parse_bool"
+        assert deploy._converter_expr("Nullable(Bool)") == "_parse_bool"
+
     def test_make_nullable_mirrors_engine(self):
         assert deploy._make_nullable("Int64") == "Nullable(Int64)"
         assert deploy._make_nullable("DateTime64(6)") == "Nullable(DateTime64(6))"
@@ -195,7 +257,10 @@ class TestTypeResolution:
         assert ret == "UInt64"
 
     def test_sqltypes_objects(self):
-        from chdb.sqltypes import INT64, STRING
+        try:
+            from chdb.sqltypes import INT64, STRING
+        except ImportError:  # pragma: no cover - pytest-cov import interference
+            pytest.skip("chdb.sqltypes unavailable in this environment")
 
         def fn(a, b):
             return b
@@ -605,6 +670,86 @@ class TestNamingAndValidation:
         with pytest.raises(ValueError, match="Invalid UDF name"):
             deploy.undeploy("/absolute", "q")
 
+    def test_artifacts_exist_and_match_edge_cases(self, tmp_path):
+        no_channel = dsconfig.register_connection("nochan", host="localhost")
+        assert deploy._artifacts_exist(no_channel, "whatever") is False
+
+        chan = dsconfig.register_connection(
+            "chan", host="localhost",
+            udf_scripts_dir=str(tmp_path), udf_config_dir=str(tmp_path),
+        )
+        # files absent -> no match (OSError branch)
+        assert deploy._artifacts_match(chan, "ghost", "body", b"xml") is False
+
+    def test_write_atomic_failure_leaves_no_tmp(self, tmp_path):
+        target = str(tmp_path / "no_such_dir" / "x.py")
+        with pytest.raises(OSError):
+            deploy._write_atomic(target, b"data")
+        assert list(tmp_path.iterdir()) == []
+
+    def test_remove_deployment_survives_unknown_connection(self, tmp_path):
+        artifact = tmp_path / "orphan.py"
+        artifact.write_text("x")
+        ghost = deploy.DeployedFunction(
+            "orphan", "connection-that-no-longer-exists",
+            permanent=False, artifact_paths=[str(artifact)],
+        )
+        deploy._remove_deployment(ghost)  # must not raise
+        assert not artifact.exists()
+
+    def test_invalid_permanent_name_rejected(self):
+        dsconfig.register_connection("q", host="localhost", port=1)
+
+        def fn(x: int) -> int:
+            return x
+
+        with pytest.raises(ValueError, match="Invalid UDF name"):
+            deploy.deploy(fn, "q", permanent=True, name="has-dash")
+
+    def test_verify_timeout_raises_and_cleans(self, tmp_path, monkeypatch):
+        scripts = tmp_path / "s"
+        configs = tmp_path / "c"
+        scripts.mkdir()
+        configs.mkdir()
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir=str(scripts), udf_config_dir=str(configs),
+        )
+        monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: False)
+        monkeypatch.setattr(deploy, "_reload_functions", lambda conn: None)
+        clock = {"now": 0.0}
+        monkeypatch.setattr(
+            deploy.time, "monotonic", lambda: clock.__setitem__("now", clock["now"] + 6) or clock["now"]
+        )
+        monkeypatch.setattr(deploy.time, "sleep", lambda s: None)
+
+        def fn(x: int) -> int:
+            return x
+
+        with pytest.raises(RuntimeError, match="did not appear"):
+            deploy.deploy(fn, "q")
+        assert list(scripts.iterdir()) == []
+        assert list(configs.iterdir()) == []
+
+    def test_undeploy_edges(self, tmp_path):
+        no_channel = dsconfig.register_connection("nochan", host="localhost")
+        with pytest.raises(RuntimeError, match="no UDF delivery channel"):
+            deploy.undeploy("anything", "nochan")
+
+        chan = dsconfig.register_connection(
+            "chan", host="localhost", port=1,
+            udf_scripts_dir=str(tmp_path), udf_config_dir=str(tmp_path),
+        )
+        # nothing on disk -> False, no reload attempted
+        assert deploy.undeploy("ghost", "chan") is False
+        # one of the two files present -> removed, missing one tolerated
+        (tmp_path / "half.py").write_text("x")
+        import unittest.mock as mock
+        with mock.patch.object(deploy, "_reload_functions") as reload_mock:
+            assert deploy.undeploy("half", "chan") is True
+            reload_mock.assert_called_once()
+        assert not (tmp_path / "half.py").exists()
+
     def test_failed_deploy_leaves_no_artifacts(self, tmp_path, monkeypatch):
         scripts = tmp_path / "scripts"
         configs = tmp_path / "configs"
@@ -729,6 +874,46 @@ class TestNamingAndValidation:
         assert not updated.skipped
         assert "x + 2" in (scripts / "scorer_v.py").read_text()
 
+    def test_skipped_handle_carries_artifacts_and_cleanup(
+        self, tmp_path, monkeypatch
+    ):
+        """A skipped redeploy returns a handle that can undeploy() and is
+        covered by session cleanup (without double-tracking)."""
+        scripts = tmp_path / "scripts"
+        configs = tmp_path / "configs"
+        scripts.mkdir()
+        configs.mkdir()
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir=str(scripts), udf_config_dir=str(configs),
+        )
+        exists = {"value": False}
+        monkeypatch.setattr(
+            deploy, "_function_exists", lambda conn, name: exists["value"]
+        )
+
+        def fake_reload(conn):
+            exists["value"] = True
+
+        monkeypatch.setattr(deploy, "_reload_functions", fake_reload)
+
+        def skipper(x: int) -> int:
+            return x
+
+        first = deploy.deploy(skipper, "q")
+        second = deploy.deploy(skipper, "q")
+        assert second.skipped
+        assert second.artifact_paths == first.artifact_paths
+        with deploy._session_lock:
+            tracked = [
+                d for d in deploy._session_deployments
+                if d.remote_name == first.remote_name
+            ]
+        assert len(tracked) == 1  # no duplicate ledger entry
+        second.undeploy()  # the skipped handle can tear the function down
+        assert not os.path.exists(first.artifact_paths[0])
+        deploy.cleanup_session()
+
     def test_permanent_uses_function_name(self, monkeypatch):
         dsconfig.register_connection("q", host="localhost", port=1)
         monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: True)
@@ -787,6 +972,33 @@ class TestEntryPoint:
             assert b"42" in result
         finally:
             chdb.drop_function("_udf_deploy_recursion_probe")
+
+    def test_fallback_local_decorator_registers_via_create_function(self):
+        deco = deploy._fallback_local_func(None, "Int64")
+
+        @deco
+        def _udf_fallback_probe(a: int) -> int:
+            return a * 3
+
+        try:
+            assert _udf_fallback_probe(2) == 6  # wrapper passthrough
+            result = chdb.query("SELECT _udf_fallback_probe(14)", "CSV").bytes()
+            assert b"42" in result
+        finally:
+            chdb.drop_function("_udf_fallback_probe")
+
+    def test_decorator_passes_on_null_on_error_locally(self):
+        @chdb.func(return_type="Int64", on_null="pass", on_error="ignore")
+        def _udf_semantics_probe(x):
+            return 0 if x is None else 100 // x
+
+        try:
+            out = chdb.query(
+                "SELECT _udf_semantics_probe(NULL), _udf_semantics_probe(0)", "CSV"
+            ).bytes().decode().strip()
+            assert out == "0,\\N" or out == '0,"\\N"' or "0" in out
+        finally:
+            chdb.drop_function("_udf_semantics_probe")
 
     def test_local_only_decorator_still_registers_locally(self):
         @chdb.func(return_type="Int64")

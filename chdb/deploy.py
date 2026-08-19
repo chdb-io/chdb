@@ -146,6 +146,38 @@ _NUMPY_DTYPE_TO_CLICKHOUSE = {
 
 _UNION_TYPE = getattr(types, "UnionType", None)  # PEP 604 `X | None` (3.10+)
 
+# SQL-compat aliases DataTypeFactory resolves case-insensitively; local chdb
+# accepts them because it parses type strings through the factory before the
+# whitelist check. Only aliases of whitelisted types are listed. String-family
+# aliases may carry a length parameter (VARCHAR(255)), which ClickHouse
+# ignores — the canonical form drops it.
+_TYPE_ALIASES = {
+    "TINYINT": "Int8", "INT1": "Int8",
+    "SMALLINT": "Int16", "INT2": "Int16",
+    "INT": "Int32", "INT4": "Int32", "INTEGER": "Int32", "MEDIUMINT": "Int32",
+    "BIGINT": "Int64",
+    "FLOAT": "Float32", "REAL": "Float32", "SINGLE": "Float32",
+    "DOUBLE": "Float64", "DOUBLE PRECISION": "Float64",
+    "BOOLEAN": "Bool",
+    "TEXT": "String", "TINYTEXT": "String", "MEDIUMTEXT": "String",
+    "LONGTEXT": "String", "BLOB": "String", "TINYBLOB": "String",
+    "MEDIUMBLOB": "String", "LONGBLOB": "String", "CHAR": "String",
+    "NCHAR": "String", "VARCHAR": "String", "NVARCHAR": "String",
+    "CHARACTER": "String", "CLOB": "String", "BYTEA": "String",
+}
+
+
+def _canonical_type(ch_type: str) -> str:
+    """Resolve SQL-compat aliases to canonical names, like DataTypeFactory."""
+    stripped = ch_type.strip()
+    head, sep, params = stripped.partition("(")
+    canonical = _TYPE_ALIASES.get(head.strip().upper())
+    if canonical is None:
+        return stripped
+    if canonical == "String":
+        return canonical  # length parameters are ignored by ClickHouse
+    return canonical + sep + params
+
 
 def _numpy_clickhouse_type(spec: type) -> Optional[str]:
     """dtype-based mapping for numpy scalar annotations, like chdb-core."""
@@ -180,7 +212,7 @@ def _clickhouse_type(spec: Any) -> str:
             return _clickhouse_type(members[0])
         raise ValueError(f"Unknown Python UDF type annotation: {spec!r}")
     if isinstance(spec, str):
-        return spec
+        return _canonical_type(spec)
     name = getattr(spec, "name", None)
     if isinstance(name, str) and name:
         return name
@@ -788,12 +820,29 @@ def _deploy_impl(
     if _function_exists(connection, remote_name):
         if _artifacts_exist(connection, remote_name):
             if _artifacts_match(connection, remote_name, script_body, config_xml):
-                return DeployedFunction(
+                deployment = DeployedFunction(
                     remote_name=remote_name,
                     connection=connection.name,
                     permanent=permanent,
                     skipped=True,
+                    artifact_paths=(
+                        list(_artifact_paths(connection, remote_name))
+                        if connection.supports_udf_deploy()
+                        else []
+                    ),
                 )
+                if not permanent:
+                    # ensure the skipped handle is covered by session cleanup
+                    # without double-tracking the original deployment
+                    with _session_lock:
+                        tracked = any(
+                            d.remote_name == remote_name
+                            and d.connection == connection.name
+                            for d in _session_deployments
+                        )
+                    if not tracked:
+                        _register_session_cleanup(deployment)
+                return deployment
         else:
             raise ValueError(
                 f"A function named {remote_name!r} already exists on "
