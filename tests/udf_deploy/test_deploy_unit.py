@@ -175,6 +175,30 @@ class TestTypeResolution:
         with pytest.raises(ValueError, match="keyword-only"):
             deploy._resolve_types(fn, None, None)
 
+    def test_inference_matches_documented_local_table(self):
+        from datetime import date, datetime
+
+        def fn(a: date, b: datetime, c: bytes) -> int:
+            return 0
+
+        args, ret = deploy._resolve_types(fn, None, None)
+        assert args == [
+            ("a", "Date"),
+            ("b", "DateTime64(6)"),
+            ("c", "String"),
+        ]
+        assert ret == "Int64"
+
+    def test_on_null_on_error_normalizers(self):
+        assert deploy._on_null_skips(None) is True
+        assert deploy._on_null_skips("skip") is True
+        assert deploy._on_null_skips("pass") is False
+        assert deploy._on_null_skips(chdb.NullHandling.PASS) is False
+        assert deploy._on_error_ignores(None) is False
+        assert deploy._on_error_ignores("propagate") is False
+        assert deploy._on_error_ignores("ignore") is True
+        assert deploy._on_error_ignores(chdb.ExceptionHandling.IGNORE) is True
+
     def test_decimal_and_temporal_converters(self):
         assert deploy._converter_name("Decimal(38, 10)") == "_parse_decimal"
         assert deploy._converter_name("Decimal128(10)") == "_parse_decimal"
@@ -226,14 +250,58 @@ class TestArtifactGeneration:
         )
         assert _run_script(script, "a\\tb\nplain\n") == "true\nfalse\n"
 
-    def test_null_passthrough(self):
+    def test_on_null_pass_calls_with_none(self):
         def maybe(value: str) -> str:
             return "yes" if value is None else value
 
         script = deploy._generate_script(
-            "maybe", deploy._function_source(maybe), ["Nullable(String)"]
+            "maybe",
+            deploy._function_source(maybe),
+            ["Nullable(String)"],
+            null_skip=False,
         )
         assert _run_script(script, "\\N\nhello\n") == "yes\nhello\n"
+
+    def test_on_null_skip_is_default_and_never_calls(self):
+        def crashes_on_none(value: str) -> str:
+            return value.upper()  # AttributeError if ever called with None
+
+        script = deploy._generate_script(
+            "crashes_on_none",
+            deploy._function_source(crashes_on_none),
+            ["Nullable(String)"],
+        )
+        assert _run_script(script, "\\N\nok\n") == "\\N\nOK\n"
+
+    def test_on_error_ignore_returns_null_for_row(self):
+        def divide(a: int, b: int) -> int:
+            return a // b
+
+        script = deploy._generate_script(
+            "divide",
+            deploy._function_source(divide),
+            ["Int64", "Int64"],
+            error_ignore=True,
+        )
+        assert _run_script(script, "10\t2\n1\t0\n8\t4\n") == "5\n\\N\n2\n"
+
+    def test_on_error_propagate_fails_the_process(self):
+        def divide(a: int, b: int) -> int:
+            return a // b
+
+        script = deploy._generate_script(
+            "divide", deploy._function_source(divide), ["Int64", "Int64"]
+        )
+        code = script.split("#!/usr/bin/env python3\n", 1)[1]
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            input="1\t0\n",
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode != 0
+        assert "ZeroDivisionError" in result.stderr
 
     def test_none_result_becomes_null(self):
         def swallow(value: str):

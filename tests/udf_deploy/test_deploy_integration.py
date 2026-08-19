@@ -117,6 +117,28 @@ class TestSessionScopedDeploy:
         info = deploy.deploy(itest_shout)
         assert _select(connection, f"SELECT {info.remote_name}('ok')") == "OK!"
 
+    def test_on_error_ignore_yields_null_row(self, connection):
+        def itest_safediv(a: int, b: int) -> int:
+            return a // b
+
+        info = deploy.deploy(
+            itest_safediv, on_error="ignore", return_type="Nullable(Int64)"
+        )
+        assert _select(connection, f"SELECT {info.remote_name}(10, 2)") == "5"
+        assert _select(connection, f"SELECT {info.remote_name}(1, 0)") == "\\N"
+
+    def test_on_null_skip_default_returns_null(self, connection):
+        def itest_incr(x):
+            return x + 1  # would TypeError if ever called with None
+
+        info = deploy.deploy(
+            itest_incr,
+            arg_types=["Nullable(Int64)"],
+            return_type="Nullable(Int64)",
+        )
+        assert _select(connection, f"SELECT {info.remote_name}(41)") == "42"
+        assert _select(connection, f"SELECT {info.remote_name}(NULL)") == "\\N"
+
     def test_cleanup_session_drops_temp_function(self, connection):
         def itest_negate(x: int) -> int:
             return -x

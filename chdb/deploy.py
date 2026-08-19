@@ -86,13 +86,17 @@ def session_id() -> str:
 # Type resolution: decorator specs / annotations -> ClickHouse type names
 # ---------------------------------------------------------------------------
 
+# Mirrors the inference table documented for chdb.udf.func, so a function
+# deploys with the same declared types it registers with locally.
 _PY_TO_CLICKHOUSE = {
     int: "Int64",
     float: "Float64",
     str: "String",
+    bytes: "String",
+    bytearray: "String",
     bool: "Bool",
-    date: "Date32",
-    datetime: "DateTime64(3)",
+    date: "Date",
+    datetime: "DateTime64(6)",
 }
 
 
@@ -276,7 +280,36 @@ def _format_result(result):
 '''
 
 
-def _generate_script(fn_name: str, source: str, arg_ch_types: List[str]) -> str:
+def _on_null_skips(on_null: Any) -> bool:
+    """True when NULL inputs return NULL without calling the function.
+
+    Mirrors chdb.udf.func's on_null: "skip" (default) or "pass"; accepts the
+    chdb.NullHandling enums as well.
+    """
+    if on_null is None:
+        return True
+    return "pass" not in str(on_null).lower()
+
+
+def _on_error_ignores(on_error: Any) -> bool:
+    """True when a raising row returns NULL instead of failing the query.
+
+    Mirrors chdb.udf.func's on_error: "propagate" (default) or "ignore";
+    accepts the chdb.ExceptionHandling enums as well.
+    """
+    if on_error is None:
+        return False
+    return "ignore" in str(on_error).lower()
+
+
+def _generate_script(
+    fn_name: str,
+    source: str,
+    arg_ch_types: List[str],
+    *,
+    null_skip: bool = True,
+    error_ignore: bool = False,
+) -> str:
     """Generate the executable stdin/stdout wrapper script for the server."""
     converters = ", ".join(_converter_name(t) for t in arg_ch_types)
     return (
@@ -295,6 +328,8 @@ def _generate_script(fn_name: str, source: str, arg_ch_types: List[str]) -> str:
         f"{_SCRIPT_HELPERS.strip()}\n"
         "\n"
         f"_CONVERTERS = [{converters}]\n"
+        f"_NULL_SKIP = {null_skip!r}\n"
+        f"_ERROR_IGNORE = {error_ignore!r}\n"
         "\n"
         "\n"
         "def _main():\n"
@@ -305,7 +340,18 @@ def _generate_script(fn_name: str, source: str, arg_ch_types: List[str]) -> str:
         '            # \\N is the TSV representation of NULL\n'
         '            args.append(None if field == "\\\\N"\n'
         "                        else convert(_unescape(field)))\n"
-        f"        result = {fn_name}(*args)\n"
+        "        # on_null='skip': NULL input returns NULL without calling\n"
+        "        if _NULL_SKIP and any(arg is None for arg in args):\n"
+        '            sys.stdout.write("\\\\N\\n")\n'
+        "            sys.stdout.flush()\n"
+        "            continue\n"
+        "        try:\n"
+        f"            result = {fn_name}(*args)\n"
+        "        except Exception:\n"
+        "            # on_error='ignore': a raising row returns NULL\n"
+        "            if not _ERROR_IGNORE:\n"
+        "                raise\n"
+        "            result = None\n"
         '        sys.stdout.write(_format_result(result) + "\\n")\n'
         "        sys.stdout.flush()\n"
         "\n"
@@ -497,6 +543,8 @@ def _deploy_impl(
     arg_types: Optional[Sequence[Any]] = None,
     return_type: Any = None,
     name: Optional[str] = None,
+    on_null: Any = None,
+    on_error: Any = None,
 ) -> DeployedFunction:
     if inspect.iscoroutinefunction(fn):
         raise ValueError(
@@ -505,12 +553,20 @@ def _deploy_impl(
         )
     arg_specs, ch_return = _resolve_types(fn, arg_types, return_type)
     source = _function_source(fn)
+    null_skip = _on_null_skips(on_null)
+    error_ignore = _on_error_ignores(on_error)
     connection = _resolve_connection(to)
 
     if permanent:
         remote_name = name or fn.__name__
     else:
-        digest_input = source + repr(arg_specs) + ch_return + connection.name
+        digest_input = (
+            source
+            + repr(arg_specs)
+            + ch_return
+            + connection.name
+            + f"{null_skip}{error_ignore}"
+        )
         digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:8]
         remote_name = f"{_SESSION_NAME_PREFIX}{_SESSION_ID}_{digest}"
     if not remote_name.isidentifier():
@@ -518,7 +574,11 @@ def _deploy_impl(
 
     script_filename = f"{remote_name}.py"
     script_body = _generate_script(
-        fn.__name__, source, [arg_type for _, arg_type in arg_specs]
+        fn.__name__,
+        source,
+        [arg_type for _, arg_type in arg_specs],
+        null_skip=null_skip,
+        error_ignore=error_ignore,
     )
     config_xml = _generate_config_xml(
         remote_name, script_filename, arg_specs, ch_return
@@ -626,6 +686,8 @@ def deploy(
     arg_types: Optional[Sequence[Any]] = None,
     return_type: Any = None,
     name: Optional[str] = None,
+    on_null: Any = None,
+    on_error: Any = None,
 ) -> DeployedFunction:
     """Deploy an already-defined Python function as a ClickHouse UDF.
 
@@ -641,6 +703,12 @@ def deploy(
         return_type: Optional explicit return type (else annotation, else
             String).
         name: Override the remote name (permanent deployments only).
+        on_null: "skip" (default — NULL input returns NULL without calling
+            the function) or "pass" (call with None), as in chdb.udf.func;
+            emulated in the generated wrapper.
+        on_error: "propagate" (default — a raising row fails the query) or
+            "ignore" (return NULL for that row), as in chdb.udf.func;
+            emulated in the generated wrapper.
 
     Returns:
         DeployedFunction handle. ``skipped=True`` means the identical
@@ -654,6 +722,8 @@ def deploy(
         arg_types=arg_types,
         return_type=return_type,
         name=name,
+        on_null=on_null,
+        on_error=on_error,
     )
 
 
@@ -777,6 +847,8 @@ def func(
                 permanent=permanent,
                 arg_types=arg_types,
                 return_type=return_type,
+                on_null=on_null,
+                on_error=on_error,
             )
             wrapped.chdb_deployment = deployment
         return wrapped
