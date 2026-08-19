@@ -87,7 +87,14 @@ class SqlSegmentExecutor(ABC):
 
     @abstractmethod
     def execute(self, sql: str, source: RemoteSource) -> SegmentResult:
-        """Run ``sql`` and return its rows.  Raise on failure; never fall back."""
+        """Run ``sql`` and return its rows.  Raise on failure; never fall back.
+
+        The frame must carry the dtypes local execution produces for the same
+        query, so a caller cannot tell where the segment ran from the result.
+        Drivers differ here - a remote client may hand back exact decimals and
+        timezone-aware timestamps where the local engine gives float64 and naive
+        timestamps - so converting is the executor's job.
+        """
 
 
 def normalize_segment_result(value: Any) -> SegmentResult:
