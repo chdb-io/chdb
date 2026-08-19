@@ -118,13 +118,73 @@ class TestTypeResolution:
         ]
         assert ret == "Float64"
 
-    def test_unannotated_falls_back_to_string(self):
+    def test_unannotated_args_fall_back_to_string(self):
+        # local chdb leaves unannotated parameters dynamic; an executable UDF
+        # must declare something, and String is the documented fallback
         def fn(a, b):
             return a
 
-        args, ret = deploy._resolve_types(fn, None, None)
+        args, ret = deploy._resolve_types(fn, None, "String")
         assert args == [("a", "String"), ("b", "String")]
         assert ret == "String"
+
+    def test_missing_return_type_raises_like_local(self):
+        def fn(a: int):
+            return a
+
+        with pytest.raises(ValueError, match="return type not specified"):
+            deploy._resolve_types(fn, None, None)
+
+    def test_optional_annotations_unwrap(self):
+        from typing import Optional, Union
+
+        def fn(a: Optional[int], b: Optional[str]) -> Optional[float]:
+            return None
+
+        args, ret = deploy._resolve_types(fn, None, None)
+        assert args == [("a", "Int64"), ("b", "String")]
+        assert ret == "Float64"
+
+        def bad(a: Union[int, str]) -> int:
+            return 0
+
+        with pytest.raises(ValueError, match="Unknown Python UDF type annotation"):
+            deploy._resolve_types(bad, None, None)
+
+    def test_pep604_union_none_unwraps(self):
+        def fn(a: "int | None") -> "float | None":
+            return None
+
+        args, ret = deploy._resolve_types(fn, None, None)
+        assert args == [("a", "Int64")]
+        assert ret == "Float64"
+
+    def test_unknown_type_object_raises_like_local(self):
+        class Custom:
+            pass
+
+        def fn(a: Custom) -> int:
+            return 0
+
+        with pytest.raises(ValueError, match="Cannot convert Python type"):
+            deploy._resolve_types(fn, None, None)
+
+    def test_numpy_scalar_annotations(self):
+        np = pytest.importorskip("numpy")
+
+        def fn(a: np.int32, b: np.float16, c: np.uint64) -> np.float64:
+            return 0.0
+
+        args, ret = deploy._resolve_types(fn, None, None)
+        assert args == [("a", "Int32"), ("b", "Float32"), ("c", "UInt64")]
+        assert ret == "Float64"
+
+    def test_make_nullable_mirrors_engine(self):
+        assert deploy._make_nullable("Int64") == "Nullable(Int64)"
+        assert deploy._make_nullable("DateTime64(6)") == "Nullable(DateTime64(6))"
+        assert deploy._make_nullable("Nullable(String)") == "Nullable(String)"
+        assert deploy._make_nullable("Array(Int64)") == "Array(Int64)"
+        assert deploy._make_nullable("LowCardinality(String)") == "LowCardinality(String)"
 
     def test_explicit_strings_win_over_annotations(self):
         def fn(a: int) -> int:

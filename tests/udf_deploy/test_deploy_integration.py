@@ -118,14 +118,42 @@ class TestSessionScopedDeploy:
         assert _select(connection, f"SELECT {info.remote_name}('ok')") == "OK!"
 
     def test_on_error_ignore_yields_null_row(self, connection):
+        # no explicit Nullable needed: declarations are auto-wrapped like the
+        # local engine's makeNullable, so the NULL row parses as NULL (it
+        # used to be silently coerced to 0 by input_format_null_as_default)
         def itest_safediv(a: int, b: int) -> int:
             return a // b
 
-        info = deploy.deploy(
-            itest_safediv, on_error="ignore", return_type="Nullable(Int64)"
-        )
+        info = deploy.deploy(itest_safediv, on_error="ignore")
         assert _select(connection, f"SELECT {info.remote_name}(10, 2)") == "5"
         assert _select(connection, f"SELECT {info.remote_name}(1, 0)") == "\\N"
+
+    def test_declared_types_match_local_chdb(self, connection):
+        """Parity check: the remote result type equals what local chdb
+        declares for the same function (engine-side makeNullable)."""
+        def itest_parity(price: float, coupon: str) -> float:
+            return price
+
+        info = deploy.deploy(itest_parity)
+        remote_type = _select(
+            connection, f"SELECT toTypeName({info.remote_name}(1.0, 'x'))"
+        )
+        assert remote_type == "Nullable(Float64)"
+        # NULL flows into an annotation-inferred argument (used to fail with
+        # "Cannot convert NULL to a non-nullable type")
+        assert _select(connection, f"SELECT {info.remote_name}(100, NULL)") == "\\N"
+
+    def test_optional_annotation_deploys(self, connection):
+        # local chdb currently rejects Optional[...] at registration, so this
+        # goes through standalone deploy() (no local registration involved)
+        from typing import Optional
+
+        def itest_opt(x: Optional[str]) -> Optional[str]:
+            return "none" if x is None else x.upper()
+
+        info = deploy.deploy(itest_opt, on_null="pass")
+        assert _select(connection, f"SELECT {info.remote_name}('ok')") == "OK"
+        assert _select(connection, f"SELECT {info.remote_name}(NULL)") == "none"
 
     def test_on_null_skip_default_returns_null(self, connection):
         def itest_incr(x):

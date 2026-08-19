@@ -24,6 +24,14 @@ No feasibility validation is performed: the function source is shipped as-is
 and incompatibilities (closures over local state, unavailable imports, ...)
 surface as ClickHouse-side errors at query time.
 
+Type declarations mirror local chdb registration: the same annotation
+inference table (including numpy scalars), loud errors for unknown
+annotations and missing return types, and every declared type wrapped in
+Nullable like the engine's makeNullable. Known divergences, inherent to the
+executable-UDF text protocol: parameters without annotations are declared
+String (locally they stay dynamic), bytes/bytearray arguments arrive as str,
+and DateTime values carry no timezone.
+
 Example:
     >>> import datastore.config as dsconfig
     >>> dsconfig.register_connection(
@@ -47,6 +55,7 @@ import sys
 import textwrap
 import threading
 import time
+import types
 import typing
 import urllib.error
 import urllib.parse
@@ -86,8 +95,8 @@ def session_id() -> str:
 # Type resolution: decorator specs / annotations -> ClickHouse type names
 # ---------------------------------------------------------------------------
 
-# Mirrors the inference table documented for chdb.udf.func, so a function
-# deploys with the same declared types it registers with locally.
+# Mirrors chdb-core's annotationToDataType (PythonScalarUDF.cpp), so a
+# function deploys with the same declared types it registers with locally.
 _PY_TO_CLICKHOUSE = {
     int: "Int64",
     float: "Float64",
@@ -99,17 +108,58 @@ _PY_TO_CLICKHOUSE = {
     datetime: "DateTime64(6)",
 }
 
+# numpy scalar annotations, keyed by dtype name — same table as chdb-core's
+# fromNumpyType (note float16 -> Float32, matching the engine).
+_NUMPY_DTYPE_TO_CLICKHOUSE = {
+    "bool": "Bool",
+    "int8": "Int8",
+    "uint8": "UInt8",
+    "int16": "Int16",
+    "uint16": "UInt16",
+    "int32": "Int32",
+    "uint32": "UInt32",
+    "int64": "Int64",
+    "uint64": "UInt64",
+    "float16": "Float32",
+    "float32": "Float32",
+    "float64": "Float64",
+}
+
+_UNION_TYPE = getattr(types, "UnionType", None)  # PEP 604 `X | None` (3.10+)
+
+
+def _numpy_clickhouse_type(spec: type) -> Optional[str]:
+    """dtype-based mapping for numpy scalar annotations, like chdb-core."""
+    try:
+        dtype = str(spec().dtype)
+    except Exception:
+        return None
+    return _NUMPY_DTYPE_TO_CLICKHOUSE.get(dtype)
+
 
 def _clickhouse_type(spec: Any) -> str:
-    """Best-effort mapping of a type spec to a ClickHouse type name.
+    """Map a type spec to a ClickHouse type name, mirroring local chdb.
 
-    Accepts ClickHouse type strings ("Int64"), chdb.sqltypes objects (via
-    their ``name`` attribute), Python types (int/float/str/bool/date/
-    datetime), or None. Anything unrecognized falls back to String, matching
-    the legacy ``@chdb_udf`` behavior.
+    Accepts ClickHouse type strings ("Int64", "DateTime64(6)"), chdb.sqltypes
+    objects (via their ``name`` attribute), Python types (int/float/str/
+    bytes/bytearray/bool/date/datetime), numpy scalar types (np.int32, ...),
+    and ``Optional[X]`` / ``X | None`` (translated as X — the declaration is
+    made Nullable regardless, matching the engine's makeNullable behavior).
+    ``None`` (a parameter without annotation) falls back to String: locally
+    such parameters are dynamic, but an executable UDF must declare a type.
+    Anything else raises, matching local registration errors.
     """
     if spec is None:
         return "String"
+    # Optional[X] / X | None — beyond local chdb, which currently rejects
+    # these annotations outright (see the chdb-core issue); the inner type is
+    # what matters since declarations are Nullable either way.
+    origin = typing.get_origin(spec)
+    if origin is typing.Union or (_UNION_TYPE is not None and origin is _UNION_TYPE):
+        members = [m for m in typing.get_args(spec) if m is not type(None)]
+        if len(members) == 1:
+            return _clickhouse_type(members[0])
+        raise ValueError(f"Unknown Python UDF type annotation: {spec!r}")
     if isinstance(spec, str):
         return spec
     name = getattr(spec, "name", None)
@@ -119,7 +169,35 @@ def _clickhouse_type(spec: Any) -> str:
         for py_type, ch_type in _PY_TO_CLICKHOUSE.items():
             if spec is py_type:
                 return ch_type
-    return "String"
+        numpy_type = _numpy_clickhouse_type(spec)
+        if numpy_type is not None:
+            return numpy_type
+        raise ValueError(
+            f"Cannot convert Python type {spec!r} to a ClickHouse type"
+        )
+    raise ValueError(f"Unknown Python UDF type annotation: {spec!r}")
+
+
+# Types that cannot be wrapped in Nullable — mirrors the engine's
+# makeNullable, which returns such types unchanged.
+_NOT_INSIDE_NULLABLE = {
+    "Nullable",
+    "Array",
+    "Map",
+    "Tuple",
+    "LowCardinality",
+    "AggregateFunction",
+    "SimpleAggregateFunction",
+    "Nothing",
+}
+
+
+def _make_nullable(ch_type: str) -> str:
+    """Wrap a type in Nullable(...) like the engine does for local UDFs."""
+    base = ch_type.split("(")[0].strip()
+    if base in _NOT_INSIDE_NULLABLE:
+        return ch_type
+    return f"Nullable({ch_type})"
 
 
 def _resolve_types(
@@ -182,7 +260,11 @@ def _resolve_types(
     elif signature.return_annotation is not inspect.Signature.empty:
         ch_return = _clickhouse_type(signature.return_annotation)
     else:
-        ch_return = "String"
+        # Matches local registration: "return type not specified".
+        raise ValueError(
+            f"Cannot deploy {fn.__name__}(): return type not specified — "
+            "annotate the return or pass return_type=..."
+        )
     return resolved, ch_return
 
 
@@ -552,6 +634,14 @@ def _deploy_impl(
             "supported as ClickHouse executable UDFs"
         )
     arg_specs, ch_return = _resolve_types(fn, arg_types, return_type)
+    # Local chdb wraps every UDF argument and return type in Nullable (the
+    # engine's makeNullable); declare the same remotely so NULL flows in (the
+    # wrapper's on_null handling needs to see it) and NULL results parse as
+    # NULL instead of being coerced to the type's default value.
+    arg_specs = [
+        (arg_name, _make_nullable(arg_type)) for arg_name, arg_type in arg_specs
+    ]
+    ch_return = _make_nullable(ch_return)
     source = _function_source(fn)
     null_skip = _on_null_skips(on_null)
     error_ignore = _on_error_ignores(on_error)
