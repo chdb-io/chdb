@@ -230,6 +230,57 @@ jobs:
           eval "$(pyenv init -)"
           python -m pytest tests/udf_deploy -v --tb=short
 
+      # The chdb and chdb-core wheels both ship chdb/__init__.py, so
+      # whichever installs last owns the `chdb.func` entry point. Check both
+      # install orders sequentially in throwaway venvs (no extra CI jobs):
+      # the extended decorator must be reachable directly when this repo's
+      # __init__.py wins, and via the `import datastore` self-repair when
+      # chdb-core's wins. The UDF unit suite runs under each order too.
+      - name: Check chdb.func entry point survives either install order
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          set -e
+          REPO="$PWD"
+          for order in wrapper-last core-last; do
+            echo "=== install order: $order ==="
+            rm -rf /tmp/udf-order-venv
+            python -m venv /tmp/udf-order-venv
+            . /tmp/udf-order-venv/bin/activate
+            python -m pip -q install --upgrade pip
+            if [ "$order" = "wrapper-last" ]; then
+              python -m pip -q install chdb-core pandas pyarrow pytest
+              python -m pip -q install --no-deps "$REPO"/dist/*.whl
+            else
+              python -m pip -q install --no-deps "$REPO"/dist/*.whl
+              python -m pip -q install chdb-core pandas pyarrow pytest
+            fi
+            # Run from a neutral cwd: the checkout contains chdb/ and
+            # datastore/ source dirs which would otherwise shadow the
+            # installed wheels on sys.path and make the check tautological.
+            cd /tmp
+            python -c "
+          import inspect
+
+          import chdb
+
+          direct = 'deploy' in inspect.signature(chdb.func).parameters
+
+          import datastore  # noqa: F401  triggers the chdb.deploy self-repair
+
+          repaired = 'deploy' in inspect.signature(chdb.func).parameters
+          print(f'direct={direct} after-datastore-import={repaired}')
+          assert repaired, 'chdb.func lacks deploy support even after importing datastore'
+
+          import chdb.deploy
+
+          assert chdb.func is chdb.deploy.func
+          "
+            python -m pytest "$REPO/tests/udf_deploy/test_deploy_unit.py" -q
+            cd "$REPO"
+            deactivate
+          done
+
       - name: Dump ClickHouse logs on failure
         if: failure()
         run: |
