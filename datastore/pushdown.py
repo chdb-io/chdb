@@ -1,0 +1,223 @@
+"""Run a compiled SQL segment on the server that already holds the data.
+
+A DataStore built on a remote ClickHouse table normally reads that table through
+the ``remote()`` table function: chDB opens the connection, pulls rows to the
+caller and computes locally.  Binding a segment executor sends the compiled SQL
+to that server instead, so only the result travels back.
+
+Two rules keep the behaviour predictable:
+
+* The data source is rendered for the chosen execution target while the SQL is
+  compiled.  SQL that will run on the server itself reads ``database.table``
+  directly and never contains ``remote()``.  Rewriting a finished ``remote()``
+  query by string substitution would break joins, subqueries and quoting.
+* A failed remote query is raised to the caller.  Re-running it on the local
+  engine would hide authentication and dialect errors, and can pay for the same
+  scan twice.
+"""
+
+from __future__ import annotations
+
+import os
+import tempfile
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Any, Mapping, Optional
+
+from .exceptions import DataStoreError
+
+# Execution targets a compiled segment can be rendered for.
+LOCAL_CHDB = "local_chdb"
+REMOTE_CLICKHOUSE = "remote_clickhouse"
+
+
+class SegmentExecutorError(DataStoreError):
+    """A bound segment executor violated its contract."""
+
+
+@dataclass(frozen=True)
+class RemoteSource:
+    """Where a DataStore's rows live.  Deliberately carries no credentials."""
+
+    host: str
+    database: str
+    table: str
+    secure: bool = False
+
+    def qualified_name(self) -> str:
+        """``database.table``, or just the table when no database is bound."""
+        return f"{self.database}.{self.table}" if self.database else self.table
+
+
+@dataclass(frozen=True)
+class SegmentResult:
+    """Rows returned by an executor, plus whatever metrics it can report.
+
+    ``metrics`` is opaque here: the executor owns query IDs, scanned rows and
+    server timings, and passes them through for tracing and UI display.
+    """
+
+    frame: Any
+    metrics: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PushdownTrace:
+    """Evidence that one segment ran somewhere other than the local engine."""
+
+    target: str
+    sql: str
+    source: RemoteSource
+    result_rows: int
+    metrics: Mapping[str, Any] = field(default_factory=dict)
+
+
+def frame_from_native(data: bytes):
+    """Convert a ClickHouse result in Native format into a DataStore result frame.
+
+    An executor reads rows with its own driver, and every driver imposes its own
+    pandas conventions: one returns exact decimals and timezone-aware timestamps
+    where the engine here returns float64 and naive ones.  A caller must not be
+    able to tell where a segment ran from the dtypes it gets back, so the engine
+    converts the server's own bytes instead of trusting a second mapping.
+
+    Native carries the ClickHouse types, so the result is identical to executing
+    the same query locally - decimals, timestamp precision, nullable columns and
+    all.  Reading goes through a temporary file because that is the only way to
+    hand raw bytes to the engine's format readers; results reaching this path are
+    the small end of a query, so the copy is cheap.
+    """
+    import pandas as pd
+
+    if not data:
+        return pd.DataFrame()
+
+    from .executor import get_executor
+
+    handle, path = tempfile.mkstemp(suffix=".native", prefix="chdb-segment-")
+    try:
+        with os.fdopen(handle, "wb") as sink:
+            sink.write(data)
+        # The shared executor keeps one engine connection open; opening a new one
+        # per segment would cost more than decoding the bytes.
+        result = get_executor().execute(
+            f"SELECT * FROM file('{_escape_path(path)}', Native)"
+        )
+        return result.to_df()
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _escape_path(path: str) -> str:
+    """Quote a path for a single-quoted ClickHouse string literal."""
+    return path.replace("\\", "\\\\").replace("'", "''")
+
+
+@dataclass(frozen=True)
+class SegmentPlacement:
+    """Where one segment of a plan runs, and why.
+
+    A caller that only sees the result cannot tell a chain apart from a chain
+    that fell back halfway.  This says it plainly, one entry per segment: the
+    engine, the statement it runs (for SQL), the operations it covers, and the
+    reason the planner put it there.
+    """
+
+    index: int
+    kind: str
+    engine: str
+    reason_code: str
+    detail: str
+    ops: tuple = ()
+    sql: Optional[str] = None
+
+    def as_dict(self) -> dict:
+        return {
+            "index": self.index,
+            "kind": self.kind,
+            "engine": self.engine,
+            "reasonCode": self.reason_code,
+            "detail": self.detail,
+            "ops": list(self.ops),
+            "sql": self.sql,
+        }
+
+
+_plan_observer = None
+
+
+def set_plan_observer(observer) -> None:
+    """Receive the placement of every segment each time a plan executes.
+
+    A notebook reporting where a chain ran needs this for local runs too, not
+    only for the ones an executor sees: a chain that stayed on the local engine
+    still has segments, and a reader still needs to know which engine held
+    which part. Pass ``None`` to stop observing.
+    """
+    global _plan_observer
+    _plan_observer = observer
+
+
+def plan_observer():
+    """The observer currently receiving placement reports, if any."""
+    return _plan_observer
+
+
+def publish_placements(placements) -> None:
+    """Hand a placement report to the observer; never let reporting break a run."""
+    observer = _plan_observer
+    if observer is None or not placements:
+        return
+    try:
+        observer(placements)
+    except Exception:
+        pass
+
+
+class SqlSegmentExecutor(ABC):
+    """Executes one already-compiled SQL segment against a remote server.
+
+    Implementations own connections, credentials, execution limits and query
+    IDs.  DataStore only guarantees that the SQL it hands over is valid for
+    ``target`` - for ``REMOTE_CLICKHOUSE`` that means the source is written as a
+    plain table reference the server can resolve itself.
+    """
+
+    target = REMOTE_CLICKHOUSE
+
+    @abstractmethod
+    def accepts(self, source: RemoteSource) -> bool:
+        """Whether this executor is connected to the server holding ``source``."""
+
+    @abstractmethod
+    def execute(self, sql: str, source: RemoteSource) -> SegmentResult:
+        """Run ``sql`` and return its rows.  Raise on failure; never fall back.
+
+        The frame must carry the dtypes local execution produces for the same
+        query, so a caller cannot tell where the segment ran from the result.
+        Fetch the result in Native format and pass it through
+        :func:`frame_from_native` rather than converting it with the driver's own
+        pandas mapping, which differs.
+        """
+
+
+def normalize_segment_result(value: Any) -> SegmentResult:
+    """Accept either a ``SegmentResult`` or a bare DataFrame from an executor."""
+    import pandas as pd
+
+    if isinstance(value, SegmentResult):
+        if not isinstance(value.frame, pd.DataFrame):
+            raise SegmentExecutorError(
+                "segment executor returned SegmentResult without a DataFrame: "
+                f"{type(value.frame).__name__}"
+            )
+        return value
+    if isinstance(value, pd.DataFrame):
+        return SegmentResult(frame=value)
+    raise SegmentExecutorError(
+        "segment executor must return a SegmentResult or a pandas DataFrame, "
+        f"got {type(value).__name__}"
+    )

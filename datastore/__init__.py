@@ -121,6 +121,17 @@ from .case_when import CaseWhenBuilder, CaseWhenExpr  # noqa: E402
 from .connection import Connection, QueryResult  # noqa: E402
 from .executor import Executor, get_executor, reset_executor  # noqa: E402
 from .query_planner import QueryPlanner, QueryPlan  # noqa: E402
+from .pushdown import (  # noqa: E402
+    LOCAL_CHDB,
+    frame_from_native,
+    set_plan_observer,
+    REMOTE_CLICKHOUSE,
+    PushdownTrace,
+    RemoteSource,
+    SegmentExecutorError,
+    SegmentResult,
+    SqlSegmentExecutor,
+)
 from .exceptions import (  # noqa: E402
     UnsupportedOperationError,
     ImmutableError,
@@ -483,6 +494,16 @@ __all__ = [
     'reset_executor',
     # Query Planning
     'QueryPlanner',
+    # Pushdown to a remote engine
+    'SqlSegmentExecutor',
+    'SegmentResult',
+    'SegmentExecutorError',
+    'RemoteSource',
+    'PushdownTrace',
+    'LOCAL_CHDB',
+    'REMOTE_CLICKHOUSE',
+    'frame_from_native',
+    'set_plan_observer',
     'QueryPlan',
     # Exceptions
     'DataStoreError',
