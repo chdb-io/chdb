@@ -19,6 +19,7 @@ Bring up a suitable server with:
 
 import os
 import sys
+from datetime import date
 
 import pytest
 
@@ -94,6 +95,16 @@ class TestSessionScopedDeploy:
         assert second.skipped
         assert first.remote_name == second.remote_name
         assert _select(connection, f"SELECT {first.remote_name}(21)") == "42"
+
+    def test_date_argument_parsed_to_python_date(self, connection):
+        def itest_year(d: date) -> int:
+            return d.year
+
+        info = deploy.deploy(itest_year)
+        assert (
+            _select(connection, f"SELECT {info.remote_name}(toDate('2024-03-15'))")
+            == "2024"
+        )
 
     def test_string_arguments_roundtrip(self, connection):
         def itest_shout(text: str) -> str:

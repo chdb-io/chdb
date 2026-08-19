@@ -8,7 +8,7 @@ including logging level configuration.
 import logging
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, List, Dict
 from contextlib import contextmanager
 
@@ -972,7 +972,8 @@ class ClickHouseConnection:
     host: str
     port: int = 8123
     username: str = "default"
-    password: str = ""
+    # repr=False keeps the plaintext password out of logs and notebooks.
+    password: str = field(default="", repr=False)
     database: str = "default"
     secure: bool = False
     udf_scripts_dir: Optional[str] = None
@@ -982,7 +983,12 @@ class ClickHouseConnection:
     def http_url(self) -> str:
         """Base URL of the server's HTTP interface."""
         scheme = "https" if self.secure else "http"
-        return f"{scheme}://{self.host}:{self.port}"
+        host = (
+            f"[{self.host}]"
+            if ":" in self.host and not self.host.startswith("[")
+            else self.host
+        )
+        return f"{scheme}://{host}:{self.port}"
 
     def supports_udf_deploy(self) -> bool:
         """Whether this connection has a UDF delivery channel configured."""

@@ -57,6 +57,17 @@ class TestConnectionRegistry:
         dsconfig.set_default_connection("a")
         assert dsconfig.get_connection().name == "a"
 
+    def test_password_hidden_from_repr(self):
+        conn = dsconfig.register_connection(
+            "secret", host="localhost", password="hunter2"
+        )
+        assert "hunter2" not in repr(conn)
+        assert conn.password == "hunter2"
+
+    def test_ipv6_host_bracketed_in_url(self):
+        conn = dsconfig.register_connection("v6", host="::1", port=8123)
+        assert conn.http_url == "http://[::1]:8123"
+
     def test_secure_url_and_deploy_channel(self):
         conn = dsconfig.register_connection(
             "cloud",
@@ -140,6 +151,28 @@ class TestTypeResolution:
         with pytest.raises(ValueError, match="parameters"):
             deploy._resolve_types(fn, ["Int64"], None)
 
+    def test_keyword_only_parameter_rejected(self):
+        def fn(a: int, *, flag: bool) -> int:
+            return a
+
+        with pytest.raises(ValueError, match="keyword-only"):
+            deploy._resolve_types(fn, None, None)
+
+    def test_var_args_rejected(self):
+        def fn(*values: int) -> int:
+            return sum(values)
+
+        with pytest.raises(ValueError, match="keyword-only"):
+            deploy._resolve_types(fn, None, None)
+
+    def test_decimal_and_temporal_converters(self):
+        assert deploy._converter_name("Decimal(38, 10)") == "_parse_decimal"
+        assert deploy._converter_name("Decimal128(10)") == "_parse_decimal"
+        assert deploy._converter_name("Date") == "_parse_date"
+        assert deploy._converter_name("Date32") == "_parse_date"
+        assert deploy._converter_name("DateTime64(3)") == "_parse_datetime"
+        assert deploy._converter_name("Nullable(DateTime)") == "_parse_datetime"
+
 
 # ---------------------------------------------------------------------------
 # Source extraction, script generation, XML generation
@@ -200,6 +233,35 @@ class TestArtifactGeneration:
             "swallow", deploy._function_source(swallow), ["String"]
         )
         assert _run_script(script, "x\n") == "\\N\n"
+
+    def test_decimal_precision_preserved(self):
+        def echo_decimal(value) -> str:
+            return str(value)
+
+        script = deploy._generate_script(
+            "echo_decimal",
+            deploy._function_source(echo_decimal),
+            ["Decimal(38, 10)"],
+        )
+        big = "1234567890123456789.0123456789"
+        assert _run_script(script, big + "\n") == big + "\n"
+
+    def test_date_and_datetime_parsed(self):
+        def year_of(d) -> int:
+            return d.year
+
+        script = deploy._generate_script(
+            "year_of", deploy._function_source(year_of), ["Date32"]
+        )
+        assert _run_script(script, "2024-03-15\n") == "2024\n"
+
+        def hour_of(ts) -> int:
+            return ts.hour
+
+        script = deploy._generate_script(
+            "hour_of", deploy._function_source(hour_of), ["DateTime64(3)"]
+        )
+        assert _run_script(script, "2024-03-15 07:30:15.123\n") == "7\n"
 
     def test_xml_structure(self):
         xml = deploy._generate_config_xml(
@@ -276,6 +338,47 @@ class TestNamingAndValidation:
         assert first.remote_name == second.remote_name
         assert first.remote_name.startswith(f"chdb_nb_{deploy.session_id()}_")
         assert first.skipped and second.skipped
+
+    def test_async_function_rejected(self):
+        async def fetchy(x: int) -> int:
+            return x
+
+        with pytest.raises(ValueError, match="async"):
+            deploy.deploy(fetchy)
+
+    def test_undeploy_rejects_non_identifier_names(self):
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir="/tmp/s", udf_config_dir="/tmp/c",
+        )
+        with pytest.raises(ValueError, match="Invalid UDF name"):
+            deploy.undeploy("../etc/passwd", "q")
+        with pytest.raises(ValueError, match="Invalid UDF name"):
+            deploy.undeploy("/absolute", "q")
+
+    def test_failed_deploy_leaves_no_artifacts(self, tmp_path, monkeypatch):
+        scripts = tmp_path / "scripts"
+        configs = tmp_path / "configs"
+        scripts.mkdir()
+        configs.mkdir()
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir=str(scripts), udf_config_dir=str(configs),
+        )
+        monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: False)
+
+        def boom(connection):
+            raise RuntimeError("reload failed")
+
+        monkeypatch.setattr(deploy, "_reload_functions", boom)
+
+        def fn(x: int) -> int:
+            return x
+
+        with pytest.raises(RuntimeError, match="reload failed"):
+            deploy.deploy(fn, "q")
+        assert list(scripts.iterdir()) == []
+        assert list(configs.iterdir()) == []
 
     def test_permanent_uses_function_name(self, monkeypatch):
         dsconfig.register_connection("q", host="localhost", port=1)
