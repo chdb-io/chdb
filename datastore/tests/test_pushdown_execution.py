@@ -96,6 +96,27 @@ def test_sql_preview_shows_what_the_remote_server_will_run():
     assert f'"{DATABASE}"."{TABLE}"' in sql
 
 
+def explain_text(store, capsys):
+    store.explain()
+    return capsys.readouterr().out
+
+
+def test_explain_names_the_engine_that_will_run_the_segment(capsys):
+    plan = explain_text(chain(remote_store(RecordingExecutor())), capsys)
+
+    assert f'"{DATABASE}"."{TABLE}"' in plan
+    assert "[ClickHouse]" in plan
+    assert "[chDB]" not in plan
+
+
+def test_explain_stays_local_without_an_executor(capsys):
+    plan = explain_text(chain(remote_store()), capsys)
+
+    assert "remote(" in plan
+    assert "[chDB]" in plan
+    assert "[ClickHouse]" not in plan
+
+
 def test_declined_source_is_not_pushed_down():
     executor = RecordingExecutor(database="other")
     store = remote_store(executor)

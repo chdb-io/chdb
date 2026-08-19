@@ -38,6 +38,7 @@ from .executor import Executor
 from .table_functions import create_table_function, PythonTableFunction, TableFunction
 from .pushdown import (
     LOCAL_CHDB,
+    REMOTE_CLICKHOUSE,
     PushdownTrace,
     RemoteSource,
     SqlSegmentExecutor,
@@ -639,8 +640,20 @@ class DataStore(PandasCompatMixin):
         }
         self._operation_history.append(operation)
 
-    def _get_data_source_description(self):
-        """Get a description of the data source."""
+    def _get_data_source_description(self, target: str = LOCAL_CHDB):
+        """Get a description of the data source.
+
+        ``target`` names the engine the plan is being described for, so a source
+        that will be read by the remote server shows the reference that server
+        resolves rather than the table function pointing at it.
+        """
+        if target == REMOTE_CLICKHOUSE and self._table_function is not None:
+            # Not cached: the same DataStore can be described for either engine.
+            rendered = self._table_function.render_source(
+                quote_char=self.quote_char, target=target
+            )
+            return f"Data Source: {rendered}"
+
         # Return cached description if available
         if hasattr(self, "_original_source_desc") and self._original_source_desc:
             return self._original_source_desc
@@ -747,6 +760,15 @@ class DataStore(PandasCompatMixin):
         if not hasattr(self, "_original_source_desc") or not self._original_source_desc:
             self._get_data_source_description()
 
+        # A bound executor changes what this plan means: the first SQL segment
+        # runs on the server that owns the data, so say so instead of labelling
+        # every SQL operation as local.
+        pushdown_executor, _ = self._pushdown_for_first_segment()
+        plan_target = (
+            pushdown_executor.target if pushdown_executor is not None else LOCAL_CHDB
+        )
+        first_sql_engine = "ClickHouse" if pushdown_executor is not None else "chDB"
+
         lines = []
         lines.append("=" * 80)
         lines.append("Execution Plan (in execution order)")
@@ -755,7 +777,7 @@ class DataStore(PandasCompatMixin):
         counter = 0
 
         # ========== Data Source ==========
-        data_source_desc = self._get_data_source_description()
+        data_source_desc = self._get_data_source_description(target=plan_target)
         if data_source_desc:
             counter += 1
             lines.append(f"\n [{counter}] 📊 {data_source_desc}")
@@ -792,7 +814,12 @@ class DataStore(PandasCompatMixin):
                     # +2 because: +1 for 1-based indexing, +1 for data source being [1]
                     start_op = op_idx + 2
                     end_op = op_idx + len(segment.ops) + 1
-                    engine = "chDB" if segment.is_sql() else "Pandas"
+                    if not segment.is_sql():
+                        engine = "Pandas"
+                    elif segment.is_first_segment:
+                        engine = first_sql_engine
+                    else:
+                        engine = "chDB"
                     source_info = (
                         "(from source)"
                         if segment.is_first_segment
@@ -830,12 +857,15 @@ class DataStore(PandasCompatMixin):
 
                 if is_sql:
                     # SQL engine will execute this
+                    sql_engine = first_sql_engine if is_first else "chDB"
                     if isinstance(op, LazyRelationalOp):
-                        lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                        lines.append(f" [{counter}] 🚀 [{sql_engine}] {op.describe()}")
                     else:
                         engine = op.execution_engine()
                         if engine == "chDB":
-                            lines.append(f" [{counter}] 🚀 [chDB] {op.describe()}")
+                            lines.append(
+                                f" [{counter}] 🚀 [{sql_engine}] {op.describe()}"
+                            )
                         else:
                             # Even in SQL segment, some ops use Pandas
                             lines.append(f" [{counter}] 🐼 [Pandas] {op.describe()}")
