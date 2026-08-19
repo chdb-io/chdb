@@ -123,6 +123,7 @@ from .executor import Executor, get_executor, reset_executor  # noqa: E402
 from .query_planner import QueryPlanner, QueryPlan  # noqa: E402
 from .pushdown import (  # noqa: E402
     LOCAL_CHDB,
+    frame_from_native,
     REMOTE_CLICKHOUSE,
     PushdownTrace,
     RemoteSource,
@@ -493,6 +494,7 @@ __all__ = [
     'PushdownTrace',
     'LOCAL_CHDB',
     'REMOTE_CLICKHOUSE',
+    'frame_from_native',
     'QueryPlan',
     # Exceptions
     'DataStoreError',

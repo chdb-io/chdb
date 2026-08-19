@@ -169,3 +169,41 @@ def test_executor_returning_junk_is_rejected():
 def test_binding_requires_the_executor_contract():
     with pytest.raises(TypeError):
         remote_store().set_sql_segment_executor(object())
+
+
+NATIVE_ZOO = """
+SELECT
+    toDecimal64(1.25, 2)                    AS dec,
+    toDateTime('2026-01-01 10:00:00')       AS dt,
+    toDateTime64('2026-01-01 10:00:00.123', 3) AS dt64,
+    toDate('2026-01-02')                    AS d,
+    'abc'                                   AS s,
+    toUInt64(18446744073709551615)          AS u64,
+    toInt32(-5)                             AS i32,
+    toFloat32(1.5)                          AS f32,
+    toNullable(toUInt8(3))                  AS n,
+    CAST(NULL AS Nullable(Int64))           AS nn,
+    ['a', 'b']                              AS arr,
+    toUUID('6f9619ff-8b86-d011-b42d-00c04fc964ff') AS uid
+"""
+
+
+def test_native_bytes_convert_exactly_like_local_execution():
+    """A foreign result must land with the dtypes local execution produces."""
+    import chdb
+
+    from datastore.pushdown import frame_from_native
+
+    local = chdb.query(NATIVE_ZOO, "DataFrame")
+    converted = frame_from_native(chdb.query(NATIVE_ZOO, "Native").bytes())
+
+    assert [str(dtype) for dtype in converted.dtypes] == [
+        str(dtype) for dtype in local.dtypes
+    ]
+    pd.testing.assert_frame_equal(converted, local)
+
+
+def test_an_empty_result_converts_to_an_empty_frame():
+    from datastore.pushdown import frame_from_native
+
+    assert frame_from_native(b"").empty

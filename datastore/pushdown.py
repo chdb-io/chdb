@@ -18,6 +18,8 @@ Two rules keep the behaviour predictable:
 
 from __future__ import annotations
 
+import os
+import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -70,6 +72,50 @@ class PushdownTrace:
     metrics: Mapping[str, Any] = field(default_factory=dict)
 
 
+def frame_from_native(data: bytes):
+    """Convert a ClickHouse result in Native format into a DataStore result frame.
+
+    An executor reads rows with its own driver, and every driver imposes its own
+    pandas conventions: one returns exact decimals and timezone-aware timestamps
+    where the engine here returns float64 and naive ones.  A caller must not be
+    able to tell where a segment ran from the dtypes it gets back, so the engine
+    converts the server's own bytes instead of trusting a second mapping.
+
+    Native carries the ClickHouse types, so the result is identical to executing
+    the same query locally - decimals, timestamp precision, nullable columns and
+    all.  Reading goes through a temporary file because that is the only way to
+    hand raw bytes to the engine's format readers; results reaching this path are
+    the small end of a query, so the copy is cheap.
+    """
+    import pandas as pd
+
+    if not data:
+        return pd.DataFrame()
+
+    from .executor import get_executor
+
+    handle, path = tempfile.mkstemp(suffix=".native", prefix="chdb-segment-")
+    try:
+        with os.fdopen(handle, "wb") as sink:
+            sink.write(data)
+        # The shared executor keeps one engine connection open; opening a new one
+        # per segment would cost more than decoding the bytes.
+        result = get_executor().execute(
+            f"SELECT * FROM file('{_escape_path(path)}', Native)"
+        )
+        return result.to_df()
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _escape_path(path: str) -> str:
+    """Quote a path for a single-quoted ClickHouse string literal."""
+    return path.replace("\\", "\\\\").replace("'", "''")
+
+
 class SqlSegmentExecutor(ABC):
     """Executes one already-compiled SQL segment against a remote server.
 
@@ -91,9 +137,9 @@ class SqlSegmentExecutor(ABC):
 
         The frame must carry the dtypes local execution produces for the same
         query, so a caller cannot tell where the segment ran from the result.
-        Drivers differ here - a remote client may hand back exact decimals and
-        timezone-aware timestamps where the local engine gives float64 and naive
-        timestamps - so converting is the executor's job.
+        Fetch the result in Native format and pass it through
+        :func:`frame_from_native` rather than converting it with the driver's own
+        pandas mapping, which differs.
         """
 
 
