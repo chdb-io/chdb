@@ -544,6 +544,50 @@ def undeploy(name: str, to: Any = None) -> bool:
 # The extended decorator
 # ---------------------------------------------------------------------------
 
+# chdb.udf's genuine decorator. _install() rebinds chdb.udf.func to this
+# module's func, so the delegation below must hold on to the original the
+# first time it is seen — otherwise the decorator would delegate to itself.
+_original_local_func = None
+
+
+def _remember_original_local_func(candidate) -> None:
+    global _original_local_func
+    if (
+        candidate is not None
+        and candidate is not func
+        and _original_local_func is None
+    ):
+        _original_local_func = candidate
+
+
+def _fallback_local_func(arg_types=None, return_type=None, **kwargs):
+    """Replicate chdb.udf.func when the original was lost to patching."""
+
+    def decorator(fn):
+        create = getattr(chdb, "create_function", None) or getattr(
+            chdb._chdb, "create_function", None
+        )
+        if create is None:
+            raise RuntimeError("chdb.create_function is unavailable")
+        create(fn.__name__, fn, arg_types, return_type, **kwargs)
+
+        @functools.wraps(fn)
+        def wrapper(*args, **call_kwargs):
+            return fn(*args, **call_kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def _resolve_local_func():
+    global _original_local_func
+    if _original_local_func is None:
+        from chdb.udf import func as candidate
+
+        _remember_original_local_func(candidate)
+    return _original_local_func or _fallback_local_func
+
 
 def func(
     arg_types=None,
@@ -575,14 +619,12 @@ def func(
         raise ValueError("permanent=True requires deploy=True or deploy='<name>'")
 
     def decorator(fn):
-        from chdb.udf import func as _local_func
-
         passthrough = {}
         if on_null is not None:
             passthrough["on_null"] = on_null
         if on_error is not None:
             passthrough["on_error"] = on_error
-        wrapped = _local_func(arg_types, return_type, **passthrough)(fn)
+        wrapped = _resolve_local_func()(arg_types, return_type, **passthrough)(fn)
 
         if deploy:
             deployment = _deploy_impl(
@@ -613,6 +655,7 @@ def _install() -> None:
     chdb.func = func
     udf_module = sys.modules.get("chdb.udf")
     if udf_module is not None:
+        _remember_original_local_func(getattr(udf_module, "func", None))
         udf_module.func = func
 
 

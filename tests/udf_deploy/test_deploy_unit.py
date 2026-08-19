@@ -311,6 +311,27 @@ class TestEntryPoint:
         finally:
             chdb.func = original
 
+    def test_install_after_udf_import_does_not_recurse(self):
+        """Regression: _install() rebinds chdb.udf.func to deploy's func; the
+        decorator's local-registration delegation must keep pointing at the
+        genuine chdb.udf decorator, not recurse into itself."""
+        import chdb.udf  # ensure the module is loaded so _install patches it
+
+        deploy._install()
+        assert chdb.udf.func is deploy.func
+
+        @chdb.func(return_type="Int64")
+        def _udf_deploy_recursion_probe(a: int) -> int:
+            return a + 1
+
+        try:
+            result = chdb.query(
+                "SELECT _udf_deploy_recursion_probe(41)", "CSV"
+            ).bytes()
+            assert b"42" in result
+        finally:
+            chdb.drop_function("_udf_deploy_recursion_probe")
+
     def test_local_only_decorator_still_registers_locally(self):
         @chdb.func(return_type="Int64")
         def _udf_deploy_unit_add(a: int, b: int) -> int:
