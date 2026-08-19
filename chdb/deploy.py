@@ -365,6 +365,22 @@ def _http_query(connection, query: str, timeout: float = 30.0) -> str:
         ) from None
 
 
+def _artifact_paths(connection, name: str) -> Tuple[str, str]:
+    """(script_path, config_path) for a UDF name on this connection."""
+    return (
+        os.path.join(connection.udf_scripts_dir, f"{name}.py"),
+        os.path.join(connection.udf_config_dir, f"{name}_function.xml"),
+    )
+
+
+def _artifacts_exist(connection, name: str) -> bool:
+    """Whether this channel holds deploy artifacts for the given name."""
+    if not connection.supports_udf_deploy():
+        return False
+    script_path, config_path = _artifact_paths(connection, name)
+    return os.path.exists(script_path) and os.path.exists(config_path)
+
+
 def _function_exists(connection, name: str) -> bool:
     result = _http_query(
         connection,
@@ -486,14 +502,22 @@ def _deploy_impl(
         raise ValueError(f"Invalid UDF name: {remote_name!r}")
 
     # An existing function with the same name is reused as-is (idempotent
-    # re-runs). Session-scoped names embed a source hash, so identical code
-    # maps to the same name and changed code gets a fresh one.
+    # re-runs) — but only when this channel's artifacts are what defined it.
+    # system.functions also lists built-ins and unrelated UDFs; silently
+    # skipping for those would leave queries running the wrong function.
     if _function_exists(connection, remote_name):
-        return DeployedFunction(
-            remote_name=remote_name,
-            connection=connection.name,
-            permanent=permanent,
-            skipped=True,
+        if _artifacts_exist(connection, remote_name):
+            return DeployedFunction(
+                remote_name=remote_name,
+                connection=connection.name,
+                permanent=permanent,
+                skipped=True,
+            )
+        raise ValueError(
+            f"A function named {remote_name!r} already exists on connection "
+            f"{connection.name!r} but was not deployed through this channel "
+            "(it may be a ClickHouse built-in or an unrelated UDF). Pick a "
+            "different name via name=..."
         )
 
     if not connection.supports_udf_deploy():
@@ -506,11 +530,8 @@ def _deploy_impl(
             "not yet supported as a deploy target."
         )
 
-    script_filename = f"{remote_name}.py"
-    script_path = os.path.join(connection.udf_scripts_dir, script_filename)
-    config_path = os.path.join(
-        connection.udf_config_dir, f"{remote_name}_function.xml"
-    )
+    script_path, config_path = _artifact_paths(connection, remote_name)
+    script_filename = os.path.basename(script_path)
 
     script_body = _generate_script(
         fn.__name__, source, [arg_type for _, arg_type in arg_specs]
@@ -630,10 +651,8 @@ def undeploy(name: str, to: Any = None) -> bool:
     if not name.isidentifier():
         raise ValueError(f"Invalid UDF name: {name!r}")
     removed = False
-    for path in (
-        os.path.join(connection.udf_config_dir, f"{name}_function.xml"),
-        os.path.join(connection.udf_scripts_dir, f"{name}.py"),
-    ):
+    script_path, config_path = _artifact_paths(connection, name)
+    for path in (config_path, script_path):
         try:
             os.remove(path)
             removed = True

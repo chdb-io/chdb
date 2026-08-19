@@ -339,6 +339,7 @@ class TestNamingAndValidation:
             return True  # short-circuit: name resolution only
 
         monkeypatch.setattr(deploy, "_function_exists", fake_exists)
+        monkeypatch.setattr(deploy, "_artifacts_exist", lambda conn, name: True)
 
         def fn(x: int) -> int:
             return x + 1
@@ -434,9 +435,26 @@ class TestNamingAndValidation:
         # cleanup attempted a second reload so the server drops the stale UDF
         assert len(reloads) == 2
 
+    def test_name_collision_with_foreign_function_raises(self, monkeypatch):
+        """Regression: a permanent name matching a built-in (or any function
+        not deployed through this channel) must error, not silently skip."""
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir="/tmp/s", udf_config_dir="/tmp/c",
+        )
+        monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: True)
+        monkeypatch.setattr(deploy, "_artifacts_exist", lambda conn, name: False)
+
+        def fn(x: str) -> int:
+            return len(x)
+
+        with pytest.raises(ValueError, match="already exists"):
+            deploy.deploy(fn, "q", permanent=True, name="length")
+
     def test_permanent_uses_function_name(self, monkeypatch):
         dsconfig.register_connection("q", host="localhost", port=1)
         monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: True)
+        monkeypatch.setattr(deploy, "_artifacts_exist", lambda conn, name: True)
 
         def my_scorer(x: float) -> float:
             return x

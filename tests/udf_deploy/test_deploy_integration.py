@@ -144,6 +144,14 @@ class TestPermanentDeploy:
             deploy.undeploy("itest_strlen", "udf-test")
         assert not deploy._function_exists(connection, "itest_strlen")
 
+    def test_builtin_name_collision_rejected(self, connection):
+        def itest_mylength(x: str) -> int:
+            return len(x)
+
+        # `length` is a ClickHouse built-in listed in system.functions
+        with pytest.raises(ValueError, match="already exists"):
+            deploy.deploy(itest_mylength, permanent=True, name="length")
+
     def test_deploy_works_on_undecorated_function(self, connection):
         def itest_plain(x: float) -> float:
             return x / 2
