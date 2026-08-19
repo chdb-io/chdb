@@ -1,8 +1,9 @@
 name: External ClickHouse Integration
 
-# Integration tests against a pair of real ClickHouse servers — currently
-# exercises the writeback APIs (to_clickhouse / create_view /
-# create_materialized_view / save) in datastore/tests/test_writeback.py.
+# Integration tests against a pair of real ClickHouse servers — exercises
+# the writeback APIs (to_clickhouse / create_view / create_materialized_view /
+# save) in datastore/tests/test_writeback.py, and the UDF deploy path
+# (@func(deploy=...) in chdb/deploy.py) in tests/udf_deploy, which targets ch1.
 #
 # Only runs on Linux self-hosted runners (x86_64 + arm64). The macOS /
 # Windows wheel-build workflows do NOT run this suite — test_writeback.py's
@@ -170,7 +171,10 @@ jobs:
 
       - name: Start ClickHouse pair
         run: |
-          docker compose -f .github/ci/clickhouse-pair.yml up -d --wait
+          # bind-mount sources for the UDF deploy delivery channel — create
+          # them as the runner user so docker does not create them as root
+          mkdir -p .github/ci/udf-scripts .github/ci/udf-config
+          docker compose -f .github/ci/clickhouse-pair.yml up -d --build --wait
           docker compose -f .github/ci/clickhouse-pair.yml ps
 
       - name: Print ClickHouse versions
@@ -209,6 +213,22 @@ jobs:
           export PATH="$HOME/.pyenv/bin:$PATH"
           eval "$(pyenv init -)"
           python -m pytest datastore/tests/test_writeback.py -v --tb=short
+
+      # The UDF deploy suite reuses ch1: the artifacts are written into the
+      # bind-mounted dirs and registered via SYSTEM RELOAD FUNCTIONS (granted
+      # to remote_user in init-ch1.sql).
+      - name: Run UDF deploy tests
+        env:
+          CHDB_TEST_UDF_HTTP: localhost:8123
+          CHDB_TEST_UDF_USER: remote_user
+          CHDB_TEST_UDF_PASSWORD: test123
+          CHDB_TEST_UDF_DATABASE: chdb_test
+          CHDB_TEST_UDF_SCRIPTS_DIR: ${{ github.workspace }}/.github/ci/udf-scripts
+          CHDB_TEST_UDF_CONFIG_DIR: ${{ github.workspace }}/.github/ci/udf-config
+        run: |
+          export PATH="$HOME/.pyenv/bin:$PATH"
+          eval "$(pyenv init -)"
+          python -m pytest tests/udf_deploy -v --tb=short
 
       - name: Dump ClickHouse logs on failure
         if: failure()

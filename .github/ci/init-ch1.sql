@@ -16,3 +16,8 @@ GRANT ALL ON chdb_test.* TO remote_user;
 -- The library probes existence via `SELECT count() FROM remote(..., 'system',
 -- 'tables', ...)`, so the test user must be able to read system metadata.
 GRANT SELECT ON system.* TO remote_user;
+
+-- chdb.deploy (tests/udf_deploy) registers executable UDFs by writing
+-- artifacts into the mounted UDF dirs and then running SYSTEM RELOAD
+-- FUNCTIONS over HTTP as this user.
+GRANT SYSTEM RELOAD FUNCTION ON *.* TO remote_user;

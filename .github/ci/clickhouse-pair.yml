@@ -1,4 +1,6 @@
-# Two independent ClickHouse instances used by the writeback integration tests.
+# Two independent ClickHouse instances shared by the writeback integration
+# tests (datastore/tests/test_writeback.py) and the UDF deploy integration
+# tests (tests/udf_deploy/test_deploy_integration.py, which target ch1).
 #
 # This file is the single source of truth for the test environment; CI and
 # local developers share it. Bring the pair up with:
@@ -33,7 +35,12 @@ name: chdb-ds-writeback
 
 services:
   ch1:
-    image: clickhouse/clickhouse-server:24.8
+    # Built from the stock image + python3: ch1 doubles as the UDF deploy
+    # test server (tests/udf_deploy), and the executable UDF scripts that
+    # chdb.deploy ships are Python — the server must be able to run them.
+    build:
+      context: .
+      dockerfile: Dockerfile.clickhouse-udf
     container_name: chdb_ds_ch1
     # Map ch1's native port to the host so test code (running outside the
     # docker network) can reach it as localhost:9000.
@@ -46,6 +53,13 @@ services:
         hard: 262144
     volumes:
       - ./init-ch1.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # UDF deploy delivery channel: chdb.deploy writes the generated script
+      # + XML config into these host dirs (create them before `up`: mkdir -p
+      # udf-scripts udf-config), and ch1 reads the same files through the
+      # paths pinned by udf-server-config.xml.
+      - ./udf-server-config.xml:/etc/clickhouse-server/config.d/udf.xml:ro
+      - ./udf-scripts:/var/lib/clickhouse/user_scripts
+      - ./udf-config:/var/lib/clickhouse/user_defined_functions
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
       interval: 3s

@@ -8,11 +8,14 @@ Environment (all three required — tests skip when unset):
 
 Optional: CHDB_TEST_UDF_USER (default "default"), CHDB_TEST_UDF_PASSWORD.
 
-Bring up a suitable server with:
+Bring up a suitable server (ch1 of the shared integration pair) with:
 
   mkdir -p .github/ci/udf-scripts .github/ci/udf-config
-  docker compose -f .github/ci/clickhouse-udf.yml up -d --build --wait
-  export CHDB_TEST_UDF_HTTP=localhost:8125
+  docker compose -f .github/ci/clickhouse-pair.yml up -d --build --wait
+  export CHDB_TEST_UDF_HTTP=localhost:8123
+  export CHDB_TEST_UDF_USER=remote_user
+  export CHDB_TEST_UDF_PASSWORD=test123
+  export CHDB_TEST_UDF_DATABASE=chdb_test
   export CHDB_TEST_UDF_SCRIPTS_DIR=$PWD/.github/ci/udf-scripts
   export CHDB_TEST_UDF_CONFIG_DIR=$PWD/.github/ci/udf-config
 """
@@ -49,6 +52,7 @@ def connection():
         port=int(port or "8123"),
         username=os.environ.get("CHDB_TEST_UDF_USER", "default"),
         password=os.environ.get("CHDB_TEST_UDF_PASSWORD", ""),
+        database=os.environ.get("CHDB_TEST_UDF_DATABASE", "default"),
         udf_scripts_dir=_SCRIPTS_DIR,
         udf_config_dir=_CONFIG_DIR,
     )
