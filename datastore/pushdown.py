@@ -146,6 +146,37 @@ class SegmentPlacement:
         }
 
 
+_plan_observer = None
+
+
+def set_plan_observer(observer) -> None:
+    """Receive the placement of every segment each time a plan executes.
+
+    A notebook reporting where a chain ran needs this for local runs too, not
+    only for the ones an executor sees: a chain that stayed on the local engine
+    still has segments, and a reader still needs to know which engine held
+    which part. Pass ``None`` to stop observing.
+    """
+    global _plan_observer
+    _plan_observer = observer
+
+
+def plan_observer():
+    """The observer currently receiving placement reports, if any."""
+    return _plan_observer
+
+
+def publish_placements(placements) -> None:
+    """Hand a placement report to the observer; never let reporting break a run."""
+    observer = _plan_observer
+    if observer is None or not placements:
+        return
+    try:
+        observer(placements)
+    except Exception:
+        pass
+
+
 class SqlSegmentExecutor(ABC):
     """Executes one already-compiled SQL segment against a remote server.
 
@@ -156,15 +187,6 @@ class SqlSegmentExecutor(ABC):
     """
 
     target = REMOTE_CLICKHOUSE
-
-    def note_execution_plan(self, placements) -> None:
-        """Receive the placement of every segment before the first one runs.
-
-        Observability only: the executor runs the SQL it is handed either way.
-        Callers that report where a chain executed need the segments it never
-        sees - the ones that stay in pandas - and the reason each landed where it
-        did.  The default does nothing.
-        """
 
     @abstractmethod
     def accepts(self, source: RemoteSource) -> bool:

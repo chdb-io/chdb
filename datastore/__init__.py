@@ -124,6 +124,7 @@ from .query_planner import QueryPlanner, QueryPlan  # noqa: E402
 from .pushdown import (  # noqa: E402
     LOCAL_CHDB,
     frame_from_native,
+    set_plan_observer,
     REMOTE_CLICKHOUSE,
     PushdownTrace,
     RemoteSource,
@@ -495,6 +496,7 @@ __all__ = [
     'LOCAL_CHDB',
     'REMOTE_CLICKHOUSE',
     'frame_from_native',
+    'set_plan_observer',
     'QueryPlan',
     # Exceptions
     'DataStoreError',

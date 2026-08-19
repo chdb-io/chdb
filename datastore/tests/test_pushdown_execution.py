@@ -228,24 +228,36 @@ def test_apply_does_not_warn_about_a_parameter_pandas_deprecated():
     ] == []
 
 
-class PlanRecordingExecutor(RecordingExecutor):
-    """Records the placement report alongside the SQL it is handed."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.placements = None
+class PlanRecorder:
+    """Collects the placement reports a plan publishes while executing."""
 
-    def note_execution_plan(self, placements):
-        self.placements = placements
+    def __init__(self):
+        self.reports = []
+
+    def __call__(self, placements):
+        self.reports.append([placement.as_dict() for placement in placements])
+
+    @property
+    def last(self):
+        return self.reports[-1] if self.reports else []
 
 
-def test_the_executor_learns_where_every_segment_runs():
-    executor = PlanRecordingExecutor()
-    chain(remote_store(executor)).to_pandas()
+@pytest.fixture
+def recorder():
+    from datastore.pushdown import set_plan_observer
 
-    reported = [placement.as_dict() for placement in executor.placements]
-    assert len(reported) == 1
-    segment = reported[0]
+    recorder = PlanRecorder()
+    set_plan_observer(recorder)
+    yield recorder
+    set_plan_observer(None)
+
+
+def test_a_pushed_down_segment_is_reported_as_running_on_the_server(recorder):
+    chain(remote_store(RecordingExecutor())).to_pandas()
+
+    assert len(recorder.last) == 1
+    segment = recorder.last[0]
     assert segment["kind"] == "sql"
     assert segment["engine"] == "remote_clickhouse"
     assert segment["reasonCode"] == "sql_pushed_to_source"
@@ -253,21 +265,55 @@ def test_the_executor_learns_where_every_segment_runs():
     assert len(segment["ops"]) == 4
 
 
-def test_a_pandas_tail_is_reported_with_the_reason_it_stayed_local():
-    executor = PlanRecordingExecutor()
-    store = remote_store(executor)
+def test_the_same_chain_on_a_local_frame_is_reported_as_local(recorder):
+    """No executor, no server: the report must not claim the work went remote."""
+    store = DataStore(
+        pd.DataFrame(
+            {
+                "channel": ["paid", "organic", "paid"],
+                "revenue": [1.0, 2.0, 3.0],
+                "event_type": ["purchase"] * 3,
+            }
+        )
+    )
+    chain(store).to_pandas()
+
+    engines = {segment["engine"] for segment in recorder.last}
+    assert "remote_clickhouse" not in engines
+    assert "local_chdb" in engines
+    local = next(s for s in recorder.last if s["engine"] == "local_chdb")
+    assert local["reasonCode"] in {"sql_on_source_locally", "sql_on_returned_frame"}
+    assert local["detail"]
+
+
+def test_a_pandas_tail_is_reported_with_the_reason_it_stayed_local(recorder):
+    store = remote_store(RecordingExecutor())
     filtered = store[store["event_type"] == "purchase"][["channel", "revenue"]]
     # groupby().apply() carries a Python callable, so the planner cannot compile
     # it and the chain ends in a pandas segment.
     filtered.groupby("channel").apply(lambda frame: frame.head(1)).to_pandas()
 
-    reported = [placement.as_dict() for placement in executor.placements]
-    assert [segment["engine"] for segment in reported] == [
+    assert [segment["engine"] for segment in recorder.last] == [
         "remote_clickhouse",
         "pandas",
     ]
-    tail = reported[1]
+    tail = recorder.last[1]
     assert tail["kind"] == "pandas"
     assert tail["reasonCode"] == "python_callable"
     assert tail["detail"]
     assert tail["sql"] is None
+
+
+def test_an_observer_that_raises_cannot_break_a_query():
+    from datastore.pushdown import set_plan_observer
+
+    def explode(_placements):
+        raise RuntimeError("observer is broken")
+
+    set_plan_observer(explode)
+    try:
+        result = chain(remote_store(RecordingExecutor())).to_pandas()
+    finally:
+        set_plan_observer(None)
+
+    assert len(result) == len(REMOTE_ROWS)

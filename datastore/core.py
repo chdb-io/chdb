@@ -41,6 +41,7 @@ from .pushdown import (
     REMOTE_CLICKHOUSE,
     PushdownTrace,
     SegmentPlacement,
+    publish_placements,
     RemoteSource,
     SqlSegmentExecutor,
     normalize_segment_result,
@@ -1071,7 +1072,7 @@ class DataStore(PandasCompatMixin):
         finally:
             self._sql_target = previous
 
-    def _segment_placements(self, sql: str) -> tuple:
+    def _segment_placements(self, sql: str, pushed_down: bool) -> tuple:
         """Describe where every segment of the running plan executes, and why."""
         exec_plan = getattr(self, "_current_exec_plan", None)
         if exec_plan is None:
@@ -1083,24 +1084,36 @@ class DataStore(PandasCompatMixin):
                 for op in segment.ops
             )
             if segment.is_sql():
-                # The first SQL segment reads the source; a later one reads the
-                # frame the previous segment returned.
-                remote = segment.is_first_segment
+                # Three shapes of SQL segment: one sent to the server that owns
+                # the table, one the local engine runs against the source, and
+                # one the local engine runs over a frame already in memory.
+                from_source = segment.is_first_segment
+                remote = from_source and pushed_down
+                if remote:
+                    reason_code = "sql_pushed_to_source"
+                    detail = (
+                        "compiled to one statement on the server that owns the table"
+                    )
+                elif from_source:
+                    reason_code = "sql_on_source_locally"
+                    detail = (
+                        "compiled to SQL, executed by the local engine reading the "
+                        "source itself"
+                    )
+                else:
+                    reason_code = "sql_on_returned_frame"
+                    detail = (
+                        "compiled to SQL over the frame the previous segment returned"
+                    )
                 placements.append(
                     SegmentPlacement(
                         index=index,
                         kind="sql",
                         engine=REMOTE_CLICKHOUSE if remote else LOCAL_CHDB,
-                        reason_code="sql_pushed_to_source"
-                        if remote
-                        else "sql_on_returned_frame",
-                        detail=(
-                            "compiled to one statement on the server that owns the table"
-                            if remote
-                            else "compiled to SQL over the frame the previous segment returned"
-                        ),
+                        reason_code=reason_code,
+                        detail=detail,
                         ops=ops,
-                        sql=sql if remote else None,
+                        sql=sql if from_source else None,
                     )
                 )
                 continue
@@ -1138,11 +1151,6 @@ class DataStore(PandasCompatMixin):
         Any failure propagates. Falling back to the local engine here would mask
         credential and dialect errors, and could scan the same data twice.
         """
-        try:
-            executor.note_execution_plan(self._segment_placements(sql))
-        except Exception:
-            # Reporting must never decide whether a query runs.
-            pass
         result = normalize_segment_result(executor.execute(sql, source))
         frame = result.frame
         self._last_pushdown_trace = PushdownTrace(
@@ -1481,6 +1489,8 @@ class DataStore(PandasCompatMixin):
                 # segments it never sees are exactly the ones a caller needs to
                 # understand where the chain ran.
                 self._current_exec_plan = exec_plan
+                self._current_source_sql = None
+                self._current_pushed_down = False
 
                 self._logger.debug(exec_plan.describe())
 
@@ -1514,6 +1524,13 @@ class DataStore(PandasCompatMixin):
                 "Execution complete. Final DataFrame shape: %s", df.shape
             )
             self._logger.debug("=" * 70)
+
+            publish_placements(
+                self._segment_placements(
+                    getattr(self, "_current_source_sql", None) or "",
+                    getattr(self, "_current_pushed_down", False),
+                )
+            )
 
             # Cache the result if caching is enabled
             with profiler.step("Cache Write"):
@@ -1677,6 +1694,10 @@ class DataStore(PandasCompatMixin):
             with self._compiling_for(target):
                 build_result = sql_engine.build_sql_from_plan(plan, schema)
             sql = build_result.sql
+            # Kept for the placement report: the statement the source segment ran
+            # and the engine that ran it.
+            self._current_source_sql = sql
+            self._current_pushed_down = pushdown_executor is not None
 
             # Append format settings if present (e.g., input_format_parquet_preserve_order)
             if self._format_settings:
