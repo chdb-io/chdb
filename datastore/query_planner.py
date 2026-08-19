@@ -36,6 +36,12 @@ from .lazy_ops import (
     LazyMask,
     LazyDataFrameSource,
     LazyDistinct,
+    LazyDropColumns,
+    LazyRenameColumns,
+    LazyAddPrefix,
+    LazyAddSuffix,
+    LazyAsType,
+    LazyFillNA,
 )
 from .expressions import Field, Expression
 from .config import get_logger
@@ -64,9 +70,14 @@ class PushdownReasonCode(str, Enum):
     PYTHON_CALLABLE = "python_callable"
     DATAFRAME_CONTEXT = "dataframe_context"
     PANDAS_ONLY = "pandas_only"
+    FULL_READ_KEPT_LOCAL = "full_read_kept_local"
 
 
 PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.FULL_READ_KEPT_LOCAL: (
+        "The segment returns one row per source row, so a remote executor would "
+        "move the same rows the local reader streams natively."
+    ),
     PushdownReasonCode.SQL_SUPPORTED: "The operation is supported by the SQL planner.",
     PushdownReasonCode.UNBOUNDED_SORT: (
         "ORDER BY is unbounded, so the sort remains in Pandas unless a later "
@@ -103,6 +114,44 @@ PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
         "The operation is not supported by the current SQL planner."
     ),
 }
+
+
+# Operations that reshape a segment's columns but never drop one of its rows.
+# The list is deliberately a whitelist: an operation nobody here recognises is
+# assumed to reduce rows, because guessing the other way would silently stop
+# pushing down the filters that pushdown exists for.
+_ROW_PRESERVING_OPS = (
+    LazyDataFrameSource,
+    LazyColumnSelection,
+    LazyDropColumns,
+    LazyRenameColumns,
+    LazyAddPrefix,
+    LazyAddSuffix,
+    LazyAsType,
+    LazyFillNA,
+    LazyColumnAssignment,
+)
+
+# ``LazyRelationalOp`` carries its kind in ``op_type`` rather than its class.
+_ROW_PRESERVING_RELATIONAL = frozenset({"SELECT", "ORDER BY", "OFFSET"})
+
+
+def returns_every_source_row(ops) -> bool:
+    """Whether a segment hands back one row for every row it reads.
+
+    A segment that reduces - a filter, a limit, an aggregation, a distinct - is
+    what pushdown is for: the server does the work and only the answer travels.
+    A segment that does not moves the same rows whichever engine runs it, and
+    the engine reading the source itself streams them natively instead of
+    decoding them a second time on arrival.
+    """
+    for op in ops:
+        if isinstance(op, LazyRelationalOp):
+            if op.op_type not in _ROW_PRESERVING_RELATIONAL:
+                return False
+        elif not isinstance(op, _ROW_PRESERVING_OPS):
+            return False
+    return True
 
 
 @dataclass

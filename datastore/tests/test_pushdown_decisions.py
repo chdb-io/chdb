@@ -107,3 +107,44 @@ def test_execution_plan_keeps_decisions_aligned_with_segments():
         PushdownReasonCode.PYTHON_CALLABLE.value,
         PushdownReasonCode.SQL_SUPPORTED.value,
     ]
+
+
+# ---------------------------------------------------------------------------
+# Which shapes count as reducing the rows a segment returns
+# ---------------------------------------------------------------------------
+
+
+def test_row_preserving_shapes_are_recognised():
+    import pandas as pd
+
+    from datastore import DataStore
+    from datastore.query_planner import returns_every_source_row
+
+    frame = pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]})
+
+    def ops(build):
+        return build(DataStore(frame))._lazy_ops
+
+    # Reshaping columns, or ordering rows, hands back every row it read.
+    assert returns_every_source_row(ops(lambda d: d))
+    assert returns_every_source_row(ops(lambda d: d[["a"]]))
+    assert returns_every_source_row(ops(lambda d: d.sort_values("a")))
+    assert returns_every_source_row(ops(lambda d: d[["a", "b"]].sort_values("a")))
+
+    # These drop rows, which is the work worth sending to the server.
+    assert not returns_every_source_row(ops(lambda d: d[d["a"] > 1]))
+    assert not returns_every_source_row(ops(lambda d: d.head(2)))
+    assert not returns_every_source_row(ops(lambda d: d.drop_duplicates()))
+    assert not returns_every_source_row(
+        ops(lambda d: d.groupby("b", as_index=False).agg({"a": "sum"}))
+    )
+
+
+def test_an_unrecognised_operation_is_assumed_to_reduce_rows():
+    """Guessing the other way would silently stop pushing filters down."""
+    from datastore.query_planner import returns_every_source_row
+
+    class SomethingNew:
+        pass
+
+    assert not returns_every_source_row([SomethingNew()])

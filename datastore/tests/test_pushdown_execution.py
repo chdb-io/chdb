@@ -317,3 +317,64 @@ def test_an_observer_that_raises_cannot_break_a_query():
         set_plan_observer(None)
 
     assert len(result) == len(REMOTE_ROWS)
+
+
+# ---------------------------------------------------------------------------
+# A chain that keeps every row is not a pushdown candidate
+# ---------------------------------------------------------------------------
+
+
+def test_a_whole_table_read_is_not_pushed_down():
+    """The rows travel either way, and the local reader streams them natively."""
+    executor = RecordingExecutor()
+    store = remote_store(executor)
+
+    sql = store.to_sql(execution_format=True)
+
+    assert executor.calls == []
+    assert "remote(" in sql
+
+
+def test_projection_and_sort_alone_stay_local():
+    executor = RecordingExecutor()
+    store = remote_store(executor)
+
+    store[["channel", "revenue"]].sort_values("revenue").to_sql(execution_format=True)
+
+    assert executor.calls == []
+
+
+@pytest.mark.parametrize(
+    "reduce",
+    [
+        pytest.param(lambda s: s[s["event_type"] == "purchase"], id="filter"),
+        pytest.param(lambda s: s.head(5), id="limit"),
+        pytest.param(
+            lambda s: s.groupby("channel", as_index=False).agg({"revenue": "sum"}),
+            id="aggregation",
+        ),
+    ],
+)
+def test_a_chain_that_reduces_rows_is_still_pushed_down(reduce):
+    executor = RecordingExecutor()
+
+    reduce(remote_store(executor)).to_pandas()
+
+    assert len(executor.calls) == 1
+    assert "remote(" not in executor.calls[0][0]
+
+
+def test_the_reason_a_whole_table_read_stays_local_is_reportable():
+    """The placement report quotes this text, so it has to say something."""
+    from datastore.query_planner import PUSHDOWN_REASON_DETAILS, PushdownReasonCode
+
+    code = PushdownReasonCode.FULL_READ_KEPT_LOCAL
+    assert code.value == "full_read_kept_local"
+    assert "one row per source row" in PUSHDOWN_REASON_DETAILS[code]
+
+
+def test_explain_does_not_promise_the_server_for_a_whole_table_read(capsys):
+    plan = explain_text(remote_store(RecordingExecutor()), capsys)
+
+    assert "[ClickHouse]" not in plan
+    assert "remote(" in plan

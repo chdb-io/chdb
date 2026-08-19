@@ -756,7 +756,7 @@ class DataStore(PandasCompatMixin):
             >>> ds = ds.filter(ds['age'] < 50)  # Order matters!
             >>> ds.explain()
         """
-        from .query_planner import QueryPlanner
+        from .query_planner import QueryPlanner, returns_every_source_row
 
         # Ensure data source description is cached before analysis
         if not hasattr(self, "_original_source_desc") or not self._original_source_desc:
@@ -766,6 +766,10 @@ class DataStore(PandasCompatMixin):
         # runs on the server that owns the data, so say so instead of labelling
         # every SQL operation as local.
         pushdown_executor, _ = self._pushdown_for_first_segment()
+        if pushdown_executor is not None and returns_every_source_row(self._lazy_ops):
+            # The planner turns a row-preserving chain down at execution time,
+            # so the plan must not promise the server here either.
+            pushdown_executor = None
         plan_target = (
             pushdown_executor.target if pushdown_executor is not None else LOCAL_CHDB
         )
@@ -1074,6 +1078,8 @@ class DataStore(PandasCompatMixin):
 
     def _segment_placements(self, sql: str, pushed_down: bool) -> tuple:
         """Describe where every segment of the running plan executes, and why."""
+        from .query_planner import PUSHDOWN_REASON_DETAILS
+
         exec_plan = getattr(self, "_current_exec_plan", None)
         if exec_plan is None:
             return ()
@@ -1095,11 +1101,19 @@ class DataStore(PandasCompatMixin):
                         "compiled to one statement on the server that owns the table"
                     )
                 elif from_source:
-                    reason_code = "sql_on_source_locally"
-                    detail = (
-                        "compiled to SQL, executed by the local engine reading the "
-                        "source itself"
-                    )
+                    declined = getattr(self, "_current_pushdown_declined", None)
+                    if declined is not None:
+                        # An executor was available and the planner turned it
+                        # down; saying only "ran locally" would read like the
+                        # session had no executor at all.
+                        reason_code = declined.value
+                        detail = PUSHDOWN_REASON_DETAILS[declined]
+                    else:
+                        reason_code = "sql_on_source_locally"
+                        detail = (
+                            "compiled to SQL, executed by the local engine reading "
+                            "the source itself"
+                        )
                 else:
                     reason_code = "sql_on_returned_frame"
                     detail = (
@@ -1491,6 +1505,7 @@ class DataStore(PandasCompatMixin):
                 self._current_exec_plan = exec_plan
                 self._current_source_sql = None
                 self._current_pushed_down = False
+                self._current_pushdown_declined = None
 
                 self._logger.debug(exec_plan.describe())
 
@@ -1660,7 +1675,11 @@ class DataStore(PandasCompatMixin):
         Returns:
             Result DataFrame
         """
-        from .query_planner import ExecutionSegment
+        from .query_planner import (
+            ExecutionSegment,
+            PushdownReasonCode,
+            returns_every_source_row,
+        )
 
         # Ensure SQL source is available (creates PythonTableFunction on-demand for from_df())
         if segment.is_first_segment:
@@ -1671,11 +1690,6 @@ class DataStore(PandasCompatMixin):
             # on the remote server that owns it.
             pushdown_executor, pushdown_source = self._pushdown_for_first_segment()
 
-            if pushdown_executor is None and self._executor is None:
-                with profiler.step("Connection"):
-                    self._logger.debug("Connecting to data source...")
-                    self.connect()
-
             # Build SQL from segment's plan
             plan = segment.plan
             if plan is None:
@@ -1684,6 +1698,21 @@ class DataStore(PandasCompatMixin):
 
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = segment.ops.copy()
+
+            if pushdown_executor is not None and returns_every_source_row(segment.ops):
+                # Same rows either way, so the reader that owns the source wins:
+                # it streams them in the engine instead of decoding a result on
+                # arrival. Recorded so the placement report can say it plainly.
+                pushdown_executor = None
+                pushdown_source = None
+                self._current_pushdown_declined = (
+                    PushdownReasonCode.FULL_READ_KEPT_LOCAL
+                )
+
+            if pushdown_executor is None and self._executor is None:
+                with profiler.step("Connection"):
+                    self._logger.debug("Connecting to data source...")
+                    self.connect()
 
             sql_engine = SQLExecutionEngine(self)
             target = (
@@ -2044,7 +2073,7 @@ class DataStore(PandasCompatMixin):
         if not self._lazy_ops:
             return self._generate_select_sql(self.quote_char)
 
-        from .query_planner import QueryPlanner
+        from .query_planner import QueryPlanner, returns_every_source_row
 
         # Use QueryPlanner segmented planning (same as _execute). This
         # method models "the SQL ``_execute()`` would issue against the
@@ -2080,6 +2109,10 @@ class DataStore(PandasCompatMixin):
         # Show the SQL that will actually be issued: a segment bound for the
         # remote server reads its table directly, not through remote().
         executor, _ = self._pushdown_for_first_segment()
+        if executor is not None and returns_every_source_row(first_segment.ops):
+            # The executor is turned down at execution time for a chain that
+            # keeps every row; a preview promising otherwise would be a lie.
+            executor = None
         target = executor.target if executor is not None else LOCAL_CHDB
         with self._compiling_for(target):
             result = sql_engine.build_sql_from_plan(first_segment.plan, schema)
