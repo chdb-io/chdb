@@ -209,6 +209,21 @@ class TestTypeResolution:
         assert deploy._canonical_type("DOUBLE PRECISION") == "Float64"
         assert deploy._canonical_type("VARCHAR(255)") == "String"
         assert deploy._canonical_type("BOOLEAN") == "Bool"
+        assert deploy._canonical_type("bool") == "Bool"
+        # the complete whitelisted-target alias set from registerAlias():
+        assert deploy._canonical_type("TIMESTAMP") == "DateTime"
+        assert deploy._canonical_type("timestamp('UTC')") == "DateTime('UTC')"
+        assert deploy._canonical_type("YEAR") == "UInt16"
+        assert deploy._canonical_type("BIGINT UNSIGNED") == "UInt64"
+        assert deploy._canonical_type("tinyint signed") == "Int8"
+        assert deploy._canonical_type("NATIONAL CHARACTER VARYING") == "String"
+        assert deploy._canonical_type("VARBINARY") == "String"
+        # aliases of non-whitelisted types stay unmapped and get rejected,
+        # matching local behavior (which rejects the canonical type)
+        def bad(a) -> int:
+            return 0
+        with pytest.raises(ValueError, match="unsupported argument 1 type"):
+            deploy._resolve_types(bad, ["NUMERIC(10, 2)"], "Int64")
         # canonical names pass through untouched
         assert deploy._canonical_type("Int64") == "Int64"
         assert deploy._canonical_type("DateTime64(6, 'UTC')") == "DateTime64(6, 'UTC')"

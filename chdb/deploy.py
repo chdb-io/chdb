@@ -146,24 +146,50 @@ _NUMPY_DTYPE_TO_CLICKHOUSE = {
 
 _UNION_TYPE = getattr(types, "UnionType", None)  # PEP 604 `X | None` (3.10+)
 
-# SQL-compat aliases DataTypeFactory resolves case-insensitively; local chdb
-# accepts them because it parses type strings through the factory before the
-# whitelist check. Only aliases of whitelisted types are listed. String-family
-# aliases may carry a length parameter (VARCHAR(255)), which ClickHouse
-# ignores — the canonical form drops it.
+# SQL-compat aliases, resolved case-insensitively like DataTypeFactory does
+# when local chdb parses a type string. This is the complete set of
+# registerAlias() entries (src/DataTypes/*.cpp) whose canonical target is in
+# the UDF whitelist; aliases of non-whitelisted types (NUMERIC -> Decimal,
+# ENUM, BINARY -> FixedString, INET4/6, ...) are left out on purpose — both
+# sides reject those either way, so mapping them would only change the type
+# spelling inside the error message. String-family aliases may carry a
+# length parameter (VARCHAR(255)), which ClickHouse ignores — the canonical
+# form drops it.
 _TYPE_ALIASES = {
-    "TINYINT": "Int8", "INT1": "Int8",
-    "SMALLINT": "Int16", "INT2": "Int16",
+    "TINYINT": "Int8", "INT1": "Int8", "BYTE": "Int8",
+    "TINYINT SIGNED": "Int8", "INT1 SIGNED": "Int8",
+    "SMALLINT": "Int16", "SMALLINT SIGNED": "Int16",
     "INT": "Int32", "INT4": "Int32", "INTEGER": "Int32", "MEDIUMINT": "Int32",
-    "BIGINT": "Int64",
+    "INT SIGNED": "Int32", "INTEGER SIGNED": "Int32",
+    "MEDIUMINT SIGNED": "Int32",
+    "BIGINT": "Int64", "SIGNED": "Int64", "BIGINT SIGNED": "Int64",
+    "TINYINT UNSIGNED": "UInt8", "INT1 UNSIGNED": "UInt8",
+    "SMALLINT UNSIGNED": "UInt16", "YEAR": "UInt16",
+    "INT UNSIGNED": "UInt32", "INTEGER UNSIGNED": "UInt32",
+    "MEDIUMINT UNSIGNED": "UInt32",
+    "UNSIGNED": "UInt64", "BIGINT UNSIGNED": "UInt64",
+    "BIT": "UInt64", "SET": "UInt64",
     "FLOAT": "Float32", "REAL": "Float32", "SINGLE": "Float32",
     "DOUBLE": "Float64", "DOUBLE PRECISION": "Float64",
-    "BOOLEAN": "Bool",
+    "BOOL": "Bool", "BOOLEAN": "Bool",
     "TEXT": "String", "TINYTEXT": "String", "MEDIUMTEXT": "String",
     "LONGTEXT": "String", "BLOB": "String", "TINYBLOB": "String",
-    "MEDIUMBLOB": "String", "LONGBLOB": "String", "CHAR": "String",
-    "NCHAR": "String", "VARCHAR": "String", "NVARCHAR": "String",
-    "CHARACTER": "String", "CLOB": "String", "BYTEA": "String",
+    "MEDIUMBLOB": "String", "LONGBLOB": "String",
+    "CHAR": "String", "CHAR VARYING": "String",
+    "CHAR LARGE OBJECT": "String",
+    "CHARACTER": "String", "CHARACTER VARYING": "String",
+    "CHARACTER LARGE OBJECT": "String",
+    "NCHAR": "String", "NCHAR VARYING": "String",
+    "NCHAR LARGE OBJECT": "String",
+    "NATIONAL CHAR": "String", "NATIONAL CHAR VARYING": "String",
+    "NATIONAL CHARACTER": "String",
+    "NATIONAL CHARACTER VARYING": "String",
+    "NATIONAL CHARACTER LARGE OBJECT": "String",
+    "VARCHAR": "String", "VARCHAR2": "String", "NVARCHAR": "String",
+    "VARBINARY": "String", "BINARY VARYING": "String",
+    "BINARY LARGE OBJECT": "String",
+    "CLOB": "String", "BYTEA": "String",
+    "TIMESTAMP": "DateTime",
 }
 
 
