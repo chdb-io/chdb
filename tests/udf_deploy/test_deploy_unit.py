@@ -472,6 +472,24 @@ class TestArtifactGeneration:
         out = _run_script(script, "2024-03-15 07:30:15\n")
         assert out == "2024-03-15 08:30:15\n"
 
+    def test_bytes_result_emitted_as_content(self):
+        def to_bytes(text: str) -> bytes:
+            return ("<" + text + ">").encode()
+
+        script = deploy._generate_script(
+            "to_bytes", deploy._function_source(to_bytes), ["String"]
+        )
+        # content, not Python repr like b'<ok>'
+        assert _run_script(script, "ok\n") == "<ok>\n"
+
+        def to_bytearray(text: str) -> bytes:
+            return bytearray(text.encode())
+
+        script = deploy._generate_script(
+            "to_bytearray", deploy._function_source(to_bytearray), ["String"]
+        )
+        assert _run_script(script, "hi\n") == "hi\n"
+
     def test_xml_structure(self):
         xml = deploy._generate_config_xml(
             "chdb_nb_abc123_deadbeef",
@@ -506,7 +524,25 @@ def _decorated_sample(marker):  # pragma: no cover - source fixture only
 class TestNamingAndValidation:
     def test_session_id_shape(self):
         assert len(deploy.session_id()) == 6
-        assert deploy.session_id() == deploy._SESSION_ID
+
+    def test_fork_gets_fresh_session_identity(self, monkeypatch):
+        """A forked child must not reuse the parent's session id nor inherit
+        its deployment ledger (its atexit would tear down the parent's
+        functions)."""
+        parent_id = deploy.session_id()
+        with deploy._session_lock:
+            deploy._session_deployments.append(
+                deploy.DeployedFunction("x", "conn", permanent=False)
+            )
+        monkeypatch.setattr(deploy.os, "getpid", lambda: -12345)
+        child_id = deploy.session_id()
+        assert child_id != parent_id
+        assert deploy._session_deployments == []
+        # stable within the "child" process
+        assert deploy.session_id() == child_id
+
+    def test_session_id_stable_within_process(self):
+        assert deploy.session_id() == deploy.session_id()
 
     def test_permanent_requires_deploy(self):
         with pytest.raises(ValueError, match="permanent=True requires"):

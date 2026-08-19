@@ -87,17 +87,27 @@ __all__ = [
 
 # Session identity: one per process, embedded in non-permanent remote names so
 # concurrent notebooks cannot collide and leaked functions stay identifiable.
-_SESSION_ID = secrets.token_hex(3)
+# Derived lazily and keyed by PID: a forked child must NOT inherit the
+# parent's identity (same names would collide) nor its deployment ledger
+# (the child's atexit would tear down functions the parent still uses).
 _SESSION_NAME_PREFIX = "chdb_nb_"
 
 _session_deployments: List["DeployedFunction"] = []
 _session_lock = threading.Lock()
 _atexit_registered = False
+_session_state: Dict[str, Any] = {"pid": None, "id": None}
 
 
 def session_id() -> str:
     """This process's deploy session id (embedded in temporary UDF names)."""
-    return _SESSION_ID
+    with _session_lock:
+        pid = os.getpid()
+        if _session_state["pid"] != pid:
+            _session_state["pid"] = pid
+            _session_state["id"] = secrets.token_hex(3)
+            # entries inherited across fork belong to the parent process
+            _session_deployments.clear()
+        return _session_state["id"]
 
 
 # ---------------------------------------------------------------------------
@@ -432,6 +442,9 @@ def _format_result(result):
         return "\\\\N"
     if isinstance(result, bool):
         return "true" if result else "false"
+    if isinstance(result, (bytes, bytearray)):
+        # protocol text, not Python repr (str(b"x") would emit "b'x'")
+        return _escape(bytes(result).decode("utf-8"))
     import datetime
     if isinstance(result, datetime.datetime):
         if result.tzinfo is not None:
@@ -748,7 +761,7 @@ def _deploy_impl(
             + f"{null_skip}{error_ignore}"
         )
         digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:8]
-        remote_name = f"{_SESSION_NAME_PREFIX}{_SESSION_ID}_{digest}"
+        remote_name = f"{_SESSION_NAME_PREFIX}{session_id()}_{digest}"
     if not remote_name.isidentifier():
         raise ValueError(f"Invalid UDF name: {remote_name!r}")
 
