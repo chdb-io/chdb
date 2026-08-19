@@ -207,3 +207,22 @@ def test_an_empty_result_converts_to_an_empty_frame():
     from datastore.pushdown import frame_from_native
 
     assert frame_from_native(b"").empty
+
+
+def test_apply_does_not_warn_about_a_parameter_pandas_deprecated():
+    """A default apply() must not pass convert_dtype, which pandas 2.1 deprecated."""
+    import warnings
+
+    store = DataStore(pd.DataFrame({"a": [1, 2, 3]}))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = store["a"].apply(lambda value: value * 2)
+        values = list(result.to_pandas() if hasattr(result, "to_pandas") else result)
+
+    assert values == [2, 4, 6]
+    assert [
+        str(warning.message)
+        for warning in caught
+        if issubclass(warning.category, FutureWarning)
+        and "convert_dtype" in str(warning.message)
+    ] == []

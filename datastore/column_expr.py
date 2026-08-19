@@ -5474,10 +5474,12 @@ class ColumnExpr:
             2    58
             Name: age, dtype: int64
         """
-        # pandas 3.0 removed convert_dtype parameter
+        # convert_dtype has been deprecated since pandas 2.1 and is gone in 3.0.
+        # True is pandas' own default, so passing it only buys a warning; forward
+        # the parameter solely when a caller explicitly turns it off.
         method_kwargs = dict(args=args, **kwargs)
-        if not _PANDAS_3_PLUS:
-            method_kwargs['convert_dtype'] = convert_dtype
+        if not convert_dtype and not _PANDAS_3_PLUS:
+            method_kwargs['convert_dtype'] = False
         return ColumnExpr(
             source=self,
             method_name="apply",
