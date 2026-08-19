@@ -151,6 +151,16 @@ class TestTypeResolution:
         with pytest.raises(ValueError, match="parameters"):
             deploy._resolve_types(fn, ["Int64"], None)
 
+    def test_quoted_annotations_resolved_to_real_types(self):
+        # equivalent to `from __future__ import annotations` in user code:
+        # the raw annotation is the string "int", not the int type
+        def fn(a: "int", b: "float") -> "str":
+            return ""
+
+        args, ret = deploy._resolve_types(fn, None, None)
+        assert args == [("a", "Int64"), ("b", "Float64")]
+        assert ret == "String"
+
     def test_keyword_only_parameter_rejected(self):
         def fn(a: int, *, flag: bool) -> int:
             return a
@@ -379,6 +389,47 @@ class TestNamingAndValidation:
             deploy.deploy(fn, "q")
         assert list(scripts.iterdir()) == []
         assert list(configs.iterdir()) == []
+
+    def test_failed_deploy_restores_preexisting_artifacts(
+        self, tmp_path, monkeypatch
+    ):
+        scripts = tmp_path / "scripts"
+        configs = tmp_path / "configs"
+        scripts.mkdir()
+        configs.mkdir()
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir=str(scripts), udf_config_dir=str(configs),
+        )
+        old_script = scripts / "fixed_name.py"
+        old_config = configs / "fixed_name_function.xml"
+        old_script.write_text("# original script")
+        old_config.write_text("<functions>original</functions>")
+
+        monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: False)
+        reloads = []
+
+        def boom(connection):
+            reloads.append(connection.name)
+            raise RuntimeError("reload failed")
+
+        monkeypatch.setattr(deploy, "_reload_functions", boom)
+
+        def fn(x: int) -> int:
+            return x
+
+        with pytest.raises(RuntimeError, match="reload failed"):
+            deploy.deploy(fn, "q", permanent=True, name="fixed_name")
+        # pre-existing artifacts restored, not deleted
+        assert old_script.read_text() == "# original script"
+        assert old_config.read_text() == "<functions>original</functions>"
+        # no temp files left behind
+        assert sorted(p.name for p in scripts.iterdir()) == ["fixed_name.py"]
+        assert sorted(p.name for p in configs.iterdir()) == [
+            "fixed_name_function.xml"
+        ]
+        # cleanup attempted a second reload so the server drops the stale UDF
+        assert len(reloads) == 2
 
     def test_permanent_uses_function_name(self, monkeypatch):
         dsconfig.register_connection("q", host="localhost", port=1)

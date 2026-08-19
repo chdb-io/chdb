@@ -47,6 +47,7 @@ import sys
 import textwrap
 import threading
 import time
+import typing
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -140,6 +141,21 @@ def _resolve_types(
             f"{', '.join(unsupported)} are keyword-only/*args/**kwargs, "
             "which cannot be mapped to positional ClickHouse UDF arguments"
         )
+    # Under `from __future__ import annotations` (or quoted annotations) the
+    # signature holds strings like "int", which _clickhouse_type would treat
+    # as ClickHouse type names. Resolve them to real objects first.
+    try:
+        hints = typing.get_type_hints(fn)
+    except Exception:
+        hints = {}
+
+    def annotation_of(param):
+        if param.name in hints:
+            return hints[param.name]
+        if param.annotation is inspect.Parameter.empty:
+            return None
+        return param.annotation
+
     if arg_types is not None:
         if len(arg_types) != len(params):
             raise ValueError(
@@ -152,18 +168,13 @@ def _resolve_types(
         ]
     else:
         resolved = [
-            (
-                param.name,
-                _clickhouse_type(
-                    None
-                    if param.annotation is inspect.Parameter.empty
-                    else param.annotation
-                ),
-            )
+            (param.name, _clickhouse_type(annotation_of(param)))
             for param in params
         ]
     if return_type is not None:
         ch_return = _clickhouse_type(return_type)
+    elif "return" in hints:
+        ch_return = _clickhouse_type(hints["return"])
     elif signature.return_annotation is not inspect.Signature.empty:
         ch_return = _clickhouse_type(signature.return_annotation)
     else:
@@ -386,6 +397,23 @@ class DeployedFunction:
         _remove_deployment(self)
 
 
+def _write_atomic(path: str, data: bytes, mode: Optional[int] = None) -> None:
+    """Write a file via a temp sibling + os.replace (never seen half-written)."""
+    tmp_path = path + ".tmp"
+    try:
+        with open(tmp_path, "wb") as stream:
+            stream.write(data)
+        if mode is not None:
+            os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def _resolve_connection(to: Any):
     # NOTE: `from datastore import config` would yield the DataStoreConfig
     # facade instance (it shadows the module in the package namespace); the
@@ -492,13 +520,19 @@ def _deploy_impl(
     )
 
     # Everything from the first write onward is guarded: a failure at any
-    # point must not leave partial artifacts for the server to pick up.
+    # point must not leave partial artifacts, and files that already existed
+    # for this name are restored rather than deleted. Writes go through a
+    # temporary file + os.replace so the server's config watcher can never
+    # observe a half-written artifact.
+    previous_contents: Dict[str, bytes] = {}
+    for path in (script_path, config_path):
+        if os.path.exists(path):
+            with open(path, "rb") as stream:
+                previous_contents[path] = stream.read()
+
     try:
-        with open(script_path, "w", encoding="utf-8") as stream:
-            stream.write(script_body)
-        os.chmod(script_path, 0o755)
-        with open(config_path, "wb") as stream:
-            stream.write(config_xml)
+        _write_atomic(script_path, script_body.encode("utf-8"), mode=0o755)
+        _write_atomic(config_path, config_xml)
 
         _reload_functions(connection)
         deadline = time.monotonic() + 10.0
@@ -514,9 +548,23 @@ def _deploy_impl(
     except Exception:
         for path in (script_path, config_path):
             try:
-                os.remove(path)
+                if path in previous_contents:
+                    _write_atomic(
+                        path,
+                        previous_contents[path],
+                        mode=0o755 if path == script_path else None,
+                    )
+                else:
+                    os.remove(path)
             except OSError:
                 pass
+        # The failed attempt may have happened after a successful reload;
+        # reload again so the server does not keep serving a UDF whose
+        # artifacts were just removed or restored.
+        try:
+            _reload_functions(connection)
+        except Exception:
+            pass
         raise
 
     deployment = DeployedFunction(
