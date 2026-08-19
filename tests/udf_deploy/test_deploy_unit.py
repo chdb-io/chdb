@@ -946,6 +946,69 @@ class TestNamingAndValidation:
 
 
 # ---------------------------------------------------------------------------
+# DataStore expression-method registration
+# ---------------------------------------------------------------------------
+
+
+class TestExpressionMethodRegistration:
+    def test_udf_becomes_expression_method(self):
+        import pandas as pd
+
+        @chdb.func()
+        def udf_expr_tax(price: float, rate: float) -> float:
+            return round(price * (1 + rate), 2)
+
+        try:
+            ds = chdb.to_datastore(pd.DataFrame({"price": [100.0, 200.0]}))
+            out = ds.assign(with_tax=ds["price"].udf_expr_tax(0.13)).to_pandas()
+            assert list(out["with_tax"]) == [113.0, 226.0]
+            kept = ds.filter(ds["price"].udf_expr_tax(0.13) > 115).to_pandas()
+            assert list(kept["price"]) == [200.0]
+        finally:
+            chdb.drop_function("udf_expr_tax")
+
+    def test_builtin_expression_names_are_not_shadowed(self):
+        from datastore.expressions import Expression
+
+        original = Expression.coalesce_func
+
+        @chdb.func(return_type="Int64")
+        def coalesce_func(a: int) -> int:  # collides with a built-in method
+            return a
+
+        try:
+            assert Expression.coalesce_func is original
+        finally:
+            chdb.drop_function("coalesce_func")
+
+    def test_reregistration_updates_the_method(self):
+        import pandas as pd
+
+        @chdb.func()
+        def udf_expr_incr(x: int) -> int:
+            return x + 1
+
+        chdb.drop_function("udf_expr_incr")
+
+        @chdb.func()  # same name, new body — method must serve the new UDF
+        def udf_expr_incr(x: int) -> int:  # noqa: F811
+            return x + 2
+
+        try:
+            ds = chdb.to_datastore(pd.DataFrame({"x": [1]}))
+            out = ds.assign(y=ds["x"].udf_expr_incr()).to_pandas()
+            assert list(out["y"]) == [3]
+        finally:
+            chdb.drop_function("udf_expr_incr")
+
+    def test_zero_arity_and_bad_names_not_registered(self):
+        from datastore.function_registry import FunctionRegistry
+
+        assert FunctionRegistry.register_udf("zero_args", 0) is False
+        assert FunctionRegistry.register_udf("not-an-identifier", 2) is False
+
+
+# ---------------------------------------------------------------------------
 # Entry-point wiring
 # ---------------------------------------------------------------------------
 

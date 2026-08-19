@@ -1072,6 +1072,25 @@ def _resolve_local_func():
     return _original_local_func or _fallback_local_func
 
 
+def _register_expression_method(fn) -> None:
+    """Expose a locally-registered UDF as a DataStore expression method.
+
+    After this, ``ds["price"].tax(0.13)`` builds the same SQL the built-in
+    function methods do, executed by the local chdb engine where the UDF is
+    registered. Fail-open: expression sugar must never break registration.
+    """
+    try:
+        from datastore.function_registry import FunctionRegistry
+
+        register = getattr(FunctionRegistry, "register_udf", None)
+        if register is None:
+            return
+        arity = len(inspect.signature(fn).parameters)
+        register(fn.__name__, arity, doc=fn.__doc__ or "")
+    except Exception:
+        pass
+
+
 def func(
     arg_types=None,
     return_type=None,
@@ -1108,6 +1127,7 @@ def func(
         if on_error is not None:
             passthrough["on_error"] = on_error
         wrapped = _resolve_local_func()(arg_types, return_type, **passthrough)(fn)
+        _register_expression_method(fn)
 
         if deploy:
             deployment = _deploy_impl(

@@ -289,6 +289,57 @@ class FunctionRegistry:
         cls._register_spec(spec)
 
     @classmethod
+    def register_udf(cls, name: str, arity: int, doc: str = "") -> bool:
+        """Expose a locally-registered chdb UDF as an Expression method.
+
+        Builds a generic spec whose sql_builder emits ``name(expr, *args)``
+        and injects the method onto Expression immediately (the module-load
+        injection pass has already run by the time a UDF registers). The
+        UDF's first parameter binds to the expression the method is called
+        on, so only UDFs with at least one parameter can become column
+        methods.
+
+        Returns True when the method is available after this call; False
+        when skipped (invalid name, arity < 1, or the name would shadow a
+        built-in Expression attribute that this path did not create).
+        """
+        if not name.isidentifier() or arity < 1:
+            return False
+        from .expressions import Expression
+        from .functions import Function
+
+        existing = getattr(Expression, name, None)
+        if existing is not None and not getattr(
+            existing, "__datastore_udf_method__", False
+        ):
+            # Never shadow built-in methods or attributes; re-registering a
+            # UDF method we created ourselves is fine (notebook re-runs).
+            return False
+
+        def sql_builder(expr, *args, alias=None):
+            return Function(name, expr, *args, alias=alias)
+
+        spec = FunctionSpec(
+            name=name,
+            clickhouse_name=name,
+            category=FunctionCategory.OTHER,
+            sql_builder=sql_builder,
+            doc=doc or f"chdb UDF {name}",
+            min_args=arity - 1,
+            max_args=arity - 1,
+        )
+        cls._register_spec(spec)
+
+        def method(self, *args, alias=None):
+            return sql_builder(self, *args, alias=alias)
+
+        method.__name__ = name
+        method.__doc__ = spec.doc
+        method.__datastore_udf_method__ = True
+        setattr(Expression, name, method)
+        return True
+
+    @classmethod
     def _register_spec(cls, spec: FunctionSpec) -> None:
         """Internal: register a spec and update all indexes."""
         # Register primary name
