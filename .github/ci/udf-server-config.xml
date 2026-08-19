@@ -1,0 +1,12 @@
+<!-- Config override for the UDF deploy integration server (clickhouse-udf.yml).
+
+     Pins the two paths chdb.deploy delivers artifacts to:
+     - user_scripts_path: where executable UDF scripts live
+     - user_defined_executable_functions_config: glob of UDF XML configs
+
+     Both directories are bind mounts in clickhouse-udf.yml, so the test
+     process writes locally and the server reads the same files. -->
+<clickhouse>
+    <user_scripts_path>/var/lib/clickhouse/user_scripts/</user_scripts_path>
+    <user_defined_executable_functions_config>/var/lib/clickhouse/user_defined_functions/*_function.*ml</user_defined_executable_functions_config>
+</clickhouse>

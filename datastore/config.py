@@ -6,7 +6,9 @@ including logging level configuration.
 """
 
 import logging
+import threading
 import time
+from dataclasses import dataclass
 from typing import Any, Optional, List, Dict
 from contextlib import contextmanager
 
@@ -655,6 +657,28 @@ class DataStoreConfig:
         """Disable execution profiling."""
         disable_profiling()
 
+    # ========== Remote ClickHouse Connections ==========
+
+    def register_connection(self, name: str = "default", **kwargs):
+        """Register a named ClickHouse server connection."""
+        return register_connection(name, **kwargs)
+
+    def get_connection(self, name: Optional[str] = None):
+        """Look up a registered connection (None returns the default)."""
+        return get_connection(name)
+
+    def set_default_connection(self, name: str) -> None:
+        """Make a previously registered connection the default one."""
+        set_default_connection(name)
+
+    def unregister_connection(self, name: str) -> bool:
+        """Remove a connection from the registry."""
+        return unregister_connection(name)
+
+    def list_connections(self):
+        """Names of all registered connections (sorted)."""
+        return list_connections()
+
 
 # Global config instance
 config = DataStoreConfig()
@@ -903,3 +927,214 @@ def reset_profiler() -> None:
     """Reset the current profiler (clear all recorded data)."""
     global _current_profiler
     _current_profiler = None
+
+
+# =============================================================================
+# Remote ClickHouse Connections
+# =============================================================================
+#
+# A process-wide registry of named ClickHouse server connections. Consumers:
+#
+# - ``chdb.deploy`` reads a connection to deploy Python UDFs to the server
+#   (the ``@func(deploy=...)`` path).
+# - Future DataStore remote backends can resolve query targets from the same
+#   registry instead of taking per-call host/password parameters.
+#
+# The first registered connection becomes the default automatically, so the
+# common single-server setup needs no extra step:
+#
+#     >>> from datastore import config
+#     >>> config.register_connection("demo", host="localhost", port=8123)
+#     >>> config.get_connection()  # returns "demo"
+
+
+@dataclass(frozen=True)
+class ClickHouseConnection:
+    """A named ClickHouse server connection.
+
+    Attributes:
+        name: Registry key for this connection.
+        host: Server hostname or IP (without port).
+        port: HTTP interface port (8123 for plain HTTP, 8443 for HTTPS).
+        username: User for queries and UDF management.
+        password: Password (empty string when the user has none).
+        database: Default database for queries.
+        secure: Use HTTPS when True.
+        udf_scripts_dir: Local filesystem path that the server reads as its
+            ``user_scripts_path`` (e.g. a docker bind mount). Required for
+            deploying executable UDFs; leave None for query-only connections.
+        udf_config_dir: Local filesystem path whose ``*_function.xml`` files
+            the server loads via ``user_defined_executable_functions_config``.
+            Required for deploying executable UDFs.
+    """
+
+    name: str
+    host: str
+    port: int = 8123
+    username: str = "default"
+    password: str = ""
+    database: str = "default"
+    secure: bool = False
+    udf_scripts_dir: Optional[str] = None
+    udf_config_dir: Optional[str] = None
+
+    @property
+    def http_url(self) -> str:
+        """Base URL of the server's HTTP interface."""
+        scheme = "https" if self.secure else "http"
+        return f"{scheme}://{self.host}:{self.port}"
+
+    def supports_udf_deploy(self) -> bool:
+        """Whether this connection has a UDF delivery channel configured."""
+        return bool(self.udf_scripts_dir and self.udf_config_dir)
+
+
+_connections: Dict[str, ClickHouseConnection] = {}
+_default_connection_name: Optional[str] = None
+_connections_lock = threading.Lock()
+
+
+def register_connection(
+    name: str = "default",
+    *,
+    host: str,
+    port: int = 8123,
+    username: str = "default",
+    password: str = "",
+    database: str = "default",
+    secure: bool = False,
+    udf_scripts_dir: Optional[str] = None,
+    udf_config_dir: Optional[str] = None,
+    default: Optional[bool] = None,
+) -> ClickHouseConnection:
+    """
+    Register a named ClickHouse server connection.
+
+    Re-registering an existing name replaces it. The first registered
+    connection becomes the default unless ``default=False`` is passed;
+    ``default=True`` forces the new connection to become the default.
+
+    Args:
+        name: Registry key (referenced by ``@func(deploy="<name>")``).
+        host: Server hostname or IP, without port.
+        port: HTTP interface port. Defaults to 8123.
+        username: User name. Defaults to "default".
+        password: Password. Defaults to "".
+        database: Default database. Defaults to "default".
+        secure: Use HTTPS when True.
+        udf_scripts_dir: Local path mounted as the server's user_scripts_path
+            (required for UDF deployment).
+        udf_config_dir: Local path the server loads UDF XML configs from
+            (required for UDF deployment).
+        default: Force (True) or suppress (False) making this the default.
+
+    Returns:
+        The registered ClickHouseConnection.
+
+    Example:
+        >>> from datastore import config
+        >>> config.register_connection(
+        ...     "demo",
+        ...     host="localhost",
+        ...     port=8123,
+        ...     udf_scripts_dir="/srv/ch/user_scripts",
+        ...     udf_config_dir="/srv/ch/udf_config",
+        ... )
+    """
+    if not name:
+        raise ValueError("Connection name must be a non-empty string")
+    if not host:
+        raise ValueError("Connection host must be a non-empty string")
+    connection = ClickHouseConnection(
+        name=name,
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        database=database,
+        secure=secure,
+        udf_scripts_dir=udf_scripts_dir,
+        udf_config_dir=udf_config_dir,
+    )
+    global _default_connection_name
+    with _connections_lock:
+        first = not _connections
+        _connections[name] = connection
+        if default is True or (first and default is not False):
+            _default_connection_name = name
+    return connection
+
+
+def get_connection(name: Optional[str] = None) -> ClickHouseConnection:
+    """
+    Look up a registered connection.
+
+    Args:
+        name: Registry key; None returns the default connection.
+
+    Returns:
+        The ClickHouseConnection.
+
+    Raises:
+        KeyError: When the name is unknown, or None is passed but no default
+            connection has been registered.
+    """
+    with _connections_lock:
+        if name is None:
+            if _default_connection_name is None:
+                raise KeyError(
+                    "No default ClickHouse connection registered. Call "
+                    "datastore.config.register_connection(...) first."
+                )
+            return _connections[_default_connection_name]
+        try:
+            return _connections[name]
+        except KeyError:
+            known = ", ".join(sorted(_connections)) or "<none>"
+            raise KeyError(
+                f"Unknown ClickHouse connection {name!r}. "
+                f"Registered connections: {known}"
+            ) from None
+
+
+def set_default_connection(name: str) -> None:
+    """Make a previously registered connection the default one."""
+    global _default_connection_name
+    with _connections_lock:
+        if name not in _connections:
+            known = ", ".join(sorted(_connections)) or "<none>"
+            raise KeyError(
+                f"Unknown ClickHouse connection {name!r}. "
+                f"Registered connections: {known}"
+            )
+        _default_connection_name = name
+
+
+def unregister_connection(name: str) -> bool:
+    """
+    Remove a connection from the registry.
+
+    Returns:
+        True when the connection existed, False otherwise. When the default
+        connection is removed, the default resets to None.
+    """
+    global _default_connection_name
+    with _connections_lock:
+        existed = _connections.pop(name, None) is not None
+        if existed and _default_connection_name == name:
+            _default_connection_name = None
+    return existed
+
+
+def list_connections() -> List[str]:
+    """Names of all registered connections (sorted)."""
+    with _connections_lock:
+        return sorted(_connections)
+
+
+def clear_connections() -> None:
+    """Remove all registered connections (mainly for tests)."""
+    global _default_connection_name
+    with _connections_lock:
+        _connections.clear()
+        _default_connection_name = None

@@ -152,6 +152,13 @@ from .config import (  # noqa: E402
     is_performance_mode,
     use_performance_mode,
     use_pandas_compat,
+    # Remote ClickHouse connections
+    ClickHouseConnection,
+    register_connection,
+    get_connection,
+    set_default_connection,
+    unregister_connection,
+    list_connections,
 )
 from .table_functions import (  # noqa: E402
     TableFunction,
@@ -522,4 +529,21 @@ __all__ = [
     'MySQLAdapter',
     'PostgreSQLAdapter',
     'get_adapter',
+    # Remote ClickHouse connections
+    'ClickHouseConnection',
+    'register_connection',
+    'get_connection',
+    'set_default_connection',
+    'unregister_connection',
+    'list_connections',
 ]
+
+
+# Layer-1 self-repair for the chdb UDF deploy entry point: importing
+# chdb.deploy rebinds chdb.func to the extended decorator even when an older
+# chdb-core __init__.py (without the deploy hook) won the shared-file install
+# race between the two wheels. See chdb/deploy.py.
+try:
+    import chdb.deploy  # noqa: E402,F401
+except ImportError:  # pragma: no cover - only when chdb itself is absent
+    pass

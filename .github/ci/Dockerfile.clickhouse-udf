@@ -1,0 +1,10 @@
+# ClickHouse server image for the UDF deploy integration tests.
+#
+# The stock clickhouse-server image ships no python3, but executable UDFs
+# deployed by chdb.deploy are Python scripts run by the server — so the test
+# server needs a Python interpreter on PATH.
+FROM clickhouse/clickhouse-server:24.8
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 \
+    && rm -rf /var/lib/apt/lists/*

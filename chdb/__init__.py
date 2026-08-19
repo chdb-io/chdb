@@ -240,7 +240,12 @@ def __getattr__(name):
         globals()[name] = module
         return module
     if name == "func":
-        from .udf import func as _func
+        # Prefer the extended decorator (deploy/permanent support); fall back
+        # to chdb-core's plain decorator when chdb/deploy.py is absent.
+        try:
+            from .deploy import func as _func
+        except ImportError:
+            from .udf import func as _func
 
         globals()[name] = _func
         return _func
@@ -253,7 +258,12 @@ def connect(*args, **kwargs):
     return _connect(*args, **kwargs)
 
 try:
-    from .udf import func  # noqa: E402
+    # Prefer the extended decorator (deploy/permanent support); fall back to
+    # chdb-core's plain decorator when chdb/deploy.py is absent.
+    try:
+        from .deploy import func  # noqa: E402
+    except ImportError:
+        from .udf import func  # noqa: E402
     _udf_exports.append("func")
 except ImportError:
     pass

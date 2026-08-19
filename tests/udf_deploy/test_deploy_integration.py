@@ -1,0 +1,145 @@
+"""Integration tests for chdb.deploy against a real ClickHouse server.
+
+Environment (all three required — tests skip when unset):
+
+  CHDB_TEST_UDF_HTTP         host:port of the server's HTTP interface
+  CHDB_TEST_UDF_SCRIPTS_DIR  local path mounted as the server's user_scripts_path
+  CHDB_TEST_UDF_CONFIG_DIR   local path the server loads *_function.xml from
+
+Optional: CHDB_TEST_UDF_USER (default "default"), CHDB_TEST_UDF_PASSWORD.
+
+Bring up a suitable server with:
+
+  mkdir -p .github/ci/udf-scripts .github/ci/udf-config
+  docker compose -f .github/ci/clickhouse-udf.yml up -d --build --wait
+  export CHDB_TEST_UDF_HTTP=localhost:8125
+  export CHDB_TEST_UDF_SCRIPTS_DIR=$PWD/.github/ci/udf-scripts
+  export CHDB_TEST_UDF_CONFIG_DIR=$PWD/.github/ci/udf-config
+"""
+
+import os
+import sys
+
+import pytest
+
+import chdb
+import chdb.deploy as deploy
+import datastore.config
+
+dsconfig = sys.modules["datastore.config"]
+
+_HTTP = os.environ.get("CHDB_TEST_UDF_HTTP", "")
+_SCRIPTS_DIR = os.environ.get("CHDB_TEST_UDF_SCRIPTS_DIR", "")
+_CONFIG_DIR = os.environ.get("CHDB_TEST_UDF_CONFIG_DIR", "")
+
+pytestmark = pytest.mark.skipif(
+    not (_HTTP and _SCRIPTS_DIR and _CONFIG_DIR),
+    reason="CHDB_TEST_UDF_* environment not configured (see module docstring)",
+)
+
+
+@pytest.fixture()
+def connection():
+    dsconfig.clear_connections()
+    host, _, port = _HTTP.partition(":")
+    conn = dsconfig.register_connection(
+        "udf-test",
+        host=host,
+        port=int(port or "8123"),
+        username=os.environ.get("CHDB_TEST_UDF_USER", "default"),
+        password=os.environ.get("CHDB_TEST_UDF_PASSWORD", ""),
+        udf_scripts_dir=_SCRIPTS_DIR,
+        udf_config_dir=_CONFIG_DIR,
+    )
+    yield conn
+    deploy.cleanup_session()
+    dsconfig.clear_connections()
+
+
+def _select(conn, query: str) -> str:
+    return deploy._http_query(conn, query).strip()
+
+
+class TestSessionScopedDeploy:
+    def test_decorator_deploys_and_both_sides_work(self, connection):
+        @chdb.func(deploy=True)
+        def itest_add_tax(price: float, rate: float) -> float:
+            return round(price * (1 + rate), 2)
+
+        info = itest_add_tax.chdb_deployment
+        try:
+            assert not info.skipped
+            assert info.remote_name.startswith(
+                f"chdb_nb_{deploy.session_id()}_"
+            )
+            # remote execution
+            assert _select(connection, f"SELECT {info.remote_name}(100, 0.13)") == "113"
+            # local registration is untouched
+            assert (
+                chdb.query("SELECT itest_add_tax(100, 0.13)", "CSV").bytes().strip()
+                == b"113"
+            )
+            # plain python call still works
+            assert itest_add_tax(100, 0.13) == 113.0
+        finally:
+            chdb.drop_function("itest_add_tax")
+
+    def test_redeploy_same_code_skips(self, connection):
+        def itest_double(x: int) -> int:
+            return x * 2
+
+        first = deploy.deploy(itest_double)
+        second = deploy.deploy(itest_double)
+        assert not first.skipped
+        assert second.skipped
+        assert first.remote_name == second.remote_name
+        assert _select(connection, f"SELECT {first.remote_name}(21)") == "42"
+
+    def test_string_arguments_roundtrip(self, connection):
+        def itest_shout(text: str) -> str:
+            return text.upper() + "!"
+
+        info = deploy.deploy(itest_shout)
+        assert _select(connection, f"SELECT {info.remote_name}('ok')") == "OK!"
+
+    def test_cleanup_session_drops_temp_function(self, connection):
+        def itest_negate(x: int) -> int:
+            return -x
+
+        info = deploy.deploy(itest_negate)
+        assert deploy._function_exists(connection, info.remote_name)
+        deploy.cleanup_session()
+        assert not deploy._function_exists(connection, info.remote_name)
+        for path in info.artifact_paths:
+            assert not os.path.exists(path)
+
+
+class TestPermanentDeploy:
+    def test_permanent_uses_own_name_and_survives_cleanup(self, connection):
+        @chdb.func(deploy="udf-test", permanent=True)
+        def itest_strlen(name: str) -> int:
+            return len(name)
+
+        info = itest_strlen.chdb_deployment
+        try:
+            assert info.remote_name == "itest_strlen"
+            assert _select(connection, "SELECT itest_strlen('clickhouse')") == "10"
+            deploy.cleanup_session()
+            assert deploy._function_exists(connection, "itest_strlen")
+            # re-deploy of an existing name is a no-op
+            assert deploy.deploy(itest_strlen, "udf-test", permanent=True).skipped
+        finally:
+            chdb.drop_function("itest_strlen")
+            deploy.undeploy("itest_strlen", "udf-test")
+        assert not deploy._function_exists(connection, "itest_strlen")
+
+    def test_deploy_works_on_undecorated_function(self, connection):
+        def itest_plain(x: float) -> float:
+            return x / 2
+
+        info = deploy.deploy(itest_plain, permanent=True, name="itest_half")
+        try:
+            assert info.remote_name == "itest_half"
+            assert _select(connection, "SELECT itest_half(21)") == "10.5"
+        finally:
+            deploy.undeploy("itest_half")

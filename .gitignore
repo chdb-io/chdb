@@ -267,3 +267,7 @@ libchdb.so
 .cursor/hooks/
 chdb.code-workspace
 /research/
+
+# UDF deploy integration test runtime dirs (bind mounts of clickhouse-udf.yml)
+.github/ci/udf-scripts/
+.github/ci/udf-config/

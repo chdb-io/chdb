@@ -1,0 +1,118 @@
+name: UDF Deploy
+
+# Tests for chdb/deploy.py (deploying Python UDFs to a remote ClickHouse):
+#
+# - deploy-tests: unit + integration suite against a dockerized ClickHouse
+#   server (.github/ci/clickhouse-udf.yml).
+# - install-order-matrix: the chdb and chdb-core wheels both ship
+#   chdb/__init__.py, so whichever installs last owns the entry point. The
+#   matrix installs in both orders and asserts `chdb.func` gains deploy
+#   support in each — directly when this repo's __init__.py wins, via the
+#   `import datastore` self-repair when chdb-core's wins.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches:
+      - main
+    paths-ignore:
+      - '**/*.md'
+
+jobs:
+  deploy-tests:
+    name: Deploy unit + integration
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pytest
+
+      - name: Start ClickHouse UDF server
+        run: |
+          mkdir -p .github/ci/udf-scripts .github/ci/udf-config
+          docker compose -f .github/ci/clickhouse-udf.yml up -d --build --wait
+
+      - name: Run UDF deploy tests
+        env:
+          CHDB_TEST_UDF_HTTP: localhost:8125
+          CHDB_TEST_UDF_SCRIPTS_DIR: ${{ github.workspace }}/.github/ci/udf-scripts
+          CHDB_TEST_UDF_CONFIG_DIR: ${{ github.workspace }}/.github/ci/udf-config
+        run: pytest tests/udf_deploy -v
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f .github/ci/clickhouse-udf.yml down -v
+
+  install-order-matrix:
+    name: Install order (${{ matrix.order }})
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # Which wheel writes the shared chdb/__init__.py last.
+        order: [wrapper-last, core-last]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build the chdb wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir dist .
+
+      - name: Install (wrapper last — this repo's __init__.py wins)
+        if: matrix.order == 'wrapper-last'
+        run: |
+          pip install chdb-core pandas pyarrow pytest
+          pip install --no-deps dist/*.whl
+
+      - name: Install (core last — chdb-core's __init__.py wins)
+        if: matrix.order == 'core-last'
+        run: |
+          pip install --no-deps dist/*.whl
+          pip install chdb-core pandas pyarrow pytest
+
+      - name: Assert deploy entry point survives this order
+        run: |
+          python - <<'PY'
+          import inspect
+
+          import chdb
+
+          direct = "deploy" in inspect.signature(chdb.func).parameters
+
+          import datastore  # noqa: F401  triggers the chdb.deploy self-repair
+
+          repaired = "deploy" in inspect.signature(chdb.func).parameters
+          print(f"direct={direct} after-datastore-import={repaired}")
+          assert repaired, (
+              "chdb.func lacks deploy support even after importing datastore"
+          )
+
+          import chdb.deploy  # the module itself must import cleanly
+
+          assert chdb.func is chdb.deploy.func
+          PY
+
+      - name: Run unit tests in this order
+        run: pytest tests/udf_deploy/test_deploy_unit.py -q
