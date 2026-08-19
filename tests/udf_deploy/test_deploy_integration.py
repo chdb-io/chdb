@@ -155,6 +155,17 @@ class TestSessionScopedDeploy:
         assert _select(connection, f"SELECT {info.remote_name}('ok')") == "OK"
         assert _select(connection, f"SELECT {info.remote_name}(NULL)") == "none"
 
+    def test_datetime_argument_is_timezone_aware(self, connection):
+        def itest_tzprobe(ts) -> str:
+            return f"{ts.hour}|{ts.tzinfo}"
+
+        info = deploy.deploy(itest_tzprobe, arg_types=["DateTime('UTC')"])
+        out = _select(
+            connection,
+            f"SELECT {info.remote_name}(toDateTime('2024-03-15 07:30:15', 'UTC'))",
+        )
+        assert out == "7|UTC"
+
     def test_on_null_skip_default_returns_null(self, connection):
         def itest_incr(x):
             return x + 1  # would TypeError if ever called with None

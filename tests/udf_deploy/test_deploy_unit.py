@@ -260,12 +260,35 @@ class TestTypeResolution:
         assert deploy._on_error_ignores(chdb.ExceptionHandling.IGNORE) is True
 
     def test_decimal_and_temporal_converters(self):
-        assert deploy._converter_name("Decimal(38, 10)") == "_parse_decimal"
-        assert deploy._converter_name("Decimal128(10)") == "_parse_decimal"
-        assert deploy._converter_name("Date") == "_parse_date"
-        assert deploy._converter_name("Date32") == "_parse_date"
-        assert deploy._converter_name("DateTime64(3)") == "_parse_datetime"
-        assert deploy._converter_name("Nullable(DateTime)") == "_parse_datetime"
+        assert deploy._converter_expr("Decimal(38, 10)") == "_parse_decimal"
+        assert deploy._converter_expr("Decimal128(10)") == "_parse_decimal"
+        assert deploy._converter_expr("Date") == "_parse_date"
+        assert deploy._converter_expr("Date32") == "_parse_date"
+        assert deploy._converter_expr("DateTime64(3)") == "_make_datetime_parser(None)"
+        assert deploy._converter_expr("Nullable(DateTime)") == "_make_datetime_parser(None)"
+        assert (
+            deploy._converter_expr("DateTime('UTC')")
+            == "_make_datetime_parser('UTC')"
+        )
+        assert (
+            deploy._converter_expr("Nullable(DateTime64(6, 'Asia/Shanghai'))")
+            == "_make_datetime_parser('Asia/Shanghai')"
+        )
+
+    def test_composite_types_rejected_like_local(self):
+        def fn(xs) -> int:
+            return 0
+
+        with pytest.raises(ValueError, match="unsupported argument 1 type"):
+            deploy._resolve_types(fn, ["Array(Int64)"], "Int64")
+        with pytest.raises(ValueError, match="unsupported argument 1 type"):
+            deploy._resolve_types(fn, ["Map(String, Int64)"], "Int64")
+
+        def fn2(x: int):
+            return [x]
+
+        with pytest.raises(ValueError, match="unsupported return type"):
+            deploy._resolve_types(fn2, None, "Array(Int64)")
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +423,40 @@ class TestArtifactGeneration:
             "hour_of", deploy._function_source(hour_of), ["DateTime64(3)"]
         )
         assert _run_script(script, "2024-03-15 07:30:15.123\n") == "7\n"
+
+    def test_datetime_arrives_timezone_aware(self):
+        def probe_tz(ts) -> str:
+            return f"{ts.hour}|{ts.tzinfo is not None}|{ts.utcoffset()}"
+
+        # declared timezone: the wrapper attaches exactly that zone
+        script = deploy._generate_script(
+            "probe_tz", deploy._function_source(probe_tz), ["DateTime('UTC')"]
+        )
+        out = _run_script(script, "2024-03-15 07:30:15\n")
+        assert out == "7|True|0:00:00\n"
+
+        # plain DateTime: the wrapper attaches the host zone (aware, offset
+        # depends on the machine — assert awareness only)
+        script = deploy._generate_script(
+            "probe_tz", deploy._function_source(probe_tz), ["DateTime64(6)"]
+        )
+        out = _run_script(script, "2024-03-15 07:30:15\n")
+        assert "|True|" in out
+
+    def test_aware_datetime_result_rendered_in_return_tz(self):
+        def shift(ts):
+            import datetime
+            return ts + datetime.timedelta(hours=1)
+
+        script = deploy._generate_script(
+            "shift",
+            deploy._function_source(shift),
+            ["DateTime('UTC')"],
+            return_ch_type="Nullable(DateTime('UTC'))",
+        )
+        # aware UTC in, +1h, rendered back as naive UTC wall time
+        out = _run_script(script, "2024-03-15 07:30:15\n")
+        assert out == "2024-03-15 08:30:15\n"
 
     def test_xml_structure(self):
         xml = deploy._generate_config_xml(

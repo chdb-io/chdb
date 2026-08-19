@@ -2,9 +2,13 @@
 #
 # The stock clickhouse-server image ships no python3, but executable UDFs
 # deployed by chdb.deploy are Python scripts run by the server — so the test
-# server needs a Python interpreter on PATH.
+# server needs a Python interpreter on PATH. Python >= 3.9 is required (the
+# generated wrappers use zoneinfo for DateTime timezone handling); the
+# focal-based image defaults to 3.8, so install 3.9 and put it first on
+# PATH for `/usr/bin/env python3`.
 FROM clickhouse/clickhouse-server:24.8
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends python3.9 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -s /usr/bin/python3.9 /usr/local/bin/python3

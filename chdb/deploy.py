@@ -27,10 +27,17 @@ surface as ClickHouse-side errors at query time.
 Type declarations mirror local chdb registration: the same annotation
 inference table (including numpy scalars), loud errors for unknown
 annotations and missing return types, and every declared type wrapped in
-Nullable like the engine's makeNullable. Known divergences, inherent to the
-executable-UDF text protocol: parameters without annotations are declared
-String (locally they stay dynamic), bytes/bytearray arguments arrive as str,
-and DateTime values carry no timezone.
+Nullable like the engine's makeNullable, and composite types (Array/Map/
+Tuple) are rejected exactly as local registration rejects them.
+
+DateTime values arrive as aware datetimes: a type with an explicit timezone
+(``DateTime('UTC')``) attaches that zone, a plain DateTime attaches the host
+zone of the server the wrapper runs on. Two known distortions: a
+``<timezone>`` override in the server's config.xml makes the server render
+in a zone the wrapper cannot see, and a per-query ``session_timezone``
+setting likewise. Other divergences, inherent to the text protocol:
+parameters without annotations are declared String (locally they stay
+dynamic) and bytes/bytearray arguments arrive as str.
 
 Example:
     >>> import datastore.config as dsconfig
@@ -50,6 +57,7 @@ import functools
 import hashlib
 import inspect
 import os
+import re
 import secrets
 import sys
 import textwrap
@@ -178,18 +186,38 @@ def _clickhouse_type(spec: Any) -> str:
     raise ValueError(f"Unknown Python UDF type annotation: {spec!r}")
 
 
-# Types that cannot be wrapped in Nullable — mirrors the engine's
-# makeNullable, which returns such types unchanged.
+# Types we must not wrap in Nullable. Ground truth is IDataType::
+# canBeInsideNullable (default false, per-type overrides); the set below is
+# the conservative union across server versions we may deploy to — newer
+# engines allow Nullable(Tuple)/Nullable(Object), but e.g. 24.8 rejects
+# them, and an unwrapped declaration is always legal.
 _NOT_INSIDE_NULLABLE = {
     "Nullable",
     "Array",
     "Map",
     "Tuple",
+    "Nested",
     "LowCardinality",
     "AggregateFunction",
     "SimpleAggregateFunction",
-    "Nothing",
+    "Variant",
+    "Dynamic",
+    "JSON",
+    "Object",
 }
+
+# Composite types that local chdb UDF registration rejects ("unsupported
+# argument N type ..."); deployment rejects them the same way.
+_UNSUPPORTED_COMPOSITE = {"Array", "Map", "Tuple", "Nested"}
+
+
+def _reject_composite(fn_name: str, what: str, ch_type: str) -> None:
+    base = ch_type.split("(")[0].strip()
+    if base in _UNSUPPORTED_COMPOSITE:
+        raise ValueError(
+            f"Cannot deploy {fn_name}(): unsupported {what} type "
+            f"'{ch_type}' — local chdb UDFs do not support composite types"
+        )
 
 
 def _make_nullable(ch_type: str) -> str:
@@ -265,6 +293,10 @@ def _resolve_types(
             f"Cannot deploy {fn.__name__}(): return type not specified — "
             "annotate the return or pass return_type=..."
         )
+    # Strict local alignment: chdb rejects composite types at registration.
+    for index, (_, arg_type) in enumerate(resolved, start=1):
+        _reject_composite(fn.__name__, f"argument {index}", arg_type)
+    _reject_composite(fn.__name__, "return", ch_return)
     return resolved, ch_return
 
 
@@ -285,11 +317,25 @@ def _function_source(fn) -> str:
     )
 
 
-def _converter_name(ch_type: str) -> str:
-    base = ch_type.split("(")[0]
-    if base == "Nullable":
-        inner = ch_type[len("Nullable(") : -1]
-        return _converter_name(inner)
+_TZ_IN_TYPE = re.compile(r"'([^']+)'")
+
+
+def _timezone_of(ch_type: str) -> Optional[str]:
+    """The explicit timezone in a DateTime/DateTime64 type string, if any."""
+    match = _TZ_IN_TYPE.search(ch_type)
+    return match.group(1) if match else None
+
+
+def _strip_nullable(ch_type: str) -> str:
+    if ch_type.split("(")[0] == "Nullable":
+        return ch_type[len("Nullable(") : -1]
+    return ch_type
+
+
+def _converter_expr(ch_type: str) -> str:
+    """The converter expression baked into the generated script."""
+    inner = _strip_nullable(ch_type)
+    base = inner.split("(")[0]
     if base.startswith("Int") or base.startswith("UInt"):
         return "int"
     if base.startswith("Float"):
@@ -301,7 +347,10 @@ def _converter_name(ch_type: str) -> str:
     if base in ("Date", "Date32"):
         return "_parse_date"
     if base in ("DateTime", "DateTime64"):
-        return "_parse_datetime"
+        # DateTime('UTC') -> parser that attaches that zone; plain DateTime ->
+        # parser that attaches the host zone (== the server default unless
+        # config.xml overrides it; see the module docstring)
+        return f"_make_datetime_parser({_timezone_of(inner)!r})"
     return "_identity"
 
 
@@ -324,9 +373,26 @@ def _parse_date(value):
     return datetime.date.fromisoformat(value)
 
 
-def _parse_datetime(value):
+def _make_datetime_parser(tz_name):
+    # The pipe carries wall-clock text with no offset. It is rendered in the
+    # column's declared timezone when the type carries one, else in the
+    # server default; attach the matching tzinfo so the function receives an
+    # aware datetime, like local chdb UDFs do.
     import datetime
-    return datetime.datetime.fromisoformat(value)
+    tz = None
+    if tz_name is not None:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+
+    def _parse(value):
+        parsed = datetime.datetime.fromisoformat(value)
+        if tz is not None:
+            return parsed.replace(tzinfo=tz)
+        # naive server-default wall time -> aware, using the host zone (the
+        # wrapper runs on the server host)
+        return parsed.astimezone()
+
+    return _parse
 
 
 def _unescape(value):
@@ -358,6 +424,19 @@ def _format_result(result):
         return "\\\\N"
     if isinstance(result, bool):
         return "true" if result else "false"
+    import datetime
+    if isinstance(result, datetime.datetime):
+        if result.tzinfo is not None:
+            # The server parses the output as wall-clock text in the return
+            # type's timezone (or the server default): convert, then strip
+            # the offset — TSV carries none.
+            if _RETURN_TZ is not None:
+                from zoneinfo import ZoneInfo
+                result = result.astimezone(ZoneInfo(_RETURN_TZ))
+            else:
+                result = result.astimezone()
+            result = result.replace(tzinfo=None)
+        return result.isoformat(sep=" ")
     return _escape(str(result))
 '''
 
@@ -389,11 +468,13 @@ def _generate_script(
     source: str,
     arg_ch_types: List[str],
     *,
+    return_ch_type: str = "String",
     null_skip: bool = True,
     error_ignore: bool = False,
 ) -> str:
     """Generate the executable stdin/stdout wrapper script for the server."""
-    converters = ", ".join(_converter_name(t) for t in arg_ch_types)
+    converters = ", ".join(_converter_expr(t) for t in arg_ch_types)
+    return_tz = _timezone_of(_strip_nullable(return_ch_type))
     return (
         "#!/usr/bin/env python3\n"
         "# Generated by chdb.deploy — do not edit by hand.\n"
@@ -412,6 +493,7 @@ def _generate_script(
         f"_CONVERTERS = [{converters}]\n"
         f"_NULL_SKIP = {null_skip!r}\n"
         f"_ERROR_IGNORE = {error_ignore!r}\n"
+        f"_RETURN_TZ = {return_tz!r}\n"
         "\n"
         "\n"
         "def _main():\n"
@@ -667,6 +749,7 @@ def _deploy_impl(
         fn.__name__,
         source,
         [arg_type for _, arg_type in arg_specs],
+        return_ch_type=ch_return,
         null_skip=null_skip,
         error_ignore=error_ignore,
     )
