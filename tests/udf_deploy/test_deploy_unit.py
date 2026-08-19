@@ -340,6 +340,9 @@ class TestNamingAndValidation:
 
         monkeypatch.setattr(deploy, "_function_exists", fake_exists)
         monkeypatch.setattr(deploy, "_artifacts_exist", lambda conn, name: True)
+        monkeypatch.setattr(
+            deploy, "_artifacts_match", lambda conn, name, body, xml: True
+        )
 
         def fn(x: int) -> int:
             return x + 1
@@ -451,10 +454,53 @@ class TestNamingAndValidation:
         with pytest.raises(ValueError, match="already exists"):
             deploy.deploy(fn, "q", permanent=True, name="length")
 
+    def test_permanent_redeploy_updates_changed_code(self, tmp_path, monkeypatch):
+        """Regression: a permanent redeploy with changed code must replace
+        the artifacts, not silently keep serving the old implementation."""
+        scripts = tmp_path / "scripts"
+        configs = tmp_path / "configs"
+        scripts.mkdir()
+        configs.mkdir()
+        dsconfig.register_connection(
+            "q", host="localhost", port=1,
+            udf_scripts_dir=str(scripts), udf_config_dir=str(configs),
+        )
+        exists = {"value": False}
+        monkeypatch.setattr(
+            deploy, "_function_exists", lambda conn, name: exists["value"]
+        )
+
+        def fake_reload(conn):
+            # the server picks the function up once its artifacts are loaded
+            exists["value"] = True
+
+        monkeypatch.setattr(deploy, "_reload_functions", fake_reload)
+
+        def scorer(x: int) -> int:
+            return x + 1
+
+        first = deploy.deploy(scorer, "q", permanent=True, name="scorer_v")
+        assert not first.skipped
+
+        # identical redeploy: artifacts match -> skipped, files untouched
+        again = deploy.deploy(scorer, "q", permanent=True, name="scorer_v")
+        assert again.skipped
+
+        # changed implementation, same permanent name -> updated in place
+        def scorer(x: int) -> int:  # noqa: F811
+            return x + 2
+
+        updated = deploy.deploy(scorer, "q", permanent=True, name="scorer_v")
+        assert not updated.skipped
+        assert "x + 2" in (scripts / "scorer_v.py").read_text()
+
     def test_permanent_uses_function_name(self, monkeypatch):
         dsconfig.register_connection("q", host="localhost", port=1)
         monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: True)
         monkeypatch.setattr(deploy, "_artifacts_exist", lambda conn, name: True)
+        monkeypatch.setattr(
+            deploy, "_artifacts_match", lambda conn, name, body, xml: True
+        )
 
         def my_scorer(x: float) -> float:
             return x

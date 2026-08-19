@@ -144,6 +144,25 @@ class TestPermanentDeploy:
             deploy.undeploy("itest_strlen", "udf-test")
         assert not deploy._function_exists(connection, "itest_strlen")
 
+    def test_permanent_redeploy_with_changed_code_updates(self, connection):
+        def itest_versioned(x: int) -> int:
+            return x + 1
+
+        deploy.deploy(itest_versioned, permanent=True, name="itest_versioned")
+        try:
+            assert _select(connection, "SELECT itest_versioned(10)") == "11"
+
+            def itest_versioned(x: int) -> int:  # noqa: F811
+                return x + 100
+
+            updated = deploy.deploy(
+                itest_versioned, permanent=True, name="itest_versioned"
+            )
+            assert not updated.skipped
+            assert _select(connection, "SELECT itest_versioned(10)") == "110"
+        finally:
+            deploy.undeploy("itest_versioned")
+
     def test_builtin_name_collision_rejected(self, connection):
         def itest_mylength(x: str) -> int:
             return len(x)

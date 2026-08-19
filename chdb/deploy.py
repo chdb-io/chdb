@@ -381,6 +381,21 @@ def _artifacts_exist(connection, name: str) -> bool:
     return os.path.exists(script_path) and os.path.exists(config_path)
 
 
+def _artifacts_match(
+    connection, name: str, script_body: str, config_xml: bytes
+) -> bool:
+    """Whether the on-disk artifacts equal the freshly generated ones."""
+    script_path, config_path = _artifact_paths(connection, name)
+    try:
+        with open(script_path, "rb") as stream:
+            if stream.read() != script_body.encode("utf-8"):
+                return False
+        with open(config_path, "rb") as stream:
+            return stream.read() == config_xml
+    except OSError:
+        return False
+
+
 def _function_exists(connection, name: str) -> bool:
     result = _http_query(
         connection,
@@ -501,24 +516,37 @@ def _deploy_impl(
     if not remote_name.isidentifier():
         raise ValueError(f"Invalid UDF name: {remote_name!r}")
 
-    # An existing function with the same name is reused as-is (idempotent
-    # re-runs) — but only when this channel's artifacts are what defined it.
-    # system.functions also lists built-ins and unrelated UDFs; silently
-    # skipping for those would leave queries running the wrong function.
+    script_filename = f"{remote_name}.py"
+    script_body = _generate_script(
+        fn.__name__, source, [arg_type for _, arg_type in arg_specs]
+    )
+    config_xml = _generate_config_xml(
+        remote_name, script_filename, arg_specs, ch_return
+    )
+
+    # An existing function with the same name is reused (idempotent re-runs)
+    # only when this channel's artifacts match what we would deploy now:
+    # - identical artifacts -> skip;
+    # - our artifacts but different content (a permanent function whose code
+    #   changed) -> fall through and replace them in place;
+    # - no artifacts -> it is a ClickHouse built-in or an unrelated UDF;
+    #   silently skipping would leave queries running the wrong function.
     if _function_exists(connection, remote_name):
         if _artifacts_exist(connection, remote_name):
-            return DeployedFunction(
-                remote_name=remote_name,
-                connection=connection.name,
-                permanent=permanent,
-                skipped=True,
+            if _artifacts_match(connection, remote_name, script_body, config_xml):
+                return DeployedFunction(
+                    remote_name=remote_name,
+                    connection=connection.name,
+                    permanent=permanent,
+                    skipped=True,
+                )
+        else:
+            raise ValueError(
+                f"A function named {remote_name!r} already exists on "
+                f"connection {connection.name!r} but was not deployed through "
+                "this channel (it may be a ClickHouse built-in or an "
+                "unrelated UDF). Pick a different name via name=..."
             )
-        raise ValueError(
-            f"A function named {remote_name!r} already exists on connection "
-            f"{connection.name!r} but was not deployed through this channel "
-            "(it may be a ClickHouse built-in or an unrelated UDF). Pick a "
-            "different name via name=..."
-        )
 
     if not connection.supports_udf_deploy():
         raise RuntimeError(
@@ -531,14 +559,6 @@ def _deploy_impl(
         )
 
     script_path, config_path = _artifact_paths(connection, remote_name)
-    script_filename = os.path.basename(script_path)
-
-    script_body = _generate_script(
-        fn.__name__, source, [arg_type for _, arg_type in arg_specs]
-    )
-    config_xml = _generate_config_xml(
-        remote_name, script_filename, arg_specs, ch_return
-    )
 
     # Everything from the first write onward is guarded: a failure at any
     # point must not leave partial artifacts, and files that already existed
@@ -623,8 +643,9 @@ def deploy(
         name: Override the remote name (permanent deployments only).
 
     Returns:
-        DeployedFunction handle (``skipped=True`` when the name already
-        existed on the server and nothing was written).
+        DeployedFunction handle. ``skipped=True`` means the identical
+        artifacts were already deployed and nothing was written; a permanent
+        redeploy whose code or types changed replaces the artifacts in place.
     """
     return _deploy_impl(
         fn,
