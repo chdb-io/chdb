@@ -74,3 +74,31 @@ def test_groupby_by_column_stays_eligible(remote_events):
     assert verdict["eligible"] is True, verdict["reason"]
     assert "__groupby_temp_" not in verdict["sql"]
     assert '"demo"."events"' in verdict["sql"]
+
+
+def test_checkpointed_pipeline_answers_from_the_preserved_plan(remote_events):
+    # Execution checkpoints a multi-segment pipeline: lazy_ops become a cached
+    # DataFrame source and the SQL state is cleared. The verdict must answer
+    # for what the user BUILT — the preserved logical plan — and must leave
+    # the checkpointed (cached) state untouched afterwards.
+    import pandas as pd
+    from datastore.lazy_ops import LazyDataFrameSource
+
+    ds = remote_events
+    pipe = ds.filter(ds["channel"] == "web").assign(t=ds["revenue"] * 1.13)
+
+    pipe._pre_checkpoint_plan = pipe._capture_logical_plan()
+    frame = pd.DataFrame({"revenue": [1.0], "channel": ["web"], "t": [1.13]})
+    pipe._lazy_ops = [LazyDataFrameSource(frame)]
+    pipe._table_function = None
+    pipe._source_df = frame
+
+    verdict = pipe.plan_remote_materialization()
+    assert verdict["eligible"] is True, verdict["reason"]
+    assert '"demo"."events"' in verdict["sql"]
+    assert "remote(" not in verdict["sql"]
+
+    # the cached execution state survives the answer
+    assert pipe._table_function is None
+    assert pipe._source_df is frame
+    assert [type(op).__name__ for op in pipe._lazy_ops] == ["LazyDataFrameSource"]
