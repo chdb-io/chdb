@@ -5999,6 +5999,116 @@ class DataStore(PandasCompatMixin):
         result = self._run_chdb_query(describe_sql, "DataFrame", df=df)
         return OrderedDict(zip(result["name"], result["type"]))
 
+    def plan_remote_materialization(self, connection: Optional[str] = None) -> Dict[str, Any]:
+        """Can this pipeline run as ONE statement on the server that owns its
+        source — and which statement. The eligibility check behind solidifying
+        a DataStore as a server-side object (a refreshable materialized view,
+        a plain view, CREATE TABLE ... AS SELECT).
+
+        This deliberately reuses the pushdown planner's CAPABILITY checks and
+        skips its COST checks: interactive pushdown keeps a row-per-row
+        transform local because pushing it moves the same data either way, but
+        a materialization has no transfer at all — the result lands in a
+        server-side table — so shape-of-the-work heuristics do not apply.
+
+        Nothing executes. UDF calls are planned into the statement
+        (``udf_boundary=False``) and compiled under the remote target, so they
+        render by their deployed names; when a segment executor is bound its
+        live server check is used, otherwise the deployment registry decides.
+
+        Args:
+            connection: Deployment-registry connection name to resolve UDF
+                names against when several connections carry the same function.
+
+        Returns:
+            dict with keys:
+                eligible: bool
+                sql: statement compiled for the server (sources as db.table,
+                    UDFs by deployed name), or None
+                reason: why not eligible, or None
+                udfs: tuple of {name, via[, deployedAs]} dicts compiled in
+        """
+        from .pushdown import REMOTE_CLICKHOUSE
+        from .query_planner import QueryPlanner
+        from .sql_executor import SQLExecutionEngine
+        from .udf import udf_calls_in
+
+        def refusal(reason: str) -> Dict[str, Any]:
+            return {"eligible": False, "sql": None, "reason": reason, "udfs": ()}
+
+        # The server can only be asked to read what it owns.
+        from .lazy_ops import LazyDataFrameSource
+
+        if (
+            self._source_df is not None
+            or isinstance(self._table_function, PythonTableFunction)
+            or any(isinstance(op, LazyDataFrameSource) for op in self._lazy_ops)
+        ):
+            return refusal("source is an in-memory DataFrame the server cannot see")
+        if not self._is_remote_source():
+            return refusal("source is not a remote ClickHouse table")
+        source_host = self._table_function.params.get("host", "")
+        if self._joins and not self._is_all_same_remote_server(source_host):
+            return refusal("a joined source lives on a different server")
+
+        try:
+            schema = self.schema()
+        except Exception:
+            schema = None
+
+        planner = QueryPlanner()
+        plan = planner.plan_segments(
+            self._lazy_ops,
+            has_sql_source=True,
+            schema=schema,
+            local_source=False,
+            # A materialized statement runs where the UDFs are deployed;
+            # "the call has to run here" never applies, so do not split.
+            udf_boundary=False,
+        )
+        pandas_segments = [s for s in plan.segments if not s.is_sql()]
+        if pandas_segments:
+            ops = ", ".join(
+                type(op).__name__ for op in pandas_segments[0].ops[:3]
+            )
+            return refusal(f"pipeline contains pandas-only operations ({ops})")
+        sql_segments = [s for s in plan.segments if s.is_sql()]
+        if len(sql_segments) != 1:
+            return refusal(
+                f"pipeline plans into {len(sql_segments)} SQL segments; "
+                "a materialized view needs exactly one"
+            )
+
+        # UDF capability on the target: prefer the bound executor's live
+        # answer (it asks the server), fall back to the deployment registry.
+        executor = self._sql_segment_executor
+        source = None
+        if executor is not None:
+            try:
+                source = self._table_function.remote_source()
+            except Exception:
+                source = None
+            if source is not None and not executor.accepts(source):
+                executor, source = None, None
+        if executor is not None and source is not None:
+            blocked = self._pushdown_blocked_by_udf(self._lazy_ops, executor, source)
+            if blocked is not None:
+                _, detail = blocked
+                return refusal(detail)
+        else:
+            for call in udf_calls_in(self._lazy_ops):
+                if call.binding.name_for(REMOTE_CLICKHOUSE, connection) is None:
+                    return refusal(
+                        f"UDF {call.binding.logical_name!r} is not deployed "
+                        "on the target server"
+                    )
+
+        engine = SQLExecutionEngine(self)
+        with self._compiling_for(REMOTE_CLICKHOUSE):
+            build = engine.build_sql_from_plan(sql_segments[0].plan, schema)
+        udfs = self._udfs_in_segment(self._lazy_ops, REMOTE_CLICKHOUSE)
+        return {"eligible": True, "sql": build.sql, "reason": None, "udfs": udfs}
+
     def _is_fully_sql_pushable(self) -> bool:
         """
         Check if this DataStore's entire pipeline can be executed as a single
