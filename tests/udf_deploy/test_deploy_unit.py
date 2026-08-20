@@ -650,7 +650,7 @@ class TestNamingAndValidation:
         with pytest.raises(RuntimeError, match="ClickHouse Cloud"):
             deploy.deploy(fn, "q")
 
-    def test_session_name_stable_for_same_code(self, monkeypatch):
+    def test_temporary_deploy_uses_the_functions_own_name(self, monkeypatch):
         dsconfig.register_connection("q", host="localhost", port=1)
         seen = []
 
@@ -669,9 +669,26 @@ class TestNamingAndValidation:
 
         first = deploy.deploy(fn, "q")
         second = deploy.deploy(fn, "q")
-        assert first.remote_name == second.remote_name
-        assert first.remote_name.startswith(f"chdb_nb_{deploy.session_id()}_")
+        # permanent controls lifetime, not the name: a temporary deployment
+        # is callable by the name the user actually wrote
+        assert first.remote_name == "fn"
+        assert second.remote_name == "fn"
         assert first.skipped and second.skipped
+
+    def test_temporary_deploy_honors_name_override(self, monkeypatch):
+        dsconfig.register_connection("q", host="localhost", port=1)
+        monkeypatch.setattr(deploy, "_function_exists", lambda conn, name: True)
+        monkeypatch.setattr(deploy, "_artifacts_exist", lambda conn, name: True)
+        monkeypatch.setattr(
+            deploy, "_artifacts_match", lambda conn, name, body, xml: True
+        )
+
+        def fn(x: int) -> int:
+            return x + 1
+
+        handle = deploy.deploy(fn, "q", name="renamed_fn")
+        assert handle.remote_name == "renamed_fn"
+        assert handle.permanent is False
 
     def test_async_function_rejected(self):
         async def fetchy(x: int) -> int:
