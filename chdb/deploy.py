@@ -5,9 +5,12 @@ This module extends :func:`chdb.udf.func` with two extra parameters:
 - ``deploy``: ``False`` (default, local-only), ``True`` (deploy to the default
   connection), or a connection name registered via
   :func:`datastore.config.register_connection`.
-- ``permanent``: ``False`` (default) deploys under a session-scoped name
-  ``chdb_nb_{session}_{hash}`` that is dropped when the process exits;
-  ``True`` deploys under the function's own name and survives the session.
+- ``permanent``: controls lifetime only. ``False`` (default) drops the
+  function when the process exits; ``True`` keeps it. Either way the remote
+  function is registered under the function's own name (or an explicit
+  ``name=`` override), so it stays callable by a name the user can predict.
+  Concurrent sessions deploying the same name share it: identical code is
+  reused, changed code replaces the artifacts in place.
 
 The local registration is delegated to :func:`chdb.udf.func` unchanged, so a
 deployed function keeps working in local chdb queries exactly as before.
@@ -55,7 +58,6 @@ Example:
 
 import atexit
 import functools
-import hashlib
 import inspect
 import os
 import re
@@ -85,12 +87,11 @@ __all__ = [
     "DeployedFunction",
 ]
 
-# Session identity: one per process, embedded in non-permanent remote names so
-# concurrent notebooks cannot collide and leaked functions stay identifiable.
-# Derived lazily and keyed by PID: a forked child must NOT inherit the
-# parent's identity (same names would collide) nor its deployment ledger
-# (the child's atexit would tear down functions the parent still uses).
-_SESSION_NAME_PREFIX = "chdb_nb_"
+# Session identity: one per process, keyed by PID. Remote names no longer
+# embed it (deployments use the function's own name), but the identity still
+# guards the cleanup ledger across forks: a forked child must NOT inherit the
+# parent's ledger, or the child's atexit would tear down functions the parent
+# still uses.
 
 _session_deployments: List["DeployedFunction"] = []
 _session_lock = threading.Lock()
@@ -99,7 +100,7 @@ _session_state: Dict[str, Any] = {"pid": None, "id": None}
 
 
 def session_id() -> str:
-    """This process's deploy session id (embedded in temporary UDF names)."""
+    """This process's deploy session id (fork guard for the cleanup ledger)."""
     with _session_lock:
         pid = os.getpid()
         if _session_state["pid"] != pid:
@@ -762,7 +763,7 @@ def _remove_deployment(deployment: DeployedFunction) -> None:
 
 
 def cleanup_session() -> None:
-    """Drop every session-scoped UDF this process deployed (best effort)."""
+    """Drop every non-permanent UDF this process deployed (best effort)."""
     with _session_lock:
         deployments = list(_session_deployments)
     for deployment in deployments:
@@ -808,18 +809,14 @@ def _deploy_impl(
     error_ignore = _on_error_ignores(on_error)
     connection = _resolve_connection(to)
 
-    if permanent:
-        remote_name = name or fn.__name__
-    else:
-        digest_input = (
-            source
-            + repr(arg_specs)
-            + ch_return
-            + connection.name
-            + f"{null_skip}{error_ignore}"
-        )
-        digest = hashlib.sha256(digest_input.encode("utf-8")).hexdigest()[:8]
-        remote_name = f"{_SESSION_NAME_PREFIX}{session_id()}_{digest}"
+    # One predictable name whether or not the deployment is permanent: the
+    # function's own, or the caller's name= override. Session-scoped
+    # chdb_nb_* names guaranteed isolation between concurrent processes but
+    # made a temporary UDF uncallable by any name a user could type.
+    # session_id() is still consulted for its side effect: it resets the
+    # cleanup ledger after a fork.
+    session_id()
+    remote_name = name or fn.__name__
     if not remote_name.isidentifier():
         raise ValueError(f"Invalid UDF name: {remote_name!r}")
 
@@ -964,14 +961,14 @@ def deploy(
         fn: The function to deploy (does not need the ``@func`` decorator).
         to: Connection name registered in datastore.config; None uses the
             default connection.
-        permanent: Deploy under the function's own name and keep it after the
-            session ends. Defaults to False (session-scoped name, cleaned up
-            at process exit).
+        permanent: Keep the function after this session ends. Defaults to
+            False: the deployment is dropped at process exit. Either way it
+            registers under the function's own name (or ``name=``).
         arg_types: Optional explicit argument types (else annotations, else
             String).
         return_type: Optional explicit return type (else annotation, else
             String).
-        name: Override the remote name (permanent deployments only).
+        name: Override the remote name (any deployment).
         on_null: "skip" (default — NULL input returns NULL without calling
             the function) or "pass" (call with None), as in chdb.udf.func;
             emulated in the generated wrapper.

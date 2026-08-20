@@ -74,9 +74,9 @@ class TestSessionScopedDeploy:
         info = itest_add_tax.chdb_deployment
         try:
             assert not info.skipped
-            assert info.remote_name.startswith(
-                f"chdb_nb_{deploy.session_id()}_"
-            )
+            # temporary deployments register under the function's own name,
+            # so remote SQL can call the name the user actually wrote
+            assert info.remote_name == "itest_add_tax"
             # remote execution
             assert _select(connection, f"SELECT {info.remote_name}(100, 0.13)") == "113"
             # local registration is untouched
