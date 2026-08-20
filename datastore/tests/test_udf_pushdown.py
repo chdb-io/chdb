@@ -530,3 +530,33 @@ def test_a_deployment_can_replace_the_measured_defaults():
             default_bandwidth_bytes_per_s=original.default_bandwidth_bytes_per_s,
         )
     assert current_udf_cost_model() == UdfCostModel()
+
+
+def test_arguments_are_converted_to_the_declared_types():
+    """A Decimal column against a Float64 declaration must work either way."""
+    import chdb
+
+    @chdb.func(arg_types=["Float64"], return_type="Float64")
+    def declared_float(value):
+        return value * 0.9
+
+    frame = pd.DataFrame({"revenue": [100, 250], "channel": ["a", "b"]})
+    store = DataStore(frame)
+
+    sql = store.assign(net=store["revenue"].apply(declared_float)).to_sql(
+        execution_format=True
+    )
+
+    assert 'declared_float(CAST("revenue" AS Float64))' in sql
+    # And the conversion is not just cosmetic: the call has to run.
+    result = store.assign(net=store["revenue"].apply(declared_float)).to_pandas()
+    assert list(result["net"]) == [90.0, 225.0]
+
+
+def test_a_udf_without_declared_types_is_called_as_written():
+    from datastore.udf import UdfCall, bind_local
+
+    binding = bind_local(None, "untyped_udf", 1)
+    call = UdfCall(binding, __import__("datastore").expressions.Field("revenue"))
+
+    assert call.to_sql() == 'untyped_udf("revenue")'

@@ -1072,7 +1072,17 @@ def _resolve_local_func():
     return _original_local_func or _fallback_local_func
 
 
-def _register_expression_method(fn) -> None:
+def _declared_arg_types(fn):
+    """The ClickHouse argument types this function was declared with, if any.
+
+    Set by the decorator that is registering it; read back off the wrapper when
+    a caller reaches this path another way.
+    """
+    declared = getattr(fn, "chdb_arg_types", None)
+    return list(declared) if declared else None
+
+
+def _register_expression_method(fn, arg_types=None) -> None:
     """Expose a locally-registered UDF as a DataStore expression method.
 
     After this, ``ds["price"].tax(0.13)`` builds the same SQL the built-in
@@ -1089,7 +1099,9 @@ def _register_expression_method(fn) -> None:
             # emit for the engine compiling it.
             from datastore.udf import bind_local
 
-            bind_local(fn, fn.__name__, arity)
+            bind_local(
+                fn, fn.__name__, arity, arg_types=arg_types or _declared_arg_types(fn)
+            )
         except Exception:
             pass
         register = getattr(FunctionRegistry, "register_udf", None)
@@ -1136,7 +1148,7 @@ def func(
         if on_error is not None:
             passthrough["on_error"] = on_error
         wrapped = _resolve_local_func()(arg_types, return_type, **passthrough)(fn)
-        _register_expression_method(fn)
+        _register_expression_method(fn, arg_types)
 
         if deploy:
             deployment = _deploy_impl(
@@ -1155,7 +1167,12 @@ def func(
                 # server has to emit that name, not the local one.
                 from datastore.udf import bind_local, bind_remote
 
-                bind_local(wrapped, fn.__name__, len(inspect.signature(fn).parameters))
+                bind_local(
+                    wrapped,
+                    fn.__name__,
+                    len(inspect.signature(fn).parameters),
+                    arg_types=arg_types or _declared_arg_types(fn),
+                )
                 bind_remote(
                     wrapped, fn.__name__, deployment.connection, deployment.remote_name
                 )

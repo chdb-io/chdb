@@ -45,10 +45,21 @@ class UdfBinding:
     remote name appear without being rebound.
     """
 
-    def __init__(self, logical_name: str, arity: int, local_name: Optional[str] = None):
+    def __init__(
+        self,
+        logical_name: str,
+        arity: int,
+        local_name: Optional[str] = None,
+        arg_types: Optional[list] = None,
+    ):
         self.logical_name = logical_name
         self.arity = arity
         self.local_name = local_name
+        # The types the function was declared with. A deployed UDF is called
+        # through them - the server converts the column to the declared type -
+        # so the local call has to declare the same conversion or the same chain
+        # works on one engine and fails on the other.
+        self.arg_types = list(arg_types or [])
         # connection name -> the name the function was deployed under there
         self.remote_names: Dict[str, str] = {}
 
@@ -80,7 +91,13 @@ class UdfBinding:
         )
 
 
-def bind_local(fn: Any, logical_name: str, arity: int, local_name: Optional[str] = None):
+def bind_local(
+    fn: Any,
+    logical_name: str,
+    arity: int,
+    local_name: Optional[str] = None,
+    arg_types: Optional[list] = None,
+):
     """Record that ``fn`` is registered in the local engine, and return its binding."""
     binding = _BINDINGS.get(logical_name)
     if binding is None:
@@ -88,6 +105,8 @@ def bind_local(fn: Any, logical_name: str, arity: int, local_name: Optional[str]
         _BINDINGS[logical_name] = binding
     binding.arity = arity
     binding.local_name = local_name or logical_name
+    if arg_types:
+        binding.arg_types = list(arg_types)
     _attach(fn, binding)
     return binding
 
@@ -168,6 +187,32 @@ class UdfCall(Function):
     @name.setter
     def name(self, value: str) -> None:
         self._logical_name = value
+
+    def to_sql(self, quote_char: str = '"', **kwargs) -> str:
+        """Render the call, converting arguments to the declared types.
+
+        A deployed UDF is called through its declared types: the server converts
+        the column on the way in. Without the same conversion here, a chain over
+        a Decimal column would run on the server and fail locally against a
+        Float64 declaration - the same code, two answers, decided by placement.
+        """
+        from .functions import format_alias
+
+        pieces = []
+        for index, argument in enumerate(self.args):
+            rendered = argument.to_sql(quote_char=quote_char, **kwargs)
+            declared = (
+                self._binding.arg_types[index]
+                if index < len(self._binding.arg_types)
+                else None
+            )
+            if declared:
+                rendered = f"CAST({rendered} AS {declared})"
+            pieces.append(rendered)
+        sql = f"{self.name}({','.join(pieces)})"
+        if kwargs.get("with_alias", False) and self.alias:
+            return format_alias(sql, self.alias, quote_char)
+        return sql
 
     def __copy__(self):
         # Function.__copy__ rebuilds a plain Function, which would freeze the
