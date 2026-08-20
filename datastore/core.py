@@ -1068,11 +1068,19 @@ class DataStore(PandasCompatMixin):
 
     @contextmanager
     def _compiling_for(self, target: str):
-        """Compile SQL for ``target`` inside this block, then restore the default."""
+        """Compile SQL for ``target`` inside this block, then restore the default.
+
+        The target is published two ways because two layers need it: this store,
+        which renders its own source, and the expression tree, which resolves UDF
+        names and has no way back to the store that owns it.
+        """
+        from .pushdown import compiling_for
+
         previous = self._sql_target
         self._sql_target = target
         try:
-            yield
+            with compiling_for(target):
+                yield
         finally:
             self._sql_target = previous
 

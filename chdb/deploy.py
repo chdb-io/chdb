@@ -1082,10 +1082,19 @@ def _register_expression_method(fn) -> None:
     try:
         from datastore.function_registry import FunctionRegistry
 
+        arity = len(inspect.signature(fn).parameters)
+        try:
+            # Record where this function can run before the method is injected:
+            # the method's SQL builder reads the binding to decide which name to
+            # emit for the engine compiling it.
+            from datastore.udf import bind_local
+
+            bind_local(fn, fn.__name__, arity)
+        except Exception:
+            pass
         register = getattr(FunctionRegistry, "register_udf", None)
         if register is None:
             return
-        arity = len(inspect.signature(fn).parameters)
         register(fn.__name__, arity, doc=fn.__doc__ or "")
     except Exception:
         pass
@@ -1140,6 +1149,18 @@ def func(
                 on_error=on_error,
             )
             wrapped.chdb_deployment = deployment
+            try:
+                # The server knows this function under a session-scoped name
+                # unless the deployment is permanent; a chain compiled for that
+                # server has to emit that name, not the local one.
+                from datastore.udf import bind_local, bind_remote
+
+                bind_local(wrapped, fn.__name__, len(inspect.signature(fn).parameters))
+                bind_remote(
+                    wrapped, fn.__name__, deployment.connection, deployment.remote_name
+                )
+            except Exception:
+                pass
         return wrapped
 
     return decorator

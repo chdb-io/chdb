@@ -307,6 +307,7 @@ class FunctionRegistry:
             return False
         from .expressions import Expression
         from .functions import Function
+        from .udf import UdfCall, binding_named
 
         existing = getattr(Expression, name, None)
         if existing is not None and not getattr(
@@ -317,6 +318,11 @@ class FunctionRegistry:
             return False
 
         def sql_builder(expr, *args, alias=None):
+            # A bound UDF resolves its name per engine; an unbound one can only
+            # be the name it was registered under locally.
+            binding = binding_named(name)
+            if binding is not None:
+                return UdfCall(binding, expr, *args, alias=alias)
             return Function(name, expr, *args, alias=alias)
 
         spec = FunctionSpec(

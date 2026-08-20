@@ -18,9 +18,11 @@ Two rules keep the behaviour predictable:
 
 from __future__ import annotations
 
+import contextvars
 import os
 import tempfile
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
@@ -144,6 +146,29 @@ class SegmentPlacement:
             "ops": list(self.ops),
             "sql": self.sql,
         }
+
+
+# The engine the SQL currently being built is meant for. A source renders as
+# remote() for the local engine and as its own name for the server that owns it;
+# a UDF resolves to a different name on each. Both decisions happen while the
+# SQL is written, so the target has to be readable there - the expression tree
+# is far from the DataStore that knows it.
+_COMPILE_TARGET = contextvars.ContextVar("chdb_compile_target", default=LOCAL_CHDB)
+
+
+def current_compile_target() -> str:
+    """The engine the SQL being built right now is for."""
+    return _COMPILE_TARGET.get()
+
+
+@contextmanager
+def compiling_for(target: str):
+    """Build SQL for ``target`` inside this block."""
+    token = _COMPILE_TARGET.set(target)
+    try:
+        yield
+    finally:
+        _COMPILE_TARGET.reset(token)
 
 
 _plan_observer = None

@@ -5474,6 +5474,20 @@ class ColumnExpr:
             2    58
             Name: age, dtype: int64
         """
+        # A chDB UDF is a SQL function, not an opaque callable: applying one is
+        # the same expression as calling it as a column method, so it compiles
+        # into the query instead of pulling the column into pandas. Ordinary
+        # callables - lambdas, closures, anything unregistered - keep the pandas
+        # path, because guessing a SQL translation for them would be wrong.
+        if not kwargs:
+            from .udf import binding_for
+
+            binding = binding_for(func)
+            if binding is not None:
+                sql_call = getattr(self, binding.logical_name, None)
+                if callable(sql_call):
+                    return sql_call(*args)
+
         # convert_dtype has been deprecated since pandas 2.1 and is gone in 3.0.
         # True is pandas' own default, so passing it only buys a warning; forward
         # the parameter solely when a caller explicitly turns it off.
