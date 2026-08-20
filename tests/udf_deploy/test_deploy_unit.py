@@ -403,10 +403,12 @@ class TestTypeResolution:
 
 
 def _run_script(script_body: str, stdin: str) -> str:
+    """Feed rows the way a pooled process is fed: a row count, then the rows."""
     code = script_body.split("#!/usr/bin/env python3\n", 1)[1]
+    rows = stdin.count("\n") if stdin.endswith("\n") else stdin.count("\n") + 1
     result = subprocess.run(
         [sys.executable, "-c", code],
-        input=stdin,
+        input=f"{rows}\n{stdin}",
         capture_output=True,
         text=True,
         timeout=30,
@@ -484,7 +486,7 @@ class TestArtifactGeneration:
         code = script.split("#!/usr/bin/env python3\n", 1)[1]
         result = subprocess.run(
             [sys.executable, "-c", code],
-            input="1\t0\n",
+            input="1\n1\t0\n",
             capture_output=True,
             text=True,
             timeout=30,
@@ -578,7 +580,10 @@ class TestArtifactGeneration:
             "Float64",
         )
         function = ET.fromstring(xml).find("function")
-        assert function.findtext("type") == "executable"
+        # A pool, so the interpreter is not restarted for every block.
+        assert function.findtext("type") == "executable_pool"
+        assert int(function.findtext("pool_size")) > 0
+        assert function.findtext("send_chunk_header") == "1"
         assert function.findtext("execute_direct") == "1"
         assert function.findtext("name") == "chdb_nb_abc123_deadbeef"
         assert function.findtext("return_type") == "Float64"
