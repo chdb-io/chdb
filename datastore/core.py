@@ -5467,12 +5467,17 @@ class DataStore(PandasCompatMixin):
         if not self._is_fully_sql_pushable():
             return refusal("pipeline contains pandas-only operations")
 
-        return {
-            "eligible": True,
-            "sql": self._get_remote_view_sql(),
-            "reason": None,
-            "udfs": (),
-        }
+        sql = self._get_remote_view_sql()
+        # Groupby-by-expression compiles through a kernel-internal temporary
+        # column (__groupby_temp_*) that the flat statement references without
+        # defining — the server would refuse it. Never hand out a statement
+        # the server cannot run.
+        if "__groupby_temp_" in sql:
+            return refusal(
+                "grouping by an expression compiles through a kernel-internal "
+                "temporary column; group by an existing column instead"
+            )
+        return {"eligible": True, "sql": sql, "reason": None, "udfs": ()}
 
     def _is_fully_sql_pushable(self) -> bool:
         """
