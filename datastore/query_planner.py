@@ -72,9 +72,18 @@ class PushdownReasonCode(str, Enum):
     PANDAS_ONLY = "pandas_only"
     FULL_READ_KEPT_LOCAL = "full_read_kept_local"
     UDF_NOT_DEPLOYED = "udf_not_deployed"
+    UDF_MISSING_ON_SERVER = "udf_missing_on_server"
+    UDF_ARITY_MISMATCH = "udf_arity_mismatch"
 
 
 PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.UDF_MISSING_ON_SERVER: (
+        "The target server does not currently have the deployed UDF this segment "
+        "calls, so it ran where the function is registered."
+    ),
+    PushdownReasonCode.UDF_ARITY_MISMATCH: (
+        "The UDF is called with a different number of arguments than it takes."
+    ),
     PushdownReasonCode.UDF_NOT_DEPLOYED: (
         "The segment calls a Python UDF the target server has no name for, so it "
         "ran where the function is registered."

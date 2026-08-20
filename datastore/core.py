@@ -773,7 +773,7 @@ class DataStore(PandasCompatMixin):
             first_ops = self._first_sql_segment_ops()
             if returns_every_source_row(first_ops):
                 pushdown_executor = None
-            elif self._pushdown_blocked_by_udf(first_ops, pushdown_executor.target):
+            elif self._pushdown_blocked_by_udf(first_ops, pushdown_executor):
                 pushdown_executor = None
         plan_target = (
             pushdown_executor.target if pushdown_executor is not None else LOCAL_CHDB
@@ -1118,20 +1118,61 @@ class DataStore(PandasCompatMixin):
             detail or PUSHDOWN_REASON_DETAILS[code],
         )
 
-    def _pushdown_blocked_by_udf(self, ops, target: str):
-        """The reason a UDF keeps this segment local, or None if none does."""
-        from .udf import unresolvable_udfs
+    def _pushdown_blocked_by_udf(self, ops, executor, source=None):
+        """Why a UDF keeps this segment local, as ``(reason code, sentence)``.
 
-        missing = unresolvable_udfs(ops, target)
-        if not missing:
-            return None
-        names = ", ".join(missing)
-        subject = "it is" if len(missing) == 1 else "they are"
-        return (
-            f"{names} runs in Python and {subject} not deployed on the server "
-            f"that owns this table, so the segment ran where the function is "
-            f"registered"
-        )
+        Three ways a call cannot travel: the function was never deployed to this
+        target, the target no longer has it, or it is called with the wrong
+        number of arguments. The first two are answered by the deployment record
+        and by the executor; the third is answered here, because the server
+        reports an executable UDF's name and nothing about its signature.
+        """
+        from .query_planner import PushdownReasonCode
+        from .udf import udf_calls_in
+
+        target = getattr(executor, "target", REMOTE_CLICKHOUSE)
+        for call in udf_calls_in(ops):
+            binding = call.binding
+            name = binding.name_for(target)
+            if name is None:
+                return (
+                    PushdownReasonCode.UDF_NOT_DEPLOYED,
+                    f"{binding.logical_name} runs in Python and is not deployed "
+                    f"on the server that owns this table, so the segment ran "
+                    f"where the function is registered",
+                )
+            if binding.arity and len(call.args) != binding.arity:
+                return (
+                    PushdownReasonCode.UDF_ARITY_MISMATCH,
+                    f"{binding.logical_name} takes {binding.arity} argument(s) "
+                    f"but is called with {len(call.args)}",
+                )
+            if not self._server_has_function(executor, name, source):
+                return (
+                    PushdownReasonCode.UDF_MISSING_ON_SERVER,
+                    f"{binding.logical_name} is deployed as {name}, but the "
+                    f"server does not have it now, so the segment ran where the "
+                    f"function is registered",
+                )
+        return None
+
+    @staticmethod
+    def _server_has_function(executor, name: str, source) -> bool:
+        """Ask the executor whether the server can call ``name``.
+
+        An executor that cannot answer, or that fails answering, leaves the
+        deployment record as the best evidence available: a preflight is there
+        to catch a stale deployment, not to become a new way for a query to
+        fail.
+        """
+        ask = getattr(executor, "resolves_function", None)
+        if not callable(ask):
+            return True
+        try:
+            verdict = ask(name, source)
+        except Exception:
+            return True
+        return verdict is not False
 
     @contextmanager
     def _compiling_for(self, target: str):
@@ -1781,17 +1822,15 @@ class DataStore(PandasCompatMixin):
 
             if pushdown_executor is not None:
                 blocked = self._pushdown_blocked_by_udf(
-                    segment.ops, pushdown_executor.target
+                    segment.ops, pushdown_executor, pushdown_source
                 )
                 if blocked is not None:
-                    # The server would reject a call to a function it has no
-                    # name for, so this is a planning decision, not a runtime
-                    # failure to discover later.
+                    # The server would reject a call it cannot resolve, so this
+                    # is a planning decision, not a runtime failure to discover
+                    # after the scan has already been paid for.
                     pushdown_executor = None
                     pushdown_source = None
-                    self._decline_pushdown(
-                        PushdownReasonCode.UDF_NOT_DEPLOYED, blocked
-                    )
+                    self._decline_pushdown(*blocked)
 
             if pushdown_executor is None and self._executor is None:
                 with profiler.step("Connection"):
@@ -2195,7 +2234,7 @@ class DataStore(PandasCompatMixin):
         executor, _ = self._pushdown_for_first_segment()
         if executor is not None and (
             returns_every_source_row(first_segment.ops)
-            or self._pushdown_blocked_by_udf(first_segment.ops, executor.target)
+            or self._pushdown_blocked_by_udf(first_segment.ops, executor)
         ):
             # The executor is turned down at execution time for a chain that
             # keeps every row, and for one calling a UDF the server does not

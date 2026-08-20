@@ -228,6 +228,23 @@ class SqlSegmentExecutor(ABC):
         pandas mapping, which differs.
         """
 
+    def resolves_function(self, name: str, source: RemoteSource) -> Optional[bool]:
+        """Whether the server can call ``name``, or None when it cannot say.
+
+        A deployment record proves a function was shipped, not that it is still
+        there: a session can be cleaned up, a server replaced, a connection
+        pointed elsewhere. Answering False keeps the segment where the function
+        does exist instead of sending a statement the server would reject after
+        already scanning for it.
+
+        None is the honest answer for an executor that cannot check, and it is
+        the default so that no existing executor has to change: the planner then
+        trusts the deployment record, which is what it did before this existed.
+        Raising is treated as None - a preflight failure must not fail a query
+        that would otherwise have run.
+        """
+        return None
+
 
 def normalize_segment_result(value: Any) -> SegmentResult:
     """Accept either a ``SegmentResult`` or a bare DataFrame from an executor."""

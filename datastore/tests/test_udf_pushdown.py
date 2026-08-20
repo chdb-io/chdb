@@ -251,22 +251,86 @@ def test_the_same_chain_is_pushed_down_once_the_udf_is_deployed():
 
 def test_the_reason_names_the_function_that_kept_the_segment_home():
     register("_recognized", _recognized)
-    store = remote_store(RecordingExecutor())
+    executor = RecordingExecutor()
+    store = remote_store(executor)
 
-    reason = store._pushdown_blocked_by_udf(
-        udf_chain(store)._lazy_ops, REMOTE_CLICKHOUSE
+    code, sentence = store._pushdown_blocked_by_udf(
+        udf_chain(store)._lazy_ops, executor
     )
 
-    assert reason is not None
-    assert "_recognized" in reason
-    assert "not deployed" in reason
+    assert code.value == "udf_not_deployed"
+    assert "_recognized" in sentence
+    assert "not deployed" in sentence
 
 
 def test_nothing_blocks_a_chain_without_a_udf():
-    store = remote_store(RecordingExecutor())
+    executor = RecordingExecutor()
+    store = remote_store(executor)
     plain = store[store["event_type"] == "purchase"].head(5)
 
-    assert store._pushdown_blocked_by_udf(plain._lazy_ops, REMOTE_CLICKHOUSE) is None
+    assert store._pushdown_blocked_by_udf(plain._lazy_ops, executor) is None
+
+
+def test_a_server_that_lost_the_function_keeps_the_segment_home():
+    """A deployment record proves it was shipped, not that it is still there."""
+
+    class ForgetfulServer(RecordingExecutor):
+        def resolves_function(self, name, source):
+            return False
+
+    register("_recognized", _recognized)
+    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_gone")
+    executor = ForgetfulServer()
+    store = remote_store(executor)
+
+    code, sentence = store._pushdown_blocked_by_udf(
+        udf_chain(store)._lazy_ops, executor
+    )
+    udf_chain(remote_store(executor)).to_sql(execution_format=True)
+
+    assert code.value == "udf_missing_on_server"
+    assert "chdb_udf_gone" in sentence
+    assert executor.calls == []
+
+
+def test_an_executor_that_cannot_check_is_trusted():
+    """Preflight catches a stale deployment; it is not a new way to fail."""
+
+    class Unsure(RecordingExecutor):
+        def resolves_function(self, name, source):
+            return None
+
+    class Broken(RecordingExecutor):
+        def resolves_function(self, name, source):
+            raise RuntimeError("system.functions is unreachable")
+
+    register("_recognized", _recognized)
+    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_ok")
+
+    for executor in (Unsure(), Broken(), RecordingExecutor()):
+        store = remote_store(executor)
+        assert (
+            store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, executor)
+            is None
+        )
+
+
+def test_calling_a_udf_with_the_wrong_number_of_arguments_stays_home():
+    """The server reports an executable UDF's name and nothing about its shape."""
+
+    def two_arg_udf(value, rate):
+        return value * rate
+
+    register("two_arg_udf", two_arg_udf, arity=2)
+    bind_remote(two_arg_udf, "two_arg_udf", "demo", "chdb_udf_two")
+    executor = RecordingExecutor()
+    store = remote_store(executor)
+    chain = store.assign(net=store["revenue"].apply(two_arg_udf))
+
+    code, sentence = store._pushdown_blocked_by_udf(chain._lazy_ops, executor)
+
+    assert code.value == "udf_arity_mismatch"
+    assert "takes 2 argument(s) but is called with 1" in sentence
 
 
 def test_explain_does_not_promise_the_server_for_an_undeployed_udf(capsys):
