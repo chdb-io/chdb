@@ -5423,6 +5423,57 @@ class DataStore(PandasCompatMixin):
         result = self._run_chdb_query(describe_sql, "DataFrame", df=df)
         return OrderedDict(zip(result["name"], result["type"]))
 
+    def plan_remote_materialization(self, connection: Optional[str] = None) -> Dict[str, Any]:
+        """Can this pipeline run as ONE statement on the server that owns its
+        source — and which statement. The eligibility check behind solidifying
+        a DataStore as a server-side object (a refreshable materialized view,
+        a plain view, CREATE TABLE ... AS SELECT).
+
+        Nothing executes. On this branch the statement comes from
+        ``_get_remote_view_sql()`` (remote() folded to db.table); UDF
+        resolvability is left to the server — deployments register under the
+        function's own name, so a deployed UDF's SQL name is already the name
+        the server knows, and an unresolvable one fails loudly at CREATE with
+        UNKNOWN_FUNCTION. The pushdown branch supersedes this with
+        planner-based capability checks and target-aware compilation.
+
+        Args:
+            connection: Accepted for signature compatibility; unused here.
+
+        Returns:
+            dict with keys:
+                eligible: bool
+                sql: statement for the server (sources as db.table), or None
+                reason: why not eligible, or None
+                udfs: always () on this branch
+        """
+        from .lazy_ops import LazyDataFrameSource
+
+        def refusal(reason: str) -> Dict[str, Any]:
+            return {"eligible": False, "sql": None, "reason": reason, "udfs": ()}
+
+        # The server can only be asked to read what it owns.
+        if (
+            self._source_df is not None
+            or isinstance(self._table_function, PythonTableFunction)
+            or any(isinstance(op, LazyDataFrameSource) for op in self._lazy_ops)
+        ):
+            return refusal("source is an in-memory DataFrame the server cannot see")
+        if not self._is_remote_source():
+            return refusal("source is not a remote ClickHouse table")
+        source_host = self._table_function.params.get("host", "")
+        if self._joins and not self._is_all_same_remote_server(source_host):
+            return refusal("a joined source lives on a different server")
+        if not self._is_fully_sql_pushable():
+            return refusal("pipeline contains pandas-only operations")
+
+        return {
+            "eligible": True,
+            "sql": self._get_remote_view_sql(),
+            "reason": None,
+            "udfs": (),
+        }
+
     def _is_fully_sql_pushable(self) -> bool:
         """
         Check if this DataStore's entire pipeline can be executed as a single
