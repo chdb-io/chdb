@@ -1862,6 +1862,13 @@ class DataStore(PandasCompatMixin):
                     if needs_checkpoint:
                         from .lazy_ops import LazyDataFrameSource
 
+                        # The logical plan still has planning questions to
+                        # answer after the data is checkpointed — notably
+                        # plan_remote_materialization on a displayed result.
+                        # Keep the cheap parts: expressions and source
+                        # descriptors, never frames.
+                        self._pre_checkpoint_plan = self._capture_logical_plan()
+
                         # Replace lazy_ops with a single DataFrame source
                         self._lazy_ops = [LazyDataFrameSource(df)]
 
@@ -5999,7 +6006,49 @@ class DataStore(PandasCompatMixin):
         result = self._run_chdb_query(describe_sql, "DataFrame", df=df)
         return OrderedDict(zip(result["name"], result["type"]))
 
+    _LOGICAL_PLAN_FIELDS = (
+        "_lazy_ops",
+        "_table_function",
+        "table_name",
+        "_joins",
+        "_select_fields",
+        "_where_condition",
+        "_groupby_fields",
+        "_having_condition",
+        "_orderby_fields",
+        "_limit_value",
+        "_offset_value",
+        "_distinct",
+        "_distinct_subset",
+    )
+
+    def _capture_logical_plan(self) -> Dict[str, Any]:
+        """The pre-checkpoint logical state, cheap parts only (no frames)."""
+        captured: Dict[str, Any] = {}
+        for name in self._LOGICAL_PLAN_FIELDS:
+            value = getattr(self, name)
+            captured[name] = list(value) if isinstance(value, list) else value
+        return captured
+
     def plan_remote_materialization(self, connection: Optional[str] = None) -> Dict[str, Any]:
+        snapshot = getattr(self, "_pre_checkpoint_plan", None)
+        if snapshot is None:
+            return self._plan_remote_materialization_impl(connection)
+        # A checkpointed pipeline replaced its plan with the cached frame;
+        # the question "can this run on the server" is about what the user
+        # BUILT, so answer it against the preserved logical plan.
+        saved = {name: getattr(self, name) for name in self._LOGICAL_PLAN_FIELDS}
+        saved["_source_df"] = self._source_df
+        try:
+            for name in self._LOGICAL_PLAN_FIELDS:
+                setattr(self, name, snapshot[name])
+            self._source_df = None
+            return self._plan_remote_materialization_impl(connection)
+        finally:
+            for name, value in saved.items():
+                setattr(self, name, value)
+
+    def _plan_remote_materialization_impl(self, connection: Optional[str] = None) -> Dict[str, Any]:
         """Can this pipeline run as ONE statement on the server that owns its
         source — and which statement. The eligibility check behind solidifying
         a DataStore as a server-side object (a refreshable materialized view,
