@@ -71,9 +71,14 @@ class PushdownReasonCode(str, Enum):
     DATAFRAME_CONTEXT = "dataframe_context"
     PANDAS_ONLY = "pandas_only"
     FULL_READ_KEPT_LOCAL = "full_read_kept_local"
+    UDF_NOT_DEPLOYED = "udf_not_deployed"
 
 
 PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.UDF_NOT_DEPLOYED: (
+        "The segment calls a Python UDF the target server has no name for, so it "
+        "ran where the function is registered."
+    ),
     PushdownReasonCode.FULL_READ_KEPT_LOCAL: (
         "The segment returns one row per source row, so a remote executor would "
         "move the same rows the local reader streams natively."

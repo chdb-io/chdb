@@ -20,6 +20,8 @@ from .pushdown import LOCAL_CHDB, REMOTE_CLICKHOUSE, current_compile_target
 __all__ = [
     "UdfBinding",
     "UdfCall",
+    "udf_calls_in",
+    "unresolvable_udfs",
     "binding_for",
     "binding_named",
     "bind_local",
@@ -166,3 +168,89 @@ class UdfCall(Function):
     @name.setter
     def name(self, value: str) -> None:
         self._logical_name = value
+
+    def __copy__(self):
+        # Function.__copy__ rebuilds a plain Function, which would freeze the
+        # name resolved for whichever engine happened to be compiling. Aliasing
+        # an expression copies it, so without this a UDF call would lose its
+        # binding on the way into the plan.
+        from copy import copy
+
+        return UdfCall(
+            self._binding,
+            *[copy(arg) for arg in self.args],
+            alias=self.alias,
+            connection=self._connection,
+        )
+
+    def rebuild_with_args(self, args):
+        """A copy of this call over ``args``, still bound to the same UDF."""
+        return UdfCall(
+            self._binding,
+            *args,
+            alias=self.alias,
+            connection=self._connection,
+        )
+
+
+def udf_calls_in(ops) -> list:
+    """Every UDF call inside these operations, however deeply nested.
+
+    A UDF reaches a plan as one node in an expression that itself sits in an
+    operation's field list, so finding it means walking the expression tree. The
+    walk stays inside expressions on purpose: an operation also holds frames and
+    engine handles, and none of those can contain a call.
+    """
+    from .expressions import Expression
+
+    found = []
+    seen = set()
+
+    def visit(node, depth=0):
+        if depth > 24 or node is None:
+            return
+        marker = id(node)
+        if marker in seen:
+            return
+        seen.add(marker)
+        if isinstance(node, UdfCall):
+            found.append(node)
+        if isinstance(node, (list, tuple, set)):
+            for item in node:
+                visit(item, depth + 1)
+            return
+        if isinstance(node, dict):
+            for item in node.values():
+                visit(item, depth + 1)
+            return
+        inner = getattr(node, "_expr", None)
+        if isinstance(inner, Expression):
+            visit(inner, depth + 1)
+        if isinstance(node, Expression):
+            for value in vars(node).values():
+                visit(value, depth + 1)
+
+    for op in ops or ():
+        try:
+            attributes = vars(op).values()
+        except TypeError:  # pragma: no cover - ops without a __dict__
+            continue
+        for value in attributes:
+            visit(value)
+    return found
+
+
+def unresolvable_udfs(ops, target: str, connection: Optional[str] = None) -> list:
+    """Logical names of UDFs in ``ops`` that ``target`` has no name for.
+
+    An empty list means every call in the segment can be written for that
+    engine. A non-empty one is a reason to keep the segment where the functions
+    actually exist, rather than send a statement the server would reject.
+    """
+    names = []
+    for call in udf_calls_in(ops):
+        binding = call.binding
+        if binding.name_for(target, connection) is None:
+            if binding.logical_name not in names:
+                names.append(binding.logical_name)
+    return names

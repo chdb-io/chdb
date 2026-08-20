@@ -766,10 +766,15 @@ class DataStore(PandasCompatMixin):
         # runs on the server that owns the data, so say so instead of labelling
         # every SQL operation as local.
         pushdown_executor, _ = self._pushdown_for_first_segment()
-        if pushdown_executor is not None and returns_every_source_row(self._lazy_ops):
-            # The planner turns a row-preserving chain down at execution time,
-            # so the plan must not promise the server here either.
-            pushdown_executor = None
+        if pushdown_executor is not None:
+            # Execution turns the executor down for a row-preserving chain, and
+            # for a UDF the server has no name for. A plan that promised the
+            # server anyway would be describing a run that never happens.
+            first_ops = self._first_sql_segment_ops()
+            if returns_every_source_row(first_ops):
+                pushdown_executor = None
+            elif self._pushdown_blocked_by_udf(first_ops, pushdown_executor.target):
+                pushdown_executor = None
         plan_target = (
             pushdown_executor.target if pushdown_executor is not None else LOCAL_CHDB
         )
@@ -1066,6 +1071,68 @@ class DataStore(PandasCompatMixin):
             return None, None
         return executor, source
 
+    def _first_sql_segment_ops(self):
+        """The operations of the segment that would read the source.
+
+        Planning is cheap and pure, so a preview asks the planner the same
+        question execution will, rather than guessing from the whole chain: a
+        rule applied to operations that land in a later segment would describe
+        a decision nobody makes.
+        """
+        from .query_planner import QueryPlanner
+        from .table_functions import PythonTableFunction
+
+        if not self._lazy_ops:
+            return []
+        has_sql_source = bool(
+            self._table_function or self.table_name or self._source_df is not None
+        )
+        local_source = self._source_df is not None or isinstance(
+            self._table_function, PythonTableFunction
+        )
+        try:
+            exec_plan = QueryPlanner().plan_segments(
+                self._lazy_ops,
+                has_sql_source,
+                schema=self.schema() if has_sql_source else self._schema,
+                local_source=local_source,
+            )
+        except Exception:
+            # A chain the planner cannot segment has no first segment to reason
+            # about; the whole chain is the honest approximation.
+            return list(self._lazy_ops)
+        first = exec_plan.segments[0] if exec_plan.segments else None
+        return list(first.ops) if first is not None else []
+
+    def _decline_pushdown(self, code, detail: str = None) -> None:
+        """Record that an executor was available and the planner turned it down.
+
+        The placement report reads this: without it a segment that could have
+        gone remote is indistinguishable from a session that never had an
+        executor at all.
+        """
+        from .query_planner import PUSHDOWN_REASON_DETAILS
+
+        self._current_pushdown_declined = (
+            code.value,
+            detail or PUSHDOWN_REASON_DETAILS[code],
+        )
+
+    def _pushdown_blocked_by_udf(self, ops, target: str):
+        """The reason a UDF keeps this segment local, or None if none does."""
+        from .udf import unresolvable_udfs
+
+        missing = unresolvable_udfs(ops, target)
+        if not missing:
+            return None
+        names = ", ".join(missing)
+        subject = "it is" if len(missing) == 1 else "they are"
+        return (
+            f"{names} runs in Python and {subject} not deployed on the server "
+            f"that owns this table, so the segment ran where the function is "
+            f"registered"
+        )
+
     @contextmanager
     def _compiling_for(self, target: str):
         """Compile SQL for ``target`` inside this block, then restore the default.
@@ -1086,8 +1153,6 @@ class DataStore(PandasCompatMixin):
 
     def _segment_placements(self, sql: str, pushed_down: bool) -> tuple:
         """Describe where every segment of the running plan executes, and why."""
-        from .query_planner import PUSHDOWN_REASON_DETAILS
-
         exec_plan = getattr(self, "_current_exec_plan", None)
         if exec_plan is None:
             return ()
@@ -1114,8 +1179,7 @@ class DataStore(PandasCompatMixin):
                         # An executor was available and the planner turned it
                         # down; saying only "ran locally" would read like the
                         # session had no executor at all.
-                        reason_code = declined.value
-                        detail = PUSHDOWN_REASON_DETAILS[declined]
+                        reason_code, detail = declined
                     else:
                         reason_code = "sql_on_source_locally"
                         detail = (
@@ -1713,9 +1777,21 @@ class DataStore(PandasCompatMixin):
                 # arrival. Recorded so the placement report can say it plainly.
                 pushdown_executor = None
                 pushdown_source = None
-                self._current_pushdown_declined = (
-                    PushdownReasonCode.FULL_READ_KEPT_LOCAL
+                self._decline_pushdown(PushdownReasonCode.FULL_READ_KEPT_LOCAL)
+
+            if pushdown_executor is not None:
+                blocked = self._pushdown_blocked_by_udf(
+                    segment.ops, pushdown_executor.target
                 )
+                if blocked is not None:
+                    # The server would reject a call to a function it has no
+                    # name for, so this is a planning decision, not a runtime
+                    # failure to discover later.
+                    pushdown_executor = None
+                    pushdown_source = None
+                    self._decline_pushdown(
+                        PushdownReasonCode.UDF_NOT_DEPLOYED, blocked
+                    )
 
             if pushdown_executor is None and self._executor is None:
                 with profiler.step("Connection"):
@@ -2117,9 +2193,13 @@ class DataStore(PandasCompatMixin):
         # Show the SQL that will actually be issued: a segment bound for the
         # remote server reads its table directly, not through remote().
         executor, _ = self._pushdown_for_first_segment()
-        if executor is not None and returns_every_source_row(first_segment.ops):
+        if executor is not None and (
+            returns_every_source_row(first_segment.ops)
+            or self._pushdown_blocked_by_udf(first_segment.ops, executor.target)
+        ):
             # The executor is turned down at execution time for a chain that
-            # keeps every row; a preview promising otherwise would be a lie.
+            # keeps every row, and for one calling a UDF the server does not
+            # have; a preview promising otherwise would be a lie.
             executor = None
         target = executor.target if executor is not None else LOCAL_CHDB
         with self._compiling_for(target):
@@ -3516,6 +3596,12 @@ class DataStore(PandasCompatMixin):
             # Only create new function if something changed
             if all(r is o for r, o in zip(resolved_args, expr.args)):
                 return expr
+            # A node that knows how to rebuild itself keeps whatever it carries
+            # beyond a name - a UDF call would otherwise arrive in the plan as
+            # an ordinary function, named for one engine only.
+            rebuild = getattr(expr, "rebuild_with_args", None)
+            if callable(rebuild):
+                return rebuild(resolved_args)
             result = Function(
                 expr.name,
                 *resolved_args,

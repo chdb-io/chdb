@@ -11,7 +11,13 @@ import pytest
 
 from datastore import DataStore
 from datastore.function_registry import FunctionRegistry
-from datastore.pushdown import LOCAL_CHDB, REMOTE_CLICKHOUSE, compiling_for
+from datastore.pushdown import (
+    LOCAL_CHDB,
+    REMOTE_CLICKHOUSE,
+    SegmentResult,
+    SqlSegmentExecutor,
+    compiling_for,
+)
 from datastore.udf import (
     UdfBinding,
     bind_local,
@@ -171,3 +177,123 @@ def test_the_values_are_the_ones_the_udf_produces():
         expected.reset_index(drop=True),
         check_names=False,
     )
+
+
+# ---------------------------------------------------------------------------
+# A call the server has no name for keeps its segment at home
+# ---------------------------------------------------------------------------
+
+
+class RecordingExecutor(SqlSegmentExecutor):
+    """Stands in for a bound ClickHouse: records what it was asked to run."""
+
+    target = REMOTE_CLICKHOUSE
+
+    def __init__(self):
+        self.calls = []
+
+    def accepts(self, source):
+        return True
+
+    def execute(self, sql, source):
+        self.calls.append(sql)
+        return SegmentResult(
+            frame=pd.DataFrame({"channel": ["a"], "net": [1.0]}), metrics={}
+        )
+
+
+def remote_store(executor=None):
+    store = DataStore("clickhouse", host="ch:9000", database="demo", table="events")
+    store._schema = {"revenue": "Float64", "channel": "String", "event_type": "String"}
+    if executor is not None:
+        store.set_sql_segment_executor(executor)
+    return store
+
+
+def udf_chain(store):
+    purchases = store[store["event_type"] == "purchase"]
+    return (
+        purchases.assign(net=purchases["revenue"].apply(_recognized))
+        .groupby("channel")
+        .agg({"net": "sum"})
+    )
+
+
+def _recognized(value):  # replaced per test by register()
+    return value
+
+
+def test_a_chain_calling_an_undeployed_udf_is_not_pushed_down():
+    register("_recognized", _recognized)
+    executor = RecordingExecutor()
+
+    sql = udf_chain(remote_store(executor)).to_sql(execution_format=True)
+
+    # Reading through remote() is what "the local engine runs it" looks like.
+    assert "remote(" in sql
+    assert '_recognized("revenue")' in sql
+    assert executor.calls == []
+
+
+def test_the_same_chain_is_pushed_down_once_the_udf_is_deployed():
+    register("_recognized", _recognized)
+    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_7c1a_9b3e")
+    executor = RecordingExecutor()
+
+    udf_chain(remote_store(executor)).to_pandas()
+
+    assert len(executor.calls) == 1
+    pushed = executor.calls[0]
+    assert 'chdb_udf_7c1a_9b3e("revenue")' in pushed
+    assert "remote(" not in pushed
+    assert "_recognized" not in pushed
+
+
+def test_the_reason_names_the_function_that_kept_the_segment_home():
+    register("_recognized", _recognized)
+    store = remote_store(RecordingExecutor())
+
+    reason = store._pushdown_blocked_by_udf(
+        udf_chain(store)._lazy_ops, REMOTE_CLICKHOUSE
+    )
+
+    assert reason is not None
+    assert "_recognized" in reason
+    assert "not deployed" in reason
+
+
+def test_nothing_blocks_a_chain_without_a_udf():
+    store = remote_store(RecordingExecutor())
+    plain = store[store["event_type"] == "purchase"].head(5)
+
+    assert store._pushdown_blocked_by_udf(plain._lazy_ops, REMOTE_CLICKHOUSE) is None
+
+
+def test_explain_does_not_promise_the_server_for_an_undeployed_udf(capsys):
+    register("_recognized", _recognized)
+    udf_chain(remote_store(RecordingExecutor())).explain()
+
+    plan = capsys.readouterr().out
+
+    assert "[ClickHouse]" not in plan
+    assert "remote(" in plan
+
+
+def test_a_udf_call_survives_being_aliased_and_rebuilt():
+    """Copying an expression must not turn a bound call into a plain function."""
+    from copy import copy
+
+    from datastore.udf import UdfCall, udf_calls_in
+
+    register("_recognized", _recognized)
+    store = DataStore(FRAME)
+    call = store["revenue"].apply(_recognized)._expr
+
+    assert isinstance(copy(call), UdfCall)
+    assert isinstance(call.as_("net"), UdfCall)
+    assert isinstance(call.rebuild_with_args(list(call.args)), UdfCall)
+    # And it is still findable once the chain is built.
+    chain = store.assign(net=store["revenue"].apply(_recognized))
+    assert [c.binding.logical_name for c in udf_calls_in(chain._lazy_ops)] == [
+        "_recognized"
+    ]

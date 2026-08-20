@@ -5479,14 +5479,15 @@ class ColumnExpr:
         # into the query instead of pulling the column into pandas. Ordinary
         # callables - lambdas, closures, anything unregistered - keep the pandas
         # path, because guessing a SQL translation for them would be wrong.
-        if not kwargs:
-            from .udf import binding_for
+        if not kwargs and self._expr is not None:
+            from .udf import UdfCall, binding_for
 
             binding = binding_for(func)
             if binding is not None:
-                sql_call = getattr(self, binding.logical_name, None)
-                if callable(sql_call):
-                    return sql_call(*args)
+                return ColumnExpr(
+                    expr=UdfCall(binding, self._expr, *args),
+                    datastore=self._datastore,
+                )
 
         # convert_dtype has been deprecated since pandas 2.1 and is gone in 3.0.
         # True is pandas' own default, so passing it only buys a warning; forward
