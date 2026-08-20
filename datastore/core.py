@@ -1157,6 +1157,27 @@ class DataStore(PandasCompatMixin):
         return None
 
     @staticmethod
+    def _udfs_in_segment(ops, engine: str) -> tuple:
+        """The Python functions this segment calls, and the name each ran under.
+
+        A deployed function appears in the statement under a generated name, so
+        a report that only quoted the SQL would leave a reader matching hashes
+        against their own code.
+        """
+        from .udf import udf_calls_in
+
+        found = []
+        for call in udf_calls_in(ops):
+            binding = call.binding
+            entry = {"name": binding.logical_name}
+            deployed = binding.name_for(engine)
+            if deployed and deployed != binding.logical_name:
+                entry["deployedAs"] = deployed
+            if entry not in found:
+                found.append(entry)
+        return tuple(found)
+
+    @staticmethod
     def _server_has_function(executor, name: str, source) -> bool:
         """Ask the executor whether the server can call ``name``.
 
@@ -1232,15 +1253,17 @@ class DataStore(PandasCompatMixin):
                     detail = (
                         "compiled to SQL over the frame the previous segment returned"
                     )
+                engine = REMOTE_CLICKHOUSE if remote else LOCAL_CHDB
                 placements.append(
                     SegmentPlacement(
                         index=index,
                         kind="sql",
-                        engine=REMOTE_CLICKHOUSE if remote else LOCAL_CHDB,
+                        engine=engine,
                         reason_code=reason_code,
                         detail=detail,
                         ops=ops,
                         sql=sql if from_source else None,
+                        udfs=self._udfs_in_segment(segment.ops, engine),
                     )
                 )
                 continue

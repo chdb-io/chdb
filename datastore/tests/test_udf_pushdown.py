@@ -361,3 +361,67 @@ def test_a_udf_call_survives_being_aliased_and_rebuilt():
     assert [c.binding.logical_name for c in udf_calls_in(chain._lazy_ops)] == [
         "_recognized"
     ]
+
+
+def test_the_report_names_the_function_and_the_name_it_ran_under():
+    """A reader matching hashes against their own code is not a report."""
+    from datastore.pushdown import set_plan_observer
+
+    reports = []
+    set_plan_observer(lambda placements: reports.append(
+        [p.as_dict() for p in placements]
+    ))
+    try:
+        register("_recognized", _recognized)
+        bind_remote(_recognized, "_recognized", "demo", "chdb_nb_3f99a3_585a1cb9")
+        udf_chain(remote_store(RecordingExecutor())).to_pandas()
+    finally:
+        set_plan_observer(None)
+
+    assert reports
+    segment = reports[-1][0]
+    assert segment["engine"] == "remote_clickhouse"
+    assert segment["udfs"] == [
+        {"name": "_recognized", "deployedAs": "chdb_nb_3f99a3_585a1cb9"}
+    ]
+
+
+def test_a_local_run_reports_the_function_under_its_own_name():
+    from datastore.pushdown import set_plan_observer
+
+    reports = []
+    set_plan_observer(lambda placements: reports.append(
+        [p.as_dict() for p in placements]
+    ))
+    import chdb
+
+    @chdb.func(arg_types=["Float64"], return_type="Float64")
+    def reported_locally(value):
+        return value * 0.9
+
+    try:
+        store = DataStore(FRAME)
+        store.assign(net=store["revenue"].apply(reported_locally)).to_pandas()
+    finally:
+        set_plan_observer(None)
+
+    sql_segments = [
+        segment for report in reports for segment in report if segment["kind"] == "sql"
+    ]
+    assert sql_segments
+    assert {"name": "reported_locally"} in sql_segments[-1]["udfs"]
+
+
+def test_a_segment_without_a_udf_reports_none():
+    from datastore.pushdown import set_plan_observer
+
+    reports = []
+    set_plan_observer(lambda placements: reports.append(
+        [p.as_dict() for p in placements]
+    ))
+    try:
+        DataStore(FRAME).head(2).to_pandas()
+    finally:
+        set_plan_observer(None)
+
+    assert all(segment["udfs"] == [] for report in reports for segment in report)

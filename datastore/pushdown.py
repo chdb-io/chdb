@@ -135,6 +135,10 @@ class SegmentPlacement:
     detail: str
     ops: tuple = ()
     sql: Optional[str] = None
+    # Python functions this segment calls, as ``{"name", "deployedAs"}``. The
+    # statement carries a deployment's generated name, which tells a reader
+    # nothing; the pair says which function of theirs is running there.
+    udfs: tuple = ()
 
     def as_dict(self) -> dict:
         return {
@@ -145,6 +149,7 @@ class SegmentPlacement:
             "detail": self.detail,
             "ops": list(self.ops),
             "sql": self.sql,
+            "udfs": [dict(udf) for udf in self.udfs],
         }
 
 
