@@ -115,3 +115,26 @@ def test_deployed_udf_compiles_by_its_remote_name(remote_events):
     assert "mat_tax" in verdict["sql"]
     assert '"demo"."events"' in verdict["sql"]
     assert verdict["udfs"] and verdict["udfs"][0]["name"] == "mat_tax"
+
+
+def test_groupby_by_expression_is_refused_not_broken(remote_events, monkeypatch):
+    # The flat SQL form references a kernel-internal __groupby_temp_* column
+    # the server has never heard of; a statement the server would refuse must
+    # never leave here marked eligible.
+    monkeypatch.setattr(DataStore, "schema", lambda self: {"event_time": "DateTime", "user_id": "UInt64", "revenue": "Float64", "channel": "String"})
+    monkeypatch.setattr(DataStore, "_get_all_column_names", lambda self: ["event_time", "user_id", "revenue", "channel"])
+    ds = remote_events
+    pipe = ds.groupby(ds["event_time"].toDate()).agg(n=("user_id", "count"))
+    verdict = pipe.plan_remote_materialization()
+    assert verdict["eligible"] is False
+    assert "temporary column" in verdict["reason"]
+    assert verdict["sql"] is None
+
+
+def test_groupby_by_column_stays_eligible(remote_events):
+    ds = remote_events
+    pipe = ds.groupby("channel").agg(n=("revenue", "count"))
+    verdict = pipe.plan_remote_materialization()
+    assert verdict["eligible"] is True, verdict["reason"]
+    assert "__groupby_temp_" not in verdict["sql"]
+    assert '"demo"."events"' in verdict["sql"]

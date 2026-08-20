@@ -6106,6 +6106,16 @@ class DataStore(PandasCompatMixin):
         engine = SQLExecutionEngine(self)
         with self._compiling_for(REMOTE_CLICKHOUSE):
             build = engine.build_sql_from_plan(sql_segments[0].plan, schema)
+        # Groupby-by-expression compiles through a kernel-internal temporary
+        # column (__groupby_temp_*) that the flat statement references without
+        # defining — the server would refuse it (a known gap of the flat SQL
+        # form, see _is_fully_sql_pushable). Never hand out a statement the
+        # server cannot run; refuse with the workaround instead.
+        if "__groupby_temp_" in build.sql:
+            return refusal(
+                "grouping by an expression compiles through a kernel-internal "
+                "temporary column; group by an existing column instead"
+            )
         udfs = self._udfs_in_segment(self._lazy_ops, REMOTE_CLICKHOUSE)
         return {"eligible": True, "sql": build.sql, "reason": None, "udfs": udfs}
 
