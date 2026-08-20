@@ -378,3 +378,50 @@ def test_explain_does_not_promise_the_server_for_a_whole_table_read(capsys):
 
     assert "[ClickHouse]" not in plan
     assert "remote(" in plan
+
+
+# ---------------------------------------------------------------------------
+# What each stage actually read, produced and took
+# ---------------------------------------------------------------------------
+
+
+def test_a_local_stage_reports_what_this_process_measured(recorder):
+    store = DataStore(
+        pd.DataFrame({"revenue": [1.0, 2.0, 3.0], "channel": ["a", "b", "a"]})
+    )
+
+    store[store["revenue"] > 1].groupby("channel").agg({"revenue": "sum"}).to_pandas()
+
+    stages = recorder.last
+    assert stages
+    last = stages[-1]
+    assert last["outputRows"] == 2
+    assert last["resultBytes"] > 0
+    assert last["elapsedMs"] >= 0
+
+
+def test_a_pushed_down_stage_reports_what_the_server_counted(recorder):
+    executor = RecordingExecutor(
+        metrics={"rowsRead": 50_000_000, "bytesRead": 499_812_447,
+                 "resultRows": 2, "elapsedMs": 485.1}
+    )
+
+    chain(remote_store(executor)).to_pandas()
+
+    segment = recorder.last[0]
+    assert segment["engine"] == "remote_clickhouse"
+    assert segment["inputRows"] == 50_000_000
+    assert segment["readBytes"] == 499_812_447
+    assert segment["outputRows"] == 2
+    assert segment["elapsedMs"] == 485.1
+
+
+def test_a_number_nobody_measured_is_absent_rather_than_zero(recorder):
+    """A gap a reader can see beats a figure they cannot check."""
+    executor = RecordingExecutor(metrics={"resultRows": 2})
+
+    chain(remote_store(executor)).to_pandas()
+
+    segment = recorder.last[0]
+    assert "readBytes" not in segment
+    assert "inputRows" not in segment

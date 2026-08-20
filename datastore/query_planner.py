@@ -84,12 +84,17 @@ class PushdownReasonCode(str, Enum):
     PANDAS_ONLY = "pandas_only"
     FULL_READ_KEPT_LOCAL = "full_read_kept_local"
     COST_UNBOUNDED_SORT_LOCAL = "cost_unbounded_sort_local"
+    UDF_NO_REDUCTION_LOCAL = "udf_no_reduction_local"
     UDF_NOT_DEPLOYED = "udf_not_deployed"
     UDF_MISSING_ON_SERVER = "udf_missing_on_server"
     UDF_ARITY_MISMATCH = "udf_arity_mismatch"
 
 
 PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.UDF_NO_REDUCTION_LOCAL: (
+        "A row-per-row UDF with nothing after it to reduce the data moves the same "
+        "rows either way, so the call stayed with the engine in this process."
+    ),
     PushdownReasonCode.COST_UNBOUNDED_SORT_LOCAL: (
         "Sorting without a limit has an equivalent SQL form, but ordering every "
         "row costs more than the plan gains, so it runs locally."

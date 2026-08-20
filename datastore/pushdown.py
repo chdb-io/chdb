@@ -135,12 +135,27 @@ class SegmentPlacement:
     detail: str
     ops: tuple = ()
     sql: Optional[str] = None
-    # Python functions this segment calls, as ``{"name", "deployedAs"}``. The
-    # statement carries a deployment's generated name, which tells a reader
-    # nothing; the pair says which function of theirs is running there.
+    # Python functions this segment carries, as ``{"name", "via", "deployedAs"}``.
+    # A deployment's generated name tells a reader nothing; the pair says which
+    # function of theirs ran there, and what became of it.
     udfs: tuple = ()
+    # What actually happened, when the engine that ran it said so. None is
+    # unknown and stays unknown: a number nobody measured is worse than a gap,
+    # because a reader cannot tell the two apart afterwards.
+    input_rows: Optional[int] = None
+    output_rows: Optional[int] = None
+    read_bytes: Optional[int] = None
+    result_bytes: Optional[int] = None
+    elapsed_ms: Optional[float] = None
 
     def as_dict(self) -> dict:
+        measured = {
+            "inputRows": self.input_rows,
+            "outputRows": self.output_rows,
+            "readBytes": self.read_bytes,
+            "resultBytes": self.result_bytes,
+            "elapsedMs": self.elapsed_ms,
+        }
         return {
             "index": self.index,
             "kind": self.kind,
@@ -150,6 +165,7 @@ class SegmentPlacement:
             "ops": list(self.ops),
             "sql": self.sql,
             "udfs": [dict(udf) for udf in self.udfs],
+            **{key: value for key, value in measured.items() if value is not None},
         }
 
 

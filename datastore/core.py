@@ -771,9 +771,7 @@ class DataStore(PandasCompatMixin):
             # for a UDF the server has no name for. A plan that promised the
             # server anyway would be describing a run that never happens.
             first_ops = self._first_sql_segment_ops()
-            if returns_every_source_row(first_ops):
-                pushdown_executor = None
-            elif self._pushdown_blocked_by_udf(first_ops, pushdown_executor):
+            if not self._choose_execution_target(first_ops, pushdown_executor)[0]:
                 pushdown_executor = None
         plan_target = (
             pushdown_executor.target if pushdown_executor is not None else LOCAL_CHDB
@@ -1084,11 +1082,11 @@ class DataStore(PandasCompatMixin):
 
         if not self._is_remote_source() or not udf_calls_in(self._lazy_ops):
             return False
-        executor, _ = self._pushdown_for_first_segment()
+        executor, source = self._pushdown_for_first_segment()
         if executor is None:
             # Nothing is being pushed down, so the call is here by definition.
             return True
-        return self._pushdown_blocked_by_udf(self._lazy_ops, executor) is not None
+        return not self._choose_execution_target(self._lazy_ops, executor, source)[0]
 
     def _first_sql_segment_ops(self):
         """The operations of the segment that would read the source.
@@ -1137,6 +1135,120 @@ class DataStore(PandasCompatMixin):
             code.value,
             detail or PUSHDOWN_REASON_DETAILS[code],
         )
+
+    def _choose_execution_target(self, ops, executor, source=None):
+        """Where this segment runs, and why, in one place.
+
+        Three questions in order, and they are not interchangeable. Capability
+        first - a call the target cannot resolve is not a choice. Then the shape
+        of the work: a segment that hands back one row per row moves the same
+        data either way, and so does a row-per-row UDF with nothing after it to
+        reduce what comes back. What is left, the segment that genuinely shrinks
+        its input, is what pushing down is for.
+
+        Returns ``(use_remote, reason_code, detail)``; the reason is carried
+        whichever way the answer goes.
+        """
+        from .query_planner import (
+            PUSHDOWN_REASON_DETAILS,
+            PushdownReasonCode,
+            returns_every_source_row,
+        )
+        from .udf import udf_calls_in
+
+        if executor is None:
+            return False, None, None
+
+        blocked = self._pushdown_blocked_by_udf(ops, executor, source)
+        if blocked is not None:
+            code, detail = blocked
+            return False, code, detail
+
+        if returns_every_source_row(ops):
+            code = PushdownReasonCode.FULL_READ_KEPT_LOCAL
+            return False, code, PUSHDOWN_REASON_DETAILS[code]
+
+        if udf_calls_in(ops) and not self._reduces_after_udf(ops):
+            code = PushdownReasonCode.UDF_NO_REDUCTION_LOCAL
+            return False, code, PUSHDOWN_REASON_DETAILS[code]
+
+        return True, None, None
+
+    def _segment_measurements(self, index: int, remote: bool) -> dict:
+        """The measured numbers for one segment, in SegmentPlacement's terms.
+
+        A segment that ran on the server reports what the server counted -
+        rows read, bytes scanned, rows returned - because this process only
+        ever saw the answer. A local one reports what this process measured.
+        Anything neither of them knows is left out rather than filled in.
+        """
+        measured = dict(getattr(self, "_current_segment_metrics", {}).get(index, {}))
+        if remote:
+            trace = self._last_pushdown_trace
+            metrics = dict(getattr(trace, "metrics", None) or {}) if trace else {}
+            for source_key, target_key in (
+                ("rowsRead", "inputRows"),
+                ("bytesRead", "readBytes"),
+                ("resultRows", "outputRows"),
+                ("elapsedMs", "elapsedMs"),
+            ):
+                value = metrics.get(source_key)
+                if value is not None:
+                    measured[target_key] = value
+        return {
+            "input_rows": measured.get("inputRows"),
+            "output_rows": measured.get("outputRows"),
+            "read_bytes": measured.get("readBytes"),
+            "result_bytes": measured.get("resultBytes"),
+            "elapsed_ms": measured.get("elapsedMs"),
+        }
+
+    def _record_segment_metrics(self, index: int, rows_in, frame, seconds: float):
+        """What one segment read, produced and took, as this process saw it.
+
+        Only what was observed. A local segment knows its own frame, so rows and
+        the memory it occupies are real; a segment that ran on the server has
+        its own numbers, filled in from the trace instead of guessed from these.
+        """
+        measured = {
+            "inputRows": rows_in,
+            "elapsedMs": round(seconds * 1_000, 3),
+        }
+        if frame is not None:
+            try:
+                measured["outputRows"] = len(frame)
+                measured["resultBytes"] = int(frame.memory_usage(deep=True).sum())
+            except Exception:
+                # A result that cannot measure itself reports nothing rather
+                # than something plausible.
+                pass
+        if not hasattr(self, "_current_segment_metrics"):
+            self._current_segment_metrics = {}
+        self._current_segment_metrics[index] = measured
+
+    @staticmethod
+    def _reduces_after_udf(ops) -> bool:
+        """Whether anything after the UDF makes the result smaller than its input.
+
+        An aggregation or a limit is the case worth sending: the server calls the
+        function and returns the summary. Without one, the same rows come back
+        with or without the call travelling, and the call is cheaper here.
+        """
+        from .lazy_ops import LazyDistinct, LazyGroupByAgg, LazyRelationalOp
+        from .udf import udf_calls_in
+
+        seen_udf = False
+        for op in ops or ():
+            if not seen_udf and udf_calls_in([op]):
+                seen_udf = True
+                continue
+            if not seen_udf:
+                continue
+            if isinstance(op, (LazyGroupByAgg, LazyDistinct)):
+                return True
+            if isinstance(op, LazyRelationalOp) and op.op_type == "LIMIT":
+                return True
+        return False
 
     def _pushdown_blocked_by_udf(self, ops, executor, source=None):
         """Why a UDF keeps this segment local, as ``(reason code, sentence)``.
@@ -1292,6 +1404,7 @@ class DataStore(PandasCompatMixin):
                         ops=ops,
                         sql=sql if from_source else None,
                         udfs=self._udfs_in_segment(segment.ops, engine),
+                        **self._segment_measurements(index, remote),
                     )
                 )
                 continue
@@ -1308,6 +1421,7 @@ class DataStore(PandasCompatMixin):
                     index=index,
                     kind="pandas",
                     engine="pandas",
+                    **self._segment_measurements(index, False),
                     reason_code=(
                         blocked.reason_code.value if blocked else "pandas_only"
                     ),
@@ -1671,6 +1785,7 @@ class DataStore(PandasCompatMixin):
                 self._current_source_sql = None
                 self._current_pushed_down = False
                 self._current_pushdown_declined = None
+                self._current_segment_metrics = {}
 
                 self._logger.debug(exec_plan.describe())
 
@@ -1689,6 +1804,15 @@ class DataStore(PandasCompatMixin):
                 )
                 self._logger.debug("-" * 70)
 
+                # A source segment reads the table, not a frame, so its input
+                # is whatever the engine reports later - not the empty frame the
+                # loop starts with.
+                rows_in = (
+                    None
+                    if getattr(segment, "is_first_segment", False)
+                    else (len(df) if df is not None else None)
+                )
+                segment_started = time.perf_counter()
                 if segment.is_sql():
                     with profiler.step(f"SQL Segment {seg_num}", ops=len(segment.ops)):
                         df = self._execute_sql_segment(segment, df, schema, profiler)
@@ -1698,6 +1822,9 @@ class DataStore(PandasCompatMixin):
                     ):
                         df = self._execute_pandas_segment(segment, df, profiler)
                         has_executed_pandas = True
+                self._record_segment_metrics(
+                    seg_num, rows_in, df, time.perf_counter() - segment_started
+                )
 
             self._logger.debug("=" * 70)
             self._logger.debug(
@@ -1864,25 +1991,15 @@ class DataStore(PandasCompatMixin):
                 plan = QueryPlan(has_sql_source=True)
                 plan.sql_ops = segment.ops.copy()
 
-            if pushdown_executor is not None and returns_every_source_row(segment.ops):
-                # Same rows either way, so the reader that owns the source wins:
-                # it streams them in the engine instead of decoding a result on
-                # arrival. Recorded so the placement report can say it plainly.
-                pushdown_executor = None
-                pushdown_source = None
-                self._decline_pushdown(PushdownReasonCode.FULL_READ_KEPT_LOCAL)
-
             if pushdown_executor is not None:
-                blocked = self._pushdown_blocked_by_udf(
+                use_remote, reason_code, detail = self._choose_execution_target(
                     segment.ops, pushdown_executor, pushdown_source
                 )
-                if blocked is not None:
-                    # The server would reject a call it cannot resolve, so this
-                    # is a planning decision, not a runtime failure to discover
-                    # after the scan has already been paid for.
+                if not use_remote:
                     pushdown_executor = None
                     pushdown_source = None
-                    self._decline_pushdown(*blocked)
+                    if reason_code is not None:
+                        self._decline_pushdown(reason_code, detail)
 
             if pushdown_executor is None and self._executor is None:
                 with profiler.step("Connection"):
@@ -2285,13 +2402,11 @@ class DataStore(PandasCompatMixin):
         # Show the SQL that will actually be issued: a segment bound for the
         # remote server reads its table directly, not through remote().
         executor, _ = self._pushdown_for_first_segment()
-        if executor is not None and (
-            returns_every_source_row(first_segment.ops)
-            or self._pushdown_blocked_by_udf(first_segment.ops, executor)
-        ):
-            # The executor is turned down at execution time for a chain that
-            # keeps every row, and for one calling a UDF the server does not
-            # have; a preview promising otherwise would be a lie.
+        if executor is not None and not self._choose_execution_target(
+            first_segment.ops, executor
+        )[0]:
+            # A preview has to describe the run that will happen, so it asks the
+            # same question execution does, of the same operations.
             executor = None
         target = executor.target if executor is not None else LOCAL_CHDB
         with self._compiling_for(target):
