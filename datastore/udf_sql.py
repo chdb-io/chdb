@@ -6,10 +6,11 @@ a per-row call into an external process; expressed as SQL they become part of
 the query and cost nothing. So the first question about a UDF is not where to
 run it - it is whether it needs to be a UDF at all.
 
-The translation is deliberately narrow. Every construct is on a list, and a
-function that steps outside it is left alone rather than approximated: a wrong
-answer computed quickly is worse than a right one computed in a subprocess. What
-is covered is the shape of a scalar business rule:
+Translation is opt-in and narrow, because an AST whitelist cannot prove that
+Python and ClickHouse agree on types, NULLs, exceptions or truthiness. The
+stable set is arithmetic, comparison and conditional returns over declared
+numeric arguments - nothing that depends on any of those four - and a function
+that steps outside it is refused rather than approximated:
 
     def recognized_revenue(value):
         if value >= 150:
@@ -20,9 +21,21 @@ is covered is the shape of a scalar business rule:
 
     multiIf(v >= 150, v * 0.92, v >= 75, v * 0.95, v * 0.97)
 
-What is not covered - loops, assignments, attribute access, imports, calls to
-anything outside a short whitelist, and every string method - returns None, and
-the caller falls back to deploying the function.
+Deliberately outside it, each for a reason rather than for lack of time:
+
+    and / or        Python returns an operand, SQL returns a boolean, and the
+                    two disagree the moment an operand is not a bool
+    calls           every builtin needs its own proof; round() alone differs
+                    between Python versions and ClickHouse settings
+    str / int / float  an implicit conversion is where type semantics diverge
+    // and %        Python floors towards negative infinity, ClickHouse
+                    truncates towards zero
+    x / y           unless y is a non-zero literal: Python raises on zero and
+                    ClickHouse returns inf
+    strings, loops, assignments, attribute access, imports
+
+Everything refused returns None, and the caller keeps the function as a
+function - deployed as a UDF, or run in pandas.
 """
 
 import ast
@@ -32,7 +45,13 @@ from typing import Callable, List, Optional
 
 from .functions import Function, format_alias
 
-__all__ = ["sql_rewrite_for", "SqlRewrite", "RewrittenCall"]
+__all__ = [
+    "RewrittenCall",
+    "SqlRewrite",
+    "numeric_arg_types",
+    "rewritten_calls_in",
+    "sql_rewrite_for",
+]
 
 
 class Unsupported(Exception):
@@ -46,7 +65,7 @@ _BINARY_OPS = {
     ast.Add: "+",
     ast.Sub: "-",
     ast.Mult: "*",
-    ast.Div: "/",
+    ast.Div: "/",  # only over a non-zero literal divisor; see _translate
 }
 
 _COMPARISONS = {
@@ -58,16 +77,28 @@ _COMPARISONS = {
     ast.GtE: ">=",
 }
 
-# Builtins whose ClickHouse counterpart has the same meaning for scalars.
-_CALLS = {
-    "abs": "abs",
-    "float": "toFloat64",
-    "int": "toInt64",
-    "str": "toString",
-    "min": "least",
-    "max": "greatest",
-    "round": "round",
-}
+# Numeric ClickHouse types a rewritten argument may be declared as. The
+# translation reasons about arithmetic, so it has to know it is arithmetic.
+_NUMERIC_TYPES = (
+    "int8", "int16", "int32", "int64", "int128", "int256",
+    "uint8", "uint16", "uint32", "uint64", "uint128", "uint256",
+    "float32", "float64", "decimal", "decimal32", "decimal64",
+    "decimal128", "decimal256",
+)
+
+
+def numeric_arg_types(arg_types) -> bool:
+    """Whether every declared argument is a number this translation can reason about."""
+    if not arg_types:
+        return False
+    for declared in arg_types:
+        text = str(declared or "").strip().lower()
+        if text.startswith("nullable(") and text.endswith(")"):
+            # NULL semantics are one of the things this set stays clear of.
+            return False
+        if not text.split("(", 1)[0] in _NUMERIC_TYPES:
+            return False
+    return True
 
 
 class SqlRewrite:
@@ -208,6 +239,10 @@ def _translate(node, parameters) -> Callable:
         operator = _BINARY_OPS.get(type(node.op))
         if operator is None:
             raise Unsupported(type(node.op).__name__)
+        if isinstance(node.op, ast.Div) and not _is_nonzero_number(node.right):
+            # Python raises on a zero divisor and ClickHouse returns inf, so
+            # the two only agree when the divisor cannot be zero.
+            raise Unsupported("division by a value that could be zero")
         left = _translate(node.left, parameters)
         right = _translate(node.right, parameters)
         return lambda slots: f"({left(slots)} {operator} {right(slots)})"
@@ -234,36 +269,24 @@ def _translate(node, parameters) -> Callable:
         right = _translate(node.comparators[0], parameters)
         return lambda slots: f"({left(slots)} {operator} {right(slots)})"
 
-    if isinstance(node, ast.BoolOp):
-        joiner = " AND " if isinstance(node.op, ast.And) else " OR "
-        parts = [_translate(value, parameters) for value in node.values]
-        return lambda slots: "(" + joiner.join(part(slots) for part in parts) + ")"
-
     if isinstance(node, ast.IfExp):
         test = _translate(node.test, parameters)
         body = _translate(node.body, parameters)
         orelse = _translate(node.orelse, parameters)
         return lambda slots: f"if({test(slots)}, {body(slots)}, {orelse(slots)})"
 
-    if isinstance(node, ast.Call):
-        return _translate_call(node, parameters)
-
     raise Unsupported(type(node).__name__)
 
 
-def _translate_call(node: ast.Call, parameters) -> Callable:
-    if node.keywords or not isinstance(node.func, ast.Name):
-        raise Unsupported("call")
-    target = _CALLS.get(node.func.id)
-    if target is None:
-        raise Unsupported(f"call to {node.func.id}")
-    if node.func.id in ("min", "max") and len(node.args) != 2:
-        # least/greatest take exactly two arguments; min over an iterable is a
-        # different function.
-        raise Unsupported("min/max with other than two arguments")
-    arguments = [_translate(argument, parameters) for argument in node.args]
-    return lambda slots: (
-        f"{target}(" + ", ".join(argument(slots) for argument in arguments) + ")"
+def _is_nonzero_number(node) -> bool:
+    """Whether this is a literal number that is definitely not zero."""
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        return _is_nonzero_number(node.operand)
+    return (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, (int, float))
+        and not isinstance(node.value, bool)
+        and node.value != 0
     )
 
 
@@ -274,9 +297,6 @@ def _literal(value) -> str:
         return "1" if value else "0"
     if isinstance(value, (int, float)):
         return repr(value)
-    if isinstance(value, str):
-        escaped = value.replace("\\", "\\\\").replace("'", "\\'")
-        return f"'{escaped}'"
     raise Unsupported(type(value).__name__)
 
 
@@ -327,3 +347,14 @@ class RewrittenCall(Function):
         return RewrittenCall(
             self._rewrite, *args, alias=self.alias, arg_types=self._arg_types
         )
+
+
+def rewritten_calls_in(ops) -> list:
+    """Every translated rule inside these operations.
+
+    The same walk the UDF calls use, so a rule that became an expression is
+    still reported by the name its author gave it.
+    """
+    from .udf import udf_calls_in
+
+    return udf_calls_in(ops, node_type=RewrittenCall)

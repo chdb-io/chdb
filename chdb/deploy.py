@@ -1115,7 +1115,7 @@ def _declared_arg_types(fn):
     return list(declared) if declared else None
 
 
-def _register_expression_method(fn, arg_types=None) -> None:
+def _register_expression_method(fn, arg_types=None, rewrite=None) -> None:
     """Expose a locally-registered UDF as a DataStore expression method.
 
     After this, ``ds["price"].tax(0.13)`` builds the same SQL the built-in
@@ -1133,7 +1133,11 @@ def _register_expression_method(fn, arg_types=None) -> None:
             from datastore.udf import bind_local
 
             bind_local(
-                fn, fn.__name__, arity, arg_types=arg_types or _declared_arg_types(fn)
+                fn,
+                fn.__name__,
+                arity,
+                arg_types=arg_types or _declared_arg_types(fn),
+                rewrite=rewrite,
             )
         except Exception:
             pass
@@ -1153,6 +1157,7 @@ def func(
     on_error=None,
     deploy=False,
     permanent=False,
+    rewrite=None,
 ):
     """Drop-in replacement for :func:`chdb.udf.func` with deploy support.
 
@@ -1170,18 +1175,33 @@ def func(
             a connection registered via datastore.config.register_connection.
         permanent: Keep the deployed UDF after this session ends, under the
             function's own name. Requires ``deploy``.
+        rewrite: "sql" asks for the body to be compiled into the query instead
+            of called per row. Opt-in, and it fails loudly rather than falling
+            back: the stable set is arithmetic, comparison and conditional
+            returns over declared numeric arguments, because an AST whitelist
+            cannot prove Python and ClickHouse agree on anything wider.
     """
     if permanent and not deploy:
         raise ValueError("permanent=True requires deploy=True or deploy='<name>'")
+    if rewrite is not None and rewrite != "sql":
+        raise ValueError(f"unknown rewrite mode {rewrite!r}; the only mode is 'sql'")
 
     def decorator(fn):
+        if rewrite is not None:
+            # Validate here rather than during registration, which is fail-open
+            # by design: an explicit request to compile the rule into the query
+            # has to fail with its reason, not quietly deploy a call instead.
+            from datastore.udf import build_rewrite
+
+            build_rewrite(fn, arg_types or _declared_arg_types(fn), rewrite)
+
         passthrough = {}
         if on_null is not None:
             passthrough["on_null"] = on_null
         if on_error is not None:
             passthrough["on_error"] = on_error
         wrapped = _resolve_local_func()(arg_types, return_type, **passthrough)(fn)
-        _register_expression_method(fn, arg_types)
+        _register_expression_method(fn, arg_types, rewrite)
 
         if deploy:
             deployment = _deploy_impl(
@@ -1205,6 +1225,7 @@ def func(
                     fn.__name__,
                     len(inspect.signature(fn).parameters),
                     arg_types=arg_types or _declared_arg_types(fn),
+                    rewrite=rewrite,
                 )
                 bind_remote(
                     wrapped, fn.__name__, deployment.connection, deployment.remote_name

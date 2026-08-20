@@ -1178,23 +1178,31 @@ class DataStore(PandasCompatMixin):
 
     @staticmethod
     def _udfs_in_segment(ops, engine: str) -> tuple:
-        """The Python functions this segment calls, and the name each ran under.
+        """The Python this segment carries, and what became of it.
 
-        A deployed function appears in the statement under a generated name, so
-        a report that only quoted the SQL would leave a reader matching hashes
-        against their own code.
+        Two things can happen to a function, and a reader has to be able to tell
+        them apart: it is called on the server under a generated name, or its
+        body was compiled into the statement and no call survives. Either way
+        the name reported is the one the author wrote.
         """
         from .udf import udf_calls_in
+        from .udf_sql import RewrittenCall, rewritten_calls_in
 
         found = []
+
+        def add(entry):
+            if entry not in found:
+                found.append(entry)
+
         for call in udf_calls_in(ops):
             binding = call.binding
-            entry = {"name": binding.logical_name}
+            entry = {"name": binding.logical_name, "via": "remote-udf"}
             deployed = binding.name_for(engine)
             if deployed and deployed != binding.logical_name:
                 entry["deployedAs"] = deployed
-            if entry not in found:
-                found.append(entry)
+            add(entry)
+        for call in rewritten_calls_in(ops):
+            add({"name": call.rewrite.name, "via": "sql-rewrite"})
         return tuple(found)
 
     @staticmethod

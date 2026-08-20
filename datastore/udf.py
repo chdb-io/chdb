@@ -25,6 +25,7 @@ __all__ = [
     "binding_for",
     "binding_named",
     "bind_local",
+    "build_rewrite",
     "bind_remote",
     "clear_bindings",
     "known_bindings",
@@ -60,8 +61,9 @@ class UdfBinding:
         # so the local call has to declare the same conversion or the same chain
         # works on one engine and fails on the other.
         self.arg_types = list(arg_types or [])
-        # The SQL this function turned out to be, when it could be translated.
-        # A rule that becomes an expression needs no engine to host it.
+        # The SQL this function was explicitly asked to become. Never inferred:
+        # reading a function and finding it translatable does not make
+        # translating it what the author meant.
         self.rewrite = None
         # connection name -> the name the function was deployed under there
         self.remote_names: Dict[str, str] = {}
@@ -100,6 +102,7 @@ def bind_local(
     arity: int,
     local_name: Optional[str] = None,
     arg_types: Optional[list] = None,
+    rewrite: Optional[str] = None,
 ):
     """Record that ``fn`` is registered in the local engine, and return its binding."""
     binding = _BINDINGS.get(logical_name)
@@ -110,10 +113,8 @@ def bind_local(
     binding.local_name = local_name or logical_name
     if arg_types:
         binding.arg_types = list(arg_types)
-    if binding.rewrite is None and fn is not None:
-        from .udf_sql import sql_rewrite_for
-
-        binding.rewrite = sql_rewrite_for(fn)
+    if rewrite is not None and fn is not None:
+        binding.rewrite = build_rewrite(fn, binding.arg_types, rewrite)
     _attach(fn, binding)
     return binding
 
@@ -127,6 +128,34 @@ def bind_remote(fn: Any, logical_name: str, connection: str, remote_name: str):
     binding.remote_names[connection] = remote_name
     _attach(fn, binding)
     return binding
+
+
+def build_rewrite(fn: Any, arg_types, mode: str):
+    """Translate ``fn`` because the author asked for it, or say why it cannot be.
+
+    Refusing loudly is the point: someone who wrote rewrite="sql" wants the
+    query to contain the rule, and silently deploying it instead would leave
+    them wondering why a per-row call is still there.
+    """
+    from .udf_sql import numeric_arg_types, sql_rewrite_for
+
+    if mode != "sql":
+        raise ValueError(f"unknown rewrite mode {mode!r}; the only mode is 'sql'")
+    if not numeric_arg_types(arg_types):
+        raise ValueError(
+            f"{getattr(fn, '__name__', fn)} cannot be rewritten to SQL: the "
+            f"stable set covers arithmetic over declared, non-nullable numeric "
+            f"argument types, and this one declares {list(arg_types or []) or 'none'}"
+        )
+    rewrite = sql_rewrite_for(fn)
+    if rewrite is None:
+        raise ValueError(
+            f"{getattr(fn, '__name__', fn)} cannot be rewritten to SQL: its body "
+            f"is outside the stable set, which is arithmetic, comparison and "
+            f"conditional returns - see datastore/udf_sql.py for what is refused "
+            f"and why"
+        )
+    return rewrite
 
 
 def _attach(fn: Any, binding: "UdfBinding") -> None:
@@ -245,7 +274,7 @@ class UdfCall(Function):
         )
 
 
-def udf_calls_in(ops) -> list:
+def udf_calls_in(ops, node_type=None) -> list:
     """Every UDF call inside these operations, however deeply nested.
 
     A UDF reaches a plan as one node in an expression that itself sits in an
@@ -255,6 +284,7 @@ def udf_calls_in(ops) -> list:
     """
     from .expressions import Expression
 
+    wanted = node_type or UdfCall
     found = []
     seen = set()
 
@@ -265,7 +295,7 @@ def udf_calls_in(ops) -> list:
         if marker in seen:
             return
         seen.add(marker)
-        if isinstance(node, UdfCall):
+        if isinstance(node, wanted):
             found.append(node)
         if isinstance(node, (list, tuple, set)):
             for item in node:

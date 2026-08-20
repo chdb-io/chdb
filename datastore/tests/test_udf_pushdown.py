@@ -410,7 +410,11 @@ def test_the_report_names_the_function_and_the_name_it_ran_under():
     segment = reports[-1][0]
     assert segment["engine"] == "remote_clickhouse"
     assert segment["udfs"] == [
-        {"name": "_recognized", "deployedAs": "chdb_nb_3f99a3_585a1cb9"}
+        {
+            "name": "_recognized",
+            "via": "remote-udf",
+            "deployedAs": "chdb_nb_3f99a3_585a1cb9",
+        }
     ]
 
 
@@ -437,7 +441,7 @@ def test_a_local_run_reports_the_function_under_its_own_name():
         segment for report in reports for segment in report if segment["kind"] == "sql"
     ]
     assert sql_segments
-    assert {"name": "reported_locally"} in sql_segments[-1]["udfs"]
+    assert {"name": "reported_locally", "via": "remote-udf"} in sql_segments[-1]["udfs"]
 
 
 def test_a_segment_without_a_udf_reports_none():

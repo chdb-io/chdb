@@ -5481,12 +5481,14 @@ class ColumnExpr:
         # path, because guessing a SQL translation for them would be wrong.
         if not kwargs and self._expr is not None:
             from .udf import UdfCall, binding_for
-            from .udf_sql import RewrittenCall, sql_rewrite_for
+            from .udf_sql import RewrittenCall
 
             binding = binding_for(func)
-            # A rule that can be said in SQL should be: it then costs nothing to
-            # run, needs no deployment, and no engine has to have heard of it.
-            rewrite = binding.rewrite if binding is not None else sql_rewrite_for(func)
+            # Only a function whose author asked for it becomes SQL. Reading an
+            # ordinary def and finding it translatable proves nothing about what
+            # the author meant by it, and an AST whitelist cannot prove Python
+            # and ClickHouse agree on types, NULLs, exceptions or truthiness.
+            rewrite = binding.rewrite if binding is not None else None
             if rewrite is not None and len(rewrite.parameters) == 1 + len(args):
                 return ColumnExpr(
                     expr=RewrittenCall(
