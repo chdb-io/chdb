@@ -55,6 +55,18 @@ if TYPE_CHECKING:
 from .sql_executor import CaseWhenExpr, WhereMaskCaseExpr
 
 
+class SemanticClass(str, Enum):
+    """Whether the planner can prove an operation means the same thing in SQL.
+
+    This answers eligibility and nothing else. Where an operation ends up
+    running is a separate question, decided afterwards by cost, and a cost rule
+    must never be able to turn OPAQUE into EXACT.
+    """
+
+    EXACT = "exact"
+    OPAQUE = "opaque"
+
+
 class PushdownReasonCode(str, Enum):
     """Stable reason codes for SQL pushdown decisions."""
 
@@ -71,12 +83,17 @@ class PushdownReasonCode(str, Enum):
     DATAFRAME_CONTEXT = "dataframe_context"
     PANDAS_ONLY = "pandas_only"
     FULL_READ_KEPT_LOCAL = "full_read_kept_local"
+    COST_UNBOUNDED_SORT_LOCAL = "cost_unbounded_sort_local"
     UDF_NOT_DEPLOYED = "udf_not_deployed"
     UDF_MISSING_ON_SERVER = "udf_missing_on_server"
     UDF_ARITY_MISMATCH = "udf_arity_mismatch"
 
 
 PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.COST_UNBOUNDED_SORT_LOCAL: (
+        "Sorting without a limit has an equivalent SQL form, but ordering every "
+        "row costs more than the plan gains, so it runs locally."
+    ),
     PushdownReasonCode.UDF_MISSING_ON_SERVER: (
         "The target server does not currently have the deployed UDF this segment "
         "calls, so it ran where the function is registered."
@@ -314,16 +331,31 @@ class PushdownDecision:
 
     op_index: Optional[int]
     op_type: str
-    eligible: bool
+    semantic_class: SemanticClass
     reason_code: PushdownReasonCode
     detail: str
+    # Set when the operation could be SQL but a cost rule keeps it where it is.
+    # Separate from the class on purpose: changing a threshold must not be able
+    # to change what an operation means.
+    cost_prefers_local: bool = False
+
+    @property
+    def eligible(self) -> bool:
+        """Whether this run puts the operation in a SQL segment.
+
+        Derived, and kept for callers that predate the split: an operation is
+        SQL here when it is provably SQL and no cost rule sent it elsewhere.
+        """
+        return self.semantic_class is SemanticClass.EXACT and not self.cost_prefers_local
 
     def as_dict(self) -> Dict[str, Any]:
         """Return a JSON-friendly representation for explain consumers."""
         return {
             "op_index": self.op_index,
             "op_type": self.op_type,
+            "semantic_class": self.semantic_class.value,
             "eligible": self.eligible,
+            "cost_prefers_local": self.cost_prefers_local,
             "reason_code": self.reason_code.value,
             "detail": self.detail,
         }
@@ -982,12 +1014,14 @@ class QueryPlanner:
     ) -> PushdownDecision:
         """Classify an operation and explain the existing planner decision.
 
-        The eligibility check remains delegated to ``_can_push_op_to_sql`` so
-        this first explain slice cannot change routing.  Reason codes are
-        intentionally stable and small; later generic-compute adapters can
-        expose them without parsing log strings.
+        Two questions, asked in order and never mixed. First, does the
+        operation have a SQL form that means the same thing - that is the
+        semantic class, and no cost rule may change it. Only then, is SQL where
+        it should run: a sort with no limit is expressible in SQL and still
+        belongs in pandas, and that is a cost decision wearing its own reason
+        code.
         """
-        eligible = self._can_push_op_to_sql(
+        expressible = self._can_push_op_to_sql(
             op,
             schema=schema,
             preceding_ops=preceding_ops,
@@ -996,33 +1030,76 @@ class QueryPlanner:
         )
         op_type = self._describe_op_type(op)
 
-        if eligible:
-            reason_code = PushdownReasonCode.SQL_SUPPORTED
-        else:
-            reason_code = self._unpushable_reason_code(
-                op, preceding_ops or [], following_ops or []
+        if not expressible:
+            return self._make_pushdown_decision(
+                op_index=op_index,
+                op_type=op_type,
+                semantic_class=SemanticClass.OPAQUE,
+                reason_code=self._unpushable_reason_code(
+                    op, preceding_ops or [], following_ops or []
+                ),
+            )
+
+        cost_code = self._cost_prefers_local_reason(
+            op, preceding_ops or [], following_ops or [], local_source
+        )
+        if cost_code is not None:
+            return self._make_pushdown_decision(
+                op_index=op_index,
+                op_type=op_type,
+                semantic_class=SemanticClass.EXACT,
+                reason_code=cost_code,
+                cost_prefers_local=True,
             )
 
         return self._make_pushdown_decision(
             op_index=op_index,
             op_type=op_type,
-            eligible=eligible,
-            reason_code=reason_code,
+            semantic_class=SemanticClass.EXACT,
+            reason_code=PushdownReasonCode.SQL_SUPPORTED,
         )
+
+    @staticmethod
+    def _cost_prefers_local_reason(
+        op, preceding_ops, following_ops, local_source: bool
+    ) -> Optional[PushdownReasonCode]:
+        """Why cost keeps an otherwise-expressible operation where it is.
+
+        One rule so far, and it is about size rather than meaning: sorting an
+        entire relation to return it in order costs the server a full sort and
+        buys nothing the plan uses. It is worth doing in SQL when something
+        bounds it - a LIMIT below, an aggregation above - or when the source is
+        already in this process, where there is nothing to transfer and chDB
+        sorts in parallel.
+        """
+        if not (isinstance(op, LazyRelationalOp) and op.op_type == "ORDER BY"):
+            return None
+        if local_source:
+            return None
+        if any(isinstance(previous, LazyGroupByAgg) for previous in preceding_ops):
+            return None
+        if any(
+            isinstance(following, LazyRelationalOp) and following.op_type == "LIMIT"
+            for following in following_ops
+        ):
+            return None
+        return PushdownReasonCode.COST_UNBOUNDED_SORT_LOCAL
 
     @staticmethod
     def _make_pushdown_decision(
         op_index: Optional[int],
         op_type: str,
-        eligible: bool,
+        semantic_class: SemanticClass,
         reason_code: PushdownReasonCode,
+        cost_prefers_local: bool = False,
     ) -> PushdownDecision:
         return PushdownDecision(
             op_index=op_index,
             op_type=op_type,
-            eligible=eligible,
+            semantic_class=semantic_class,
             reason_code=reason_code,
             detail=PUSHDOWN_REASON_DETAILS[reason_code],
+            cost_prefers_local=cost_prefers_local,
         )
 
     @staticmethod
@@ -1142,30 +1219,10 @@ class QueryPlanner:
                             return False
                         break  # first/last handled separately
 
-                # ORDER BY after GROUP BY operates on aggregated (small) result set,
-                # so SQL sort is cheap - always push to SQL
-                has_preceding_groupby = any(
-                    isinstance(p_op, LazyGroupByAgg)
-                    for p_op in (preceding_ops or [])
-                )
-                if has_preceding_groupby:
-                    return True
-
-                has_limit = any(
-                    isinstance(f_op, LazyRelationalOp) and f_op.op_type == "LIMIT"
-                    for f_op in following
-                )
-                if has_limit:
-                    return True
-                if local_source:
-                    self._logger.debug(
-                        "  [ORDER BY] Pushing to SQL: local PythonTableFunction source"
-                    )
-                    return True
-                self._logger.debug(
-                    "  [ORDER BY] Skipping push to SQL: no LIMIT follows (unbounded sort)"
-                )
-                return False
+                # Whether an unbounded sort is worth doing in SQL is a cost
+                # question, answered by _cost_prefers_local_reason. Here the
+                # answer is only that ORDER BY has an equivalent SQL form.
+                return True
 
             return True
 
