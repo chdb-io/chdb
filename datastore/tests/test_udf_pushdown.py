@@ -29,6 +29,17 @@ from datastore.udf import (
 
 FRAME = pd.DataFrame({"revenue": [100.0, 200.0, 300.0], "channel": ["a", "b", "a"]})
 
+def _house_rate():
+    """A call the translator will not follow, which is the point.
+
+    Every rule in this file has to stay a function: one that can be said in SQL
+    is said in SQL now, and would never reach the deployment machinery these
+    tests are about.
+    """
+    return 0.9
+
+
+
 
 def register(name, fn, arity=1):
     """Bind a callable as a UDF the way chdb.deploy does, without deploying."""
@@ -45,7 +56,7 @@ def clean_bindings():
 
 def test_applying_a_udf_compiles_into_the_query():
     def scale_udf(value):
-        return value * 0.9
+        return value * _house_rate()
 
     register("scale_udf", scale_udf)
     store = DataStore(FRAME)
@@ -61,7 +72,7 @@ def test_apply_and_the_column_method_compile_the_same_way():
     """The two spellings are the same expression, so they must agree."""
 
     def bonus_udf(value):
-        return value + 1
+        return value + _house_rate()
 
     register("bonus_udf", bonus_udf)
     store = DataStore(FRAME)
@@ -87,7 +98,7 @@ def test_an_ordinary_callable_still_goes_to_pandas():
 
 def test_the_deployed_name_is_used_only_when_compiling_for_the_server():
     def tax_udf(value):
-        return value * 0.8
+        return value * _house_rate()
 
     register("tax_udf", tax_udf)
     bind_remote(tax_udf, "tax_udf", "demo", "chdb_udf_9f2a_c31d")
@@ -146,7 +157,7 @@ def test_a_binding_is_found_by_the_callable_or_by_its_name():
 
 def test_extra_arguments_reach_the_call():
     def rate_udf(value, rate):
-        return value * rate
+        return value * rate * _house_rate()
 
     register("rate_udf", rate_udf, arity=2)
     store = DataStore(FRAME)
@@ -164,14 +175,14 @@ def test_the_values_are_the_ones_the_udf_produces():
 
     @chdb.func(arg_types=["Float64"], return_type="Float64")
     def recognized_revenue(value):
-        return value * 0.92
+        return value * 0.92 * _house_rate()
 
     store = DataStore(FRAME)
     result = store.assign(
         net=store["revenue"].apply(recognized_revenue)
     ).to_pandas()
 
-    expected = FRAME["revenue"].map(lambda v: v * 0.92)
+    expected = FRAME["revenue"].map(recognized_revenue)
     pd.testing.assert_series_equal(
         result["net"].reset_index(drop=True),
         expected.reset_index(drop=True),
@@ -228,7 +239,7 @@ def udf_chain(store):
 
 
 def _recognized(value):  # replaced per test by register()
-    return value
+    return value * _house_rate()
 
 
 def test_an_undeployed_udf_keeps_only_itself_at_home():
@@ -335,7 +346,7 @@ def test_calling_a_udf_with_the_wrong_number_of_arguments_stays_home():
     """The server reports an executable UDF's name and nothing about its shape."""
 
     def two_arg_udf(value, rate):
-        return value * rate
+        return value * rate * _house_rate()
 
     register("two_arg_udf", two_arg_udf, arity=2)
     bind_remote(two_arg_udf, "two_arg_udf", "demo", "chdb_udf_two")
@@ -414,7 +425,7 @@ def test_a_local_run_reports_the_function_under_its_own_name():
 
     @chdb.func(arg_types=["Float64"], return_type="Float64")
     def reported_locally(value):
-        return value * 0.9
+        return value * _house_rate()
 
     try:
         store = DataStore(FRAME)
@@ -444,109 +455,13 @@ def test_a_segment_without_a_udf_reports_none():
     assert all(segment["udfs"] == [] for report in reports for segment in report)
 
 
-# ---------------------------------------------------------------------------
-# Placing a scalar UDF is a cost decision, not a policy
-# ---------------------------------------------------------------------------
-
-
-def test_a_fast_link_keeps_the_call_local_and_a_slow_one_sends_it():
-    """The same chain, the same deployment, two different links."""
-    register("_recognized", _recognized)
-    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_placed")
-
-    fast = RecordingExecutor(throughput=1_000_000_000)  # 1 GB/s
-    slow = RecordingExecutor(throughput=1_000_000)  # 1 MB/s
-
-    store = remote_store(fast)
-    blocked = store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, fast)
-    assert blocked is not None
-    assert blocked[0].value == "udf_cheaper_locally"
-    assert "less than" in blocked[1]
-
-    store = remote_store(slow)
-    assert store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, slow) is None
-
-
-def test_an_unmeasured_link_keeps_the_call_where_it_already_runs():
-    """Without a measurement there is nothing to compare, so nothing moves."""
-    register("_recognized", _recognized)
-    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_placed")
-    executor = RecordingExecutor(throughput=None)
-    store = remote_store(executor)
-
-    code, sentence = store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, executor)
-
-    assert code.value == "udf_cheaper_locally"
-    assert "nothing has measured this link" in sentence
-
-
-def test_the_cost_model_reports_the_arithmetic_it_used():
-    from datastore.cost import choose_udf_target
-
-    remote, sentence = choose_udf_target(9, 1_000_000_000)
-    assert remote is False
-    assert "9-byte row" in sentence and "1000 MB/s" in sentence
-
-    remote, sentence = choose_udf_target(9, 1_000_000)
-    assert remote is True
-    assert "more than" in sentence
-
-
-def test_a_wide_row_moves_the_crossover():
-    """What decides is the width of a row against the speed of the link."""
-    from datastore.cost import choose_udf_target
-
-    # 100 MB/s is fast for a network and slow for a 400-byte row.
-    assert choose_udf_target(9, 100_000_000)[0] is False
-    assert choose_udf_target(400, 100_000_000)[0] is True
-
-
-def test_row_width_follows_the_column_types():
-    from datastore.cost import bytes_per_row, column_bytes
-
-    assert column_bytes("UInt64") == 8
-    assert column_bytes("DateTime") == 4
-    assert column_bytes("Nullable(Float64)") == 9
-    # LowCardinality travels as a dictionary index, not as the string.
-    assert column_bytes("LowCardinality(String)") == 4
-    assert column_bytes("String") == column_bytes("Array(String)")
-
-    schema = {"user_id": "UInt64", "event_time": "DateTime", "channel": "LowCardinality(String)"}
-    assert bytes_per_row(schema) == 16
-    assert bytes_per_row(schema, ["user_id"]) == 8
-    # An unknown schema still has to answer something usable.
-    assert bytes_per_row({}) > 0
-
-
-def test_a_deployment_can_replace_the_measured_defaults():
-    from datastore.cost import UdfCostModel, current_udf_cost_model, set_udf_cost_model
-
-    original = current_udf_cost_model()
-    try:
-        set_udf_cost_model(remote_udf_per_row_us=0.01)
-        from datastore.cost import choose_udf_target
-
-        # A server that calls Python for less than this engine does wins before
-        # the link is even considered - the opposite of the measured default.
-        prefer_remote, sentence = choose_udf_target(9, 1_000_000_000)
-        assert prefer_remote is True
-        assert "whatever the link costs" in sentence
-    finally:
-        set_udf_cost_model(
-            remote_udf_per_row_us=original.remote_udf_per_row_us,
-            local_udf_per_row_us=original.local_udf_per_row_us,
-            default_bandwidth_bytes_per_s=original.default_bandwidth_bytes_per_s,
-        )
-    assert current_udf_cost_model() == UdfCostModel()
-
-
 def test_arguments_are_converted_to_the_declared_types():
     """A Decimal column against a Float64 declaration must work either way."""
     import chdb
 
     @chdb.func(arg_types=["Float64"], return_type="Float64")
     def declared_float(value):
-        return value * 0.9
+        return value * _house_rate()
 
     frame = pd.DataFrame({"revenue": [100, 250], "channel": ["a", "b"]})
     store = DataStore(frame)

@@ -233,17 +233,6 @@ class SqlSegmentExecutor(ABC):
         pandas mapping, which differs.
         """
 
-    def observed_throughput_bytes_per_s(self) -> Optional[float]:
-        """How fast results have actually come back, or None if unmeasured.
-
-        The planner needs this to place a scalar Python UDF, which is the one
-        operator where the choice is between paying per row on the server and
-        paying per row on the wire. An executor that has not moved enough data
-        to have an opinion should say None rather than extrapolate from a
-        six-row result, where latency, not bandwidth, is what was measured.
-        """
-        return None
-
     def resolves_function(self, name: str, source: RemoteSource) -> Optional[bool]:
         """Whether the server can call ``name``, or None when it cannot say.
 
