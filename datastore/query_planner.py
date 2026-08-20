@@ -73,10 +73,15 @@ class PushdownReasonCode(str, Enum):
     FULL_READ_KEPT_LOCAL = "full_read_kept_local"
     UDF_NOT_DEPLOYED = "udf_not_deployed"
     UDF_MISSING_ON_SERVER = "udf_missing_on_server"
+    UDF_CHEAPER_LOCALLY = "udf_cheaper_locally"
     UDF_ARITY_MISMATCH = "udf_arity_mismatch"
 
 
 PUSHDOWN_REASON_DETAILS: Dict[PushdownReasonCode, str] = {
+    PushdownReasonCode.UDF_CHEAPER_LOCALLY: (
+        "A scalar UDF returns one row per row, so placing it chooses which per-row "
+        "cost to pay; here the local call was cheaper than moving the rows."
+    ),
     PushdownReasonCode.UDF_MISSING_ON_SERVER: (
         "The target server does not currently have the deployed UDF this segment "
         "calls, so it ran where the function is registered."

@@ -185,12 +185,20 @@ def test_the_values_are_the_ones_the_udf_produces():
 
 
 class RecordingExecutor(SqlSegmentExecutor):
-    """Stands in for a bound ClickHouse: records what it was asked to run."""
+    """Stands in for a bound ClickHouse: records what it was asked to run.
+
+    ``throughput`` is what the link has been measured to carry. None - the
+    default - is an unmeasured link, which is the state a fresh session is in.
+    """
 
     target = REMOTE_CLICKHOUSE
 
-    def __init__(self):
+    def __init__(self, throughput=None):
         self.calls = []
+        self.throughput = throughput
+
+    def observed_throughput_bytes_per_s(self):
+        return self.throughput
 
     def accepts(self, source):
         return True
@@ -236,9 +244,10 @@ def test_a_chain_calling_an_undeployed_udf_is_not_pushed_down():
 
 
 def test_the_same_chain_is_pushed_down_once_the_udf_is_deployed():
+    """Deployed and on a link slow enough that moving the rows costs more."""
     register("_recognized", _recognized)
     bind_remote(_recognized, "_recognized", "demo", "chdb_udf_7c1a_9b3e")
-    executor = RecordingExecutor()
+    executor = RecordingExecutor(throughput=1_000_000)  # 1 MB/s
 
     udf_chain(remote_store(executor)).to_pandas()
 
@@ -307,7 +316,7 @@ def test_an_executor_that_cannot_check_is_trusted():
     register("_recognized", _recognized)
     bind_remote(_recognized, "_recognized", "demo", "chdb_udf_ok")
 
-    for executor in (Unsure(), Broken(), RecordingExecutor()):
+    for executor in (Unsure(1_000_000), Broken(1_000_000), RecordingExecutor(1_000_000)):
         store = remote_store(executor)
         assert (
             store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, executor)
@@ -374,7 +383,7 @@ def test_the_report_names_the_function_and_the_name_it_ran_under():
     try:
         register("_recognized", _recognized)
         bind_remote(_recognized, "_recognized", "demo", "chdb_nb_3f99a3_585a1cb9")
-        udf_chain(remote_store(RecordingExecutor())).to_pandas()
+        udf_chain(remote_store(RecordingExecutor(throughput=1_000_000))).to_pandas()
     finally:
         set_plan_observer(None)
 
@@ -425,3 +434,99 @@ def test_a_segment_without_a_udf_reports_none():
         set_plan_observer(None)
 
     assert all(segment["udfs"] == [] for report in reports for segment in report)
+
+
+# ---------------------------------------------------------------------------
+# Placing a scalar UDF is a cost decision, not a policy
+# ---------------------------------------------------------------------------
+
+
+def test_a_fast_link_keeps_the_call_local_and_a_slow_one_sends_it():
+    """The same chain, the same deployment, two different links."""
+    register("_recognized", _recognized)
+    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_placed")
+
+    fast = RecordingExecutor(throughput=1_000_000_000)  # 1 GB/s
+    slow = RecordingExecutor(throughput=1_000_000)  # 1 MB/s
+
+    store = remote_store(fast)
+    blocked = store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, fast)
+    assert blocked is not None
+    assert blocked[0].value == "udf_cheaper_locally"
+    assert "less than" in blocked[1]
+
+    store = remote_store(slow)
+    assert store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, slow) is None
+
+
+def test_an_unmeasured_link_keeps_the_call_where_it_already_runs():
+    """Without a measurement there is nothing to compare, so nothing moves."""
+    register("_recognized", _recognized)
+    bind_remote(_recognized, "_recognized", "demo", "chdb_udf_placed")
+    executor = RecordingExecutor(throughput=None)
+    store = remote_store(executor)
+
+    code, sentence = store._pushdown_blocked_by_udf(udf_chain(store)._lazy_ops, executor)
+
+    assert code.value == "udf_cheaper_locally"
+    assert "nothing has measured this link" in sentence
+
+
+def test_the_cost_model_reports_the_arithmetic_it_used():
+    from datastore.cost import choose_udf_target
+
+    remote, sentence = choose_udf_target(9, 1_000_000_000)
+    assert remote is False
+    assert "9-byte row" in sentence and "1000 MB/s" in sentence
+
+    remote, sentence = choose_udf_target(9, 1_000_000)
+    assert remote is True
+    assert "more than" in sentence
+
+
+def test_a_wide_row_moves_the_crossover():
+    """What decides is the width of a row against the speed of the link."""
+    from datastore.cost import choose_udf_target
+
+    # 100 MB/s is fast for a network and slow for a 400-byte row.
+    assert choose_udf_target(9, 100_000_000)[0] is False
+    assert choose_udf_target(400, 100_000_000)[0] is True
+
+
+def test_row_width_follows_the_column_types():
+    from datastore.cost import bytes_per_row, column_bytes
+
+    assert column_bytes("UInt64") == 8
+    assert column_bytes("DateTime") == 4
+    assert column_bytes("Nullable(Float64)") == 9
+    # LowCardinality travels as a dictionary index, not as the string.
+    assert column_bytes("LowCardinality(String)") == 4
+    assert column_bytes("String") == column_bytes("Array(String)")
+
+    schema = {"user_id": "UInt64", "event_time": "DateTime", "channel": "LowCardinality(String)"}
+    assert bytes_per_row(schema) == 16
+    assert bytes_per_row(schema, ["user_id"]) == 8
+    # An unknown schema still has to answer something usable.
+    assert bytes_per_row({}) > 0
+
+
+def test_a_deployment_can_replace_the_measured_defaults():
+    from datastore.cost import UdfCostModel, current_udf_cost_model, set_udf_cost_model
+
+    original = current_udf_cost_model()
+    try:
+        set_udf_cost_model(remote_udf_per_row_us=0.01)
+        from datastore.cost import choose_udf_target
+
+        # A server that calls Python for less than this engine does wins before
+        # the link is even considered - the opposite of the measured default.
+        prefer_remote, sentence = choose_udf_target(9, 1_000_000_000)
+        assert prefer_remote is True
+        assert "whatever the link costs" in sentence
+    finally:
+        set_udf_cost_model(
+            remote_udf_per_row_us=original.remote_udf_per_row_us,
+            local_udf_per_row_us=original.local_udf_per_row_us,
+            default_bandwidth_bytes_per_s=original.default_bandwidth_bytes_per_s,
+        )
+    assert current_udf_cost_model() == UdfCostModel()

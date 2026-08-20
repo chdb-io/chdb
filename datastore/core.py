@@ -1154,7 +1154,35 @@ class DataStore(PandasCompatMixin):
                     f"server does not have it now, so the segment ran where the "
                     f"function is registered",
                 )
+            prefer_remote, sentence = self._udf_placement_is_remote(executor)
+            if not prefer_remote:
+                return (PushdownReasonCode.UDF_CHEAPER_LOCALLY, sentence)
         return None
+
+    def _udf_placement_is_remote(self, executor) -> tuple:
+        """Whether the server is the cheaper place to call a scalar UDF.
+
+        Every other operator in a pushed-down segment reduces data, so its
+        placement is not a real choice. A scalar UDF returns a row per row: it
+        moves nothing either way and only decides which per-row cost is paid -
+        the server's per-row hand-off to an external process, or the wire.
+        """
+        from .cost import bytes_per_row, choose_udf_target
+
+        schema = self._schema or {}
+        try:
+            columns = list(schema)
+            row_bytes = bytes_per_row(schema, columns)
+        except Exception:
+            row_bytes = bytes_per_row({})
+        bandwidth = None
+        measure = getattr(executor, "observed_throughput_bytes_per_s", None)
+        if callable(measure):
+            try:
+                bandwidth = measure()
+            except Exception:
+                bandwidth = None
+        return choose_udf_target(row_bytes, bandwidth)
 
     @staticmethod
     def _udfs_in_segment(ops, engine: str) -> tuple:
