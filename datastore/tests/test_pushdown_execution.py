@@ -425,3 +425,13 @@ def test_a_number_nobody_measured_is_absent_rather_than_zero(recorder):
     segment = recorder.last[0]
     assert "readBytes" not in segment
     assert "inputRows" not in segment
+
+
+def test_a_stage_says_whether_its_sql_form_was_proven(recorder):
+    """EXACT was a choice among equals; OPAQUE was not a choice at all."""
+    store = remote_store(RecordingExecutor())
+    filtered = store[store["event_type"] == "purchase"][["channel", "revenue"]]
+    filtered.groupby("channel").apply(lambda frame: frame.head(1)).to_pandas()
+
+    stages = recorder.last
+    assert [stage["semanticClass"] for stage in stages] == ["exact", "opaque"]

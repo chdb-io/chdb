@@ -139,6 +139,10 @@ class SegmentPlacement:
     # A deployment's generated name tells a reader nothing; the pair says which
     # function of theirs ran there, and what became of it.
     udfs: tuple = ()
+    # Whether the planner could prove this segment means the same thing in SQL.
+    # A reader deciding whether to trust a placement wants this before they want
+    # the timings: EXACT was a choice among equals, OPAQUE was not.
+    semantic_class: str = "exact"
     # What actually happened, when the engine that ran it said so. None is
     # unknown and stays unknown: a number nobody measured is worse than a gap,
     # because a reader cannot tell the two apart afterwards.
@@ -161,6 +165,7 @@ class SegmentPlacement:
             "kind": self.kind,
             "engine": self.engine,
             "reasonCode": self.reason_code,
+            "semanticClass": self.semantic_class,
             "detail": self.detail,
             "ops": list(self.ops),
             "sql": self.sql,
