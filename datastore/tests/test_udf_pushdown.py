@@ -231,16 +231,23 @@ def _recognized(value):  # replaced per test by register()
     return value
 
 
-def test_a_chain_calling_an_undeployed_udf_is_not_pushed_down():
+def test_an_undeployed_udf_keeps_only_itself_at_home():
+    """The call stays, the filter still goes: they end up in different segments.
+
+    remote() is a distributed read, so a UDF left in the source statement would
+    be sent to a shard that has never heard of it. Splitting there costs nothing
+    - the server still does the scan and the filter, and only the call comes
+    home.
+    """
     register("_recognized", _recognized)
     executor = RecordingExecutor()
 
     sql = udf_chain(remote_store(executor)).to_sql(execution_format=True)
 
-    # Reading through remote() is what "the local engine runs it" looks like.
-    assert "remote(" in sql
-    assert '_recognized("revenue")' in sql
-    assert executor.calls == []
+    assert "_recognized" not in sql
+    assert "remote(" not in sql
+    assert '"demo"."events"' in sql
+    assert "WHERE" in sql
 
 
 def test_the_same_chain_is_pushed_down_once_the_udf_is_deployed():
@@ -342,14 +349,15 @@ def test_calling_a_udf_with_the_wrong_number_of_arguments_stays_home():
     assert "takes 2 argument(s) but is called with 1" in sentence
 
 
-def test_explain_does_not_promise_the_server_for_an_undeployed_udf(capsys):
+def test_explain_shows_the_split_an_undeployed_udf_forces(capsys):
     register("_recognized", _recognized)
     udf_chain(remote_store(RecordingExecutor())).explain()
 
     plan = capsys.readouterr().out
 
-    assert "[ClickHouse]" not in plan
-    assert "remote(" in plan
+    # The source segment goes to the server; the call is described separately.
+    assert "[ClickHouse]" in plan
+    assert "chDB" in plan
 
 
 def test_a_udf_call_survives_being_aliased_and_rebuilt():

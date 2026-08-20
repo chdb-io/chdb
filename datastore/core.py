@@ -809,6 +809,7 @@ class DataStore(PandasCompatMixin):
                 has_sql_source,
                 schema=schema,
                 local_source=local_source,
+                udf_boundary=self._udf_runs_here(),
             )
 
             lines.append("\nOperations:")
@@ -1071,6 +1072,24 @@ class DataStore(PandasCompatMixin):
             return None, None
         return executor, source
 
+    def _udf_runs_here(self) -> bool:
+        """Whether a UDF in this chain has to run here while the source is remote.
+
+        ``remote()`` is a distributed read: a UDF left in the same statement is
+        sent to the shard, which only knows the deployed name, if any. So when
+        the call is staying home the plan has to be split - the shard gets the
+        scan and the filters, this engine gets the call.
+        """
+        from .udf import udf_calls_in
+
+        if not self._is_remote_source() or not udf_calls_in(self._lazy_ops):
+            return False
+        executor, _ = self._pushdown_for_first_segment()
+        if executor is None:
+            # Nothing is being pushed down, so the call is here by definition.
+            return True
+        return self._pushdown_blocked_by_udf(self._lazy_ops, executor) is not None
+
     def _first_sql_segment_ops(self):
         """The operations of the segment that would read the source.
 
@@ -1096,6 +1115,7 @@ class DataStore(PandasCompatMixin):
                 has_sql_source,
                 schema=self.schema() if has_sql_source else self._schema,
                 local_source=local_source,
+                udf_boundary=self._udf_runs_here(),
             )
         except Exception:
             # A chain the planner cannot segment has no first segment to reason
@@ -1662,6 +1682,7 @@ class DataStore(PandasCompatMixin):
                     has_sql_source,
                     schema=schema,
                     local_source=local_source,
+                    udf_boundary=self._udf_runs_here(),
                 )
                 # Kept for the placement report a bound executor receives: the
                 # segments it never sees are exactly the ones a caller needs to
@@ -2270,6 +2291,7 @@ class DataStore(PandasCompatMixin):
             has_sql_source=True,
             schema=schema,
             local_source=local_source,
+            udf_boundary=self._udf_runs_here(),
         )
         first_segment = exec_plan.segments[0] if exec_plan.segments else None
         if (

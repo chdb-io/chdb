@@ -155,6 +155,16 @@ _ROW_PRESERVING_OPS = (
 _ROW_PRESERVING_RELATIONAL = frozenset({"SELECT", "ORDER BY", "OFFSET"})
 
 
+def _calls_a_udf(op) -> bool:
+    """Whether one operation carries a Python UDF call."""
+    try:
+        from .udf import udf_calls_in
+
+        return bool(udf_calls_in([op]))
+    except Exception:  # pragma: no cover - a UDF-less build has no calls
+        return False
+
+
 def returns_every_source_row(ops) -> bool:
     """Whether a segment hands back one row for every row it reads.
 
@@ -762,6 +772,7 @@ class QueryPlanner:
         has_sql_source: bool,
         schema: Dict[str, str] = None,
         local_source: bool = False,
+        udf_boundary: bool = False,
     ) -> ExecutionPlan:
         """
         Analyze LazyOp chain and produce a segmented execution plan.
@@ -783,6 +794,13 @@ class QueryPlanner:
             lazy_ops: List of lazy operations to analyze
             has_sql_source: Whether there's a SQL-compatible data source
             schema: Optional dict mapping column names to types
+            local_source: Whether the source is already in this process
+            udf_boundary: Start a new segment at the first operation calling a
+                Python UDF. Set when the UDF has to run here while the source is
+                remote: ``remote()`` is a distributed read, so a UDF left in the
+                same statement travels to the shard, which has never heard of
+                it. Splitting keeps the scan and the filters on the server and
+                the call at home.
 
         Returns:
             ExecutionPlan with multiple segments
@@ -879,6 +897,12 @@ class QueryPlanner:
         for op_type, op, decision in op_types:
             # Check if this is a column assignment that conflicts with previous ones in segment
             needs_new_segment = False
+            if udf_boundary and op_type == "sql" and _calls_a_udf(op):
+                needs_new_segment = True
+                self._logger.debug(
+                    "  [Segment Split] operation calls a UDF that runs here, "
+                    "splitting so the remote read does not carry it",
+                )
             if op_type == "sql" and isinstance(op, LazyColumnAssignment):
                 if op.column in assigned_columns_in_segment:
                     # Same column being assigned again - need a new segment
