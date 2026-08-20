@@ -5481,8 +5481,22 @@ class ColumnExpr:
         # path, because guessing a SQL translation for them would be wrong.
         if not kwargs and self._expr is not None:
             from .udf import UdfCall, binding_for
+            from .udf_sql import RewrittenCall, sql_rewrite_for
 
             binding = binding_for(func)
+            # A rule that can be said in SQL should be: it then costs nothing to
+            # run, needs no deployment, and no engine has to have heard of it.
+            rewrite = binding.rewrite if binding is not None else sql_rewrite_for(func)
+            if rewrite is not None and len(rewrite.parameters) == 1 + len(args):
+                return ColumnExpr(
+                    expr=RewrittenCall(
+                        rewrite,
+                        self._expr,
+                        *args,
+                        arg_types=binding.arg_types if binding else None,
+                    ),
+                    datastore=self._datastore,
+                )
             if binding is not None:
                 return ColumnExpr(
                     expr=UdfCall(binding, self._expr, *args),

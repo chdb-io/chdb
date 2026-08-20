@@ -60,6 +60,9 @@ class UdfBinding:
         # so the local call has to declare the same conversion or the same chain
         # works on one engine and fails on the other.
         self.arg_types = list(arg_types or [])
+        # The SQL this function turned out to be, when it could be translated.
+        # A rule that becomes an expression needs no engine to host it.
+        self.rewrite = None
         # connection name -> the name the function was deployed under there
         self.remote_names: Dict[str, str] = {}
 
@@ -107,6 +110,10 @@ def bind_local(
     binding.local_name = local_name or logical_name
     if arg_types:
         binding.arg_types = list(arg_types)
+    if binding.rewrite is None and fn is not None:
+        from .udf_sql import sql_rewrite_for
+
+        binding.rewrite = sql_rewrite_for(fn)
     _attach(fn, binding)
     return binding
 
