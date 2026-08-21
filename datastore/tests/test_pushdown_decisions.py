@@ -32,7 +32,7 @@ def test_supported_sql_operation_has_stable_decision_code():
     assert decision.as_dict() == {
         "op_index": None,
         "op_type": "WHERE",
-        "semantic_class": "exact",
+        "execution_class": "sql",
         "eligible": True,
         "cost_prefers_local": False,
         "reason_code": PushdownReasonCode.SQL_SUPPORTED.value,
@@ -157,23 +157,23 @@ def test_an_unrecognised_operation_is_assumed_to_reduce_rows():
 # ---------------------------------------------------------------------------
 
 
-def test_an_unbounded_sort_is_expressible_and_still_runs_locally():
-    """It has an equivalent SQL form; ordering every row just is not worth it."""
-    from datastore.query_planner import SemanticClass
+def test_an_unbounded_sort_is_sql_capable_and_still_runs_locally():
+    """It has a SQL form; ordering every row just is not worth it."""
+    from datastore.query_planner import ExecutionClass
 
     planner = QueryPlanner()
     op = LazyRelationalOp("ORDER BY", "value", fields=["value"])
 
     decision = planner.explain_op_pushdown(op, schema={"value": "Int64"})
 
-    assert decision.semantic_class is SemanticClass.EXACT
+    assert decision.execution_class is ExecutionClass.SQL
     assert decision.cost_prefers_local is True
     assert decision.eligible is False
     assert decision.reason_code is PushdownReasonCode.COST_UNBOUNDED_SORT_LOCAL
 
 
 def test_a_bounded_sort_is_left_to_sql():
-    from datastore.query_planner import SemanticClass
+    from datastore.query_planner import ExecutionClass
 
     planner = QueryPlanner()
     order = LazyRelationalOp("ORDER BY", "value", fields=["value"])
@@ -183,20 +183,20 @@ def test_a_bounded_sort_is_left_to_sql():
         order, schema={"value": "Int64"}, following_ops=[limit]
     )
 
-    assert decision.semantic_class is SemanticClass.EXACT
+    assert decision.execution_class is ExecutionClass.SQL
     assert decision.cost_prefers_local is False
     assert decision.eligible is True
 
 
-def test_an_operation_the_planner_cannot_prove_is_opaque():
+def test_an_operation_the_planner_cannot_turn_into_sql_is_local():
     from datastore.lazy_ops import LazyApply
-    from datastore.query_planner import SemanticClass
+    from datastore.query_planner import ExecutionClass
 
     planner = QueryPlanner()
 
     decision = planner.explain_op_pushdown(LazyApply(lambda value: value))
 
-    assert decision.semantic_class is SemanticClass.OPAQUE
+    assert decision.execution_class is ExecutionClass.LOCAL
     assert decision.eligible is False
-    # Opaque is about meaning, so no cost rule was consulted.
+    # Local-only Python is about capability, so no cost rule was consulted.
     assert decision.cost_prefers_local is False

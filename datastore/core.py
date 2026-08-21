@@ -1404,7 +1404,7 @@ class DataStore(PandasCompatMixin):
                         ops=ops,
                         sql=sql if from_source else None,
                         udfs=self._udfs_in_segment(segment.ops, engine),
-                        semantic_class="exact",
+                        execution_class="sql",
                         **self._segment_measurements(index, remote),
                     )
                 )
@@ -1422,9 +1422,8 @@ class DataStore(PandasCompatMixin):
                     index=index,
                     kind="pandas",
                     engine="pandas",
-                    # A pandas segment is here because the planner could not
-                    # prove a SQL form, which is what opaque means.
-                    semantic_class="opaque",
+                    # A pandas segment is a local Python/pandas boundary.
+                    execution_class="local",
                     **self._segment_measurements(index, False),
                     reason_code=(
                         blocked.reason_code.value if blocked else "pandas_only"

@@ -55,16 +55,17 @@ if TYPE_CHECKING:
 from .sql_executor import CaseWhenExpr, WhereMaskCaseExpr
 
 
-class SemanticClass(str, Enum):
-    """Whether the planner can prove an operation means the same thing in SQL.
+class ExecutionClass(str, Enum):
+    """Stable class for the planner's first decision: SQL or local boundary.
 
     This answers eligibility and nothing else. Where an operation ends up
-    running is a separate question, decided afterwards by cost, and a cost rule
-    must never be able to turn OPAQUE into EXACT.
+    running is a separate question, decided afterwards by cost. A cost rule
+    may keep SQL-capable work local, but it must not turn a local-only Python
+    boundary into SQL.
     """
 
-    EXACT = "exact"
-    OPAQUE = "opaque"
+    SQL = "sql"
+    LOCAL = "local"
 
 
 class PushdownReasonCode(str, Enum):
@@ -336,7 +337,7 @@ class PushdownDecision:
 
     op_index: Optional[int]
     op_type: str
-    semantic_class: SemanticClass
+    execution_class: ExecutionClass
     reason_code: PushdownReasonCode
     detail: str
     # Set when the operation could be SQL but a cost rule keeps it where it is.
@@ -351,14 +352,14 @@ class PushdownDecision:
         Derived, and kept for callers that predate the split: an operation is
         SQL here when it is provably SQL and no cost rule sent it elsewhere.
         """
-        return self.semantic_class is SemanticClass.EXACT and not self.cost_prefers_local
+        return self.execution_class is ExecutionClass.SQL and not self.cost_prefers_local
 
     def as_dict(self) -> Dict[str, Any]:
         """Return a JSON-friendly representation for explain consumers."""
         return {
             "op_index": self.op_index,
             "op_type": self.op_type,
-            "semantic_class": self.semantic_class.value,
+            "execution_class": self.execution_class.value,
             "eligible": self.eligible,
             "cost_prefers_local": self.cost_prefers_local,
             "reason_code": self.reason_code.value,
@@ -1020,11 +1021,10 @@ class QueryPlanner:
         """Classify an operation and explain the existing planner decision.
 
         Two questions, asked in order and never mixed. First, does the
-        operation have a SQL form that means the same thing - that is the
-        semantic class, and no cost rule may change it. Only then, is SQL where
-        it should run: a sort with no limit is expressible in SQL and still
-        belongs in pandas, and that is a cost decision wearing its own reason
-        code.
+        operation have a SQL form. If it does not, this is a local boundary.
+        Only then, is SQL where it should run: a sort with no limit is
+        expressible in SQL and still belongs in pandas, and that is a cost
+        decision wearing its own reason code.
         """
         expressible = self._can_push_op_to_sql(
             op,
@@ -1039,7 +1039,7 @@ class QueryPlanner:
             return self._make_pushdown_decision(
                 op_index=op_index,
                 op_type=op_type,
-                semantic_class=SemanticClass.OPAQUE,
+                execution_class=ExecutionClass.LOCAL,
                 reason_code=self._unpushable_reason_code(
                     op, preceding_ops or [], following_ops or []
                 ),
@@ -1052,7 +1052,7 @@ class QueryPlanner:
             return self._make_pushdown_decision(
                 op_index=op_index,
                 op_type=op_type,
-                semantic_class=SemanticClass.EXACT,
+                execution_class=ExecutionClass.SQL,
                 reason_code=cost_code,
                 cost_prefers_local=True,
             )
@@ -1060,7 +1060,7 @@ class QueryPlanner:
         return self._make_pushdown_decision(
             op_index=op_index,
             op_type=op_type,
-            semantic_class=SemanticClass.EXACT,
+            execution_class=ExecutionClass.SQL,
             reason_code=PushdownReasonCode.SQL_SUPPORTED,
         )
 
@@ -1094,14 +1094,14 @@ class QueryPlanner:
     def _make_pushdown_decision(
         op_index: Optional[int],
         op_type: str,
-        semantic_class: SemanticClass,
+        execution_class: ExecutionClass,
         reason_code: PushdownReasonCode,
         cost_prefers_local: bool = False,
     ) -> PushdownDecision:
         return PushdownDecision(
             op_index=op_index,
             op_type=op_type,
-            semantic_class=semantic_class,
+            execution_class=execution_class,
             reason_code=reason_code,
             detail=PUSHDOWN_REASON_DETAILS[reason_code],
             cost_prefers_local=cost_prefers_local,

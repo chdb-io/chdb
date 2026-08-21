@@ -5474,11 +5474,12 @@ class ColumnExpr:
             2    58
             Name: age, dtype: int64
         """
-        # A chDB UDF is a SQL function, not an opaque callable: applying one is
-        # the same expression as calling it as a column method, so it compiles
-        # into the query instead of pulling the column into pandas. Ordinary
-        # callables - lambdas, closures, anything unregistered - keep the pandas
-        # path, because guessing a SQL translation for them would be wrong.
+        # A chDB UDF is a SQL function, not an ordinary Python callable:
+        # applying one is the same expression as calling it as a column method,
+        # so it compiles into the query instead of pulling the column into
+        # pandas. Ordinary callables - lambdas, closures, anything unregistered
+        # - keep the pandas path, because guessing a SQL translation for them
+        # would be wrong.
         if not kwargs and self._expr is not None:
             from .udf import UdfCall, binding_for
             from .udf_sql import RewrittenCall
@@ -5723,7 +5724,7 @@ class ColumnExpr:
 
             # Fail at the call site on pandas < 3 (whose Series.map has no
             # **kwargs), consistent with the eager NotImplementedError raised
-            # by the other pandas-3.0 additions, instead of an opaque
+            # by the other pandas-3.0 additions, instead of an unhelpful
             # TypeError at lazy execution time.
             supports_kwargs = any(
                 p.kind is inspect.Parameter.VAR_KEYWORD

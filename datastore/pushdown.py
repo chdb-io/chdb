@@ -55,8 +55,8 @@ class RemoteSource:
 class SegmentResult:
     """Rows returned by an executor, plus whatever metrics it can report.
 
-    ``metrics`` is opaque here: the executor owns query IDs, scanned rows and
-    server timings, and passes them through for tracing and UI display.
+    ``metrics`` is pass-through here: the executor owns query IDs, scanned rows
+    and server timings, and passes them through for tracing and UI display.
     """
 
     frame: Any
@@ -139,10 +139,8 @@ class SegmentPlacement:
     # A deployment's generated name tells a reader nothing; the pair says which
     # function of theirs ran there, and what became of it.
     udfs: tuple = ()
-    # Whether the planner could prove this segment means the same thing in SQL.
-    # A reader deciding whether to trust a placement wants this before they want
-    # the timings: EXACT was a choice among equals, OPAQUE was not.
-    semantic_class: str = "exact"
+    # Stable class for the segment: SQL work, or a local Python/pandas boundary.
+    execution_class: str = "sql"
     # What actually happened, when the engine that ran it said so. None is
     # unknown and stays unknown: a number nobody measured is worse than a gap,
     # because a reader cannot tell the two apart afterwards.
@@ -165,7 +163,7 @@ class SegmentPlacement:
             "kind": self.kind,
             "engine": self.engine,
             "reasonCode": self.reason_code,
-            "semanticClass": self.semantic_class,
+            "executionClass": self.execution_class,
             "detail": self.detail,
             "ops": list(self.ops),
             "sql": self.sql,
