@@ -1,5 +1,5 @@
 <div align="center">
-   <a href="https://clickhouse.com/blog/chdb-joins-clickhouse-family">📢 chDB joins the ClickHouse family 🐍+🚀</a>
+   <a href="https://wasm.chdb.io"><b>🎉 New: chDB-Wasm — the complete ClickHouse engine compiled to WebAssembly. Run SQL in your browser, no server, no install → wasm.chdb.io</b></a>
 </div>
 <div align="center">
 <picture>
@@ -28,6 +28,7 @@
 ## Features
 
 * **🐼 Pandas-compatible DataStore API** - Use familiar pandas syntax with ClickHouse performance
+* **🌐 Runs in the browser via WebAssembly** - [chDB-Wasm](https://github.com/chdb-io/chdb-wasm) compiles the full engine to WASM; try it live at [wasm.chdb.io](https://wasm.chdb.io)
 * In-process SQL OLAP Engine, powered by ClickHouse
 * No need to install ClickHouse
 * Minimized data copy from C++ to Python with [python memoryview](https://docs.python.org/3/c-api/memoryview.html)
@@ -49,6 +50,8 @@ Currently, chDB supports Python 3.9+ on macOS and Linux (x86_64 and ARM64).
 ```bash
 pip install chdb
 ```
+
+No install at all: open [wasm.chdb.io](https://wasm.chdb.io) and run SQL against the WebAssembly build ([chDB-Wasm](https://github.com/chdb-io/chdb-wasm)) right in your browser.
 
 Install ADBC support with Python 3.10 or later:
 
@@ -535,6 +538,7 @@ For more examples, see [examples](examples) and [tests](tests).
 
 ## Demos and Examples
 
+- [chDB-Wasm browser SQL shell](https://wasm.chdb.io) — the full ClickHouse engine in WebAssembly, zero install ([source](https://github.com/chdb-io/chdb-wasm))
 - [Project Documentation](https://clickhouse.com/docs/en/chdb) and [Usage Examples](https://clickhouse.com/docs/en/chdb/install/python)
 - [Colab Notebooks](https://colab.research.google.com/drive/1-zKB6oKfXeptggXi0kUX87iR8ZTSr4P3?usp=sharing) and other [Script Examples](examples)
 
