@@ -1,0 +1,345 @@
+---
+title: 'chDB Durable V1 protocol'
+sidebarTitle: 'V1 protocol'
+slug: /durable/protocol-v1
+description: 'Normative object format and behavior contract for interoperable chDB Durable bindings'
+keywords: ['chdb', 'durable', 'protocol', 'head.json', 'wal', 'checkpoint', 'cas']
+doc_type: 'reference'
+---
+
+This page defines the interoperability contract for chDB Durable V1. An implementation may claim V1 support only after it satisfies every requirement and passes the conformance suite.
+
+The following terms are normative:
+
+- **MUST / MUST NOT:** required for conformance.
+- **SHOULD:** strongly recommended; a binding must document any deviation.
+- **Core:** behavior that requires the chdb-core parser, catalog, or backup engine.
+- **Binding:** behavior implemented by each language binding, with the same externally visible result.
+- **Frozen:** data or behavior that affects cross-binding interoperability.
+
+## 1. Scope {#scope}
+
+V1 covers:
+
+- one chDB database per Durable object;
+- one writer and any number of read-only openers;
+- one SQL statement per public call;
+- a statement WAL for mutations contained within the database;
+- full `BACKUP DATABASE` checkpoints;
+- immutable base and WAL objects referenced by one CAS-updated `head.json`;
+- leases, heartbeats, fencing, bounded retries, and ambiguous-commit reconciliation;
+- size and SHA-256 integrity checks;
+- one core ABI for backup, restore, and query analysis.
+
+V1 does not cover incremental checkpoints, data WALs, global state, multiple writers, multiple databases per object, garbage collection, destruction, cross-object transactions, or migration across backup formats.
+
+## 2. chdb-core contract {#core-contract}
+
+### ABI stability {#abi-stability}
+
+chdb-core MUST export the following symbols on every supported platform:
+
+- `chdb_backup_database_n`;
+- `chdb_restore_database_n`;
+- `chdb_classify_query_n`;
+- `chdb_version()`.
+
+Starting with the first Durable V1 ABI, later chdb-core releases MUST remain backward compatible:
+
+- An exported symbol MUST NOT be removed or change its signature or semantics.
+- Versioned structs such as `chdb_query_analysis_v1` may add fields only at the end. The caller sets `struct_size`, and core writes only the fields that fit.
+- Existing enum and flag values MUST NOT be renumbered. A caller must be able to handle an unknown value by failing closed.
+
+A binding whose struct cannot hold every field required by the V1 gate MUST fail closed. ABI compatibility protects deployments where the compile-time header and runtime `libchdb` come from different releases. It is separate from archive compatibility and is tested separately.
+
+### Backup, restore, and query analysis {#backup-restore-analysis}
+
+Backup and restore MUST take the database identifier and archive path as separate arguments. Core constructs the query and quotes both values safely; a binding MUST NOT assemble `BACKUP` or `RESTORE` SQL. V1 passes no incremental base and always creates a full backup.
+
+Query analysis MUST return the following without executing SQL or changing session state:
+
+- the number of executable statements;
+- the query class;
+- whether the query contains a secret;
+- whether all persistent writes target the requested database;
+- whether the query changes the database lifecycle.
+
+Query classes are:
+
+| Class | Meaning |
+| --- | --- |
+| `READ_ONLY` | Does not change persistent state |
+| `MUTATING` | Changes state contained in the target database and captured by a checkpoint |
+| `MUTATING_GLOBAL` | Changes persistent state outside the database |
+| `CONTROL` | Session, backup/restore, system, or another managed operation |
+| `UNKNOWN` | Parse failure or unsupported syntax; the caller must fail closed |
+
+The public entry-point gates are fixed:
+
+```text
+query:
+  statement_count == 1
+  AND class == READ_ONLY
+
+execute:
+  statement_count == 1
+  AND class == MUTATING
+  AND writes_only_target_database
+  AND NOT changes_database_lifecycle
+  AND NOT has_secrets
+```
+
+A read-only query may contain a secret because it never enters the WAL, but the binding MUST NOT expose the SQL through errors, logs, or traces. A mutation containing a secret MUST be rejected.
+
+### Full-archive backward compatibility {#archive-compatibility}
+
+Starting with the first Durable V1 archive, every later chdb-core release MUST restore a full backup created through `chdb_backup_database_n` by the same release or an earlier one. Bindings do not require an exact engine-version match.
+
+This promise does not cover:
+
+- incremental archives;
+- archives not created by chdb-core;
+- archives that depend on a table engine or data type removed from the reader.
+
+`head.engine.backup_format` is the archive-format generation. If the default compatibility promise can no longer hold, core MUST increment this value, and a reader MUST reject a generation above its baseline.
+
+If RESTORE fails for a full archive covered by this promise, the binding MUST close the partial engine, release the lease, clean up its scratch directory, and return `engine_incompatible` rather than `engine`.
+
+### Durable protocol backward compatibility {#protocol-compatibility}
+
+Starting with V1, later Durable bindings MUST continue to read older objects and MUST NOT remove or reinterpret frozen fields or state transitions. Extensions use new fields, a protocol version, or a named feature. Writers MUST preserve unknown fields.
+
+An older reader does not have to understand a future requirement, but it MUST fail closed when it encounters one. A newer reader MUST retain its V1 read path. Protocol, C ABI, and archive compatibility are separate promises with separate tests.
+
+## 3. Object layout {#object-layout}
+
+```text
+<namespace>/<object-id>/
+  head.json
+  checkpoints/<generation>-<seq>-<uuid8>.tar.gz
+  wal/<generation>-<seq>-<uuid8>.jsonl
+```
+
+Rules:
+
+- `generation` and `seq` are decimal integers without leading zeroes.
+- `uuid8` is the first eight lowercase hexadecimal characters of a UUIDv4.
+- Every checkpoint and WAL attempt uses a unique key and an atomic conditional create.
+- Object references are relative keys separated by `/`. They MUST NOT start with `/` or contain an empty component, `.` or `..`.
+- V1 has no `preamble/` or blob directory.
+
+## 4. `head.json` {#head}
+
+`head.json` is UTF-8 JSON without a byte-order mark. Field types and semantics are frozen; whitespace and key order are not.
+
+```json
+{
+  "protocol": {
+    "version": 1,
+    "reader_features": [],
+    "writer_features": []
+  },
+  "engine": {
+    "name": "chdb",
+    "version": "26.7.2-rc.2",
+    "backup_format": 1,
+    "min_reader": "26.7.2-rc.2"
+  },
+  "lease": {
+    "generation": 3,
+    "owner": "worker-1",
+    "instance": "unique-live-instance-id",
+    "expires_at": 1788230400.0
+  },
+  "manifest": {
+    "db": "default",
+    "base": {
+      "key": "checkpoints/3-8-acde1234.tar.gz",
+      "size": 1048576,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    },
+    "wal": [
+      {
+        "key": "wal/3-9-acde5678.jsonl",
+        "size": 127,
+        "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+      }
+    ],
+    "seq": 9
+  }
+}
+```
+
+A released lease keeps its generation and sets `owner`, `instance`, and `expires_at` to `null`.
+
+Rules:
+
+- Acquiring or taking over a lease increments `lease.generation`. A heartbeat or ordinary commit does not.
+- Publishing a WAL segment or checkpoint reference increments `manifest.seq`.
+- `engine.version` records the producer version; it is not an exact-match gate.
+- `backup_format` is a non-negative integer. The V1 baseline is `1`. `min_reader` is the oldest chdb-core release that may read the current state.
+- A writer records the compatibility values for its running core and MUST NOT lower either requirement already stored on the object.
+- `base` may be `null`. Every non-null reference contains `key`, byte `size`, and a lowercase SHA-256 digest.
+- WAL references appear in replay order.
+- Every integer fits in the cross-language safe-integer range.
+- Known fields are validated strictly. Writers preserve unknown fields when updating the document.
+- `head.json` is at most 1 MiB.
+
+A reader MUST reject a protocol version above its baseline or an unknown `reader_feature`. An unknown `writer_feature` permits a read-only open but prevents the reader from acquiring the writer lease. V1 defines no non-empty feature names.
+
+The engine gate is fixed:
+
+```text
+backup_format > reader baseline   -> engine_incompatible
+running_version < min_reader      -> engine_incompatible
+otherwise                         -> open
+```
+
+Versions are compared by chDB release precedence, never as lexicographic strings.
+
+## 5. Statement WAL {#statement-wal}
+
+The WAL is UTF-8 JSONL with one statement record per line. Every record ends with `\n`:
+
+```json
+{"sql":"INSERT INTO events VALUES (1, 'ready')"}
+```
+
+A binding MUST:
+
+- replay records in manifest order and line order;
+- use an internal replay path rather than calling public `execute()`;
+- record the segment size and SHA-256 digest before upload and verify both before replay;
+- use a unique key and conditional create without overwriting a published segment;
+- limit one SQL statement to 64 MiB of UTF-8 and one uncompressed segment to 128 MiB;
+- reject a statement before execution if it would push the WAL buffer over the limit.
+
+V1 re-executes SQL; it does not materialize `now()`, random values, UUIDs, or external input. The caller is responsible for making mutations deterministic.
+
+## 6. Backend contract {#backend-contract}
+
+A storage backend provides operations equivalent to:
+
+```text
+get(key)
+get_with_etag(key)
+put_file_if_absent(key, local_path)
+put_bytes_if_absent(key, bytes)
+replace_if_match(key, bytes, etag)
+download_to_file(key, local_path)
+```
+
+Requirements:
+
+- Conditional create and replace MUST be atomic provider operations, not a `HEAD` followed by `PUT`.
+- ETags are opaque CAS tokens; an implementation MUST NOT assume they are MD5 hashes.
+- Checkpoint upload and download MUST support files or streams without loading the full archive into memory.
+- A download MUST first go to a unique temporary path. It is verified before being published atomically at its final scratch path.
+- Every advertised provider MUST pass the conformance suite against the real service.
+
+## 7. State machine {#state-machine}
+
+### Writer open {#writer-open}
+
+A writer open performs these steps:
+
+1. Read and validate the head. If it does not exist, create it conditionally and acquire the generation 1 lease.
+2. Check protocol features, `backup_format`, and `min_reader`.
+3. Acquire an unowned or expired lease with CAS. Taking over an unexpired lease requires an explicit force operation.
+4. Create a unique, private, empty scratch path.
+5. Download and verify the base, then restore it into an empty database. Create the database when `base` is `null`.
+6. Download, verify, and replay each WAL segment in order.
+7. Renew the lease with CAS before returning, proving that ownership survived recovery.
+8. On failure, close the partial engine, try to release the lease, and clean up the scratch path. A full-archive RESTORE failure inside the compatibility promise returns `engine_incompatible`.
+
+A read-only open does not acquire a lease. It returns `not_found` rather than creating a missing object, restores the immutable manifest snapshot from its first head read, and accepts only read-only queries.
+
+### Operations {#operations}
+
+Each object uses an explicit operation queue for `execute`, `query`, `flush`, `checkpoint`, and `close`, plus serialized head CAS operations for lease renewal. A heartbeat must still be able to renew the lease during a long checkpoint. State-machine invariants hold while provider I/O is in flight.
+
+- `execute()` passes the core gate, runs the statement locally, then appends it to the in-memory WAL buffer. Success is not a durability guarantee.
+- `flush()` conditionally creates a WAL segment, then commits it to the head with CAS. It succeeds only after the commit is confirmed or reconciliation proves that it landed.
+- `checkpoint()` creates a full backup containing every local mutation, uploads and verifies it, then replaces the base, clears the WAL list, and increments the sequence with one head CAS. It clears the covered WAL buffer only after that CAS succeeds.
+- `close()` stops new operations, drains the queue, flushes, and releases the lease. It always closes the engine and cleans up the scratch path. A persistence or lease-release failure is returned to the caller.
+
+## 8. Leases and fencing {#lease-and-fencing}
+
+- The heartbeat interval MUST NOT exceed one third of the lease TTL.
+- Every head CAS uses the current ETag and is serialized with other head updates.
+- A writer that cannot confirm renewal before its locally known expiry MUST fence itself and reject new mutations, flushes, and checkpoints.
+- A normal takeover waits until lease expiry plus the declared clock-skew allowance.
+- Taking over an unexpired lease requires explicit `force` and warns that the previous writer's unflushed data may be lost.
+- A takeover increments the generation. Every later CAS from the old writer fails with `lease_fenced`.
+
+## 9. Ambiguous commits {#ambiguous-commits}
+
+A timeout, connection reset, or 5xx response may arrive after the provider has committed a write. It is not proof of failure.
+
+- For an ambiguous immutable PUT, reread the unique key. Matching size and SHA-256 prove success; different content is `corrupt`.
+- For an ambiguous head CAS, reread the head. The expected reference and sequence, with lease ownership intact, prove success.
+- A changed head with lost ownership is `lease_fenced`.
+- An outcome that remains unprovable at the deadline is `commit_ambiguous`.
+
+Retries use a deadline, backoff, and a maximum attempt count. They stop after self-fencing.
+
+## 10. Errors {#errors}
+
+A language may use exceptions, error values, or `Result`, but these categories MUST be distinguishable in code:
+
+| Category | Meaning |
+| --- | --- |
+| `not_found` | A read-only or existing-only open cannot find the object |
+| `lease_held` | Another writer holds an unexpired lease |
+| `lease_fenced` | This writer has lost ownership |
+| `engine_incompatible` | The backup format or minimum reader is incompatible, or RESTORE violated the full-archive compatibility promise |
+| `protocol_unsupported` | The protocol version or a required feature is unsupported |
+| `corrupt` | Invalid schema, missing reference, bad size or digest, or incomplete recovery state |
+| `classification_refused` | The statement count, class, or write target fails the gate |
+| `secret_refused` | A mutation contains a secret |
+| `engine` | A core query, backup, or restore operation fails outside the compatibility case above |
+| `backend` | Provider authentication, network, or non-CAS failure |
+| `timeout` | The operation is known not to have committed before its deadline |
+| `commit_ambiguous` | The outcome cannot be proved before its deadline |
+| `limit_exceeded` | A statement, WAL segment, head document, or provider object exceeds its limit |
+| `closed` | An operation is attempted on a closed object |
+
+Error messages MUST NOT contain secret-bearing SQL, provider credentials, or unredacted connection parameters.
+
+## 11. Process constraint {#process-constraint}
+
+The chdb-core lifecycle used by V1 allows one active EmbeddedServer and data path per process. Multiple connections may share that path. A different path cannot open until every connection to the old path has closed.
+
+Different Durable scratch paths therefore cannot be active in one process at the same time. A binding may use a process-level registry to make same-path reuse and different-path rejection consistent, but it MUST NOT present the registry as support for parallel data paths in core.
+
+## 12. Conformance {#conformance}
+
+Every V1 binding MUST pass:
+
+- the core ABI and query-classification matrix;
+- new-header/old-library and old-header/new-library ABI tests;
+- restoration of full backups created by earlier core releases;
+- all three `backup_format` and `min_reader` gate outcomes;
+- empty, checkpoint-only, checkpoint-plus-WAL, and quoted-database fixtures;
+- missing or corrupt base and WAL, future protocol, unknown feature, and incompatible-engine fixtures;
+- single-writer races, fencing, heartbeat, and failed or ambiguous WAL/checkpoint scenarios;
+- unknown-field round trips, size limits, secret redaction, and close-failure scenarios;
+- the full provider suite against at least one real object store.
+
+Every writer's fixture MUST be read by at least two other bindings. The authoritative formats, scenarios, and fixtures live in the chDB repository.
+
+Future protocol readers MUST continue to read every published V1 fixture. Future chdb-core releases MUST continue to restore published full-backup fixtures from earlier releases.
+
+## 13. V2 candidates {#v2-candidates}
+
+Each candidate needs its own proposal, feature name, fixtures, and upgrade and downgrade rules before entering V2:
+
+- a preamble for global state;
+- portable incremental checkpoints;
+- Parquet or data WALs;
+- reachability-aware garbage collection and destruction;
+- multiple writers, multiple databases, and cross-object transactions;
+- migration across backup formats and downgrade tooling;
+- selective checkpoints or general rollup primitives.
+
+A language binding or provider released later may still implement V1; release timing does not define a protocol version.
