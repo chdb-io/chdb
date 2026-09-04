@@ -512,7 +512,7 @@ chDB can translate natural language prompts into SQL. Configure the AI client th
 
 - `ai_provider`: `openai` or `anthropic`. Defaults to OpenAI-compatible when `ai_base_url` is set, otherwise auto-detected.
 - `ai_api_key`: API key; falls back to `AI_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY` env vars.
-- `ai_base_url`: Custom base URL for OpenAI-compatible endpoints.
+- `ai_base_url`: Custom base URL for OpenAI-compatible endpoints (or an OpenAI-compatible gateway such as [OrcaRouter](https://www.orcarouter.ai)).
 - `ai_model`: Model name (e.g., `gpt-4o-mini`, `claude-3-opus-20240229`).
 
 ```python
@@ -529,6 +529,18 @@ print(sql)  # e.g., SELECT * FROM nums ORDER BY n DESC
 # ask(): one-call generate + execute
 print(conn.ask("List the numbers table", format="Pretty"))
 ```
+
+Any OpenAI-compatible gateway can be used as the model backend, e.g. [OrcaRouter](https://www.orcarouter.ai):
+
+```python
+conn = chdb.connect(
+    "file::memory:?ai_provider=openai&ai_base_url=https://api.orcarouter.ai"
+    "&ai_api_key=sk-orca-...&ai_model=openai/gpt-4o-mini"
+)
+print(conn.generate_sql("Select all rows from nums ordered by n desc"))
+```
+
+The same connection-string parameters apply to `chdb.Session`.
 
 </details>
 
