@@ -52,8 +52,6 @@ durable = ["boto3>=1.36"]  # IfMatch/IfNoneMatch conditional writes on PutObject
 durable-gcs = ["google-cloud-storage"]
 durable-azure = ["azure-storage-blob"]
 
-# Expose the `python -m chdb` CLI as a `chdb` command, so `pipx install chdb` and
-# `uvx chdb "SELECT 1"` work. main() lives in chdb-core's chdb/__main__.py.
 [project.scripts]
 chdb = "chdb.__main__:main"
 
