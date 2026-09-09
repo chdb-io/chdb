@@ -30,7 +30,7 @@ state machine reconciles it (§5.8) into success, `lease_fenced`, or
 `Namespace.destroy`, which is a development convenience outside the protocol.
 
 `make_backend(url, sub)` maps a URL to a backend scoped to `<base>/<sub>`:
-    local:/path/to/root
+    local:/path/to/root         (`file:///path/to/root` and a bare path too)
     s3://bucket/prefix          (endpoint via CHDB_DURABLE_S3_ENDPOINT for MinIO/R2)
     gcs://bucket/prefix
     azure://container/prefix
@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import os
 from typing import Optional, Protocol, runtime_checkable
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 
 @runtime_checkable
@@ -64,9 +64,16 @@ def make_backend(url: str, sub: str = "") -> Backend:
     u = urlparse(url)
     scheme = u.scheme or "local"
 
-    if scheme == "local":
+    # `file:` and `local:` are one backend under two names. Each binding grew
+    # its own spelling -- Node writes `file:`, this one wrote `local:`, Go
+    # takes either -- and a namespace URL is the sort of thing that gets shared
+    # between a Python service and a Node one, so all three answer to both.
+    if scheme in ("local", "file"):
         from .local import LocalFSBackend
         root = (u.netloc + u.path) if u.netloc else u.path
+        # A file: URL is percent-encoded; local: and a bare path are literal.
+        if scheme == "file":
+            root = unquote(root)
         base = os.path.realpath(root)
         # Constrain the object id beneath root — a caller-controlled sub like
         # "../../x", an absolute path, or a symlink to an outside dir would

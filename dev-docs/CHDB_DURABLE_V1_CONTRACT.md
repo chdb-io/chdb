@@ -285,7 +285,7 @@ UTF-8 JSON，无 BOM。键顺序和空白不冻结；字段类型、含义和状
     "expires_at": 1788230400.0
   },
   "manifest": {
-    "db": "mem",
+    "db": "default",
     "base": {
       "key": "checkpoints/3-8-acde1234.tar.gz",
       "size": 1048576,
@@ -322,6 +322,7 @@ UTF-8 JSON，无 BOM。键顺序和空白不冻结；字段类型、含义和状
 - `engine.backup_format` 为 chDB backup archive 格式代际；V1 baseline 为 `1`；
 - `engine.min_reader` 为能够读取当前 object 的最低 chDB engine 版本；
 - 从首个 Durable V1 archive 开始，后续 chdb-core release 必须能恢复同一 release 或更早 release 经 `chdb_backup_database_n` 创建的 V1 full backup；只有当 archive 格式代际真的不兼容时，才通过提高 `backup_format` 让旧 reader fail closed；
+- `manifest.db` 为该 object 持有的唯一 database；冷建时取调用方给的名字，调用方不给时所有 binding 一律用 `default`；写入之后 head 即为权威，再次打开时传入的 database 参数必须被忽略；
 - `manifest.base` 为 object reference 或 `null`；
 - 每个 object reference 都必须包含 `key`、字节 `size` 和小写完整 SHA-256；
 - `manifest.wal` 按重放顺序排列；
