@@ -13,7 +13,6 @@ on:
       - main
     paths-ignore:
       - 'docs/**'
-      - '.github/workflows/build_*_wheels*.yml'
       - '.github/workflows/external_clickhouse_integration.yaml'
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -21,7 +20,6 @@ on:
       - main
     paths-ignore:
       - 'docs/**'
-      - '.github/workflows/build_*_wheels*.yml'
       - '.github/workflows/external_clickhouse_integration.yaml'
 
 jobs:
@@ -221,31 +219,50 @@ jobs:
           python -m pip install dist/*.whl --force-reinstall
           python -m pip install pytest
 
-          # Durable V1 needs chdb-core's backup / restore / query-analysis ABI.
-          # Until a chdb-core carrying it is what pip resolves by default, the
-          # module skips itself — and that skip is as much the thing under test
-          # as the checks are, so this step is green either way and turns into
-          # real coverage the day the dependency catches up.
-          set +e
-          python -m pytest tests/test_durable.py -v --tb=short
-          code=$?
-          set -e
-          if [ "$code" -eq 5 ]; then
-            # Exit 5 is pytest's "collected nothing", which is what a
-            # module-level skip looks like from outside. Accepting it blindly
-            # would also swallow a suite that stopped being collected for some
-            # unrelated reason, so make it prove why it skipped.
-            python - <<'PY'
+          # Move the engine to the pre-release that carries the Durable V1 ABI,
+          # then put the wrapper back on top of it.
+          #
+          # The second install is not redundant. chdb and chdb-core both own
+          # chdb/__init__.py, so whichever lands last wins, and the wrapper's
+          # is the one that has to: chdb-core ships a superset that happens to
+          # work today, which is not a property to build a test job on.
+          #
+          # --no-deps on both keeps pip from re-resolving chdb-core back down
+          # to what PyPI offers.
+          python -m pip install --force-reinstall --no-deps "$CHDB_CORE_ABI_WHEEL"
+          python -m pip install dist/*.whl --force-reinstall --no-deps
+
+          # Name the engine under test before running anything, so the wrong
+          # one is one line of output rather than 49 collection errors.
+          python - <<'PY'
           import sys
-          from chdb.durable.engine import engine_has_v1_abi
-          if engine_has_v1_abi():
-              sys.exit("collected nothing even though this chdb-core has the "
-                       "Durable V1 ABI — the suite is no longer running")
-          print("durable suite skipped: this chdb-core has no Durable V1 ABI")
+          from chdb.durable.engine import engine_has_v1_abi, engine_version
+          if not engine_has_v1_abi():
+              sys.exit("chdb-core does not export the Durable V1 ABI")
+          print("durable conformance: chdb-core " + engine_version())
           PY
-          elif [ "$code" -ne 0 ]; then
-            exit "$code"
-          fi
+
+          # Exit 5 — pytest collecting nothing — used to be tolerated here,
+          # because a module-level skip was the expected outcome on an engine
+          # without the ABI. With the engine pinned there is nothing left for
+          # that tolerance to excuse: collecting nothing now means the suite
+          # stopped running, so the exit status stands on its own.
+          python -m pytest tests/test_durable.py -v --tb=short
+        env:
+          # Pinned, and pinned to a pre-release on purpose.
+          #
+          # No chdb-core on PyPI exports backup_database / restore_database /
+          # classify_query — 26.7.0 is the newest published — so resolving
+          # the dependency normally leaves this suite skipping itself, and a
+          # step that is green whether or not it ran is not a check. The wheels
+          # are already attached to the chdb-core release, so pinning one costs
+          # a download and no build.
+          #
+          # This comes out when a chdb-core carrying the ABI is what pip
+          # resolves by default and chdb's floor rises to match. Until then the
+          # pre-release version keeps anything here from reading as a stable
+          # dependency.
+          CHDB_CORE_ABI_WHEEL: https://github.com/chdb-io/chdb-core/releases/download/v26.7.2-rc.2/chdb_core-26.7.2-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
         continue-on-error: false
       - name: Upload wheels to release
         if: startsWith(github.ref, 'refs/tags/v')
