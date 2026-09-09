@@ -2864,15 +2864,25 @@ class DataStore(PandasCompatMixin):
                 f"got {type(data).__name__}"
             )
 
-        # Arrow-backed pandas (``pd.ArrowDtype``) keeps the source's Arrow types
-        # faithfully (nullable ints stay nullable, no int->float coercion), which
-        # chDB's Python() table function reads directly. Fall back to the default
-        # numpy-backed conversion if a type has no Arrow-backed mapping.
-        try:
-            df = table.to_pandas(types_mapper=pd.ArrowDtype)
-        except Exception:
-            df = table.to_pandas()
-        return cls.from_df(df, name=name)
+        # chDB's Python() table function rejects ``pd.ArrowDtype`` columns
+        # outright (code 48, NOT_IMPLEMENTED), so materialize into dtypes it can
+        # read. Integers and booleans use pandas' nullable extension dtypes, which
+        # keep nullability without the int->float widening the default conversion
+        # would apply; every other type takes the default NumPy-backed mapping.
+        #
+        # Floats deliberately stay NumPy-backed: pandas nullable Float64/Float32
+        # built by pyarrow leave 0.0 under the validity mask and chDB reads it as
+        # a real 0 (chdb-core#225). NumPy float64 + NaN round-trips correctly.
+        def _pandas_dtype(arrow_type):
+            if pa.types.is_unsigned_integer(arrow_type):
+                return pd.UInt64Dtype()
+            if pa.types.is_signed_integer(arrow_type):
+                return pd.Int64Dtype()
+            if pa.types.is_boolean(arrow_type):
+                return pd.BooleanDtype()
+            return None
+
+        return cls.from_df(table.to_pandas(types_mapper=_pandas_dtype), name=name)
 
     @classmethod
     def uri(cls, uri: str, **kwargs) -> "DataStore":
