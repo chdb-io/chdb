@@ -29,14 +29,9 @@ from .errors import EngineError, EngineIncompatible
 #: refusal can list what is missing rather than fail on first use.
 _REQUIRED_ABI = ("backup_database", "restore_database", "classify_query")
 
-#: Where the wheels that carry the ABI actually are. Not PyPI: a chdb-core
-#: release is about half a gigabyte of wheels against a project quota that only
-#: moves one way, so releases are published to GitHub and only some of them go
-#: on to PyPI. `pip install -U chdb-core` therefore does not reliably get you a
-#: newer engine, and a hint that says it does sends people in a circle.
-_RELEASES_URL = "https://github.com/chdb-io/chdb-core/releases"
-
-#: The first chdb-core that exports backup / restore / classify.
+#: The first chdb-core that exports backup / restore / classify, as the engine
+#: reports itself. Its distribution is versioned `26.7.2`, without the `rc.2`,
+#: and 26.7.3 is the first release carrying the ABI that is published to PyPI.
 _ABI_SINCE = "26.7.2-rc.2"
 
 
@@ -46,6 +41,11 @@ def _abi_hint(missing=()) -> str:
     The version is in the message because without it the two failures read
     identically: an engine too old to have the ABI, and a new engine that the
     wrapper is not actually loading because something else owns `chdb/`.
+
+    The command names chdb-core rather than chdb on purpose. pip's default
+    upgrade strategy leaves a dependency alone once it is satisfied, and an
+    installed 26.7.0 satisfies chdb's floor, so upgrading chdb would report
+    success and move nothing.
     """
     try:
         loaded = engine_version() or "unknown"
@@ -53,24 +53,13 @@ def _abi_hint(missing=()) -> str:
         loaded = "unknown"
 
     lines = [
-        "chdb.durable needs a chdb-core with the Durable V1 ABI "
-        "(backup_database / restore_database / classify_query), added in "
-        f"{_ABI_SINCE}.",
+        f"chdb.durable needs chdb-core {_ABI_SINCE} or newer, which added "
+        "backup_database / restore_database / classify_query.",
         f"The engine loaded here reports {loaded}.",
     ]
     if missing:
         lines.append("Missing: " + ", ".join(missing) + ".")
-    lines += [
-        "",
-        "chdb-core wheels are published as release assets, and the newest one "
-        "on PyPI may be older than the newest release, so `pip install -U "
-        "chdb-core` is not enough. Install the wheel for your platform from "
-        f"{_RELEASES_URL}/latest in the same command as chdb, so the wrapper's "
-        "chdb/__init__.py lands on top of the engine's:",
-        "",
-        '    pip install "chdb[durable]" \\',
-        '      "chdb-core @ <the chdb_core-*.whl URL for your platform>"',
-    ]
+    lines += ["", "    pip install -U chdb-core"]
     return "\n".join(lines)
 
 #: Settings pinned on the managed connection. A durable object promises that a

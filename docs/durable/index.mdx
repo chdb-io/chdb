@@ -13,6 +13,16 @@ It is not a remote database or a live copy of the chDB data directory. Queries a
 
 For the cross-binding contract, see the [Durable V1 protocol](/chdb/durable/protocol-v1). For use cases and Python examples, see the [durable agent memory cookbook](https://github.com/chdb-io/cookbook/tree/main/durable-agent-memory).
 
+## Installation {#installation}
+
+```bash
+pip install "chdb[durable]"
+```
+
+Durable needs chdb-core 26.7.2-rc.2 or newer, for the backup, restore and query-analysis ABI it is built on. A fresh install resolves one; an install that already has an older chdb-core needs `pip install -U chdb-core`, because pip leaves a dependency alone once it is satisfied.
+
+The S3-compatible backend comes with the `durable` extra. Native Google Cloud Storage and Azure Blob are `chdb[durable-gcs]` and `chdb[durable-azure]`.
+
 ## How it works {#how-it-works}
 
 ```mermaid
