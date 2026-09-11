@@ -52,6 +52,9 @@ durable = ["boto3>=1.36"]  # IfMatch/IfNoneMatch conditional writes on PutObject
 durable-gcs = ["google-cloud-storage"]
 durable-azure = ["azure-storage-blob"]
 
+[project.scripts]
+chdb = "chdb.__main__:main"
+
 # chDB registers itself with clickhouse-connect through these entry points. clickhouse-connect
 # discovers them at runtime; it never imports chdb directly.
 [project.entry-points."clickhouse_connect.backends"]
