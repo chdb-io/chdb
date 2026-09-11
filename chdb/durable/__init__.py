@@ -25,7 +25,7 @@ buffers it; `flush()` is what makes it recoverable elsewhere. A service that
 promises a completed request survives a crash has to await `flush()` before it
 answers.
 
-Requires a chdb-core with the Durable V1 ABI (26.7.2-rc.2 or newer): backup,
+Requires chdb-core 26.7.2-rc.2 or newer (`pip install -U chdb-core`): backup,
 restore and statement classification are the engine's job, and this package
 builds no `BACKUP`/`RESTORE` SQL and runs no regex over a caller's statement.
 

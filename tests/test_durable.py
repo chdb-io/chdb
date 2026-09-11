@@ -12,12 +12,14 @@ sequentially on purpose — chdb-core allows one active data path per process
 """
 import json
 import os
+import pathlib
 import tempfile
 import time
 import warnings
 
 from chdb import durable as cd
 from chdb.durable import protocol, wal as wal_mod
+from chdb.durable.protocol import DEFAULT_DATABASE
 from chdb.durable.backends import make_backend
 from chdb.durable.engine import engine_has_v1_abi, engine_version
 
@@ -87,7 +89,7 @@ def _valid_head(**overrides):
     return doc
 
 
-def _seeded(oid, rows=100, *, db="mem", checkpoint=True, ns=None):
+def _seeded(oid, rows=100, *, db=DEFAULT_DATABASE, checkpoint=True, ns=None):
     """An object holding `rows` rows in `db`.t, checkpointed by default."""
     ns = ns or _fresh_ns(db=db)
     ns.destroy(oid, force=True)
@@ -102,7 +104,7 @@ def _seeded(oid, rows=100, *, db="mem", checkpoint=True, ns=None):
     return ns
 
 
-def _count(ns, oid, *, db="mem"):
+def _count(ns, oid, *, db=DEFAULT_DATABASE):
     reader = ns.open(oid, read_only=True)
     try:
         return reader.query(f"SELECT count() FROM `{db}`.t", "CSV").data().strip()
@@ -184,7 +186,7 @@ def test_empty_object():
     # a released lease is one fixed shape, not "owner set to empty string"
     assert doc["lease"] == {"generation": 1, "owner": None, "instance": None,
                             "expires_at": None}
-    assert doc["manifest"] == {"db": "mem", "base": None, "wal": [], "seq": 0}
+    assert doc["manifest"] == {"db": DEFAULT_DATABASE, "base": None, "wal": [], "seq": 0}
     _PASSED.append("empty-object: cold create publishes a V1 head, lease released on close")
 
 
@@ -478,7 +480,10 @@ def test_mutating_global_refused():
 
 
 def test_control_statements_refused():
-    ns = _fresh_ns()
+    # Deliberately not the default database: "USE default" has to be refused
+    # rather than merely be a no-op, and only an object living somewhere else
+    # can tell those apart.
+    ns = _fresh_ns(db="mem")
     ns.destroy("c-control", force=True)
     obj = ns.open("c-control")
     obj.execute("CREATE TABLE t (n Int64) ENGINE=MergeTree ORDER BY n")
@@ -874,7 +879,7 @@ def test_scan_across_objects():
 def test_reopen_honors_persisted_db():
     # the object owns its database name; reopening with a different db argument
     # must not rewrite it, or the restore builds the wrong database
-    ns = _seeded("x-db", 5)
+    ns = _seeded("x-db", 5, db="mem")
     other = cd.Namespace(URL, owner="w1", db="somethingelse")
     reader = other.open("x-db", read_only=True)
     assert reader.db == "mem"
@@ -888,7 +893,7 @@ def test_reopen_honors_persisted_db():
     writer.checkpoint()
     writer.close()
     assert _head_of("x-db")["manifest"]["db"] == "mem"
-    assert _count(ns, "x-db") == "6"
+    assert _count(ns, "x-db", db="mem") == "6"
     _PASSED.append("reopen honors the manifest's database for readers and writers alike")
 
 
@@ -915,7 +920,7 @@ def test_wal_replay_uses_the_objects_database():
     obj.execute("INSERT INTO t VALUES (1), (2), (3)")
     obj.flush()   # no checkpoint: force a replay on reopen
     obj.close()
-    assert _count(ns, "x-replay") == "3"
+    assert _count(ns, "x-replay", db="mem") == "3"
     _PASSED.append("WAL replay restores the object's database context")
 
 
@@ -929,6 +934,19 @@ def test_wal_keys_are_unique():
     obj.close()
     assert first and second and first != second, (first, second)
     _PASSED.append("every flush mints a unique WAL key")
+
+
+def test_local_and_file_urls_name_the_same_directory():
+    # A namespace URL travels between bindings, so the local backend answers to
+    # both spellings: this one wrote `local:`, Node wrote `file:`. A file: URL
+    # is percent-encoded and a local: path is not, which is the only difference.
+    root = tempfile.mkdtemp(prefix="dao-scheme-")
+    nested = os.path.join(root, "a b")
+    os.makedirs(nested, exist_ok=True)
+    assert make_backend("local:" + nested, "o").root == make_backend(
+        pathlib.Path(nested).as_uri(), "o").root
+    _expect(ValueError, make_backend, "carrierpigeon://bucket/prefix")
+    _PASSED.append("local: and file:// reach one backend; an unknown scheme is refused")
 
 
 def test_constructor_validation():
@@ -995,6 +1013,7 @@ TESTS = [
     test_cold_open_lands_in_the_objects_database,
     test_wal_replay_uses_the_objects_database,
     test_wal_keys_are_unique,
+    test_local_and_file_urls_name_the_same_directory,
     test_constructor_validation,
 ]
 

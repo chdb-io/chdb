@@ -17,13 +17,17 @@ from typing import Iterable, List, Optional, Tuple
 from .backends import make_backend
 from .errors import LeaseHeld, NotFound
 from .head import Head
-from .object import DurableObject, validate_oid
+from .object import DEFAULT_DATABASE, DurableObject, validate_oid
 from .protocol import HEAD_KEY
 
 
 class Namespace:
-    def __init__(self, url: str, *, owner: Optional[str] = None, db: str = "mem", **object_kwargs):
-        """`object_kwargs` are passed to every `DurableObject` this namespace
+    def __init__(self, url: str, *, owner: Optional[str] = None,
+                 db: str = DEFAULT_DATABASE, **object_kwargs):
+        """`db` names the one database a cold object is created with, and is
+        ignored for an object that already exists — its head is authoritative.
+
+        `object_kwargs` are passed to every `DurableObject` this namespace
         opens — `lease_ttl`, `clock_skew`, `heartbeat_interval`,
         `commit_deadline`."""
         self.url = url

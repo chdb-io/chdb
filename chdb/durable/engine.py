@@ -29,11 +29,38 @@ from .errors import EngineError, EngineIncompatible
 #: refusal can list what is missing rather than fail on first use.
 _REQUIRED_ABI = ("backup_database", "restore_database", "classify_query")
 
-_ABI_HINT = (
-    "chdb.durable needs a chdb-core with the Durable V1 ABI "
-    "(backup_database / restore_database / classify_query), i.e. 26.7.2-rc.2 "
-    "or newer: pip install -U chdb-core"
-)
+#: The first chdb-core that exports backup / restore / classify, as the engine
+#: reports itself. Its distribution is versioned `26.7.2`, without the `rc.2`,
+#: and 26.7.3 is the first release carrying the ABI that is published to PyPI.
+_ABI_SINCE = "26.7.2-rc.2"
+
+
+def _abi_hint(missing=()) -> str:
+    """Why the engine was refused, which engine it was, and what to install.
+
+    The version is in the message because without it the two failures read
+    identically: an engine too old to have the ABI, and a new engine that the
+    wrapper is not actually loading because something else owns `chdb/`.
+
+    The command names chdb-core rather than chdb on purpose. pip's default
+    upgrade strategy leaves a dependency alone once it is satisfied, and an
+    installed 26.7.0 satisfies chdb's floor, so upgrading chdb would report
+    success and move nothing.
+    """
+    try:
+        loaded = engine_version() or "unknown"
+    except Exception:
+        loaded = "unknown"
+
+    lines = [
+        f"chdb.durable needs chdb-core {_ABI_SINCE} or newer, which added "
+        "backup_database / restore_database / classify_query.",
+        f"The engine loaded here reports {loaded}.",
+    ]
+    if missing:
+        lines.append("Missing: " + ", ".join(missing) + ".")
+    lines += ["", "    pip install -U chdb-core"]
+    return "\n".join(lines)
 
 #: Settings pinned on the managed connection. A durable object promises that a
 #: statement `execute()` returned from has actually been applied locally, so
@@ -68,7 +95,7 @@ def engine_has_v1_abi() -> bool:
 def require_v1_abi() -> None:
     """Refuse early, with a message that names the fix."""
     if not engine_has_v1_abi():
-        raise EngineIncompatible(_ABI_HINT)
+        raise EngineIncompatible(_abi_hint())
 
 
 #: `chdb_version()` is a compile-time constant, so one reading holds for the
@@ -223,7 +250,7 @@ class ManagedConnection:
         missing = [n for n in _REQUIRED_ABI if not hasattr(self._raw, n)]
         if missing:
             self.close()
-            raise EngineIncompatible(f"{_ABI_HINT} (missing: {', '.join(missing)})")
+            raise EngineIncompatible(_abi_hint(missing))
         # Read the engine identity off the connection we already have, which is
         # both cheaper and more accurate than the fallbacks in engine_version().
         if _ENGINE_VERSION is None:

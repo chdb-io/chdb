@@ -52,6 +52,12 @@ COMMIT_BACKOFF_BASE = 0.2
 
 HEAD_KEY = "head.json"
 
+#: The database a cold object is created with when the caller names none. The
+#: head is authoritative once an object exists, so this only decides what a new
+#: one is stamped with -- but it decides it identically in Python, Node and Go,
+#: so the same code ported between them addresses the same table.
+DEFAULT_DATABASE = "default"
+
 _SHA256_RE = re.compile(r"\A[0-9a-f]{64}\Z")
 
 

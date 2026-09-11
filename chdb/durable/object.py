@@ -67,6 +67,7 @@ from .protocol import (
     COMMIT_MAX_ATTEMPTS,
     DEFAULT_CLOCK_SKEW,
     DEFAULT_COMMIT_DEADLINE,
+    DEFAULT_DATABASE,
     DEFAULT_LEASE_TTL,
     HEAD_KEY,
     HEARTBEAT_TTL_FRACTION,
@@ -109,7 +110,7 @@ class DurableObject:
     """
 
     def __init__(self, oid: str, backend, *, owner: Optional[str] = None,
-                 db: str = "mem", read_only: bool = False,
+                 db: str = DEFAULT_DATABASE, read_only: bool = False,
                  lease_ttl: float = DEFAULT_LEASE_TTL,
                  clock_skew: float = DEFAULT_CLOCK_SKEW,
                  heartbeat_interval: Optional[float] = None,
