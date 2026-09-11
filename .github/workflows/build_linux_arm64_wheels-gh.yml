@@ -189,21 +189,13 @@ jobs:
           fi
 
           pyenv shell "$PYTHON_VERSION"
-          python -m pip install dist/*.whl --force-reinstall
-          python -m pip install pytest
 
-          # Move the engine to the pre-release that carries the Durable V1 ABI,
-          # then put the wrapper back on top of it.
-          #
-          # The second install is not redundant. chdb and chdb-core both own
-          # chdb/__init__.py, so whichever lands last wins, and the wrapper's
-          # is the one that has to: chdb-core ships a superset that happens to
-          # work today, which is not a property to build a test job on.
-          #
-          # --no-deps on both keeps pip from re-resolving chdb-core back down
-          # to what PyPI offers.
-          python -m pip install --force-reinstall --no-deps "$CHDB_CORE_ABI_WHEEL"
-          python -m pip install dist/*.whl --force-reinstall --no-deps
+          # With the extra, so the engine floor the durable extra declares is
+          # what decides which chdb-core this runs against -- the same
+          # resolution a user gets, rather than a wheel this file pins by hand.
+          WHEEL=$(ls dist/*.whl)
+          python -m pip install "${WHEEL}[durable]" --force-reinstall
+          python -m pip install pytest
 
           # Name the engine under test before running anything, so the wrong
           # one is one line of output rather than 49 collection errors.
@@ -217,23 +209,9 @@ jobs:
 
           # Exit 5 — pytest collecting nothing — used to be tolerated here,
           # because a module-level skip was the expected outcome on an engine
-          # without the ABI. With the engine pinned there is nothing left for
-          # that tolerance to excuse: collecting nothing now means the suite
-          # stopped running, so the exit status stands on its own.
+          # without the ABI. The durable extra now requires an engine that has
+          # it, so there is nothing left for that tolerance to excuse:
+          # collecting nothing means the suite stopped running, and the exit
+          # status stands on its own.
           python -m pytest tests/test_durable.py -v --tb=short
-        env:
-          # Pinned, and pinned to a pre-release on purpose.
-          #
-          # No chdb-core on PyPI exports backup_database / restore_database /
-          # classify_query — 26.7.0 is the newest published — so resolving
-          # the dependency normally leaves this suite skipping itself, and a
-          # step that is green whether or not it ran is not a check. The wheels
-          # are already attached to the chdb-core release, so pinning one costs
-          # a download and no build.
-          #
-          # This comes out when a chdb-core carrying the ABI is what pip
-          # resolves by default and chdb's floor rises to match. Until then the
-          # pre-release version keeps anything here from reading as a stable
-          # dependency.
-          CHDB_CORE_ABI_WHEEL: https://github.com/chdb-io/chdb-core/releases/download/v26.7.2-rc.2/chdb_core-26.7.2-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl
         continue-on-error: false
