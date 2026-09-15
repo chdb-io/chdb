@@ -200,6 +200,31 @@ class TestFromArrow:
         with pytest.raises(TypeError):
             DataStore.from_arrow(object())
 
+    def test_sql_path_executes(self):
+        """Ingested data must survive the SQL path, not just the to_df() passthrough.
+
+        ``to_df()`` returns the source frame without touching chDB, so it stays
+        green even when every column dtype is unreadable by the Python() engine.
+        Anything that actually builds a query has to be exercised too.
+        """
+        ds = DataStore.from_arrow(pa.table({"n": [1, 2, 3], "s": ["a", "b", "c"]}))
+        assert ds.head(2)["n"].tolist() == [1, 2]
+        assert ds.filter(ds.n > 1).to_df()["s"].tolist() == ["b", "c"]
+        assert ds.sort_values("n", ascending=False).to_df()["n"].tolist() == [3, 2, 1]
+
+    def test_nullable_int_survives_sql_path(self):
+        """Nullable ints must stay ints (no float widening) *and* stay queryable."""
+        tbl = pa.table({"n": pa.array([1, None, 3], pa.int64())})
+        ds = DataStore.from_arrow(tbl)
+        assert str(ds.to_df()["n"].dtype) == "Int64"
+        assert ds.filter(ds.n > 1).to_df()["n"].tolist() == [3]
+
+    def test_unsigned_int_not_narrowed(self):
+        """uint64 above 2**63-1 must not be forced through a signed dtype."""
+        big = 2**64 - 1
+        ds = DataStore.from_arrow(pa.table({"u": pa.array([1, big], pa.uint64())}))
+        assert ds.to_df()["u"].tolist() == [1, big]
+
 
 # --------------------------------------------------------------------------------------
 # Round-trips
