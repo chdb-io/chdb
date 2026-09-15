@@ -59,6 +59,9 @@ durable = ["boto3>=1.36", "chdb-core>=26.7.3"]  # boto3: IfMatch/IfNoneMatch con
 durable-gcs = ["google-cloud-storage", "chdb-core>=26.7.3"]
 durable-azure = ["azure-storage-blob", "chdb-core>=26.7.3"]
 
+[project.scripts]
+chdb = "chdb.__main__:main"
+
 # chDB registers itself with clickhouse-connect through these entry points. clickhouse-connect
 # discovers them at runtime; it never imports chdb directly.
 [project.entry-points."clickhouse_connect.backends"]
