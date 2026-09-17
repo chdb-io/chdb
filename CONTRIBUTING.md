@@ -174,8 +174,8 @@ forever — keep them readable.
 **Scope** — one concern per PR. Split refactors away from fixes;
 mixed PRs slow review and complicate bisection.
 
-**Tests** — every behaviour change comes with a test. See
-[`AGENTS.md`](./AGENTS.md) §4 for the DataStore mirror-code testing
+**Tests** — every behaviour change comes with a test. See the
+[`AGENTS.md` testing section](./AGENTS.md#tests) for the DataStore mirror-code
 pattern.
 
 ## Documentation changes
