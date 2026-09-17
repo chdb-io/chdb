@@ -195,4 +195,12 @@ backend automatically selects the optimal execution engine.**
 
 ---
 
+## 5. Repository skills
+
+Shared coding-agent skills live under [`.agents/skills`](./.agents/skills).
+Before preparing a pull request title or description, use the
+`pr-description` skill in that directory.
+
+---
+
 *Standard followed: [agents.md](https://agents.md).*
