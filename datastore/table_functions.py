@@ -59,8 +59,8 @@ class TableFunction(ABC):
         elif isinstance(value, bool):
             return "1" if value else "0"
         elif isinstance(value, str):
-            # Escape single quotes
-            escaped = value.replace("'", "''")
+            # Escape backslashes before single quotes in ClickHouse literals.
+            escaped = value.replace("\\", "\\\\").replace("'", "''")
             return f"'{escaped}'"
         elif isinstance(value, (int, float)):
             return str(value)
