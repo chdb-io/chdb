@@ -617,6 +617,35 @@ Please refer to [VERSION-GUIDE.md](VERSION-GUIDE.md) for more details.
 
 - [ClickHouse - Lightning Fast Analytics for Everyone](https://www.vldb.org/pvldb/vol17/p3731-schulze.pdf)
 
+## Language Binding Capability Matrix
+
+The table below summarizes the user-facing capabilities of the chdb-io language bindings. It uses published versions where available; unreleased main-branch work is called out explicitly.
+
+**Data date:** 2026-09-28
+
+| Capability / dimension | Python<br>`chdb 4.4.0` | C / C++<br>`core 26.7.3` | Node.js<br>`chdb 3.4.0` | Go<br>`v2.2.0` | Rust<br>`1.3.1 published / 2.0 main` | Java<br>`1.0.0-SNAPSHOT` | Ruby<br>`0.1.0` | .NET<br>`0.0.3.69` | Bun<br>`1.1.0 source` | Zig<br>`0.0.9` | WASM<br>`0.4.0` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Maturity | Stable main package | Core engine | Active release | Active release | 2.0 main, unpublished | Maven WIP | Early | Early | Experimental | Early | Experimental |
+| Install / distribution | `pip` | release / bash | npm native packages | `go get` / embedded | Cargo + static; can auto-download `libchdb` | Maven modules; JDBC + native jars WIP | RubyGems | NuGet + manual lib | Source build | Zig package | npm wasm |
+| Session / persistent path | Multi-connection same path | Multi-connection same path | Multi-connection same path | Multi-connection same path | Multi-connection same path | Multi-connection same path | Single instance | No real Session | No real Session | Basic connection | Worker connection |
+| Durable V1 | Supported | ABI primitives | Supported | Supported | 2.0 main only | Not supported | Not supported | Not supported | Not supported | Not supported | Not supported |
+| Arrow output bytes | Supported | Supported | Supported | Supported | Supported | Not supported | Supported | Supported | Incomplete | Limited | Supported |
+| Typed Arrow API | `pyarrow.Table` | No language type | `apache-arrow` | Not supported | `RecordBatch` | Not supported | Not supported | Not supported | Not supported | Not supported | Not supported |
+| Arrow zero-copy | Partial | C Data API | Input side | Not supported | Supported | Not supported | Not supported | Not supported | Not supported | Not supported | Not supported |
+| Arrow input / registration | Python objects | C Data API | register table | Not supported | bulk insert | Not supported | Not supported | Not supported | Not supported | Not supported | Not supported |
+| Streaming result | Supported | Supported | Supported | Supported | Supported | Supported | Supported | Not supported | Not supported | Supported | Supported |
+| Parameter binding | Basic support | ABI primitives | server-side | Client interpolation | server-side | server-side | Client escaping | Not supported | Not supported | Not supported | Not supported |
+| Driver / ecosystem API | DBAPI / ADBC | C ABI | `@clickhouse/client` | `database/sql` | Not supported | JDBC | SQLite style | Not supported | None | None | None |
+| Notable feature | DataStore | Embedded C ABI | L3 Kysely-style primitives | SQL driver API | Arrow C Data API | Streaming JDBC ResultSet | Ruby-style DSL | Not supported | Bun FFI | Native Zig wrapper | Browser / Worker |
+
+**Session boundary:** chdb-core allows only one active data path per process. "Multi-connection same path" means a binding can open multiple connections on the same data path; concurrent different data paths are uniformly unsupported and require closing before switching.
+
+**Arrow implementation differences:** Python and Node primarily expose Arrow IPC bytes and then convert into language objects. Go raw queries can request Arrow output bytes, but its `database/sql` row path is Parquet-based rather than a typed Arrow API. Rust 2.0 main uses the Arrow C Data Interface, can stream `RecordBatch` values directly, and supports Arrow bulk insert. Java V1 currently uses `RowBinaryWithNamesAndTypes` decoded into JDBC `ResultSet` and does not expose an Arrow Java API.
+
+**Streaming note:** The user-facing stream differs by binding. Go streams formatted result chunks and its SQL driver reads Parquet chunks; Rust can consume result streams, Arrow batch streams, and streaming inserts; Java exposes a forward-only JDBC `ResultSet`; Node/WASM expose async streams; Ruby/Zig expose chunked fetch APIs at the binding layer.
+
+**Notable feature note:** Python DataStore is a pandas-like lazy execution data layer; Node L3 Kysely-style primitives target typed SQL builder use cases; Go's SQL driver API means it integrates with the standard Go `database/sql` package; Rust's Arrow C Data API means Arrow is a first-class data path, not just an output bytes format.
+
 ## License
 Apache 2.0, see [LICENSE](LICENSE.txt) for more information.
 
