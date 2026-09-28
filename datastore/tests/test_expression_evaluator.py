@@ -53,3 +53,15 @@ class TestLikeConditionPandasFallback:
 
         expected = pd.Series([False, False, False, True, True, True], index=df.index, name="text")
         pd.testing.assert_series_equal(result, expected)
+
+    def test_like_keeps_null_values_unmatched(self):
+        df = pd.DataFrame({"text": [None, "foo", "bar"]})
+        evaluator = ExpressionEvaluator(df, DataStore(table="test"))
+
+        like_result = evaluator.evaluate(Field("text").like("%"))
+        not_like_result = evaluator.evaluate(Field("text").notlike("%bar%"))
+
+        expected_like = pd.Series([False, True, True], index=df.index, name="text")
+        expected_not_like = pd.Series([False, True, False], index=df.index, name="text")
+        pd.testing.assert_series_equal(like_result, expected_like)
+        pd.testing.assert_series_equal(not_like_result, expected_not_like)
