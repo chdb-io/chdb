@@ -662,21 +662,26 @@ class ExpressionEvaluator:
         import re
 
         expr_val = self.evaluate(cond.expression)
+        null_mask = expr_val.isna()
 
-        # Convert SQL LIKE pattern to regex
-        pattern = cond.pattern
-        # Escape regex special chars except % and _
-        pattern = re.escape(pattern)
-        # Convert SQL wildcards to regex
-        pattern = pattern.replace(r'\%', '.*').replace(r'\_', '.')
+        # Convert SQL LIKE pattern to regex one character at a time.
+        # re.escape() does not escape SQL wildcards on modern Python versions.
+        pattern_parts = []
+        for char in cond.pattern:
+            if char == '%':
+                pattern_parts.append('.*')
+            elif char == '_':
+                pattern_parts.append('.')
+            else:
+                pattern_parts.append(re.escape(char))
+        pattern = ''.join(pattern_parts)
         # Anchor the pattern
         pattern = f'^{pattern}$'
 
-        flags = 0 if cond.case_sensitive else re.IGNORECASE
-        regex = re.compile(pattern, flags)
-
         result = expr_val.astype(str).str.match(pattern, case=cond.case_sensitive)
-        return ~result if cond.negate else result
+        if cond.negate:
+            result = ~result
+        return result & ~null_mask
 
     def _get_source_column_name(self, source_expr, source_series: pd.Series) -> Optional[str]:
         """Get column name from source expression or series."""
