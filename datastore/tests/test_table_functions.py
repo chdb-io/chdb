@@ -377,6 +377,11 @@ class TestFormatParam:
         tf = FileTableFunction(path="test.csv", format="CSV")
         assert tf._format_param("it's a test") == "'it''s a test'"
 
+    def test_format_string_with_backslashes(self):
+        """Test formatting string with backslashes (escaping)."""
+        tf = FileTableFunction(path="test.csv", format="CSV")
+        assert tf._format_param(r"C:\tmp\data.csv") == r"'C:\\tmp\\data.csv'"
+
     def test_format_int(self):
         """Test formatting integer."""
         tf = FileTableFunction(path="test.csv", format="CSV")

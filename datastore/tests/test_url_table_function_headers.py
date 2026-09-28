@@ -106,6 +106,16 @@ class TestUrlTableFunctionHeaders:
         assert "headers('X-Note'='it''s bad')" in sql
         assert_sql_parses(sql)
 
+    def test_to_sql_headers_dict_value_with_backslash_is_escaped(self):
+        tf = UrlTableFunction(
+            url="https://example.com/d.parquet",
+            format="Parquet",
+            headers={"X-Path": r"C:\tmp\data.csv"},
+        )
+        sql = tf.to_sql()
+        assert r"headers('X-Path'='C:\\tmp\\data.csv')" in sql
+        assert_sql_parses(sql)
+
     def test_to_sql_headers_list_value_with_single_quote_is_escaped(self):
         tf = UrlTableFunction(
             url="https://example.com/d.parquet",
