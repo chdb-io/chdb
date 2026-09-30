@@ -222,16 +222,36 @@ sql = query
 
 PyReader = _chdb.PyReader
 
-# UDF module-level surfaces. Mirrored from chdb-core but guarded with hasattr
-# so chdb-ds keeps working against chdb-core releases that pre-date the
-# `promote create_function to module-level API` refactor (e.g. 26.3.0).
+# UDF/UDAF module-level surfaces. Mirrored from chdb-core but guarded with
+# hasattr so chdb keeps working against older chdb-core releases: the scalar
+# names pre-date the `promote create_function to module-level API` refactor
+# (e.g. 26.3.0), and the aggregate ones were added later still.
 _udf_exports = []
-for _name in ("create_function", "drop_function", "NullHandling", "ExceptionHandling"):
+for _name in (
+    "create_function",
+    "drop_function",
+    "create_aggregate_function",
+    "drop_aggregate_function",
+    "NullHandling",
+    "ExceptionHandling",
+):
     if hasattr(_chdb, _name):
         globals()[_name] = getattr(_chdb, _name)
         _udf_exports.append(_name)
 
 _lazy_submodules = {"agents", "dbapi", "session", "udf", "utils"}
+
+# Decorators re-exported from chdb.udf. `agg` is absent on chdb-core releases
+# that pre-date Python UDAF support.
+_udf_decorators = ("func", "agg")
+
+
+def _import_udf_decorator(name):
+    """Return ``chdb.udf.<name>``, or None when this chdb-core build lacks it."""
+    try:
+        return getattr(importlib.import_module(f"{__name__}.udf"), name)
+    except (ImportError, AttributeError):
+        return None
 
 
 def __getattr__(name):
@@ -239,11 +259,11 @@ def __getattr__(name):
         module = importlib.import_module(f"{__name__}.{name}")
         globals()[name] = module
         return module
-    if name == "func":
-        from .udf import func as _func
-
-        globals()[name] = _func
-        return _func
+    if name in _udf_decorators:
+        decorator = _import_udf_decorator(name)
+        if decorator is not None:
+            globals()[name] = decorator
+            return decorator
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -252,11 +272,11 @@ def connect(*args, **kwargs):
 
     return _connect(*args, **kwargs)
 
-try:
-    from .udf import func  # noqa: E402
-    _udf_exports.append("func")
-except ImportError:
-    pass
+for _name in _udf_decorators:
+    _decorator = _import_udf_decorator(_name)
+    if _decorator is not None:
+        globals()[_name] = _decorator
+        _udf_exports.append(_name)
 
 __all__ = [
     "_chdb",
