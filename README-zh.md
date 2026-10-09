@@ -280,7 +280,7 @@ chDB 可以将自然语言提示转换为 SQL。通过连接/会话字符串配�
 
 - `ai_provider`：`openai` 或 `anthropic`。当设置了 `ai_base_url` 时默认使用 OpenAI 兼容接口，否则自动检测。
 - `ai_api_key`：API 密钥；也可从环境变量 `AI_API_KEY`、`OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY` 读取。
-- `ai_base_url`：OpenAI 兼容服务的自定义 Base URL。
+- `ai_base_url`：OpenAI 兼容服务的自定义 Base URL（或 OpenAI 兼容网关，如 [OrcaRouter](https://www.orcarouter.ai)）。
 - `ai_model`：模型名称（如 `gpt-4o-mini`、`claude-3-opus-20240229`）。
 - `ai_temperature`：生成温度，默认 `0.0`。
 - `ai_max_tokens`：最大全量生成 token 数，默认 `1000`。
@@ -317,6 +317,16 @@ with chs.Session("file::memory:?ai_provider=openai") as sess:
     sess.query("INSERT INTO users VALUES (1, 'alice'), (2, 'bob')")
     df = sess.ask("Show all users ordered by id", format="DataFrame")
     print(df)
+```
+
+任何 OpenAI 兼容网关都可以作为模型后端，例如 [OrcaRouter](https://www.orcarouter.ai)：
+
+```python
+conn = chdb.connect(
+    "file::memory:?ai_provider=openai&ai_base_url=https://api.orcarouter.ai"
+    "&ai_api_key=sk-orca-...&ai_model=openai/gpt-4o-mini"
+)
+print(conn.generate_sql("Select all rows from nums ordered by n desc"))
 ```
 
 </details>
