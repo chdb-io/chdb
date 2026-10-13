@@ -407,7 +407,7 @@ print(query("select sum_udf(12,22)"))
 ```
 
 Some notes on chDB Python UDF(User Defined Function) decorator.
-1. The function should be stateless. So, only UDFs are supported, not UDAFs(User Defined Aggregation Function).
+1. The function should be stateless, so this decorator supports scalar UDFs only. Aggregate functions are available through the native `chdb.agg` / `chdb.create_aggregate_function` API.
 2. Default return type is String. If you want to change the return type, you can pass in the return type as an argument.
     The return type should be one of the following: https://clickhouse.com/docs/en/sql-reference/data-types
 3. The function should take in arguments of type String. As the input is TabSeparated, all arguments are strings.
