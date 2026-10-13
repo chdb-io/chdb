@@ -1,69 +1,112 @@
 # 查询时用得上的 SQL
 
-这些写法都在 chdb-core 26.9.0（引擎 26.9.2.1）的嵌入式会话里跑过。目标是少读、少排序、少把中间结果拉进 Python。
+目标是少读、少排序、少把中间结果拉进 Python。每一条都附上在 26.9 上量到的数字，来自 [`benchmark/perf_guide/bench_sql.py`](../../benchmark/perf_guide/bench_sql.py)。数据是 4117 万行出租车 Parquet，以及一周 1348 万笔 aggTrades 导入的 MergeTree 表（`ORDER BY (symbol, ts, agg_trade_id)`）。机器和方法见 [总览](index.md)；0.2 秒以下的耗时差别是底噪，重点看 `SelectedBytes` 和峰值内存。
+
+## 精确还是近似：差 3 到 6 倍
+
+4117 万行上数不同的上车时间（真值 20,049,544）：
+
+| 写法 | 结果 | 误差 | 耗时 | 峰值 RSS |
+| --- | --- | --- | --- | --- |
+| `uniqExact(col)` | 20,049,544 | 0 | 0.56 s | 3,030 MB |
+| `count(DISTINCT col)` | 20,049,544 | 0 | 0.55 s | 3,064 MB |
+| `uniq(col)` | 20,230,981 | +0.9% | 0.27 s | 854 MB |
+| `uniqCombined(col)` | 20,053,162 | +0.02% | 0.14 s | 856 MB |
+
+分位数（`total_amount` 的 p50 / p90 / p99，真值 21 / 56.76 / 104.88）：
+
+| 写法 | 结果 | 耗时 | 峰值 RSS |
+| --- | --- | --- | --- |
+| `quantilesExact(0.5, 0.9, 0.99)(x)` | 21 / 56.76 / 104.88 | 0.92 s | 2,229 MB |
+| `quantiles(...)(x)`（水塘抽样） | 21.02 / 56.93 / 104.88 | 0.17 s | 585 MB |
+| `quantilesTDigest(...)(x)` | 21.005 / 56.78 / 104.905 | 0.16 s | 759 MB |
+
+精确版本要把所有不同值（或所有值）放进内存，2 到 3 GB 就是这么来的。报表、监控、特征统计用 `uniqCombined` 和 `quantileTDigest`；对账、去重才用精确版本。
+
+## 每组取最后一行：argMax
+
+一周两个合约的逐笔，取每个 `(symbol, minute)` 的最后成交价（20,160 组）：
+
+| 写法 | 耗时 | 峰值 RSS | 结果 |
+| --- | --- | --- | --- |
+| `argMax(price, (ts, agg_trade_id))` + `GROUP BY` | 0.61 s | 692 MB | 20,160 行 |
+| `row_number() OVER (PARTITION BY ... ORDER BY ts DESC) = 1` | 0.64 s | 1,238 MB | 20,160 行 |
+| `ORDER BY ts DESC LIMIT 1 BY symbol, minute` | 2.03 s | 1,159 MB | 20,160 行 |
+| 先 `max(ts)` 再 JOIN 回原表 | 0.45 s | 734 MB | **38,765 行**：同一毫秒多笔成交全被带回来了 |
+
+- `argMax` 是一次扫描加一张聚合表，内存最省。元组做比较键可以处理时间戳相同的情况。
+- 窗口函数内存多一倍，因为每个分区的行要先攒起来排序。
+- `LIMIT 1 BY` 要先对 1348 万行做一次全局 `ORDER BY`，这里最慢。它适合“已经有序、或者数据很少、或者每组要前 N 行”的情况，不是去重的通用写法。
+- 自连接看起来最快，但结果是错的（多了 92%）。要用它，JOIN 键必须唯一。
+
+```sql
+SELECT symbol, toStartOfMinute(ts) AS minute,
+       argMax(price, (ts, agg_trade_id)) AS last_price
+FROM ticks
+GROUP BY symbol, minute
+```
 
 ## PREWHERE
 
-MergeTree 上把最能剪行的条件放进 `PREWHERE`，先读这一列，再读其余列：
+MergeTree 上 `WHERE qty > 5` 然后 `sum(price * qty)`，1348 万行里 11 万行命中：
 
-```sql
-SELECT count()
-FROM ticks
-PREWHERE symbol = 'AAPL'
-WHERE px > 10
-```
+| 写法 | SelectedBytes | 耗时 |
+| --- | --- | --- |
+| `optimize_move_to_prewhere = 0` | 216 MB | 0.20 s |
+| 默认（自动移到 PREWHERE） | 175 MB | 0.21 s |
+| 手写 `PREWHERE qty > 5` | 175 MB | 0.31 s |
 
-`symbol` 用 `LowCardinality(String)`，并且在 `ORDER BY (symbol, ts)` 的前面，这个条件才剪得动主键。
-
-Parquet 没有 `PREWHERE` 语法，但过滤会下推。下面这条的 `EXPLAIN` 里能看到 `Prewhere filter column`：
-
-```sql
-EXPLAIN indexes = 1
-SELECT number
-FROM file('flat.parquet', Parquet)
-WHERE k = 0
-SETTINGS input_format_parquet_filter_push_down = 1
-```
-
-`input_format_parquet_filter_push_down` 和 `input_format_parquet_bloom_filter_push_down` 默认就是 1。写出 Parquet 时如果按过滤列排过序（见 [归档](archiving-parquet.md)），row group 的 min/max 才能把整组跳掉。
-
-## LIMIT BY，而不是窗口去重
-
-每个合约只要最新的一行：
-
-```sql
-SELECT symbol, ts, px
-FROM ticks
-ORDER BY symbol, ts DESC
-LIMIT 1 BY symbol
-```
-
-`LIMIT n BY key` 在排序后的流上截断，不必 `row_number() OVER (PARTITION BY symbol) = 1` 再套一层子查询。
-
-## argMax 代替自连接
-
-同一分组里“时间最大的那一行的价格”就是 `argMax(px, ts)`，开盘是 `argMin(px, ts)`。K 线的完整写法在 [量化](quant.md)。不要先找 `max(ts)` 再 JOIN 回原表，除非还要带回很多没有聚合函数能表达的列。
-
-## 组合子和近似聚合
-
-- `sumIf(qty, px > 100)`、`countIf(symbol = 'AAPL')`：条件聚合，少一次扫描。
-- `uniq(symbol)`：基数估计，比 `count(DISTINCT symbol)` 省内存。要精确就用 `uniqExact`。
-- `quantileTDigest(0.5)(px)`：分位数的 t-digest 近似。要精确用 `quantileExact`，它会吃更多内存。
-
-```sql
-SELECT uniq(symbol), quantileTDigest(0.5)(px)
-FROM ticks
-```
+引擎默认会把过滤条件挪到 `PREWHERE`：先只读 `qty` 这一列，命中的行再去读 `price`。这里少读 19%；命中率越低、其余列越宽，省得越多。手写 `PREWHERE` 和自动的结果一样，一般不必写。Parquet 没有 `PREWHERE` 语法，但过滤下推到 reader 之后效果类似，并且 row group 统计还能把整组跳过（见 [归档](archiving-parquet.md)）。
 
 ## 按主键顺序读
 
-`optimize_read_in_order` 默认是 1。`ORDER BY` 和表的 `ORDER BY` 一致时，引擎可以按已经有序的部分读，而不是再排一遍。表是 `ORDER BY (symbol, ts)` 时，查询就写成 `ORDER BY symbol, ts`，不要写成相反的表达式再指望它命中。
+取 BTCUSDT 最新的 10 笔：
 
-## 类型
+```sql
+SELECT ts, price FROM ticks
+WHERE symbol = 'BTCUSDT'
+ORDER BY ts DESC
+LIMIT 10
+```
+
+| 设置 | SelectedRows | SelectedBytes |
+| --- | --- | --- |
+| `optimize_read_in_order = 1`（默认） | 289,550 | 4.9 MB |
+| `optimize_read_in_order = 0` | 9,456,409 | 86 MB |
+
+表是 `ORDER BY (symbol, ts, ...)`，查询按 `ts` 排序时引擎从有序的 part 尾部开始读，读够 10 行就停。关掉之后要把 946 万行全读出来排序。前提是查询的 `ORDER BY` 和表的 `ORDER BY` 前缀一致。
+
+## count() 几乎免费
+
+| 写法 | SelectedBytes |
+| --- | --- |
+| `SELECT count() FROM file('taxi/*.parquet', Parquet)` | 8 KB |
+| `SELECT count(total_amount) FROM ...` | 68.7 MB |
+| `SELECT count() FROM ... WHERE total_amount > 20` | 68.7 MB |
+
+`count()` 不带列、不带条件时直接读 Parquet 的元数据。只要加了列或条件，就要读那一列。
+
+## 类型：LowCardinality 和 Nullable
+
+把 4117 万行出租车导进两张 MergeTree 表，一张原样（`vendor String, payment String, passenger_count Nullable(Float64)`），一张调过（`LowCardinality(String)`，`passenger_count Float64` 用 `ifNull` 补 0）：
+
+| | 原样 | 调过 |
+| --- | --- | --- |
+| 磁盘大小 | 496 MB | 441 MB |
+| 按 `(vendor, payment)` 分组：SelectedBytes | 1,482 MB | 727 MB |
+| `WHERE payment = 'pay_1' AND passenger_count > 2`：SelectedBytes | 964 MB | 637 MB |
+
+`LowCardinality` 把字符串换成字典编号，分组和比较都在编号上做，读的字节减半。`Nullable` 多一列空值标记，过滤和聚合都要看它。两张表的耗时在这台机器上都在 0.4 到 0.6 秒，差别在底噪里；读字节减半在慢盘和大表上才会变成时间。
 
 - 取值很少的字符串用 `LowCardinality(String)`（合约、交易所、买卖方向）。
-- 列实际上没有空值时不要声明 `Nullable`。`Nullable` 让过滤和聚合都去看一张额外的标记。
+- 列实际上没有空值时不要声明 `Nullable`。
 - 训练要用的浮点在 SQL 里 `toFloat32`，避免默认 `Float64` 进张量后再转一次。
+
+## 组合子
+
+- `sumIf(qty, px > 100)`、`countIf(symbol = 'AAPL')`：条件聚合，一次扫描出多个口径。
+- `argMin / argMax`：开盘、收盘、最新值。
+- `-State / -Merge`：预聚合落盘，之后合并（`uniqCombinedState` 存进表，查询时 `uniqCombinedMerge`）。
 
 ## SAMPLE 在这个版本上没有减少读取
 
@@ -71,23 +114,19 @@ MergeTree 可以 `ORDER BY k SAMPLE BY k`，查询写 `SAMPLE 0.1`。在 26.9 �
 
 ## DataStore 里哪条路径会下推
 
-布尔索引会下推到 `file()`。20 万行 Parquet 上，`ds[ds["id"] == 1].to_df()` 的 `system.events` `SelectedRows` 增量是几百行。
+布尔索引会下推到 `file()`，`ds.sql()` 不会。全年数据上取两列、2,282 行：
 
-```python
-import chdb.datastore as pd
+| 写法 | 耗时 | 峰值 RSS | SelectedRows | SelectedBytes |
+| --- | --- | --- | --- | --- |
+| `ds[(ds["total_amount"] > 200) & (ds["passenger_count"] >= 4)][["total_amount", "trip_distance"]]` | 0.25 s | 609 MB | 68,194 | 64 MB |
+| `ds.sql("SELECT total_amount, trip_distance FROM __df__ WHERE ...")` | 7.23 s | 13,730 MB | 41,172,975 | 693 MB |
 
-ds = pd.read_parquet("ticks.parquet")
-print(ds[ds["id"] == 1].to_df())
-```
-
-`ds.sql("SELECT count() FROM __df__ WHERE id = 1")` 结果是对的，但同一次对比里读行数是整表量级（大约两遍文件），生成的计划里用户这条 SQL 也没有并进 `file()` 的 `SELECT`。省内存不要走 `sql()` 做过滤。`explain()` 用来确认数据源还是 `file(...)`、计划是不是还懒着：
+`sql()` 先把 `__df__` 物化成一个 DataFrame 再在上面跑 SQL。省内存的过滤走布尔索引，要控制 `PREWHERE`、`LIMIT BY`、`SETTINGS` 时直接用 `session.Session().query` 或 `send_query` 对 `file()` 写。`explain()` 用来确认数据源还是 `file(...)`、计划是不是还懒着：
 
 ```python
 lazy = ds[ds["px"] > 100]
 lazy.explain()   # 先看计划
 lazy.to_df()     # 再取结果
 ```
-
-要控制 `PREWHERE`、`LIMIT BY`、`SETTINGS` 时，直接用 `session.Session().query` 或 `send_query`。那条 SQL 就是发给引擎的 SQL。
 
 performance 模式会拿掉保序和一部分 pandas 包装，聚合更容易合成一条 SQL。模式本身的差异见 [Performance mode](https://clickhouse.com/docs/chdb/configuration/performance-mode)。
