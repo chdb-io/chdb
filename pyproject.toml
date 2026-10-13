@@ -28,14 +28,14 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 dependencies = [
-    "chdb-core>=26.7.0",
+    "chdb-core>=26.9.0",
     "pandas>=2.1.0",
     "pyarrow>=13.0.0"
 ]
 
 [project.optional-dependencies]
 adbc = [
-    "chdb-core>=26.7.0",
+    "chdb-core>=26.9.0",
     "adbc-driver-manager>=1.11.0; python_version >= '3.10'",
 ]
 dev = ["pytest", "pytest-cov"]
@@ -44,13 +44,9 @@ publish = ["twine", "wheel"]
 # whose state lives in object storage you own. The S3-compatible backend
 # (AWS/MinIO/R2, and GCS via its S3 interop endpoint) needs boto3; the native
 # GCS and Azure Blob backends are separate opt-in extras.
-# chdb-core is named in all three because the base floor is satisfied by
-# engines that cannot run durable at all: the backup, restore and
-# query-analysis ABI arrived in 26.7.2-rc.2, and 26.7.3 is the first release
-# carrying it that reached PyPI. Without it an install that already had 26.7.0
-# stays there -- pip leaves a satisfied dependency alone -- and the first
-# durable call is where the user finds out. The two native-backend extras need
-# it for the same reason and do not imply the S3 one, so each says so itself.
+# The durable ABI (backup, restore, query analysis) reached PyPI in 26.7.3.
+# The base dependency is already chdb-core>=26.9.0, so these pins only record
+# that ABI floor on the extra itself. They do not imply each other.
 durable = ["boto3>=1.36", "chdb-core>=26.7.3"]  # boto3: IfMatch/IfNoneMatch conditional writes on PutObject
 durable-gcs = ["google-cloud-storage", "chdb-core>=26.7.3"]
 durable-azure = ["azure-storage-blob", "chdb-core>=26.7.3"]
