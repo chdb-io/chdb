@@ -972,11 +972,12 @@ class ExpressionEvaluator:
 
         # Build SQL expression
         # Use parseDateTimeBestEffort to handle various datetime formats
+        cast = IsoCalendarComponentExpr.cast_function(expr.component)
         if expr.component == 'day':
             # toDayOfWeek needs mode=0 for Monday=1 (ISO standard: 1-7)
-            sql_expr = f"toUInt32({ch_func}(parseDateTimeBestEffort(toString({source_sql})), 0))"
+            sql_expr = f"{cast}({ch_func}(parseDateTimeBestEffort(toString({source_sql})), 0))"
         else:
-            sql_expr = f"toUInt32({ch_func}(parseDateTimeBestEffort(toString({source_sql}))))"
+            sql_expr = f"{cast}({ch_func}(parseDateTimeBestEffort(toString({source_sql}))))"
 
         return self._execute_sql_expression(sql_expr)
 

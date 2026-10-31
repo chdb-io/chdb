@@ -1098,6 +1098,21 @@ class IsoCalendarComponentExpr(Expression):
         "day": "toDayOfWeek",  # with mode 1 for Monday=1
     }
 
+    @staticmethod
+    def cast_function(component: str) -> str:
+        """Return the chDB cast that gives a component pandas' isocalendar() dtype.
+
+        pandas 3.1 made ``year`` Int32 instead of UInt32, so that years before
+        year 1 are representable (pandas-dev/pandas#66851); ``week`` and ``day``
+        stay UInt32.
+        """
+        if component == "year":
+            from .pandas_col_compat import _parse_pandas_version
+
+            if _parse_pandas_version() >= (3, 1):
+                return "toInt32"
+        return "toUInt32"
+
     def __init__(
         self, source_expr: Expression, component: str, alias: Optional[str] = None
     ):
@@ -1126,8 +1141,8 @@ class IsoCalendarComponentExpr(Expression):
         else:
             result = f"{ch_func}({source_sql})"
 
-        # Cast to UInt32 to match pandas isocalendar() dtype
-        result = f"toUInt32({result})"
+        # Cast to match pandas isocalendar() dtype
+        result = f"{self.cast_function(self.component)}({result})"
 
         if self.alias:
             return f"{result} AS {format_identifier(self.alias, quote_char)}"
