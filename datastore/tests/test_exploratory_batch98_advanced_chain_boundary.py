@@ -24,10 +24,6 @@ from tests.test_utils import (
     get_dataframe,
     get_series,
 )
-from tests.xfail_markers import (
-    chdb_floordiv_returns_float,
-    chdb_power_returns_float,
-)
 
 
 # =============================================================================
@@ -611,7 +607,6 @@ class TestMixedTypeArithmetic:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @chdb_floordiv_returns_float
     def test_floor_divide_preserves_int(self):
         """Floor division of integers stays integer."""
         pd_df = pd.DataFrame({"a": [10, 20, 30], "b": [3, 4, 5]})
@@ -632,7 +627,6 @@ class TestMixedTypeArithmetic:
 
         assert_datastore_equals_pandas(ds_result, pd_result)
 
-    @chdb_power_returns_float
     def test_power_operation(self):
         """Power operation between columns."""
         pd_df = pd.DataFrame({"base": [2, 3, 4], "exp": [2, 2, 3]})

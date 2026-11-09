@@ -346,15 +346,11 @@ class TestDataStoreLocMirrorsPandas(unittest.TestCase):
 
     def test_loc_with_pd_col_condition_and_single_str_column(self):
         # Covers the ``isinstance(col_key, str)`` branch in
-        # ``DataStoreLocIndexer.__getitem__`` which wraps the str into
-        # ``[col_key]`` before emitting the SELECT op. pandas returns a
-        # Series here while chdb-ds returns a single-column DataStore — the
-        # design rule is "don't obsess over container differences", so we
-        # compare the underlying values mirror-style.
+        # ``DataStoreLocIndexer.__getitem__``: like pandas, a single column
+        # label selects a Series.
         pd_out = self.df.loc[pd.col("speed") > 105, "name"]
         ds_out = self.ds.loc[pd.col("speed") > 105, "name"]
-        ds_df = ds_out._execute() if hasattr(ds_out, "_execute") else ds_out
-        self.assertEqual(list(ds_df["name"]), list(pd_out))
+        assert_datastore_equals_pandas(ds_out, pd_out)
 
 
 class TestDataStoreFilterMirrorsPandas(unittest.TestCase):

@@ -758,9 +758,9 @@ class Connection:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
 
-        # Find where ORDER BY clause ends (LIMIT, OFFSET, or end of string)
+        # Find where ORDER BY clause ends (LIMIT, OFFSET, SETTINGS, or end of string)
         order_by_end = len(sql)
-        for keyword in [" LIMIT ", " OFFSET ", ";"]:
+        for keyword in [" LIMIT ", " OFFSET ", " SETTINGS ", ";"]:
             pos = sql_upper.find(keyword, order_by_pos)
             if pos != -1 and pos < order_by_end:
                 order_by_end = pos
@@ -824,9 +824,9 @@ class Connection:
             # No ORDER BY found, shouldn't happen but handle gracefully
             return sql
 
-        # Find where ORDER BY clause ends (LIMIT, OFFSET, or end of string)
+        # Find where ORDER BY clause ends (LIMIT, OFFSET, SETTINGS, or end of string)
         order_by_end = len(sql)
-        for keyword in [" LIMIT ", " OFFSET ", ";"]:
+        for keyword in [" LIMIT ", " OFFSET ", " SETTINGS ", ";"]:
             pos = sql_upper.find(keyword, order_by_pos)
             if pos != -1 and pos < order_by_end:
                 order_by_end = pos
