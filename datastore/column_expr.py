@@ -102,21 +102,34 @@ if TYPE_CHECKING:
 # Sentinel value for detecting if argument was passed
 _MISSING = object()
 
+_COMPARISON_OPERATORS = frozenset(
+    {"__eq__", "__ne__", "__gt__", "__ge__", "__lt__", "__le__"}
+)
+
 
 def _operand_without_expression_uses_method_mode(method):
     """
     Decorate a ColumnExpr binary operator: when the other operand is a
     ColumnExpr without an expression tree (method/op/agg/executor mode, e.g.
     ``astype()`` or ``cumsum()``), the result is evaluated in pandas, since
-    an expression tree can't reference it.
+    an expression tree can't reference it. A comparison on an aggregation,
+    method or executor result executes it and compares the values itself (a
+    scalar result gives a bool, as in pandas), so it is left to the operator.
     """
     name = method.__name__
+    compares_executed_self = name in _COMPARISON_OPERATORS
 
     @functools.wraps(method)
     def wrapper(self, other):
         if isinstance(other, ColumnExpr) and (
             other._exec_mode != "expr" or other._expr is None
         ):
+            if compares_executed_self and self._exec_mode in (
+                "agg",
+                "method",
+                "executor",
+            ):
+                return method(self, other)
             return ColumnExpr(source=self, method_name=name, method_args=(other,))
         return method(self, other)
 
